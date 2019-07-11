@@ -18,7 +18,6 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , handlePossibleRewind
 , blockHistoryInsert
 , initSchema
-, doCreateUserTable
 ) where
 
 import Control.Exception hiding (try)
@@ -32,6 +31,9 @@ import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (concat)
+import Data.Hashable
+import qualified Data.HashSet as HS
+import Data.HashSet (HashSet)
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Serialize (encode)
@@ -76,7 +78,6 @@ chainwebPactDb = PactDb
     , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
     }
 
-
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
@@ -94,20 +95,20 @@ doReadRow d k =
   where
     callDbWithKey :: FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
     callDbWithKey kstr = do
-      result <- callDb "doReadRow" $ \db -> do
-                 let stmt =
-                       "SELECT rowdata \
-                       \FROM [" <> domainTableName d <> "]\
-                       \ WHERE rowkey = ?\
-                       \ ORDER BY blockheight DESC\
-                       \ LIMIT 1"
-                 qry db stmt [SText kstr] [RBlob]
-      case result of
-          [] -> return Nothing
-          [[SBlob a]] -> return $ decode $ fromStrict a
-          err -> internalError $
-                   "doReadRow: Expected (at most) a single result, but got: " <>
-                   T.pack (show err)
+        result <- callDb "doReadRow" $ \db -> qry db stmt [SText kstr] [RBlob]
+        case result of
+            [] -> return Nothing
+            [[SBlob a]] -> return $ decode $ fromStrict a
+            err -> internalError $
+                     "doReadRow: Expected (at most) a single result, but got: " <>
+                     T.pack (show err)
+      where
+        stmt =
+          "SELECT rowdata \
+          \FROM [" <> domainTableName d <> "]\
+          \ WHERE rowkey = ?\
+          \ ORDER BY blockheight DESC\
+          \ LIMIT 1"
 
 writeSys
     :: (AsString k, ToJSON v)
@@ -117,7 +118,6 @@ writeSys
     -> v
     -> BlockHandler SQLiteEnv ()
 writeSys wt d k v = do
-    -- BlockVersion bh _version <- gets _bsBlockVersion
     bh <- gets _bsBlockHeight
     txid <- gets _bsTxId
     callDb "writeSys" (write (getKeyString k) bh txid)
@@ -131,12 +131,12 @@ writeSys wt d k v = do
         Namespaces -> convNamespaceName
         Pacts -> convPactId
         UserTables _ -> error "impossible"
-    write key bh txid db =
-        let f = case wt of
-                    Insert -> backendWriteInsert
-                    Update -> backendWriteUpdate
-                    Write -> backendWriteWrite
-        in f key (domainTableName d) bh txid v db
+
+    write key bh txid db = f key (domainTableName d) bh txid v db
+      where f = case wt of
+              Insert -> backendWriteInsert
+              Update -> backendWriteUpdate
+              Write -> backendWriteWrite
 
 backendWriteInsert
     :: ToJSON v
@@ -171,12 +171,12 @@ backendWriteUpdate
     -> Database
     -> IO ()
 backendWriteUpdate key tn bh txid v db = do
-  exec' db q [ SBlob (toStrict (Data.Aeson.encode v))
-             , SText key
-             , SInt (fromIntegral bh)
-             , SInt (fromIntegral txid)
-             ]
-  exec' db mutq [SText tn, SInt (fromIntegral bh)]
+    exec' db q [ SBlob (toStrict (Data.Aeson.encode v))
+               , SText key
+               , SInt (fromIntegral bh)
+               , SInt (fromIntegral txid)
+               ]
+    exec' db mutq [SText tn, SInt (fromIntegral bh)]
   where
     mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
     q = mconcat [ "UPDATE ["
@@ -216,9 +216,9 @@ writeUser
     -> ObjectMap PactValue
     -> BlockHandler SQLiteEnv ()
 writeUser wt d k row = do
-  txid <- gets _bsTxId
-  bh <- gets _bsBlockHeight
-  userWrite k bh txid
+    txid <- gets _bsTxId
+    bh <- gets _bsBlockHeight
+    userWrite k bh txid
   where
     toTableName (Utf8 str) = TableName $ toS str
 
@@ -248,6 +248,7 @@ writeUser wt d k row = do
             $ backendWriteInsert (Utf8 $! toS $ asString key) tn bh txid row
           record (toTableName tn) d key row
 
+
 doWriteRow
   :: (AsString k, ToJSON v)
     => WriteType
@@ -256,36 +257,35 @@ doWriteRow
     -> v
     -> BlockHandler SQLiteEnv ()
 doWriteRow wt d k v = case d of
-  (UserTables _) -> writeUser wt d k v
-  _ -> writeSys wt d k v
+    (UserTables _) -> writeUser wt d k v
+    _ -> writeSys wt d k v
 
 doKeys
     :: (IsString k, AsString k)
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
-    let tn = domainTableName d
-    ks <- callDb "doKeys" $ \db ->
-          qry_ db
-              ("SELECT rowkey FROM [" <> tn <> "];")
-              [RText]
+    ks <- callDb "doKeys" $ \db -> qry_ db stmt [RText]
     forM ks $ \row -> do
         case row of
             [SText (Utf8 k)] -> return $ fromString $ toS k
             _ -> internalError "doKeys: The impossible happened."
+  where
+    stmt = "SELECT rowkey FROM [" <> domainTableName d <> "];"
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
 doTxIds :: TableName -> TxId -> BlockHandler SQLiteEnv [TxId]
 doTxIds (TableName tn) (TxId tid) = do
-  rows <- callDb "doTxIds" $ \db ->
-    qry db
-    ("SELECT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?")
-    [SInt (fromIntegral tid)]
-    [RInt]
-  forM rows $ \case
-    [SInt tid'] -> return $ TxId (fromIntegral tid')
-    _ -> internalError "doTxIds: the impossible happened"
+    rows <- callDb "doTxIds" $ \db ->
+      qry db stmt
+        [SInt (fromIntegral tid)]
+        [RInt]
+    forM rows $ \case
+      [SInt tid'] -> return $ TxId (fromIntegral tid')
+      _ -> internalError "doTxIds: the impossible happened"
+  where
+    stmt = "SELECT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 {-# INLINE doTxIds #-}
 
 record
@@ -302,9 +302,9 @@ record tt d k v =
 
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn mn = do
-  bh <- gets _bsBlockHeight
-  createUserTable tn bh
-  bsTxRecord %= M.insertWith (flip (++)) "SYS:usertables" txlogs
+    bh <- gets _bsBlockHeight
+    createUserTable tn bh
+    bsTxRecord %= M.insertWith (flip (++)) "SYS:usertables" txlogs
   where
     uti = UserTableInfo mn
     txlogs = [TxLog "SYS:usertables" (asString tn) (toJSON uti)]
@@ -352,24 +352,24 @@ doCommit = use bsMode >>= \mm -> case mm of
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
-  bh <- gets _bsBlockHeight
-  rows <- callDb "doGetTxLog" $ \db -> qry db q
-    [ SInt (fromIntegral txid)
-    , SInt (fromIntegral bh)
-    ]
-    [RText, RBlob]
-  forM rows $ \case
-    [SText key, SBlob value] ->
-      case Data.Aeson.decodeStrict' value of
-        Nothing -> internalError $
-          "doGetTxLog: Unexpected value, unable to deserialize log"
-        Just v ->
-          return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
-    err -> internalError $
-      "doGetTxLog: Expected single row with two columns as the \
-      \result, got: " <> T.pack (show err)
+    bh <- gets _bsBlockHeight
+    rows <- callDb "doGetTxLog" $ \db -> qry db stmt
+      [ SInt (fromIntegral txid)
+      , SInt (fromIntegral bh)
+      ]
+      [RText, RBlob]
+    forM rows $ \case
+      [SText key, SBlob value] ->
+        case Data.Aeson.decodeStrict' value of
+          Nothing -> internalError $
+            "doGetTxLog: Unexpected value, unable to deserialize log"
+          Just v ->
+            return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
+      err -> internalError $
+        "doGetTxLog: Expected single row with two columns as the \
+        \result, got: " <> T.pack (show err)
   where
-    q = mconcat [ "SELECT rowkey, rowdata FROM ["
+    stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
                 , domainTableName d
                 , "] WHERE txid = ? AND blockheight = ?"
                 ]
@@ -378,13 +378,15 @@ unwrap :: Utf8 -> BS.ByteString
 unwrap (Utf8 str) = str
 
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
-blockHistoryInsert bh hsh t = do
-    let s = "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') \
-            \ VALUES (?,?,?);"
+blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
-        exec' db s [ SInt (fromIntegral bh)
+        exec' db stmt [ SInt (fromIntegral bh)
                    , SBlob (Data.Serialize.encode hsh)
                    , SInt (fromIntegral t) ]
+  where
+    stmt =
+      "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') \
+            \ VALUES (?,?,?);"
 
 createBlockHistoryTable :: BlockHandler SQLiteEnv ()
 createBlockHistoryTable =
@@ -397,45 +399,55 @@ createBlockHistoryTable =
 
 createTableCreationTable :: BlockHandler SQLiteEnv ()
 createTableCreationTable =
-  callDb "createTableCreationTable" $ \db -> exec_ db
-    "CREATE TABLE VersionedTableCreation\
-    \(tablename TEXT NOT NULL\
-    \, createBlockheight UNSIGNED BIGINT NOT NULL\
-    \, CONSTRAINT creation_unique UNIQUE(tablename, createBlockheight));"
+    callDb "createTableCreationTable" $ \db -> exec_ db
+      "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
+      \(tablename TEXT NOT NULL\
+      \, createBlockheight UNSIGNED BIGINT NOT NULL\
+      \, CONSTRAINT creation_unique UNIQUE(tablename, createBlockheight));"
 
 createTableMutationTable :: BlockHandler SQLiteEnv ()
 createTableMutationTable =
-  callDb "createTableMutationTable" $ \db -> do
-  exec_ db "CREATE TABLE VersionedTableMutation\
-           \(tablename TEXT NOT NULL\
-           \, blockheight UNSIGNED BIGINT NOT NULL\
-           \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
-  exec_ db "CREATE INDEX mutation_bh ON VersionedTableMutation(blockheight);"
+    callDb "createTableMutationTable" $ \db -> do
+      exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
+               \(tablename TEXT NOT NULL\
+               \, blockheight UNSIGNED BIGINT NOT NULL\
+               \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
+      exec_ db "CREATE INDEX mutation_bh ON VersionedTableMutation(blockheight);"
 
 createUserTable :: TableName -> BlockHeight -> BlockHandler SQLiteEnv ()
-createUserTable name bh = do
-  let tablename :: Utf8
-      tablename = Utf8 (toS $ asString name)
-      indexname = Utf8 (toS $ asString name <> "_bh")
-  callDb "createUserTable" $ \db -> do
-    exec_ db $ "CREATE TABLE ["
-      <> tablename
-      <> "] (rowkey TEXT\
-           \, blockheight UNSIGNED BIGINT NOT NULL\
-           \, txid UNSIGNED BIGINT NOT NULL\
-           \, rowdata BLOB NOT NULL\
-           \, UNIQUE (blockheight, rowkey, txid));"
-    exec_ db $ "CREATE INDEX [" <> indexname  <> "] ON [" <> tablename <> "](blockheight);"
-    exec' db "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)" [SText tablename, SInt (fromIntegral bh)]
+createUserTable name bh =
+    callDb "createUserTable" $ \db -> do
+      createVersionedTable tablename indexname db
+      exec' db insertstmt insertargs
+  where
+    insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
+    insertargs =  [SText tablename, SInt (fromIntegral bh)]
+    tablename = Utf8 (toS $ asString name)
+    indexname = Utf8 (toS $ asString name <> "_bh")
+
+createVersionedTable :: Utf8 -> Utf8 -> Database -> IO ()
+createVersionedTable tablename indexname db = do
+    exec_ db createtablestmt
+    exec_ db indexcreationstmt
+  where
+    createtablestmt =
+      "CREATE TABLE IF NOT EXISTS["
+        <> tablename
+        <> "] (rowkey TEXT\
+             \, blockheight UNSIGNED BIGINT NOT NULL\
+             \, txid UNSIGNED BIGINT NOT NULL\
+             \, rowdata BLOB NOT NULL\
+             \, UNIQUE (blockheight, rowkey, txid));"
+    indexcreationstmt = "CREATE INDEX [" <> indexname  <> "] ON [" <> tablename <> "](rowkey, txid);"
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
-  bCurrent <- getBCurrent
-  checkHistoryInvariant
-  case compare bRestore (bCurrent + 1) of
-    GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
-    EQ -> newChildBlock bCurrent
-    LT -> rewindBlock bRestore
+    bCurrent <- getBCurrent
+    checkHistoryInvariant
+    case compare bRestore (bCurrent + 1) of
+      GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
+      EQ -> newChildBlock bCurrent
+      LT -> rewindBlock bRestore
   where
     getBCurrent = do
         r <- callDb "handlePossibleRewind" $ \db ->
@@ -459,7 +471,6 @@ handlePossibleRewind bRestore hsh = do
 
     newChildBlock bCurrent = do
       assign bsBlockHeight bRestore
-      let msg = "handlePossibleRewind: newChildBlock: error finding txid"
       SInt txid <- callDb "getting txid" $ \db ->
         expectSingleRowCol msg =<< qry db
             "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
@@ -467,6 +478,8 @@ handlePossibleRewind bRestore hsh = do
             [RInt]
       assign bsTxId (fromIntegral txid)
       return $ fromIntegral txid
+      where msg = "handlePossibleRewind: newChildBlock: error finding txid"
+
 
     rewindBlock bh = do
       assign bsBlockHeight bh
@@ -478,41 +491,52 @@ handlePossibleRewind bRestore hsh = do
       assign bsTxId t
       return $! t
 
-dropTablesAtRewind :: BlockHeight -> Database -> IO [Utf8]
-dropTablesAtRewind bh db = do
-  toDropTblNames <- qry db "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
-    [SInt (fromIntegral bh)]
-    [RText]
-  forM toDropTblNames $ \case
-    [SText tblname] -> do
-      exec_ db $ "DROP TABLE " <> tblname <> ";"
-      return tblname
-    _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+newtype U = U Utf8
+  deriving Eq
 
-vacuumTablesAtRewind :: BlockHeight -> [Utf8] -> Database -> IO ()
+instance Hashable U where
+  hashWithSalt s (U (Utf8 t)) = hashWithSalt s t
+
+dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet U)
+dropTablesAtRewind bh db = do
+    toDropTblNames <- qry db findTablesToDropStmt [SInt (fromIntegral bh)] [RText]
+    fmap (HS.fromList) . forM toDropTblNames $ \case
+      [SText tblname] -> do
+        exec_ db $ "DROP TABLE " <> tblname <> ";"
+        return $ U $ tblname
+      _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+  where findTablesToDropStmt =
+          "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
+
+vacuumTablesAtRewind :: BlockHeight -> HashSet U -> Database -> IO ()
 vacuumTablesAtRewind bh droppedtbls db = do
-  toVacuumTblNames <- qry db "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
-    [SInt (fromIntegral bh)]
-    [RText]
-  forM_ toVacuumTblNames $ \case
-    [SText tblname] -> do
-      when (notElem tblname droppedtbls) $
-        exec' db ("DELETE FROM [" <> tblname <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
-    _ -> internalError "rewindBlock: Couldn't resolve the name of the table to vacuum."
-  exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;" [SInt (fromIntegral bh)]
+    let processMutatedTables ms = fmap (HS.fromList) . forM ms $ \case
+          [SText tblname] -> return $ U $ tblname
+          _ -> internalError "rewindBlock: Couldn't resolve the name of the table to possibly vacuum."
+    mutatedTables <- qry db "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
+      [SInt (fromIntegral bh)]
+      [RText]
+      >>= processMutatedTables
+
+    let toVacuumTblNames = HS.difference mutatedTables droppedtbls
+
+    forM_ toVacuumTblNames $ \(U tblname) ->
+      exec' db ("DELETE FROM [" <> tblname <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
+
+    exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;" [SInt (fromIntegral bh)]
 
 tableMaintenanceRowsVersionedSystemTables :: BlockHandler SQLiteEnv ()
 tableMaintenanceRowsVersionedSystemTables = do
-  bh <- gets _bsBlockHeight
-  callDb "tableMaintenanceRowsVersionedSystemTables" $ \db -> do
-      exec' db "DELETE FROM [SYS:KeySets] WHERE blockheight >= ?"
-            [SInt (fromIntegral bh)]
-      exec' db "DELETE FROM [SYS:Modules] WHERE blockheight >= ?"
-            [SInt (fromIntegral bh)]
-      exec' db "DELETE FROM [SYS:Namespaces] WHERE blockheight >= ?"
-            [SInt (fromIntegral bh)]
-      exec' db "DELETE FROM [SYS:Pacts] WHERE blockheight >= ?"
-            [SInt (fromIntegral bh)]
+    bh <- gets _bsBlockHeight
+    callDb "tableMaintenanceRowsVersionedSystemTables" $ \db -> do
+        exec' db "DELETE FROM [SYS:KeySets] WHERE blockheight >= ?"
+              [SInt (fromIntegral bh)]
+        exec' db "DELETE FROM [SYS:Modules] WHERE blockheight >= ?"
+              [SInt (fromIntegral bh)]
+        exec' db "DELETE FROM [SYS:Namespaces] WHERE blockheight >= ?"
+              [SInt (fromIntegral bh)]
+        exec' db "DELETE FROM [SYS:Pacts] WHERE blockheight >= ?"
+              [SInt (fromIntegral bh)]
 
 deleteHistory :: BlockHandler SQLiteEnv TxId
 deleteHistory = do
@@ -520,7 +544,6 @@ deleteHistory = do
     callDb "Deleting from BlockHistory, VersionHistory. Also get txid." $ \db -> do
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
               [SInt (fromIntegral bh)]
-        -- exec' db "DELETE FROM VersionHistory WHERE version >= ?;" [SInt (fromIntegral v)]
         t <- qry db "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?"
             [SInt (fromIntegral $ pred bh)] [RInt]
           >>= fmap convert . expectSingleRowCol "txid after delete history"
@@ -534,24 +557,11 @@ initSchema = withSavepoint DbTransaction $ do
     createBlockHistoryTable
     createTableCreationTable
     createTableMutationTable
-    create (toTableName KeySets)
-    create (toTableName Modules)
-    create (toTableName Namespaces)
-    create (toTableName Pacts)
+    create (domainTableName KeySets)
+    create (domainTableName Modules)
+    create (domainTableName Namespaces)
+    create (domainTableName Pacts)
   where
-    toTableName :: Domain k v -> Utf8
-    toTableName = domainTableName
-    create name = do
-        log "DDL" $ "initSchema: "  ++ toS name
-        callDb "initSchema" $ \db -> do
-            let tablename = name
-                indexname = name <> "_bh"
-            exec_ db $
-              "CREATE TABLE IF NOT EXISTS ["
-              <> name
-              <> "] (rowkey TEXT\
-                 \, blockheight UNSIGNED BIGINT NOT NULL\
-                 \, txid UNSIGNED BIGINT NOT NULL\
-                 \, rowdata BLOB NOT NULL\
-                 \, UNIQUE(blockheight, rowkey, txid));"
-            exec_ db $ "CREATE INDEX [" <>  indexname <> "] ON [" <> tablename <> "](blockheight);"
+    create tablename = do
+        log "DDL" $ "initSchema: "  ++ toS tablename
+        callDb "initSchema" $ createVersionedTable tablename (tablename <> "_bh")

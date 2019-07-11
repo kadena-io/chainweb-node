@@ -55,17 +55,17 @@ import Chainweb.Pact.Service.Types
 
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
-  \(BlockEnv  dbenv bs)  -> do
-    (a,s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
-    return (BlockEnv dbenv s, a)
+    \(BlockEnv  dbenv bs)  -> do
+      (a,s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
+      return (BlockEnv dbenv s, a)
 
 callDb :: (MonadCatch m, MonadReader (BlockDbEnv SQLiteEnv) m, MonadIO m) => Text -> (Database -> IO b) -> m b
 callDb callerName action = do
-  c <- view (bdbenvDb . sConn)
-  res <- tryAny $ liftIO $ action c
-  case res of
-    Left err -> internalError $ "callDb (" <> callerName <> "): " <> (pack $ show err)
-    Right r -> return r
+    c <- view (bdbenvDb . sConn)
+    res <- tryAny $ liftIO $ action c
+    case res of
+      Left err -> internalError $ "callDb (" <> callerName <> "): " <> (pack $ show err)
+      Right r -> return r
 
 withSavepoint
     :: SavepointName
@@ -84,44 +84,30 @@ withSavepoint name action = mask $ \resetMask -> do
                , Handler $ \(e :: SomeException) -> throwErr ("non-pact exception: " <> show e)
                ]
 
--- for debugging
-withTrace :: Database -> (Utf8 -> IO ()) -> IO a -> IO a
-withTrace db tracer dbaction = do
-  setTrace db (Just tracer)
-  a <- dbaction
-  setTrace db Nothing
-  return a
-
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 beginSavepoint name =
-  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
+    callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
 
 commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 commitSavepoint name =
-  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "];"
+    callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "];"
 
 rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
-  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
+    callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
 data SavepointName = RewindSavepoint | Block | DbTransaction |  PreBlock | PactDbTransaction
-  deriving (Eq, Ord, Enum)
+    deriving (Eq, Ord, Enum)
 
 instance Show SavepointName where
-  show RewindSavepoint = "rewind"
-  show Block = "block"
-  show DbTransaction = "db-transaction"
-  show PreBlock = "preblock"
-  show PactDbTransaction = "pact-transaction"
+    show RewindSavepoint = "rewind"
+    show Block = "block"
+    show DbTransaction = "db-transaction"
+    show PreBlock = "preblock"
+    show PactDbTransaction = "pact-transaction"
 
 instance AsString SavepointName where
-  asString = Data.Text.pack . show
-
-withBlockEnv :: a -> (MVar a -> IO b) -> IO b
-withBlockEnv blockenv f = newMVar blockenv >>= f
-
-readBlockEnv :: (a -> b) -> MVar a -> IO b
-readBlockEnv f = fmap f . readMVar
+    asString = Data.Text.pack . show
 
 withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
 withSQLiteConnection file ps todelete action = bracket opener closer action
@@ -145,7 +131,7 @@ withSQLiteConnection file ps todelete action = bracket opener closer action
 
 withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withTempSQLiteConnection ps action =
-  withTempFile (\file -> withSQLiteConnection file ps False action)
+    withTempFile (\file -> withSQLiteConnection file ps False action)
 
 domainTableName :: Domain k v -> Utf8
 domainTableName = Utf8 . toS . asString
@@ -168,45 +154,45 @@ convPactId = Utf8 . toS . show
 expectSingleRowCol :: Show a => String -> [[a]] -> IO a
 expectSingleRowCol _ [[s]] = return s
 expectSingleRowCol s v =
-  internalError $
-  "expectSingleRowCol: "
-  <> asString s <>
-  " expected single row and column result, got: "
-  <> asString (show v)
+    internalError $
+    "expectSingleRowCol: "
+    <> asString s <>
+    " expected single row and column result, got: "
+    <> asString (show v)
 
 expectSingle :: Show a => String -> [a] -> IO a
 expectSingle _ [s] = return s
 expectSingle desc v =
-  internalError $
-  "Expected single-" <> asString (show desc) <> " result, got: " <>
-  asString (show v)
+    internalError $
+    "Expected single-" <> asString (show desc) <> " result, got: " <>
+    asString (show v)
 
 
 instance StringConv Text Utf8 where
-  strConv l = Utf8 . strConv l
+    strConv l = Utf8 . strConv l
 
 instance StringConv Utf8 Text where
-  strConv l (Utf8 bytestring) = strConv l bytestring
+    strConv l (Utf8 bytestring) = strConv l bytestring
 
 instance StringConv ByteString Utf8 where
-  strConv l = Utf8 . strConv l
+    strConv l = Utf8 . strConv l
 
 instance StringConv Utf8 ByteString where
-  strConv l (Utf8 bytestring) = strConv l bytestring
+    strConv l (Utf8 bytestring) = strConv l bytestring
 
 instance StringConv String Utf8 where
-  strConv l = Utf8 . strConv l
+    strConv l = Utf8 . strConv l
 
 instance StringConv Utf8 String where
-  strConv l (Utf8 bytestring) = strConv l bytestring
+    strConv l (Utf8 bytestring) = strConv l bytestring
 
 fastNoJournalPragmas :: [Pragma]
 fastNoJournalPragmas = [
-  "synchronous = NORMAL",
-  "journal_mode = WAL",
-  "locking_mode = EXCLUSIVE",
-  "temp_store = MEMORY"
-  ]
+    "synchronous = NORMAL",
+    "journal_mode = WAL",
+    "locking_mode = EXCLUSIVE",
+    "temp_store = MEMORY"
+    ]
 
 
 open2 :: String -> IO (Either (Error, Utf8) Database)
@@ -215,8 +201,8 @@ open2 file = open_v2 (fromString file) (collapseFlags [sqlite_open_readwrite , s
 
 collapseFlags :: [SQLiteFlag] -> SQLiteFlag
 collapseFlags xs =
-  if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
-  else Prelude.foldr1 (.|.) xs
+    if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
+    else Prelude.foldr1 (.|.) xs
 
 sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002

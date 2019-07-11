@@ -40,12 +40,7 @@ module Chainweb.Pact.Backend.Types
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
-    , ReorgVersion(..)
-    , BlockVersion(..)
-    , bvVersion
-    , bvBlock
     , BlockState(..)
-    -- , bsBlockVersion
     , bsBlockHeight
     , bsTxRecord
     , bsMode
@@ -80,7 +75,6 @@ module Chainweb.Pact.Backend.Types
     , psBlockHeaderDb
     ) where
 
-import Control.DeepSeq
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
 import Control.Monad.Fail
@@ -89,7 +83,6 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Bits
-import Data.Int
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
@@ -145,75 +138,54 @@ instance FromJSON PactDbConfig
 makeLenses ''PactDbConfig
 
 data SQLiteEnv = SQLiteEnv
-  { _sConn :: !Database
-  , _sConfig :: !SQLiteConfig
-  }
+    { _sConn :: !Database
+    , _sConfig :: !SQLiteConfig
+    }
 
 makeLenses ''SQLiteEnv
 
-newtype ReorgVersion = ReorgVersion
-  { _getReorgVersion :: Int64
-  }
-  deriving newtype (Num, Integral, Enum, Real, Ord, Eq)
-  deriving stock Show
-
-instance NFData ReorgVersion where
-  rnf (ReorgVersion v) = rnf v
-
-data BlockVersion = BlockVersion
-  { _bvBlock :: !BlockHeight
-  , _bvVersion :: !ReorgVersion
-  }
-  deriving (Eq, Show)
-
-instance NFData BlockVersion where
-  rnf (BlockVersion bvBlock bvVersion) = rnf bvBlock `seq` rnf bvVersion
-
-makeLenses ''BlockVersion
-
 data BlockState = BlockState
-  { _bsTxId :: !TxId
-  , _bsMode :: !(Maybe ExecutionMode)
-  , _bsBlockHeight :: !BlockHeight
-  -- , _bsBlockVersion :: !BlockVersion
-  , _bsTxRecord :: !(Map TableName [TxLog Value])
-  }
-  deriving Show
+    { _bsTxId :: !TxId
+    , _bsMode :: !(Maybe ExecutionMode)
+    , _bsBlockHeight :: !BlockHeight
+    , _bsTxRecord :: !(Map TableName [TxLog Value])
+    }
+    deriving Show
 
 makeLenses ''BlockState
 
 data BlockDbEnv p = BlockDbEnv
-  { _bdbenvDb :: !p
-  , _logger :: !Logger
-  }
+    { _bdbenvDb :: !p
+    , _logger :: !Logger
+    }
 
 makeLenses ''BlockDbEnv
 
 data BlockEnv p = BlockEnv
-  { _benvDb :: !(BlockDbEnv p)
-  , _benvBlockState :: !BlockState -- ^ The current block state.
-  }
+    { _benvDb :: !(BlockDbEnv p)
+    , _benvBlockState :: !BlockState -- ^ The current block state.
+    }
 
 makeLenses ''BlockEnv
 
 newtype BlockHandler p a = BlockHandler
-  { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
-  } deriving ( Functor
-             , Applicative
-             , Monad
-             , MonadState BlockState
-             , MonadThrow
-             , MonadCatch
-             , MonadMask
-             , MonadIO
-             , MonadReader (BlockDbEnv p)
-             , MonadFail
-             )
+    { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
+    } deriving ( Functor
+               , Applicative
+               , Monad
+               , MonadState BlockState
+               , MonadThrow
+               , MonadCatch
+               , MonadMask
+               , MonadIO
+               , MonadReader (BlockDbEnv p)
+               , MonadFail
+               )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 
 instance Logging (BlockHandler p) where
-  log c s = view logger >>= \l -> liftIO $ logLog l c s
+    log c s = view logger >>= \l -> liftIO $ logLog l c s
 
 type ParentHash = BlockHash
 
@@ -248,31 +220,31 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving (Eq, Ord, Bits, Num)
 
 data PactServiceEnv cas = PactServiceEnv
-  { _psMempoolAccess :: !(Maybe MemPoolAccess)
-  , _psCheckpointEnv :: !CheckpointEnv
-  , _psSpvSupport :: !SPVSupport
-  , _psPublicData :: !PublicData
-  , _psPdb :: PayloadDb cas
-  , _psBlockHeaderDb :: BlockHeaderDb
-  }
+    { _psMempoolAccess :: !(Maybe MemPoolAccess)
+    , _psCheckpointEnv :: !CheckpointEnv
+    , _psSpvSupport :: !SPVSupport
+    , _psPublicData :: !PublicData
+    , _psPdb :: PayloadDb cas
+    , _psBlockHeaderDb :: BlockHeaderDb
+    }
 
 data PactServiceState = PactServiceState
-  {_psStateValidated :: Maybe BlockHeader
-  }
+    {_psStateValidated :: Maybe BlockHeader
+    }
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
 
 data MemPoolAccess = MemPoolAccess
-  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
-  , mpaSetLastHeader :: BlockHeader -> IO ()
-  , mpaProcessFork :: BlockHeader -> IO ()
-  }
+    { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+    , mpaSetLastHeader :: BlockHeader -> IO ()
+    , mpaProcessFork :: BlockHeader -> IO ()
+    }
 
 instance Semigroup MemPoolAccess where
-  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+    MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
 
 instance Monoid MemPoolAccess where
-  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
+    mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
 
 makeLenses ''PactServiceEnv
 makeLenses ''PactServiceState
