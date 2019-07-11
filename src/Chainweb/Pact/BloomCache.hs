@@ -149,7 +149,7 @@ waitForNewCut cutDb lastCut = atomically $ do
 
 -- TODO: configurable
 mAX_HEIGHT_DELTA :: BlockHeight
-mAX_HEIGHT_DELTA = 16384
+mAX_HEIGHT_DELTA = 512
 
 
 update
