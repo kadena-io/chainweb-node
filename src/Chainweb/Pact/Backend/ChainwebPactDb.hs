@@ -31,7 +31,6 @@ import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (concat)
-import Data.Hashable
 import qualified Data.HashSet as HS
 import Data.HashSet (HashSet)
 import qualified Data.Map.Strict as M
@@ -491,27 +490,21 @@ handlePossibleRewind bRestore hsh = do
       assign bsTxId t
       return $! t
 
-newtype U = U Utf8
-  deriving Eq
-
-instance Hashable U where
-  hashWithSalt s (U (Utf8 t)) = hashWithSalt s t
-
-dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet U)
+dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
     toDropTblNames <- qry db findTablesToDropStmt [SInt (fromIntegral bh)] [RText]
     fmap (HS.fromList) . forM toDropTblNames $ \case
-      [SText tblname] -> do
+      [SText tblname@(Utf8 tbl)] -> do
         exec_ db $ "DROP TABLE " <> tblname <> ";"
-        return $ U $ tblname
+        return tbl
       _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
   where findTablesToDropStmt =
           "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
 
-vacuumTablesAtRewind :: BlockHeight -> HashSet U -> Database -> IO ()
+vacuumTablesAtRewind :: BlockHeight -> HashSet BS.ByteString -> Database -> IO ()
 vacuumTablesAtRewind bh droppedtbls db = do
     let processMutatedTables ms = fmap (HS.fromList) . forM ms $ \case
-          [SText tblname] -> return $ U $ tblname
+          [SText (Utf8 tbl)] -> return tbl
           _ -> internalError "rewindBlock: Couldn't resolve the name of the table to possibly vacuum."
     mutatedTables <- qry db "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
       [SInt (fromIntegral bh)]
@@ -520,8 +513,8 @@ vacuumTablesAtRewind bh droppedtbls db = do
 
     let toVacuumTblNames = HS.difference mutatedTables droppedtbls
 
-    forM_ toVacuumTblNames $ \(U tblname) ->
-      exec' db ("DELETE FROM [" <> tblname <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
+    forM_ toVacuumTblNames $ \tblname ->
+      exec' db ("DELETE FROM [" <> (Utf8 tblname) <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
 
     exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;" [SInt (fromIntegral bh)]
 
