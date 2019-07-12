@@ -26,6 +26,8 @@ module Chainweb.Pact.Types
   , PactServiceState(..)
     -- * types
   , PactServiceM
+  , ModuleCache
+  , HashCommandResult
     -- * optics
   , minerAccount
   , minerKeys
@@ -42,7 +44,6 @@ module Chainweb.Pact.Types
   , emptyPayload
   , noMiner
   , noCoinbase
-  , HashCommandResult
     -- * module exports
   , module Chainweb.Pact.Backend.Types
   ) where
@@ -54,6 +55,7 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Default (def)
+import Data.HashMap.Strict
 import Data.Text (Text)
 import Data.Vector (Vector)
 
@@ -65,8 +67,9 @@ import Pact.Types.Command
 import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
+import Pact.Types.Runtime (ModuleData)
 import Pact.Types.SPV
-import Pact.Types.Term (KeySet(..), Name(..), PactId(..))
+import Pact.Types.Term (KeySet(..), Name(..), PactId(..), Ref, ModuleName)
 
 -- internal chainweb modules
 
@@ -77,7 +80,10 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
 
+
 type HashCommandResult = CommandResult H.Hash
+
+type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
 data Transactions = Transactions
     { _transactionPairs :: !(Vector (Transaction, HashCommandResult))
