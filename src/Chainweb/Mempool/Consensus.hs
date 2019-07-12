@@ -19,7 +19,6 @@ module Chainweb.Mempool.Consensus
 ) where
 
 ------------------------------------------------------------------------------
-import Streaming.Prelude (Of)
 import qualified Streaming.Prelude as S hiding (toList)
 
 import Control.DeepSeq
@@ -138,36 +137,63 @@ processFork'
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (HashSet x))
     -> IO (V.Vector x)
-processFork' logFun db newHeader lastHeaderM plLookup = do
-    case lastHeaderM of
-        Nothing -> return V.empty
-        Just lastHeader -> do
-            let s = branchDiff db lastHeader newHeader
-            (oldBlocks, newBlocks) <- collectForkBlocks s
-            case V.length newBlocks - V.length oldBlocks of
-                n | n == 1 -> return V.empty -- no fork, no trans to reintroduce
-                n | n > 1  -> throwM $ MempoolConsensusException ("processFork -- height of new"
-                           ++ "block is more than one greater than the previous new block request")
-                  | otherwise -> do -- fork occurred, get the transactions to reintroduce
-                      oldTrans <- foldM f mempty oldBlocks
-                      newTrans <- foldM f mempty newBlocks
+processFork' logFun db newHeader lastHeaderM plLookup =
+    maybe (return V.empty) go lastHeaderM
+  where
+    go lastHeader = do
+        (_, oldBlocks, newBlocks) <- collectForkBlocks db lastHeader newHeader
+        oldTrans <- foldM toSet mempty oldBlocks
+        newTrans <- foldM toSet mempty newBlocks
 
-                      -- before re-introducing the transactions from the losing fork (aka oldBlocks),
-                      -- filterout any transactions that have been included in the
-                      -- winning fork (aka newBlocks):
-                      let !results = V.fromList $ HS.toList $ oldTrans `HS.difference` newTrans
+        -- before re-introducing the transactions from the losing fork (aka
+        -- oldBlocks), filter out any transactions that have been included in
+        -- the winning fork (aka newBlocks):
+        let !results = V.fromList $ HS.toList
+                                  $ oldTrans `HS.difference` newTrans
 
-                      unless (V.null results) $ do
-                          -- create data for the dashboard showing number or reintroduced transacitons:
-                          let !reIntro = ReintroducedTxsLog
-                                { oldForkHeader = ObjectEncoded lastHeader
-                                , newForkHeader = ObjectEncoded newHeader
-                                , numReintroduced = V.length results
-                                }
-                          logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
-                      return results
-          where
-            f !trans !header = HS.union trans <$!> plLookup header
+        unless (V.null results) $ do
+            -- create data for the dashboard showing number or reintroduced
+            -- transactions:
+            let !reIntro = ReintroducedTxsLog
+                               { oldForkHeader = ObjectEncoded lastHeader
+                               , newForkHeader = ObjectEncoded newHeader
+                               , numReintroduced = V.length results
+                               }
+            logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
+        return results
+      where
+        toSet !trans !header = HS.union trans <$!> plLookup header
+
+--
+--    case lastHeaderM of
+--        Nothing -> return V.empty
+--        Just lastHeader -> do
+--            let s = branchDiff db lastHeader newHeader
+--            (oldBlocks, newBlocks) <- collectForkBlocks s
+--            case V.length newBlocks - V.length oldBlocks of
+--                n | n == 1 -> return V.empty -- no fork, no trans to reintroduce
+--                n | n > 1  -> throwM $ MempoolConsensusException ("processFork -- height of new"
+--                           ++ "block is more than one greater than the previous new block request")
+--                  | otherwise -> do -- fork occurred, get the transactions to reintroduce
+--                      oldTrans <- foldM f mempty oldBlocks
+--                      newTrans <- foldM f mempty newBlocks
+--
+--                      -- before re-introducing the transactions from the losing fork (aka oldBlocks),
+--                      -- filterout any transactions that have been included in the
+--                      -- winning fork (aka newBlocks):
+--                      let !results = V.fromList $ HS.toList $ oldTrans `HS.difference` newTrans
+--
+--                      unless (V.null results) $ do
+--                          -- create data for the dashboard showing number or reintroduced transacitons:
+--                          let !reIntro = ReintroducedTxsLog
+--                                { oldForkHeader = ObjectEncoded lastHeader
+--                                , newForkHeader = ObjectEncoded newHeader
+--                                , numReintroduced = V.length results
+--                                }
+--                          logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
+--                      return results
+--          where
+--            f !trans !header = HS.union trans <$!> plLookup header
 
 ----------------------------------------------------------------------------------------------------
 payloadLookup
@@ -191,28 +217,60 @@ payloadLookup payloadStore bh =
 ----------------------------------------------------------------------------------------------------
 -- | Collect the blocks on the old and new branches of a fork.  The old blocks are in the first
 --   element of the tuple and the new blocks are in the second.
+-- collectForkBlocks
+--     :: S.Stream (Of (DiffItem BlockHeader)) IO ()
+--     -> IO (Vector BlockHeader, Vector BlockHeader)
+-- collectForkBlocks theStream = do
+--     (oldDL, newDL) <- go theStream (id, id)
+--     let !old = V.fromList $ oldDL []
+--     let !new = V.fromList $ newDL []
+--     return $! (old, new)
+--   where
+--     go !stream (!oldBlocks, !newBlocks) = do
+--         nxt <- S.next stream
+--         case nxt of
+--             -- end of the stream, last item is common branch point of the forks
+--             -- removing the common branch block with tail -- the lists should never be empty
+--             Left _ -> let old = tail . oldBlocks
+--                           new = tail . newBlocks
+--                       in return (old, new)
+--
+--             Right (LeftD blk, strm) -> go strm ((blk:) . oldBlocks, newBlocks)
+--             Right (RightD blk, strm) -> go strm (oldBlocks, (blk:) . newBlocks)
+--             Right (BothD lBlk rBlk, strm) -> go strm ( (lBlk:) . oldBlocks,
+--                                                        (rBlk:) . newBlocks )
+
+-- -------------------------------------------------------------------------- --
+-- | Collects the blocks on the old and new branches of a fork. Returns
+--   @(commonAncestor, oldBlocks, newBlocks)@.
+--
 collectForkBlocks
-    :: S.Stream (Of (DiffItem BlockHeader)) IO ()
-    -> IO (Vector BlockHeader, Vector BlockHeader)
-collectForkBlocks theStream = do
-    (oldDL, newDL) <- go theStream (id, id)
-    let !old = V.fromList $ oldDL []
-    let !new = V.fromList $ newDL []
-    return $! (old, new)
+    :: forall db . TreeDb db
+    => db
+    -> DbEntry db
+    -> DbEntry db
+    -> IO (DbEntry db, Vector (DbEntry db), Vector (DbEntry db))
+collectForkBlocks db lastHeader newHeader = do
+    (oldL, newL) <- go (branchDiff db lastHeader newHeader) ([], [])
+    when (null oldL) $ throwM $ TreeDbParentMissing @db lastHeader
+    let !common = head oldL
+    let !old = V.fromList $ tail oldL
+    let !new = V.fromList $ tail newL
+    return $! (common, old, new)
   where
     go !stream (!oldBlocks, !newBlocks) = do
         nxt <- S.next stream
         case nxt of
             -- end of the stream, last item is common branch point of the forks
             -- removing the common branch block with tail -- the lists should never be empty
-            Left _ -> let old = tail . oldBlocks
-                          new = tail . newBlocks
-                      in return (old, new)
+            Left _ -> return (oldBlocks, newBlocks)
 
-            Right (LeftD blk, strm) -> go strm ((blk:) . oldBlocks, newBlocks)
-            Right (RightD blk, strm) -> go strm (oldBlocks, (blk:) . newBlocks)
-            Right (BothD lBlk rBlk, strm) -> go strm ( (lBlk:) . oldBlocks,
-                                                       (rBlk:) . newBlocks )
+            Right (LeftD blk, strm) -> go strm (blk:oldBlocks, newBlocks)
+            Right (RightD blk, strm) -> go strm (oldBlocks, blk:newBlocks)
+            Right (BothD lBlk rBlk, strm) -> go strm ( lBlk:oldBlocks,
+                                                       rBlk:newBlocks )
+{-# INLINE collectForkBlocks #-}
+
 
 ----------------------------------------------------------------------------------------------------
 chainwebTxsFromPWO :: PayloadWithOutputs -> IO (HashSet (HashableTrans PayloadWithText))
