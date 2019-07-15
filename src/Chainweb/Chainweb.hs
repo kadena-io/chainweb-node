@@ -83,19 +83,19 @@ module Chainweb.Chainweb
 
 ) where
 
-import Chainweb.Payload.PayloadStore.RocksDB
-
-import Configuration.Utils hiding (Lens', (<.>), Error)
+import Configuration.Utils hiding (Error, Lens', (<.>))
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
+import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sortBy)
+import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
 
@@ -115,11 +115,13 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.HostAddress
@@ -131,7 +133,9 @@ import Chainweb.Miner.Config
 import Chainweb.NodeId
 import qualified Chainweb.Pact.BloomCache as Bloom
 import Chainweb.Pact.RestAPI.Server (PactServerData)
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
@@ -402,6 +406,9 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             -- update the cutdb mvar used by pact service with cutdb
             void $! putMVar cdbv mCutDb
 
+            -- synchronize pact dbs with latest cut before we begin mining
+            synchronizePactDb cs mCutDb
+
             withPactData cs cuts $ \pactData ->
                 withMinerResources mLogger mConf cwnid mCutDb $ \m ->
                 inner Chainweb
@@ -440,6 +447,26 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
         }
+
+    synchronizePactDb cs cutDb = do
+        currentCut <- _cut cutDb
+        mapM_ syncOne $ mergeCutResources $ _cutMap currentCut
+      where
+        mergeCutResources c =
+            let f cid bh = (bh, fromJuste $ HM.lookup cid cs)
+            in map snd $ HM.toList $ HM.mapWithKey f c
+        syncOne (bh, cr) = do
+            let pact = _chainResPact cr
+            let logg = logFunctionText $ _chainResLogger cr
+            let hsh = _blockHash bh
+            let h = _blockHeight bh
+            logg Info $ "pact db synchronizing to block "
+                      <> T.pack (show (h, hsh))
+            payload <- payloadWithOutputsToPayloadData
+                       <$> casLookupM payloadDb (_blockPayloadHash bh)
+            void $ _pactValidateBlock pact bh payload
+            logg Info "pact db synchronized"
+
 
 -- | Starts server and runs all network clients
 --
