@@ -448,7 +448,7 @@ applyPactCmds
     -> MinerInfo
     -> PactServiceM (Vector HashCommandResult)
 applyPactCmds isGenesis env' cmds miner =
-    fmap (\(T2 v _) -> v) $ V.foldM f (T2 mempty mempty) cmds
+    fmap (V.fromList . sfst) $ V.foldM f mempty cmds
   where
     f  (T2 v mcache) cmd = applyPactCmd isGenesis env' cmd miner mcache v
 
@@ -459,8 +459,8 @@ applyPactCmd
     -> P.Command PayloadWithText
     -> MinerInfo
     -> ModuleCache
-    -> Vector HashCommandResult
-    -> PactServiceM (T2 (Vector HashCommandResult) ModuleCache)
+    -> [HashCommandResult]
+    -> PactServiceM (T2 [HashCommandResult] ModuleCache)
 applyPactCmd isGenesis (Env' dbEnv) cmdIn miner mcache v = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
@@ -474,7 +474,7 @@ applyPactCmd isGenesis (Env' dbEnv) cmdIn miner mcache v = do
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
 
-    pure $! T2 (V.cons (toHashCommandResult result) v) mcache'
+    pure $! T2 ((toHashCommandResult result):v) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)

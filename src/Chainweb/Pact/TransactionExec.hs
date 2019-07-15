@@ -6,7 +6,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
@@ -178,7 +177,7 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
 
     resultE <- catchesPactError $! runPayload cmdEnv initState cmd []
-    fmap (flip T2 mempty) $! case resultE of
+    fmap (`T2` mempty) $! case resultE of
       Left e ->
         jsonErrorResult' cmdEnv requestKey e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
