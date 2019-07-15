@@ -51,6 +51,7 @@ import Data.Maybe (isNothing)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -447,9 +448,9 @@ applyPactCmds
     -> MinerInfo
     -> PactServiceM (Vector HashCommandResult)
 applyPactCmds isGenesis env' cmds miner =
-    fmap fst $ V.foldM f (mempty, mempty) cmds
+    fmap (\(T2 v _) -> v) $ V.foldM f (T2 mempty mempty) cmds
   where
-    f  (v, mcache) cmd = applyPactCmd isGenesis env' cmd miner mcache v
+    f  (T2 v mcache) cmd = applyPactCmd isGenesis env' cmd miner mcache v
 
 -- | Apply a single Pact command
 applyPactCmd
@@ -459,7 +460,7 @@ applyPactCmd
     -> MinerInfo
     -> ModuleCache
     -> Vector HashCommandResult
-    -> PactServiceM (Vector HashCommandResult, ModuleCache)
+    -> PactServiceM (T2 (Vector HashCommandResult) ModuleCache)
 applyPactCmd isGenesis (Env' dbEnv) cmdIn miner mcache v = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
@@ -469,11 +470,11 @@ applyPactCmd isGenesis (Env' dbEnv) cmdIn miner mcache v = do
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let !cmd = payloadObj <$> cmdIn
-    (!result, !mcache') <- liftIO $ if isGenesis
+    T2 result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
 
-    pure $! (V.cons (toHashCommandResult result) v, mcache')
+    pure $! T2 (V.cons (toHashCommandResult result) v) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)

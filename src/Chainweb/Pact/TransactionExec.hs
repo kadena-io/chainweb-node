@@ -52,6 +52,7 @@ import Data.Foldable (for_)
 import Data.Int (Int64)
 import Data.Maybe
 import Data.Text (Text, pack)
+import Data.Tuple.Strict (T2(..), T3(..))
 
 import NeatInterpolation (text)
 
@@ -97,7 +98,7 @@ applyCmd
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> ModuleCache
-    -> IO (CommandResult [TxLog Value], ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
@@ -118,7 +119,7 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
         -- this call needs to fail hard if Left. It means the continuation did not process
         -- correctly, and we should fail the transaction
         internalError e
-      Right (Right (!pactId, !buyGasLogs, !mcache')) -> do
+      Right (Right (T3 pactId buyGasLogs mcache')) -> do
         logDebugRequestKey logger requestKey "successful gas buy for request key"
 
         let !payloadEnv = set ceGasEnv userGasEnv
@@ -136,7 +137,7 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
             jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0) mcache'
               "tx failure for request key when running cmd"
 
-          Right !(cmdResult, mcache'') -> do
+          Right (T2 cmdResult mcache'') -> do
 
             logDebugRequestKey logger requestKey "success for requestKey"
 
@@ -152,13 +153,13 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
                 jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult) mcache''
                   "tx failure for request key while redeeming gas"
 
-              Right (!redeemResult, !mcache''') -> do
+              Right (T2 redeemResult mcache''') -> do
 
                 let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
                     !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
 
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                pure (finalResult, mcache''')
+                pure $! T2 finalResult mcache'''
 
 applyGenesisCmd
     :: Logger
@@ -166,7 +167,7 @@ applyGenesisCmd
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
-    -> IO (CommandResult [TxLog Value], ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyGenesisCmd logger dbEnv pd spv cmd = do
     -- cmd env with permissive gas model
 
@@ -177,11 +178,11 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
 
     resultE <- catchesPactError $! runPayload cmdEnv initState cmd []
-    fmap (,mempty) $! case resultE of
+    fmap (flip T2 mempty) $! case resultE of
       Left e ->
         jsonErrorResult' cmdEnv requestKey e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
-      Right (!result, _) -> do
+      Right (T2 result _) -> do
         logDebugRequestKey logger requestKey "successful genesis tx for request key"
         return result
 
@@ -244,7 +245,7 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
   case r of
     Left e -> jsonErrorResult' cmdEnv requestKey e [] 0 "applyLocal"
-    Right (!rr, _) -> return  rr
+    Right (T2 rr _) -> return rr
 
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
@@ -256,11 +257,11 @@ jsonErrorResult
     -> Gas
     -> ModuleCache
     -> String
-    -> IO (CommandResult [TxLog Value], ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 jsonErrorResult cmdEnv reqKey err txLogs gas mcache msg = do
     logErrorRequestKey (_ceLogger cmdEnv) reqKey err msg
-    return $! (CommandResult reqKey Nothing (PactResult (Left err))
-      gas (Just txLogs) Nothing Nothing, mcache)
+    return $! T2 (CommandResult reqKey Nothing (PactResult (Left err))
+      gas (Just txLogs) Nothing Nothing) mcache
 
 jsonErrorResult'
     :: CommandEnv a
@@ -280,7 +281,7 @@ runPayload
     -> EvalState
     -> Command (Payload PublicMeta ParsedCode)
     -> [TxLog Value] -- log state
-    -> IO (CommandResult [TxLog Value], ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 runPayload env initState c@Command{..} txLogs = case _pPayload _cmdPayload of
     Exec pm ->
       applyExec env initState (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs
@@ -295,12 +296,12 @@ applyExec
     -> [Signer]
     -> Hash
     -> [TxLog Value]
-    -> IO (CommandResult [TxLog Value], ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyExec env@CommandEnv{..} initState rk em senderSigs hsh prevLogs = do
     EvalResult{..} <- applyExec' env initState em senderSigs hsh
     -- applyExec enforces non-empty expression set so `last` ok
-    return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
-      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing, _erLoadedModules) -- TODO add perf metadata
+    return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
 
 -- | variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
@@ -332,13 +333,13 @@ applyContinuation
     -> [Signer]
     -> Hash
     -> [TxLog Value]
-    -> IO (CommandResult [TxLog Value], ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyContinuation env@CommandEnv{..} initState rk cm senderSigs hsh prevLogs = do
     EvalResult{..} <- applyContinuation' env initState cm senderSigs hsh
     -- last safe here because cont msg is guaranteed one exp
 
-    return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
-      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing, _erLoadedModules) -- TODO add perf metadata
+    return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
 
 
 applyContinuation'
@@ -370,7 +371,7 @@ buyGas
     -> MinerInfo
     -> GasSupply
     -> ModuleCache
-    -> IO (Either Text (GasId, [TxLog Value], ModuleCache))
+    -> IO (Either Text (T3 GasId [TxLog Value] ModuleCache))
 buyGas env cmd (MinerInfo minerId minerKeys) supply mcache = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
         initState = set (evalRefs . rsLoadedModules) mcache
@@ -389,7 +390,7 @@ buyGas env cmd (MinerInfo minerId minerKeys) supply mcache = do
     case _erExec result of
       Nothing -> return $!
         Left "buyGas: Internal error - empty continuation"
-      Just pe -> return $! Right (GasId $ _pePactId pe,  _erLogs result, mcache')
+      Just pe -> return $! Right $ T3 (GasId $ _pePactId pe) (_erLogs result) mcache'
 
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')
@@ -404,11 +405,11 @@ redeemGas
     -> GasSupply       -- ^ the total calculated supply of gas (as Decimal)
     -> [TxLog Value]   -- ^ previous txlogs
     -> ModuleCache
-    -> IO (CommandResult [TxLog Value], ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 redeemGas env cmd cmdResult gid supply prevLogs mcache = do
-    let (Gas fee)  = _crGas cmdResult
-        rk         = cmdToRequestKey cmd
-        initState  = set (evalRefs . rsLoadedModules) mcache
+    let (Gas fee) = _crGas cmdResult
+        rk        = cmdToRequestKey cmd
+        initState = set (evalRefs . rsLoadedModules) mcache
           $ initCapabilities [magic_FUND_TX]
 
     applyContinuation env initState rk (redeemGasCmd fee supply gid)

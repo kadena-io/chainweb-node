@@ -26,6 +26,7 @@ module Chainweb.Pact.Types
   , PactServiceState(..)
     -- * types
   , PactServiceM
+  , TransactionM
   , ModuleCache
   , HashCommandResult
     -- * optics
@@ -68,6 +69,7 @@ import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
 import Pact.Types.Runtime (ModuleData)
+import Pact.Types.Server (CommandEnv)
 import Pact.Types.SPV
 import Pact.Types.Term (KeySet(..), Name(..), PactId(..), Ref, ModuleName)
 
@@ -177,6 +179,9 @@ instance Monoid MemPoolAccess where
   mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
 
 newtype GasId = GasId PactId deriving (Eq, Show)
+
+type TransactionM p a = ReaderT (CommandEnv p) IO a
+
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist
