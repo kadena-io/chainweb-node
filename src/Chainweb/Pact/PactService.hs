@@ -448,7 +448,7 @@ applyPactCmds
     -> MinerInfo
     -> PactServiceM (Vector HashCommandResult)
 applyPactCmds isGenesis env' cmds miner =
-    fmap (V.fromList . sfst) $ V.foldM f mempty cmds
+    V.fromList . sfst <$> V.foldM f mempty cmds
   where
     f  (T2 v mcache) cmd = applyPactCmd isGenesis env' cmd miner mcache v
 
