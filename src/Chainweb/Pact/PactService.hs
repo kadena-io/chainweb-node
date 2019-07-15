@@ -474,7 +474,7 @@ applyPactCmd isGenesis (Env' dbEnv) cmdIn miner mcache v = do
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
 
-    pure $! T2 ((toHashCommandResult result):v) mcache'
+    pure $! T2 (toHashCommandResult result : v) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)
