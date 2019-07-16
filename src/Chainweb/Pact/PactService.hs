@@ -56,6 +56,7 @@ import Data.Maybe (isNothing)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -530,7 +531,7 @@ execTransactions
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
     !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
-    !txOuts <- applyPactCmds isGenesis pactdbenv miner ctxs
+    !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
@@ -559,21 +560,24 @@ runCoinbase (Just parentHash) dbEnv mi@MinerInfo{..} = do
 applyPactCmds
     :: Bool
     -> P.PactDbEnv p
+    -> Vector ChainwebTransaction
     -> MinerInfo
-    -> Vector (P.Command PayloadWithText)
     -> PactServiceM cas (Vector HashCommandResult)
-applyPactCmds isGenesis dbenv miner =
-    V.mapM (applyPactCmd isGenesis dbenv miner)
-
+applyPactCmds isGenesis env cmds miner =
+    V.fromList . sfst <$> V.foldM f mempty cmds
+  where
+    f  (T2 v mcache) cmd = applyPactCmd isGenesis env cmd miner mcache v
 
 -- | Apply a single Pact command
 applyPactCmd
     :: Bool
     -> P.PactDbEnv p
+    -> ChainwebTransaction
     -> MinerInfo
-    -> P.Command PayloadWithText
-    -> PactServiceM cas HashCommandResult
-applyPactCmd isGenesis dbenv miner cmdIn = do
+    -> ModuleCache
+    -> [HashCommandResult]
+    -> PactServiceM cas (T2 [HashCommandResult] ModuleCache)
+applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         !gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
@@ -582,10 +586,11 @@ applyPactCmd isGenesis dbenv miner cmdIn = do
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let !cmd = payloadObj <$> cmdIn
-    result <- liftIO $! if isGenesis
-        then applyGenesisCmd logger dbenv pd spv cmd
-        else applyCmd logger dbenv miner gasModel pd spv cmd
-    pure $! toHashCommandResult result
+    T2 result mcache' <- liftIO $ if isGenesis
+        then applyGenesisCmd logger dbEnv pd spv cmd
+        else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
+
+    pure $! T2 (toHashCommandResult result : v) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)
