@@ -287,7 +287,6 @@ toOutputBytes cr =
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
 
-
 toPayloadWithOutputs :: MinerInfo -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
@@ -317,26 +316,31 @@ validateHashes pwo bHeader =
             "Hash from Pact execution: " ++ show newHash ++
             " does not match the previously stored hash: " ++ show prevHash
 
+
 restoreCheckpointer
     :: PayloadCas cas
     => Maybe (BlockHeight,BlockHash)
     -> PactServiceM cas PactDbEnv'
 restoreCheckpointer maybeBB = do
-  checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
-  logInfo $ "restoring " <> sshow maybeBB
-  env <- liftIO $ restore checkPointer maybeBB
-  return env
+    checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
+    logInfo $ "restoring " <> sshow maybeBB
+    env <- liftIO $ restore checkPointer maybeBB
+    return env
+
 
 discardCheckpointer :: PayloadCas cas => PactServiceM cas ()
 discardCheckpointer = finalizeCheckpointer $ \checkPointer -> discard checkPointer
 
+
 finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
 finalizeCheckpointer finalize = do
-  checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
-  liftIO $! finalize checkPointer
+    checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
+    liftIO $! finalize checkPointer
+
 
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
+
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -358,12 +362,18 @@ execNewBlock mpAccess parentHeader miner = do
     liftIO $ mpaProcessFork mpAccess parentHeader
 
     newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
+    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    latest <- liftIO $ getLatestBlock cp
 
-    rewindTo mpAccess (Just (bHeight, pHash)) $ \pdbenv -> do
+    let rewindPoint = Just (bHeight, pHash)
+    when (latest /= Just (pHeight, pHash)) $
+        throwM $ PactServiceIllegalRewind rewindPoint latest
+
+    -- rewind will be trivial / no-op
+    rewindTo mpAccess rewindPoint $ \pdbenv -> do
         -- locally run 'execTransactions' with updated blockheight data
         results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
           execTransactions (Just pHash) miner newTrans pdbenv
-
         discardCheckpointer
         return $! toPayloadWithOutputs miner results
 
@@ -375,37 +385,30 @@ execNewGenesisBlock
     -> Vector ChainwebTransaction
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = do
-
     pdbenv <- restoreCheckpointer Nothing
-
     results <- execTransactions Nothing miner newTrans pdbenv
-
     discardCheckpointer
-
     return $! toPayloadWithOutputs miner results
+
 
 execLocal
     :: PayloadCas cas
     => ChainwebTransaction
     -> PactServiceM cas HashCommandResult
 execLocal cmd = do
-  bh <- use psStateValidated >>= \v -> case v of
-    Nothing -> throwM NoBlockValidatedYet
-    (Just !p) -> return p
+    bh <- use psStateValidated >>= \v -> case v of
+        Nothing -> throwM NoBlockValidatedYet
+        (Just !p) -> return p
 
-  !pdbst <- restoreCheckpointer $ Just (succ $ _blockHeight bh,_blockHash bh)
+    !pdbst <- restoreCheckpointer $ Just (succ $ _blockHeight bh, _blockHash bh)
 
-  case pdbst of
-    PactDbEnv' pactdbenv -> do
-
-      PactServiceEnv{..} <- ask
-
-      r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
-           _psPublicData _psSpvSupport (fmap payloadObj cmd)
-
-      discardCheckpointer
-
-      return $! toHashCommandResult r
+    case pdbst of
+        PactDbEnv' pactdbenv -> do
+            PactServiceEnv{..} <- ask
+            r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
+                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
+            discardCheckpointer
+            return $! toHashCommandResult r
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)

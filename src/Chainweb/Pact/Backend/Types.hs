@@ -69,6 +69,8 @@ module Chainweb.Pact.Backend.Types
     , PactServiceState(..)
     , PactServiceM
 
+    , PactServiceException(..)
+
       -- * optics
     , psMempoolAccess
     , psCheckpointEnv
@@ -80,6 +82,7 @@ module Chainweb.Pact.Backend.Types
     ) where
 
 import Control.DeepSeq
+import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
 import Control.Monad.Fail
@@ -274,3 +277,19 @@ instance Monoid MemPoolAccess where
 
 makeLenses ''PactServiceEnv
 makeLenses ''PactServiceState
+
+data PactServiceException = PactServiceIllegalRewind {
+    _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
+  , _latestBlock :: Maybe (BlockHeight, BlockHash)
+  }
+  deriving (Generic)
+
+instance Show PactServiceException where
+  show (PactServiceIllegalRewind att l)
+    = concat [ "illegal rewind attempt to block "
+             , show att
+             , ", latest was "
+             , show l
+             ]
+
+instance Exception PactServiceException
