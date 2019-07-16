@@ -102,7 +102,7 @@ nightly-nix:
     - schedules
   script:
     - echo This is a nightly build!
-    - nix-build docker.nix
+    # - nix-build docker.nix
     # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
     # It probably makes sense to run coverage nightly
