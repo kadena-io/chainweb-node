@@ -35,10 +35,10 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (finally, try)
+import Control.Exception hiding (bracket, catch, finally, try)
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Catch hiding (Handler(..))
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -459,7 +459,7 @@ rewindTo mpAccess mb act = do
         mbLastBlock <- liftIO $ getLatestBlock cp
         lastHeightAndHash <- maybe failNonGenesisOnEmptyDb return mbLastBlock
         bhDb <- asks _psBlockHeaderDb
-        playFork bhDb payloadDb newH parentHash lastHeightAndHash
+        playFork cp bhDb payloadDb newH parentHash lastHeightAndHash
 
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
@@ -472,15 +472,25 @@ rewindTo mpAccess mb act = do
         put $! s'
         return $! a
 
-    playFork bhdb payloadDb newH parentHash (_, lastHash) = do
+    playFork cp bhdb payloadDb newH parentHash (lastBlockHeight, lastHash) = do
         parentHeader <- liftIO $ lookupM bhdb parentHash
-        lastHeader <- liftIO $ lookupM bhdb lastHash
-        (!_, _, newBlocks) <-
-            liftIO $ collectForkBlocks bhdb lastHeader parentHeader
-        -- play fork blocks
-        V.mapM_ (fastForward payloadDb) newBlocks
-        -- play new block
-        restoreCheckpointer (Just (newH, parentHash)) >>= act
+        fst <$> generalBracket (liftIO $ lookupM bhdb lastHash) handleLookupFailure (handleLookupSuccess parentHeader)
+      where
+        handleLookupSuccess parentHeader lastHeader = do
+          (!_, _, newBlocks) <-
+              liftIO $ collectForkBlocks bhdb lastHeader parentHeader
+          -- play fork blocks
+          V.mapM_ (fastForward payloadDb) newBlocks
+          -- play new block
+          restoreCheckpointer (Just (newH, parentHash)) >>= act
+        handleLookupFailure _ exitcase = do
+          case exitcase of
+            ExitCaseSuccess a -> return a
+            ExitCaseException e -> do
+              when (lastBlockHeight == 0) $ throwM e
+              hash <- liftIO $ getHashAtBlockHeight cp (pred lastBlockHeight)
+              playFork cp bhdb payloadDb newH parentHash (pred lastBlockHeight, hash)
+            _ -> throwM $ userError "rewindTo: playFork: It is unclear how we've arrived at this error."
 
     fastForward :: forall c . PayloadCas c
                 => PayloadDb c -> BlockHeader -> PactServiceM c ()

@@ -23,6 +23,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.Serialize hiding (get)
+import qualified Data.Text as T
 
 import Prelude hiding (log)
 
@@ -73,6 +74,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doGetLatest db)
               (doWithAtomicRewind db)
               (doLookupBlock db)
+              (doGetHashAtBlockHeight db)
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
@@ -117,7 +119,7 @@ doDiscard dbenv = runBlockEnv dbenv $ rollbackSavepoint Block
 doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
     runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
-        r <- qry db qtext [] [RInt, RBlob] >>= mapM go
+        r <- qry_ db qtext [RInt, RBlob] >>= mapM go
         case r of
           [] -> return Nothing
           (!o:_) -> return $! Just o
@@ -150,3 +152,13 @@ doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
   where
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
             \ AND hash = ?;"
+
+doGetHashAtBlockHeight :: Db -> BlockHeight -> IO BlockHash
+doGetHashAtBlockHeight dbenv bh = runBlockEnv dbenv $ do
+    r <- callDb "getHashAtBlockHeight" $ \db ->
+          qry db qtext [SInt (fromIntegral bh)] [RBlob]
+    case r of
+      [[SBlob blob]] -> either (internalError . T.pack) return $! Data.Serialize.decode blob
+      _ -> internalError "doGetHashAtBlockHeight: There should be at most one matching blockheight."
+  where
+    qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
