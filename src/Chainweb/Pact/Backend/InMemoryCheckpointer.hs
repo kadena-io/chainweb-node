@@ -54,7 +54,7 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     (doGetLatest inmem)
                     id  -- in-mem doesn't require tx rewind
                     (doLookupBlock inmem)
-                    (doGetHashAtBlockHeight inmem)
+                    (doGetBlockParent inmem)
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
@@ -95,10 +95,9 @@ doLookupBlock :: MVar Store -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock lock x = withMVar lock $ \(Store s _ _) ->
                        return $! HMS.member x s
 
---
-doGetHashAtBlockHeight :: MVar Store -> BlockHeight -> IO BlockHash
-doGetHashAtBlockHeight _lock _bh = error msg
+doGetBlockParent :: MVar Store -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
+doGetBlockParent _lock (_bh, _hash) = error msg
   where
     msg =
-      "getHashAtBlockHeight: This function shouldn't be used with the in-memory checkpointer.\
-      \ There exists more than one choice of hash, and there is intelligble way to distinguish the correct hash."
+      "getBlockParent: This function shouldn't be used with the in-memory checkpointer.\
+      \ There exists more than one choice of hash, and there is no intelligble way to distinguish the correct hash."

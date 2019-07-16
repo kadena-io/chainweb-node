@@ -231,7 +231,7 @@ data Checkpointer = Checkpointer
       -- transaction in total.
     , lookupBlockInCheckpointer :: (BlockHeight, BlockHash) -> IO Bool
       -- ^ is the checkpointer aware of the given block?
-    , getHashAtBlockHeight :: BlockHeight -> IO BlockHash
+    , getBlockParent :: (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
     }
 
 data CheckpointEnv = CheckpointEnv

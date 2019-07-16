@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -35,7 +37,7 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (bracket, catch, finally, try)
+import Control.Exception hiding (bracket, handle, finally, try)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch hiding (Handler(..))
@@ -92,7 +94,7 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
-import Chainweb.TreeDB (collectForkBlocks, lookupM)
+import Chainweb.TreeDB (collectForkBlocks, lookupM, TreeDbException(..))
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
@@ -472,25 +474,21 @@ rewindTo mpAccess mb act = do
         put $! s'
         return $! a
 
-    playFork cp bhdb payloadDb newH parentHash (lastBlockHeight, lastHash) = do
-        parentHeader <- liftIO $ lookupM bhdb parentHash
-        fst <$> generalBracket (liftIO $ lookupM bhdb lastHash) handleLookupFailure (handleLookupSuccess parentHeader)
-      where
-        handleLookupSuccess parentHeader lastHeader = do
+    playFork cp bhdb payloadDb newH parentHash (lastBlockHeight, lastHash) =
+      handle handleLookupFailure $ do
+          parentHeader <- liftIO $ lookupM bhdb parentHash
+          lastHeader <- liftIO $ lookupM bhdb lastHash
           (!_, _, newBlocks) <-
               liftIO $ collectForkBlocks bhdb lastHeader parentHeader
           -- play fork blocks
           V.mapM_ (fastForward payloadDb) newBlocks
           -- play new block
           restoreCheckpointer (Just (newH, parentHash)) >>= act
-        handleLookupFailure _ exitcase = do
-          case exitcase of
-            ExitCaseSuccess a -> return a
-            ExitCaseException e -> do
-              when (lastBlockHeight == 0) $ throwM e
-              hash <- liftIO $ getHashAtBlockHeight cp (pred lastBlockHeight)
-              playFork cp bhdb payloadDb newH parentHash (pred lastBlockHeight, hash)
-            _ -> throwM $ userError "rewindTo: playFork: It is unclear how we've arrived at this error."
+      where
+        handleLookupFailure e@(_ :: TreeDbException BlockHeaderDb) =
+              (liftIO $ getBlockParent cp (lastBlockHeight, lastHash)) >>= \case
+                Nothing -> throwM e
+                Just hash -> playFork cp bhdb payloadDb newH parentHash (pred lastBlockHeight, hash)
 
     fastForward :: forall c . PayloadCas c
                 => PayloadDb c -> BlockHeader -> PactServiceM c ()
