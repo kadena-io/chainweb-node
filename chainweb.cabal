@@ -387,7 +387,6 @@ test-suite chainweb-tests
         , directory >= 1.2
         , exceptions
         , extra >= 1.6
-        , extra >= 1.6
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
