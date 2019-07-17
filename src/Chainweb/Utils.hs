@@ -159,9 +159,13 @@ module Chainweb.Utils
 
 -- * Resource Management
 , concurrentWith
+
+-- * Strict tuple-2 accessors
+, sfst
+, ssnd
 ) where
 
-import Configuration.Utils hiding (Error)
+import Configuration.Utils hiding (Error, Lens)
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -199,6 +203,7 @@ import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
+import Data.Tuple.Strict
 import Data.Word (Word64)
 
 import GHC.Generics
@@ -1052,3 +1057,11 @@ concurrentWith alloc inner params = do
         putMVar var b
         readMVar doneVar
 
+-- -------------------------------------------------------------------------- --
+-- Strict Tuple
+
+sfst :: T2 a b -> a
+sfst (T2 a _) = a
+
+ssnd :: T2 a b -> b
+ssnd (T2 _ b) = b
