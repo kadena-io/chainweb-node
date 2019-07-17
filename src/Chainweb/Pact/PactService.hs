@@ -12,23 +12,16 @@
 --
 -- Pact service for Chainweb
 module Chainweb.Pact.PactService
-    ( pactDbConfig
+    (
+      -- * For Chainweb
+      initialPayloadState
     , execNewBlock
-    , execNewGenesisBlock
-    , execTransactions
     , execValidateBlock
-    , initPactService, initPactService'
-    , mkPureState
-    , serviceRequests
-    , createCoinContract
-    , initialPayloadState
-    , transactionsFromPayload
-    , restoreCheckpointer
-    , finalizeCheckpointer
-    , toPayloadWithOutputs
-    , toTransactionBytes
-    , runCoinbase
-    , discardCheckpointer
+    , execTransactions
+    , initPactService
+      -- * For Side-tooling
+    , execNewGenesisBlock
+    , initPactService'
     ) where
 
 import Control.Concurrent
@@ -91,16 +84,6 @@ import Chainweb.Version (ChainwebVersion(..))
 
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
-
-
-pactDbConfig :: ChainwebVersion -> PactDbConfig
-pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig TimedConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig PowConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig TimedCPM{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig Testnet01 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig Testnet02 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -313,20 +296,17 @@ execNewBlock mpAccess header miner = do
 
 
 -- | only for use in generating genesis blocks in tools
-execNewGenesisBlock :: MinerInfo -> Vector ChainwebTransaction -> PactServiceM PayloadWithOutputs
+execNewGenesisBlock
+    :: MinerInfo
+    -> Vector ChainwebTransaction
+    -> PactServiceM PayloadWithOutputs
 execNewGenesisBlock miner newTrans = do
-
     restoreCheckpointer Nothing
-
     results <- execTransactions Nothing miner newTrans
-
     discardCheckpointer
-
     return $! toPayloadWithOutputs miner results
 
-
-execLocal :: ChainwebTransaction ->
-             PactServiceM HashCommandResult
+execLocal :: ChainwebTransaction -> PactServiceM HashCommandResult
 execLocal cmd = do
 
   bh <- use psStateValidated >>= \v -> case v of
