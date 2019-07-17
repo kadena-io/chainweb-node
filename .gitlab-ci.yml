@@ -24,14 +24,14 @@ stages:
 #     - ulimit -Hn
 #     - ulimit -Sn
 
-# nix-macos:
-#   stage: build
-#   tags:
-#     - macos
-#   script:
-#     - nix-build
-#     - nix-shell --run "echo Done with shell test"
-#     # - nix-build -A ghc.chainweb.doc
+nix-macos:
+  stage: build
+  tags:
+    - macos
+  script:
+    - nix-build
+    - nix-shell --run "echo Done with shell test"
+    # - nix-build -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
 #    "--arg runCoverage true" to nix-build, but that means that the
