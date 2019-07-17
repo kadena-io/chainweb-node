@@ -33,7 +33,7 @@ module Chainweb.Pact.PactService
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (try, finally)
+import Control.Exception hiding (finally, try)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -100,6 +100,7 @@ pactDbConfig PowConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Jus
 pactDbConfig TimedCPM{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 pactDbConfig Testnet01 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
+pactDbConfig Testnet02 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -165,6 +166,7 @@ initialPayloadState PowConsensus{} _ _ = pure ()
 initialPayloadState v@TimedCPM{} cid mpa = createCoinContract v cid mpa
 initialPayloadState v@Testnet00 cid mpa = createCoinContract v cid mpa
 initialPayloadState v@Testnet01 cid mpa = createCoinContract v cid mpa
+initialPayloadState v@Testnet02 cid mpa = createCoinContract v cid mpa
 
 createCoinContract :: ChainwebVersion -> ChainId -> MemPoolAccess -> PactServiceM ()
 createCoinContract v cid mpa = do

@@ -42,6 +42,8 @@ bootstrapPeerConfig Testnet00 = error
     $ "bootstrap peer config isn't defined for chainweb version Testnet00"
 bootstrapPeerConfig Testnet01 = error
     $ "bootstrap peer config isn't defined for chainweb version Testnet01"
+bootstrapPeerConfig Testnet02 = error
+    $ "bootstrap peer config isn't defined for chainweb version Testnet02"
 
 testBootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
 testBootstrapPeerConfig v =
@@ -71,6 +73,8 @@ bootstrapCertificate Testnet00 = error
     $ "bootstrap certificate isn't defined for chainweb version Testnet00"
 bootstrapCertificate Testnet01 = error
     $ "bootstrap certificate isn't defined for chainweb version Testnet01"
+bootstrapCertificate Testnet02 = error
+    $ "bootstrap certificate isn't defined for chainweb version Testnet02"
 
 -- | The test certificate is also stored in the file
 -- @./scripts/scripts/test-bootstrap-node.config@.
@@ -130,6 +134,8 @@ bootstrapKey Testnet00 = error
     $ "bootstrap key isn't defined for chainweb version Testnet00"
 bootstrapKey Testnet01 = error
     $ "bootstrap key isn't defined for chainweb version Testnet01"
+bootstrapKey Testnet02 = error
+    $ "bootstrap key isn't defined for chainweb version Testnet02"
 
 -- | This is only defined for non-public Test instances
 --

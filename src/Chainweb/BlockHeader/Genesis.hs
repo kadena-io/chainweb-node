@@ -38,6 +38,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.Testnet00Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.Testnet01Payload as TN1
+import qualified Chainweb.BlockHeader.Genesis.Testnet01Payload as TN2
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -87,6 +88,8 @@ genesisTime TimedCPM{} = BlockCreationTime epoche
 genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
 -- Thursday, 2019 April 18, 11:52 AM
 genesisTime Testnet01 = BlockCreationTime . Time $ TimeSpan 1555613536726767
+-- Thursday, 2019 July 17, 11:28 AM
+genesisTime Testnet02 = BlockCreationTime . Time $ TimeSpan 1563388117613832
 
 genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
 genesisMiner Test{} p = ChainNodeId (_chainId p) 0
@@ -97,6 +100,7 @@ genesisMiner TimedCPM{} p = ChainNodeId (_chainId p) 0
 -- In other words, 0 is a meaningless hard-coding.
 genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
 genesisMiner Testnet01 p = ChainNodeId (_chainId p) 0
+genesisMiner Testnet02 p = ChainNodeId (_chainId p) 0
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -112,6 +116,7 @@ genesisBlockPayload PowConsensus{} _ = emptyPayload
 genesisBlockPayload TimedCPM{} _ = TN0.payloadBlock
 genesisBlockPayload Testnet00 _ = TN0.payloadBlock
 genesisBlockPayload Testnet01 _ = TN1.payloadBlock
+genesisBlockPayload Testnet02 _ = TN2.payloadBlock
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'

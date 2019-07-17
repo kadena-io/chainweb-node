@@ -31,10 +31,13 @@ import Chainweb.Version (ChainwebVersion(..))
 
 ---
 
+-- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
+-- new `ChainwebVersion` value!
 tests :: TestTree
 tests = testGroup "Chainweb.Test.BlockHeader.Genesis" $ map blockHash
     [ Testnet00
     , Testnet01
+    , Testnet02
     ]
 
 blockHashes :: HM.HashMap ChainId BlockHeader -> BL.ByteString

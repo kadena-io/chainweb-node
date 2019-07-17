@@ -257,6 +257,7 @@ instance ToParamSchema ChainwebVersion where
             , TimedCPM petersonChainGraph
             , Testnet00
             , Testnet01
+            , Testnet02
             ])
 
 -- -------------------------------------------------------------------------- --

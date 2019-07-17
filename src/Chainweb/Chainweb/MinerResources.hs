@@ -86,3 +86,4 @@ runMiner v m = (chooseMiner v)
     chooseMiner TimedCPM{} = testMiner
     chooseMiner Testnet00 = powMiner
     chooseMiner Testnet01 = powMiner
+    chooseMiner Testnet02 = powMiner

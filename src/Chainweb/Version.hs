@@ -186,6 +186,7 @@ data ChainwebVersion
     -----------------------
     | Testnet00
     | Testnet01
+    | Testnet02
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
@@ -213,11 +214,13 @@ chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Testnet00 = 0x00000001
 chainwebVersionId Testnet01 = 0x00000002
+chainwebVersionId Testnet02 = 0x00000003
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromChainwebVersionId 0x00000001 = Testnet00
 fromChainwebVersionId 0x00000002 = Testnet01
+fromChainwebVersionId 0x00000003 = Testnet02
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
@@ -243,17 +246,23 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+-- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
+-- new `ChainwebVersion` value!
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Testnet00 = "testnet00"
 chainwebVersionToText Testnet01 = "testnet01"
+chainwebVersionToText Testnet02 = "testnet02"
 chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
 
+-- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
+-- new `ChainwebVersion` value!
 -- | Read textual representation of a `ChainwebVersion`.
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "testnet00" = pure Testnet00
 chainwebVersionFromText "testnet01" = pure Testnet01
+chainwebVersionFromText "testnet02" = pure Testnet02
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
         Just v -> pure v
@@ -273,13 +282,15 @@ instance HasTextRepresentation ChainwebVersion where
 -- -------------------------------------------------------------------------- --
 -- Value Maps
 
+-- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
+-- new `ChainwebVersion` value!
 chainwebVersions :: HM.HashMap T.Text ChainwebVersion
 chainwebVersions = HM.fromList $
     f Test "test"
     <> f TimedConsensus "timedConsensus"
     <> f PowConsensus "powConsensus"
     <> f TimedCPM "timedCPM"
-    <> [ ("testnet00", Testnet00), ("testnet01", Testnet01) ]
+    <> [ ("testnet00", Testnet00), ("testnet01", Testnet01), ("testnet02", Testnet02) ]
   where
     f v p = map (\(k, g) -> (p <> k, v g)) pairs
     pairs = [ ("-singleton", singletonChainGraph)
@@ -347,6 +358,8 @@ testVersionToCode Testnet00 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet01 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
+testVersionToCode Testnet02 =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromTestChainwebVersionId i =
@@ -362,6 +375,7 @@ chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph Testnet00 = petersonChainGraph
 chainwebVersionGraph Testnet01 = twentyChainGraph
+chainwebVersionGraph Testnet02 = twentyChainGraph
 
 instance HasChainGraph ChainwebVersion where
     _chainGraph = chainwebVersionGraph
