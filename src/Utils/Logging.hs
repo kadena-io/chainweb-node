@@ -74,6 +74,7 @@ module Utils.Logging
 , withTextHandleBackend
 , withJsonHandleBackend
 , withJsonEventSourceBackend
+, withAmberDataBlocksBackend
 
 -- * Of-the-shelf logger
 , withFileHandleLogger
@@ -130,6 +131,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader (AmberdataBlock)
 import Chainweb.HostAddress
 import Chainweb.Utils hiding (check)
 
@@ -452,6 +454,83 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 {-# INLINEABLE withTextHandleBackend #-}
 
 -- TODO: it may be more usefull to have a logger that logs all 'Right' messages
+
+-- -------------------------------------------------------------------------- --
+-- Amberdata Backend
+
+amberDataBatchSize :: Natural
+amberDataBatchSize = 1000
+
+amberDataBatchDelayMs :: Natural
+amberDataBatchDelayMs = 1000
+
+-- | A backend for JSON log messages that sends all logs to the Amberdata /blocks
+-- endpoint.
+-- Messages are sent in a fire-and-forget fashion. If a connection fails, the
+-- messages are dropped without notice.
+--
+withAmberDataBlocksBackend
+    :: HTTP.Manager
+    -> HostAddress
+    -> T.Text
+    -> T.Text
+    -> (Backend (JsonLog AmberdataBlock) -> IO b)
+    -> IO b
+withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
+    queue <- newTBQueueIO 2000
+    withAsync (runForever errorLogFun "Utils.Logging.withAmberdataBackend" (processor queue)) $ \_ -> do
+        inner $ \a -> atomically (writeTBQueue queue a)
+
+  where
+    errorLogFun Error msg = T.hPutStrLn stderr msg
+    errorLogFun _ _ = return ()
+
+    -- Collect messages. If there is at least one pending message, submit a
+    -- `blocks` request every second or when the batch size is 1000 messages,
+    -- whatever happens first.
+    --
+    processor queue = do
+        -- set timer to 1 second
+        timer <- registerDelay (int amberDataBatchDelayMs)
+
+        -- Fill the batch
+        (remaining, batch) <- atomically $ do
+            -- ensure that there is at least one transaction in every batch
+            h <- readTBQueue queue
+            go amberDataBatchSize (indexAction h) timer
+
+        errorLogFun Info $ "send " <> sshow (amberDataBatchSize - remaining) <> " messages"
+        void $ HTTP.httpLbs (putBulkLog batch) mgr
+      where
+        go 0 !batch _ = return $! (0, batch)
+        go !remaining !batch !timer = isTimeout `orElse` fill
+          where
+            isTimeout = do
+                check =<< readTVar timer
+                return $! (remaining, batch)
+            fill = tryReadTBQueue queue >>= \case
+                Nothing -> return $! (remaining, batch)
+                Just x -> do
+                    go (pred remaining) (batch <> indexAction x) timer
+
+    putBulkLog a = HTTP.defaultRequest
+        { HTTP.method = "POST"
+        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
+        , HTTP.port = int (_hostAddressPort esServer)
+        , HTTP.path = "/api/v1/blocks"
+        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
+        , HTTP.requestHeaders = [("content-type", "application/json"),
+                                 ("accept", "application/json"),
+                                 ("x-amberdata-api-key", T.encodeUtf8 apiKey),
+                                 ("x-amberdata-blockchain-id", T.encodeUtf8 blockchainId)]
+        , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString a
+        }
+
+    e = fromEncoding . toEncoding
+    indexAction a
+        = BB.char7 '\n'
+        <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
+        <> BB.char7 '\n'
 
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend

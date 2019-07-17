@@ -67,13 +67,14 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader (NewMinedBlock)
+import Chainweb.BlockHeader (NewMinedBlock, AmberdataBlock)
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.HostAddress (readHostAddressBytes)
 import Chainweb.Logger
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
@@ -269,6 +270,7 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
         teleLogConfig
+    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed
@@ -284,6 +286,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
+            , logHandler newBlockAmberdataBackend
             , logHandler newBlockBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend
@@ -296,6 +299,19 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
+
+mkAmberdataLogger
+    :: HTTP.Manager
+    -> (Backend (JsonLog AmberdataBlock) -> IO b)
+    -> IO b
+mkAmberdataLogger mgr inner = do
+  hostaddr <- readHostAddressBytes "blockchains.amberdata.io:443"
+  withAmberDataBlocksBackend
+    mgr
+    hostaddr
+    "5cf5b1ef5b74a0055faa6ac648fdff76"
+    "19c5dee45294751c"
+    inner
 
 mkTelemetryLogger
     :: forall a b

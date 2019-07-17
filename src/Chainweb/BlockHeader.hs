@@ -91,6 +91,7 @@ module Chainweb.BlockHeader
 , decodeBlockHeaderCheckedChainId
 , ObjectEncoded(..)
 , NewMinedBlock(..)
+, AmberdataBlock(..)
 
 , timeBetween
 , getAdjacentHash
@@ -689,6 +690,30 @@ data NewMinedBlock = NewMinedBlock
     , _minedHashAttempts :: !Natural }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
+
+
+
+data AmberdataBlock = AmberdataBlock
+  { _amberdataNumber :: {-# UNPACK #-} !BlockHeight
+  , _amberdataHash :: {-# UNPACK #-} !BlockHash
+  , _amberdataTimestamp :: {-# UNPACK #-} !BlockCreationTime
+  , _amberdataParentHash :: {-# UNPACK #-} !BlockHash
+  }
+  deriving (Eq, Show, Generic)
+  deriving anyclass (NFData)
+
+instance ToJSON AmberdataBlock where
+  toJSON (AmberdataBlock n h t p) = object
+    [ "number" .= n
+    , "hash" .= h
+    , "timestamp" .= microToMilliSeconds t
+    , "parentHash" .= p
+    ]
+    
+    where
+      microToMilliSeconds :: BlockCreationTime -> Integer
+      microToMilliSeconds (BlockCreationTime (Time (TimeSpan (Micros m)))) =
+        int $ m `div` 1000
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader

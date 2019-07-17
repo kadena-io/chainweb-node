@@ -141,10 +141,12 @@ handleConfigFromText x = case CI.mk x of
     "stderr" -> return StdErr
     _ | CI.mk (T.take 5 x) == "file:" -> return $ FileHandle (T.unpack (T.drop 5 x))
     _ | CI.mk (T.take 3 x) == "es:" -> ElasticSearch <$> fromText (T.drop 3 x)
+    e -> configFromTextErr e
 
-    e -> throwM $ DecodeException $ "unexpected logger handle value: "
-        <> fromString (show e)
-        <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<HOST>:<PORT>\""
+  where configFromTextErr e =
+          throwM $ DecodeException $ "unexpected logger handle value: "
+          <> fromString (show e)
+          <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<HOST>:<PORT> or \"ad:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>\"\""
 
 handleConfigToText :: HandleConfig -> T.Text
 handleConfigToText StdOut = "stdout"
