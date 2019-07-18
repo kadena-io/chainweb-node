@@ -2,13 +2,14 @@ test-group: local
 results:
   gas: 0
   result:
-    status: failure
-    error:
-      callStack: []
-      type: EvalError
-      message: Cannot resolve test1.read-account
-      info: <interactive>:0:0
-  reqKey: lViJs9-f7UVEHVFLXO1vIfOUjstaDAns6Y-YhKh8haI
+    status: success
+    data:
+      amount: -1
+      data:
+        transfer-to: Acct2
+      balance: 999999
+      account: Acct1
+  reqKey: BFXFcR0ShcgyS2sAPs04Ra_Y2Li5s-GkCAhDl40yRgU
   logs: wsATyGqckuIvlm89hhd2j4t6RMkCrcwJe_oeCYr7Th8
   metaData: null
   continuation: null
