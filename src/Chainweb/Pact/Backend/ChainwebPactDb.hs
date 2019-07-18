@@ -339,7 +339,6 @@ doBegin m = do
 
 resetTemp :: BlockHandler SQLiteEnv ()
 resetTemp = bsMode  .= Nothing >> bsTxRecord .= M.empty
--- WE SHOULD FLUSH THE IN-BLOCK CACHE HERE
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
 doCommit = use bsMode >>= \mm -> case mm of
