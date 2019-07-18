@@ -64,7 +64,6 @@ import Text.Pretty.Simple (pPrintNoColor)
 -- PACT
 import Pact.ApiReq
 import Pact.Types.API
-import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -131,12 +130,8 @@ generateSimpleTransactions = do
       -- this contains the key of sender00
       kps <- testSomeKeyPairs
 
-      -- TODO Use `mkMeta` function
-      let publicmeta = CM.PublicMeta
-                       (CM.ChainId $ chainIdToText cid)
-                       "sender00" 10 0.0001
-          theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
-      mkExec theCode theData publicmeta (NEL.toList kps) Nothing
+      let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
+      mkExec theCode theData (Sim.makeMeta cid) (NEL.toList kps) Nothing
 
 -- | O(1). The head value is moved to the end.
 rotate :: NESeq a -> NESeq a

@@ -83,12 +83,6 @@ in
           sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
         };
 
-        vector-algorithms = callHackageDirect {
-          pkg = "vector-algorithms";
-          ver = "0.8.0.1";
-          sha256 = "1kvi2xqpiz7n7713m4gf702bmgbibrh4mnjdmq5s0i6nbb58zylm";
-        };
-
         # --- massiv --- #
         massiv = callHackageDirect {
           pkg = "massiv";
@@ -110,12 +104,6 @@ in
           sha256 = "0yv5vq9v18jzs5mbg2qpyh18dbc54s143231b3d0bw9mawp81nsa";
         };
         # --- end massiv --- #
-
-        fast-builder = callHackageDirect {
-          pkg = "fast-builder";
-          ver = "0.1.0.1";
-          sha256 = "1v3qf4i63chyzisrg2pzp7f9gpnb6i596ip8nmsjdpd9ikc92bh4";
-        };
 
         wai-middleware-throttle = callHackageDirect {
           pkg = "wai-middleware-throttle";
@@ -191,12 +179,6 @@ in
           sha256 = "1swp4j80761rfb0xiwshf0zal02ykwrbv49iyjay9ivvka367wk9";
         });
         # --- end of `tasty` dependents --- #
-
-        extra = dontCheck (callHackageDirect {
-          pkg = "extra";
-          ver = "1.6.13";
-          sha256 = "03kw3jd7779vp4i7nrgvdkb34jxwqn1kvggag2562j1337b5gybr";
-        });
 
         # pact-3.0.1
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
@@ -328,6 +310,13 @@ in
           ver = "8.2";
           sha256 = "1isa8p9dnahkljwj0kz10119dwiycf11jvzdc934lnjv1spxkc9k";
         });
+
+        chainweb-storage = pkgs.haskell.lib.dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "chainweb-storage";
+          rev = "4a345323cd50f1fd24ed9565c0deeea5cc376db6";
+          sha256 = "0alqvb3hx7bvhq1mcpq8m0l2jcwz4b4xdp1d20r2fflbraqrvmgs";
+        }) {});
 
         # Our own custom fork
         thyme = dontCheck (self.callCabal2nix "thyme" (pkgs.fetchFromGitHub {
