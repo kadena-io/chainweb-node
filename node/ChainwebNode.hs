@@ -56,6 +56,7 @@ import GHC.Generics hiding (from)
 import GHC.Stats
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.TLS as HTTPS
 
 import Numeric.Natural
 
@@ -255,6 +256,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
     -- This manager is used only for logging backends
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
+    mgrHttps <- liftIO $ HTTPS.newTlsManager
 
     -- Base Backend
     baseBackend <- managed
@@ -270,7 +272,7 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr
+    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed

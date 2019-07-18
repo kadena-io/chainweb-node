@@ -459,7 +459,7 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 -- Amberdata Backend
 
 amberDataBatchSize :: Natural
-amberDataBatchSize = 1000
+amberDataBatchSize = 100
 
 amberDataBatchDelayMs :: Natural
 amberDataBatchDelayMs = 1000
@@ -483,7 +483,8 @@ withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
 
   where
     errorLogFun Error msg = T.hPutStrLn stderr msg
-    errorLogFun _ _ = return ()
+    errorLogFun _ msg = T.hPutStrLn stdout msg
+    --errorLogFun _ msg = T.hPutStrLn stdout msg
 
     -- Collect messages. If there is at least one pending message, submit a
     -- `blocks` request every second or when the batch size is 1000 messages,
@@ -497,10 +498,14 @@ withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
         (remaining, batch) <- atomically $ do
             -- ensure that there is at least one transaction in every batch
             h <- readTBQueue queue
-            go amberDataBatchSize (indexAction h) timer
+            go amberDataBatchSize (initIndex h) timer
 
         errorLogFun Info $ "send " <> sshow (amberDataBatchSize - remaining) <> " messages"
-        void $ HTTP.httpLbs (putBulkLog batch) mgr
+        errorLogFun Info $ "http batch command: " <> sshow (BB.toLazyByteString (mkList batch))
+        errorLogFun Info $ "http request: " <> sshow (putBulkLog batch)
+        resp <- HTTP.httpLbs (putBulkLog batch) mgr
+        errorLogFun Info $ "response: " <> sshow (resp)
+        --void $ HTTP.httpLbs (putBulgLog batch) mgr
       where
         go 0 !batch _ = return $! (0, batch)
         go !remaining !batch !timer = isTimeout `orElse` fill
@@ -511,26 +516,33 @@ withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
             fill = tryReadTBQueue queue >>= \case
                 Nothing -> return $! (remaining, batch)
                 Just x -> do
-                    go (pred remaining) (batch <> indexAction x) timer
+                    go (pred remaining) (batch <> indexWithComma x) timer
 
     putBulkLog a = HTTP.defaultRequest
         { HTTP.method = "POST"
         , HTTP.host = hostnameBytes (_hostAddressHost esServer)
         , HTTP.port = int (_hostAddressPort esServer)
+        , HTTP.secure = True
         , HTTP.path = "/api/v1/blocks"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/json"),
                                  ("accept", "application/json"),
                                  ("x-amberdata-api-key", T.encodeUtf8 apiKey),
                                  ("x-amberdata-blockchain-id", T.encodeUtf8 blockchainId)]
-        , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString a
+        , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString (mkList a)
         }
 
     e = fromEncoding . toEncoding
-    indexAction a
-        = BB.char7 '\n'
-        <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
-        <> BB.char7 '\n'
+    initIndex (L.LogMessage a _ _ _)
+      = BB.char7 ' '
+      <> e a
+    indexWithComma (L.LogMessage a _ _ _)
+      = BB.char7 ','
+      <> e a
+    mkList a
+      = BB.char7 '['
+      <> a
+      <> BB.char7 ']'
 
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend
