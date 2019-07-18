@@ -37,10 +37,11 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (bracket, finally, handle, try)
+import Control.Exception hiding
+    (Handler(..), bracket, catches, finally, handle, try)
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch hiding (Handler(..))
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -484,7 +485,7 @@ rewindTo mpAccess mb act = do
         return $! a
 
     playFork cp bhdb payloadDb newH parentHash (lastBlockHeight, lastHash) =
-      handle handleLookupFailure $ do
+      flip catches exHandlers $ do
           parentHeader <- liftIO $ lookupM bhdb parentHash
           lastHeader <- liftIO $ lookupM bhdb lastHash
           (!_, _, newBlocks) <-
@@ -494,10 +495,15 @@ rewindTo mpAccess mb act = do
           -- play new block
           restoreCheckpointer (Just (newH, parentHash)) >>= act
       where
-        handleLookupFailure e@(_ :: TreeDbException BlockHeaderDb) =
+        exHandlers = [Handler handleTreeDbFailure, Handler handlePayloadFailure]
+        handleEx :: forall e . Exception e => e -> PactServiceM cas a
+        handleEx e =
               (liftIO $ getBlockParent cp (lastBlockHeight, lastHash)) >>= \case
                 Nothing -> throwM e
-                Just hash -> playFork cp bhdb payloadDb newH parentHash (pred lastBlockHeight, hash)
+                Just hash -> playFork cp bhdb payloadDb newH parentHash
+                                      (pred lastBlockHeight, hash)
+        handleTreeDbFailure e@(_ :: TreeDbException BlockHeaderDb) = handleEx e
+        handlePayloadFailure e@(_ :: PayloadNotFoundException) = handleEx e
 
     fastForward :: forall c . PayloadCas c
                 => PayloadDb c -> BlockHeader -> PactServiceM c ()
