@@ -577,6 +577,8 @@ dropUserTables = do
           _ -> internalError "dropUserTables: An error occured\
                             \ while querying the\
                             \ VersionedTables table for table names."
+      exec' db "DELETE FROM UserTables WHERE createBlockHeight >= ?"
+               [SInt (fromIntegral bh)]
 
 deleteHistory :: BlockHandler SQLiteEnv TxId
 deleteHistory = do
