@@ -109,8 +109,7 @@
 ; make sure chain-id is enforced in the yield
 (expect-failure "create side of cross-chain transfer fails yield on wrong chain"
         (continue-pact 1 false (hash "burn-create")
-          { "create-chain-id": "1"
-          , "create-account": 'k2
+          { "create-account": 'k2
           , "create-account-guard": (read-keyset 'k2)
           , "quantity": 1.0
           }))
@@ -119,8 +118,7 @@
 (env-chain-data { "chain-id" : "1" })
 (expect "create side of cross-chain transfer succeeds" "Write succeeded"
         (continue-pact 1 false (hash "burn-create")
-          { "create-chain-id": "1"
-          , "create-account": 'k2
+          { "create-account": 'k2
           , "create-account-guard": (read-keyset 'k2)
           , "quantity": 1.0
           }))
