@@ -37,7 +37,7 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (bracket, handle, finally, try)
+import Control.Exception hiding (bracket, finally, handle, try)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch hiding (Handler(..))
@@ -95,7 +95,7 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
-import Chainweb.TreeDB (collectForkBlocks, lookupM, TreeDbException(..))
+import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
@@ -362,18 +362,23 @@ execNewBlock mpAccess parentHeader miner = do
     liftIO $ mpaProcessFork mpAccess parentHeader
 
     newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
-    cp <- view (psCheckpointEnv . cpeCheckpointer)
-    latest <- liftIO $ getLatestBlock cp
-
     let rewindPoint = Just (bHeight, pHash)
-    when (latest /= Just (pHeight, pHash)) $
-        throwM $ PactServiceIllegalRewind rewindPoint latest
 
-    -- rewind will be trivial / no-op
+    -- TODO: should we work towards uncommenting this? Currently, cutdb traffic
+    -- moves the pactdb "current block" cursor too often for us to be sure that
+    -- the miner and consensus are going to be in sync for newBlock. Changes to
+    -- consensus or to checkpoint API may allow us to re-enable this check
+    --
+    -- cp <- view (psCheckpointEnv . cpeCheckpointer)
+    -- latest <- liftIO $ getLatestBlock cp
+    -- when (latest /= Just (pHeight, pHash)) $
+    --     throwM $ PactServiceIllegalRewind rewindPoint latest
+
+    -- rewind should usually be trivial / no-op
     rewindTo mpAccess rewindPoint $ \pdbenv -> do
         -- locally run 'execTransactions' with updated blockheight data
         results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
-          execTransactions (Just pHash) miner newTrans pdbenv
+                   execTransactions (Just pHash) miner newTrans pdbenv
         discardCheckpointer
         return $! toPayloadWithOutputs miner results
 
