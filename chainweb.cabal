@@ -268,6 +268,7 @@ library
         , dlist >= 0.8
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2
@@ -295,6 +296,7 @@ library
         , reflection >= 2.1
         , resourcet >= 1.2
         , safeio >= 0.0
+        , safe-exceptions >= 0.1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
