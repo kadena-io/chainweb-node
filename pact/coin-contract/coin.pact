@@ -88,7 +88,7 @@
           "fee must be a non-negative quantity")
 
         (enforce (>= refund 0.0)
-          "fee must be less than or equal to total")
+          "refun must be a non-negative quantity")
 
         ; directly update instead of credit
         (if (> refund 0.0)
