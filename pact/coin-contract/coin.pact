@@ -7,25 +7,28 @@
   \or issue the '(use coin)' command in the body of a module declaration."
 
 
+  (implements coin-sig)
+
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
 
   (defschema coin-schema
     balance:decimal
-    guard:guard
-    )
+    guard:guard)
   (deftable coin-table:{coin-schema})
 
-  (defschema creates-schema
-    exists:bool
+  ; the shape of a cross-chain transfer (used for typechecking)
+  (defschema transfer-schema
+    create-account:string
+    create-account-guard:guard
+    quantity:decimal
     )
-  (deftable creates-table:{creates-schema})
 
   ; --------------------------------------------------------------------------
   ; Capabilities
 
   (defcap GOVERNANCE ()
-    "upgrade disabled"
+    "Enforce non-upgradeability except in the case of a hard fork"
     false)
 
   (defcap TRANSFER ()
@@ -93,7 +96,6 @@
     )
 
   (defun create-account:string (account:string guard:guard)
-    @doc "Create an account for ACCOUNT, with ACCOUNT as a function of GUARD"
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
@@ -101,7 +103,6 @@
     )
 
   (defun account-balance:decimal (account:string)
-    @doc "Query account balance for ACCOUNT"
     (with-read coin-table account
       { "balance" := balance }
       balance
@@ -109,11 +110,9 @@
     )
 
   (defun transfer:string (sender:string receiver:string receiver-guard:guard amount:decimal)
-    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
-    \This fails if both accounts do not exist. Create-on-transfer can be      \
-    \handled by sending in a create command in the same tx."
 
-    @model [(property (> amount 0.0))]
+    (enforce (not (= sender receiver))
+      "sender cannot be the receiver of a transfer")
 
     (with-capability (TRANSFER)
       (debit sender amount)
@@ -121,10 +120,10 @@
     )
 
   (defun coinbase:string (address:string address-guard:guard amount:decimal)
-    @doc "Mint some number of tokens and allocate them to some address"
     (require-capability (COINBASE))
     (with-capability (TRANSFER)
-     (credit address address-guard amount)))
+     (credit address address-guard amount))
+    )
 
   (defpact fund-tx (sender miner miner-guard total)
     @doc "'fund-tx' is a special pact to fund a transaction in two steps,     \
@@ -143,7 +142,10 @@
   (defun debit:string (account:string amount:decimal)
     @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
 
-    @model [(property (> amount 0.0))]
+    @model [ (property (> amount 0.0)) ]
+
+    (enforce (> amount 0.0)
+      "debit amount must be positive")
 
     (require-capability (TRANSFER))
     (with-capability (ACCOUNT_GUARD account)
@@ -160,7 +162,12 @@
   (defun credit:string (account:string guard:guard amount:decimal)
     @doc "Credit AMOUNT to ACCOUNT balance recording DATE and DATA"
 
-    @model [(property (> amount 0.0))]
+    @model [ (property (> amount 0.0))
+             (property (not (= account "")))
+           ]
+
+    (enforce (> amount 0.0)
+      "debit amount must be positive")
 
     (require-capability (TRANSFER))
     (with-default-read coin-table account
@@ -176,64 +183,58 @@
         })
       ))
 
-  (defun delete-coin (delete-account create-chain-id create-account create-account-guard quantity)
-    @doc "Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, and \
-         \produce an SPV receipt which may be manually redeemed for an SPV      \
-         \proof. Once a proof is obtained, the user may call 'create-coin' and  \
-         \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT        \
-         \QUANTITY-many coins."
+  (defpact cross-chain-transfer
+    ( delete-account:string
+      create-chain-id:string
+      create-account:string
+      create-account-guard:guard
+      quantity:decimal )
 
-    @model [(property (> amount 0.0))]
+    @doc "Transfer QUANTITY coins from DELETE-ACCOUNT on current chain to           \
+         \CREATE-ACCOUNT on CREATE-CHAIN-ID. Target chain id must not be the        \
+         \current chain-id.                                                         \
+         \                                                                          \
+         \Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, \
+         \and produce an SPV receipt which may be manually redeemed for an SPV      \
+         \proof. Once a proof is obtained, the user may call 'create-coin' and      \
+         \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT QUANTITY-  \
+         \many coins.                                                               \
+         \                                                                          \
+         \Step 2: Consume an SPV proof for a number of coins, and credit the        \
+         \account associated with the proof the quantify of coins burned on the     \
+         \source chain by the burn account. Note: must be called on the correct     \
+         \chain id as specified in the proof."
 
-    (with-capability (TRANSFER)
-      (debit delete-account quantity)
+    @model [ (property (> quantity 0.0))
+           , (property (not (= create-chain-id "")))
+           ]
 
-      { "create-chain-id": create-chain-id
-      , "create-account": create-account
-      , "create-account-guard": create-account-guard
-      , "quantity": quantity
-      , "delete-block-height": (at 'block-height (chain-data))
-      , "delete-chain-id": (at 'chain-id (chain-data))
-      , "delete-account": delete-account
-      , "delete-tx-hash": (tx-hash)
-      })
-    )
+    (step
+      (with-capability (TRANSFER)
+        (enforce (not (= (at 'chain-id (chain-data)) create-chain-id))
+          "cannot run cross-chain transfers to the same chain")
 
-  (defun create-coin (proof)
-    @doc "Consume an SPV proof for a number of coins, and credit the account   \
-         \associated with the proof the quantify of coins burned on the source \
-         \chain by the burn account. Note: must be called on the correct chain \
-         \id as specified in the proof."
+        (debit delete-account quantity)
+        (let
+          ((retv:object{transfer-schema}
+            { "create-account": create-account
+            , "create-account-guard": create-account-guard
+            , "quantity": quantity
+            }))
+          (yield retv create-chain-id)
+          )))
 
-    (let ((outputs (verify-spv "TXOUT" proof)))
-      (bind outputs
-        { "create-chain-id":= create-chain-id
-        , "create-account" := create-account
+    (step
+      (resume
+        { "create-account" := create-account
         , "create-account-guard" := create-account-guard
         , "quantity" := quantity
-        , "delete-tx-hash" := delete-tx-hash
-        , "delete-chain-id" := delete-chain-id
         }
 
-        (enforce
-          (= create-chain-id (at "chain-id" (chain-data)))
-          "enforce correct create chain ID")
-
-        (let ((create-id (format "{}:{}" [delete-tx-hash delete-chain-id])))
-          (with-default-read creates-table create-id
-            { "exists": false }
-            { "exists":= exists }
-
-            (enforce (not exists)
-              (format "enforce unique usage of {}" [create-id]))
-
-            (insert creates-table create-id { "exists": true })
-
-            (with-capability (TRANSFER)
-              (credit create-account create-account-guard quantity)))
-          )))
+        (with-capability (TRANSFER)
+          (credit create-account create-account-guard quantity))
+        ))
     )
 )
 
 (create-table coin-table)
-(create-table creates-table)

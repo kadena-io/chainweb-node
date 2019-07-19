@@ -21,14 +21,17 @@ module Chainweb.Pact.Types
   , toMinerData, fromMinerData
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
+  , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
     -- * types
   , PactServiceM
+  , TransactionM
+  , ModuleCache
+  , HashCommandResult
     -- * optics
   , minerAccount
   , minerKeys
-  , noopMemPoolAccess
   , pdbspRestoreFile
   , pdbspPactDbState
   , psMempoolAccess
@@ -42,7 +45,6 @@ module Chainweb.Pact.Types
   , emptyPayload
   , noMiner
   , noCoinbase
-  , HashCommandResult
     -- * module exports
   , module Chainweb.Pact.Backend.Types
   ) where
@@ -54,9 +56,9 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Default (def)
+import Data.HashMap.Strict
 import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 -- internal pact modules
 
@@ -66,8 +68,10 @@ import Pact.Types.Command
 import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
+import Pact.Types.Runtime (ModuleData)
+import Pact.Types.Server (CommandEnv)
 import Pact.Types.SPV
-import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Term (KeySet(..), Name(..), PactId(..), Ref, ModuleName)
 
 -- internal chainweb modules
 
@@ -78,7 +82,10 @@ import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils
 
+
 type HashCommandResult = CommandResult H.Hash
+
+type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
 data Transactions = Transactions
     { _transactionPairs :: !(Vector (Transaction, HashCommandResult))
@@ -165,12 +172,16 @@ data MemPoolAccess = MemPoolAccess
   , mpaProcessFork :: BlockHeader -> IO ()
   }
 
-noopMemPoolAccess :: MemPoolAccess
-noopMemPoolAccess = MemPoolAccess
-    { mpaGetBlock = \_ _ _ -> return V.empty
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
-    }
+instance Semigroup MemPoolAccess where
+  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+
+instance Monoid MemPoolAccess where
+  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
+
+newtype GasId = GasId PactId deriving (Eq, Show)
+
+type TransactionM p a = ReaderT (CommandEnv p) IO a
+
 
 makeLenses ''MinerInfo
 makeLenses ''PactDbStatePersist

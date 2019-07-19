@@ -51,6 +51,7 @@ import Data.Maybe (isNothing)
 import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -428,14 +429,15 @@ runCoinbase
     -> MinerInfo
     -> PactServiceM HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
-runCoinbase (Just _parentHash) (Env' dbEnv) mi@MinerInfo{..} = do
+runCoinbase (Just parentHash) (Env' dbEnv) mi@MinerInfo{..} = do
   psEnv <- ask
 
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
       pd = _psPublicData psEnv
       logger = _cpeLogger . _psCheckpointEnv $ psEnv
 
-  toHashCommandResult <$!> liftIO (applyCoinbase logger dbEnv mi reward pd)
+  cr <- liftIO $! applyCoinbase logger dbEnv mi reward pd parentHash
+  return $! toHashCommandResult cr
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
@@ -445,9 +447,10 @@ applyPactCmds
     -> Vector (P.Command PayloadWithText)
     -> MinerInfo
     -> PactServiceM (Vector HashCommandResult)
-applyPactCmds isGenesis env' cmds miner = V.mapM f cmds
+applyPactCmds isGenesis env' cmds miner =
+    V.fromList . sfst <$> V.foldM f mempty cmds
   where
-      f cmd = applyPactCmd isGenesis env' cmd miner
+    f  (T2 v mcache) cmd = applyPactCmd isGenesis env' cmd miner mcache v
 
 -- | Apply a single Pact command
 applyPactCmd
@@ -455,8 +458,10 @@ applyPactCmd
     -> Env'
     -> P.Command PayloadWithText
     -> MinerInfo
-    -> PactServiceM HashCommandResult
-applyPactCmd isGenesis (Env' dbEnv) cmdIn miner = do
+    -> ModuleCache
+    -> [HashCommandResult]
+    -> PactServiceM (T2 [HashCommandResult] ModuleCache)
+applyPactCmd isGenesis (Env' dbEnv) cmdIn miner mcache v = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         !gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
@@ -465,10 +470,11 @@ applyPactCmd isGenesis (Env' dbEnv) cmdIn miner = do
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let !cmd = payloadObj <$> cmdIn
-    result <- liftIO $ if isGenesis
+    T2 result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner gasModel pd spv cmd
-    pure $! toHashCommandResult result
+        else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
+
+    pure $! T2 (toHashCommandResult result : v) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)

@@ -1,7 +1,7 @@
 stages:
   - build
   - test
-  - deploy
+  # - deploy
 
 # This is small check to confirm that the shell's limits for opening file
 # descriptors is sufficiently high. This is relevant for our property tests, in
@@ -31,18 +31,18 @@ nix-macos:
   script:
     - nix-build
     - nix-shell --run "echo Done with shell test"
-    - nix-build -A ghc.chainweb.doc
+    # - nix-build -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
 #    "--arg runCoverage true" to nix-build, but that means that the
 #    chainweb-node binary will also be built with coverage turned on which is
 #    probably not what we want.
 
-    - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-      - public/
-    expire_in: 1 week
+  #   # - scripts/collectArtifacts.sh
+  # artifacts:
+  #   paths:
+  #     - public/
+  #   expire_in: 1 week
 
 nix-linux:
   stage: build
@@ -54,18 +54,18 @@ nix-linux:
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - nix-shell --run "echo Done with shell test"
     - ./result/ghc/chainweb/bin/chainweb-node --version
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
+    # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
 #    "--arg runCoverage true" to nix-build, but that means that the
 #    chainweb-node binary will also be built with coverage turned on which is
 #    probably not what we want.
 
-    - scripts/collectArtifacts.sh
-  artifacts:
-    paths:
-    - public/
-    expire_in: 1 week
+    # - scripts/collectArtifacts.sh
+  # artifacts:
+  #   paths:
+  #   - public/
+  #   expire_in: 1 week
 
 # 2019 Feb 11 - This is bottlenecking CI quite severely.
 # stack:
@@ -85,13 +85,13 @@ slow-tests:
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - result/ghc/chainweb/bin/cwtool slow-tests
 
-pages:
-  stage: deploy
-  script:
-  - echo 'Nothing to do...'
-  artifacts:
-    paths:
-    - public/
+# pages:
+#   stage: deploy
+#   script:
+#   - echo 'Nothing to do...'
+#   artifacts:
+#     paths:
+#     - public/
 
 ##############################################################################
 # Nightly jobs
@@ -102,8 +102,8 @@ nightly-nix:
     - schedules
   script:
     - echo This is a nightly build!
-    - nix-build docker.nix
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
+    # - nix-build docker.nix
+    # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
     # It probably makes sense to run coverage nightly
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg runCoverage true

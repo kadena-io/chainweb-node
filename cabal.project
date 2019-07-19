@@ -11,15 +11,21 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: d10173c574ae4dce1dae5a5dcbaf1ec4a9feb2c3
+    tag: a622a1e1097fa9bf1a966e0914e05c9ceffdb46a
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/thyme.git
     tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/chainweb-storage.git
+    tag: 216b059889dab8b2bdf19a9d41c79fbb2cdd7771
+
 constraints:
       megaparsec <7.0
     , neat-interpolation <0.3.2.4
     , swagger2 < 2.4
     , these < 1
+    , base-unicode-symbols < 0.2.4

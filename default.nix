@@ -50,12 +50,12 @@ in
           sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
 
-        chainweb = enableDWARFDebugging (overrideCabal super.chainweb (drv: {
+        chainweb = justStaticExecutables (enableDWARFDebugging (overrideCabal super.chainweb (drv: {
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
           testTarget = "--test-option=--hide-successes";
-        }));
+        })));
 
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
 
@@ -83,36 +83,32 @@ in
           sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
         };
 
-        vector-algorithms = callHackageDirect {
-          pkg = "vector-algorithms";
-          ver = "0.8.0.1";
-          sha256 = "1kvi2xqpiz7n7713m4gf702bmgbibrh4mnjdmq5s0i6nbb58zylm";
-        };
-
         # --- massiv --- #
         massiv = callHackageDirect {
           pkg = "massiv";
-          ver = "0.3.0.0";
-          sha256 = "0yv5vq9v18jzs5mbg2qpyh18dbc54s143231b3d0bw9mawp81nsi";
+          ver = "0.3.6.0";
+          sha256 = "1wcvs705b377zm0l33mhpzy1kyhwclxqkd5gzhk7dsd6ymnrlmpm";
         };
 
         scheduler = callHackageDirect {
           pkg = "scheduler";
-          ver = "1.0.0";
-          sha256 = "0kmb7v5bl5rcn37bgz1ghrdpr22dbxkzmrd6h65jkhbvciz8hqlf";
+          ver = "1.4.1";
+          sha256 = "00nr6bdazbaqjv2fw55krbi7g8xi2vdvhdvb6z83ag905c79jyci";
+        };
+
+        # This is a benchmark dep of `scheduler`, but Nix seems to want it
+        # anyway, despite scheduler being marked as `dontBenchmark`.
+        fib = callHackageDirect {
+          pkg = "fib";
+          ver = "0.1";
+          sha256 = "0yv5vq9v18jzs5mbg2qpyh18dbc54s143231b3d0bw9mawp81nsa";
         };
         # --- end massiv --- #
 
-        fast-builder = callHackageDirect {
-          pkg = "fast-builder";
-          ver = "0.1.0.0";
-          sha256 = "1lww53vn38pin1kw87bambqjd7f4bsw1b5ix77zclvg4gj257pm1";
-        };
-
         wai-middleware-throttle = callHackageDirect {
           pkg = "wai-middleware-throttle";
-          ver = "0.3.0.0";
-          sha256 = "01ay49qwa5g0x00khzn2kxw58bzmafs5n32bz4g4lf14mw7dway7";
+          ver = "0.3.0.1";
+          sha256 = "13pz31pl7bk51brc88jp0gffjx80w35kzzrv248w27d7dc8xc63x";
         };
 
         strict-tuple = callHackageDirect {
@@ -121,17 +117,11 @@ in
           sha256 = "108rgvqybrvscr5r9h577q4dh4pyjlc5knixla5ha5s8ycxi4c0m";
         };
 
-        bounded-queue = callHackageDirect {
-          pkg = "bounded-queue";
-          ver = "1.0.0";
-          sha256 = "04p9p8n3l75lhc0f4g7q8qwxwcjpv11mqyf46wxnb3s9wd0wyazc";
-        };
-
-        nonempty-containers = callHackageDirect {
+        nonempty-containers = dontCheck (callHackageDirect {
           pkg = "nonempty-containers";
-          ver = "0.1.1.0";
-          sha256 = "09cq35spxppyhyigf2y6fhw4x72hg1jm80agzw8ccq1zbml7pnmv";
-        };
+          ver = "0.3.1.0";
+          sha256 = "1hnwvhz9w07z2mlq75iz0bysz586d828725k1bx8mjqvc86ncv8m";
+        });
 
         configuration-tools = dontCheck (callHackageDirect {
           pkg = "configuration-tools";
@@ -185,23 +175,17 @@ in
 
         fake = doJailbreak (callHackageDirect {
           pkg = "fake";
-          ver = "0.1.1.1";
-          sha256 = "17b2iwqg62cl7r7lafjm8fj1chb104g2gdq8p2bbsgvvr39v0ras";
+          ver = "0.1.1.2";
+          sha256 = "1swp4j80761rfb0xiwshf0zal02ykwrbv49iyjay9ivvka367wk9";
         });
         # --- end of `tasty` dependents --- #
-
-        extra = dontCheck (callHackageDirect {
-          pkg = "extra";
-          ver = "1.6.13";
-          sha256 = "03kw3jd7779vp4i7nrgvdkb34jxwqn1kvggag2562j1337b5gybr";
-        });
 
         # pact-3.0.1
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "d10173c574ae4dce1dae5a5dcbaf1ec4a9feb2c3";
-          sha256 = "188ywk13rwsw8w9ba9v90lbk8asffa7izxlw0zink3qh70x019pi";
+          rev = "a622a1e1097fa9bf1a966e0914e05c9ceffdb46a";
+          sha256 = "09wwlzmj4qfjclnmchbp1hzbnrck4fipp3x2x10h565n28am5icg";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -321,12 +305,17 @@ in
           sha256 = "1glq01mdv2xjwx7vkf3yvyd2rs150zx9gr7jy0gk7qylq6ljx8w6";
         });
 
-        # specific revision needed by pact
-        sbv = pkgs.haskell.lib.dontCheck (self.callCabal2nix "sbv" (pkgs.fetchFromGitHub {
-          owner = "LeventErkok";
-          repo = "sbv";
-          rev = "365b1a369a2550d6284608df3fbc17e2663c4d3c";
-          sha256 = "134f148g28dg7b3c1rvkh85pfl9pdlvrvl6al4vlz72f3y5mb2xg";
+        sbv = dontCheck (callHackageDirect {
+          pkg = "sbv";
+          ver = "8.2";
+          sha256 = "1isa8p9dnahkljwj0kz10119dwiycf11jvzdc934lnjv1spxkc9k";
+        });
+
+        chainweb-storage = pkgs.haskell.lib.dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "chainweb-storage";
+          rev = "4a345323cd50f1fd24ed9565c0deeea5cc376db6";
+          sha256 = "0alqvb3hx7bvhq1mcpq8m0l2jcwz4b4xdp1d20r2fflbraqrvmgs";
         }) {});
 
         # Our own custom fork

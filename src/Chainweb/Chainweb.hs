@@ -85,7 +85,7 @@ module Chainweb.Chainweb
 
 import Chainweb.Payload.PayloadStore.RocksDB
 
-import Configuration.Utils hiding (Lens', (<.>))
+import Configuration.Utils hiding (Lens', (<.>), Error)
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
@@ -103,6 +103,7 @@ import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.Internal as HTTP
 import Network.Socket (Socket)
 import Network.Wai
+import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
@@ -464,7 +465,10 @@ runChainweb cw = do
         payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
         pactDbsToServe = _chainwebPactData cw
 
-        serverSettings = peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+        serverSettings
+            = setOnException
+                (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
+            $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
         serve = serveChainwebSocketTls
             serverSettings
             (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
@@ -512,3 +516,6 @@ runChainweb cw = do
   where
     logg = logFunctionText $ _chainwebLogger cw
     mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
+
+    loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
+    loggServerError Nothing e = "HTTP server error: " <> sshow e

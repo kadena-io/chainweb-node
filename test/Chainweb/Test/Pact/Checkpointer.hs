@@ -100,15 +100,15 @@ testCheckpointer loggers CheckpointEnv{..} dbState00 = do
 
       runExec :: Env' -> Maybe Value -> Text -> IO EvalResult
       runExec (Env' pactDbEnv) eData eCode = do
-          let cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def
+          let cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def noSPVSupport
           execMsg <- buildExecParsedCode eData eCode
-          applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
+          applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
 
       runCont :: Env' -> PactId -> Int -> IO EvalResult
       runCont (Env' pactDbEnv) pactId step = do
           let contMsg = ContMsg pactId step False Null Nothing
-              cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def
-          applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) noSPVSupport
+              cmdenv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv def noSPVSupport
+          applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
 
       ksData :: Text -> Value
       ksData idx =
