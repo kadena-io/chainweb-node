@@ -328,6 +328,7 @@ usePowHash Test{} f = f $ Proxy @SHA512t_256
 usePowHash TimedConsensus{} f = f $ Proxy @SHA512t_256
 usePowHash PowConsensus{} f = f $ Proxy @SHA512t_256
 usePowHash TimedCPM{} f = f $ Proxy @SHA512t_256
+usePowHash Development{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet01{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet02{} f = f $ Proxy @SHA512t_256

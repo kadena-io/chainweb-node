@@ -147,6 +147,7 @@ initialPayloadState Test{} _ _ = pure ()
 initialPayloadState TimedConsensus{} _ _ = pure ()
 initialPayloadState PowConsensus{} _ _ = pure ()
 initialPayloadState v@TimedCPM{} cid mpa = createCoinContract v cid mpa
+initialPayloadState v@Development cid mpa = createCoinContract v cid mpa
 initialPayloadState v@Testnet00 cid mpa = createCoinContract v cid mpa
 initialPayloadState v@Testnet01 cid mpa = createCoinContract v cid mpa
 initialPayloadState v@Testnet02 cid mpa = createCoinContract v cid mpa

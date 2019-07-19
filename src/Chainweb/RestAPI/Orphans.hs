@@ -255,6 +255,7 @@ instance ToParamSchema ChainwebVersion where
             , TimedConsensus petersonChainGraph
             , PowConsensus petersonChainGraph
             , TimedCPM petersonChainGraph
+            , Development
             , Testnet00
             , Testnet01
             , Testnet02

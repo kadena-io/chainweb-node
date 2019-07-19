@@ -178,6 +178,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
         TimedCPM{} -> mkPactExecutionService mempool requestQ
+        Development -> mkPactExecutionService mempool requestQ
         Testnet00 -> mkPactExecutionService mempool requestQ
         Testnet01 -> mkPactExecutionService mempool requestQ
         Testnet02 -> mkPactExecutionService mempool requestQ

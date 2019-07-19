@@ -73,7 +73,7 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
-    for_ [Testnet00, Testnet01, Testnet02] $ \v -> do
+    for_ [Development, Testnet00, Testnet01, Testnet02] $ \v -> do
         let txs = bool txs0 [defCoinContractSig, defCoinContract, defGrants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v txs

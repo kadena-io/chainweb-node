@@ -99,6 +99,7 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
+        , Chainweb.BlockHeader.Genesis.DevelopmentPayload
         , Chainweb.BlockHeader.Genesis.Testnet00Payload
         , Chainweb.BlockHeader.Genesis.Testnet01Payload
         , Chainweb.BlockHeader.Genesis.Testnet02Payload

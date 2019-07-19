@@ -181,6 +181,13 @@ data ChainwebVersion
         -- This is primarily used in our @run-nodes@ executable.
         --
 
+    ------------------------
+    -- DEVELOPMENT INSTANCES
+    ------------------------
+    | Development
+        -- ^ An instance which has no guarantees about the long-term stability
+        -- of its parameters. They are free to change as developers require.
+
     -----------------------
     -- PRODUCTION INSTANCES
     -----------------------
@@ -212,15 +219,17 @@ chainwebVersionId v@Test{} = toTestChainwebVersion v
 chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
-chainwebVersionId Testnet00 = 0x00000001
-chainwebVersionId Testnet01 = 0x00000002
-chainwebVersionId Testnet02 = 0x00000003
+chainwebVersionId Development = 0x00000001
+chainwebVersionId Testnet00 = 0x00000002
+chainwebVersionId Testnet01 = 0x00000003
+chainwebVersionId Testnet02 = 0x00000004
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
-fromChainwebVersionId 0x00000001 = Testnet00
-fromChainwebVersionId 0x00000002 = Testnet01
-fromChainwebVersionId 0x00000003 = Testnet02
+fromChainwebVersionId 0x00000001 = Development
+fromChainwebVersionId 0x00000002 = Testnet00
+fromChainwebVersionId 0x00000003 = Testnet01
+fromChainwebVersionId 0x00000004 = Testnet02
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
@@ -249,6 +258,7 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
 -- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
 -- new `ChainwebVersion` value!
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
+chainwebVersionToText Development = "development"
 chainwebVersionToText Testnet00 = "testnet00"
 chainwebVersionToText Testnet01 = "testnet01"
 chainwebVersionToText Testnet02 = "testnet02"
@@ -260,6 +270,7 @@ chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 -- | Read textual representation of a `ChainwebVersion`.
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
+chainwebVersionFromText "development" = pure Development
 chainwebVersionFromText "testnet00" = pure Testnet00
 chainwebVersionFromText "testnet01" = pure Testnet01
 chainwebVersionFromText "testnet02" = pure Testnet02
@@ -290,7 +301,11 @@ chainwebVersions = HM.fromList $
     <> f TimedConsensus "timedConsensus"
     <> f PowConsensus "powConsensus"
     <> f TimedCPM "timedCPM"
-    <> [ ("testnet00", Testnet00), ("testnet01", Testnet01), ("testnet02", Testnet02) ]
+    <> [ ("development", Development)
+       , ("testnet00", Testnet00)
+       , ("testnet01", Testnet01)
+       , ("testnet02", Testnet02)
+       ]
   where
     f v p = map (\(k, g) -> (p <> k, v g)) pairs
     pairs = [ ("-singleton", singletonChainGraph)
@@ -354,6 +369,8 @@ testVersionToCode Test{} = 0x80000000
 testVersionToCode TimedConsensus{} = 0x80000001
 testVersionToCode PowConsensus{} = 0x80000002
 testVersionToCode TimedCPM{} = 0x80000003
+testVersionToCode Development =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet00 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet01 =
@@ -373,6 +390,7 @@ chainwebVersionGraph (Test g) = g
 chainwebVersionGraph (TimedConsensus g) = g
 chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
+chainwebVersionGraph Development = twentyChainGraph
 chainwebVersionGraph Testnet00 = petersonChainGraph
 chainwebVersionGraph Testnet01 = twentyChainGraph
 chainwebVersionGraph Testnet02 = twentyChainGraph
