@@ -1,17 +1,17 @@
 # Provides mock system module for 'accounts'
 code: |-
-  (coin.coinbase "sender00" (read-keyset "sender00") 1000.0)
-  (coin.coinbase "sender01" (read-keyset "sender01") 1010.0)
-  (coin.coinbase "sender02" (read-keyset "sender02") 1020.0)
-  (coin.coinbase "sender03" (read-keyset "sender03") 1030.0)
-  (coin.coinbase "sender04" (read-keyset "sender04") 1040.0)
-  (coin.coinbase "sender05" (read-keyset "sender05") 1050.0)
-  (coin.coinbase "sender06" (read-keyset "sender06") 1060.0)
-  (coin.coinbase "sender07" (read-keyset "sender07") 1070.0)
-  (coin.coinbase "sender08" (read-keyset "sender08") 1080.0)
-  (coin.coinbase "sender09" (read-keyset "sender09") 1090.0)
-  (coin.coinbase "multi-00-01" (read-keyset "multi-00-01") 1001.0)
-  (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 1234.0)
+  (coin.coinbase "sender00" (read-keyset "sender00") 1000000000.0)
+  (coin.coinbase "sender01" (read-keyset "sender01") 1010000000.0)
+  (coin.coinbase "sender02" (read-keyset "sender02") 1020000000.0)
+  (coin.coinbase "sender03" (read-keyset "sender03") 1030000000.0)
+  (coin.coinbase "sender04" (read-keyset "sender04") 1040000000.0)
+  (coin.coinbase "sender05" (read-keyset "sender05") 1050000000.0)
+  (coin.coinbase "sender06" (read-keyset "sender06") 1060000000.0)
+  (coin.coinbase "sender07" (read-keyset "sender07") 1070000000.0)
+  (coin.coinbase "sender08" (read-keyset "sender08") 1080000000.0)
+  (coin.coinbase "sender09" (read-keyset "sender09") 1090000000.0)
+  (coin.coinbase "multi-00-01" (read-keyset "multi-00-01") 1001000000.0)
+  (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 1234000000.0)
 data:
   sender00: ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
   sender01: ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
