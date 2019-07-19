@@ -83,7 +83,7 @@ newtype MerkleLogHash = MerkleLogHash (MerkleRoot (HashAlg ChainwebHashTag))
 -- | Smart constructor
 --
 merkleLogHash :: MonadThrow m => B.ByteString -> m MerkleLogHash
-merkleLogHash = fmap MerkleLogHash . decodeMerkleRoot
+merkleLogHash = fmap MerkleLogHash . decodeMerkleRoot . B.copy
 {-# INLINE merkleLogHash #-}
 
 unsafeMerkleLogHash :: HasCallStack => B.ByteString -> MerkleLogHash
