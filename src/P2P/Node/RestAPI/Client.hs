@@ -45,6 +45,7 @@ peerGetClient
 peerGetClient (FromSing (SChainwebVersion :: Sing v)) = f
   where
     f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
+    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
     f (FromSing (SCutNetwork :: Sing n)) = client $ peerGetApi @v @n
 
 -- -------------------------------------------------------------------------- --
@@ -58,4 +59,5 @@ peerPutClient
 peerPutClient (FromSing (SChainwebVersion :: Sing v)) = f
   where
     f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
+    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
     f (FromSing (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n

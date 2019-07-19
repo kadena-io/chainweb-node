@@ -99,19 +99,19 @@ type MempoolApi v c t = MempoolInsertApi v c t :<|>
                         MempoolGetPendingApi v c t
 
 type MempoolInsertApi v c t =
-    'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "insert" :>
+    'ChainwebEndpoint v :> MempoolEndpoint c :> "insert" :>
     ReqBody '[JSON] [t] :> Put '[JSON] NoContent
 type MempoolMemberApi v c t =
-    'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "member" :>
+    'ChainwebEndpoint v :> MempoolEndpoint c :> "member" :>
     ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [Bool]
 type MempoolLookupApi v c t =
-    'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "lookup" :>
+    'ChainwebEndpoint v :> MempoolEndpoint c :> "lookup" :>
     ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult t]
 type MempoolGetBlockApi v c t =
-    'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getBlock" :>
+    'ChainwebEndpoint v :> MempoolEndpoint c :> "getBlock" :>
     QueryParam "blockSize" Int64 :> Post '[JSON] [t]
 type MempoolGetPendingApi v c t =
-    'ChainwebEndpoint v :> ChainEndpoint c :> "mempool" :> "getPending" :>
+    'ChainwebEndpoint v :> MempoolEndpoint c :> "getPending" :>
     QueryParam "nonce" ServerNonce :>
     QueryParam "since" MempoolTxId :>
     Post '[JSON] PendingTransactions

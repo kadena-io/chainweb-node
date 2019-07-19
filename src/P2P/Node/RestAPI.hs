@@ -102,6 +102,7 @@ someP2pApi :: ChainwebVersion -> NetworkId -> SomeApi
 someP2pApi (FromSing (SChainwebVersion :: Sing v)) = f
   where
     f (FromSing (SChainNetwork SChainId :: Sing n)) = SomeApi $ p2pApi @v @n
+    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = SomeApi $ p2pApi @v @n
     f (FromSing (SCutNetwork :: Sing n)) = SomeApi $ p2pApi @v @n
 
 someP2pApis :: ChainwebVersion -> [NetworkId] -> SomeApi
