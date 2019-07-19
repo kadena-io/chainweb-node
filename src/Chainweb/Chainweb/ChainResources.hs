@@ -242,7 +242,7 @@ runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
         & set p2pConfigMaxSessionCount (_mempoolP2pConfigMaxSessionCount memP2pConfig)
         & set p2pConfigSessionTimeout (_mempoolP2pConfigSessionTimeout memP2pConfig)
     peerDb = _peerResDb $ _chainResPeer chain
-    netId = ChainNetwork $ _chainId chain
+    netId = MempoolNetwork $ _chainId chain
 
     logg = logFunctionText syncLogger
     syncLogger = setComponent "mempool-sync" $ _chainResLogger chain

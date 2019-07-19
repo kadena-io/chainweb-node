@@ -115,6 +115,9 @@ p2pServer (PeerDbT db) = case sing @_ @n of
     SChainNetwork cid
         -> peerGetHandler db (ChainNetwork $ FromSing cid)
         :<|> peerPutHandler db (ChainNetwork $ FromSing cid)
+    SMempoolNetwork cid
+        -> peerGetHandler db (MempoolNetwork $ FromSing cid)
+        :<|> peerPutHandler db (MempoolNetwork $ FromSing cid)
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single P2P Network
@@ -128,6 +131,7 @@ chainP2pApp
 chainP2pApp db = case sing @_ @n of
     SCutNetwork -> serve (Proxy @(P2pApi v n)) (p2pServer db)
     SChainNetwork SChainId -> serve (Proxy @(P2pApi v n)) (p2pServer db)
+    SMempoolNetwork SChainId -> serve (Proxy @(P2pApi v n)) (p2pServer db)
 
 chainP2pApiLayout
     :: forall v n
@@ -138,6 +142,7 @@ chainP2pApiLayout
 chainP2pApiLayout _ = case sing @_ @n of
     SCutNetwork -> T.putStrLn $ layout (Proxy @(P2pApi v n))
     SChainNetwork SChainId -> T.putStrLn $ layout (Proxy @(P2pApi v n))
+    SMempoolNetwork SChainId -> T.putStrLn $ layout (Proxy @(P2pApi v n))
 
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
@@ -146,6 +151,7 @@ someP2pServer :: SomePeerDb -> SomeServer
 someP2pServer (SomePeerDb (db :: PeerDbT v n)) = case sing @_ @n of
     SCutNetwork -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
     SChainNetwork SChainId -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
+    SMempoolNetwork SChainId -> SomeServer (Proxy @(P2pApi v n)) (p2pServer db)
 
 someP2pServers :: ChainwebVersion -> [(NetworkId, PeerDb)] -> SomeServer
 someP2pServers v = mconcat
