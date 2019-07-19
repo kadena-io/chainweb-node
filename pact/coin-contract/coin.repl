@@ -84,8 +84,8 @@
 
 ;; transfers should respect balances as intended
 (credit 'k1 (read-keyset 'k1) 1.0)
-(expect-failure "transfers of trivial or negatie quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) 0.0))
-(expect-failure "transfers of trivial or negatie quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) (- 1.0)))
+(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) 0.0))
+(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) (- 1.0)))
 (expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k1 'k2 (read-keyset 'k2) 1.0))
 (expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k2 'k1 (read-keyset 'k1) 1.0))
 
