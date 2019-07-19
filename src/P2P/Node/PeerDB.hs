@@ -155,6 +155,10 @@ data PeerEntry = PeerEntry
         -- ids is increased. There should be only one active session per network
         -- id.
 
+--     , _peerEntrySessionCount :: !Natural
+--         -- ^ Count the number of sessions. When this number becomes to high
+--         -- we should
+
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, FromJSON, NFData)
@@ -406,6 +410,7 @@ somePeerDbVal :: ChainwebVersion -> NetworkId -> PeerDb -> SomePeerDb
 somePeerDbVal (FromSing (SChainwebVersion :: Sing v)) n db = f n
   where
     f (FromSing (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
+    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
     f (FromSing (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
 
 -- -------------------------------------------------------------------------- --

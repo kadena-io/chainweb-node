@@ -151,7 +151,9 @@ withSocket conf = bracket (allocateSocket conf) deallocateSocket
 startPeerDb_ :: ChainwebVersion -> P2pConfiguration -> IO PeerDb
 startPeerDb_ v conf = startPeerDb nids conf
   where
-    nids = HS.map ChainNetwork cids `HS.union` HS.singleton CutNetwork
+    nids = HS.singleton CutNetwork
+        `HS.union` HS.map MempoolNetwork cids
+        `HS.union` HS.map ChainNetwork cids
     cids = chainIds v
 
 withPeerDb_ :: ChainwebVersion -> P2pConfiguration -> (PeerDb -> IO a) -> IO a

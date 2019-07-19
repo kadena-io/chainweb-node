@@ -20,7 +20,6 @@
            ]
     )
 
-
   (defun account-balance:decimal (account:string)
     @doc "Query user account ACCOUNT balance")
 
