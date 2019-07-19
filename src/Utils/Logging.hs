@@ -502,7 +502,6 @@ withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
 
         errorLogFun Info $ "send " <> sshow (amberDataBatchSize - remaining) <> " messages"
         errorLogFun Info $ "http batch command: " <> sshow (BB.toLazyByteString (mkList batch))
-        errorLogFun Info $ "http request: " <> sshow (putBulkLog batch)
         resp <- HTTP.httpLbs (putBulkLog batch) mgr
         errorLogFun Info $ "response: " <> sshow (resp)
         --void $ HTTP.httpLbs (putBulgLog batch) mgr

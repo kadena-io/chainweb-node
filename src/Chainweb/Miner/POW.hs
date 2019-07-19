@@ -136,6 +136,12 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
                    (_blockHash newBh)
                    (_blockCreationTime newBh)
                    (_blockParent newBh)
+                   (_blockNonce newBh)
+                   (_blockMiner newBh)
+                   (_minedBlockSize nmb)
+                   (_minedBlockTrans nmb)
+                   (_blockChainId newBh)
+                   (_blockWeight newBh)
 
         logg Info $! "POW Miner: created new block" <> sshow i
         lf @(JsonLog NewMinedBlock) Info $ JsonLog nmb
