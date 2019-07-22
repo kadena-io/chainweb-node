@@ -162,6 +162,7 @@ newtype BlockPayloadHash = BlockPayloadHash MerkleLogHash
     deriving anyclass (NFData)
     deriving newtype (BA.ByteArrayAccess)
     deriving newtype (Hashable, ToJSON, FromJSON)
+    deriving newtype (ToJSONKey, FromJSONKey)
 
 encodeBlockPayloadHash :: MonadPut m => BlockPayloadHash -> m ()
 encodeBlockPayloadHash (BlockPayloadHash w) = encodeMerkleLogHash w
@@ -701,6 +702,11 @@ newBlockPayload mi co s = blockPayload txs outs
 -- -------------------------------------------------------------------------- --
 -- Payload Data
 
+-- | This contains all non-redundant payload data for a block. It doesn't
+-- contain any data that can be recomputed.
+--
+-- This data structure is used maintly to transfer payloads over the wire.
+--
 data PayloadData = PayloadData
     { _payloadDataTransactions :: !(S.Seq Transaction)
     , _payloadDataMiner :: !MinerData
