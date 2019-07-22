@@ -75,6 +75,7 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
+import Data.CAS.HashMap
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -437,9 +438,15 @@ cutHashesToBlockHeaderMap
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap headerStore payloadStore hs = do
+    hdrs <- emptyCas
+    traverse_ (casInsert hdrs) $ _cutHashesHeaders hs
+
+    plds <- emptyCas
+    traverse_ (casInsert plds) $ _cutHashesPayloads hs
+
     (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
         & S.map (fmap snd)
-        & S.mapM tryGetBlockHeader
+        & S.mapM (tryGetBlockHeader hdrs plds)
         & S.partitionEithers
         & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
         & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -450,8 +457,8 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
-    tryGetBlockHeader cv@(cid, _) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore cid priority origin) cv)
+    tryGetBlockHeader hdrs plds cv@(cid, _) =
+        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return $! Left cv

@@ -306,3 +306,12 @@ instance IsCasValue CutHashes where
 
 type CutHashesCas cas = CasConstraint cas CutHashes
 
+-- TODO
+--
+-- encodeCutHashes :: MonadPut m => CutHashes -> m ()
+-- encodeCutHashes = error "encodeCodeHashes: TODO"
+-- {-# INLINE encodeCutHashes #-}
+--
+-- decodeCutHashes :: MonadGet m => m CutId
+-- decodeCutHashes = error "decodeCutHashes: TODO"
+-- {-# INLINE decodeCutHashes #-}

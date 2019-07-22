@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -72,6 +73,7 @@ module Chainweb.Payload
 , PayloadData(..)
 , payloadData
 , newPayloadData
+, PayloadDataCas
 
 -- * All Payload Data in a Single Structure
 , PayloadWithOutputs(..)
@@ -750,6 +752,8 @@ payloadData txs payload = PayloadData
 
 newPayloadData :: BlockTransactions -> BlockOutputs -> PayloadData
 newPayloadData txs outputs = payloadData txs $ blockPayload txs outputs
+
+type PayloadDataCas cas = CasConstraint cas PayloadData
 
 -- -------------------------------------------------------------------------- --
 -- All Payload Data in a Single Structure
