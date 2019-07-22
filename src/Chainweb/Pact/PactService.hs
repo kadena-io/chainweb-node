@@ -16,29 +16,22 @@
 --
 -- Pact service for Chainweb
 module Chainweb.Pact.PactService
-    ( pactDbConfig
+    (
+      -- * For Chainweb
+      initialPayloadState
     , execNewBlock
-    , execNewGenesisBlock
-    , execTransactions
     , execValidateBlock
+    , execTransactions
     , initPactService
+      -- * For Side-tooling
+    , execNewGenesisBlock
     , initPactService'
-    , serviceRequests
-    , initialPayloadState
-    , transactionsFromPayload
-    , restoreCheckpointer
-    , finalizeCheckpointer
-    , toPayloadWithOutputs
-    , toTransactionBytes
-    , runCoinbase
-    , discardCheckpointer
     ) where
 
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding
-    (Handler(..), bracket, catches, finally, handle, try)
+import Control.Exception hiding (catches, Handler(..), finally, try)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -100,15 +93,6 @@ import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
-
-------------------------------------------------------------------------------
-pactDbConfig :: ChainwebVersion -> PactDbConfig
-pactDbConfig Test{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig TimedConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig PowConsensus{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig TimedCPM{} = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig Testnet00 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
-pactDbConfig Testnet01 = PactDbConfig Nothing "log-unused" [] (Just 0) (Just 0)
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -206,8 +190,10 @@ initialPayloadState Test{} _ _ = pure ()
 initialPayloadState TimedConsensus{} _ _ = pure ()
 initialPayloadState PowConsensus{} _ _ = pure ()
 initialPayloadState v@TimedCPM{} cid mpa = initializeCoinContract v cid mpa
+initialPayloadState v@Development cid mpa = initializeCoinContract v cid mpa
 initialPayloadState v@Testnet00 cid mpa = initializeCoinContract v cid mpa
 initialPayloadState v@Testnet01 cid mpa = initializeCoinContract v cid mpa
+initialPayloadState v@Testnet02 cid mpa = initializeCoinContract v cid mpa
 
 initializeCoinContract
     :: PayloadCas cas
