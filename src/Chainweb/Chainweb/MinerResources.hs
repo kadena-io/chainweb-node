@@ -84,5 +84,7 @@ runMiner v m = (chooseMiner v)
     chooseMiner TimedConsensus{} = testMiner
     chooseMiner PowConsensus{} = powMiner
     chooseMiner TimedCPM{} = testMiner
+    chooseMiner Development = powMiner
     chooseMiner Testnet00 = powMiner
     chooseMiner Testnet01 = powMiner
+    chooseMiner Testnet02 = powMiner
