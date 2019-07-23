@@ -40,6 +40,8 @@ module Chainweb.Cut.CutHashes
 , cutOrigin
 , cutHashesWeight
 , cutHashesHeight
+, cutHashesHeaders
+, cutHashesPayloads
 , cutToCutHashes
 , CutHashesCas
 ) where
@@ -85,6 +87,8 @@ import Chainweb.Cut
 import Chainweb.Utils
 import Chainweb.Version
 
+import Chainweb.Payload
+
 import Data.CAS
 
 import P2P.Peer
@@ -100,11 +104,16 @@ cutIdBytesCount = natVal $ Proxy @CutIdBytesCount
 
 -- | This is used to uniquly identify a cut.
 --
--- TODO: should we use a MerkelHash for this?
+-- TODO: should we use a MerkelHash for this, that that we could proof
+-- in clusion of a block header in a cut?
 --
 newtype CutId = CutId SB.ShortByteString
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Eq, Ord, Generic)
     deriving anyclass (NFData)
+
+instance Show CutId where
+    show = T.unpack . cutIdToText
+    {-# INLINE show #-}
 
 encodeCutId :: MonadPut m => CutId -> m ()
 encodeCutId (CutId w) = putByteString $ SB.fromShort w
@@ -151,6 +160,7 @@ instance HasTextRepresentation CutId where
 
 cutIdToTextShort :: CutId -> T.Text
 cutIdToTextShort = T.take 6 . toText
+{-# INLINE cutIdToTextShort #-}
 
 -- -------------------------------------------------------------------------- --
 -- HasCutId Class
@@ -191,6 +201,15 @@ instance HasCutId Cut where
 -- -------------------------------------------------------------------------- --
 -- Cut Hashes
 
+-- | This data structure is used to inform other components and chainweb nodes
+-- about new cuts along with some properties of the cut.
+--
+-- Generally, the 'Cut' is represented by providing the 'BlockHash' of the
+-- respective 'BlockHeader' for each chain in the 'Cut'.
+--
+-- Optionally, a node may attach the 'PayloadData' and/or the 'BlockHeader' for
+-- some of the block of the 'Cut'.
+--
 data CutHashes = CutHashes
     { _cutHashes :: !(HM.HashMap ChainId (BlockHeight, BlockHash))
     , _cutOrigin :: !(Maybe PeerInfo)
@@ -199,6 +218,10 @@ data CutHashes = CutHashes
     , _cutHashesHeight :: !BlockHeight
     , _cutHashesChainwebVersion :: !ChainwebVersion
     , _cutHashesId :: !CutId
+    , _cutHashesHeaders :: (HM.HashMap BlockHash BlockHeader)
+        -- ^ optional block headers
+    , _cutHashesPayloads :: (HM.HashMap BlockPayloadHash PayloadData)
+        -- ^ optional block payloads
     }
     deriving (Show, Generic)
     deriving anyclass (NFData)
@@ -227,6 +250,8 @@ instance ToJSON CutHashes where
         , "height" .= _cutHashesHeight c
         , "instance" .= _cutHashesChainwebVersion c
         , "id" .= _cutHashesId c
+        , "headers" .= _cutHashesHeaders c
+        , "payloads" .= _cutHashesPayloads c
         ]
       where
         hashWithHeight h = object
@@ -242,6 +267,8 @@ instance FromJSON CutHashes where
         <*> o .: "height"
         <*> o .: "instance"
         <*> hashId o
+        <*> o .: "headers"
+        <*> o .: "payloads"
       where
         hashWithHeight = withObject "HashWithHeight" $ \o -> (,)
             <$> o .: "height"
@@ -251,6 +278,9 @@ instance FromJSON CutHashes where
         hashId o = (o .: "id")
             <|> (_cutId @(HM.HashMap ChainId (BlockHeight, BlockHash)) <$> (o .: "hashes" >>= traverse hashWithHeight))
 
+-- | Compute a 'CutHashes' structure from a 'Cut'. The result doesn't include
+-- any block headers or payloads.
+--
 cutToCutHashes :: Maybe PeerInfo -> Cut -> CutHashes
 cutToCutHashes p c = CutHashes
     { _cutHashes = (_blockHeight &&& _blockHash) <$> _cutMap c
@@ -259,6 +289,8 @@ cutToCutHashes p c = CutHashes
     , _cutHashesHeight = _cutHeight c
     , _cutHashesChainwebVersion = _chainwebVersion c
     , _cutHashesId = _cutId c
+    , _cutHashesHeaders = mempty
+    , _cutHashesPayloads = mempty
     }
 
 instance HasCutId CutHashes where
@@ -274,3 +306,12 @@ instance IsCasValue CutHashes where
 
 type CutHashesCas cas = CasConstraint cas CutHashes
 
+-- TODO
+--
+-- encodeCutHashes :: MonadPut m => CutHashes -> m ()
+-- encodeCutHashes = error "encodeCodeHashes: TODO"
+-- {-# INLINE encodeCutHashes #-}
+--
+-- decodeCutHashes :: MonadGet m => m CutId
+-- decodeCutHashes = error "decodeCutHashes: TODO"
+-- {-# INLINE decodeCutHashes #-}

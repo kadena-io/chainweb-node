@@ -33,10 +33,11 @@ module Chainweb.MerkleLogHash
 ) where
 
 import Control.DeepSeq
-import Control.Monad.Catch (MonadThrow, displayException)
+import Control.Monad.Catch (MonadThrow, displayException, throwM)
 import Control.Monad.IO.Class (MonadIO(..))
 
-import Data.Aeson (FromJSON(..), ToJSON(..), withText)
+import Data.Aeson (FromJSON(..), FromJSONKey(..), ToJSON(..), ToJSONKey(..))
+import Data.Aeson.Types (FromJSONKeyFunction(..), toJSONKeyText)
 import Data.Bits
 import qualified Data.ByteArray as BA
 import Data.Bytes.Get
@@ -46,12 +47,13 @@ import qualified Data.ByteString.Random as BR
 import Data.Hashable (Hashable(..))
 import Data.MerkleLog hiding (Expected, Actual)
 import Data.Proxy
+import qualified Data.Text as T
 
 import Foreign.Storable
 
 import GHC.Generics
-import GHC.TypeNats
 import GHC.Stack (HasCallStack)
+import GHC.TypeNats
 
 import Numeric.Natural
 
@@ -121,12 +123,35 @@ oneHashBytes = unsafeMerkleLogHash $ B.replicate (int merkleLogHashBytesCount) 0
 randomMerkleLogHash :: MonadIO m => m MerkleLogHash
 randomMerkleLogHash = unsafeMerkleLogHash <$> liftIO (BR.random merkleLogHashBytesCount)
 
+merkleLogHashToText :: MerkleLogHash -> T.Text
+merkleLogHashToText = encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
+{-# INLINE merkleLogHashToText #-}
+
+merkleLogHashFromText :: MonadThrow m => T.Text -> m MerkleLogHash
+merkleLogHashFromText t = either (throwM . TextFormatException . sshow) return
+        $ runGet decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
+{-# INLINE merkleLogHashFromText #-}
+
+instance HasTextRepresentation MerkleLogHash where
+    toText = merkleLogHashToText
+    {-# INLINE toText #-}
+    fromText = merkleLogHashFromText
+    {-# INLINE fromText #-}
+
 instance ToJSON MerkleLogHash where
-    toJSON = toJSON . encodeB64UrlNoPaddingText . runPutS . encodeMerkleLogHash
+    toJSON = toJSON . toText
     {-# INLINE toJSON #-}
 
+instance ToJSONKey MerkleLogHash where
+    toJSONKey = toJSONKeyText toText
+    {-# INLINE toJSONKey #-}
+
 instance FromJSON MerkleLogHash where
-    parseJSON = withText "MerkleLogHash" $ \t ->
-        either (fail . show) return
-            $ runGet decodeMerkleLogHash =<< decodeB64UrlNoPaddingText t
+    parseJSON = parseJsonFromText "MerkleLogHash"
     {-# INLINE parseJSON #-}
+
+instance FromJSONKey MerkleLogHash where
+    fromJSONKey = FromJSONKeyTextParser
+        $ either fail return . eitherFromText
+    {-# INLINE fromJSONKey #-}
+

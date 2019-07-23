@@ -75,6 +75,7 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
+import Data.CAS.HashMap
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -337,6 +338,9 @@ stopCutDb db = cancel (_cutDbAsync db)
 -- in particular it should drive (or least preempt) synchronzations of block
 -- headers on indiviual chains.
 --
+-- After initialization, this function is the only writer to the 'TVar Cut' that
+-- stores the longest cut.
+--
 processCuts
     :: PayloadCas cas
     => LogFunction
@@ -347,32 +351,35 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
-    & S.chain (\c -> loggc Info c $ "start processing")
+    & S.chain (\c -> loggc Debug c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
-    & S.chain (\c -> loggc Info c $ "fetch all prerequesites")
+    & S.chain (\c -> loggc Debug c $ "fetch all prerequesites")
     & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
     & S.chain (either
         (\c -> loggc Warn c "failed to get prerequesites for some blocks")
-        (\c -> loggc Info c "got all prerequesites")
+        (\c -> loggc Debug c "got all prerequesites")
         )
     & S.concat
         -- ignore left values for now
-    & S.scanM
-        (\a b -> joinIntoHeavier_ (_webBlockHeaderStoreCas headerStore) (_cutMap a) b
+
+    -- using S.scanM would be slightly more efficient (one pointer dereference)
+    -- by keeping the value of cutVar in memory. We use the S.mapM variant with
+    -- an redundant 'readTVarIO' because it is eaiser to read.
+    & S.mapM_ (\newCut -> do
+        curCut <- readTVarIO cutVar
+        !resultCut <- joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
+        casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
+        atomically $ writeTVar cutVar resultCut
+        loggc Info resultCut "published cut"
         )
-        (readTVarIO cutVar)
-        (\(!c) -> do
-            casInsert cutHashesStore (cutToCutHashes Nothing c)
-            atomically (writeTVar cutVar c)
-            loggc Info c "published cut"
-        )
-    & S.effects
   where
     loggc :: HasCutId c => LogLevel -> c -> T.Text -> IO ()
     loggc l c msg = logFun @T.Text l $  "cut " <> cutIdToTextShort (_cutId c) <> ": " <> msg
+
+    hdrStore = _webBlockHeaderStoreCas headerStore
 
     graph = _chainGraph headerStore
 
@@ -389,7 +396,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
     farAhead x = do
         !h <- _cutHeight <$> readTVarIO cutVar
         let r = (int (_cutHashesHeight x) - farAheadThreshold) >= int h
-        when r $ loggc Info x
+        when r $ loggc Debug x
             $ "skip far ahead cut. Current height: " <> sshow h
             <> ", got: " <> sshow (_cutHashesHeight x)
         return r
@@ -397,19 +404,19 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
     isVeryOld x = do
         !h <- _cutHeight <$> readTVarIO cutVar
         let r = int (_cutHashesHeight x) <= (int h - threshold)
-        when r $ loggc Info x "skip very old cut"
+        when r $ loggc Debug x "skip very old cut"
         return r
 
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
-        when r $ loggc Info x "skip old cut"
+        when r $ loggc Debug x "skip old cut"
         return r
 
     isCurrent x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = _cutHashes curHashes == _cutHashes x
-        when r $ loggc Info x "skip current cut"
+        when r $ loggc Debug x "skip current cut"
         return r
 
 -- | Stream of most recent cuts. This stream does not generally include the full
@@ -437,9 +444,15 @@ cutHashesToBlockHeaderMap
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap headerStore payloadStore hs = do
+    hdrs <- emptyCas
+    traverse_ (casInsert hdrs) $ _cutHashesHeaders hs
+
+    plds <- emptyCas
+    traverse_ (casInsert plds) $ _cutHashesPayloads hs
+
     (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
         & S.map (fmap snd)
-        & S.mapM tryGetBlockHeader
+        & S.mapM (tryGetBlockHeader hdrs plds)
         & S.partitionEithers
         & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
         & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
@@ -450,8 +463,8 @@ cutHashesToBlockHeaderMap headerStore payloadStore hs = do
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
 
-    tryGetBlockHeader cv@(cid, _) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore cid priority origin) cv)
+    tryGetBlockHeader hdrs plds cv@(cid, _) =
+        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return $! Left cv
