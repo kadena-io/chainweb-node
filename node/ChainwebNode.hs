@@ -75,7 +75,6 @@ import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.HostAddress (readHostAddressBytes)
 import Chainweb.Logger
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
@@ -272,7 +271,7 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps
+    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed
@@ -301,26 +300,15 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
+    amberdataConfig = _logConfigAmberdataBackend logConfig
 
 mkAmberdataLogger
     :: HTTP.Manager
-    -> EnableConfig AmberdataConfig
+    -> Maybe AmberdataConfig
     -> (Backend (JsonLog AmberdataBlock) -> IO b)
     -> IO b
-mkAmberdataLogger mgr = configureHandler $
-  withAmberDataBlocksBackend mgr
-
-{--
-mkAmberdataLogger mgr = do
-  hostaddr <- readHostAddressBytes "blockchains.amberdata.io:443"
-  configureHandler withAmberDataBlocksBackend
-    mgr
-    hostaddr
-    "5cf5b1ef5b74a0055faa6ac648fdff76"
-    "19c5dee45294751c"
-    inner
---}
-    
+mkAmberdataLogger _ Nothing inner = inner (const $ return ())
+mkAmberdataLogger mgr (Just config) inner = withAmberDataBlocksBackend mgr config inner
 
 mkTelemetryLogger
     :: forall a b
