@@ -691,8 +691,6 @@ data NewMinedBlock = NewMinedBlock
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
 
-
-
 data AmberdataBlock = AmberdataBlock
   { _amberdataNumber :: {-# UNPACK #-} !BlockHeight
   , _amberdataHash :: {-# UNPACK #-} !BlockHash

@@ -96,6 +96,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.Chan
 import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
+import Data.Bool (bool)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -103,7 +104,7 @@ import Control.Monad.IO.Class
 import Control.Monad.STM
 import Control.Monad.Trans.Control
 
-import Data.Aeson.Encoding hiding (int)
+import Data.Aeson.Encoding hiding (int, bool)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Text as T
@@ -471,23 +472,24 @@ amberDataBatchDelayMs = 1000
 --
 withAmberDataBlocksBackend
     :: HTTP.Manager
-    -> HostAddress
-    -> T.Text
-    -> T.Text
+    -> AmberdataConfig
     -> (Backend (JsonLog AmberdataBlock) -> IO b)
     -> IO b
-withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
+withAmberDataBlocksBackend mgr (AmberdataConfig esServer api bid doDebug) inner = do
     queue <- newTBQueueIO 2000
     withAsync (runForever errorLogFun "Utils.Logging.withAmberdataBackend" (processor queue)) $ \_ -> do
         inner $ \a -> atomically (writeTBQueue queue a)
 
   where
     errorLogFun Error msg = T.hPutStrLn stderr msg
-    errorLogFun _ msg = T.hPutStrLn stdout msg
-    --errorLogFun _ msg = T.hPutStrLn stdout msg
+    -- Print debug statements only if debugging turned on
+    errorLogFun Debug msg = bool (return ())
+                                 (T.hPutStrLn stdout msg)
+                                 doDebug
+    errorLogFun _ _ = return ()
 
     -- Collect messages. If there is at least one pending message, submit a
-    -- `blocks` request every second or when the batch size is 1000 messages,
+    -- `blocks` request every second or when the batch size is {amberDataBatchSize} messages,
     -- whatever happens first.
     --
     processor queue = do
@@ -500,11 +502,11 @@ withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
             h <- readTBQueue queue
             go amberDataBatchSize (initIndex h) timer
 
-        errorLogFun Info $ "send " <> sshow (amberDataBatchSize - remaining) <> " messages"
-        errorLogFun Info $ "http batch command: " <> sshow (BB.toLazyByteString (mkList batch))
+        errorLogFun Debug $ "[Amberdata] Send " <> sshow (amberDataBatchSize - remaining) <> " messages"
         resp <- HTTP.httpLbs (putBulkLog batch) mgr
-        errorLogFun Info $ "response: " <> sshow (resp)
-        --void $ HTTP.httpLbs (putBulgLog batch) mgr
+        errorLogFun Debug $ "[Amberdata] Response: " <> sshow (resp)
+        errorLogFun Debug $ "[Amberdata] Request Body: " <> sshow (BB.toLazyByteString (mkList batch))
+       
       where
         go 0 !batch _ = return $! (0, batch)
         go !remaining !batch !timer = isTimeout `orElse` fill
@@ -526,22 +528,18 @@ withAmberDataBlocksBackend mgr esServer apiKey blockchainId inner = do
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/json"),
                                  ("accept", "application/json"),
-                                 ("x-amberdata-api-key", T.encodeUtf8 apiKey),
-                                 ("x-amberdata-blockchain-id", T.encodeUtf8 blockchainId)]
+                                 ("x-amberdata-api-key", T.encodeUtf8 api),
+                                 ("x-amberdata-blockchain-id", T.encodeUtf8 bid)]
         , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString (mkList a)
         }
 
     e = fromEncoding . toEncoding
     initIndex (L.LogMessage a _ _ _)
-      = BB.char7 ' '
-      <> e a
+      = BB.char7 ' ' <> e a
     indexWithComma (L.LogMessage a _ _ _)
-      = BB.char7 ','
-      <> e a
+      = BB.char7 ',' <> e a
     mkList a
-      = BB.char7 '['
-      <> a
-      <> BB.char7 ']'
+      = BB.char7 '[' <> a <> BB.char7 ']'
 
 -- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend

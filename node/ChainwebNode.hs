@@ -304,16 +304,23 @@ withNodeLogger logConfig v f = runManaged $ do
 
 mkAmberdataLogger
     :: HTTP.Manager
+    -> EnableConfig AmberdataConfig
     -> (Backend (JsonLog AmberdataBlock) -> IO b)
     -> IO b
-mkAmberdataLogger mgr inner = do
+mkAmberdataLogger mgr = configureHandler $
+  withAmberDataBlocksBackend mgr
+
+{--
+mkAmberdataLogger mgr = do
   hostaddr <- readHostAddressBytes "blockchains.amberdata.io:443"
-  withAmberDataBlocksBackend
+  configureHandler withAmberDataBlocksBackend
     mgr
     hostaddr
     "5cf5b1ef5b74a0055faa6ac648fdff76"
     "19c5dee45294751c"
     inner
+--}
+    
 
 mkTelemetryLogger
     :: forall a b

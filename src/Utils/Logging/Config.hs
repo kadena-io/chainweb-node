@@ -43,6 +43,9 @@ module Utils.Logging.Config
 , pBackendConfig
 , pBackendConfig_
 
+-- * Amberdata Logger Backend
+, AmberdataConfig(..)
+  
 -- * Logging Config
 , ClusterId
 , LogConfig(..)
@@ -50,6 +53,7 @@ module Utils.Logging.Config
 , logConfigBackend
 , logConfigTelemetryBackend
 , logConfigClusterId
+, logConfigAmberdataBackend
 , defaultLogConfig
 , validateLogConfig
 , pLogConfig
@@ -63,6 +67,7 @@ import Control.DeepSeq
 import Control.Lens.TH
 import Control.Monad.Catch
 import Control.Monad.Writer
+import Data.Bool (bool)
 
 import qualified Data.CaseInsensitive as CI
 import Data.String
@@ -146,7 +151,7 @@ handleConfigFromText x = case CI.mk x of
   where configFromTextErr e =
           throwM $ DecodeException $ "unexpected logger handle value: "
           <> fromString (show e)
-          <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<HOST>:<PORT> or \"ad:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>\"\""
+          <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<HOST>:<PORT>\""
 
 handleConfigToText :: HandleConfig -> T.Text
 handleConfigToText StdOut = "stdout"
@@ -257,10 +262,67 @@ instance HasTextRepresentation ClusterId where
     toText (ClusterId t) = t
     fromText = return . ClusterId
 
+
+-- | Backend for logging to Amberdata
+--
+data AmberdataConfig
+  = AmberdataConfig
+    { _ambredataConfigHost :: HostAddress
+    , _amberdataApiKey :: T.Text
+    , _amberdataBlockchainId :: T.Text
+    , _amberdataDebug :: Bool
+    }
+  deriving (Show, Eq, Ord, Generic)
+
+amberdataConfigFromText :: MonadThrow m => T.Text -> m AmberdataConfig
+amberdataConfigFromText x
+  | CI.mk (T.take (T.length hostPrefix) x) == CI.mk hostPrefix =
+      case T.splitOn "::" x of
+        [hostStr, api, bid, "debug"] -> formatConfig hostStr api bid True
+        [hostStr, api, bid] -> formatConfig hostStr api bid False
+        _ -> configFromTextErr $ CI.mk x
+  | otherwise = configFromTextErr $ CI.mk x
+
+  where hostPrefix = "amberdata:"
+
+        configFromTextErr e =
+          throwM $ DecodeException $ "unexpected logger handle value: "
+          <> fromString (show e)
+          <> ", expected \"amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>\""
+          <> " or \"amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>::debug\""
+
+        formatConfig hostStr api bid doDebug = do
+          hostAddr <- fromText $ T.drop (T.length hostPrefix) hostStr
+          return $ AmberdataConfig hostAddr api bid doDebug
+
+amberdataConfigToText :: AmberdataConfig -> T.Text
+amberdataConfigToText (AmberdataConfig serv api bid debugResp)
+  = "amberdata:" <> toText serv
+    <> "::" <> api
+    <> "::" <> bid
+    <> bool "" ("::" <> "debug") debugResp
+
+instance HasTextRepresentation AmberdataConfig where
+    toText = amberdataConfigToText
+    fromText = amberdataConfigFromText
+
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+instance ToJSON AmberdataConfig where
+    toJSON = String . amberdataConfigToText
+
+instance FromJSON AmberdataConfig where
+    parseJSON = parseJsonFromText "AmberdataConfig"
+
+
+-- | General logging config
+--
 data LogConfig = LogConfig
     { _logConfigLogger :: !LoggerConfig
     , _logConfigBackend :: !BackendConfig
     , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
+    , _logConfigAmberdataBackend :: !(Maybe AmberdataConfig)
     , _logConfigClusterId :: !(Maybe ClusterId)
     }
     deriving (Show, Eq, Ord, Generic)
@@ -272,6 +334,8 @@ defaultLogConfig = LogConfig
     { _logConfigLogger = defaultLoggerConfig
     , _logConfigBackend = defaultBackendConfig
     , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
+    , _logConfigAmberdataBackend = Nothing
+      -- ^ Amberdata logging disabled by default
     , _logConfigClusterId = Nothing
     }
 
@@ -287,6 +351,7 @@ instance ToJSON LogConfig where
         , "backend" .= _logConfigBackend o
         , "telemetryBackend" .= _logConfigTelemetryBackend o
         , "clusterId" .= _logConfigClusterId o
+        , "amberdataBackend" .= _logConfigAmberdataBackend o
         ]
 
 instance FromJSON (LogConfig -> LogConfig) where
@@ -295,6 +360,7 @@ instance FromJSON (LogConfig -> LogConfig) where
         <*< logConfigBackend %.: "backend" % o
         <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
         <*< logConfigClusterId ..: "clusterId" % o
+        <*< logConfigAmberdataBackend ..: "amberdataBackend" % o
 
 pLogConfig :: MParser LogConfig
 pLogConfig = pLogConfig_ ""
@@ -314,3 +380,8 @@ pLogConfig_ prefix = id
     <*< logConfigClusterId .:: fmap Just % textOption
         % long "cluster-id"
         <> help "a label that is added to all log messages from this node"
+    <*< logConfigAmberdataBackend .:: fmap Just % textOption
+        % long (T.unpack prefix <> "amberdata-config")
+        <> metavar ("amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>"
+                <> " or amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>::debug")
+        <> help "config for logging to amberdata"
