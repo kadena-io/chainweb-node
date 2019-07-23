@@ -49,6 +49,7 @@ import Prelude hiding (lookup)
 import Servant.API
 import Servant.Client
 
+import System.IO.Extra
 import System.LogLevel
 import System.Time.Extra
 
@@ -325,7 +326,7 @@ runTestNodes rdb loglevel v n portMVar =
 node :: RocksDb -> LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
 node rdb loglevel peerInfoVar conf = do
     rocksDb <- testRocksDb ("remotePactTest-" <> encodeUtf8 (toText nid)) rdb
-    withChainweb conf logger rocksDb $ \cw -> do
+    System.IO.Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb (Just dir) False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and publish via an MVar.
         when (nid == NodeId 0) $ do

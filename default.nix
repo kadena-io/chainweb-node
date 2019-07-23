@@ -336,6 +336,7 @@ in
       stack = pkgs.stack;
       cabal-install = pkgs.haskellPackages.cabal-install;
       ghcid = pkgs.haskellPackages.ghcid;
+      z3 = pkgs.z3;
     };
     shells = {
       ghc = ["chainweb"];

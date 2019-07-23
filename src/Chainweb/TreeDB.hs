@@ -65,6 +65,7 @@ module Chainweb.TreeDB
 , forkEntry
 , branchDiff
 , branchDiff_
+, collectForkBlocks
 
 -- * properties
 , properties
@@ -88,6 +89,8 @@ import qualified Data.List as L
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import Data.Typeable
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import GHC.Generics
 
@@ -95,6 +98,7 @@ import Numeric.Natural
 
 import Prelude hiding (lookup)
 
+import Streaming.Prelude (Of)
 import qualified Streaming.Prelude as S
 
 import Test.QuickCheck
@@ -709,6 +713,37 @@ branchDiff_ db = go
             rp <- step r
             go lp rp
     step = lift . lookupParentM GenesisParentThrow db
+
+
+-- -------------------------------------------------------------------------- --
+-- | Collects the blocks on the old and new branches of a fork. Returns
+--   @(commonAncestor, oldBlocks, newBlocks)@.
+collectForkBlocks
+    :: forall db . TreeDb db
+    => db
+    -> DbEntry db
+    -> DbEntry db
+    -> IO (DbEntry db, Vector (DbEntry db), Vector (DbEntry db))
+collectForkBlocks db lastHeader newHeader = do
+    (oldL, newL) <- go (branchDiff db lastHeader newHeader) ([], [])
+    when (null oldL) $ throwM $ TreeDbParentMissing @db lastHeader
+    let !common = head oldL
+    let !old = V.fromList $ tail oldL
+    let !new = V.fromList $ tail newL
+    return $! (common, old, new)
+  where
+    go !stream (!oldBlocks, !newBlocks) = do
+        nxt <- S.next stream
+        case nxt of
+            -- end of the stream, last item is common branch point of the forks
+            -- removing the common branch block with tail -- the lists should never be empty
+            Left _ -> return (oldBlocks, newBlocks)
+
+            Right (LeftD blk, strm) -> go strm (blk:oldBlocks, newBlocks)
+            Right (RightD blk, strm) -> go strm (oldBlocks, blk:newBlocks)
+            Right (BothD lBlk rBlk, strm) -> go strm ( lBlk:oldBlocks,
+                                                       rBlk:newBlocks )
+{-# INLINE collectForkBlocks #-}
 
 -- -------------------------------------------------------------------------- --
 -- Properties

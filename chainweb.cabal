@@ -108,6 +108,7 @@ library
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
+        , Chainweb.BlockHeaderDB.Types
         , Chainweb.ChainId
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
@@ -124,6 +125,7 @@ library
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
+        , Chainweb.CutDB.Types
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
@@ -144,8 +146,9 @@ library
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
-        , Chainweb.Payload.PayloadStore.RocksDB
         , Chainweb.Payload.PayloadStore.InMemory
+        , Chainweb.Payload.PayloadStore.RocksDB
+        , Chainweb.Payload.PayloadStore.Types
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
@@ -165,6 +168,7 @@ library
         , Chainweb.Store.CAS.FS
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Sync.WebBlockHeaderStore.Test
+        , Chainweb.Sync.WebBlockHeaderStore.Types
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
@@ -177,7 +181,9 @@ library
         , Chainweb.Utils.RequestLog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
+        , Chainweb.WebBlockHeaderDB.Types
         , Chainweb.WebPactExecutionService
+        , Chainweb.WebPactExecutionService.Types
 
         , Control.Concurrent.FixedThreadPool
 
@@ -207,18 +213,22 @@ library
         , P2P.TaskQueue.Test
 
         -- pact
+        , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.InMemoryCheckpointer
-        , Chainweb.Pact.Backend.MemoryDb
+        , Chainweb.Pact.Backend.RelationalCheckpointer
+        , Chainweb.Pact.Backend.SQLite.DirectV2
+        , Chainweb.Pact.Backend.SQLite.V2
         , Chainweb.Pact.Backend.Types
+        , Chainweb.Pact.Backend.Utils
         , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
+        , Chainweb.Pact.SPV
         , Chainweb.Pact.Service.BlockValidation
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
-        , Chainweb.Pact.SPV
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
@@ -255,10 +265,12 @@ library
         , data-dword >= 0.3
         , deepseq >= 1.4
         , digraph >= 0.1.0.2
+        , direct-sqlite >= 2.3
         , directory >= 1.3
         , dlist >= 0.8
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2
@@ -286,6 +298,7 @@ library
         , reflection >= 2.1
         , resourcet >= 1.2
         , safeio >= 0.0
+        , safe-exceptions >= 0.1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -353,6 +366,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
+        Chainweb.Test.Pact.PactReplay
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.Utils
@@ -387,6 +401,7 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
+        , direct-sqlite >= 2.3
         , exceptions
         , extra >= 1.6
         , hashable >= 1.2
@@ -406,6 +421,7 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
+        , safe-exceptions >= 0.1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -419,6 +435,7 @@ test-suite chainweb-tests
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
+        , temporary >= 1.3
         , text >=1.2
         , these >= 0.7 && < 1
         , transformers >= 0.5
@@ -554,6 +571,7 @@ executable cwtool
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
+        , temporary >= 1.3
         , text >= 1.2
         , time >= 1.8
         , transformers >= 0.5

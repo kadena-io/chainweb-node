@@ -18,9 +18,9 @@ module Chainweb.Test.Pact.PactExec
 
 import Data.Aeson
 import Data.String.Conv (toS)
+import Data.Text (Text, pack)
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
-import Data.Text (Text, pack)
 
 import GHC.Generics (Generic)
 
@@ -32,11 +32,14 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeader.Genesis
+import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.Types.Command
 
@@ -44,16 +47,29 @@ testVersion :: ChainwebVersion
 testVersion = Testnet00
 
 tests :: ScheduledTest
-tests = testGroupSch "Chainweb.Test.Pact.PactExec"
-    [ withPactCtx testVersion Nothing $ \ctx -> testGroup "single transactions"
-        $ schedule Sequential
+tests = ScheduledTest label $
+        withResource newPayloadDb killPdb $ \pdb ->
+        withRocksResource $ \rocksIO ->
+        testGroup label
+    [ withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+        \ctx -> testGroup "single transactions" $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             ]
-    , withPactCtx testVersion Nothing $ \ctx2 -> _schTest $ execTest ctx2 testReq6
+    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+      \ctx2 -> _schTest $ execTest ctx2 testReq6
     ]
+  where
+    bhdbIO rocksIO = do
+        rdb <- rocksIO
+        let genesisHeader = genesisBlockHeader testVersion cid
+        testBlockHeaderDb rdb genesisHeader
+
+    label = "Simple pact execution tests"
+    killPdb _ = return ()
+    cid = someChainId Testnet00
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
@@ -124,7 +140,7 @@ testReq6 = TestRequest
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-execTest :: (forall a . PactServiceM a -> IO a) -> TestRequest -> ScheduledTest
+execTest :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestRequest -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData

@@ -15,6 +15,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 #ifndef MIN_VERSION_servant_client
 #define MIN_VERSION_servant_client(a,b,c) 1
@@ -45,7 +46,6 @@ module Chainweb.Sync.WebBlockHeaderStore
 ) where
 
 import Control.Concurrent.Async
-import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -54,8 +54,6 @@ import Data.Foldable
 import Data.Hashable
 import Data.Reflection (give)
 import qualified Data.Text as T
-
-import GHC.Generics (Generic)
 
 import qualified Network.HTTP.Client as HTTP
 
@@ -67,12 +65,12 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId
-import Chainweb.Graph (HasChainGraph(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Client
+import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.TreeDB
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.TreeDB.RemoteDB
@@ -120,78 +118,9 @@ memoInsert cas m k a = casLookup cas k >>= \case
         return v
     (Just !x) -> return x
 
--- -------------------------------------------------------------------------- --
--- Tag Values With a ChainId
-
-data ChainValue a = ChainValue !ChainId !a
-    deriving (Show, Eq, Ord, Generic)
-    deriving (Functor, Foldable, Traversable)
-    deriving anyclass (NFData, Hashable)
-
-instance TraversableWithIndex ChainId ChainValue where
-  itraverse f (ChainValue cid v) = ChainValue cid <$> f cid v
-  {-# INLINE itraverse #-}
-
-instance FoldableWithIndex ChainId ChainValue
-instance FunctorWithIndex ChainId ChainValue
-
-instance IsCasValue a => IsCasValue (ChainValue a) where
-    type CasKeyType (ChainValue a) = ChainValue (CasKeyType a)
-    casKey (ChainValue cid a) = ChainValue cid (casKey a)
-    {-# INLINE casKey #-}
-
-instance HasChainId (ChainValue a) where
-    _chainId (ChainValue cid _) = cid
-    {-# INLINE _chainId #-}
-
 chainValue :: HasChainId v => v -> ChainValue v
 chainValue v = ChainValue (_chainId v) v
 {-# INLINE chainValue #-}
-
--- -------------------------------------------------------------------------- --
--- Append Only CAS for WebBlockHeaderDb
-
-newtype WebBlockHeaderCas = WebBlockHeaderCas WebBlockHeaderDb
-
-instance HasChainwebVersion WebBlockHeaderCas where
-    _chainwebVersion (WebBlockHeaderCas db) = _chainwebVersion db
-    {-# INLINE _chainwebVersion #-}
-
-instance IsCas WebBlockHeaderCas where
-    type CasValueType WebBlockHeaderCas = ChainValue BlockHeader
-    casLookup (WebBlockHeaderCas db) (ChainValue cid h) =
-        (Just . ChainValue cid <$> give db (lookupWebBlockHeaderDb cid h))
-            `catch` \e -> case e of
-                TDB.TreeDbKeyNotFound _ -> return Nothing
-                _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
-    casInsert (WebBlockHeaderCas db) (ChainValue _ h)
-        = give db (insertWebBlockHeaderDb h)
-    casDelete = error "not implemented"
-
-    -- This is fine since the type 'WebBlockHeaderCas' is not exported. So the
-    -- instance is available only locally.
-    --
-    -- The instance requires that memoCache doesn't delete from the cas.
-
--- -------------------------------------------------------------------------- --
--- Obtain and Validate Block Payloads
-
-data WebBlockPayloadStore cas = WebBlockPayloadStore
-    { _webBlockPayloadStoreCas :: !(PayloadDb cas)
-        -- ^ Cas for storing complete payload data including outputs.
-    , _webBlockPayloadStoreMemo :: !(TaskMap BlockPayloadHash PayloadData)
-        -- ^ Internal memo table for active tasks
-    , _webBlockPayloadStoreQueue :: !(PQueue (Task ClientEnv PayloadData))
-        -- ^ task queue for scheduling tasks with the task server
-    , _webBlockPayloadStoreLogFunction :: !LogFunction
-        -- ^ LogFunction
-    , _webBlockPayloadStoreMgr :: !HTTP.Manager
-        -- ^ Manager object for making HTTP requests
-    , _webBlockPayloadStorePact :: !WebPactExecutionService
-        -- ^ handle to the pact execution service for validating transactions
-        -- and computing outputs.
-    }
-
 
 -- | Query a payload either from the local store, or the origin, or P2P network.
 --
@@ -428,29 +357,6 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
     --     liftIO $ logg Info $ taskMsg ck $ "pre-fetched " <> sshow l <> " block headers"
     --     return ()
 
--- -------------------------------------------------------------------------- --
--- WebBlockHeaderStore
-
--- | In order to use this a processor for the queue is needed.
---
--- The module P2P.TaskQueue provides a P2P session that serves the queue.
---
--- TODO
---
--- * Find a better name
--- * Parameterize in cas
--- * This is currently based on TreeDB (for API) and BlockHeaderDB, it
---   would be possible to run this on top of any CAS and API that offers
---   a simple GET.
---
-data WebBlockHeaderStore = WebBlockHeaderStore
-    { _webBlockHeaderStoreCas :: !WebBlockHeaderDb
-    , _webBlockHeaderStoreMemo :: !(TaskMap (ChainValue BlockHash) (ChainValue BlockHeader))
-    , _webBlockHeaderStoreQueue :: !(PQueue (Task ClientEnv (ChainValue BlockHeader)))
-    , _webBlockHeaderStoreLogFunction :: !LogFunction
-    , _webBlockHeaderStoreMgr :: !HTTP.Manager
-    }
-
 newWebBlockHeaderStore
     :: HTTP.Manager
     -> WebBlockHeaderDb
@@ -485,14 +391,6 @@ newWebPayloadStore mgr pact payloadCas logfun = do
     return $! WebBlockPayloadStore
         payloadCas payloadMemo payloadTaskQueue logfun mgr pact
 
-instance HasChainwebVersion WebBlockHeaderStore where
-    _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas
-    {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph WebBlockHeaderStore where
-    _chainGraph = _chainGraph . _webBlockHeaderStoreCas
-    {-# INLINE _chainGraph #-}
-
 getBlockHeader
     :: PayloadCas cas
     => WebBlockHeaderStore
@@ -513,3 +411,20 @@ getBlockHeader headerStore payloadStore cid priority maybeOrigin h
         maybeOrigin
         (ChainValue cid h)
 {-# INLINE getBlockHeader #-}
+
+
+instance IsCas WebBlockHeaderCas where
+    type CasValueType WebBlockHeaderCas = ChainValue BlockHeader
+    casLookup (WebBlockHeaderCas db) (ChainValue cid h) =
+        (Just . ChainValue cid <$> give db (lookupWebBlockHeaderDb cid h))
+            `catch` \e -> case e of
+                TDB.TreeDbKeyNotFound _ -> return Nothing
+                _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
+    casInsert (WebBlockHeaderCas db) (ChainValue _ h)
+        = give db (insertWebBlockHeaderDb h)
+    casDelete = error "not implemented"
+
+    -- This is fine since the type 'WebBlockHeaderCas' is not exported. So the
+    -- instance is available only locally.
+    --
+    -- The instance requires that memoCache doesn't delete from the cas.
