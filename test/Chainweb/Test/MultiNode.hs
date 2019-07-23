@@ -203,7 +203,7 @@ node
     -> RocksDb
     -> IO ()
 node loglevel write stateVar bootstrapPeerInfoVar conf rdb = do
-    withChainweb conf logger nodeRocksDb $ \cw -> do
+    withChainweb conf logger nodeRocksDb Nothing False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
         -- publish via an MVar.

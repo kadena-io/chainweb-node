@@ -13,6 +13,11 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
+-- due to module import cycle-breaking with pact: pact wants a BlockHeaderDB,
+-- but the TreeDB instance wants to know about genesis blocks, which requires
+-- validation, which requires pact
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- |
 -- Module: Chainweb.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -37,7 +42,6 @@ module Chainweb.BlockHeaderDB
 ) where
 
 import Control.Arrow
-import Control.DeepSeq
 import Control.Lens hiding (children)
 import Control.Monad
 import Control.Monad.Catch
@@ -45,22 +49,18 @@ import Control.Monad.IO.Class
 import Control.Monad.ST
 import Control.Monad.Trans.Maybe
 
-import Data.Aeson
 import qualified Data.BloomFilter.Easy as BF (suggestSizing)
 import qualified Data.BloomFilter.Hash as BF
 import qualified Data.BloomFilter.Mutable as BF
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Function
-import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Text.Encoding as T
-
-import GHC.Generics
 
 import Numeric.Natural
 
@@ -74,6 +74,7 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB.Types
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.ChainId
 import Chainweb.Logger
@@ -86,36 +87,10 @@ import Chainweb.Version
 import Data.CAS
 import Data.CAS.RocksDB
 
-import Numeric.Additive
-
 -- -------------------------------------------------------------------------- --
 -- Internal
 
 type E = BlockHeader
-
--- -------------------------------------------------------------------------- --
--- Ranked Block Header
-
-newtype RankedBlockHeader = RankedBlockHeader { _getRankedBlockHeader :: BlockHeader }
-    deriving (Show, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (Hashable, Eq, ToJSON, FromJSON)
-
-instance HasChainwebVersion RankedBlockHeader where
-    _chainwebVersion = _chainwebVersion . _getRankedBlockHeader
-    {-# INLINE _chainwebVersion #-}
-
-instance HasChainId RankedBlockHeader where
-    _chainId = _chainId . _getRankedBlockHeader
-    {-# INLINE _chainId #-}
-
-instance HasChainGraph RankedBlockHeader where
-    _chainGraph = _chainGraph . _getRankedBlockHeader
-    {-# INLINE _chainGraph #-}
-
-instance Ord RankedBlockHeader where
-    compare = compare `on` ((_blockHeight &&& id) . _getRankedBlockHeader)
-    {-# INLINE compare #-}
 
 encodeRankedBlockHeader :: MonadPut m => RankedBlockHeader -> m ()
 encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
@@ -124,16 +99,6 @@ encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 decodeRankedBlockHeader :: MonadGet m => m RankedBlockHeader
 decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 {-# INLINE decodeRankedBlockHeader #-}
-
--- -------------------------------------------------------------------------- --
--- Ranked Block Hash
-
-data RankedBlockHash = RankedBlockHash
-    { _rankedBlockHashHeight :: !BlockHeight
-    , _rankedBlockHash :: !BlockHash
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
 
 encodeRankedBlockHash :: MonadPut m => RankedBlockHash -> m ()
 encodeRankedBlockHash (RankedBlockHash r bh) = do
@@ -147,61 +112,13 @@ decodeRankedBlockHash = RankedBlockHash
     <*> decodeBlockHash
 {-# INLINE decodeRankedBlockHash #-}
 
-instance IsCasValue RankedBlockHeader where
-    type CasKeyType RankedBlockHeader = RankedBlockHash
-    casKey (RankedBlockHeader bh)
-        = RankedBlockHash (_blockHeight bh) (_blockHash bh)
-    {-# INLINE casKey #-}
-
 -- -------------------------------------------------------------------------- --
--- BlockRank
-
-newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
-    deriving (Show, Generic)
-    deriving anyclass (NFData)
-    deriving newtype
-        ( Eq, Ord, Hashable, ToJSON, FromJSON
-        , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
-        , Num, Integral, Real, Enum
-        )
-
--- -------------------------------------------------------------------------- --
--- Chain Database Handle
-
 -- | Configuration of the chain DB.
 --
 data Configuration = Configuration
     { _configRoot :: !BlockHeader
     , _configRocksDb :: !RocksDb
     }
-
--- | A handle to the database. This is a mutable stateful object.
---
--- The database is guaranteed to never be empty.
---
--- The Constructors and record fields are private to this module in order to
--- guarantee consistency of the database.
---
-data BlockHeaderDb = BlockHeaderDb
-    { _chainDbId :: !ChainId
-    , _chainDbChainwebVersion :: !ChainwebVersion
-    , _chainDbCas :: !(RocksDbTable RankedBlockHash RankedBlockHeader)
-        -- ^ Ranked block hashes provide fast access and iterating  by block
-        -- height. Blocks of similar height are stored and cached closely
-        -- together. This table is an instance of 'IsCas'.
-
-    , _chainDbRankTable :: !(RocksDbTable BlockHash BlockHeight)
-        -- ^ This index supports lookup of a block hash for which the height
-        -- isn't known
-    }
-
-instance HasChainId BlockHeaderDb where
-    _chainId = _chainDbId
-    {-# INLINE _chainId #-}
-
-instance HasChainwebVersion BlockHeaderDb where
-    _chainwebVersion = _chainDbChainwebVersion
-    {-# INLINE _chainwebVersion #-}
 
 -- -------------------------------------------------------------------------- --
 -- Prune Old Forks

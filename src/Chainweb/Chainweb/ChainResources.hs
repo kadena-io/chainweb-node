@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -42,19 +41,14 @@ import Data.Maybe
 import Data.Semigroup
 import qualified Data.Text as T
 
-import GHC.Stack
-
 import qualified Network.HTTP.Client as HTTP
 
 import Prelude hiding (log)
-
-import qualified Streaming.Prelude as S
 
 import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -68,17 +62,15 @@ import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
+import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
-import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
-import Data.CAS
 import Data.CAS.RocksDB
 
 import P2P.Node
@@ -124,26 +116,32 @@ withChainResources
     -> logger
     -> Mempool.InMemConfig ChainwebTransaction
     -> MVar (CutDb cas)
-    -> Maybe (PayloadDb cas)
+    -> PayloadDb cas
     -> Bool
         -- ^ whether to prune the chain database
+    -> Maybe FilePath
+        -- ^ database directory for checkpointer
+    -> Maybe NodeId
+    -> Bool
+        -- ^ reset database directory
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
+withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
       Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv $ \requestQ -> do
-
+        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
+        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb dbDir nodeid resetDb $
+          \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"
                 x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
 
-                    -- FIXME At the time of writing his payload hashes are not unique. The pruning
-                    -- algorithm can handle non-uniquness between within a chain between forks, but not
-                    -- accross chains. Also cas-deletion is sound for payload hashes if outputs are
-                    -- unique for payload hashes.
+                    -- FIXME At the time of writing his payload hashes are not
+                    -- unique. The pruning algorithm can handle non-uniquness
+                    -- between within a chain between forks, but not accross
+                    -- chains. Also cas-deletion is sound for payload hashes if
+                    -- outputs are unique for payload hashes.
                     --
                     -- Renable this code once pact
                     --
@@ -152,14 +150,12 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
                     -- guarantees that transaction hashes are unique.
                     --
                     -- unless payloadInUse
-                    --     $ casDelete (fromJuste payloadDb) (_blockPayloadHash h)
+                    --     $ casDelete payloadDb (_blockPayloadHash h)
                     return ()
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
             -- replay pact
             let pact = pes mempool requestQ
-            -- payloadStore is only 'Nothing' in some unit tests not using this code
-            replayPact logger pact cdb $ fromJust payloadDb
 
             -- run inner
             inner $ ChainResources
@@ -182,35 +178,6 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune inner =
         Testnet00 -> mkPactExecutionService mempool requestQ
         Testnet01 -> mkPactExecutionService mempool requestQ
         Testnet02 -> mkPactExecutionService mempool requestQ
-
--- -------------------------------------------------------------------------- --
--- Initialization and Housekeeping
-
--- | Replay transactions for the payloads of /all/ blocks including forks.
---
-replayPact
-    :: HasCallStack
-    => Logger logger
-    => PayloadCas cas
-    => logger
-    -> PactExecutionService
-    -> BlockHeaderDb
-    -> PayloadDb cas
-    -> IO ()
-replayPact logger pact cdb pdb = do
-    logg Info "start replaying pact transactions"
-    (l, _) <- entries cdb Nothing Nothing Nothing Nothing $ \s -> s
-        & S.drop 1
-        & S.mapM_ (\h -> payload h >>= _pactValidateBlock pact h)
-    logg Info $ "finished replaying " <> sshow l <> " pact transactions"
-  where
-    payload h = casLookup pdb (_blockPayloadHash h) >>= \case
-        Nothing -> do
-            logg Error $ "Corrupted database: failed to load payload data for block header " <> sshow h
-            error $ "Corrupted database: failed to load payload data for block header " <> sshow h
-        (Just !p) -> return $! payloadWithOutputsToPayloadData p
-
-    logg = logFunctionText (setComponent "pact-tx-replay" logger)
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

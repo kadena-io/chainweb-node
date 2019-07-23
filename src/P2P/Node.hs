@@ -301,7 +301,7 @@ syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
 syncFromPeer node info = runClientM sync env >>= \case
     Left e
         | isCertMismatch e -> do
-            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknow certificate. Deleting peer from peer db"
+            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknown certificate. Deleting peer from peer db"
             peerDbDelete (_p2pNodePeerDb node) info
             return False
         | otherwise -> do

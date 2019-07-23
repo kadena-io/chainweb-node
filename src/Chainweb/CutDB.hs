@@ -103,6 +103,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
+import Chainweb.CutDB.Types
 import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
@@ -181,30 +182,6 @@ cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
         (\(a,b,c) -> runPut $ encodeBlockHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
         (runGet $ (,,) <$> decodeBlockHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
-
--- -------------------------------------------------------------------------- --
--- Cut DB
-
--- | This is a singleton DB that contains the latest chainweb cut as only entry.
---
-data CutDb cas = CutDb
-    { _cutDbCut :: !(TVar Cut)
-    , _cutDbQueue :: !(PQueue (Down CutHashes))
-    , _cutDbAsync :: !(Async ())
-    , _cutDbLogFunction :: !LogFunction
-    , _cutDbHeaderStore :: !WebBlockHeaderStore
-    , _cutDbPayloadStore :: !(WebBlockPayloadStore cas)
-    , _cutDbQueueSize :: !Natural
-    , _cutDbStore :: !(RocksDbCas CutHashes)
-    }
-
-instance HasChainGraph (CutDb cas) where
-    _chainGraph = _chainGraph . _cutDbHeaderStore
-    {-# INLINE _chainGraph #-}
-
-instance HasChainwebVersion (CutDb cas) where
-    _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
-    {-# INLINE _chainwebVersion #-}
 
 cutDbPayloadCas :: Getter (CutDb cas) (PayloadDb cas)
 cutDbPayloadCas = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
