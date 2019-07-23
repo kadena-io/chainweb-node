@@ -22,10 +22,11 @@
 module Chainweb.Miner.Test ( testMiner ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Lens (view, (^?!))
+import Control.Lens (view, (^?!), set)
 
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -113,8 +114,6 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
     ver <- getVer
     go gen ver 1
   where
-    wcdb = view cutDbWebBlockHeaderDb cutDb
-    payloadDb = view cutDbPayloadCas cutDb
     payloadStore = view cutDbPayloadStore cutDb
 
     logg :: LogLevel -> T.Text -> IO ()
@@ -168,7 +167,10 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
-        addCutHashes cutDb (cutToCutHashes Nothing c')
+        addCutHashes cutDb $! cutToCutHashes Nothing c'
+            & set cutHashesHeaders (HM.singleton (_blockHash newBh) newBh)
+            & set cutHashesPayloads
+                (HM.singleton (_blockPayloadHash newBh) (payloadWithOutputsToPayloadData payload))
 
         go gen ver (i + 1)
       where
@@ -229,7 +231,8 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         -- INVARIANT: `testMine` will succeed on the first attempt when
         -- POW is not used.
         --
-        result <- testMineWithPayload wcdb payloadDb (Nonce nonce) target ct payload nid cid c pact
+        let payloadHash = _payloadWithOutputsPayloadHash payload
+        result <- testMineWithPayloadHash (Nonce nonce) target ct payloadHash nid cid c
 
         case result of
             Left BadNonce -> do

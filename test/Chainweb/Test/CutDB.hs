@@ -39,6 +39,7 @@ import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Function
+import Data.Reflection
 import qualified Data.Sequence as Seq
 import Data.Tuple.Strict
 
@@ -359,7 +360,7 @@ mine miner pact cutDb c = do
     -- * the transaction generator produces valid blocks.
     cid <- getRandomUnblockedChain c
 
-    tryMine miner pact cutDb c cid >>= \case
+    tryMineForChain miner pact cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
             "Failed to create new cut. This is a bug in Test.Chainweb.CutDB or one of it's users"
         Right x -> do
@@ -385,7 +386,7 @@ getRandomUnblockedChain c = do
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
 --
-tryMine
+tryMineForChain
     :: forall cas
     . HasCallStack
     => PayloadCas cas
@@ -399,21 +400,30 @@ tryMine
     -> Cut
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
-tryMine miner webPact cutDb c cid = do
+tryMineForChain miner webPact cutDb c cid = do
     outputs <- _webPactNewBlock webPact miner parent
+    let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
-    x <- testMineWithPayload webDb payloadDb (Nonce 0) target t outputs (NodeId 0) cid c pact
+    x <- testMineWithPayloadHash (Nonce 0) target t payloadHash (NodeId 0) cid c
     case x of
-        Right (T2 _ c') -> do
+        Right (T2 h c') -> do
+            validate h outputs
             addCutHashes cutDb (cutToCutHashes Nothing c')
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where
     parent = c ^?! ixg cid -- parent to mine on
     target = _blockTarget parent -- No difficulty adjustment
+
     payloadDb = view cutDbPayloadCas cutDb
     webDb = view cutDbWebBlockHeaderDb cutDb
     pact = _webPactExecutionService webPact
+
+    validate h outputs = do
+        let pd = payloadWithOutputsToPayloadData outputs
+        void $ _pactValidateBlock pact h pd
+        addNewPayload payloadDb outputs
+        give webDb (insertWebBlockHeaderDb h)
 
 -- | picks a random block header from a web chain. The result header is
 -- guaranteed to not be a genesis header.
