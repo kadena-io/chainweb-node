@@ -383,7 +383,6 @@ execNewGenesisBlock miner newTrans = do
     return $! toPayloadWithOutputs miner results
 
 
-
 execLocal
     :: PayloadCas cas
     => ChainwebTransaction

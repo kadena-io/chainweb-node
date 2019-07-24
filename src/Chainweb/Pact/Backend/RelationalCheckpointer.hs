@@ -119,7 +119,7 @@ doDiscard dbenv = runBlockEnv dbenv $ rollbackSavepoint Block
 doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
     runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
-        r <- qry db qtext [] [RInt, RBlob] >>= mapM go
+        r <- qry_ db qtext [RInt, RBlob] >>= mapM go
         case r of
           [] -> return Nothing
           (!o:_) -> return $! Just o

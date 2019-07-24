@@ -391,10 +391,6 @@ checkpointerTest name initdata =
 
           discard _cpeCheckpointer
 
-          -- updating key previously written at blockheight 1 (the "restore point")
-          void $ runExec blockenv23 Nothing "(m1.updateTbl 'b 3)"
-
-
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
