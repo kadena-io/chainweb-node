@@ -29,6 +29,8 @@
 (expect-failure "credit should fail when TRANSFER is not in scope" (credit 'k1 (read-keyset 'k1) 1.0))
 (expect-failure "debit should fail when TRANSFER is not in scope" (debit 'k1 1.0))
 (test-capability (TRANSFER))
+(expect-failure "debit not > 0.0 quantities fail fast" (debit 'k1 0.0))
+(expect-failure "debit not > 0.0 quantities fail fast" (debit 'k1 (- 1.0)))
 (expect-failure "debit from account with 0.0 in it yields failure" (debit 'k1 1.0))
 (credit 'k1 (read-keyset 'k1) 1.0)
 (expect "account balance reflects credit" 1.0 (account-balance 'k1))
@@ -36,6 +38,8 @@
 (expect "debiting funds now succeeds when there's enough funds" 0.0 (account-balance 'k1))
 ;crediting non-existing accounts with guard should have supplied keys
 (credit 'k3 (read-keyset 'k3) 1.0)
+(expect-failure "crediting trivial or negative funds fails fast" (credit 'k3 (read-keyset 'k3) 0.0))
+(expect-failure "crediting trivial or negative funds fails fast" (credit 'k3 (read-keyset 'k3) (- 1.0)))
 (expect "crediting funds to new account succeeds with correct balance" 1.0 (account-balance 'k3))
 (expect-failure "cannot update a keyset for an existing account with wrong keyset" (credit 'k3 (read-keyset 'k2) 1.0))
 
@@ -43,6 +47,8 @@
 ; when available and reflect correct balances
 (expect-failure "fund-tx should fail when FUND-TX is not in scope" (fund-tx 'k1 'k2 (read-keyset 'k2) 1.0))
 (test-capability (FUND_TX))
+(expect-failure "FUND-TX fails for trivial or negative quantities" (fund-tx 'k1 'k2 (read-keyset 'k2) 0.0))
+(expect-failure "FUND-TX fails for trivial or negative quantities" (fund-tx 'k1 'k2 (read-keyset 'k2) (- 1.0)))
 (expect-failure "FUND-TX fails for insufficient funds" (fund-tx 'k1 'k2 (read-keyset 'k2) 1.0))
 (credit 'k1 (read-keyset 'k1) 1.0)
 (commit-tx)
@@ -77,8 +83,12 @@
 (expect "k1 should now have 0.6 coins after paying for 0.4 coin fee" 0.6 (account-balance 'k1))
 
 ;; transfers should respect balances as intended
-(expect "roundtrip 0.0 transfer succeeds" "Write succeeded" (transfer 'k1 'k2 (read-keyset 'k2) 0.0))
 (credit 'k1 (read-keyset 'k1) 1.0)
+(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) 0.0))
+(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) (- 1.0)))
+(expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k1 'k2 (read-keyset 'k2) 1.0))
+(expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k2 'k1 (read-keyset 'k1) 1.0))
+
 (transfer 'k1 'k2 (read-keyset 'k2) 1.0)
 (expect "k1 now has 0.6 coins after transfer to 'k2" 0.6 (account-balance 'k1))
 (expect "k2 now has 1.4 coins after transfer from 'k1" 1.4 (account-balance 'k2))
@@ -90,6 +100,8 @@
 (expect-failure "coinbase fails when capability is not in scope" (coinbase 'k1 (read-keyset 'k1) 0.0))
 (test-capability (COINBASE))
 (coinbase 'k1 (read-keyset 'k1) 1.0)
+(expect-failure "coinbasing trivial or negative amounts fails fast" (coinbase 'k1 (read-keyset 'k1) 0.0))
+(expect-failure "coinbasing trivial or negative amounts fails fast" (coinbase 'k1 (read-keyset 'k1) (- 1.0)))
 (expect "after coinbase, k1 should have 1.6 coins in its account" 1.6 (account-balance 'k1))
 
 (env-data { "fee" : 0.4, "k1" : ["keys1"], "k2": ["keys2"], "k3": ["keys3"] })
@@ -102,13 +114,14 @@
 (env-chain-data { "chain-id" : "0" })
 (env-hash (hash "burn-create"))
 
+(expect-failure "cross-chain transfers fail for trivial or negative quantities" (cross-chain-transfer 'k1 "1" 'k2 (read-keyset 'k2) 0.0))
+(expect-failure "cross-chain transfers fail for trivial or negative quantities" (cross-chain-transfer 'k1 "1" 'k2 (read-keyset 'k2) (- 1.0)))
 (expect "burn side of cross-chain transfers succeed" "success" (let ((p (cross-chain-transfer 'k1 "1" 'k2 (read-keyset 'k2) 1.0))) "success"))
 
 ; make sure chain-id is enforced in the yield
 (expect-failure "create side of cross-chain transfer fails yield on wrong chain"
         (continue-pact 1 false (hash "burn-create")
-          { "create-chain-id": "1"
-          , "create-account": 'k2
+          { "create-account": 'k2
           , "create-account-guard": (read-keyset 'k2)
           , "quantity": 1.0
           }))
@@ -117,8 +130,7 @@
 (env-chain-data { "chain-id" : "1" })
 (expect "create side of cross-chain transfer succeeds" "Write succeeded"
         (continue-pact 1 false (hash "burn-create")
-          { "create-chain-id": "1"
-          , "create-account": 'k2
+          { "create-account": 'k2
           , "create-account-guard": (read-keyset 'k2)
           , "quantity": 1.0
           }))

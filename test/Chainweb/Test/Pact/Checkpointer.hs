@@ -61,7 +61,6 @@ tests = testGroupSch "Checkpointer" [testInMemory, testKeyset, testRelational, t
 testInMemory :: TestTree
 testInMemory = checkpointerTest "In-memory Checkpointer" InMem
 
-
 defModule :: Text -> Text
 defModule idx = [text| ;;
 
@@ -353,7 +352,47 @@ checkpointerTest name initdata =
 
           save _cpeCheckpointer hash13
 
+          next "mini-regression test for dropping user tables (part 1) empty block"
 
+          hash04 <- BlockHash <$> merkleLogHash "0000000000000000000000000000004a"
+
+          _blockenv04 <- restore _cpeCheckpointer (Just (BlockHeight 4, hash13))
+
+          save _cpeCheckpointer hash04
+
+
+          next "mini-regression test for dropping user tables (part 2) (create module with offending table)"
+
+          hash05 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005a"
+
+          blockenv05 <- restore _cpeCheckpointer (Just (BlockHeight 5, hash04))
+
+          void $ runExec blockenv05 (Just $ ksData "5") $ defModule "5"
+
+          runExec blockenv05 Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+
+          save _cpeCheckpointer hash05
+
+          next "mini-regression test for dropping user tables (part 3) (reload the offending table)"
+
+          hash05Fork  <- BlockHash <$> merkleLogHash "0000000000000000000000000000005b"
+
+          blockenv05Fork <- restore _cpeCheckpointer (Just (BlockHeight 5, hash04))
+
+          void $ runExec blockenv05Fork (Just $ ksData "5") $ defModule "5"
+
+          runExec blockenv05Fork Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+
+          save _cpeCheckpointer hash05Fork
+
+          next "mini-regression test for dropping user tables (part 4) fork on the empty block"
+
+          _blockenv04Fork <- restore _cpeCheckpointer (Just (BlockHeight 4, hash13))
+
+          discard _cpeCheckpointer
+
+          -- updating key previously written at blockheight 1 (the "restore point")
+          void $ runExec blockenv23 Nothing "(m1.updateTbl 'b 3)"
 
 
 toTerm' :: ToTerm a => a -> Term Name
@@ -362,11 +401,11 @@ toTerm' = toTerm
 testRegress :: Assertion
 testRegress =
   regressChainwebPactDb >>= fmap (toTup . _benvBlockState) . readMVar >>=
-  assertEquals "The final block state is" finalBlockHeight
+  assertEquals "The final block state is" finalBlockState
   where
-    finalBlockHeight = (2, 0, M.empty)
-    toTup (BlockState txid _ blockHeight txRecord) =
-      (txid, blockHeight, txRecord)
+    finalBlockState = (2, 0, M.empty)
+    toTup (BlockState txid _ blockVersion txRecord) =
+      (txid, blockVersion, txRecord)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb = do

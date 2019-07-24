@@ -281,7 +281,7 @@ txGenerator1 pidv sid tid = do
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
-                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
+                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 10 0.01 txs
                   `finally` writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
@@ -338,7 +338,7 @@ txGenerator2 cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
@@ -362,7 +362,7 @@ txGenerator3 cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof Null
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
@@ -382,5 +382,5 @@ txGenerator4 _cdbv pidv _ tid _ = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False Nothing Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing Null
                     `finally` writeIORef ref True

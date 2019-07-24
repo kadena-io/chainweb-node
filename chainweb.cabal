@@ -99,8 +99,10 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
+        , Chainweb.BlockHeader.Genesis.DevelopmentPayload
         , Chainweb.BlockHeader.Genesis.Testnet00Payload
         , Chainweb.BlockHeader.Genesis.Testnet01Payload
+        , Chainweb.BlockHeader.Genesis.Testnet02Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -185,9 +187,6 @@ library
 
         , Control.Concurrent.FixedThreadPool
 
-        , Data.CAS
-        , Data.CAS.HashMap
-        , Data.CAS.RocksDB
         , Data.IVar
         , Data.LogMessage
         , Data.PQueue
@@ -256,6 +255,7 @@ library
         , bytestring >= 0.10
         , case-insensitive >= 1.2
         , cereal >= 0.5
+        , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.4.1
         , connection >=0.2
@@ -271,7 +271,6 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , extra >= 1.6
-        , fast-builder >= 0.1
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2
@@ -298,15 +297,13 @@ library
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
-        , rocksdb-haskell >= 1.0.1
-        , safe-exceptions >= 0.1
         , safeio >= 0.0
+        , safe-exceptions >= 0.1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
         , servant-server >= 0.14
         , servant-swagger >= 1.1
-        , split >= 0.2
         , stm >= 2.4
         , stm-chans
         , streaming >= 0.2
@@ -318,11 +315,9 @@ library
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2
-        , thyme == 0.3.6.0
         , time >= 1.8
         , tls >=1.5
         , transformers >= 0.5
-        , trifecta >= 2
         , unordered-containers >= 0.2
         , uuid >= 1.3
         , wai >= 3.2
@@ -330,7 +325,6 @@ library
         , wai-cors >= 0.2
         , wai-extra >= 3.0
         , vector >= 0.12
-        , vector-algorithms >= 0.8
         , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
@@ -372,6 +366,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
+        Chainweb.Test.Pact.PactReplay
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.Utils
@@ -399,9 +394,9 @@ test-suite chainweb-tests
         , base64-bytestring >= 1.0
         , bytes >= 0.15
         , bytestring >= 0.10
+        , chainweb-storage >= 0.1
         , connection >=0.2
         , containers >= 0.5
-        , cryptonite >= 0.25
         , data-default >=0.7
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
@@ -409,14 +404,12 @@ test-suite chainweb-tests
         , direct-sqlite >= 2.3
         , exceptions
         , extra >= 1.6
-        , extra >= 1.6
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
         , mtl >= 2.2
-        , mwc-random >= 0.13
         , neat-interpolation >= 0.3
         , network >= 2.6
         , http-client-tls >=0.3
@@ -434,7 +427,6 @@ test-suite chainweb-tests
         , servant-client-core >= 0.14
         , string-conv >= 0.1
         , stm
-        , stm-chans
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
@@ -445,7 +437,6 @@ test-suite chainweb-tests
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
         , text >=1.2
-        , time
         , these >= 0.7 && < 1
         , transformers >= 0.5
         , unordered-containers >= 0.2
@@ -487,22 +478,49 @@ executable chainweb-node
         , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.11 && < 5
-        , bytestring >= 0.10
-        , case-insensitive >= 1.2
+        , chainweb-storage >= 0.1
         , configuration-tools >= 0.4.1
         , deepseq >= 1.4
         , directory >= 1.3
-        , exceptions >= 0.8
         , http-client >= 0.5
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
-        , monad-control >= 1.0
-        , mtl >= 2.2
-        , stm
         , streaming >= 0.2
         , text >= 1.2
         , yet-another-logger >= 0.3.1
+
+executable chainweb-miner
+    import: warning-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -with-rtsopts=-N
+        -O2
+    hs-source-dirs: miner
+    main-is: Miner.hs
+    build-depends:
+        -- internal
+          chainweb
+
+        -- external
+        , async >= 2.2
+        , base >= 4.11 && < 5
+        , base-prelude >= 1.3
+        , bytestring >= 0.10
+        , bytes >= 0.15
+        , containers >= 0.5
+        , cryptonite >= 0.25
+        , errors >= 2.3
+        , memory >= 0.14
+        , optparse-applicative >= 0.14
+        , scheduler >= 1.4.1
+        , servant >= 0.14
+        , servant-server >= 0.14
+        , strict-tuple >= 0.1
+        , stm >= 2.4
+        , text >= 1.2
+        , warp >= 3.2
 
 executable cwtool
     import: warning-flags, debugging-flags
@@ -539,7 +557,6 @@ executable cwtool
         , QuickCheck >= 2.10
         , aeson >= 1.4
         , aeson-pretty >= 0.8
-        , ansi-wl-pprint >= 0.6
         , async >= 2.2
         , attoparsec >= 0.13
         , base >= 4.11 && < 5
@@ -547,66 +564,48 @@ executable cwtool
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
-        , case-insensitive >= 1.2
+        , chainweb-storage >= 0.1
         , configuration-tools >= 0.4.1
         , containers >= 0.5
         , data-default >= 0.7
-        , data-dword >= 0.3
-        , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.3
         , errors >= 2.3
         , exceptions >= 0.8
-        , extra >= 1.6
         , fake >= 0.1.1.1
-        , filepath >= 1.4
         , formatting >= 6.3
         , generic-lens >= 1.1
-        , hashable >= 1.2
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
-        , managed >= 1.0
-        , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6
         , nonempty-containers >= 0.1
         , optparse-applicative >= 0.14
-        , optparse-generic >= 1.3
         , pact >= 2.6
         , paths >= 0.2
         , pretty-simple >= 2.1
         , primitive >= 0.6
-        , quickcheck-instances >= 0.3
         , random >= 1.1
-        , random-bytestring >= 0.1
-        , reflection >= 2.1
         , resourcet >= 1.2
-        , scientific >= 0.3
         , servant >= 0.14.1
         , servant-client >= 0.14
         , servant-client-core >= 0.14
-        , servant-server >= 0.14.1
         , shelly >= 1.8
         , stm
-        , stm-chans
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
-        , strict-tuple >= 0.1
-        , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
         , text >= 1.2
-        , these >= 0.7
         , time >= 1.8
-        , tls >=1.5
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12

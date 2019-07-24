@@ -251,7 +251,7 @@ testBatch = do
     pure $ SubmitBatch (pure c)
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.0001
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.1
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)

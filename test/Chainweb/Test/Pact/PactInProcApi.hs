@@ -21,7 +21,6 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception
--- import Control.Monad.IO.Class
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL

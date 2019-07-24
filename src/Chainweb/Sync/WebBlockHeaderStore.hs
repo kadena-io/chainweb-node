@@ -130,24 +130,28 @@ chainValue v = ChainValue (_chainId v) v
 --
 getBlockPayload
     :: PayloadCas cas
+    => PayloadDataCas candidateCas
     => WebBlockPayloadStore cas
+    -> candidateCas PayloadData
     -> Priority
     -> Maybe PeerInfo
         -- ^ Peer from with the BlockPayloadHash originated, if available.
     -> BlockHeader
         -- ^ The BlockHeader for which the payload is requested
     -> IO PayloadData
-getBlockPayload s priority maybeOrigin h = do
+getBlockPayload s candidateStore priority maybeOrigin h = do
     logfun Debug $ "getBlockPayload: " <> sshow h
-    casLookup cas payloadHash >>= \case
-        (Just !x) -> return $! payloadWithOutputsToPayloadData x
-        Nothing -> memo memoMap payloadHash $ \k ->
-            pullOrigin k maybeOrigin >>= \case
-                Nothing -> do
-                    t <- queryPayloadTask k
-                    pQueueInsert queue t
-                    awaitTask t
-                (Just !x) -> return x
+    casLookup candidateStore payloadHash >>= \case
+        Just !x -> return x
+        Nothing -> casLookup cas payloadHash >>= \case
+            (Just !x) -> return $! payloadWithOutputsToPayloadData x
+            Nothing -> memo memoMap payloadHash $ \k ->
+                pullOrigin k maybeOrigin >>= \case
+                    Nothing -> do
+                        t <- queryPayloadTask k
+                        pQueueInsert queue t
+                        awaitTask t
+                    (Just !x) -> return x
 
   where
     v = _chainwebVersion h
@@ -208,20 +212,26 @@ getBlockPayload s priority maybeOrigin h = do
 --
 getBlockHeaderInternal
     :: PayloadCas payloadCas
+    => PayloadDataCas candidatePayloadCas
+    => BlockHeaderCas candidateHeaderCas
     => WebBlockHeaderStore
     -> WebBlockPayloadStore payloadCas
+    -> candidateHeaderCas BlockHeader
+    -> candidatePayloadCas PayloadData
     -> Priority
     -> Maybe PeerInfo
     -> ChainValue BlockHash
     -> IO (ChainValue BlockHeader)
-getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
+getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
-    memoInsert cas memoMap h $ \k -> do
+    memoInsert cas memoMap h $ \k@(ChainValue _ k') -> do
 
         -- query BlockHeader via origin or query BlockHeader via task queue of
         -- P2P network
         --
-        (maybeOrigin', header) <- pullOrigin k maybeOrigin >>= \case
+        (maybeOrigin', header) <- casLookup candidateHeaderCas k' >>= \case
+            Just !x -> return $! (maybeOrigin, x)
+            Nothing -> pullOrigin k maybeOrigin >>= \case
                 Nothing -> do
                     t <- queryBlockHeaderTask k
                     pQueueInsert queue t
@@ -235,11 +245,11 @@ getBlockHeaderInternal headerStore payloadStore priority maybeOrigin h = do
         --
         let queryPrerequesiteHeader p = Concurrently $ void $ do
                 logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader for " <> sshow h <> ": " <> sshow p
-                getBlockHeaderInternal headerStore payloadStore priority maybeOrigin' p
+                getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
 
         p <- runConcurrently
             -- query payload
-            $ Concurrently (getBlockPayload payloadStore priority maybeOrigin' header)
+            $ Concurrently (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
 
             -- query parent (recursively)
             <* queryPrerequesiteHeader (_blockParent <$> chainValue header)
@@ -393,20 +403,26 @@ newWebPayloadStore mgr pact payloadCas logfun = do
 
 getBlockHeader
     :: PayloadCas cas
+    => BlockHeaderCas candidateHeaderCas
+    => PayloadDataCas candidatePayloadCas
     => WebBlockHeaderStore
     -> WebBlockPayloadStore cas
+    -> candidateHeaderCas BlockHeader
+    -> candidatePayloadCas PayloadData
     -> ChainId
     -> Priority
     -> Maybe PeerInfo
     -> BlockHash
     -> IO BlockHeader
-getBlockHeader headerStore payloadStore cid priority maybeOrigin h
+getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas cid priority maybeOrigin h
     = ((\(ChainValue _ b) -> b) <$> go)
         `catch` \(TaskFailed _es) -> throwM $ TreeDbKeyNotFound @BlockHeaderDb h
   where
     go = getBlockHeaderInternal
         headerStore
         payloadStore
+        candidateHeaderCas
+        candidatePayloadCas
         priority
         maybeOrigin
         (ChainValue cid h)

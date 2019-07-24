@@ -33,6 +33,7 @@ import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
+import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.RestAPI
@@ -72,6 +73,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
+        , Chainweb.Test.Pact.PactReplay.tests
         ]
 
 suite :: RocksDb -> [ScheduledTest]

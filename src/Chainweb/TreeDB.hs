@@ -43,7 +43,6 @@ module Chainweb.TreeDB
 -- * Utils
 , root
 , toTree
-, descend
 
 -- ** Limiting and Seeking a Stream
 , Eos(..)
@@ -404,18 +403,6 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-descend
-    :: TreeDb db
-    => db
-    -> MaxRank
-    -> DbEntry db
-    -> IO (DbEntry db)
-descend db (MaxRank (Max r)) = go
-  where
-    go e
-        | rank e > r = lookupParentM GenesisParentThrow db e >>= go
-        | otherwise = return e
-
 root :: TreeDb db => db -> IO (DbEntry db)
 root db = fmap fromJuste $ entries db Nothing (Just 1) Nothing Nothing S.head_
 {-# INLINE root #-}
@@ -650,7 +637,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         GenesisParentSelf -> return $ Just e
         GenesisParentNone -> return Nothing
         GenesisParentThrow -> throwM
-            $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block"
+            $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block. Most likely this means that the genesis headers haven't been generated correctly. If you are using a development or testing chainweb version consider resetting the databases."
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
         (Just !x) -> return $! Just x

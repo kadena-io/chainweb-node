@@ -23,6 +23,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.Serialize hiding (get)
+import qualified Data.Text as T
 
 import Prelude hiding (log)
 
@@ -73,6 +74,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doGetLatest db)
               (doWithAtomicRewind db)
               (doLookupBlock db)
+              (doGetBlockParent db)
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
@@ -150,3 +152,15 @@ doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
   where
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
             \ AND hash = ?;"
+
+doGetBlockParent :: Db -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
+doGetBlockParent dbenv (bh, hash) =
+    if bh == 0 then return Nothing else
+      doLookupBlock dbenv (bh, hash) >>= \blockFound ->
+        if not blockFound then return Nothing else runBlockEnv dbenv $ do
+          r <- callDb "getBlockParent" $ \db -> qry db qtext [SInt (fromIntegral (pred bh))] [RBlob]
+          case r of
+            [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Serialize.decode blob
+            _ -> internalError "doGetBlockParent: output mismatch"
+  where
+    qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"

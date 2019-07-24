@@ -190,6 +190,7 @@ backendWriteUpdate key tn bh txid v db = do
                 ]
     -}
 
+
 backendWriteWrite
     :: ToJSON v
     => Utf8
@@ -270,14 +271,13 @@ doKeys
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
+    let tn = domainTableName d
     ks <- callDb "doKeys" $ \db ->
-            qry_ db  stmt [RText]
+            qry_ db  ("SELECT DISTINCT rowkey FROM [" <> tn <> "];") [RText]
     forM ks $ \row -> do
         case row of
             [SText (Utf8 k)] -> return $ fromString $ toS k
             _ -> internalError "doKeys: The impossible happened."
-  where
-    stmt = "SELECT DISTINCT rowkey FROM [" <> domainTableName d <> "];"
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
@@ -378,6 +378,7 @@ doGetTxLog d txid = do
     stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
                 , domainTableName d
                 , "] WHERE txid = ? AND blockheight = ?"
+
                 ]
 
 unwrap :: Utf8 -> BS.ByteString
@@ -418,7 +419,7 @@ createTableMutationTable =
                \(tablename TEXT NOT NULL\
                \, blockheight UNSIGNED BIGINT NOT NULL\
                \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
-      exec_ db "CREATE INDEX mutation_bh ON VersionedTableMutation(blockheight);"
+      exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON VersionedTableMutation(blockheight);"
 
 createUserTable :: TableName -> BlockHeight -> BlockHandler SQLiteEnv ()
 createUserTable name bh =
@@ -444,7 +445,7 @@ createVersionedTable tablename indexname db = do
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
              \, UNIQUE (blockheight, rowkey, txid));"
-    indexcreationstmt = "CREATE INDEX [" <> indexname  <> "] ON [" <> tablename <> "](rowkey, txid);"
+    indexcreationstmt = "CREATE INDEX IF NOT EXISTS [" <> indexname  <> "] ON [" <> tablename <> "](rowkey, txid);"
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do

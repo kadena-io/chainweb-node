@@ -65,6 +65,8 @@ module Chainweb.Pact.Backend.Types
     , PactServiceState(..)
     , PactServiceM
 
+    , PactServiceException(..)
+
       -- * optics
     , psMempoolAccess
     , psCheckpointEnv
@@ -75,6 +77,7 @@ module Chainweb.Pact.Backend.Types
     , psBlockHeaderDb
     ) where
 
+import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
 import Control.Monad.Fail
@@ -86,9 +89,9 @@ import Data.Bits
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
-import Database.SQLite3.Direct as SQ3
-
 import Foreign.C.Types (CInt(..))
+
+import Database.SQLite3.Direct as SQ3
 
 import GHC.Generics
 
@@ -206,6 +209,7 @@ data Checkpointer = Checkpointer
       -- transaction in total.
     , lookupBlockInCheckpointer :: (BlockHeight, BlockHash) -> IO Bool
       -- ^ is the checkpointer aware of the given block?
+    , getBlockParent :: (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
     }
 
 data CheckpointEnv = CheckpointEnv
@@ -235,16 +239,32 @@ data PactServiceState = PactServiceState
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
 
 data MemPoolAccess = MemPoolAccess
-    { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
-    , mpaSetLastHeader :: BlockHeader -> IO ()
-    , mpaProcessFork :: BlockHeader -> IO ()
-    }
+  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+  , mpaSetLastHeader :: BlockHeader -> IO ()
+  , mpaProcessFork :: BlockHeader -> IO ()
+  }
 
 instance Semigroup MemPoolAccess where
-    MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
 
 instance Monoid MemPoolAccess where
-    mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
+  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
 
 makeLenses ''PactServiceEnv
 makeLenses ''PactServiceState
+
+data PactServiceException = PactServiceIllegalRewind {
+    _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
+  , _latestBlock :: Maybe (BlockHeight, BlockHash)
+  }
+  deriving (Generic)
+
+instance Show PactServiceException where
+  show (PactServiceIllegalRewind att l)
+    = concat [ "illegal rewind attempt to block "
+             , show att
+             , ", latest was "
+             , show l
+             ]
+
+instance Exception PactServiceException

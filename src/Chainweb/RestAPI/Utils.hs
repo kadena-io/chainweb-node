@@ -51,6 +51,7 @@ module Chainweb.RestAPI.Utils
 , ChainwebEndpoint(..)
 , NetworkEndpoint(..)
 , ChainEndpoint
+, MempoolEndpoint
 , CutEndpoint
 
 -- * Some API
@@ -190,11 +191,13 @@ instance
 newtype NetworkEndpoint = NetworkEndpoint NetworkIdT
 
 type ChainEndpoint (c :: ChainIdT) = 'NetworkEndpoint ('ChainNetworkT c)
+type MempoolEndpoint (c :: ChainIdT) = 'NetworkEndpoint ('MempoolNetworkT c)
 type CutEndpoint = 'NetworkEndpoint 'CutNetworkT
 
 type family NetworkEndpointApi (net :: NetworkIdT) (api :: Type) :: Type where
     NetworkEndpointApi 'CutNetworkT api = "cut" :> api
     NetworkEndpointApi ('ChainNetworkT c) api = "chain" :> ChainIdSymbol c :> api
+    NetworkEndpointApi ('MempoolNetworkT c) api = "chain" :> ChainIdSymbol c :> "mempool" :> api
 
 -- HasServer
 
@@ -204,6 +207,18 @@ instance
   where
     type ServerT ('NetworkEndpoint ('ChainNetworkT c) :> api) m
         = ServerT (NetworkEndpointApi ('ChainNetworkT c) api) m
+
+    route _ = route (Proxy @(NetworkEndpointApi x api))
+
+    hoistServerWithContext _ = hoistServerWithContext
+        (Proxy @(NetworkEndpointApi x api))
+
+instance
+    (HasServer api ctx, KnownChainIdSymbol c, x ~ 'MempoolNetworkT c)
+    => HasServer ('NetworkEndpoint ('MempoolNetworkT c) :> api) ctx
+  where
+    type ServerT ('NetworkEndpoint ('MempoolNetworkT c) :> api) m
+        = ServerT (NetworkEndpointApi ('MempoolNetworkT c) api) m
 
     route _ = route (Proxy @(NetworkEndpointApi x api))
 
@@ -230,6 +245,12 @@ instance
     toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi ('ChainNetworkT c) api))
 
 instance
+    (KnownChainIdSymbol c, HasSwagger api)
+    => HasSwagger ('NetworkEndpoint ('MempoolNetworkT c) :> api)
+  where
+    toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi ('MempoolNetworkT c) api))
+
+instance
     (HasSwagger api) => HasSwagger ('NetworkEndpoint 'CutNetworkT :> api)
   where
     toSwagger _ = toSwagger (Proxy @(NetworkEndpointApi 'CutNetworkT api))
@@ -247,6 +268,18 @@ instance
         = clientWithRoute pm $ Proxy @(NetworkEndpointApi ('ChainNetworkT c) api)
     hoistClientMonad pm _
         = hoistClientMonad pm $ Proxy @(NetworkEndpointApi ('ChainNetworkT c) api)
+
+instance
+    (KnownChainIdSymbol c, HasClient m api)
+    => HasClient m ('NetworkEndpoint ('MempoolNetworkT c) :> api)
+  where
+    type Client m ('NetworkEndpoint ('MempoolNetworkT c) :> api)
+        = Client m (NetworkEndpointApi ('MempoolNetworkT c) api)
+
+    clientWithRoute pm _
+        = clientWithRoute pm $ Proxy @(NetworkEndpointApi ('MempoolNetworkT c) api)
+    hoistClientMonad pm _
+        = hoistClientMonad pm $ Proxy @(NetworkEndpointApi ('MempoolNetworkT c) api)
 
 instance
     (HasClient m api) => HasClient m ('NetworkEndpoint 'CutNetworkT :> api)
@@ -270,6 +303,16 @@ instance
 
     toLink toA _
         = toLink toA $ Proxy @(NetworkEndpointApi ('ChainNetworkT c) api)
+
+instance
+    (KnownChainIdSymbol c, HasLink api)
+    => HasLink ('NetworkEndpoint ('MempoolNetworkT c) :> api)
+  where
+    type MkLink ('NetworkEndpoint ('MempoolNetworkT c) :> api) a
+        = MkLink (NetworkEndpointApi ('MempoolNetworkT c) api) a
+
+    toLink toA _
+        = toLink toA $ Proxy @(NetworkEndpointApi ('MempoolNetworkT c) api)
 
 instance (HasLink api) => HasLink ('NetworkEndpoint 'CutNetworkT :> api) where
     type MkLink ('NetworkEndpoint 'CutNetworkT :> api) a

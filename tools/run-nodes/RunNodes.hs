@@ -45,7 +45,7 @@ pNodes = option auto
 
 pVersion :: Parser ChainwebVersion
 pVersion = option cver
-  (long "version" <> metavar "VERSION"
+  (long "chainweb-version" <> metavar "CHAINWEB_VERSION"
    <> value (TimedCPM petersonChainGraph)
    <> help "Chainweb Version to run the Nodes with (default: timedCPM-peterson)")
   where

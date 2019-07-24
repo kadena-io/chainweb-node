@@ -83,24 +83,23 @@ module Chainweb.Chainweb
 
 ) where
 
-import Chainweb.Payload.PayloadStore.RocksDB
-
-import Configuration.Utils hiding (Lens', (<.>), Error)
+import Configuration.Utils hiding (Error, Lens', (<.>), disabled)
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
+import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sortBy)
+import qualified Data.Text as T
 
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
-import qualified Network.HTTP.Client.Internal as HTTP
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp
@@ -115,11 +114,13 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.HostAddress
@@ -131,7 +132,9 @@ import Chainweb.Miner.Config
 import Chainweb.NodeId
 import qualified Chainweb.Pact.BloomCache as Bloom
 import Chainweb.Pact.RestAPI.Server (PactServerData)
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
@@ -402,6 +405,9 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             -- update the cutdb mvar used by pact service with cutdb
             void $! putMVar cdbv mCutDb
 
+            -- synchronize pact dbs with latest cut before we begin mining
+            synchronizePactDb cs mCutDb
+
             withPactData cs cuts $ \pactData ->
                 withMinerResources mLogger mConf cwnid mCutDb $ \m ->
                 inner Chainweb
@@ -441,6 +447,26 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
         }
 
+    synchronizePactDb cs cutDb = do
+        currentCut <- _cut cutDb
+        mapM_ syncOne $ mergeCutResources $ _cutMap currentCut
+      where
+        mergeCutResources c =
+            let f cid bh = (bh, fromJuste $ HM.lookup cid cs)
+            in map snd $ HM.toList $ HM.mapWithKey f c
+        syncOne (bh, cr) = do
+            let pact = _chainResPact cr
+            let logg = logFunctionText $ _chainResLogger cr
+            let hsh = _blockHash bh
+            let h = _blockHeight bh
+            logg Info $ "pact db synchronizing to block "
+                      <> T.pack (show (h, hsh))
+            payload <- payloadWithOutputsToPayloadData
+                       <$> casLookupM payloadDb (_blockPayloadHash bh)
+            void $ _pactValidateBlock pact bh payload
+            logg Info "pact db synchronized"
+
+
 -- | Starts server and runs all network clients
 --
 runChainweb
@@ -452,78 +478,95 @@ runChainweb
 runChainweb cw = do
     logg Info "start chainweb node"
 
-    let cutDb = _cutResCutDb $ _chainwebCutResources cw
-        cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
-
-    -- Startup sequence:
-    --
     -- 1. Start serving Rest API
-    -- 2. Start Clients
-    --
-
-    -- collect server resources
-    let chains = HM.toList (_chainwebChains cw)
-        chainVals = map snd chains
-        proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-        proj f = flip map chains $ \(k, ch) -> (k, f ch)
-        chainDbsToServe = proj _chainResBlockHeaderDb
-        mempoolsToServe = proj _chainResMempool
-        chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
-
-        payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
-        pactDbsToServe = _chainwebPactData cw
-
-        serverSettings
-            = setOnException
-                (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
-            $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
-        serve = serveChainwebSocketTls
-            serverSettings
-            (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
-            (_peerKey $ _peerResPeer $ _chainwebPeer cw)
-            (_peerResSocket $ _chainwebPeer cw)
-            (_chainwebVersion cw)
-            ChainwebServerDbs
-                { _chainwebServerCutDb = Just cutDb
-                , _chainwebServerBlockHeaderDbs = chainDbsToServe
-                , _chainwebServerMempools = mempoolsToServe
-                , _chainwebServerPayloadDbs = payloadDbsToServe
-                , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe
-                , _chainwebServerPactDbs = pactDbsToServe
-                }
-
-        -- HTTP Request Logger
-        httpLog :: Middleware
-        httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
-
-    -- 1. start server
     --
     withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \server -> do
         logg Info "started server"
 
-        -- Configure Clients
+        -- 2. Start Clients
         --
-        let mgr = view chainwebManager cw
-            miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
-            -- run mempool sync without manager timeout; servant default is ok
-            -- for non-streaming endpoints and mempool does its own timeout
-            -- bookkeeping for the streaming endpoints
-            mempoolMgr = mgr { HTTP.mResponseTimeout = HTTP.responseTimeoutNone }
-
-        -- 2. Run Clients
-        --
-        let clients :: [IO ()]
-            clients = concat
-                [ miner
-                , cutNetworks mgr (_chainwebCutResources cw)
-                , map (runMempoolSyncClient mempoolMgr mempoolP2pConfig) chainVals
-                ]
-
         mapConcurrently_ id clients
         wait server
+
   where
     logg = logFunctionText $ _chainwebLogger cw
-    mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
+
+    -- chains
+    chains = HM.toList (_chainwebChains cw)
+    chainVals = map snd chains
+
+    -- collect server resources
+    proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
+    proj f = flip map chains $ \(k, ch) -> (k, f ch)
+
+    chainDbsToServe = proj _chainResBlockHeaderDb
+    mempoolsToServe = proj _chainResMempool
+    chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+    memP2pToServe = bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+
+    payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+    pactDbsToServe = _chainwebPactData cw
+
+    serverSettings
+        = setOnException
+            (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
+        $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+
+    serve = serveChainwebSocketTls
+        serverSettings
+        (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
+        (_peerKey $ _peerResPeer $ _chainwebPeer cw)
+        (_peerResSocket $ _chainwebPeer cw)
+        (_chainwebVersion cw)
+        ChainwebServerDbs
+            { _chainwebServerCutDb = Just cutDb
+            , _chainwebServerBlockHeaderDbs = chainDbsToServe
+            , _chainwebServerMempools = mempoolsToServe
+            , _chainwebServerPayloadDbs = payloadDbsToServe
+            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
+            , _chainwebServerPactDbs = pactDbsToServe
+            }
+
+    -- HTTP Request Logger
+
+    httpLog :: Middleware
+    httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
 
     loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
     loggServerError Nothing e = "HTTP server error: " <> sshow e
+
+    -- Cut DB and Miner
+
+    cutDb = _cutResCutDb $ _chainwebCutResources cw
+    cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
+
+    miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
+
+    -- Configure Clients
+
+    mgr = view chainwebManager cw
+
+    clients :: [IO ()]
+    clients = concat
+        [ miner
+        , cutNetworks mgr (_chainwebCutResources cw)
+        , mempoolSyncClients
+        ]
+
+    -- Mempool
+
+    mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
+
+    -- Decide whether to enable the mempool sync clients
+    mempoolSyncClients = case _chainwebVersion cw of
+        Test{} -> disabled
+        TimedConsensus{} -> disabled
+        PowConsensus{} -> disabled
+        TimedCPM{} -> enabled
+        Development -> enabled
+        Testnet00 -> enabled
+        Testnet01 -> enabled
+        Testnet02 -> enabled
+      where
+        disabled = []
+        enabled = map (runMempoolSyncClient mgr mempoolP2pConfig) chainVals

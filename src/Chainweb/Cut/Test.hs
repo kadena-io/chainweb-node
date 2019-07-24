@@ -28,7 +28,7 @@ module Chainweb.Cut.Test
 
   MineFailure(..)
 , testMine
-, testMineWithPayload
+, testMineWithPayloadHash
 , createNewCut
 , randomChainId
 , arbitraryChainGraphChainId
@@ -87,13 +87,10 @@ import Chainweb.Cut
 import Chainweb.Difficulty (HashTarget, checkTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
-import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros(..), Time, getCurrentTimeIntegral, second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
-import Chainweb.WebPactExecutionService
 
 import Data.CAS.RocksDB
 
@@ -124,40 +121,19 @@ testMine n target t payloadHash nid i c =
     forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
 
-testMineWithPayload
-    :: forall cas cid
+testMineWithPayloadHash
+    :: forall cid
     . HasChainId cid
-    => PayloadCas cas
-    => WebBlockHeaderDb
-    -> PayloadDb cas
-    -> Nonce
+    => Nonce
     -> HashTarget
     -> Time Micros
-    -> PayloadWithOutputs
+    -> BlockPayloadHash
     -> NodeId
     -> cid
     -> Cut
-    -> PactExecutionService
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayload wbdb payloadDb n target t payload nid i c pact =
-    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) -> do
-        validatePayload h payload
-        addNewPayload payloadDb payload
-        give wbdb (insertWebBlockHeaderDb h)
-        return p
-  where
-    payloadHash = _payloadWithOutputsPayloadHash payload
-
-    validatePayload :: BlockHeader -> PayloadWithOutputs -> IO ()
-    validatePayload h o = void $ _pactValidateBlock pact h $ toPayloadData o
-
-    toPayloadData p = PayloadData
-        { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions p
-        , _payloadDataMiner = _payloadWithOutputsMiner p
-        , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash p
-        , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash p
-        , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash p
-        }
+testMineWithPayloadHash n target t payloadHash nid i c =
+    forM (createNewCut n target t payloadHash nid i c) return
 
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
