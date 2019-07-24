@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -49,7 +50,7 @@ module Chainweb.Cut.CutHashes
 import Control.Applicative
 import Control.Arrow
 import Control.DeepSeq
-import Control.Lens (Getter, makeLenses, to, view)
+import Control.Lens (Getter, Lens', makeLenses, to, view)
 import Control.Monad ((<$!>))
 import Control.Monad.Catch
 
@@ -218,9 +219,9 @@ data CutHashes = CutHashes
     , _cutHashesHeight :: !BlockHeight
     , _cutHashesChainwebVersion :: !ChainwebVersion
     , _cutHashesId :: !CutId
-    , _cutHashesHeaders :: (HM.HashMap BlockHash BlockHeader)
+    , _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader)
         -- ^ optional block headers
-    , _cutHashesPayloads :: (HM.HashMap BlockPayloadHash PayloadData)
+    , _cutHashesPayloads :: !(HM.HashMap BlockPayloadHash PayloadData)
         -- ^ optional block payloads
     }
     deriving (Show, Generic)
@@ -243,21 +244,31 @@ instance Ord CutHashes where
     {-# INLINE compare #-}
 
 instance ToJSON CutHashes where
-    toJSON c = object
+    toJSON c = object $
         [ "hashes" .= (hashWithHeight <$> _cutHashes c)
         , "origin" .= _cutOrigin c
         , "weight" .= _cutHashesWeight c
         , "height" .= _cutHashesHeight c
         , "instance" .= _cutHashesChainwebVersion c
         , "id" .= _cutHashesId c
-        , "headers" .= _cutHashesHeaders c
-        , "payloads" .= _cutHashesPayloads c
         ]
+        <> ifNotEmpty "headers" cutHashesHeaders
+        <> ifNotEmpty "payloads" cutHashesPayloads
       where
         hashWithHeight h = object
             [ "height" .= fst h
             , "hash" .= snd h
             ]
+
+        ifNotEmpty
+            :: ToJSONKey k
+            => ToJSON v
+            => T.Text
+            -> Lens' CutHashes (HM.HashMap k v)
+            -> [(T.Text, Value)]
+        ifNotEmpty s l
+            | x <- view l c, not (HM.null x) = [ s .= x ]
+            | otherwise = mempty
 
 instance FromJSON CutHashes where
     parseJSON = withObject "CutHashes" $ \o -> CutHashes
@@ -267,8 +278,8 @@ instance FromJSON CutHashes where
         <*> o .: "height"
         <*> o .: "instance"
         <*> hashId o
-        <*> o .: "headers"
-        <*> o .: "payloads"
+        <*> o .:? "headers" .!= mempty
+        <*> o .:? "payloads" .!= mempty
       where
         hashWithHeight = withObject "HashWithHeight" $ \o -> (,)
             <$> o .: "height"
