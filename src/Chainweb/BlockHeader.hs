@@ -698,8 +698,8 @@ data AmberdataBlock = AmberdataBlock
   , _amberdataParentHash :: {-# UNPACK #-} !BlockHash
   , _amberdataNonce :: {-# UNPACK #-} !Nonce
   , _amberdataMiner :: {-# UNPACK #-} !ChainNodeId
-  , _amberdataSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-  , _amberdataNumTransactions ::  {-# UNPACK #-} !Word
+  --, _amberdataSize :: {-# UNPACK #-} !Word   -- ^ Bytes
+  --, _amberdataNumTransactions ::  {-# UNPACK #-} !Word
   , _amberdataMeta :: {-# UNPACK #-} !ChainId
   , _amberdataDifficulty :: {-# UNPACK #-} !BlockWeight
   }
@@ -707,15 +707,15 @@ data AmberdataBlock = AmberdataBlock
   deriving anyclass (NFData)
 
 instance ToJSON AmberdataBlock where
-  toJSON (AmberdataBlock bh hsh ts parentHsh nonce miner blockSize txs meta blockDiff) = object
+  toJSON (AmberdataBlock bh hsh ts parentHsh nonce miner {--blockSize txs--} meta blockDiff) = object
     [ "number" .= bh
     , "hash" .= hsh
     , "timestamp" .= microToMilliSeconds ts
     , "parentHash" .= parentHsh
     , "miner" .= miner
     , "nonce" .= nonce
-    , "size" .= blockSize
-    , "numTransactions" .= txs
+    --, "size" .= blockSize
+    --, "numTransactions" .= txs
     , "meta" .= toJSON (show meta)
     , "difficulty" .= blockWeightToNumber blockDiff
     ]

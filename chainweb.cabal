@@ -470,7 +470,8 @@ executable chainweb-node
         , managed >= 1.0
         , streaming >= 0.2
         , text >= 1.2
-        , yet-another-logger >= 0.3.1
+        , unordered-containers >= 0.2
+        , yet-another-logger >= 0.3.1 
 
 executable cwtool
     import: warning-flags, debugging-flags

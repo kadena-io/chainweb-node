@@ -49,6 +49,7 @@ import Control.Monad
 import Control.Monad.Managed
 
 import Data.CAS.RocksDB
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import Data.Typeable
 
@@ -68,8 +69,10 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader (NewMinedBlock, AmberdataBlock)
+import Chainweb.BlockHeader (NewMinedBlock, AmberdataBlock(..))
 import Chainweb.Chainweb
+import Chainweb.Cut (Cut, _cutMap)
+import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.Chainweb.CutResources
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Counter
@@ -162,6 +165,40 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
             -- $ S.map _cutMap
             -- $ cutStream db
 
+
+runAmberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
+runAmberdataBlockMonitor logger db = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l -> do
+    go l `catchAllSynchronous` \e ->
+        logFunctionText l Error ("Amberdata Block Monitor failed: " <> sshow e)
+    logFunctionText l Info "Stopped Amberdata Block Monitor"
+  where
+    go l = do
+      logFunctionText l Info "Initialized Amberdata Block Monitor"
+      void
+        $ S.mapM_ (logAllBlocks l)
+        $ S.map cutToAmberdataBlocks
+        $ cutStream db
+
+    logAllBlocks :: Logger logger => logger -> [AmberdataBlock] -> IO ()
+    logAllBlocks l = mapM_ (logFunctionJson l Info)
+
+    cutToAmberdataBlocks :: Cut -> [AmberdataBlock]
+    cutToAmberdataBlocks c = map
+                               (\(_,bh) -> AmberdataBlock
+                                           (_blockHeight bh)
+                                           (_blockHash bh)
+                                           (_blockCreationTime bh)
+                                           (_blockParent bh)
+                                           (_blockNonce bh)
+                                           (_blockMiner bh)
+                                           -- undefined Blocksize
+                                           -- undefined blockTransNum
+                                           (_blockChainId bh)
+                                           (_blockWeight bh)
+                               )
+                               (HM.toList (_cutMap c))
+
+
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
 -- This instances are OK, since this is the "Main" module of an application
@@ -234,6 +271,7 @@ node conf logger = do
         withChainweb cwConf logger rocksDb $ \cw -> mapConcurrently_ id
             [ runChainweb cw
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+            , runAmberdataBlockMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             ]
