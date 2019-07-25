@@ -54,6 +54,7 @@ module Network.X509.SelfSigned
 , name
 , org
 , AltName(..)
+, DistinguishedName
 
 -- ** Certificate Fingerprints
 , FingerprintByteCount
@@ -119,6 +120,7 @@ import Data.Bifunctor
 import Data.ByteArray (ByteArray, convert)
 import qualified Data.ByteString as B (ByteString, length, pack)
 import qualified Data.ByteString.Char8 as B8
+import Data.Char
 import Data.Default (def)
 import Data.Foldable
 import Data.Foldable (toList)
@@ -156,6 +158,23 @@ import System.X509 (getSystemCertificateStore)
 -- internal modules
 
 import Chainweb.Utils
+    ( HasTextRepresentation(..)
+    , EncodingException(DecodeException)
+    , EncodingException(TextFormatException)
+    , EncodingException(X509CertificateDecodeException)
+    , EncodingException(X509KeyDecodeException)
+    , OptionParser
+    , decodeB64UrlNoPaddingText
+    , encodeB64UrlNoPaddingText
+    , fromJuste
+    , int
+    , parseJsonFromText
+    , prefixLong
+    , sshow
+    , suffixHelp
+    , textOption
+    , unsafeFromText
+    )
 
 -- -------------------------------------------------------------------------- --
 -- X509 Certificate Types
@@ -336,6 +355,7 @@ instance X509Key RSA.PrivateKey where
 
     sigAlg = SignatureALG HashSHA512 PubKeyALG_RSA
 
+
 -- -------------------------------------------------------------------------- --
 -- Unsigned tbs Certificate
 
@@ -457,8 +477,13 @@ x509CertPemToText :: X509CertPem -> T.Text
 x509CertPemToText (X509CertPem b) = T.decodeUtf8 b
 {-# INLINE x509CertPemToText #-}
 
+-- | Read a PEM encoded certificate from text. This function doesn't decode the
+-- PEM encoded but stores the PEM encoded value.
+--
+-- Leading and pending whitespace is stripped.
+--
 x509CertPemFromText :: MonadThrow m => T.Text -> m X509CertPem
-x509CertPemFromText t = return $! X509CertPem $! T.encodeUtf8 t
+x509CertPemFromText t = return $! X509CertPem $! T.encodeUtf8 $ T.strip t
 {-# INLINE x509CertPemFromText #-}
 
 unsafeX509CertPemFromText :: HasCallStack => String -> X509CertPem
@@ -509,7 +534,7 @@ encodeCertDer :: SignedExact Certificate -> B.ByteString
 encodeCertDer = encodeSignedObject
 
 encodeCertPem :: SignedExact Certificate -> X509CertPem
-encodeCertPem c = X509CertPem . pemWriteBS $ PEM
+encodeCertPem c = X509CertPem . trim . pemWriteBS $ PEM
     { pemName = "CERTIFICATE"
     , pemHeader = []
     , pemContent = encodeCertDer c
@@ -535,7 +560,7 @@ x509KeyPemToText (X509KeyPem b) = T.decodeUtf8 b
 {-# INLINE x509KeyPemToText #-}
 
 x509KeyPemFromText :: MonadThrow m => T.Text -> m X509KeyPem
-x509KeyPemFromText t = return . X509KeyPem $ T.encodeUtf8 t
+x509KeyPemFromText t = return . X509KeyPem $ T.encodeUtf8 $ T.strip t
 {-# INLINE x509KeyPemFromText #-}
 
 unsafeX509KeyPemFromText :: HasCallStack => String -> X509KeyPem
@@ -566,7 +591,7 @@ encodeKeyDer :: X509Key k => k -> B.ByteString
 encodeKeyDer sk = encodeASN1' DER $ (toASN1 $ getPrivKey sk) []
 
 encodeKeyPem :: forall k . X509Key k => k -> X509KeyPem
-encodeKeyPem sk = X509KeyPem . pemWriteBS $ PEM
+encodeKeyPem sk = X509KeyPem . trim . pemWriteBS $ PEM
     { pemName = pemKeyHeader @k
     , pemHeader = []
     , pemContent = encodeKeyDer sk
@@ -785,8 +810,8 @@ parseCerts bytes = go (B8.lines bytes)
 
 parseCertChain :: MonadThrow m => B8.ByteString -> m X509CertChainPem
 parseCertChain bytes = parseCerts bytes >>= \case
-    [] -> throwM $ DecodeException "certificate must have at least one certificate"
-    (h : t) -> return $ X509CertChainPem (X509CertPem h) (X509CertPem <$> t)
+    [] -> throwM $ DecodeException "certificate chain must have at least one certificate"
+    (h : t) -> return $ X509CertChainPem (X509CertPem $ trim h) (X509CertPem . trim <$> t)
 
 data X509CertChainPem = X509CertChainPem X509CertPem ![X509CertPem]
     deriving (Show, Eq, Ord, Generic, NFData)
@@ -798,7 +823,7 @@ x509CertChainPemToText (X509CertChainPem a b) = T.intercalate "\n"
 {-# INLINE x509CertChainPemToText #-}
 
 x509CertChainPemFromText :: MonadThrow m => T.Text -> m X509CertChainPem
-x509CertChainPemFromText = parseCertChain . T.encodeUtf8
+x509CertChainPemFromText = parseCertChain . T.encodeUtf8 . T.strip
 {-# INLINE x509CertChainPemFromText #-}
 
 unsafeX509CertChainPemFromText :: HasCallStack => String -> X509CertChainPem
@@ -830,3 +855,11 @@ validateX509CertChainPem (X509CertChainPem a b) =
     case traverse_ decodePemX509Cert (a : b) of
         Left e -> throwError $ sshow e
         Right () -> return ()
+
+-- -------------------------------------------------------------------------- --
+-- Utils
+
+trim :: B.ByteString -> B.ByteString
+trim = fst . B8.spanEnd isSpace . B8.dropWhile isSpace
+{-# INLINE trim #-}
+

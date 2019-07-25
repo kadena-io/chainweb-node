@@ -1,4 +1,8 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -19,6 +23,14 @@ module Chainweb.Test.Orphans.Internal
 import Control.Applicative
 
 import qualified Data.ByteString as B
+import Data.MerkleLog
+import Data.Reflection (give)
+import Data.String
+import Data.Word
+
+import System.IO.Unsafe
+import System.Logger (defaultLoggerConfig)
+import System.Logger.Backend.ColorOption
 
 import Test.QuickCheck
 import Test.QuickCheck.Gen (chooseAny)
@@ -29,14 +41,31 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
+import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
 import Chainweb.Graph
+import Chainweb.Mempool.Mempool
+import Chainweb.Mempool.P2pConfig
+import Chainweb.Mempool.RestAPI
 import Chainweb.MerkleLogHash
+import Chainweb.Miner.Config
 import Chainweb.NodeId
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.PowHash
+import Chainweb.SPV
 import Chainweb.Utils
 import Chainweb.Version
+
+import Crypto.Hash.Algorithms
+
+import Network.X509.SelfSigned
+
+import P2P.Peer
+
+import Utils.Logging.Config
+
+import Chainweb.Cut.Test ({- Arbitrary Cut -})
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -129,6 +158,9 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) arbitrary
             $ fmap MerkleLogBody arbitrary
 
+instance Arbitrary a => Arbitrary (ObjectEncoded a) where
+    arbitrary = ObjectEncoded <$> arbitrary
+
 -- -------------------------------------------------------------------------- --
 -- Payload
 
@@ -154,16 +186,120 @@ instance Arbitrary CoinbaseOutput where
     arbitrary = CoinbaseOutput <$> arbitraryBytesSized
 
 instance Arbitrary BlockTransactions where
-    arbitrary = snd <$> (newBlockTransactions <$> arbitrary <*> arbitrary)
+    arbitrary = snd <$> applyArbitrary2 newBlockTransactions
+
+instance Arbitrary TransactionTree where
+    arbitrary = fst <$> applyArbitrary2 newBlockTransactions
 
 instance Arbitrary BlockOutputs where
-    arbitrary = snd <$> (newBlockOutputs <$> arbitrary <*> arbitrary)
+    arbitrary = snd <$> applyArbitrary2 newBlockOutputs
 
 instance Arbitrary BlockPayload where
-    arbitrary = blockPayload <$> arbitrary <*> arbitrary
+    arbitrary = applyArbitrary2 blockPayload
 
 instance Arbitrary PayloadData where
-    arbitrary = newPayloadData <$> arbitrary <*> arbitrary
+    arbitrary = applyArbitrary2 newPayloadData
 
 instance Arbitrary PayloadWithOutputs where
-    arbitrary = newPayloadWithOutputs <$> arbitrary <*> arbitrary <*> arbitrary
+    arbitrary = applyArbitrary3 newPayloadWithOutputs
+
+instance Arbitrary OutputTree where
+    arbitrary = fst <$> applyArbitrary2 newBlockOutputs
+
+-- -------------------------------------------------------------------------- --
+-- Cuts
+
+instance Arbitrary CutHashes where
+    arbitrary = do
+        (v :: ChainwebVersion) <- arbitrary
+        c <- give v $ arbitrary
+        return $ cutToCutHashes Nothing c
+
+instance Arbitrary CutId where
+    arbitrary = (_cutId @CutHashes) <$> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- Merkle Trees and SPV
+
+instance Arbitrary (TransactionProof SHA512t_256) where
+    arbitrary = TransactionProof <$> arbitrary <*> arbitrary
+
+instance Arbitrary (TransactionOutputProof SHA512t_256) where
+    arbitrary = TransactionOutputProof <$> arbitrary <*> arbitrary
+
+instance Arbitrary (MerkleProof SHA512t_256) where
+    arbitrary = do
+        NonEmpty input <- fmap (InputNode . B.pack)
+            <$> arbitrary @(NonEmptyList [Word8])
+        pos <- choose (0, length input - 1)
+        return
+            $ either (error . show) id
+            $ merkleProof (input !! pos) pos (merkleTree input)
+
+instance Arbitrary (MerkleTree SHA512t_256) where
+    arbitrary = merkleTree
+        <$> (fmap (InputNode . B.pack)  <$> arbitrary @[[Word8]])
+
+-- -------------------------------------------------------------------------- --
+-- Logging
+
+arbitraryColorOption :: Gen ColorOption
+arbitraryColorOption = arbitraryBoundedEnum
+
+instance Arbitrary ClusterId where
+    arbitrary = fromString <$> arbitrary
+
+instance Arbitrary HandleConfig where
+    arbitrary = oneof
+        [ pure StdOut
+        , pure StdErr
+        , FileHandle <$> arbitrary
+        , ElasticSearch <$> arbitrary
+        ]
+
+instance Arbitrary LogFormat where
+    arbitrary = elements [ LogFormatText, LogFormatJson ]
+
+instance Arbitrary BackendConfig where
+    arbitrary = BackendConfig
+        <$> arbitraryColorOption
+        <*> arbitrary
+        <*> arbitrary
+
+instance Arbitrary LogConfig where
+    arbitrary = applyArbitrary3 $ LogConfig defaultLoggerConfig
+
+-- -------------------------------------------------------------------------- --
+-- Pact
+
+instance Arbitrary MinerInfo where
+    arbitrary = pure noMiner
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+-- | This instance uses unsafePerformIO to generate X509 certificates.
+-- Generation is thus non-deterministic.
+--
+-- The instances generates Ed25519 certificates in order to avoid the costly
+-- generation of RSA keys. The distribution still includes arbitrary values with
+-- an hardcoded RSA certificate.
+--
+instance Arbitrary Peer where
+    arbitrary = unsafePerformIO . unsafeCreatePeer_ @Ed25519Cert <$> arbitrary
+
+instance Arbitrary MinerConfig where
+    arbitrary = MinerConfig <$> (MinerCount <$> arbitrary) <*> pure noMiner
+
+instance Arbitrary TransactionHash where
+    arbitrary = TransactionHash <$> arbitraryBytes 32
+
+instance Arbitrary PendingTransactions where
+    arbitrary = applyArbitrary2 PendingTransactions
+
+instance Arbitrary a => Arbitrary (EnableConfig a) where
+    arbitrary = applyArbitrary2 EnableConfig
+
+instance Arbitrary MempoolP2pConfig where
+    arbitrary = applyArbitrary3 MempoolP2pConfig
+

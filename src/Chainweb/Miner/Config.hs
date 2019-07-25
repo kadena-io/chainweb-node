@@ -60,6 +60,9 @@ instance FromJSON (MinerConfig -> MinerConfig) where
         <$< (configTestMiners . minerCount) ..: "testMiners" % o
         <*< configMinerInfo ..: "minerInfo" % o
 
+instance FromJSON MinerConfig where
+    parseJSON v = parseJSON v <*> pure defaultMinerConfig
+
 pMinerConfig :: MParser MinerConfig
 pMinerConfig = id
     <$< (configTestMiners . minerCount) .:: option auto

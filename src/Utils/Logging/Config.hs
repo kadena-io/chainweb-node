@@ -223,6 +223,9 @@ instance FromJSON (BackendConfig -> BackendConfig) where
         <*< backendConfigFormat ..: "format" % o
         <*< backendConfigHandle ..: "handle" % o
 
+instance FromJSON BackendConfig where
+    parseJSON v = parseJSON v <*> pure defaultBackendConfig
+
 pBackendConfig :: MParser BackendConfig
 pBackendConfig = pBackendConfig_ ""
 
@@ -293,6 +296,9 @@ instance FromJSON (LogConfig -> LogConfig) where
         <*< logConfigBackend %.: "backend" % o
         <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
         <*< logConfigClusterId ..: "clusterId" % o
+
+instance FromJSON LogConfig where
+    parseJSON v = parseJSON v <*> pure defaultLogConfig
 
 pLogConfig :: MParser LogConfig
 pLogConfig = pLogConfig_ ""

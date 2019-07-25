@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -63,7 +64,9 @@ module P2P.Peer
 , peerCertificateChain
 , peerKey
 , unsafeCreatePeer
+, unsafeCreatePeer_
 , getPeerCertificate
+, getPeerCertificate_
 
 -- * Bootstrap Peer Infos
 , bootstrapPeerInfos
@@ -383,7 +386,14 @@ makeLenses ''Peer
 getPeerCertificate
     :: PeerConfig
     -> IO (Fingerprint, X509CertChainPem, X509KeyPem)
-getPeerCertificate conf = do
+getPeerCertificate = getPeerCertificate_ @DefCertType
+
+getPeerCertificate_
+    :: forall k
+    . X509Key k
+    => PeerConfig
+    -> IO (Fingerprint, X509CertChainPem, X509KeyPem)
+getPeerCertificate_ conf = do
     maybeChain <- case _peerConfigCertificateChain conf of
         Nothing -> do
             bytes <- traverse T.readFile $ _peerConfigCertificateChainFile conf
@@ -398,7 +408,7 @@ getPeerCertificate conf = do
 
     case (maybeChain, maybeKey) of
         (Nothing, _) -> do
-            (!fp, !c, !k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
+            (!fp, !c, !k) <- generateSelfSignedCertificate @k 365 dn Nothing
             return $! (fp, X509CertChainPem c [], k)
         (Just !c@(X509CertChainPem !a _), (Just !k)) ->
             return $! (unsafeFingerprintPem a, c, k)
@@ -407,8 +417,11 @@ getPeerCertificate conf = do
     dn = name . B8.unpack . hostnameBytes . _hostAddressHost . _peerConfigAddr $ conf
 
 unsafeCreatePeer :: PeerConfig -> IO Peer
-unsafeCreatePeer conf = do
-    (!fp, !certs, !key) <- getPeerCertificate conf
+unsafeCreatePeer = unsafeCreatePeer_ @DefCertType
+
+unsafeCreatePeer_ :: forall k . X509Key k => PeerConfig -> IO Peer
+unsafeCreatePeer_ conf = do
+    (!fp, !certs, !key) <- getPeerCertificate_ @k conf
     return $! Peer
         { _peerInfo = PeerInfo
             { _peerId = Just $! peerIdFromFingerprint fp
@@ -423,7 +436,7 @@ instance ToJSON Peer where
     toJSON p = object
         [ "info" .= _peerInfo p
         , "interface" .= hostPreferenceToText (_peerInterface p)
-        , "certifcateChain" .= _peerCertificateChain p
+        , "certificateChain" .= _peerCertificateChain p
         , "key" .= _peerKey p
         ]
     {-# INLINE toJSON #-}
@@ -432,7 +445,7 @@ instance FromJSON Peer where
     parseJSON = withObject "Peer" $ \o -> Peer
         <$> o .: "info"
         <*> (parseJsonFromText "interface" =<< o .: "interface")
-        <*> o .: "certificate"
+        <*> o .: "certificateChain"
         <*> o .: "key"
     {-# INLINE parseJSON #-}
 

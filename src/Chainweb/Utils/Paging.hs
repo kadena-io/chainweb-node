@@ -118,6 +118,10 @@ instance (HasTextRepresentation k, FromJSON k, FromJSON a) => FromJSON (Page k a
         <*> o .: "items"
         <*> o .: "next"
 
+instance (Arbitrary a, Arbitrary b) => Arbitrary (Page a b) where
+    arbitrary = sized $ \s -> do
+        Page (Limit $ fromIntegral s) <$> vectorOf s arbitrary <*> arbitrary
+
 -- -------------------------------------------------------------------------- --
 -- Next Item
 
@@ -175,6 +179,9 @@ instance HasTextRepresentation k => FromJSON (NextItem k) where
     parseJSON = parseJsonFromText "NextItem"
     {-# INLINE parseJSON #-}
 
+instance Arbitrary a => Arbitrary (NextItem a) where
+    arbitrary = elements [Inclusive, Exclusive] <*> arbitrary
+
 -- -------------------------------------------------------------------------- --
 -- End-Of-Stream
 
@@ -182,7 +189,7 @@ instance HasTextRepresentation k => FromJSON (NextItem k) where
 --
 newtype Eos = Eos { _getEos :: Bool }
     deriving stock (Eq, Show, Ord, Generic)
-    deriving newtype (Enum, Bounded, FromJSON, ToJSON)
+    deriving newtype (Enum, Bounded, FromJSON, ToJSON, Arbitrary)
 
 isEos :: Eos -> Bool
 isEos = _getEos

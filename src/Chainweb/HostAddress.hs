@@ -102,6 +102,7 @@ module Chainweb.HostAddress
 , arbitraryIpV6
 
 -- * HostPreference Utils
+, HostPreference
 , hostPreferenceToText
 , hostPreferenceFromText
 
@@ -514,13 +515,25 @@ hostPreferenceFromText "*6" = return HostIPv6
 hostPreferenceFromText "!6" = return HostIPv6Only
 hostPreferenceFromText s = Host . T.unpack . toText <$> hostnameFromText s
 
--- Orphan instance
+-- | Orphan instance
 --
 instance HasTextRepresentation HostPreference where
     toText = hostPreferenceToText
     {-# INLINE toText #-}
     fromText = hostPreferenceFromText
     {-# INLINE fromText #-}
+
+-- | Orphan instance
+--
+instance Arbitrary HostPreference where
+    arbitrary = oneof
+        [ pure HostAny
+        , pure HostIPv4
+        , pure HostIPv4Only
+        , pure HostIPv6
+        , pure HostIPv6Only
+        , (Host . T.unpack . hostnameToText) <$> arbitraryHostname
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- Properties
