@@ -99,6 +99,7 @@ import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import Pact.Types.ChainMeta (PublicData(..))
+import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
     (ExecutionMode(..), GasEnv(..), PactDb(..), TableName(..), TxId(..),
@@ -210,6 +211,7 @@ data Checkpointer = Checkpointer
     , lookupBlockInCheckpointer :: (BlockHeight, BlockHash) -> IO Bool
       -- ^ is the checkpointer aware of the given block?
     , getBlockParent :: (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
+    , registerProcessedTx :: P.PactHash -> IO ()
     }
 
 data CheckpointEnv = CheckpointEnv

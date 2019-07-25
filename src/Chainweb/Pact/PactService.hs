@@ -31,7 +31,7 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (catches, Handler(..), finally, try)
+import Control.Exception hiding (Handler(..), catches, finally, try)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -62,6 +62,7 @@ import System.LogLevel
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
+import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
@@ -583,6 +584,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
         !gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
         !pd       = _psPublicData psEnv
         !spv      = _psSpvSupport psEnv
+        pactHash  = view P.cmdHash cmdIn
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let !cmd = payloadObj <$> cmdIn
@@ -590,6 +592,9 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
 
+    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    -- mark the tx as processed at the checkpointer.
+    liftIO $ registerProcessedTx cp pactHash
     pure $! T2 (toHashCommandResult result : v) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult

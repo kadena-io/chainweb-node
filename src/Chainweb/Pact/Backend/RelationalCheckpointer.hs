@@ -75,6 +75,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doWithAtomicRewind db)
               (doLookupBlock db)
               (doGetBlockParent db)
+              (error "TODO: registerSuccessfulTx")
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })

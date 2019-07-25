@@ -56,6 +56,7 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     id  -- in-mem doesn't require tx rewind
                     (doLookupBlock inmem)
                     (doGetBlockParent inmem)
+                    (error "TODO: registerSuccessfulTx")
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
