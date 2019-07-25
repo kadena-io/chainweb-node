@@ -95,6 +95,7 @@ import qualified Data.ByteArray as BA
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
+import Data.Function
 import Data.Hashable
 import Data.MerkleLog
 import qualified Data.Sequence as S
@@ -302,7 +303,13 @@ data BlockPayload = BlockPayload
         -- ^ Root of 'OutputsTree' of the block. Foreign key into
         -- 'BlockOutputsStore' and 'OutputTreeStore'.
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Show, Generic)
+
+instance Eq BlockPayload where
+    (==) = (==) `on` _blockPayloadPayloadHash
+
+instance Ord BlockPayload where
+    compare = compare `on` _blockPayloadPayloadHash
 
 instance ToJSON BlockPayload where
     toJSON o = object
@@ -400,7 +407,13 @@ data BlockTransactions = BlockTransactions
     , _blockMinerData :: !MinerData
         -- ^ Miner data for rewards
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Show, Generic)
+
+instance Eq BlockTransactions where
+    (==) = (==) `on` _blockTransactionsHash
+
+instance Ord BlockTransactions where
+    compare = compare `on` _blockTransactionsHash
 
 instance ToJSON BlockTransactions where
     toJSON o = object
@@ -504,7 +517,13 @@ data BlockOutputs = BlockOutputs
     , _blockCoinbaseOutput :: !CoinbaseOutput
         -- ^ Output of coinbase transaction.
     }
-    deriving (Show)
+    deriving (Show, Generic)
+
+instance Eq BlockOutputs where
+    (==) = (==) `on` _blockOutputsHash
+
+instance Ord BlockOutputs where
+    compare = compare `on` _blockOutputsHash
 
 instance ToJSON BlockOutputs where
     toJSON o = object
@@ -554,7 +573,13 @@ data TransactionTree = TransactionTree
 
     , _transactionTree :: !(MerkleTree SHA512t_256)
     }
-    deriving (Show)
+    deriving (Show, Generic)
+
+instance Eq TransactionTree where
+    (==) = (==) `on` _transactionTreeHash
+
+instance Ord TransactionTree where
+    compare = compare `on` _transactionTreeHash
 
 instance IsCasValue TransactionTree where
     type CasKeyType TransactionTree = BlockTransactionsHash
@@ -590,7 +615,13 @@ data OutputTree = OutputTree
 
     , _outputTree :: !(MerkleTree SHA512t_256)
     }
-    deriving (Show)
+    deriving (Show, Generic)
+
+instance Eq OutputTree where
+    (==) = (==) `on` _outputTreeHash
+
+instance Ord OutputTree where
+    compare = compare `on` _outputTreeHash
 
 instance IsCasValue OutputTree where
     type CasKeyType OutputTree = BlockOutputsHash
@@ -707,17 +738,24 @@ newBlockPayload mi co s = blockPayload txs outs
 -- | This contains all non-redundant payload data for a block. It doesn't
 -- contain any data that can be recomputed.
 --
--- This data structure is used maintly to transfer payloads over the wire.
+-- This data structure is used mainly to transfer payloads over the wire.
 --
 data PayloadData = PayloadData
     { _payloadDataTransactions :: !(S.Seq Transaction)
     , _payloadDataMiner :: !MinerData
     , _payloadDataPayloadHash :: !BlockPayloadHash
+        -- ^ unique key for PayloadData
     , _payloadDataTransactionsHash :: !BlockTransactionsHash
     , _payloadDataOutputsHash :: !BlockOutputsHash
     }
-    deriving (Eq, Show, Generic)
+    deriving (Show, Generic)
     deriving anyclass (NFData)
+
+instance Eq PayloadData where
+    (==) = (==) `on` _payloadDataPayloadHash
+
+instance Ord PayloadData where
+    compare = compare `on` _payloadDataPayloadHash
 
 instance ToJSON PayloadData where
     toJSON o = object
@@ -763,9 +801,16 @@ data PayloadWithOutputs = PayloadWithOutputs
     , _payloadWithOutputsMiner :: !MinerData
     , _payloadWithOutputsCoinbase :: !CoinbaseOutput
     , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
+        -- ^ unique key for PayloadWithOutputs
     , _payloadWithOutputsTransactionsHash :: !BlockTransactionsHash
     , _payloadWithOutputsOutputsHash :: !BlockOutputsHash
-    } deriving (Show)
+    } deriving (Show, Generic)
+
+instance Eq PayloadWithOutputs where
+    (==) = (==) `on` _payloadWithOutputsPayloadHash
+
+instance Ord PayloadWithOutputs where
+    compare = compare `on` _payloadWithOutputsPayloadHash
 
 instance IsCasValue PayloadWithOutputs where
     type CasKeyType PayloadWithOutputs = BlockPayloadHash
