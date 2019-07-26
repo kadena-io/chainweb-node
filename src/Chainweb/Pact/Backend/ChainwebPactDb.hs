@@ -132,10 +132,11 @@ writeSys wt d k v = do
         UserTables _ -> error "impossible"
 
     write key bh txid db = f key (domainTableName d) bh txid v db
-      where f = case wt of
-              Insert -> backendWriteInsert
-              Update -> backendWriteUpdate
-              Write -> backendWriteWrite
+      where
+        f = case wt of
+            Insert -> backendWriteInsert
+            Update -> backendWriteUpdate
+            Write -> backendWriteWrite
 
 backendWriteInsert
     :: ToJSON v
@@ -183,13 +184,6 @@ backendWriteUpdate key tn bh txid v db = do
       , tn
       , "](rowkey,blockheight,txid,rowdata) "
       , "VALUES(?,?,?,?)"]
-    {-q = mconcat [ "UPDATE ["
-                , tn
-                , "] SET rowdata = ? WHERE rowkey = ? AND blockheight = ? \
-                  \ AND txid = ? ;"
-                ]
-    -}
-
 
 backendWriteWrite
     :: ToJSON v
@@ -229,30 +223,29 @@ writeUser wt d k row = do
     toTableName (Utf8 str) = TableName $ toS str
 
     userWrite key bh txid = do
-      olds <- doReadRow d key
-      case (olds, wt) of
-        (Nothing, Insert) -> ins
-        (Just _, Insert) -> err
-        (Nothing, Write) -> ins
-        (Just old, Write) -> upd old
-        (Just old, Update) -> upd old
-        (Nothing, Update) -> err
-
+        olds <- doReadRow d key
+        case (olds, wt) of
+            (Nothing, Insert) -> ins
+            (Just _, Insert) -> err
+            (Nothing, Write) -> ins
+            (Just old, Write) -> upd old
+            (Just old, Update) -> upd old
+            (Nothing, Update) -> err
       where
         err = internalError $
           "writeUser: Update: no row found for key " <>
           asString key
         upd oldrow = do
-          let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
-              tn = domainTableName d
-          callDb "writeUser"
-            $ backendWriteUpdate (Utf8 $! toS $ asString key) tn bh txid row'
-          record (toTableName tn) d key row'
+            let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
+                tn = domainTableName d
+            callDb "writeUser"
+              $ backendWriteUpdate (Utf8 $! toS $ asString key) tn bh txid row'
+            record (toTableName tn) d key row'
         ins = do
-          let tn = domainTableName d
-          callDb "writeUser"
-            $ backendWriteInsert (Utf8 $! toS $ asString key) tn bh txid row
-          record (toTableName tn) d key row
+            let tn = domainTableName d
+            callDb "writeUser"
+              $ backendWriteInsert (Utf8 $! toS $ asString key) tn bh txid row
+            record (toTableName tn) d key row
 
 
 doWriteRow
@@ -288,8 +281,8 @@ doTxIds (TableName tn) (TxId tid) = do
         [SInt (fromIntegral tid)]
         [RInt]
     forM rows $ \case
-      [SInt tid'] -> return $ TxId (fromIntegral tid')
-      _ -> internalError "doTxIds: the impossible happened"
+        [SInt tid'] -> return $ TxId (fromIntegral tid')
+        _ -> internalError "doTxIds: the impossible happened"
   where
     stmt = "SELECT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 {-# INLINE doTxIds #-}
@@ -348,10 +341,10 @@ doCommit = use bsMode >>= \mm -> case mm of
         txrs <- use bsTxRecord
         if m == Transactional
           then do
-            modify' (over bsTxId succ)
-            -- commit
-            commitSavepoint PactDbTransaction
-            resetTemp
+              modify' (over bsTxId succ)
+              -- commit
+              commitSavepoint PactDbTransaction
+              resetTemp
           else doRollback
         return $! concat txrs
 {-# INLINE doCommit #-}
@@ -365,20 +358,19 @@ doGetTxLog d txid = do
       ]
       [RText, RBlob]
     forM rows $ \case
-      [SText key, SBlob value] ->
-        case Data.Aeson.decodeStrict' value of
-          Nothing -> internalError $
-            "doGetTxLog: Unexpected value, unable to deserialize log"
-          Just v ->
-            return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
-      err -> internalError $
-        "doGetTxLog: Expected single row with two columns as the \
-        \result, got: " <> T.pack (show err)
+        [SText key, SBlob value] ->
+          case Data.Aeson.decodeStrict' value of
+            Nothing -> internalError $
+              "doGetTxLog: Unexpected value, unable to deserialize log"
+            Just v ->
+              return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
+        err -> internalError $
+          "doGetTxLog: Expected single row with two columns as the \
+          \result, got: " <> T.pack (show err)
   where
     stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
                 , domainTableName d
                 , "] WHERE txid = ? AND blockheight = ?"
-
                 ]
 
 unwrap :: Utf8 -> BS.ByteString
@@ -445,16 +437,22 @@ createVersionedTable tablename indexname db = do
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
              \, UNIQUE (blockheight, rowkey, txid));"
-    indexcreationstmt = "CREATE INDEX IF NOT EXISTS [" <> indexname  <> "] ON [" <> tablename <> "](rowkey, txid);"
+    indexcreationstmt =
+        mconcat
+            ["CREATE INDEX IF NOT EXISTS ["
+            , indexname
+            , "] ON ["
+            , tablename
+            , "](rowkey, txid);"]
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
     bCurrent <- getBCurrent
     checkHistoryInvariant
     case compare bRestore (bCurrent + 1) of
-      GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
-      EQ -> newChildBlock bCurrent
-      LT -> rewindBlock bRestore
+        GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
+        EQ -> newChildBlock bCurrent
+        LT -> rewindBlock bRestore
   where
     getBCurrent = do
         r <- callDb "handlePossibleRewind" $ \db ->
@@ -464,48 +462,47 @@ handlePossibleRewind bRestore hsh = do
         return $! BlockHeight (fromIntegral bh)
 
     checkHistoryInvariant = do
-      -- enforce invariant that the history has
-      -- (B_restore-1,H_parent).
-      historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
-        qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
-               \blockheight = ? and hash = ?;"
-               [ SInt $! fromIntegral $ pred bRestore
-               , SBlob (Data.Serialize.encode hsh) ]
-               [RInt]
-        >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
-      when (historyInvariant /= SInt 1) $
-        internalError "handlePossibleRewind: History invariant violation"
+        -- enforce invariant that the history has
+        -- (B_restore-1,H_parent).
+        historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
+            qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
+                   \blockheight = ? and hash = ?;"
+                   [ SInt $! fromIntegral $ pred bRestore
+                   , SBlob (Data.Serialize.encode hsh) ]
+                   [RInt]
+            >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
+        when (historyInvariant /= SInt 1) $
+          internalError "handlePossibleRewind: History invariant violation"
 
     newChildBlock bCurrent = do
-      assign bsBlockHeight bRestore
-      SInt txid <- callDb "getting txid" $ \db ->
-        expectSingleRowCol msg =<< qry db
-            "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
-            [SInt (fromIntegral bCurrent)]
-            [RInt]
-      assign bsTxId (fromIntegral txid)
-      return $ fromIntegral txid
+        assign bsBlockHeight bRestore
+        SInt txid <- callDb "getting txid" $ \db ->
+          expectSingleRowCol msg =<< qry db
+              "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
+              [SInt (fromIntegral bCurrent)]
+              [RInt]
+        assign bsTxId (fromIntegral txid)
+        return $ fromIntegral txid
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"
 
-
     rewindBlock bh = do
-      assign bsBlockHeight bh
-      tableMaintenanceRowsVersionedSystemTables
-      callDb "rewindBlock" $ \db -> do
-          droppedtbls <- dropTablesAtRewind bh db
-          vacuumTablesAtRewind bh droppedtbls db
-      t <- deleteHistory
-      assign bsTxId t
-      return $! t
+        assign bsBlockHeight bh
+        tableMaintenanceRowsVersionedSystemTables
+        callDb "rewindBlock" $ \db -> do
+            droppedtbls <- dropTablesAtRewind bh db
+            vacuumTablesAtRewind bh droppedtbls db
+        t <- deleteHistory
+        assign bsTxId t
+        return $! t
 
 dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
     toDropTblNames <- qry db findTablesToDropStmt [SInt (fromIntegral bh)] [RText]
     fmap (HS.fromList) . forM toDropTblNames $ \case
-      [SText tblname@(Utf8 tbl)] -> do
-        exec_ db $ "DROP TABLE " <> tblname <> ";"
-        return tbl
-      _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+        [SText tblname@(Utf8 tbl)] -> do
+            exec_ db $ "DROP TABLE " <> tblname <> ";"
+            return tbl
+        _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
   where findTablesToDropStmt =
           "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
 
@@ -514,7 +511,9 @@ vacuumTablesAtRewind bh droppedtbls db = do
     let processMutatedTables ms = fmap (HS.fromList) . forM ms $ \case
           [SText (Utf8 tbl)] -> return tbl
           _ -> internalError "rewindBlock: Couldn't resolve the name of the table to possibly vacuum."
-    mutatedTables <- qry db "SELECT DISTINCT tablename FROM VersionedTableMutation WHERE blockheight >= ?;"
+    mutatedTables <- qry db
+        "SELECT DISTINCT tablename\
+        \ FROM VersionedTableMutation WHERE blockheight >= ?;"
       [SInt (fromIntegral bh)]
       [RText]
       >>= processMutatedTables
