@@ -375,6 +375,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
+    logg = logFunctionText logger
 
     -- Initialize global resources
     global cs cdbv = do
@@ -382,7 +383,9 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
             mgr = _peerResManager peer
+        logg Info "start initializing cut resources"
         withCutResources cutConfig peer cutLogger rocksDb webchain payloadDb mgr pact $ \cuts -> do
+            logg Info "finished initializing cut resources"
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
@@ -406,24 +409,28 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             void $! putMVar cdbv mCutDb
 
             -- synchronize pact dbs with latest cut before we begin mining
+            logg Info "start synchronizing Pact DBs"
             synchronizePactDb cs mCutDb
+            logg Info "finished synchronizing Pact DBs"
 
-            withPactData cs cuts $ \pactData ->
-                withMinerResources mLogger mConf cwnid mCutDb $ \m ->
-                inner Chainweb
-                    { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                    , _chainwebChains = cs
-                    , _chainwebCutResources = cuts
-                    , _chainwebNodeId = cwnid
-                    , _chainwebMiner = m
-                    , _chainwebLogger = logger
-                    , _chainwebPeer = peer
-                    , _chainwebPayloadDb = payloadDb
-                    , _chainwebManager = mgr
-                    , _chainwebPactData = pactData
-                    , _chainwebThrottler = throttler
-                    , _chainwebConfig = conf
-                    }
+            withPactData cs cuts $ \pactData -> do
+                logg Info "start initializing miner resources"
+                withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
+                    logg Info "finished initializing miner resources"
+                    inner Chainweb
+                        { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                        , _chainwebChains = cs
+                        , _chainwebCutResources = cuts
+                        , _chainwebNodeId = cwnid
+                        , _chainwebMiner = m
+                        , _chainwebLogger = logger
+                        , _chainwebPeer = peer
+                        , _chainwebPayloadDb = payloadDb
+                        , _chainwebManager = mgr
+                        , _chainwebPactData = pactData
+                        , _chainwebThrottler = throttler
+                        , _chainwebConfig = conf
+                        }
 
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf)
@@ -456,15 +463,15 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             in map snd $ HM.toList $ HM.mapWithKey f c
         syncOne (bh, cr) = do
             let pact = _chainResPact cr
-            let logg = logFunctionText $ _chainResLogger cr
+            let clogg = logFunctionText $ _chainResLogger cr
             let hsh = _blockHash bh
             let h = _blockHeight bh
-            logg Info $ "pact db synchronizing to block "
+            clogg Info $ "pact db synchronizing to block "
                       <> T.pack (show (h, hsh))
             payload <- payloadWithOutputsToPayloadData
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
-            logg Info "pact db synchronized"
+            clogg Info "pact db synchronized"
 
 
 -- | Starts server and runs all network clients

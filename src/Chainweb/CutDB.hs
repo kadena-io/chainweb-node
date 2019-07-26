@@ -280,10 +280,13 @@ startCutDb
     -> RocksDbCas CutHashes
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
+    logg Debug "obtain initial cut"
     cutVar <- newTVarIO =<< initialCut
+    c <- readTVarIO cutVar
+    logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
-    logfun @T.Text Info "CutDB started"
+    logg Info "CutDB started"
     return $! CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue
@@ -295,13 +298,15 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         , _cutDbStore = cutHashesStore
         }
   where
+    logg = logfun @T.Text
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = do
+        logg Debug "starting cut processor"
         processCuts logfun headerStore payloadStore cutHashesStore queue cutVar
             `catches`
                 [ Handler $ \(e :: SomeAsyncException) -> throwM e
                 , Handler $ \(e :: SomeException) ->
-                    logfun @T.Text Error $ "CutDB failed: " <> sshow e
+                    logg Error $ "CutDB failed: " <> sshow e
                 ]
         processor queue cutVar
 
@@ -316,17 +321,21 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 4. full validation
     --
     initialCut = tableMaxValue (_getRocksDbCas cutHashesStore) >>= \case
-        Nothing -> return $! _cutDbConfigInitialCut config
+        Nothing -> do
+            logg Debug "using intial cut from cut db configuration"
+            return $! _cutDbConfigInitialCut config
         Just ch -> cutHashesToBlockHeaderMap headerStore payloadStore ch >>= \case
             Left _ -> do
                 logfun @T.Text Warn
                     $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
                     <> " from database. Falling back to genesis cut"
                 return $! _cutDbConfigInitialCut config
-            Right hm -> joinIntoHeavier_
-                (_webBlockHeaderStoreCas headerStore)
-                hm
-                (_cutMap $ _cutDbConfigInitialCut config)
+            Right hm -> do
+                logg Debug $ "joining intial cut from cut db configuration with maximum persisted cut " <> sshow hm
+                joinIntoHeavier_
+                    (_webBlockHeaderStoreCas headerStore)
+                    hm
+                    (_cutMap $ _cutDbConfigInitialCut config)
 
 stopCutDb :: CutDb cas -> IO ()
 stopCutDb db = cancel (_cutDbAsync db)
