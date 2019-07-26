@@ -376,6 +376,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
+    logg = logFunctionText logger
 
     -- Initialize global resources
     global cs cdbv = do
@@ -383,7 +384,9 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
             mgr = _peerResManager peer
+        logg Info "start initializing cut resources"
         withCutResources cutConfig peer cutLogger rocksDb webchain payloadDb mgr pact $ \cuts -> do
+            logg Info "finished initializing cut resources"
             let mLogger = setComponent "miner" logger
                 mConf = _configMiner conf
                 mCutDb = _cutResCutDb cuts
@@ -407,24 +410,28 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             void $! putMVar cdbv mCutDb
 
             -- synchronize pact dbs with latest cut before we begin mining
+            logg Info "start synchronizing Pact DBs"
             synchronizePactDb cs mCutDb
+            logg Info "finished synchronizing Pact DBs"
 
-            withPactData cs cuts $ \pactData ->
-                withMinerResources mLogger mConf cwnid mCutDb $ \m ->
-                inner Chainweb
-                    { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                    , _chainwebChains = cs
-                    , _chainwebCutResources = cuts
-                    , _chainwebNodeId = cwnid
-                    , _chainwebMiner = m
-                    , _chainwebLogger = logger
-                    , _chainwebPeer = peer
-                    , _chainwebPayloadDb = payloadDb
-                    , _chainwebManager = mgr
-                    , _chainwebPactData = pactData
-                    , _chainwebThrottler = throttler
-                    , _chainwebConfig = conf
-                    }
+            withPactData cs cuts $ \pactData -> do
+                logg Info "start initializing miner resources"
+                withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
+                    logg Info "finished initializing miner resources"
+                    inner Chainweb
+                        { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                        , _chainwebChains = cs
+                        , _chainwebCutResources = cuts
+                        , _chainwebNodeId = cwnid
+                        , _chainwebMiner = m
+                        , _chainwebLogger = logger
+                        , _chainwebPeer = peer
+                        , _chainwebPayloadDb = payloadDb
+                        , _chainwebManager = mgr
+                        , _chainwebPactData = pactData
+                        , _chainwebThrottler = throttler
+                        , _chainwebConfig = conf
+                        }
 
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
@@ -438,7 +445,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
               logg Info "Transaction index disabled"
               m []
 
-    logg = logFunctionText logger
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
