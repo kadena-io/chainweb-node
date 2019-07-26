@@ -148,7 +148,7 @@ sshow = fromString . show
 
 -- | This wrapper allows to create key namespaces. This is, for instance, useful
 -- for testing when running several concurrent tests on the same rocks db
--- instances.
+-- instances. Key namespaces must not contain the character '-'.
 --
 data RocksDb = RocksDb
     { _rocksDbHandle :: !R.DB
@@ -161,16 +161,33 @@ makeLenses ''RocksDb
 -- at the provided directory path, a new database is created.
 --
 openRocksDb :: FilePath -> IO RocksDb
-openRocksDb path = RocksDb <$> R.open path opts <*> mempty
+openRocksDb path = do
+    db <- RocksDb <$> R.open path opts <*> mempty
+    initializeRocksDb db
+    return db
   where
     opts = R.defaultOptions { R.createIfMissing = True }
+
+-- | Each table key starts with @_rocksDbNamespace db <> "-"@. Here we insert a
+-- dummy key that is guaranteed to be appear after any other key in the
+-- database. We rely on its existence that in the implementation of
+-- 'tableIteratorLast'.
+--
+initializeRocksDb :: RocksDb -> IO ()
+initializeRocksDb db = R.put
+    (_rocksDbHandle db)
+    R.defaultWriteOptions
+    (_rocksDbNamespace db <> ".")
+    ""
 
 -- | Open a 'RocksDb' and reset it if it already exists.
 --
 resetOpenRocksDb :: FilePath -> IO RocksDb
 resetOpenRocksDb path = do
     destroyRocksDb path
-    RocksDb <$> R.open path opts <*> mempty
+    db <- RocksDb <$> R.open path opts <*> mempty
+    initializeRocksDb db
+    return db
   where
     opts = R.defaultOptions { R.createIfMissing = True, R.errorIfExists = True }
 
