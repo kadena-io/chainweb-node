@@ -84,6 +84,7 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
+import Data.Reflection hiding (int)
 import qualified Data.Text as T
 
 import GHC.Generics hiding (to)
@@ -271,6 +272,14 @@ withCutDb config logfun headerStore payloadStore cutHashesStore
         (startCutDb config logfun headerStore payloadStore cutHashesStore)
         stopCutDb
 
+-- | Start a CutDB. This loads the initial cut from the database (falling back
+-- to the configured initial cut loading fails) and starts the cut validation
+-- pipeline.
+--
+-- TODO: Instead of falling back to the configured initial cut, which usually is
+-- the genesis cut, we could instead try to walk back in history until we find a
+-- cut that succeed to load.
+--
 startCutDb
     :: PayloadCas cas
     => CutDbConfig
@@ -299,6 +308,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         }
   where
     logg = logfun @T.Text
+    wbhdb = _webBlockHeaderStoreCas headerStore
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = do
         logg Debug "starting cut processor"
@@ -310,12 +320,11 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                 ]
         processor queue cutVar
 
-    -- TODO: this checks the braiding but doesn't revaludate the db. Also it
-    -- doesn't replay pact txs. 'joinIntoHeavier_' may stil be slow on large
-    -- dbs. We should support different levels of validation:
+    -- TODO: The following code doesn't perform any validation of the cut.
+    -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
+    -- support different levels of validation:
     --
-    -- 1. nothing (pact replay is still needed which requires access to all
-    --    payloads and is thus probably similarly expensive as joinIntoHeavier_.
+    -- 1. nothing
     -- 2. braiding
     -- 3. exitence of dependencies
     -- 4. full validation
@@ -324,12 +333,13 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
         Nothing -> do
             logg Debug "using intial cut from cut db configuration"
             return $! _cutDbConfigInitialCut config
-        Just ch -> cutHashesToBlockHeaderMap headerStore payloadStore ch >>= \case
-            Left _ -> do
+        Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
+            Left (TreeDbKeyNotFound _ :: TreeDbException BlockHeaderDb) -> do
                 logfun @T.Text Warn
                     $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
-                    <> " from database. Falling back to genesis cut"
+                    <> " from database. The database might be corrupted. Falling back to genesis cut"
                 return $! _cutDbConfigInitialCut config
+            Left e -> throwM e
             Right hm -> do
                 logg Debug $ "joining intial cut from cut db configuration with maximum persisted cut " <> sshow hm
                 joinIntoHeavier_
@@ -337,8 +347,21 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                     hm
                     (_cutMap $ _cutDbConfigInitialCut config)
 
+-- | Stop the cut validation pipeline.
+--
 stopCutDb :: CutDb cas -> IO ()
 stopCutDb db = cancel (_cutDbAsync db)
+
+-- | Lookup the BlockHeaders for a CutHashes structure. Throws an exception if
+-- the lookup for some BlockHash in the input CutHashes.
+--
+lookupCutHashes
+    :: WebBlockHeaderDb
+    -> CutHashes
+    -> IO (HM.HashMap ChainId BlockHeader)
+lookupCutHashes wbhdb hs = do
+    flip itraverse (_cutHashes hs) $ \cid (_, h) -> do
+        give wbhdb $ lookupWebBlockHeaderDb cid h
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
