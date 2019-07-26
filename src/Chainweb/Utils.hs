@@ -138,6 +138,7 @@ module Chainweb.Utils
 , enableConfigEnabled
 , defaultEnableConfig
 , pEnableConfig
+, enabledConfig
 
 -- * Configuration Exception
 , ConfigurationException(..)
@@ -884,6 +885,10 @@ pEnableConfig compName pConfig = id
         % long compName
         <> help ("whether " <> compName <> " is enabled or disabled")
     <*< enableConfigConfig %:: pConfig
+
+-- | Access wrapped config as `Maybe` if enabled.
+enabledConfig :: EnableConfig a -> Maybe a
+enabledConfig (EnableConfig e a) = if e then Just a else Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Configuration Validation
