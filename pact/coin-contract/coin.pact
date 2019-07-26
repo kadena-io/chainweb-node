@@ -63,6 +63,9 @@
 
     @model [(property (> total 0.0))]
 
+    (enforce (> total 0.0)
+      "gas supply must be a positive quantity")
+
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
       (debit sender total))
@@ -80,8 +83,12 @@
     (with-capability (TRANSFER)
       (let* ((fee (read-decimal "fee"))
              (refund (- total fee)))
-        (enforce (>= refund 0.0) "fee must be less than or equal to total")
 
+        (enforce (>= fee 0.0)
+          "fee must be a non-negative quantity")
+
+        (enforce (>= refund 0.0)
+          "refun must be a non-negative quantity")
 
         ; directly update instead of credit
         (if (> refund 0.0)
@@ -91,7 +98,10 @@
               { "balance": (+ balance refund) })
             )
           "noop")
-        (credit miner miner-guard fee)
+
+        (if (> fee 0.0)
+          (credit miner miner-guard fee)
+          "noop")
         ))
     )
 
@@ -113,6 +123,9 @@
 
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")
+
+    (enforce (> amount 0.0)
+      "transfer amount must be positive")
 
     (with-capability (TRANSFER)
       (debit sender amount)
@@ -167,7 +180,7 @@
            ]
 
     (enforce (> amount 0.0)
-      "debit amount must be positive")
+      "credit amount must be positive")
 
     (require-capability (TRANSFER))
     (with-default-read coin-table account
@@ -213,6 +226,9 @@
       (with-capability (TRANSFER)
         (enforce (not (= (at 'chain-id (chain-data)) create-chain-id))
           "cannot run cross-chain transfers to the same chain")
+
+        (enforce (> quantity 0.0)
+          "transfer quantity must be positive")
 
         (debit delete-account quantity)
         (let

@@ -148,6 +148,7 @@ selectChainIds :: [NetworkId] -> [ChainId]
 selectChainIds = mapMaybe f
   where
     f (ChainNetwork c) = Just c
+    f (MempoolNetwork c) = Just c
     f CutNetwork = Nothing
 
 prettyShowChainwebApi :: ChainwebVersion -> [NetworkId] -> T.Text

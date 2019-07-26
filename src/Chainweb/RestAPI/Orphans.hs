@@ -1,9 +1,6 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -34,6 +31,7 @@ import Crypto.Hash.Algorithms
 import Data.Aeson hiding (decode, encode)
 import Data.Bifunctor
 import Data.Bytes.Put
+import Data.DoubleWord (Word128, Word256)
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import Data.Semigroup (Max(..), Min(..))
@@ -50,15 +48,17 @@ import Servant.API
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
+import Chainweb.Difficulty hiding (properties)
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
-import Chainweb.MerkleLogHash
+import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
+import Chainweb.NodeId (ChainNodeId)
 import Chainweb.Payload
 import Chainweb.SPV
+import Chainweb.Time (Micros, Time, TimeSpan)
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
@@ -255,8 +255,10 @@ instance ToParamSchema ChainwebVersion where
             , TimedConsensus petersonChainGraph
             , PowConsensus petersonChainGraph
             , TimedCPM petersonChainGraph
+            , Development
             , Testnet00
             , Testnet01
+            , Testnet02
             ])
 
 -- -------------------------------------------------------------------------- --
@@ -370,3 +372,24 @@ instance ToSchema (BranchBounds BlockHeaderDb) where
                 , ("lower", setSchema)
                 ]
             & required .~ [ "upper", "lower" ]
+
+deriving instance ToSchema BlockCreationTime
+deriving instance ToSchema BlockHashRecord
+deriving instance ToSchema BlockHeight
+deriving instance ToSchema BlockWeight
+deriving instance ToSchema ChainNodeId
+deriving instance ToSchema HashDifficulty
+deriving instance ToSchema HashTarget
+deriving instance ToSchema Micros
+deriving instance ToSchema Nonce
+deriving instance ToSchema PowHashNat
+deriving instance ToSchema Word128
+deriving instance ToSchema Word256
+deriving instance ToSchema a => ToSchema (Time a)
+deriving instance ToSchema a => ToSchema (TimeSpan a)
+
+instance ToSchema ChainwebVersion where
+  declareNamedSchema _ = pure $ NamedSchema (Just "ChainwebVersion") mempty
+
+instance ToSchema MerkleLogHash where
+  declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty

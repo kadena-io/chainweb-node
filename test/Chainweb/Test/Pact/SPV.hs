@@ -1,14 +1,13 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -33,9 +32,10 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
 
 import Data.Aeson as Aeson
-import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Base64.URL as Base64
+import Data.ByteString.Lazy (toStrict)
 import Data.Default
+import Data.Foldable
 import Data.Function
 import Data.Functor (void)
 import Data.IORef
@@ -70,8 +70,10 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Pact.Types
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Utils
 import Chainweb.SPV.CreateProof
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
 import Chainweb.Transaction
@@ -147,6 +149,12 @@ badproof :: Assertion
 badproof = expectFailure "resumePact: no previous execution found" $
     roundtrip 0 1 txGenerator1 txGenerator4
 
+withAll :: ChainwebVersion -> ([SQLiteEnv] -> IO c) -> IO c
+withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
+  where
+    with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
+    with g envs =  withTempSQLiteConnection fastNoJournalPragmas $ \s -> g (s : envs)
+
 roundtrip
     :: Int
       -- ^ source chain id
@@ -157,11 +165,14 @@ roundtrip
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO (Bool, String)
-roundtrip sid0 tid0 burn create = do
+roundtrip sid0 tid0 burn create =
+  withAll v $ \sqlenv0s -> withAll v $ \sqlenv1s -> withAll v $ \sqlenv2s -> do
     -- Pact service that is used to initialize the cut data base
-    pact0 <- testWebPactExecutionService v Nothing mempty
-    withTempRocksDb "chainweb-sbv-tests"  $ \rdb ->
-        withTestCutDb rdb v 20 pact0 logg $ \cutDb -> do
+    let pactIO bhdb pdb = testWebPactExecutionService v Nothing
+                              (return bhdb) (return pdb)
+                              (return mempty) sqlenv0s
+    withTempRocksDb "chainweb-spv-tests" $ \rdb ->
+        withTestCutDb rdb v 20 pactIO logg $ \cutDb -> do
             cdb <- newMVar cutDb
 
             sid <- mkChainId v sid0
@@ -170,10 +181,18 @@ roundtrip sid0 tid0 burn create = do
             -- track the continuation pact id
             pidv <- newEmptyMVar @PactId
 
+            let pdb = _webBlockPayloadStoreCas $
+                      view cutDbPayloadStore cutDb
+
+            let webStoreDb = view cutDbWebBlockHeaderStore cutDb
+            let webHeaderDb = _webBlockHeaderStoreCas webStoreDb
+
             -- pact service, that is used to extend the cut data base
             txGen1 <- burn pidv sid tid
 
-            pact1 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen1)
+            pact1 <- testWebPactExecutionService v (Just cdb)
+                         (return webHeaderDb) (return pdb)
+                         (chainToMPA txGen1) sqlenv1s
             syncPact cutDb pact1
 
             c0 <- _cut cutDb
@@ -210,7 +229,9 @@ roundtrip sid0 tid0 burn create = do
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             txGen2 <- create cdb pidv sid tid (height sid c1)
 
-            pact2 <- testWebPactExecutionService v (Just cdb) (chainToMPA txGen2)
+            pact2 <- testWebPactExecutionService v (Just cdb)
+                         (return webHeaderDb) (return pdb)
+                         (chainToMPA txGen2) sqlenv2s
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
@@ -260,7 +281,7 @@ txGenerator1 pidv sid tid = do
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
-                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 100 0.0001 txs
+                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 10 0.01 txs
                   `finally` writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
@@ -317,7 +338,7 @@ txGenerator2 cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
@@ -341,7 +362,7 @@ txGenerator3 cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False proof Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof Null
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
@@ -361,5 +382,5 @@ txGenerator4 _cdbv pidv _ tid _ = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 100 0.0001 1 pid False Nothing Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing Null
                     `finally` writeIORef ref True

@@ -451,8 +451,10 @@ bootstrapPeerInfos Test{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Testnet00 = testnet00BootstrapPeerInfo
-bootstrapPeerInfos Testnet01 = testnet00BootstrapPeerInfo
+bootstrapPeerInfos Development = productionBootstrapPeerInfo
+bootstrapPeerInfos Testnet00 = productionBootstrapPeerInfo
+bootstrapPeerInfos Testnet01 = productionBootstrapPeerInfo
+bootstrapPeerInfos Testnet02 = productionBootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -474,8 +476,8 @@ testBootstrapPeerInfos =
             }
         }
 
-testnet00BootstrapPeerInfo :: [PeerInfo]
-testnet00BootstrapPeerInfo = map f testnetBootstrapHosts
+productionBootstrapPeerInfo :: [PeerInfo]
+productionBootstrapPeerInfo = map f testnetBootstrapHosts
   where
     f hn = PeerInfo
         { _peerId = Nothing

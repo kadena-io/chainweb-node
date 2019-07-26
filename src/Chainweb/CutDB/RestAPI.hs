@@ -47,8 +47,7 @@ import Data.Singletons
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/cut@
 
 type CutGetApi_
-    = "cut"
-    :> QueryParam "maxheight" MaxRank
+    = QueryParam "maxheight" MaxRank
     :> Get '[JSON] CutHashes
 
 type CutGetApi (v :: ChainwebVersionT)
@@ -63,8 +62,7 @@ cutGetApi = Proxy
 -- @PUT /chainweb/<ApiVersion>/<ChainwebVersion>/cut/@
 
 type CutPutApi_
-    = "cut"
-    :> ReqBody '[JSON] CutHashes
+    = ReqBody '[JSON] CutHashes
     :> PutNoContent '[JSON] NoContent
 
 type CutPutApi (v :: ChainwebVersionT)

@@ -43,3 +43,4 @@ hlint.hs
 *.png
 *.graphml
 cache/
+*.dump-hi

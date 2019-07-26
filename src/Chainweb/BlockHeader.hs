@@ -112,6 +112,9 @@ module Chainweb.BlockHeader
 , testBlockHeaders
 , testBlockHeadersWithNonce
 , testBlockPayload
+
+-- * CAS Constraint
+, BlockHeaderCas
 ) where
 
 import Control.Arrow ((&&&))
@@ -412,6 +415,8 @@ instance IsCasValue BlockHeader where
     type CasKeyType BlockHeader = BlockHash
     casKey = _blockHash
     {-# INLINE casKey #-}
+
+type BlockHeaderCas cas = (CasConstraint cas BlockHeader)
 
 makeLenses ''BlockHeader
 
