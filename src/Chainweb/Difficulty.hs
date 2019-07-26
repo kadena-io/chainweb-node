@@ -342,7 +342,7 @@ window :: ChainwebVersion -> Maybe WindowWidth
 window Test{} = Nothing
 window TimedConsensus{} = Nothing
 -- 5 blocks, should take 50 seconds.
-window PowConsensus{} = Just $ WindowWidth 5
+window PowConsensus{} = Just $ WindowWidth 8
 window TimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Development = Just $ WindowWidth 120

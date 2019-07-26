@@ -492,6 +492,38 @@ executable chainweb-node
         , text >= 1.2
         , yet-another-logger >= 0.3.1
 
+executable chainweb-miner
+    import: warning-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -with-rtsopts=-N
+        -O2
+    hs-source-dirs: miner
+    main-is: Miner.hs
+    build-depends:
+        -- internal
+          chainweb
+
+        -- external
+        , async >= 2.2
+        , base >= 4.11 && < 5
+        , base-prelude >= 1.3
+        , bytestring >= 0.10
+        , bytes >= 0.15
+        , containers >= 0.5
+        , cryptonite >= 0.25
+        , errors >= 2.3
+        , memory >= 0.14
+        , optparse-applicative >= 0.14
+        , scheduler >= 1.4.1
+        , servant >= 0.14
+        , servant-server >= 0.14
+        , strict-tuple >= 0.1
+        , stm >= 2.4
+        , text >= 1.2
+        , warp >= 3.2
+
 executable cwtool
     import: warning-flags, debugging-flags
     default-language: Haskell2010
