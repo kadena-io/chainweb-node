@@ -460,7 +460,7 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 -- Amberdata Backend
 
 amberDataBatchSize :: Natural
-amberDataBatchSize = 100
+amberDataBatchSize = 5
 
 amberDataBatchDelayMs :: Natural
 amberDataBatchDelayMs = 1000
@@ -504,8 +504,8 @@ withAmberDataBlocksBackend mgr (AmberdataConfig esServer api bid doDebug) inner 
 
         errorLogFun Debug $ "[Amberdata] Send " <> sshow (amberDataBatchSize - remaining) <> " messages"
         resp <- HTTP.httpLbs (putBulkLog batch) mgr
-        errorLogFun Debug $ "[Amberdata] Response: " <> sshow (resp)
         errorLogFun Debug $ "[Amberdata] Request Body: " <> sshow (BB.toLazyByteString (mkList batch))
+        errorLogFun Debug $ "[Amberdata] Response: " <> sshow (HTTP.responseBody resp)
        
       where
         go 0 !batch _ = return $! (0, batch)

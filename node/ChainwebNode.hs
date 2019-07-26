@@ -71,8 +71,9 @@ import System.LogLevel
 
 import Chainweb.BlockHeader (NewMinedBlock, AmberdataBlock(..))
 import Chainweb.Chainweb
+import Chainweb.ChainId (HasChainId(..), chainIdInt)
 import Chainweb.Cut (Cut, _cutMap)
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.Chainweb.CutResources
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Counter
@@ -185,7 +186,7 @@ runAmberdataBlockMonitor logger db = L.withLoggerLabel ("component", "amberdata-
     cutToAmberdataBlocks :: Cut -> [AmberdataBlock]
     cutToAmberdataBlocks c = map
                                (\(_,bh) -> AmberdataBlock
-                                           (_blockHeight bh)
+                                           (uniqueBlockHeight bh totalChains)
                                            (_blockHash bh)
                                            (_blockCreationTime bh)
                                            (_blockParent bh)
@@ -197,6 +198,13 @@ runAmberdataBlockMonitor logger db = L.withLoggerLabel ("component", "amberdata-
                                            (_blockWeight bh)
                                )
                                (HM.toList (_cutMap c))
+      where totalChains = length (_cutMap c)
+
+    uniqueBlockHeight :: BlockHeader -> Int -> BlockHeight
+    uniqueBlockHeight bheader totalChains =
+        BlockHeight $ (h * (fromIntegral totalChains)) + (chainIdInt (_chainId cid))
+      where (BlockHeight h) = _blockHeight bheader
+            cid = _blockChainId bheader
 
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
