@@ -877,7 +877,7 @@ instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
 
 instance FromJSON a => FromJSON (EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> EnableConfig
-        <$> o .: "enabled"
+        <$!> o .: "enabled"
         <*> o .: "configuration"
 
 -- | Command line parser for the configuration of a component that can be

@@ -859,6 +859,12 @@ validateX509CertChainPem (X509CertChainPem a b) =
 -- -------------------------------------------------------------------------- --
 -- Utils
 
+-- | Remove white space from the fron and end of a 'ByteString'.
+--
+-- Tested with
+--
+-- prop> T.decodeUtf8 (trim (T.encodeUtf8 x)) == T.strip x
+--
 trim :: B.ByteString -> B.ByteString
 trim = fst . B8.spanEnd isSpace . B8.dropWhile isSpace
 {-# INLINE trim #-}
