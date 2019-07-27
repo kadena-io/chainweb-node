@@ -44,7 +44,6 @@ import Chainweb.Time
 import qualified Chainweb.TreeDB as TreeDB
 
 import Data.LogMessage
-import Numeric.AffineSpace
 
 ----------------------------------------------------------------------------------------------------
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest

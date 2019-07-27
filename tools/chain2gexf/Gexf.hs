@@ -44,8 +44,6 @@ import Chainweb.NodeId hiding (NodeId)
 import Chainweb.Time
 import Chainweb.Utils
 
-import Numeric.AffineSpace
-
 import P2P.Node
 import P2P.Peer
 
