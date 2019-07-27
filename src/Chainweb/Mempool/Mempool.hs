@@ -32,6 +32,7 @@ module Chainweb.Mempool.Mempool
   , noopMempool
   , syncMempools
   , syncMempools'
+  , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (threadDelay)
@@ -73,7 +74,7 @@ import System.LogLevel
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Command
-import Pact.Types.Gas (GasPrice(..))
+import Pact.Types.Gas (GasPrice(..),GasLimit(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
@@ -109,7 +110,7 @@ data TransactionConfig t = TransactionConfig {
   , txGasPrice :: t -> GasPrice
 
     -- | getter for transaction gas limit.
-  , txGasLimit :: t -> Int64
+  , txGasLimit :: t -> GasLimit
   , txMetadata :: t -> TransactionMetadata
   , txValidate :: t -> IO Bool
   }
@@ -125,7 +126,8 @@ data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
-  , mempoolBlockGasLimit :: Int64
+    -- TODO this can potentially change at runtime
+  , mempoolBlockGasLimit :: GasLimit
 
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
@@ -138,7 +140,9 @@ data MempoolBackend t = MempoolBackend {
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
-  , mempoolGetBlock :: Int64 -> IO (Vector t)
+    -- TODO what is the relationship of this GasLimit to the configured one?
+    -- Not sure this is something an external client should be dictating.
+  , mempoolGetBlock :: GasLimit -> IO (Vector t)
 
     -- | mark the given transactions as being mined and validated.
   , mempoolMarkValidated :: Vector (ValidatedTransaction t) -> IO ()

@@ -55,7 +55,7 @@ lookupHandler mempool txs = handleErrs (liftIO look)
     look = V.toList <$> mempoolLookup mempool txV
 
 
-getBlockHandler :: Show t => MempoolBackend t -> Maybe Int64 -> Handler [t]
+getBlockHandler :: Show t => MempoolBackend t -> Maybe GasLimit -> Handler [t]
 getBlockHandler mempool mbSz = handleErrs (liftIO gb)
   where
     sz = fromMaybe (mempoolBlockGasLimit mempool) mbSz

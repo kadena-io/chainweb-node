@@ -109,7 +109,7 @@ type MempoolLookupApi v c t =
     ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult t]
 type MempoolGetBlockApi v c t =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getBlock" :>
-    QueryParam "blockSize" Int64 :> Post '[JSON] [t]
+    QueryParam "blockSize" GasLimit :> Post '[JSON] [t]
 type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getPending" :>
     QueryParam "nonce" ServerNonce :>
@@ -135,4 +135,3 @@ mempoolGetBlockApi = Proxy
 mempoolGetPendingApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                      . Proxy (MempoolGetPendingApi v c t)
 mempoolGetPendingApi = Proxy
-

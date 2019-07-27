@@ -54,7 +54,7 @@ import Chainweb.Utils (fromJuste)
 
 
 ------------------------------------------------------------------------------
-toPriority :: GasPrice -> Int64 -> Priority
+toPriority :: GasPrice -> GasLimit -> Priority
 toPriority r s = (Down r, s)
 
 
@@ -94,7 +94,7 @@ makeSelfFinalizingInMemPool cfg =
 
 ----------------------------------------------------------------------------------------------------
 wrapBackend :: TransactionConfig t
-            -> Int64
+            -> GasLimit
             -> (IORef (InMemoryMempool t), b)
             -> MempoolBackend t
 wrapBackend txcfg bsl mp =
@@ -292,7 +292,7 @@ insertInMem cfg lock txs = do
 ------------------------------------------------------------------------------
 getBlockInMem :: InMemConfig t
               -> MVar (InMemoryMempoolData t)
-              -> Int64
+              -> GasLimit
               -> IO (Vector t)
 getBlockInMem cfg lock size0 = do
     psq <- readMVar lock >>= (readIORef . _inmemPending)

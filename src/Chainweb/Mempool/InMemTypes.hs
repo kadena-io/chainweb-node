@@ -38,7 +38,7 @@ import Chainweb.Mempool.Mempool
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
-type Priority = (Down GasPrice, Int64)
+type Priority = (Down GasPrice, GasLimit)
 
 ------------------------------------------------------------------------------
 -- | Priority search queue -- search by transaction hash in /O(log n)/ like a
@@ -53,7 +53,7 @@ _defaultTxQueueLen = 64
 -- | Configuration for in-memory mempool.
 data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
-  , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !Int64
+  , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !GasLimit
   , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
   , _inmemEnableReIntro :: !Bool
