@@ -461,7 +461,7 @@ data ValidatedTransaction t = ValidatedTransaction
 data MockTx = MockTx {
     mockNonce :: {-# UNPACK #-} !Int64
   , mockGasPrice :: {-# UNPACK #-} !GasPrice
-  , mockGasLimit :: {-# UNPACK #-} !GasLimit
+  , mockGasLimit :: !GasLimit
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
   } deriving (Eq, Ord, Show, Generic)
     deriving anyclass (FromJSON, ToJSON, NFData)
