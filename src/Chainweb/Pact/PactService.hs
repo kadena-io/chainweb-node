@@ -356,10 +356,10 @@ execNewBlock mpAccess parentHeader miner = do
     -- the miner and consensus are going to be in sync for newBlock. Changes to
     -- consensus or to checkpoint API may allow us to re-enable this check
     --
-    -- cp <- view (psCheckpointEnv . cpeCheckpointer)
-    -- latest <- liftIO $ getLatestBlock cp
-    -- when (latest /= Just (pHeight, pHash)) $
-    --     throwM $ PactServiceIllegalRewind rewindPoint latest
+    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    latest <- liftIO $ getLatestBlock cp
+    when (latest /= Just (pHeight, pHash)) $
+        throwM $ PactServiceIllegalRewind rewindPoint latest
 
     -- rewind should usually be trivial / no-op
     rewindTo mpAccess rewindPoint $ \pdbenv -> do
