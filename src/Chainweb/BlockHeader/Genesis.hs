@@ -49,7 +49,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.NodeId (ChainNodeId(..))
 import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
-import Chainweb.Time (Time(..), TimeSpan(..), epoche)
+import Chainweb.Time (Time(..), TimeSpan(..), epoch)
 import Chainweb.Version (ChainwebVersion(..), chainIds, encodeChainwebVersion)
 
 ---
@@ -81,10 +81,10 @@ genesisBlockTarget = maxTarget
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
 --
 genesisTime :: ChainwebVersion -> BlockCreationTime
-genesisTime Test{} = BlockCreationTime epoche
-genesisTime TimedConsensus{} = BlockCreationTime epoche
-genesisTime PowConsensus{} = BlockCreationTime epoche
-genesisTime TimedCPM{} = BlockCreationTime epoche
+genesisTime Test{} = BlockCreationTime epoch
+genesisTime TimedConsensus{} = BlockCreationTime epoch
+genesisTime PowConsensus{} = BlockCreationTime epoch
+genesisTime TimedCPM{} = BlockCreationTime epoch
 -- Thursday, 2019 July 17, 11:28 AM
 genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
 -- Tuesday, 2019 February 26, 10:55 AM

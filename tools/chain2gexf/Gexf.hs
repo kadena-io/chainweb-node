@@ -89,7 +89,7 @@ p2pInfo2edge i = gexfEdge (_p2pSessionInfoId i)
     start = Just $ timeMs (_p2pSessionInfoStart i)
     end = timeMs <$> _p2pSessionInfoEnd i
 
-    timeMs t = int . timeSpanMs $ t `diff` epoche
+    timeMs t = int . timeSpanMs $ t `diff` epoch
 
 timeSpanMs :: Integral a => TimeSpan a -> a
 timeSpanMs (TimeSpan x) = x `div` 1000
@@ -189,13 +189,13 @@ mkEdgeId :: NodeId -> NodeId -> EdgeId
 mkEdgeId s t = s <> "$" <> t
 
 creationTimeMs :: Integral a => BlockHeader -> a
-creationTimeMs b = int . msecs $ t `diff` epoche
+creationTimeMs b = int . msecs $ t `diff` epoch
   where
     BlockCreationTime t = _blockCreationTime b
     msecs (TimeSpan x) = x `div` 1000
 
 creationTimeSeconds :: BlockHeader -> Double
-creationTimeSeconds b = secs $ t `diff` epoche
+creationTimeSeconds b = secs $ t `diff` epoch
   where
     BlockCreationTime t = _blockCreationTime b
     secs (TimeSpan x) = int x / 1000000
