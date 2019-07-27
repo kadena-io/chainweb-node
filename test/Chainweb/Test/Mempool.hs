@@ -101,10 +101,9 @@ arbitraryGasPrice :: Gen GasPrice
 arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
-  arbitrary = let g x = choose (1, x)
-              in MockTx <$> chooseAny
+  arbitrary = MockTx <$> chooseAny
                         <*> arbitraryGasPrice
-                        <*> g mockBlockGasLimit
+                        <*> pure mockBlockGasLimit
                         <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata Time.minTime Time.maxTime
