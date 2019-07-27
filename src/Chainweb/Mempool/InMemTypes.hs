@@ -52,7 +52,7 @@ _defaultTxQueueLen = 64
 -- | Configuration for in-memory mempool.
 data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
-  , _inmemTxBlockSizeLimit :: {-# UNPACK #-} !GasLimit
+  , _inmemTxBlockSizeLimit :: !GasLimit
   , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
   , _inmemEnableReIntro :: !Bool
