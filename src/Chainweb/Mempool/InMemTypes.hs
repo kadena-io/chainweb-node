@@ -25,7 +25,6 @@ import Control.Concurrent.MVar (MVar)
 import Data.HashMap.Strict (HashMap)
 import Data.HashPSQ (HashPSQ)
 import Data.HashSet (HashSet)
-import Data.Int (Int64)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
 

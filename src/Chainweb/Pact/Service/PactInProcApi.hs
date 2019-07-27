@@ -27,7 +27,6 @@ import Control.Concurrent.STM.TQueue
 import Control.Exception (evaluate, finally, mask)
 import Control.Monad.STM
 
-import Data.Int
 import Data.IORef
 import Data.Vector (Vector)
 

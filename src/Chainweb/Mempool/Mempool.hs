@@ -72,7 +72,7 @@ import System.LogLevel
 
 -- internal modules
 
-import Pact.Parse (ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasPrice(..),GasLimit(..))
 import qualified Pact.Types.Hash as H
@@ -217,7 +217,7 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj
-    getGasLimit = fromIntegral . gasLimitOf . fmap payloadObj
+    getGasLimit = gasLimitOf . fmap payloadObj
     commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash h
 
@@ -461,13 +461,13 @@ data ValidatedTransaction t = ValidatedTransaction
 data MockTx = MockTx {
     mockNonce :: {-# UNPACK #-} !Int64
   , mockGasPrice :: {-# UNPACK #-} !GasPrice
-  , mockGasLimit :: {-# UNPACK #-} !Int64
+  , mockGasLimit :: {-# UNPACK #-} !GasLimit
   , mockMeta :: {-# UNPACK #-} !TransactionMetadata
   } deriving (Eq, Ord, Show, Generic)
     deriving anyclass (FromJSON, ToJSON, NFData)
 
 
-mockBlockGasLimit :: Int64
+mockBlockGasLimit :: GasLimit
 mockBlockGasLimit = 65535
 
 
@@ -518,8 +518,9 @@ getDecimal = do
 
 
 mockDecode :: ByteString -> Either String MockTx
-mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getI64 <*> getMeta)
+mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta)
   where
     getPrice = GasPrice . ParsedDecimal <$> getDecimal
+    getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le
     getI64 = fromIntegral <$> getWord64le
     getMeta = TransactionMetadata <$> Time.decodeTime <*> Time.decodeTime

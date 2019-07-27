@@ -1,6 +1,6 @@
 resolver: lts-12.26
 
-ghc-options: {"$locals": -ddump-to-file -ddump-hi}
+# ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
 extra-deps:
   # --- Missing from Stackage --- #

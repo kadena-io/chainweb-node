@@ -26,7 +26,6 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Identity
 import Data.Aeson.Types (FromJSON, ToJSON)
-import Data.Int
 import Data.Proxy
 import qualified Data.Vector as V
 import Prelude hiding (lookup)

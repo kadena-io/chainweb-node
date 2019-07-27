@@ -41,7 +41,6 @@ module Chainweb.Mempool.RestAPI
 
 ------------------------------------------------------------------------------
 import Data.Aeson
-import Data.Int
 import GHC.Generics
 import Servant
 

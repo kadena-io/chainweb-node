@@ -18,7 +18,6 @@ import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 import Data.Aeson.Types (FromJSON, ToJSON)
 import qualified Data.DList as D
-import Data.Int
 import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V

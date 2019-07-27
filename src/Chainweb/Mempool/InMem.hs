@@ -32,7 +32,6 @@ import Data.Foldable (foldl', foldlM)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashPSQ as PSQ
 import qualified Data.HashSet as HashSet
-import Data.Int (Int64)
 import Data.IORef
     (IORef, mkWeakIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Ord (Down(..))
