@@ -239,6 +239,7 @@ library
         -- utils
         , Utils.Logging
         , Utils.Logging.Config
+        , Utils.Logging.Trace
 
     build-depends:
           Decimal >= 0.4.2
@@ -309,6 +310,7 @@ library
         , servant-swagger >= 1.1
         , stm >= 2.4
         , stm-chans
+        , stopwatch >= 0.1
         , streaming >= 0.2
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2

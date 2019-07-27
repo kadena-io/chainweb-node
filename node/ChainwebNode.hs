@@ -93,6 +93,7 @@ import PkgInfo
 
 import Utils.Logging
 import Utils.Logging.Config
+import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -284,6 +285,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @QueueStats mgr teleLogConfig
     reintroBackend <- managed
         $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
+    traceBackend <- managed
+        $ mkTelemetryLogger @Trace mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -296,6 +299,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler requestLogBackend
             , logHandler queueStatsBackend
             , logHandler reintroBackend
+            , logHandler traceBackend
             ] baseBackend
 
     liftIO $ f
