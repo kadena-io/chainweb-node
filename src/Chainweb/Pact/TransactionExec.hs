@@ -78,7 +78,8 @@ import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..), GasId(..), ModuleCache
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 import Chainweb.Utils (sshow)
 
-
+import Data.LogMessage
+import Utils.Logging.Trace
 
 magic_COINBASE :: Capability
 magic_COINBASE = mkMagicCap "COINBASE"
@@ -88,7 +89,8 @@ magic_FUND_TX = mkMagicCap "FUND_TX"
 
 
 applyCmd
-    :: Logger
+    :: ALogFunction
+    -> Logger
     -> PactDbEnv p
     -> MinerInfo
     -> GasModel
@@ -97,7 +99,7 @@ applyCmd
     -> Command (Payload PublicMeta ParsedCode)
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
+applyCmd (ALogFunction lf) logger pactDbEnv minerInfo gasModel pd spv cmd mcache = trace lf "applyCmd" () 1 $ do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
         requestKey = cmdToRequestKey cmd
@@ -106,7 +108,8 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
 
     let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv pd' spv
 
-    buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd minerInfo supply mcache
+    buyGasResultE <- trace lf "applyCmd.buyGasResultE" () 1
+        $ catchesPactError $! buyGas buyGasEnv cmd minerInfo supply mcache
 
     case buyGasResultE of
 
@@ -126,7 +129,8 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
         -- initialize refstate with cached module definitions
         let st0 = set (evalRefs . rsLoadedModules) mcache' def
 
-        cmdResultE <- catchesPactError $! runPayload payloadEnv st0 cmd buyGasLogs
+        cmdResultE <- trace lf "applyCmd.runPayload" () 1
+            $ catchesPactError $! runPayload payloadEnv st0 cmd buyGasLogs
 
         case cmdResultE of
 
@@ -141,8 +145,9 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
 
             let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
                 cmdLogs = fromMaybe [] $ _crLogs cmdResult
-            redeemResultE <- catchesPactError $!
-              redeemGas redeemGasEnv cmd cmdResult pactId cmdLogs mcache''
+            redeemResultE <- trace lf "applyCmd.redeemGas" () 1
+                $ catchesPactError $!
+                    redeemGas redeemGasEnv cmd cmdResult pactId cmdLogs mcache''
 
             case redeemResultE of
 

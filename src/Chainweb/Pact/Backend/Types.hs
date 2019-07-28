@@ -86,6 +86,7 @@ module Chainweb.Pact.Backend.Types
     , psStateValidated
     , psPdb
     , psBlockHeaderDb
+    , psTelemetryLogFunction
     ) where
 
 import Control.Exception
@@ -129,6 +130,7 @@ import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
+import Data.LogMessage
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -311,6 +313,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
+    , _psTelemetryLogFunction :: !ALogFunction
     }
 
 data PactServiceState = PactServiceState

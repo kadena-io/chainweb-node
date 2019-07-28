@@ -165,13 +165,17 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
   where
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
     diam = diameter (_chainGraph v)
+
+    pactLogfun :: LogFunction
+    pactLogfun = logFunction (setComponent "pact-service" logger)
+
     pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService requestQ
-        Development -> mkPactExecutionService requestQ
-        Testnet02 -> mkPactExecutionService requestQ
+        TimedCPM{} -> mkPactExecutionService pactLogfun requestQ
+        Development -> mkPactExecutionService pactLogfun requestQ
+        Testnet02 -> mkPactExecutionService pactLogfun requestQ
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.
