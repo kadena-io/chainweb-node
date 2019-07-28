@@ -51,7 +51,7 @@ module Chainweb.Time
 , floorTime
 , floorTimeBy
 , getCurrentTimeIntegral
-, epoche
+, epoch
 
 -- * TimeSpan values
 , microsecond
@@ -68,6 +68,12 @@ module Chainweb.Time
 , secondsToText
 , secondsFromText
 , Micros(..)
+
+-- * Math, constants
+, add
+, diff
+, kilo
+, mega
 ) where
 
 import Control.DeepSeq
@@ -167,9 +173,9 @@ instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
     {-# INLINE add #-}
     {-# INLINE diff #-}
 
-epoche :: Num a => Time a
-epoche = Time (TimeSpan 0)
-{-# INLINE epoche #-}
+epoch :: Num a => Time a
+epoch = Time (TimeSpan 0)
+{-# INLINE epoch #-}
 
 -- | Adhering to `Time`, this is the current number of microseconds since the
 -- epoch.

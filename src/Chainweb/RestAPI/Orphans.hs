@@ -64,10 +64,19 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
+import Pact.Types.Gas (GasLimit(..))
+import Pact.Parse (ParsedInteger(..))
+
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
+
+instance ToHttpApiData GasLimit where
+  toUrlPiece (GasLimit (ParsedInteger g)) = toUrlPiece g
+
+instance FromHttpApiData GasLimit where
+  parseUrlPiece p = GasLimit . ParsedInteger <$> parseUrlPiece p
 
 instance ToHttpApiData PeerId where
     toUrlPiece = toText
