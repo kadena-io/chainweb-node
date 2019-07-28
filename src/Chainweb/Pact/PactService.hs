@@ -91,6 +91,8 @@ import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
+import Data.LogMessage
+import Utils.Logging.Trace
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -174,6 +176,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
 
       let !pd = P.PublicData def def def
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
+            (ALogFunction $ logFunction chainwebLogger)
 
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
 
@@ -412,6 +415,9 @@ logError = logg "ERROR"
 logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
+aLogFun :: PactServiceM cas ALogFunction
+aLogFun = view psTelemetryLogFunction
+
 playOneBlock
     :: MemPoolAccess
     -> BlockHeader
@@ -424,7 +430,9 @@ playOneBlock mpAccess currHeader plData pdbenv = do
     -- TODO: check precondition?
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
-    !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
+    ALogFunction lf <- aLogFun
+    !results <- trace lf "Chainweb.Pact.PactService.playOneBlock.execTransations" (bh, bHash) (length $ _payloadDataTransactions plData)
+        $ locally (psPublicData . P.pdBlockHeight) (const bh) $
                 execTransactions pBlock miner trans pdbenv
     finalizeCheckpointer (flip save bHash)   -- caller must restore again
     psStateValidated .= Just currHeader
@@ -497,7 +505,9 @@ rewindTo mpAccess mb act = do
         let bpHash = _blockPayloadHash block
         payload <- liftIO (payloadWithOutputsToPayloadData <$>
                                 casLookupM payloadDb bpHash)
-        void $ playOneBlock mpAccess block payload pdbenv
+        ALogFunction lf <- aLogFun
+        trace lf "Chainweb.Pact.PactService.rewindTo.fastForward.playOneBlock" (h, _blockHash block) (length $ _payloadDataTransactions payload)
+            $ void $ playOneBlock mpAccess block payload pdbenv
         -- double check output hash here?
 
 -- | Validate a mined block. Execute the transactions in Pact again as
@@ -560,7 +570,9 @@ applyPactCmds
     -> Vector ChainwebTransaction
     -> MinerInfo
     -> PactServiceM cas (Vector HashCommandResult)
-applyPactCmds isGenesis env cmds miner =
+applyPactCmds isGenesis env cmds miner = do
+  ALogFunction lf <- aLogFun
+  trace lf "applyPactCmds" () 1 $ do
     V.fromList . sfst <$> V.foldM f mempty cmds
   where
     f  (T2 v mcache) cmd = applyPactCmd isGenesis env cmd miner mcache v
@@ -575,6 +587,8 @@ applyPactCmd
     -> [HashCommandResult]
     -> PactServiceM cas (T2 [HashCommandResult] ModuleCache)
 applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
+  ALogFunction lf <- aLogFun
+  trace lf "applyPactCmd" () 1 $ do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         !gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
@@ -583,9 +597,10 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let !cmd = payloadObj <$> cmdIn
-    T2 result mcache' <- liftIO $ if isGenesis
+    alf <- aLogFun
+    T2 !result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
+        else applyCmd alf logger dbEnv miner gasModel pd spv cmd mcache
 
     pure $! T2 (toHashCommandResult result : v) mcache'
 

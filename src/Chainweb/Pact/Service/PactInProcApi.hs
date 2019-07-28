@@ -52,6 +52,8 @@ import Chainweb.Version (ChainwebVersion)
 
 import Data.LogMessage
 
+import Utils.Logging.Trace
+
 -- | Initialization for Pact (in process) Api
 withPactService
     :: PayloadCas cas
@@ -122,7 +124,9 @@ pactMemPoolGetBlock
 pactMemPoolGetBlock mpc theLogger height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) maxBlockSize
+
+    trace (logFunction theLogger) "Chainweb.Pact.ServicePactInProcAPI.pactMemPoolGetBlock.mempoolGetBlock" (height, hash) 1
+        $ mempoolGetBlock (mpcMempool mpc) maxBlockSize
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn = logFunction
@@ -134,10 +138,15 @@ pactProcessFork
     -> (BlockHeader -> IO ())
 pactProcessFork mpc theLogger bHeader = do
     let forkFunc = (mpcProcessFork mpc) (logFunction theLogger)
-    txHashes <- forkFunc bHeader
+
+    txHashes <- trace (logFunction theLogger) "Chainweb.Pact.ServicePactInProcAPI.pactProcessFork.forkFunc" (_blockHeight bHeader, _blockHash bHeader) 1
+        $ forkFunc bHeader
+
     (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length txHashes)
                            <> " transactions to reintroduce"
-    mempoolReintroduce (mpcMempool mpc) txHashes
+
+    trace (logFunction theLogger) "Chainweb.Pact.ServicePactInProcAPI.pactProcessFork.reintroduce" (_blockHeight bHeader, _blockHash bHeader) 1
+        $ mempoolReintroduce (mpcMempool mpc) txHashes
   where
    logFn :: Logger l => l -> LogFunctionText
    logFn lg = logFunction lg
