@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Chainweb.WebPactExecutionService
   ( WebPactExecutionService(..)
@@ -30,6 +32,10 @@ import Chainweb.Transaction
 import Chainweb.Utils (codecDecode)
 import Chainweb.WebPactExecutionService.Types
 
+import Data.LogMessage
+
+import Utils.Logging.Trace
+
 _webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
@@ -49,16 +55,21 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
           Nothing -> throwM (userError $ "PactExecutionService: Invalid chain ID in header: " ++ show h)
 
 mkPactExecutionService
-    :: MempoolBackend ChainwebTransaction
+    :: LogFunction
+    -> MempoolBackend ChainwebTransaction
     -> TQueue RequestMsg
     -> PactExecutionService
-mkPactExecutionService mempool q = PactExecutionService
+mkPactExecutionService logfun mempool q = PactExecutionService
   { _pactValidateBlock = \h pd -> do
-      mv <- validateBlock h pd q
-      r <- takeMVar mv
+      let l = length (_payloadDataTransactions pd)
+      mv <- trace logfun "mkPactExecutionService.validateBlock.submit" (_blockHash h) l
+        $ validateBlock h pd q
+      r <- trace logfun "mkPactExecutionService.validateBlock.result" (_blockHash h) l
+        $ takeMVar mv
       case r of
-        (Right !pdo) -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h)
-                          >> return pdo
+        (Right !pdo) -> trace logfun "mkPactExecutionService.makeAllValidated" (_blockHash h) l $ do
+          markAllValidated mempool pdo (_blockHeight h) (_blockHash h)
+          return pdo
         Left e -> throwM e
   , _pactNewBlock = \m h -> do
       mv <- newBlock m h q
