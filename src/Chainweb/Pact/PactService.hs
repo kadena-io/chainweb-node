@@ -47,7 +47,6 @@ import Data.Either
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isNothing)
-import qualified Data.Sequence as Seq
 import Data.String.Conv (toS)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
@@ -276,7 +275,7 @@ toOutputBytes cr =
 
 toPayloadWithOutputs :: MinerInfo -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
-    let oldSeq = Seq.fromList $ V.toList $ _transactionPairs ts
+    let oldSeq = _transactionPairs ts
         trans = fst <$> oldSeq
         transOuts = toOutputBytes . snd <$> oldSeq
 
