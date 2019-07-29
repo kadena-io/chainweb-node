@@ -563,6 +563,7 @@ encodeToText = TL.toStrict . encodeToLazyText
 --
 encodeToByteString :: ToJSON a => a -> B.ByteString
 encodeToByteString = BL.toStrict . encode
+{-# INLINE encodeToByteString #-}
 
 -- | Decode a JSON value from a strict 'B.ByteString'. If decoding fails a
 -- 'JsonDecodeException' is thrown.
