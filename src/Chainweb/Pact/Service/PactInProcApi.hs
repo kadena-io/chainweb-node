@@ -27,7 +27,6 @@ import Control.Concurrent.STM.TQueue
 import Control.Exception (evaluate, finally, mask)
 import Control.Monad.STM
 
-import Data.Int
 import Data.IORef
 import Data.Vector (Vector)
 
@@ -100,7 +99,8 @@ withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
         evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 
 -- TODO: get from config
-maxBlockSize :: Int64
+-- TODO: why is this declared both here and in Mempool
+maxBlockSize :: GasLimit
 maxBlockSize = 10000
 
 pactMemPoolAccess
