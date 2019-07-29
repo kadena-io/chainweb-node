@@ -498,11 +498,13 @@ handlePossibleRewind bRestore hsh = do
 dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
     toDropTblNames <- qry db findTablesToDropStmt [SInt (fromIntegral bh)] [RText]
-    fmap (HS.fromList) . forM toDropTblNames $ \case
+    tbls <- fmap (HS.fromList) . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tbl)] -> do
             exec_ db $ "DROP TABLE " <> tblname <> ";"
             return tbl
         _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+    exec' db "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?" [SInt (fromIntegral bh)]
+    return tbls
   where findTablesToDropStmt =
           "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
 
