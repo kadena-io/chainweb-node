@@ -217,8 +217,8 @@ open2 file = open_v2 (fromString file) (collapseFlags [sqlite_open_readwrite , s
 
 collapseFlags :: [SQLiteFlag] -> SQLiteFlag
 collapseFlags xs =
-  if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
-  else Prelude.foldr1 (.|.) xs
+    if Prelude.null xs then error "collapseFlags: You must pass a non-empty list"
+    else Prelude.foldr1 (.|.) xs
 
 sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002

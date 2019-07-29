@@ -18,7 +18,7 @@ open_v2 (Utf8 path) (SQLiteFlag flag) mzvfs =
     BS.useAsCString path $ \path' -> do
       useAsMaybeCString mzvfs $ \zvfs' ->
         alloca $ \database -> do
-            rc <- c_sqlite3_open_v2 path' database (fromIntegral flag) zvfs'
+            rc <- c_sqlite3_open_v2 path' database flag zvfs'
             db <- Database <$> peek database
                 -- sqlite_open_v2 returns a sqlite3 even on failure.
                 -- That's where we get a more descriptive error message.
