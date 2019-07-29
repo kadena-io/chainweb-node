@@ -463,7 +463,7 @@ amberDataBatchSize :: Natural
 amberDataBatchSize = 5
 
 amberDataBatchDelayMs :: Natural
-amberDataBatchDelayMs = 1000
+amberDataBatchDelayMs = 10000
 
 -- | A backend for JSON log messages that sends all logs to the Amberdata /blocks
 -- endpoint.
