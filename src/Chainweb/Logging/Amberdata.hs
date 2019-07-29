@@ -168,10 +168,8 @@ instance FromJSON AmberdataConfig where
 
 amberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
 amberdataBlockMonitor logger db
-    = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l -> do
-        go l `catchAllSynchronous` \e ->
-            logFunctionText l Error ("Amberdata Block Monitor failed: " <> sshow e)
-        logFunctionText l Info "Stopped Amberdata Block Monitor"
+    = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
+        runForever (logFunctionText l) "Chainweb.Logging.amberdataBlockMonitor" (go l)
   where
     go l = do
         logFunctionText l Info "Initialized Amberdata Block Monitor"

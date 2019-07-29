@@ -182,10 +182,8 @@ deriving instance NFData RTSStats
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
-runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \l -> do
-    go l `catchAllSynchronous` \e ->
-        logFunctionText l Error ("RTS Monitor failed: " <> sshow e)
-    logFunctionText l Info "Stopped RTS Monitor"
+runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \l ->
+    runForever (logFunctionText l) "Chainweb.Node.runRtsMonitor" (go l)
   where
     go l = getRTSStatsEnabled >>= \case
         False -> logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
@@ -209,10 +207,8 @@ data QueueStats = QueueStats
     deriving anyclass (NFData, ToJSON)
 
 runQueueMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger $ \l -> do
-    go l `catchAllSynchronous` \e ->
-        logFunctionText l Error ("Queue Monitor failed: " <> sshow e)
-    logFunctionText l Info "Stopped Queue Monitor"
+runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger $ \l ->
+    runForever (logFunctionText l) "ChainwebNode.runQueueMonitor" (go l)
   where
     go l = do
         logFunctionText l Info $ "Initialized Queue Monitor"
