@@ -26,7 +26,6 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Identity
 import Data.Aeson.Types (FromJSON, ToJSON)
-import Data.Int
 import Data.Proxy
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
@@ -46,7 +45,7 @@ toMempool
     => ChainwebVersion
     -> ChainId
     -> TransactionConfig t
-    -> Int64
+    -> GasLimit
     -> ClientEnv
     -> MempoolBackend t
 toMempool version chain txcfg blocksizeLimit env =
@@ -141,7 +140,7 @@ lookupClient v c txs = runIdentity $ do
 getBlockClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, FromJSON t)
-    => Maybe Int64
+    => Maybe GasLimit
     -> ClientM [t]
 getBlockClient_ = client (mempoolGetBlockApi @v @c)
 
@@ -149,7 +148,7 @@ getBlockClient
   :: FromJSON t
   => ChainwebVersion
   -> ChainId
-  -> Maybe Int64
+  -> Maybe GasLimit
   -> ClientM [t]
 getBlockClient v c mbBs = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
@@ -177,4 +176,3 @@ getPendingClient v c hw = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ getPendingClient_ @v @c nonce tx
-
