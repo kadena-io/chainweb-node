@@ -16,13 +16,10 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 
-import Crypto.Hash.Algorithms (SHA512t_256)
-
 import Data.Aeson
 import Data.CAS.HashMap
 import Data.CAS.RocksDB
 import Data.IORef
-import Data.Proxy
 import Data.Text (Text)
 import Data.Tuple.Strict (T3(..))
 import Data.Word
@@ -170,7 +167,7 @@ mineBlock parentHeader cid nonce iopdb iobhdb r = do
                            creationTime
                            parentHeader
 
-     newHeader <- mine (Proxy @SHA512t_256) candidateHeader nonce
+     newHeader <- usePowHash testVersion mine candidateHeader nonce
 
      mv' <- r >>= validateBlock newHeader (toPayloadData payload)
 

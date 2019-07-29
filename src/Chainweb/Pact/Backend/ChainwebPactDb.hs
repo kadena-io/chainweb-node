@@ -152,9 +152,8 @@ backendWriteInsert key tn bh txid v db = do
                , SInt (fromIntegral bh)
                , SInt (fromIntegral txid)
                , SBlob (toStrict (Data.Aeson.encode v))]
-    exec' db mutq [SText tn, SInt (fromIntegral bh)]
+    markTableMutation tn bh db
   where
-    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
     q = mconcat [ "INSERT INTO ["
                 , tn
                 , "] ('rowkey','blockheight','txid','rowdata') \
@@ -176,9 +175,8 @@ backendWriteUpdate key tn bh txid v db = do
                , SInt (fromIntegral txid)
                , SBlob (toStrict (Data.Aeson.encode v))
                ]
-    exec' db mutq [SText tn, SInt (fromIntegral bh)]
+    markTableMutation tn bh db
   where
-    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
     q = mconcat
       ["INSERT OR REPLACE INTO ["
       , tn
@@ -200,14 +198,20 @@ backendWriteWrite key tn bh txid v db = do
                , SInt (fromIntegral txid)
                , SBlob (toStrict (Data.Aeson.encode v))
                ]
-    exec' db mutq [SText tn, SInt (fromIntegral bh)]
+    markTableMutation tn bh db
   where
-    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
     q = mconcat [ "INSERT OR REPLACE INTO ["
                 , tn
                 , "] ('rowkey','blockheight','txid','rowdata') \
                   \ VALUES (?,?,?,?) ;"
                 ]
+
+markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
+markTableMutation tablename blockheight db = do
+    exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
+  where
+    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
+
 
 writeUser
   :: WriteType
@@ -407,17 +411,17 @@ createTableCreationTable =
 createTableMutationTable :: BlockHandler SQLiteEnv ()
 createTableMutationTable =
     callDb "createTableMutationTable" $ \db -> do
-      exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
-               \(tablename TEXT NOT NULL\
-               \, blockheight UNSIGNED BIGINT NOT NULL\
-               \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
-      exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON VersionedTableMutation(blockheight);"
+        exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
+                 \(tablename TEXT NOT NULL\
+                 \, blockheight UNSIGNED BIGINT NOT NULL\
+                 \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
+        exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON VersionedTableMutation(blockheight);"
 
 createUserTable :: TableName -> BlockHeight -> BlockHandler SQLiteEnv ()
 createUserTable name bh =
     callDb "createUserTable" $ \db -> do
-      createVersionedTable tablename indexname db
-      exec' db insertstmt insertargs
+        createVersionedTable tablename indexname db
+        exec' db insertstmt insertargs
   where
     insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
     insertargs =  [SText tablename, SInt (fromIntegral bh)]
@@ -466,7 +470,7 @@ handlePossibleRewind bRestore hsh = do
         -- (B_restore-1,H_parent).
         historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
             qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
-                   \blockheight = ? and hash = ?;"
+                   \blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
                    , SBlob (Data.Serialize.encode hsh) ]
                    [RInt]
@@ -497,16 +501,25 @@ handlePossibleRewind bRestore hsh = do
 
 dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
-    toDropTblNames <- qry db findTablesToDropStmt [SInt (fromIntegral bh)] [RText]
+    toDropTblNames <- qry db findTablesToDropStmt
+                      [SInt (fromIntegral bh)] [RText]
     tbls <- fmap (HS.fromList) . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tbl)] -> do
             exec_ db $ "DROP TABLE " <> tblname <> ";"
             return tbl
-        _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
-    exec' db "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?" [SInt (fromIntegral bh)]
+        _ -> internalError rewindmsg
+    exec' db
+        "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?"
+        [SInt (fromIntegral bh)]
     return tbls
   where findTablesToDropStmt =
-          "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
+          "SELECT tablename FROM\
+          \ VersionedTableCreation\
+          \ WHERE createBlockheight >= ?;"
+        rewindmsg =
+          "rewindBlock:\
+          \ dropTablesAtRewind: \
+          \Couldn't resolve the name of the table to drop."
 
 vacuumTablesAtRewind :: BlockHeight -> HashSet BS.ByteString -> Database -> IO ()
 vacuumTablesAtRewind bh droppedtbls db = do
