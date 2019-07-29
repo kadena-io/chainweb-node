@@ -74,7 +74,6 @@ module Utils.Logging
 , withTextHandleBackend
 , withJsonHandleBackend
 , withJsonEventSourceBackend
-, withAmberDataBlocksBackend
 
 -- * Of-the-shelf logger
 , withFileHandleLogger
@@ -96,7 +95,6 @@ import Control.Concurrent.Async
 import Control.Concurrent.Chan
 import Control.Concurrent.STM.TBQueue
 import Control.Concurrent.STM.TVar
-import Data.Bool (bool)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -132,7 +130,6 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader (AmberdataBlock)
 import Chainweb.HostAddress
 import Chainweb.Utils hiding (check)
 
@@ -457,91 +454,6 @@ withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
 -- TODO: it may be more usefull to have a logger that logs all 'Right' messages
 
 -- -------------------------------------------------------------------------- --
--- Amberdata Backend
-
-amberDataBatchSize :: Natural
-amberDataBatchSize = 5
-
-amberDataBatchDelayMs :: Natural
-amberDataBatchDelayMs = 10000
-
--- | A backend for JSON log messages that sends all logs to the Amberdata /blocks
--- endpoint.
--- Messages are sent in a fire-and-forget fashion. If a connection fails, the
--- messages are dropped without notice.
---
-withAmberDataBlocksBackend
-    :: HTTP.Manager
-    -> AmberdataConfig
-    -> (Backend (JsonLog AmberdataBlock) -> IO b)
-    -> IO b
-withAmberDataBlocksBackend mgr (AmberdataConfig esServer api bid doDebug) inner = do
-    queue <- newTBQueueIO 2000
-    withAsync (runForever errorLogFun "Utils.Logging.withAmberdataBackend" (processor queue)) $ \_ -> do
-        inner $ \a -> atomically (writeTBQueue queue a)
-
-  where
-    errorLogFun Error msg = T.hPutStrLn stderr msg
-    -- Print debug statements only if debugging turned on
-    errorLogFun Debug msg = bool (return ())
-                                 (T.hPutStrLn stdout msg)
-                                 doDebug
-    errorLogFun _ _ = return ()
-
-    -- Collect messages. If there is at least one pending message, submit a
-    -- `blocks` request every second or when the batch size is {amberDataBatchSize} messages,
-    -- whatever happens first.
-    --
-    processor queue = do
-        -- set timer to 1 second
-        timer <- registerDelay (int amberDataBatchDelayMs)
-
-        -- Fill the batch
-        (remaining, batch) <- atomically $ do
-            -- ensure that there is at least one transaction in every batch
-            h <- readTBQueue queue
-            go amberDataBatchSize (initIndex h) timer
-
-        errorLogFun Debug $ "[Amberdata] Send " <> sshow (amberDataBatchSize - remaining) <> " messages"
-        resp <- HTTP.httpLbs (putBulkLog batch) mgr
-        errorLogFun Debug $ "[Amberdata] Request Body: " <> sshow (BB.toLazyByteString (mkList batch))
-        errorLogFun Debug $ "[Amberdata] Response: " <> sshow (HTTP.responseBody resp)
-       
-      where
-        go 0 !batch _ = return $! (0, batch)
-        go !remaining !batch !timer = isTimeout `orElse` fill
-          where
-            isTimeout = do
-                check =<< readTVar timer
-                return $! (remaining, batch)
-            fill = tryReadTBQueue queue >>= \case
-                Nothing -> return $! (remaining, batch)
-                Just x -> do
-                    go (pred remaining) (batch <> indexWithComma x) timer
-
-    putBulkLog a = HTTP.defaultRequest
-        { HTTP.method = "POST"
-        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
-        , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.secure = True
-        , HTTP.path = "/api/v1/blocks"
-        , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
-        , HTTP.requestHeaders = [("content-type", "application/json"),
-                                 ("accept", "application/json"),
-                                 ("x-amberdata-api-key", T.encodeUtf8 api),
-                                 ("x-amberdata-blockchain-id", T.encodeUtf8 bid)]
-        , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString (mkList a)
-        }
-
-    e = fromEncoding . toEncoding
-    initIndex (L.LogMessage a _ _ _)
-      = BB.char7 ' ' <> e a
-    indexWithComma (L.LogMessage a _ _ _)
-      = BB.char7 ',' <> e a
-    mkList a
-      = BB.char7 '[' <> a <> BB.char7 ']'
-
--- -------------------------------------------------------------------------- --
 -- Elasticsearch Backend
 
 elasticSearchBatchSize :: Natural
@@ -755,17 +667,19 @@ withFileHandleLogger config f =
 
 withExampleLogger
     :: W.Port
-    -> LogConfig
+    -> L.LoggerConfig
         -- ^ Logger configuration
+    -> BackendConfig
+        -- ^ Logger backend configurationjk
     -> FilePath
     -> (L.Logger SomeLogMessage -> IO a)
     -> IO a
-withExampleLogger port config staticDir f = do
+withExampleLogger port loggerConfig backendConfig staticDir f = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
-    withBaseHandleBackend "example-logger" mgr (_logConfigBackend config) $ \baseBackend ->
+    withBaseHandleBackend "example-logger" mgr backendConfig $ \baseBackend ->
         withJsonEventSourceAppBackend @(JsonLog P2pSessionInfo) port staticDir $ \sessionsBackend -> do
             let loggerBackend = logHandles
                     [ logHandler sessionsBackend ]
                     baseBackend
                         -- The type system enforces that backend is a base logger.
-            L.withLogger (_logConfigLogger config) loggerBackend f
+            L.withLogger loggerConfig loggerBackend f

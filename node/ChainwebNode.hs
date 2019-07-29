@@ -49,7 +49,6 @@ import Control.Monad
 import Control.Monad.Managed
 
 import Data.CAS.RocksDB
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 import Data.Typeable
 
@@ -69,17 +68,16 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader (NewMinedBlock, AmberdataBlock(..))
 import Chainweb.Chainweb
-import Chainweb.ChainId (HasChainId(..), chainIdInt)
-import Chainweb.Cut (Cut, _cutMap)
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight(..))
 import Chainweb.Chainweb.CutResources
-import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
+import Chainweb.Logging.Amberdata
+import Chainweb.Logging.Miner
+import Chainweb.Logging.Config
+import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
@@ -168,44 +166,8 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
 
 
 runAmberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runAmberdataBlockMonitor logger db = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l -> do
-    go l `catchAllSynchronous` \e ->
-        logFunctionText l Error ("Amberdata Block Monitor failed: " <> sshow e)
-    logFunctionText l Info "Stopped Amberdata Block Monitor"
-  where
-    go l = do
-      logFunctionText l Info "Initialized Amberdata Block Monitor"
-      void
-        $ S.mapM_ (logAllBlocks l)
-        $ S.map cutToAmberdataBlocks
-        $ cutStream db
-
-    logAllBlocks :: Logger logger => logger -> [AmberdataBlock] -> IO ()
-    logAllBlocks l = mapM_ (logFunctionJson l Info)
-
-    cutToAmberdataBlocks :: Cut -> [AmberdataBlock]
-    cutToAmberdataBlocks c = map
-                               (\(_,bh) -> AmberdataBlock
-                                           (uniqueBlockHeight bh totalChains)
-                                           (_blockHash bh)
-                                           (_blockCreationTime bh)
-                                           (_blockParent bh)
-                                           (_blockNonce bh)
-                                           (_blockMiner bh)
-                                           -- undefined Blocksize
-                                           -- undefined blockTransNum
-                                           (_blockChainId bh)
-                                           (_blockWeight bh)
-                               )
-                               (HM.toList (_cutMap c))
-      where totalChains = length (_cutMap c)
-
-    uniqueBlockHeight :: BlockHeader -> Int -> BlockHeight
-    uniqueBlockHeight bheader totalChains =
-        BlockHeight $ (h * (fromIntegral totalChains)) + (chainIdInt (_chainId cid))
-      where (BlockHeight h) = _blockHeight bheader
-            cid = _blockChainId bheader
-
+runAmberdataBlockMonitor = amberdataBlockMonitor
+{-# INLINE runAmberdataBlockMonitor #-}
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 

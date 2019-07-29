@@ -130,6 +130,9 @@ library
         , Chainweb.Graph
         , Chainweb.HostAddress
         , Chainweb.Logger
+        , Chainweb.Logging.Amberdata
+        , Chainweb.Logging.Config
+        , Chainweb.Logging.Miner
         , Chainweb.Mempool.Consensus
         , Chainweb.Mempool.InMem
         , Chainweb.Mempool.InMemTypes
@@ -490,7 +493,7 @@ executable chainweb-node
         , streaming >= 0.2
         , text >= 1.2
         , unordered-containers >= 0.2
-        , yet-another-logger >= 0.3.1 
+        , yet-another-logger >= 0.3.1
 
 executable chainweb-miner
     import: warning-flags

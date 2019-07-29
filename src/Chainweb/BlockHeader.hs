@@ -90,8 +90,6 @@ module Chainweb.BlockHeader
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
 , ObjectEncoded(..)
-, NewMinedBlock(..)
-, AmberdataBlock(..)
 
 , timeBetween
 , getAdjacentHash
@@ -140,8 +138,6 @@ import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics (Generic)
-
-import Numeric.Natural (Natural)
 
 -- Internal imports
 
@@ -686,51 +682,6 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     parseJSON = withObject "BlockHeader"
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
-
-data NewMinedBlock = NewMinedBlock
-    { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
-    , _minedBlockTrans :: {-# UNPACK #-} !Word
-    , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-    , _minedHashAttempts :: !Natural }
-    deriving (Eq, Show, Generic)
-    deriving anyclass (ToJSON, NFData)
-
-data AmberdataBlock = AmberdataBlock
-  { _amberdataNumber :: {-# UNPACK #-} !BlockHeight
-  , _amberdataHash :: {-# UNPACK #-} !BlockHash
-  , _amberdataTimestamp :: {-# UNPACK #-} !BlockCreationTime
-  , _amberdataParentHash :: {-# UNPACK #-} !BlockHash
-  , _amberdataNonce :: {-# UNPACK #-} !Nonce
-  , _amberdataMiner :: {-# UNPACK #-} !ChainNodeId
-  --, _amberdataSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-  --, _amberdataNumTransactions ::  {-# UNPACK #-} !Word
-  , _amberdataMeta :: {-# UNPACK #-} !ChainId
-  , _amberdataDifficulty :: {-# UNPACK #-} !BlockWeight
-  }
-  deriving (Eq, Show, Generic)
-  deriving anyclass (NFData)
-
-instance ToJSON AmberdataBlock where
-  toJSON (AmberdataBlock bh hsh ts parentHsh nonce miner {--blockSize txs--} meta blockDiff) = object
-    [ "number" .= bh
-    , "hash" .= hsh
-    , "timestamp" .= microToMilliSeconds ts
-    , "parentHash" .= parentHsh
-    , "miner" .= miner
-    , "nonce" .= nonce
-    --, "size" .= blockSize
-    --, "numTransactions" .= txs
-    , "meta" .= toJSON (show meta)
-    , "difficulty" .= blockWeightToNumber blockDiff
-    ]
-    
-    where
-      microToMilliSeconds :: BlockCreationTime -> Integer
-      microToMilliSeconds (BlockCreationTime (Time (TimeSpan (Micros m)))) =
-        int $ m `div` 1000
-
-      blockWeightToNumber :: BlockWeight -> Value
-      blockWeightToNumber (BlockWeight w) = (toJSON . Number . fromIntegral) w
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader

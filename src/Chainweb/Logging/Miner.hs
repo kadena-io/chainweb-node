@@ -1,0 +1,40 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+-- |
+-- Module: Chainweb.Logging.Miner
+-- Copyright: Copyright © 2019 Kadena LLC.
+-- License: MIT
+-- Maintainer: Lars Kuhtz <lars@kadena.io>
+-- Stability: experimental
+--
+-- TODO
+--
+module Chainweb.Logging.Miner
+( NewMinedBlock(..)
+) where
+
+import Control.DeepSeq
+
+import Data.Aeson
+
+import GHC.Generics
+
+import Numeric.Natural
+
+-- internal modules
+
+import Chainweb.BlockHeader
+
+data NewMinedBlock = NewMinedBlock
+    { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
+    , _minedBlockTrans :: {-# UNPACK #-} !Word
+    , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
+    , _minedHashAttempts :: !Natural }
+    deriving (Eq, Show, Generic)
+    deriving anyclass (ToJSON, NFData)
+

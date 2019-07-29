@@ -67,6 +67,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
+import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
