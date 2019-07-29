@@ -147,8 +147,7 @@ runSQLite runTest = runTest . make
     make :: IO (IO (), SQLiteEnv) -> IO CheckpointEnv
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
-      let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
-          loggers = pactTestLogger False
+      let loggers = pactTestLogger False
       initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
 
 runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
@@ -414,8 +413,7 @@ testRegress =
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb = do
  withTempSQLiteConnection fastNoJournalPragmas  $ \sqlenv -> do
-        let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
-            loggers = pactTestLogger False
+        let loggers = pactTestLogger False
         runRegression chainwebPactDb
           (BlockEnv (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment")) initBlockState)
           (\v -> runBlockEnv v initSchema)

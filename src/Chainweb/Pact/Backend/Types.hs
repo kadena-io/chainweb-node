@@ -45,6 +45,7 @@ module Chainweb.Pact.Backend.Types
     , bvVersion
     , bvBlock
     , BlockState(..)
+    , initBlockState
     , bsBlockVersion
     , bsTxRecord
     , bsMode
@@ -179,6 +180,9 @@ data BlockState = BlockState
   , _bsTxRecord :: !(Map TableName [TxLog Value])
   }
   deriving Show
+
+initBlockState :: BlockState
+initBlockState = BlockState 0 Nothing (BlockVersion 0 0) mempty
 
 makeLenses ''BlockState
 
