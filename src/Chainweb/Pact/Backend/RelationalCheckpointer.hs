@@ -85,23 +85,23 @@ type Db = MVar (BlockEnv SQLiteEnv)
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore dbenv (Just (bh, hash)) = do
     runBlockEnv dbenv $ do
-        void $ withSavepoint PreBlock $ handleVersion bh hash
+        void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
         beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
 doRestore dbenv Nothing = runBlockEnv dbenv $ do
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
         exec_ db "DELETE FROM BlockHistory;"
-        exec_ db "DELETE FROM VersionHistory;"
         exec_ db "DELETE FROM [SYS:KeySets];"
         exec_ db "DELETE FROM [SYS:Modules];"
         exec_ db "DELETE FROM [SYS:Namespaces];"
         exec_ db "DELETE FROM [SYS:Pacts];"
-        tblNames <- qry_ db "SELECT tablename FROM UserTables;" [RText]
+        tblNames <- qry_ db "SELECT tablename FROM VersionedTableCreation;" [RText]
         forM_ tblNames $ \tbl -> case tbl of
             [SText t] -> exec_ db ("DROP TABLE [" <> t <> "];")
             _ -> internalError "Something went wrong when resetting tables."
-        exec_ db "DELETE FROM UserTables;"
+        exec_ db "DELETE FROM VersionedTableCreation;"
+        exec_ db "DELETE FROM VersionedTableMutation;"
     beginSavepoint Block
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
@@ -110,7 +110,7 @@ doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
     commitSavepoint Block
     nextTxId <- gets _bsTxId
-    (BlockVersion height _) <- gets _bsBlockVersion
+    height <- gets _bsBlockHeight
     blockHistoryInsert height hash nextTxId
 
 doDiscard :: Db -> IO ()
