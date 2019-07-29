@@ -151,7 +151,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
-    let blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+    let blockstate = BlockState 0 Nothing 0 M.empty
     let getsqliteDir = case dbDir of
           Nothing -> getXdgDirectory XdgData
             $ "chainweb-node/" <> sshow ver <> maybe mempty (("/" <>) . T.unpack . toText) nodeid <> "/sqlite"
@@ -167,7 +167,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
 
     logFunctionText chainwebLogger Info $ "opened sqlitedb for " <> sshow cid <> " in directory " <> sshow sqlitedir
 
-    let sqlitefile = sqlitedir <> "/" <> "pactservice-sqlite-chain" <> T.unpack (chainIdToText  cid) <> ".sqlite"
+    let sqlitefile = sqlitedir <> "/" <> "pactservice-chain" <> T.unpack (chainIdToText  cid) <> ".sqlite"
 
     logFunctionText chainwebLogger Info $ "opening sqlitedb named " <> (T.pack sqlitefile)
 

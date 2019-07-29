@@ -305,7 +305,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
-    blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+    blockstate = BlockState 0 Nothing 0 M.empty
 
 -- | A test PactExecutionService for a single chain
 --
@@ -420,7 +420,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
           spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
-          blockstate = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+          blockstate = BlockState 0 Nothing 0 M.empty
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios

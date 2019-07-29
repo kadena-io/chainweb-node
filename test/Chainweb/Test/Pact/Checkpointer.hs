@@ -61,7 +61,6 @@ tests = testGroupSch "Checkpointer" [testInMemory, testKeyset, testRelational, t
 testInMemory :: TestTree
 testInMemory = checkpointerTest "In-memory Checkpointer" InMem
 
-
 defModule :: Text -> Text
 defModule idx = [text| ;;
 
@@ -147,7 +146,7 @@ runSQLite runTest = runTest . make
     make :: IO (IO (), SQLiteEnv) -> IO CheckpointEnv
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
-      let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+      let initBlockState = BlockState 0 Nothing 0 M.empty
           loggers = pactTestLogger False
       initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
 
@@ -392,13 +391,6 @@ checkpointerTest name initdata =
 
           discard _cpeCheckpointer
 
-
-
-
-
-
-
-
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
@@ -407,14 +399,14 @@ testRegress =
   regressChainwebPactDb >>= fmap (toTup . _benvBlockState) . readMVar >>=
   assertEquals "The final block state is" finalBlockState
   where
-    finalBlockState = (2, BlockVersion 0 0, M.empty)
+    finalBlockState = (2, 0, M.empty)
     toTup (BlockState txid _ blockVersion txRecord) =
       (txid, blockVersion, txRecord)
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb = do
  withTempSQLiteConnection fastNoJournalPragmas  $ \sqlenv -> do
-        let initBlockState = BlockState 0 Nothing (BlockVersion 0 0) M.empty
+        let initBlockState = BlockState 0 Nothing 0 M.empty
             loggers = pactTestLogger False
         runRegression chainwebPactDb
           (BlockEnv (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment")) initBlockState)

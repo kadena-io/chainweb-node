@@ -24,6 +24,7 @@ module Chainweb.Miner.POW
 -- * Internal
 , mineCut
 , mine
+, usePowHash
 ) where
 
 import Control.Concurrent.Async
