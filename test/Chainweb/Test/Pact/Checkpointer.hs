@@ -61,7 +61,6 @@ tests = testGroupSch "Checkpointer" [testInMemory, testKeyset, testRelational, t
 testInMemory :: TestTree
 testInMemory = checkpointerTest "In-memory Checkpointer" InMem
 
-
 defModule :: Text -> Text
 defModule idx = [text| ;;
 
@@ -391,13 +390,6 @@ checkpointerTest name initdata =
 
           discard _cpeCheckpointer
 
-
-
-
-
-
-
-
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
@@ -406,7 +398,7 @@ testRegress =
   regressChainwebPactDb >>= fmap (toTup . _benvBlockState) . readMVar >>=
   assertEquals "The final block state is" finalBlockState
   where
-    finalBlockState = (2, BlockVersion 0 0, M.empty)
+    finalBlockState = (2, 0, M.empty)
     toTup (BlockState txid _ blockVersion txRecord) =
       (txid, blockVersion, txRecord)
 
