@@ -90,7 +90,6 @@ module Chainweb.BlockHeader
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
 , ObjectEncoded(..)
-, NewMinedBlock(..)
 
 , timeBetween
 , getAdjacentHash
@@ -139,8 +138,6 @@ import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics (Generic)
-
-import Numeric.Natural (Natural)
 
 -- Internal imports
 
@@ -685,14 +682,6 @@ instance FromJSON (ObjectEncoded BlockHeader) where
     parseJSON = withObject "BlockHeader"
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
-
-data NewMinedBlock = NewMinedBlock
-    { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
-    , _minedBlockTrans :: {-# UNPACK #-} !Word
-    , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-    , _minedHashAttempts :: !Natural }
-    deriving (Eq, Show, Generic)
-    deriving anyclass (ToJSON, NFData)
 
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader

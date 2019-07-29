@@ -89,6 +89,7 @@ import TXG.Types
 
 import Utils.Logging
 import qualified Utils.Logging.Config as U
+import qualified Chainweb.Logging.Config as U
 
 ---
 

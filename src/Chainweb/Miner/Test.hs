@@ -49,6 +49,7 @@ import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
+import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload

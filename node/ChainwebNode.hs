@@ -56,6 +56,7 @@ import GHC.Generics hiding (from)
 import GHC.Stats
 
 import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.TLS as HTTPS
 
 import Numeric.Natural
 
@@ -67,14 +68,16 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader (NewMinedBlock)
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
-import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
+import Chainweb.Logging.Amberdata
+import Chainweb.Logging.Miner
+import Chainweb.Logging.Config
+import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
@@ -161,6 +164,11 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
             -- $ S.map _cutMap
             -- $ cutStream db
 
+
+runAmberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
+runAmberdataBlockMonitor = amberdataBlockMonitor
+{-# INLINE runAmberdataBlockMonitor #-}
+
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
 -- This instances are OK, since this is the "Main" module of an application
@@ -174,10 +182,8 @@ deriving instance NFData RTSStats
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
-runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \l -> do
-    go l `catchAllSynchronous` \e ->
-        logFunctionText l Error ("RTS Monitor failed: " <> sshow e)
-    logFunctionText l Info "Stopped RTS Monitor"
+runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \l ->
+    runForever (logFunctionText l) "Chainweb.Node.runRtsMonitor" (go l)
   where
     go l = getRTSStatsEnabled >>= \case
         False -> logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
@@ -201,10 +207,8 @@ data QueueStats = QueueStats
     deriving anyclass (NFData, ToJSON)
 
 runQueueMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger $ \l -> do
-    go l `catchAllSynchronous` \e ->
-        logFunctionText l Error ("Queue Monitor failed: " <> sshow e)
-    logFunctionText l Info "Stopped Queue Monitor"
+runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger $ \l ->
+    runForever (logFunctionText l) "ChainwebNode.runQueueMonitor" (go l)
   where
     go l = do
         logFunctionText l Info $ "Initialized Queue Monitor"
@@ -233,6 +237,7 @@ node conf logger = do
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+            , runAmberdataBlockMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             ]
@@ -254,6 +259,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
     -- This manager is used only for logging backends
     mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
+    mgrHttps <- liftIO $ HTTPS.newTlsManager
 
     -- Base Backend
     baseBackend <- managed
@@ -269,6 +275,7 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
         teleLogConfig
+    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed
@@ -284,6 +291,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
+            , logHandler newBlockAmberdataBackend
             , logHandler newBlockBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend
@@ -296,6 +304,15 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
+    amberdataConfig = _logConfigAmberdataBackend logConfig
+
+mkAmberdataLogger
+    :: HTTP.Manager
+    -> Maybe AmberdataConfig
+    -> (Backend (JsonLog AmberdataBlock) -> IO b)
+    -> IO b
+mkAmberdataLogger _ Nothing inner = inner (const $ return ())
+mkAmberdataLogger mgr (Just config) inner = withAmberDataBlocksBackend mgr config inner
 
 mkTelemetryLogger
     :: forall a b

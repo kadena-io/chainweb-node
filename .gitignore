@@ -1,3 +1,4 @@
+*.dump-hi
 *.pem
 .dir-locals.el
 dist
