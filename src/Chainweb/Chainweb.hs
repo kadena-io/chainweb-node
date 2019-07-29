@@ -83,7 +83,7 @@ module Chainweb.Chainweb
 
 ) where
 
-import Configuration.Utils hiding (disabled, Error, Lens', (<.>))
+import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
@@ -130,7 +130,6 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
-import qualified Chainweb.Pact.BloomCache as Bloom
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -435,11 +434,10 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
+              -- TODO: delete this knob
               logg Info "Transaction index enabled"
               let l = sortBy (compare `on` fst) (HM.toList cs)
-                  bdbs = map (\(c, cr) -> (c, _chainResBlockHeaderDb cr)) l
-              Bloom.withCache (cuts ^. cutsCutDb) bdbs $ \bloom ->
-                 m $ map (\(c, cr) -> (c, (cuts, cr, bloom))) l
+              m $ map (\(c, cr) -> (c, (cuts, cr))) l
 
         | otherwise = do
               logg Info "Transaction index disabled"
