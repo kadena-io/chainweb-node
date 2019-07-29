@@ -331,6 +331,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     --
     -- The result stream may return less than the requested number of items.
     --
+    -- Also see 'getBranch' for a less powerful but easier to use variant of
+    -- this function.
+    --
     branchEntries
         :: db
         -> Maybe (NextItem (DbKey db))
@@ -423,9 +426,9 @@ applyRank l u
     = maybe id (\x -> S.filter (\e -> rank e <= x)) (_getMaxRank <$> u)
     . maybe id (\x -> S.filter (\e -> rank e >= x)) (_getMinRank <$> l)
 
--- | @getBranch s a b@ returns all nodes that are predecessors of nodes in @a@
--- and not predecessors of any node in @b@. Entries are returned in descending
--- order.
+-- | @getBranch db lower upper@ returns all nodes that are predecessors of nodes
+-- in @upper@ and not predecessors of any node in @lower@. Entries are returned
+-- in descending order.
 --
 getBranch
     :: forall db
@@ -673,6 +676,8 @@ toTree db = do
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
 
+-- | Returns the fork entry of two branches of the 'TreeDb'.
+--
 forkEntry
     :: TreeDb db
     => db
@@ -681,6 +686,11 @@ forkEntry
     -> IO (DbEntry db)
 forkEntry db a b = S.effects $ branchDiff_ db a b
 
+-- | Compares two branches of a 'TreeDb'. The fork entry is included as last
+-- item in the stream.
+--
+-- If you only need one branch of the fork you may use 'getBranch' instead.
+--
 branchDiff
     :: TreeDb db
     => db
@@ -689,6 +699,11 @@ branchDiff
     -> S.Stream (Of (DiffItem (DbEntry db))) IO ()
 branchDiff db l r = branchDiff_ db l r >>= \i -> S.yield (BothD i i)
 
+-- | Compares two branches of a 'TreeDb'. The fork entry is returned as the
+-- result of the stream computation.
+--
+-- If you only need one branch of the fork you may use 'getBranch' instead.
+--
 branchDiff_
     :: TreeDb db
     => db
