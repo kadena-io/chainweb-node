@@ -397,6 +397,7 @@ test-suite chainweb-tests
         , chainweb-storage >= 0.1
         , connection >=0.2
         , containers >= 0.5
+        , cryptonite >= 0.25
         , data-default >=0.7
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
@@ -410,6 +411,7 @@ test-suite chainweb-tests
         , lens >= 4.16
         , loglevel >= 0.1
         , mtl >= 2.2
+        , mwc-random >= 0.13
         , neat-interpolation >= 0.3
         , network >= 2.6
         , http-client-tls >=0.3

@@ -83,7 +83,7 @@ module Chainweb.Chainweb
 
 ) where
 
-import Configuration.Utils hiding (disabled, Error, Lens', (<.>))
+import Configuration.Utils hiding (Error, Lens', (<.>), disabled)
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
