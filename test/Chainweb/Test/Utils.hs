@@ -165,8 +165,6 @@ import Data.CAS.RocksDB
 
 import Network.X509.SelfSigned
 
-import Numeric.AffineSpace
-
 import qualified P2P.Node.PeerDB as P2P
 
 -- -------------------------------------------------------------------------- --

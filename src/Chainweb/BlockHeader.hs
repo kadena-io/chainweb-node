@@ -162,7 +162,6 @@ import Chainweb.Version
 import Data.CAS
 
 import Numeric.Additive
-import Numeric.AffineSpace
 
 import Text.Read (readEither)
 
