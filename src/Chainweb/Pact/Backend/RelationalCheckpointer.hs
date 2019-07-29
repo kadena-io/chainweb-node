@@ -31,6 +31,7 @@ import Prelude hiding (log)
 
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Gas (GasEnv(..))
+import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Logger (Logger(..))
 import Pact.Types.SQLite
 
@@ -75,7 +76,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doWithAtomicRewind db)
               (doLookupBlock db)
               (doGetBlockParent db)
-              (error "TODO: registerSuccessfulTx")
+              (doRegisterSuccessful db)
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
@@ -165,3 +166,7 @@ doGetBlockParent dbenv (bh, hash) =
             _ -> internalError "doGetBlockParent: output mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
+
+doRegisterSuccessful :: Db -> PactHash -> IO ()
+doRegisterSuccessful dbenv (TypedHash hash) =
+    runBlockEnv dbenv (indexTransaction hash)

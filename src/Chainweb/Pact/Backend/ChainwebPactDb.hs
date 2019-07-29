@@ -18,6 +18,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , handlePossibleRewind
 , blockHistoryInsert
 , initSchema
+, indexTransaction
 ) where
 
 import Control.Exception hiding (try)
@@ -28,11 +29,12 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import Data.Aeson hiding ((.=))
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (concat)
-import qualified Data.HashSet as HS
 import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Serialize (encode)
@@ -387,6 +389,30 @@ blockHistoryInsert bh hsh t =
       "INSERT INTO BlockHistory ('blockheight','hash','endingtxid') \
             \ VALUES (?,?,?);"
 
+createTransactionIndexTable :: BlockHandler SQLiteEnv ()
+createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
+    exec_ db "CREATE TABLE IF NOT EXISTS TransactionIndex \
+             \ (txhash BLOB NOT NULL, \
+             \ blockheight UNSIGNED BIGINT NOT NULL, \
+             \ CONSTRAINT transactionIndexConstraint UNIQUE(txhash));"
+    exec_ db "CREATE INDEX IF NOT EXISTS \
+             \ transactionIndexByBH ON TransactionIndex(blockheight)";
+
+indexTransaction :: ByteString -> BlockHandler SQLiteEnv ()
+indexTransaction tx = do
+    bh <- gets _bsBlockHeight
+    callDb "indexTransaction" $ \db -> do
+        exec' db "INSERT INTO TransactionIndex (txhash, blockheight) \
+                 \ VALUES (?, ?)"
+              [ SBlob tx, SInt (fromIntegral bh) ]
+
+clearTxIndex :: BlockHandler SQLiteEnv ()
+clearTxIndex = do
+    bh <- gets _bsBlockHeight
+    callDb "clearTxIndex" $ \db -> do
+        exec' db "DELETE FROM TransactionIndex WHERE blockheight >= ?;"
+              [ SInt (fromIntegral bh) ]
+
 createBlockHistoryTable :: BlockHandler SQLiteEnv ()
 createBlockHistoryTable =
     callDb "createBlockHistoryTable" $ \db -> exec_ db
@@ -493,6 +519,8 @@ handlePossibleRewind bRestore hsh = do
             vacuumTablesAtRewind bh droppedtbls db
         t <- deleteHistory
         assign bsTxId t
+
+        clearTxIndex
         return $! t
 
 dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
@@ -557,6 +585,7 @@ initSchema = withSavepoint DbTransaction $ do
     createBlockHistoryTable
     createTableCreationTable
     createTableMutationTable
+    createTransactionIndexTable
     create (domainTableName KeySets)
     create (domainTableName Modules)
     create (domainTableName Namespaces)
