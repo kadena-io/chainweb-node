@@ -289,6 +289,7 @@ library
         , loglevel >= 0.1
         , memory >=0.14
         , merkle-log
+        , mmorph >= 1.1
         , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
