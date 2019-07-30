@@ -45,6 +45,8 @@ module Chainweb.Pact.Backend.Types
     , bsTxRecord
     , bsMode
     , bsTxId
+    , bsPendingBlock
+    , bsPendingTx
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -86,12 +88,18 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Bits
+import Data.Hashable (Hashable)
+import Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
+import Data.HashSet.Strict as HashSet
+import Data.HashSet.Strict (HashSet)
+import Data.IORef (IORef)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
-import Foreign.C.Types (CInt(..))
-
 import Database.SQLite3.Direct as SQ3
+
+import Foreign.C.Types (CInt(..))
 
 import GHC.Generics
 
@@ -140,6 +148,23 @@ instance FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
+data SQLiteRowDelta = SQLiteRowDelta
+    { _deltaTableName :: !ByteString -- utf8?
+    , _deltaTxId :: {-# UNPACK #-} !TxId
+    , _deltaRowKey :: !ByteString
+    , _deltaData :: !ByteString
+    }
+
+data SQLiteDeltaKey = SQLiteDeltaKey
+    { _dkTable :: !ByteString
+    , _dkRowKey :: !ByteString
+    }
+  deriving (Generic, Hashable, Eq)
+
+type SQLitePendingTableCreations = HashSet ByteString
+type SQLitePendingWrites = HashMap SQLiteDeltaKey [SQLiteRowDelta]
+type SQLitePendingData = (SQLitePendingTableCreations, SQLitePendingWrites)
+
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
     , _sConfig :: !SQLiteConfig
@@ -152,6 +177,8 @@ data BlockState = BlockState
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsBlockHeight :: !BlockHeight
     , _bsTxRecord :: !(Map TableName [TxLog Value])
+    , _bsPendingBlock :: !SQLitePendingData
+    , _bsPendingTx :: !(Maybe SQLitePendingData)
     }
     deriving Show
 

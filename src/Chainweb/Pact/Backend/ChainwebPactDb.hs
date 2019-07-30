@@ -31,8 +31,10 @@ import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (concat)
-import qualified Data.HashSet as HS
+import qualified Data.HashSet as HashSet
 import Data.HashSet (HashSet)
+import Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Serialize (encode)
@@ -314,11 +316,30 @@ doCreateUserTable tn mn = do
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
-doRollback = do
-    tryAny (rollbackSavepoint PactDbTransaction) >>= \case
-        Left (SomeException err) -> logError $ "doRollback: " ++ show err
-        Right _ -> return ()
-    resetTemp
+doRollback = bsPendingTx .= Nothing
+
+doCommit :: BlockHandler SQLiteEnv [TxLog Value]
+doCommit = use bsMode >>= \mm -> case mm of
+    Nothing -> doRollback >> internalError "doCommit: Not in transaction"
+    Just m -> do
+        txrs <- use bsTxRecord
+        if m == Transactional
+          then do
+              modify' (over bsTxId succ)
+              -- merge pending tx into block data
+              pending <- use bsPendingTx
+              modifying (merge pending) bsPendingBlock
+              bsPendingTx .= Nothing
+              resetTemp
+          else doRollback
+        return $! concat txrs
+  where
+    merge Nothing a = a
+    merge (Just (creationsA, writesA) (creationsB, writesB) =
+        let creations = HashSet.union creationsA creationsB
+            writes = HashMap.unionWith (flip (++)) writesA writesB
+        in (creations, writes)
+{-# INLINE doCommit #-}
 
 doBegin :: ExecutionMode -> BlockHandler SQLiteEnv (Maybe TxId)
 doBegin m = do
@@ -328,8 +349,8 @@ doBegin m = do
             doRollback
         Nothing -> return ()
     resetTemp
-    beginSavepoint PactDbTransaction
     bsMode .= Just m
+    bsPendingTx .= Just (mempty, mempty)
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
@@ -355,23 +376,38 @@ doCommit = use bsMode >>= \mm -> case mm of
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
-    bh <- gets _bsBlockHeight
-    rows <- callDb "doGetTxLog" $ \db -> qry db stmt
-      [ SInt (fromIntegral txid)
-      , SInt (fromIntegral bh)
-      ]
-      [RText, RBlob]
-    forM rows $ \case
-        [SText key, SBlob value] ->
-          case Data.Aeson.decodeStrict' value of
+    -- try to look up this tx from pending log -- if we find it there it can't
+    -- possibly be in the db.
+    p <- readFromPending
+    if null p then readFromDb else return p
+
+  where
+    readFromPending = do
+        (_, pendingWrites) <- use bsPendingBlock
+        let deltas = map snd $ HashMap.toList pendingWrites
+        let ourDeltas = filter (\delta -> _deltaTxId delta == txid) deltas
+        return $! map (\x -> toTxLog (_deltaRowKey x) (_deltaData x)) ourDeltas
+
+    readFromDb = do
+        bh <- gets _bsBlockHeight
+        rows <- callDb "doGetTxLog" $ \db -> qry db stmt
+          [ SInt (fromIntegral txid)
+          , SInt (fromIntegral bh)
+          ]
+          [RText, RBlob]
+        forM rows $ \case
+            [SText key, SBlob value] -> toTxLog key value
+            err -> internalError $
+              "doGetTxLog: Expected single row with two columns as the \
+              \result, got: " <> T.pack (show err)
+
+    toTxLog key value =
+        case Data.Aeson.decodeStrict' value of
             Nothing -> internalError $
               "doGetTxLog: Unexpected value, unable to deserialize log"
             Just v ->
               return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
-        err -> internalError $
-          "doGetTxLog: Expected single row with two columns as the \
-          \result, got: " <> T.pack (show err)
-  where
+
     stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
                 , domainTableName d
                 , "] WHERE txid = ? AND blockheight = ?"
@@ -503,7 +539,7 @@ dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
     toDropTblNames <- qry db findTablesToDropStmt
                       [SInt (fromIntegral bh)] [RText]
-    tbls <- fmap (HS.fromList) . forM toDropTblNames $ \case
+    tbls <- fmap (HashSet.fromList) . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tbl)] -> do
             exec_ db $ "DROP TABLE " <> tblname <> ";"
             return tbl
@@ -523,7 +559,7 @@ dropTablesAtRewind bh db = do
 
 vacuumTablesAtRewind :: BlockHeight -> HashSet BS.ByteString -> Database -> IO ()
 vacuumTablesAtRewind bh droppedtbls db = do
-    let processMutatedTables ms = fmap (HS.fromList) . forM ms $ \case
+    let processMutatedTables ms = fmap (HashSet.fromList) . forM ms $ \case
           [SText (Utf8 tbl)] -> return tbl
           _ -> internalError "rewindBlock: Couldn't resolve the name of the table to possibly vacuum."
     mutatedTables <- qry db
@@ -533,7 +569,7 @@ vacuumTablesAtRewind bh droppedtbls db = do
       [RText]
       >>= processMutatedTables
 
-    let toVacuumTblNames = HS.difference mutatedTables droppedtbls
+    let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
 
     forM_ toVacuumTblNames $ \tblname ->
       exec' db ("DELETE FROM [" <> (Utf8 tblname) <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]

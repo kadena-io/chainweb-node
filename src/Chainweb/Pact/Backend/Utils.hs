@@ -104,7 +104,7 @@ rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
-data SavepointName = RewindSavepoint | Block | DbTransaction |  PreBlock | PactDbTransaction
+data SavepointName = RewindSavepoint | Block | DbTransaction |  PreBlock
   deriving (Eq, Ord, Enum)
 
 instance Show SavepointName where
@@ -112,7 +112,6 @@ instance Show SavepointName where
   show Block = "block"
   show DbTransaction = "db-transaction"
   show PreBlock = "preblock"
-  show PactDbTransaction = "pact-transaction"
 
 instance AsString SavepointName where
   asString = Data.Text.pack . show
