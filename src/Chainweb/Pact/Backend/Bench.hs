@@ -74,6 +74,7 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
       _writeRow pactdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
 
     go db@(PactDbEnv pactdb e) (NoopNFData ut) = do
+      begin db
       r <- _readRow pactdb ut k e
       case r of
         Nothing -> die "no row read"
@@ -82,5 +83,6 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
           Just (PLiteral (LInteger i)) -> do
             let j = succ i
             writeRow db Update ut j
+            commit db
             return j
           Just _ -> die "field not integer"
