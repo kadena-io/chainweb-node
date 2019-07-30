@@ -124,24 +124,30 @@ readBlockEnv :: (a -> b) -> MVar a -> IO b
 readBlockEnv f = fmap f . readMVar
 
 withSQLiteConnection :: String -> [Pragma] -> Bool -> (SQLiteEnv -> IO c) -> IO c
-withSQLiteConnection file ps todelete action = bracket opener closer action
+withSQLiteConnection file ps todelete action =
+  bracket (openSQLiteConnection file ps) closer action
   where
     closer c = do
-      void $ close_v2 $ _sConn c
+      closeSQLiteConnection c
       when todelete (removeFile file)
-    opener = do
-      e <- open2 file
-      case e of
-        Left (err, msg) ->
-          internalError $
-            "withSQLiteConnection: Can't open db with "
-            <> asString (show err) <> ": " <> asString (show msg)
-        Right r -> do
-          runPragmas r ps
-          return $ mkSQLiteEnv r
-    mkSQLiteEnv connection =
-      SQLiteEnv connection
-      (SQLiteConfig file ps)
+
+
+openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
+openSQLiteConnection file ps = do
+  -- e <- open (fromString file) -- old way
+  e <- open2 file -- new way
+  case e of
+    Left (err, msg) ->
+      internalError $
+      "withSQLiteConnection: Can't open db with "
+      <> asString (show err) <> ": " <> asString (show msg)
+    Right r -> do
+      runPragmas r ps
+      return $ SQLiteEnv r
+        (SQLiteConfig file ps)
+
+closeSQLiteConnection :: SQLiteEnv -> IO ()
+closeSQLiteConnection c = void $ close_v2 $ _sConn c
 
 withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withTempSQLiteConnection ps action =

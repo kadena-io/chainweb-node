@@ -55,7 +55,6 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -293,7 +292,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
-    cpe <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
+    cpe <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
       <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
@@ -305,7 +304,6 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
-    blockstate = BlockState 0 Nothing 0 M.empty
 
 -- | A test PactExecutionService for a single chain
 --
@@ -420,11 +418,10 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
           spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
-          blockstate = BlockState 0 Nothing 0 M.empty
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios
-      (dbSt, cpe) <- initRelationalCheckpointer' blockstate s logger gasEnv
+      (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger gasEnv
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
