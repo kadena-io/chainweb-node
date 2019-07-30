@@ -230,14 +230,14 @@ writeUser wt d k row = do
         olds <- doReadRow d key
         case (olds, wt) of
             (Nothing, Insert) -> ins
-            (Just _, Insert) -> err
+            (Just _, Insert) -> err "Insert: row found for key "
             (Nothing, Write) -> ins
             (Just old, Write) -> upd old
             (Just old, Update) -> upd old
-            (Nothing, Update) -> err
+            (Nothing, Update) -> err "Update: no row found for key "
       where
-        err = internalError $
-          "writeUser: Update: no row found for key " <>
+        err msg = internalError $
+          "writeUser: " <> msg <>
           asString key
         upd oldrow = do
             let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
