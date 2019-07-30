@@ -15,19 +15,30 @@ import Chainweb.Utils.Bench
 import Pact.Types.Logger
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Pact.Types.Persistence
-import Pact.Interpreter (PactDbEnv(..))
+import Pact.Interpreter (PactDbEnv(..),mkPactDbEnv)
+import qualified Pact.Interpreter as PI
 import Pact.Types.Term
 import Pact.Types.Exp
 import Pact.Types.PactValue
+import Pact.PersistPactDb (DbEnv(..),pactdb,initDbEnv)
 import qualified Data.Map.Strict as M
+import qualified Pact.Types.SQLite as PSQL
+import qualified Pact.Persist.SQLite as PSQL
+
 
 bench :: C.Benchmark
-bench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "checkpointer" (benches e)
+bench = C.bgroup "pact-backend"
+  [ cpBench
+  , pactSqliteBench
+  ]
+
+cpBench :: C.Benchmark
+cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "checkpointer" (benches e)
   where
 
     setup = do
       (f,deleter) <- newTempFile
-      !sqliteEnv <- openSQLiteConnection f fastNoJournalPragmas
+      !sqliteEnv <- openSQLiteConnection f PSQL.fastNoJournalPragmas
       let nolog = newLogger neverLog ""
       blockEnv <- newMVar $ BlockEnv (BlockDbEnv sqliteEnv nolog) initBlockState
       runBlockEnv blockEnv initSchema
@@ -36,6 +47,28 @@ bench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "che
     teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
       c <- readMVar e
       closeSQLiteConnection $ _bdbenvDb $ _benvDb c -- sqliteEnv
+      deleter
+
+    benches :: PactDbEnv e -> [C.Benchmark]
+    benches dbEnv =
+      [
+        benchUserTable dbEnv "usertable"
+      ]
+
+pactSqliteBench :: C.Benchmark
+pactSqliteBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "pact-sqlite" (benches e)
+  where
+
+    setup = do
+      (f,deleter) <- newTempFile
+      !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig f fastNoJournalPragmas) neverLog
+      dbe <- mkPactDbEnv pactdb (initDbEnv neverLog PSQL.persister sqliteEnv)
+      PI.initSchema dbe
+      return $ NoopNFData (dbe, deleter)
+
+    teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
+      c <- readMVar e
+      void $ PSQL.closeSQLite $ _db c
       deleter
 
     benches :: PactDbEnv e -> [C.Benchmark]
@@ -58,11 +91,11 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
 
   where
 
-    setup db@(PactDbEnv pactdb e) = do
+    setup db@(PactDbEnv pdb e) = do
       let tn = "user1"
           ut = UserTables "user1"
       begin db
-      _createUserTable pactdb tn "someModule" e
+      _createUserTable pdb tn "someModule" e
       writeRow db Insert ut 1
       commit db
       return $ NoopNFData ut
@@ -70,12 +103,12 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
     k = "k"
     f = "f"
 
-    writeRow (PactDbEnv pactdb e) writeType ut i = do
-      _writeRow pactdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
+    writeRow (PactDbEnv pdb e) writeType ut i = do
+      _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
 
-    go db@(PactDbEnv pactdb e) (NoopNFData ut) = do
+    go db@(PactDbEnv pdb e) (NoopNFData ut) = do
       begin db
-      r <- _readRow pactdb ut k e
+      r <- _readRow pdb ut k e
       case r of
         Nothing -> die "no row read"
         Just (ObjectMap m) -> case M.lookup f m of

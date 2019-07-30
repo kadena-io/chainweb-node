@@ -134,7 +134,8 @@ withSQLiteConnection file ps todelete action =
 
 openSQLiteConnection :: String -> [Pragma] -> IO SQLiteEnv
 openSQLiteConnection file ps = do
-  e <- open2 file
+  -- e <- open (fromString file) -- old way
+  e <- open2 file -- new way
   case e of
     Left (err, msg) ->
       internalError $
