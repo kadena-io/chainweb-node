@@ -54,6 +54,7 @@ in
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
+          doBenchmark = runTests;
           testTarget = "--test-option=--hide-successes";
         })));
 
