@@ -75,8 +75,8 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Logging.Amberdata
-import Chainweb.Logging.Miner
 import Chainweb.Logging.Config
+import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
@@ -145,29 +145,32 @@ pChainwebNodeConfiguration = id
 -- -------------------------------------------------------------------------- --
 -- Monitors
 
+-- | Run a monitor function with a logger forever. If the monitor function exist
+-- or fails the event is logged and the function is restarted.
+--
+-- In order to prevent the function to spin in case of a persistent failure
+-- cause, only 10 immediate restart are allowed. After that restart is throttled
+-- to at most one restart every 10 seconds.
+--
+runMonitorLoop :: Logger logger => T.Text -> logger -> IO () -> IO ()
+runMonitorLoop label logger = runForeverThrottled
+    (logFunction logger)
+    label
+    10 -- 10 bursts in case of failure
+    (10 * mega) -- allow restart every 10 seconds in case of failure
+
 runCutMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l -> do
-    go l `catchAllSynchronous` \e ->
-        logFunctionText l Error ("Cut Monitor failed: " <> sshow e)
-    logFunctionText l Info "Stopped Cut Monitor"
-  where
-    go l = do
+runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
+    runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
         logFunctionText l Info $ "Initialized Cut Monitor"
-        void
-            $ S.mapM_ (logFunctionJson l Info)
+        S.mapM_ (logFunctionJson l Info)
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
 
-            -- This logs complete cuts, which is much more data
-            -- $ S.mapM_ (logFunctionJson logger' Info)
-            -- $ S.map (fmap ObjectEncoded)
-            -- $ S.map _cutMap
-            -- $ cutStream db
-
-
 runAmberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runAmberdataBlockMonitor = amberdataBlockMonitor
-{-# INLINE runAmberdataBlockMonitor #-}
+runAmberdataBlockMonitor logger db
+    = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
+        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor l db)
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
@@ -189,7 +192,7 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
             logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
         True -> do
             logFunctionText l Info $ "Initialized RTS Monitor"
-            runForever (logFunctionText l) "Chainweb.Node.runRtsMonitor" $ do
+            runMonitorLoop "Chainweb.Node.runRtsMonitor" l $ do
                 stats <- getRTSStats
                 logFunctionText l Info $ "got stats"
                 logFunctionJson logger Info stats
@@ -211,7 +214,7 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
   where
     go l = do
         logFunctionText l Info $ "Initialized Queue Monitor"
-        runForever (logFunctionText l) "ChainwebNode.runQueueMonitor" $ do
+        runMonitorLoop "ChainwebNode.runQueueMonitor" l $ do
             stats <- QueueStats
                 <$> cutDbQueueSize cutDb
                 <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore cutDb)
