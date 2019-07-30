@@ -42,11 +42,13 @@ cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "c
       let nolog = newLogger neverLog ""
       blockEnv <- newMVar $ BlockEnv (BlockDbEnv sqliteEnv nolog) initBlockState
       runBlockEnv blockEnv initSchema
+      runBlockEnv blockEnv $ beginSavepoint Block
       return $ NoopNFData (PactDbEnv chainwebPactDb blockEnv, deleter)
 
     teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
+      runBlockEnv e $ commitSavepoint Block
       c <- readMVar e
-      closeSQLiteConnection $ _bdbenvDb $ _benvDb c -- sqliteEnv
+      closeSQLiteConnection $ _bdbenvDb $ _benvDb c
       deleter
 
     benches :: PactDbEnv e -> [C.Benchmark]
@@ -61,7 +63,7 @@ pactSqliteBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.b
 
     setup = do
       (f,deleter) <- newTempFile
-      !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig f fastNoJournalPragmas) neverLog
+      !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig f PSQL.fastNoJournalPragmas) neverLog
       dbe <- mkPactDbEnv pactdb (initDbEnv neverLog PSQL.persister sqliteEnv)
       PI.initSchema dbe
       return $ NoopNFData (dbe, deleter)
