@@ -14,7 +14,7 @@ import Pact.Types.Logger
 import Chainweb.Pact.Backend.ChainwebPactDb
 
 bench :: Benchmark
-bench = envWithCleanup setup teardown $ \(NoopNFData (e,_)) -> bgroup "checkpointer" (benches e)
+bench = envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> bgroup "checkpointer" (benches e)
   where
 
     setup = do
