@@ -31,8 +31,8 @@ import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (concat)
-import qualified Data.HashSet as HS
 import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Serialize (encode)
@@ -106,7 +106,7 @@ doReadRow d k =
           "SELECT rowdata \
           \FROM [" <> domainTableName d <> "]\
           \ WHERE rowkey = ?\
-          \ ORDER BY blockheight DESC\
+          \ ORDER BY blockheight DESC, txid DESC\
           \ LIMIT 1"
 
 writeSys
@@ -148,6 +148,7 @@ backendWriteInsert
     -> Database
     -> IO ()
 backendWriteInsert key tn bh txid v db = do
+    -- TODO: check that row is empty first
     exec' db q [ SText key
                , SInt (fromIntegral bh)
                , SInt (fromIntegral txid)
