@@ -147,9 +147,9 @@ Would like to see if open_v2 hurts or helps pact but can't crack open `initSQLit
 
 # Index problems and nested savepoints
 
-## Removing index on versioned tables
+## Fixing index on versioned tables
 
-HUGE improvement: no indexes, pact pragmas
+HUGE improvement: index on (rowkey, blockheight, txid), pact pragmas
 
 ```
 benchmarking pact-backend/checkpointer/usertable
@@ -162,13 +162,13 @@ variance introduced by outliers: 41% (moderately inflated)
 
 ## Nested savepoints
 
-Bracketing the benchmark in an outer savepoint IMPROVES performance:
+Bracketing the benchmark in an outer savepoint actually IMPROVES performance:
 
 ```
 benchmarking pact-backend/checkpointer/usertable
-time                 67.66 μs   (67.14 μs .. 68.30 μs)
-                     0.999 R²   (0.999 R² .. 1.000 R²)
-mean                 67.60 μs   (67.11 μs .. 68.05 μs)
-std dev              1.813 μs   (1.552 μs .. 2.165 μs)
-variance introduced by outliers: 24% (moderately inflated)
+time                 68.97 μs   (68.39 μs .. 69.49 μs)
+                     0.999 R²   (0.998 R² .. 1.000 R²)
+mean                 70.07 μs   (69.10 μs .. 71.65 μs)
+std dev              4.127 μs   (1.893 μs .. 6.809 μs)
+variance introduced by outliers: 61% (severely inflated)
 ```

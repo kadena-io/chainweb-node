@@ -430,6 +430,7 @@ createUserTable name bh =
 createVersionedTable :: Utf8 -> Database -> IO ()
 createVersionedTable tablename db = do
     exec_ db createtablestmt
+    exec_ db indexcreationstmt
   where
     createtablestmt =
       "CREATE TABLE IF NOT EXISTS["
@@ -439,6 +440,13 @@ createVersionedTable tablename db = do
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
              \, UNIQUE (blockheight, rowkey, txid));"
+    indexcreationstmt =
+       mconcat
+           ["CREATE INDEX IF NOT EXISTS ["
+           , tablename
+           , "_ix] ON ["
+           , tablename
+           , "](rowkey, blockheight, txid);"]
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
