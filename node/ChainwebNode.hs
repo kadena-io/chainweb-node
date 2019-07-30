@@ -182,14 +182,14 @@ deriving instance NFData RTSStats
 deriving instance ToJSON RTSStats
 
 runRtsMonitor :: Logger logger => logger -> IO ()
-runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger $ \l ->
-    runForever (logFunctionText l) "Chainweb.Node.runRtsMonitor" (go l)
+runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
   where
     go l = getRTSStatsEnabled >>= \case
-        False -> logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
+        False -> do
+            logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
         True -> do
             logFunctionText l Info $ "Initialized RTS Monitor"
-            forever $ do
+            runForever (logFunctionText l) "Chainweb.Node.runRtsMonitor" $ do
                 stats <- getRTSStats
                 logFunctionText l Info $ "got stats"
                 logFunctionJson logger Info stats
@@ -207,12 +207,11 @@ data QueueStats = QueueStats
     deriving anyclass (NFData, ToJSON)
 
 runQueueMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger $ \l ->
-    runForever (logFunctionText l) "ChainwebNode.runQueueMonitor" (go l)
+runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
   where
     go l = do
         logFunctionText l Info $ "Initialized Queue Monitor"
-        forever $ do
+        runForever (logFunctionText l) "ChainwebNode.runQueueMonitor" $ do
             stats <- QueueStats
                 <$> cutDbQueueSize cutDb
                 <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore cutDb)
