@@ -148,7 +148,6 @@ backendWriteInsert
     -> Database
     -> IO ()
 backendWriteInsert key tn bh txid v db = do
-    -- TODO: check that row is empty first
     exec' db q [ SText key
                , SInt (fromIntegral bh)
                , SInt (fromIntegral txid)
