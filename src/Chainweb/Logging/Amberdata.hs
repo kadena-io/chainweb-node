@@ -167,17 +167,13 @@ instance FromJSON AmberdataConfig where
 -- Monitor
 
 amberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-amberdataBlockMonitor logger db
-    = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
-        runForever (logFunctionText l) "Chainweb.Logging.amberdataBlockMonitor" (go l)
+amberdataBlockMonitor logger db = do
+    logFunctionText logger Info "Initialized Amberdata Block Monitor"
+    void
+        $ S.mapM_ (logAllBlocks logger)
+        $ S.map cutToAmberdataBlocks
+        $ cutStream db
   where
-    go l = do
-        logFunctionText l Info "Initialized Amberdata Block Monitor"
-        void
-            $ S.mapM_ (logAllBlocks l)
-            $ S.map cutToAmberdataBlocks
-            $ cutStream db
-
     logAllBlocks :: Logger logger => logger -> [AmberdataBlock] -> IO ()
     logAllBlocks l = mapM_ (logFunctionJson l Info)
 
