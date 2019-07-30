@@ -126,3 +126,31 @@ variance introduced by outliers: 78% (severely inflated)
 ## Notes on Phase 2
 
 Would like to see if open_v2 hurts or helps pact but can't crack open `initSQLite` ...
+
+# Index problems and nested savepoints
+
+## Removing index on versioned tables
+
+HUGE improvement: no indexes, pact pragmas
+
+```
+benchmarking pact-backend/checkpointer/usertable
+time                 80.96 μs   (80.46 μs .. 81.97 μs)
+                     0.999 R²   (0.997 R² .. 1.000 R²)
+mean                 81.36 μs   (80.50 μs .. 82.52 μs)
+std dev              3.181 μs   (2.226 μs .. 4.413 μs)
+variance introduced by outliers: 41% (moderately inflated)
+```
+
+## Nested savepoints
+
+Bracketing the benchmark in an outer savepoint IMPROVES performance:
+
+```
+benchmarking pact-backend/checkpointer/usertable
+time                 67.66 μs   (67.14 μs .. 68.30 μs)
+                     0.999 R²   (0.999 R² .. 1.000 R²)
+mean                 67.60 μs   (67.11 μs .. 68.05 μs)
+std dev              1.813 μs   (1.552 μs .. 2.165 μs)
+variance introduced by outliers: 24% (moderately inflated)
+```
