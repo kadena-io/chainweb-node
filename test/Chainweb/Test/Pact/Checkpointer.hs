@@ -462,7 +462,7 @@ readRowUnitTest = simpleBlockEnvInit runUnitTest
       case r of
         Nothing -> assertFailure "Unsuccessful write"
         Just (ObjectMap m) -> case M.lookup "f" m of
-          Just l -> assertEquals "lol" l (PLiteral (LInteger 100))
+          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (PLiteral (LInteger 100))
           Nothing -> assertFailure "Field not found"
 
 {- this should be moved to pact -}
