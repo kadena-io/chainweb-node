@@ -38,7 +38,7 @@ cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "c
 
     setup = do
       (f,deleter) <- newTempFile
-      !sqliteEnv <- openSQLiteConnection f PSQL.fastNoJournalPragmas
+      !sqliteEnv <- openSQLiteConnection f chainwebPragmas
       let nolog = newLogger neverLog ""
       blockEnv <- newMVar $ BlockEnv (BlockDbEnv sqliteEnv nolog) initBlockState
       runBlockEnv blockEnv initSchema

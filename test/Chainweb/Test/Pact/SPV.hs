@@ -153,7 +153,7 @@ withAll :: ChainwebVersion -> ([SQLiteEnv] -> IO c) -> IO c
 withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
   where
     with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
-    with g envs =  withTempSQLiteConnection fastNoJournalPragmas $ \s -> g (s : envs)
+    with g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
 roundtrip
     :: Int

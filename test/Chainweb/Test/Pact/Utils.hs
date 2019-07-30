@@ -73,7 +73,7 @@ import Pact.Types.Crypto
 import Pact.Types.Logger
 import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
 import Pact.Types.SPV (noSPVSupport)
-import Pact.Types.SQLite hiding (fastNoJournalPragmas)
+import Pact.Types.SQLite
 import Pact.Types.Util (toB16Text)
 
 -- internal modules
@@ -387,7 +387,7 @@ initializeSQLite = do
       case e of
         Left (_err, _msg) ->
           internalError "initializeSQLite: A connection could not be opened."
-        Right r ->  return $ (del, SQLiteEnv r (SQLiteConfig file fastNoJournalPragmas))
+        Right r ->  return $ (del, SQLiteEnv r (SQLiteConfig file chainwebPragmas))
 
 freeSQLiteResource :: (IO (), SQLiteEnv) -> IO ()
 freeSQLiteResource (del,sqlenv) = do

@@ -62,6 +62,24 @@ variance introduced by outliers: 98% (severely inflated)
 
 # Phase two: comparing to Pact backends
 
+## Pact Pragmas
+
+```
+fastNoJournalPragmas :: [Pragma]
+fastNoJournalPragmas = [
+  "synchronous = OFF",
+  "journal_mode = MEMORY",
+  "locking_mode = EXCLUSIVE",
+  "temp_store = MEMORY"
+  ]
+```
+
+As shown below, these outperform the current Chainweb pragmas.
+
+`synchronous = OFF` is a big one I would imagine vs the Chainweb pragmas; I tried
+`journal_mode = WAL` a while ago and didn't see a big difference so left that alone.
+`auto_vacuum = FULL` and `page_size = 8192`, dunno.
+
 
 ## Experiment 5: pact persist backend, pact pragmas
 

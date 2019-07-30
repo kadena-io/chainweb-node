@@ -404,7 +404,7 @@ testRegress =
 
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
 regressChainwebPactDb = do
- withTempSQLiteConnection fastNoJournalPragmas  $ \sqlenv -> do
+ withTempSQLiteConnection chainwebPragmas $ \sqlenv -> do
         let loggers = pactTestLogger False
         runRegression chainwebPactDb
           (BlockEnv (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment")) initBlockState)
