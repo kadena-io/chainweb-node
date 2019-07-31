@@ -20,8 +20,6 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , initSchema
 ) where
 
-import Control.Exception hiding (try)
-import Control.Exception.Safe hiding (bracket)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Reader
@@ -31,17 +29,17 @@ import Data.Aeson hiding ((.=))
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (concat)
-import qualified Data.HashSet as HashSet
+import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
-import Data.HashMap.Strict as HashMap
-import Data.HashMap.Strict (HashMap)
+import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
-import qualified Data.Set as Set
 import Data.Maybe
 import Data.Serialize (encode)
+import qualified Data.Set as Set
 import Data.String
 import Data.String.Conv
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Database.SQLite3.Direct as SQ3
 
@@ -281,11 +279,13 @@ doKeys d = do
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
 
-    let allKeys = Set.toList $
-                  Set.fromList $
-                  map fromString $
-                  dbKeys ++ collect pb ++ maybe [] collect mptx
+    let memKeys = map (toS . _deltaRowKey) $
+                  collect pb ++ maybe [] collect mptx
 
+    let allKeys = map fromString $
+                  HashSet.toList $
+                  HashSet.fromList $
+                  dbKeys ++ memKeys
     return allKeys
 
   where
@@ -293,8 +293,7 @@ doKeys d = do
     tnS = toS tn
     collect (_, m) =
         let flt k _ = _dkTable k == tnS
-            deltas = concat $ HashMap.elems $ HashMap.filterWithKey flt m
-        in filter (\d -> _deltaTxId d > _tid) deltas
+        in concat $ HashMap.elems $ HashMap.filterWithKey flt m
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
@@ -321,10 +320,12 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 
     tnS = toS tn
-    collect (_, m) =
-        let flt k _ = _dkTable k == tnS
-            deltas = concat $ HashMap.elems $ HashMap.filterWithKey flt m
-        in filter (\d -> _deltaTxId d > _tid) deltas
+    collect (_, m) = let flt k _ = _dkTable k == tnS
+                         txids = map _deltaTxId $
+                                 concat $
+                                 HashMap.elems $
+                                 HashMap.filterWithKey flt m
+                     in filter (> _tid) txids
 {-# INLINE doTxIds #-}
 
 record
@@ -348,11 +349,13 @@ modifyPendingData f = do
       Nothing -> bsPendingBlock %= f
 
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
-doCreateUserTable tn mn = do
+doCreateUserTable tn@(TableName ttxt) mn = do
     -- TODO: perform createUserTable at save
     -- bh <- gets _bsBlockHeight
+    void $ fail "FIXME"
+    createUserTable tn 0
     -- createUserTable tn bh
-    modifyPendingData $ \(c, w) -> (HashSet.insert (toS tn) c, w)
+    modifyPendingData $ \(c, w) -> (HashSet.insert (T.encodeUtf8 ttxt) c, w)
     bsTxRecord %= M.insertWith (flip (++)) "SYS:usertables" txlogs
   where
     stn = asString tn
@@ -373,14 +376,14 @@ doCommit = use bsMode >>= \mm -> case mm of
               modify' (over bsTxId succ)
               -- merge pending tx into block data
               pending <- use bsPendingTx
-              modifying (merge pending) bsPendingBlock
+              modify' (over bsPendingBlock $ merge pending)
               bsPendingTx .= Nothing
               resetTemp
           else doRollback
         return $! concat txrs
   where
     merge Nothing a = a
-    merge (Just (creationsA, writesA) (creationsB, writesB) =
+    merge (Just (creationsA, writesA)) (creationsB, writesB) =
         let creations = HashSet.union creationsA creationsB
             writes = HashMap.unionWith (flip (++)) writesA writesB
         in (creations, writes)
@@ -404,21 +407,6 @@ doBegin m = do
 resetTemp :: BlockHandler SQLiteEnv ()
 resetTemp = bsMode  .= Nothing >> bsTxRecord .= M.empty
 
-doCommit :: BlockHandler SQLiteEnv [TxLog Value]
-doCommit = use bsMode >>= \mm -> case mm of
-    Nothing -> doRollback >> internalError "doCommit: Not in transaction"
-    Just m -> do
-        txrs <- use bsTxRecord
-        if m == Transactional
-          then do
-              modify' (over bsTxId succ)
-              -- commit
-              commitSavepoint PactDbTransaction
-              resetTemp
-          else doRollback
-        return $! concat txrs
-{-# INLINE doCommit #-}
-
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
     -- try to look up this tx from pending log -- if we find it there it can't
@@ -429,9 +417,9 @@ doGetTxLog d txid = do
   where
     readFromPending = do
         (_, pendingWrites) <- use bsPendingBlock
-        let deltas = map snd $ HashMap.toList pendingWrites
+        let deltas = concat $ HashMap.elems pendingWrites
         let ourDeltas = filter (\delta -> _deltaTxId delta == txid) deltas
-        return $! map (\x -> toTxLog (_deltaRowKey x) (_deltaData x)) ourDeltas
+        mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
     readFromDb = do
         bh <- gets _bsBlockHeight

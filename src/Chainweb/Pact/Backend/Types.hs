@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -40,6 +41,14 @@ module Chainweb.Pact.Backend.Types
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
+
+    , SQLiteRowDelta(..)
+    , SQLiteDeltaKey(..)
+    , SQLitePendingTableCreations
+    , SQLitePendingWrites
+    , SQLitePendingData
+    , emptySQLitePendingData
+
     , BlockState(..)
     , initBlockState
     , bsBlockHeight
@@ -89,12 +98,10 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Bits
+import Data.ByteString (ByteString)
 import Data.Hashable (Hashable)
-import Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
-import Data.HashSet.Strict as HashSet
-import Data.HashSet.Strict (HashSet)
-import Data.IORef (IORef)
+import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
@@ -154,13 +161,14 @@ data SQLiteRowDelta = SQLiteRowDelta
     , _deltaTxId :: {-# UNPACK #-} !TxId
     , _deltaRowKey :: !ByteString
     , _deltaData :: !ByteString
-    }
+    } deriving (Show, Generic)
 
 data SQLiteDeltaKey = SQLiteDeltaKey
     { _dkTable :: !ByteString
     , _dkRowKey :: !ByteString
     }
-  deriving (Generic, Hashable, Eq)
+  deriving (Show, Generic, Eq)
+  deriving anyclass Hashable
 
 type SQLitePendingTableCreations = HashSet ByteString
 type SQLitePendingWrites = HashMap SQLiteDeltaKey [SQLiteRowDelta]
@@ -183,8 +191,11 @@ data BlockState = BlockState
     }
     deriving Show
 
+emptySQLitePendingData :: SQLitePendingData
+emptySQLitePendingData = (mempty, mempty)
+
 initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 mempty
+initBlockState = BlockState 0 Nothing 0 mempty emptySQLitePendingData Nothing
 
 makeLenses ''BlockState
 
@@ -204,17 +215,17 @@ makeLenses ''BlockEnv
 
 newtype BlockHandler p a = BlockHandler
     { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
-    } deriving ( Functor
-               , Applicative
-               , Monad
-               , MonadState BlockState
-               , MonadThrow
-               , MonadCatch
-               , MonadMask
-               , MonadIO
-               , MonadReader (BlockDbEnv p)
-               , MonadFail
-               )
+    } deriving newtype ( Functor
+                       , Applicative
+                       , Monad
+                       , MonadState BlockState
+                       , MonadThrow
+                       , MonadCatch
+                       , MonadMask
+                       , MonadIO
+                       , MonadReader (BlockDbEnv p)
+                       , MonadFail
+                       )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 
@@ -252,7 +263,7 @@ data CheckpointEnv = CheckpointEnv
 makeLenses ''CheckpointEnv
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
-  deriving (Eq, Ord, Bits, Num)
+  deriving newtype (Eq, Ord, Bits, Num)
 
 data PactServiceEnv cas = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)

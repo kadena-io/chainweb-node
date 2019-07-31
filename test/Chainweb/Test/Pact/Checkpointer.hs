@@ -404,7 +404,7 @@ testRegress =
   assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0, M.empty)
-    toTup (BlockState txid _ blockVersion txRecord) =
+    toTup (BlockState txid _ blockVersion txRecord _ _) =
       (txid, blockVersion, txRecord)
 
 
@@ -435,7 +435,7 @@ commit pactdb = _commitTx pactdb
 readRowUnitTest :: Assertion
 readRowUnitTest = simpleBlockEnvInit runUnitTest
   where
-    writeRow' pactdb writeType conn i  =
+    writeRow' pactdb writeType conn i =
       _writeRow pactdb writeType (UserTables "user1") "key1"
       (ObjectMap $ M.fromList [("f", (PLiteral (LInteger i)))]) conn
     runUnitTest pactdb e schemaInit = do
