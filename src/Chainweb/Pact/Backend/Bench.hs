@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 module Chainweb.Pact.Backend.Bench
@@ -24,12 +25,24 @@ import Pact.PersistPactDb (DbEnv(..),pactdb,initDbEnv)
 import qualified Data.Map.Strict as M
 import qualified Pact.Types.SQLite as PSQL
 import qualified Pact.Persist.SQLite as PSQL
-
+import Chainweb.Pact.Backend.RelationalCheckpointer
+import Pact.Gas (freeGasEnv)
+import Data.Aeson (Value)
+import Data.Text (Text,pack)
+import qualified Pact.Types.Hash as H
+import Pact.Types.Server (CommandEnv(..))
+import Chainweb.Pact.TransactionExec (applyExec', buildExecParsedCode)
+import Data.Default
+import Pact.Types.SPV (noSPVSupport)
+import qualified Data.Text.IO as T
+import Chainweb.BlockHash (nullBlockHash)
+import Pact.ApiReq
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend"
   [ cpBench
   , pactSqliteBench
+  , coinCPBench
   ]
 
 cpBench :: C.Benchmark
@@ -121,3 +134,47 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
             commit db
             return j
           Just _ -> die "field not integer"
+
+
+
+coinCPBench :: C.Benchmark
+coinCPBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData ((_,c),_)) -> C.bgroup "checkpointer" (benches c)
+  where
+
+    setup = do
+      (f,deleter) <- newTempFile
+      !sqliteEnv <- openSQLiteConnection f chainwebPragmas
+      let nolog = newLogger neverLog ""
+      cpe@CheckpointEnv{..} <-
+        initRelationalCheckpointer initBlockState sqliteEnv nolog freeGasEnv
+      g <- restore _cpeCheckpointer Nothing
+      coinContract <- T.readFile "pact/coin-contract/coin.pact"
+      void $ runExec cpe g Nothing coinContract
+      ((ApiReq{..},_,_,_),_) <- mkApiReq "pact/genesis/testnet00/grants.yaml"
+      case (_ylCode) of
+        Nothing -> die "failed reading grants.yaml"
+        (Just c) -> do
+          void $ runExec cpe g _ylData (pack c)
+          save _cpeCheckpointer nullBlockHash
+          return $ NoopNFData ((sqliteEnv,cpe), deleter)
+
+    teardown (NoopNFData ((s,_), deleter)) = do
+      closeSQLiteConnection s
+      deleter
+
+    benches :: CheckpointEnv -> [C.Benchmark]
+    benches cpe =
+      [
+        benchTransfer cpe
+      ]
+
+
+benchTransfer :: CheckpointEnv -> C.Benchmark
+benchTransfer CheckpointEnv{..} = C.bench "transfer" $ C.nfIO $ return ()
+
+
+runExec :: CheckpointEnv -> PactDbEnv' -> Maybe Value -> Text -> IO PI.EvalResult
+runExec CheckpointEnv{..} (PactDbEnv' pactdbenv) eData eCode = do
+  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
+  execMsg <- buildExecParsedCode eData eCode
+  applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
