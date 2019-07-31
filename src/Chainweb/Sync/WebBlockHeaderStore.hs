@@ -87,6 +87,8 @@ import Data.TaskMap
 import P2P.Peer
 import P2P.TaskQueue
 
+import Utils.Logging.Trace
+
 -- -------------------------------------------------------------------------- --
 -- Servant backward compatibility
 
@@ -335,7 +337,12 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
     validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
     validateAndInsertPayload hdr p = do
-        outs <- pact hdr p
+        outs <- trace 
+            logfun
+            "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal.pact"
+            (_blockHash hdr)
+            (length (_payloadDataTransactions p))
+            $ pact hdr p
         casInsert (_webBlockPayloadStoreCas payloadStore) outs
 
     queryBlockHeaderTask ck@(ChainValue cid k)
