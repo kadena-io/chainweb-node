@@ -36,6 +36,7 @@ import Data.HashSet (HashSet)
 import Data.HashMap.Strict as HashMap
 import Data.HashMap.Strict (HashMap)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as Set
 import Data.Maybe
 import Data.Serialize (encode)
 import Data.String
@@ -270,27 +271,60 @@ doKeys
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
-    let tn = domainTableName d
     ks <- callDb "doKeys" $ \db ->
             qry_ db  ("SELECT DISTINCT rowkey FROM [" <> tn <> "];") [RText]
-    forM ks $ \row -> do
+    dbKeys <- forM ks $ \row -> do
         case row of
-            [SText (Utf8 k)] -> return $ fromString $ toS k
+            [SText (Utf8 k)] -> return $ toS k
             _ -> internalError "doKeys: The impossible happened."
+
+    pb <- use bsPendingBlock
+    mptx <- use bsPendingTx
+
+    let allKeys = Set.toList $
+                  Set.fromList $
+                  map fromString $
+                  dbKeys ++ collect pb ++ maybe [] collect mptx
+
+    return allKeys
+
+  where
+    tn = domainTableName d
+    tnS = toS tn
+    collect (_, m) =
+        let flt k _ = _dkTable k == tnS
+            deltas = concat $ HashMap.elems $ HashMap.filterWithKey flt m
+        in filter (\d -> _deltaTxId d > _tid) deltas
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
 doTxIds :: TableName -> TxId -> BlockHandler SQLiteEnv [TxId]
-doTxIds (TableName tn) (TxId tid) = do
+doTxIds (TableName tn) _tid@(TxId tid) = do
     rows <- callDb "doTxIds" $ \db ->
       qry db stmt
         [SInt (fromIntegral tid)]
         [RInt]
-    forM rows $ \case
+    dbOut <- forM rows $ \case
         [SInt tid'] -> return $ TxId (fromIntegral tid')
         _ -> internalError "doTxIds: the impossible happened"
+
+    -- also collect from pending non-committed data
+    pb <- use bsPendingBlock
+    mptx <- use bsPendingTx
+
+    -- uniquify txids before returning
+    return $! Set.toList
+           $! Set.fromList
+           $ dbOut ++ collect pb ++ maybe [] collect mptx
+
   where
-    stmt = "SELECT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
+    stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
+
+    tnS = toS tn
+    collect (_, m) =
+        let flt k _ = _dkTable k == tnS
+            deltas = concat $ HashMap.elems $ HashMap.filterWithKey flt m
+        in filter (\d -> _deltaTxId d > _tid) deltas
 {-# INLINE doTxIds #-}
 
 record
@@ -305,14 +339,25 @@ record tt d k v =
   where
     txlogs = [TxLog (asString d) (asString k) (toJSON v)]
 
+modifyPendingData :: (SQLitePendingData -> SQLitePendingData)
+              -> BlockHandler SQLiteEnv ()
+modifyPendingData f = do
+    m <- use bsPendingTx
+    case m of
+      Just d -> bsPendingTx .= Just (f d)
+      Nothing -> bsPendingBlock %= f
+
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn mn = do
-    bh <- gets _bsBlockHeight
-    createUserTable tn bh
+    -- TODO: perform createUserTable at save
+    -- bh <- gets _bsBlockHeight
+    -- createUserTable tn bh
+    modifyPendingData $ \(c, w) -> (HashSet.insert (toS tn) c, w)
     bsTxRecord %= M.insertWith (flip (++)) "SYS:usertables" txlogs
   where
+    stn = asString tn
     uti = UserTableInfo mn
-    txlogs = [TxLog "SYS:usertables" (asString tn) (toJSON uti)]
+    txlogs = [TxLog "SYS:usertables" stn (toJSON uti)]
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
