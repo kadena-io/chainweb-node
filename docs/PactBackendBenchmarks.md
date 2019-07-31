@@ -187,3 +187,13 @@ time                 28.15 ms   (27.68 ms .. 29.00 ms)
 mean                 27.93 ms   (27.76 ms .. 28.28 ms)
 std dev              523.9 μs   (255.0 μs .. 928.7 μs)
 ```
+
+Module caching is important!
+
+```
+benchmarking pact-backend/coin-cp/transfer
+time                 97.43 μs   (97.25 μs .. 97.68 μs)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 97.42 μs   (97.19 μs .. 97.71 μs)
+std dev              917.2 ns   (667.6 ns .. 1.483 μs)
+```

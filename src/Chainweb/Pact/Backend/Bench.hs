@@ -31,13 +31,14 @@ import Data.Aeson (Value)
 import Data.Text (Text,pack)
 import qualified Pact.Types.Hash as H
 import Pact.Types.Server (CommandEnv(..))
-import Chainweb.Pact.TransactionExec (applyExec', buildExecParsedCode,initCapabilities,magic_COINBASE)
+import Chainweb.Pact.TransactionExec (applyExec', buildExecParsedCode,initCapabilities,magic_COINBASE,initModules)
 import Data.Default
 import Pact.Types.SPV (noSPVSupport)
 import qualified Data.Text.IO as T
 import Chainweb.BlockHash (nullBlockHash)
 import Pact.ApiReq
 import Pact.Types.Runtime (Capability)
+import Chainweb.Pact.Types (ModuleCache)
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend"
@@ -139,7 +140,7 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
 
 
 coinCPBench :: C.Benchmark
-coinCPBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData ((_,c,p),_)) -> C.bgroup "coin-cp" (benches c p)
+coinCPBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData ((_,c,p,ms),_)) -> C.bgroup "coin-cp" (benches c p ms)
   where
 
     setup = do
@@ -154,45 +155,45 @@ coinCPBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData ((_,c,p),_)) -> C
       g <- restore _cpeCheckpointer Nothing
 
       coinSig <- T.readFile "pact/coin-contract/coin-sig.pact"
-      void $ runExec cpe g [] Nothing coinSig
+      void $ runExec cpe g [] mempty Nothing coinSig
 
       coinContract <- T.readFile "pact/coin-contract/coin.pact"
-      void $ runExec cpe g [] Nothing coinContract
+      PI.EvalResult{..} <- runExec cpe g [] mempty Nothing coinContract
 
       ((ApiReq{..},_,_,_),_) <- mkApiReq "pact/genesis/testnet00/grants.yaml"
       case (_ylCode) of
         Nothing -> die "failed reading grants.yaml"
         (Just c) -> do
-          void $ runExec cpe g [magic_COINBASE] _ylData (pack c)
+          void $ runExec cpe g [magic_COINBASE] mempty _ylData (pack c)
 
           save _cpeCheckpointer nullBlockHash
 
           sqlenv <- restore _cpeCheckpointer $ Just (1,nullBlockHash)
 
-          return $ NoopNFData ((sqliteEnv,cpe,sqlenv), deleter)
+          return $ NoopNFData ((sqliteEnv,cpe,sqlenv,_erLoadedModules), deleter)
 
-    teardown (NoopNFData ((s,_,_), deleter)) = do
+    teardown (NoopNFData ((s,_,_,_), deleter)) = do
 
       closeSQLiteConnection s
       deleter
 
-    benches :: CheckpointEnv -> PactDbEnv' -> [C.Benchmark]
-    benches cpe pde =
+    benches :: CheckpointEnv -> PactDbEnv' -> ModuleCache -> [C.Benchmark]
+    benches cpe pde mc =
       [
-        benchTransfer cpe pde
+        benchTransfer cpe pde mc
       ]
 
 
-benchTransfer :: CheckpointEnv -> PactDbEnv' -> C.Benchmark
-benchTransfer cpe pde = C.bench "transfer" $ C.nfIO $ do
-  PI.EvalResult{..} <- runExec cpe pde [] Nothing "(coin.account-balance 'sender01)"
+benchTransfer :: CheckpointEnv -> PactDbEnv' -> ModuleCache -> C.Benchmark
+benchTransfer cpe pde mc = C.bench "transfer" $ C.nfIO $ do
+  PI.EvalResult{..} <- runExec cpe pde [] mc Nothing "(coin.account-balance 'sender01)"
   return $ PI._erOutput
 
 
 
 
-runExec :: CheckpointEnv -> PactDbEnv' -> [Capability] -> Maybe Value -> Text -> IO PI.EvalResult
-runExec CheckpointEnv{..} (PactDbEnv' pactdbenv) caps eData eCode = do
+runExec :: CheckpointEnv -> PactDbEnv' -> [Capability] -> ModuleCache -> Maybe Value -> Text -> IO PI.EvalResult
+runExec CheckpointEnv{..} (PactDbEnv' pactdbenv) caps mc eData eCode = do
   let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
   execMsg <- buildExecParsedCode eData eCode
-  applyExec' cmdenv (initCapabilities caps) execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
+  applyExec' cmdenv (initModules mc $ initCapabilities caps) execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))

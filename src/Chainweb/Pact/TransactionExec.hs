@@ -43,6 +43,7 @@ module Chainweb.Pact.TransactionExec
 , magic_COINBASE
 , magic_FUND_TX
 , initCapabilities
+, initModules
 ) where
 
 import Control.Lens hiding ((.=))
@@ -128,7 +129,7 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
               $ set cePublicData pd' buyGasEnv
 
         -- initialize refstate with cached module definitions
-        let st0 = set (evalRefs . rsLoadedModules) mcache' def
+        let st0 = initModules mcache' def
 
         cmdResultE <- catchesPactError $! runPayload payloadEnv st0 cmd buyGasLogs
 
@@ -376,7 +377,7 @@ buyGas
     -> IO (Either Text (T3 GasId [TxLog Value] ModuleCache))
 buyGas env cmd (MinerInfo minerId minerKeys) supply mcache = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
-        initState = set (evalRefs . rsLoadedModules) mcache
+        initState = initModules mcache
           $ initCapabilities [magic_FUND_TX]
 
         chash = toUntypedHash (_cmdHash cmd)
@@ -410,7 +411,7 @@ redeemGas
 redeemGas env cmd cmdResult gid prevLogs mcache = do
     let fee       = gasFeeOf (_crGas cmdResult) (gasPriceOf cmd)
         rk        = cmdToRequestKey cmd
-        initState = set (evalRefs . rsLoadedModules) mcache
+        initState = initModules mcache
           $ initCapabilities [magic_FUND_TX]
 
     applyContinuation env initState rk (redeemGasCmd fee gid)
@@ -459,6 +460,9 @@ mkCoinbaseCmd minerId minerKeys reward =
 initCapabilities :: [Capability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capGranted) cs def
 {-# INLINABLE initCapabilities #-}
+
+initModules :: ModuleCache -> EvalState -> EvalState
+initModules mcache = set (evalRefs . rsLoadedModules) mcache
 
 mkMagicCap :: Text -> Capability
 mkMagicCap c = UserCapability (ModuleName "coin" Nothing) (DefName c) []
