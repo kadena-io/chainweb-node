@@ -19,6 +19,9 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , handlePossibleRewind
 , blockHistoryInsert
 , initSchema
+, clearPendingTxState
+, backendWriteUpdate
+, createUserTable
 ) where
 
 import Control.Lens
@@ -251,7 +254,6 @@ writeUser wt d k row = gets _bsTxId >>= go
 
       where
         upd oldrow = do
-            _ <- fail "remove this line when writes are handled at save time"
             let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
             recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row'
             return row'
@@ -347,7 +349,6 @@ recordTxLog
 recordTxLog tt d k v = do
     -- are we in a tx?
     mptx <- use bsPendingTx
-    _ <- fail "TODO: remove when we migrate txlogs on commit and save"
     case mptx of
       Nothing -> modify' (over bsPendingBlock upd)
       (Just _) -> modify' (over (bsPendingTx . _Just) upd)
@@ -370,8 +371,6 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     -- TODO: perform createUserTable at save
     -- bh <- gets _bsBlockHeight
     void $ fail "FIXME: remove when we createUserTables at save"
-    createUserTable tn 0
-    -- createUserTable tn bh
     modifyPendingData $ \(c, w, l) ->
         let c' = HashSet.insert (T.encodeUtf8 ttxt) c
             l' = M.insertWith (flip (++)) (TableName txlogKey) txlogs l
@@ -391,26 +390,35 @@ doCommit :: BlockHandler SQLiteEnv [TxLog Value]
 doCommit = use bsMode >>= \mm -> case mm of
     Nothing -> doRollback >> internalError "doCommit: Not in transaction"
     Just m -> do
-        txrs <- use bsTxRecord
-        if m == Transactional
+        txrs <- if m == Transactional
           then do
               modify' (over bsTxId succ)
               -- merge pending tx into block data
               pending <- use bsPendingTx
               modify' (over bsPendingBlock $ merge pending)
+              (_, _, blockLogs) <- use bsPendingBlock
+              -- clear out txlog entries
+              modify' (over bsPendingBlock $ \(a, b, _) -> (a, b, mempty))
               bsPendingTx .= Nothing
               resetTemp
-          else doRollback
+              return blockLogs
+          else doRollback >> return mempty
         return $! concat txrs
   where
     merge Nothing a = a
-    merge (Just (creationsA, writesA, logsA)) (creationsB, writesB, logsB) =
+    merge (Just (creationsA, writesA, _)) (creationsB, writesB, logsB) =
         let creations = HashSet.union creationsA creationsB
             writes = HashMap.unionWith (flip (++)) writesA writesB
-            logs = M.unionWith (flip (++)) logsA logsB
+            logs = logsB
         in (creations, writes, logs)
 
 {-# INLINE doCommit #-}
+
+clearPendingTxState :: BlockHandler SQLiteEnv ()
+clearPendingTxState = do
+    bsPendingBlock .= emptySQLitePendingData
+    bsPendingTx .= Nothing
+    resetTemp
 
 doBegin :: ExecutionMode -> BlockHandler SQLiteEnv (Maybe TxId)
 doBegin m = do
@@ -427,9 +435,8 @@ doBegin m = do
         Local -> pure Nothing
 {-# INLINE doBegin #-}
 
--- TODO: remove / fold this
 resetTemp :: BlockHandler SQLiteEnv ()
-resetTemp = bsMode  .= Nothing >> bsTxRecord .= M.empty
+resetTemp = bsMode .= Nothing
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
@@ -512,15 +519,14 @@ createTableMutationTable =
                  \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
         exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON VersionedTableMutation(blockheight);"
 
-createUserTable :: TableName -> BlockHeight -> BlockHandler SQLiteEnv ()
-createUserTable name bh =
+createUserTable :: Utf8 -> BlockHeight -> BlockHandler SQLiteEnv ()
+createUserTable tablename bh =
     callDb "createUserTable" $ \db -> do
         createVersionedTable tablename db
         exec' db insertstmt insertargs
   where
     insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
     insertargs =  [SText tablename, SInt (fromIntegral bh)]
-    tablename = Utf8 (toS $ asString name)
 
 createVersionedTable :: Utf8 -> Database -> IO ()
 createVersionedTable tablename db = do

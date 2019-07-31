@@ -22,8 +22,13 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
+import Data.ByteString (ByteString)
+import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HashMap
 import Data.Serialize hiding (get)
 import qualified Data.Text as T
+
+import Database.SQLite3.Direct (Utf8(..))
 
 import Prelude hiding (log)
 
@@ -83,12 +88,13 @@ type Db = MVar (BlockEnv SQLiteEnv)
 
 
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore dbenv (Just (bh, hash)) = do
-    runBlockEnv dbenv $ do
-        void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
-        beginSavepoint Block
+doRestore dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+    clearPendingTxState
+    void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
+    beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
 doRestore dbenv Nothing = runBlockEnv dbenv $ do
+    clearPendingTxState
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
         exec_ db "DELETE FROM BlockHistory;"
@@ -108,13 +114,38 @@ doRestore dbenv Nothing = runBlockEnv dbenv $ do
 
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
+    height <- gets _bsBlockHeight
+    runPending height
     commitSavepoint Block
     nextTxId <- gets _bsTxId
-    height <- gets _bsBlockHeight
     blockHistoryInsert height hash nextTxId
+    clearPendingTxState
+  where
+    runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
+    runPending bh = do
+        (newTables, writes, _) <- use bsPendingBlock
+        createNewTables bh $ toList newTables
+        runWrites bh $ concat $ HashMap.elems writes
+
+    createNewTables
+        :: BlockHeight
+        -> [ByteString]
+        -> BlockHandler SQLiteEnv ()
+    createNewTables bh = mapM_ (\tn -> createUserTable (Utf8 tn) bh)
+
+    -- TODO: make this a big batch write
+    runWrites :: BlockHeight -> [SQLiteRowDelta] -> BlockHandler SQLiteEnv ()
+    runWrites bh = mapM_ (writeOne bh)
+
+    writeOne :: BlockHeight -> SQLiteRowDelta -> BlockHandler SQLiteEnv ()
+    writeOne bh (SQLiteRowDelta tn txid rowkey rowdata) =
+        callDb "save" $
+            backendWriteUpdate (Utf8 rowkey) (Utf8 tn) bh txid (Utf8 rowdata)
 
 doDiscard :: Db -> IO ()
-doDiscard dbenv = runBlockEnv dbenv $ rollbackSavepoint Block
+doDiscard dbenv = runBlockEnv dbenv $ do
+    clearPendingTxState
+    rollbackSavepoint Block
 
 doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =

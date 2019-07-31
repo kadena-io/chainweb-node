@@ -52,7 +52,6 @@ module Chainweb.Pact.Backend.Types
     , BlockState(..)
     , initBlockState
     , bsBlockHeight
-    , bsTxRecord
     , bsMode
     , bsTxId
     , bsPendingBlock
@@ -187,7 +186,6 @@ data BlockState = BlockState
     { _bsTxId :: !TxId
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsBlockHeight :: !BlockHeight
-    , _bsTxRecord :: !(Map TableName [TxLog Value])
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     }
@@ -197,7 +195,7 @@ emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = (mempty, mempty, mempty)
 
 initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 mempty emptySQLitePendingData Nothing
+initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
 
 makeLenses ''BlockState
 
