@@ -420,16 +420,15 @@ createTableMutationTable =
 createUserTable :: TableName -> BlockHeight -> BlockHandler SQLiteEnv ()
 createUserTable name bh =
     callDb "createUserTable" $ \db -> do
-        createVersionedTable tablename indexname db
+        createVersionedTable tablename db
         exec' db insertstmt insertargs
   where
     insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
     insertargs =  [SText tablename, SInt (fromIntegral bh)]
     tablename = Utf8 (toS $ asString name)
-    indexname = Utf8 (toS $ asString name <> "_bh")
 
-createVersionedTable :: Utf8 -> Utf8 -> Database -> IO ()
-createVersionedTable tablename indexname db = do
+createVersionedTable :: Utf8 -> Database -> IO ()
+createVersionedTable tablename db = do
     exec_ db createtablestmt
     exec_ db indexcreationstmt
   where
@@ -442,12 +441,12 @@ createVersionedTable tablename indexname db = do
              \, rowdata BLOB NOT NULL\
              \, UNIQUE (blockheight, rowkey, txid));"
     indexcreationstmt =
-        mconcat
-            ["CREATE INDEX IF NOT EXISTS ["
-            , indexname
-            , "] ON ["
-            , tablename
-            , "](rowkey, txid);"]
+       mconcat
+           ["CREATE INDEX IF NOT EXISTS ["
+           , tablename
+           , "_ix] ON ["
+           , tablename
+           , "](rowkey, blockheight, txid);"]
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
@@ -579,4 +578,4 @@ initSchema = withSavepoint DbTransaction $ do
   where
     create tablename = do
         log "DDL" $ "initSchema: "  ++ toS tablename
-        callDb "initSchema" $ createVersionedTable tablename (tablename <> "_bh")
+        callDb "initSchema" $ createVersionedTable tablename

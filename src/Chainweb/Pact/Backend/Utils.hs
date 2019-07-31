@@ -206,14 +206,14 @@ instance StringConv String Utf8 where
 instance StringConv Utf8 String where
   strConv l (Utf8 bytestring) = strConv l bytestring
 
-fastNoJournalPragmas :: [Pragma]
-fastNoJournalPragmas = [
-  "synchronous = NORMAL",
-  "journal_mode = WAL",
-  "locking_mode = EXCLUSIVE",
-  "temp_store = MEMORY",
-  "auto_vacuum = FULL",
-  "page_size = 8192"
+chainwebPragmas :: [Pragma]
+chainwebPragmas =
+  [ "synchronous = OFF" -- was NORMAL
+  , "journal_mode = MEMORY" -- was WAL
+  , "locking_mode = EXCLUSIVE"
+  , "temp_store = MEMORY"
+  -- , "auto_vacuum = FULL"
+  -- , "page_size = 8192"
   ]
 
 

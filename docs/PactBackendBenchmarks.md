@@ -62,6 +62,24 @@ variance introduced by outliers: 98% (severely inflated)
 
 # Phase two: comparing to Pact backends
 
+## Pact Pragmas
+
+```
+fastNoJournalPragmas :: [Pragma]
+fastNoJournalPragmas = [
+  "synchronous = OFF",
+  "journal_mode = MEMORY",
+  "locking_mode = EXCLUSIVE",
+  "temp_store = MEMORY"
+  ]
+```
+
+As shown below, these outperform the current Chainweb pragmas.
+
+`synchronous = OFF` is a big one I would imagine vs the Chainweb pragmas; I tried
+`journal_mode = WAL` a while ago and didn't see a big difference so left that alone.
+`auto_vacuum = FULL` and `page_size = 8192`, dunno.
+
 
 ## Experiment 5: pact persist backend, pact pragmas
 
@@ -126,3 +144,31 @@ variance introduced by outliers: 78% (severely inflated)
 ## Notes on Phase 2
 
 Would like to see if open_v2 hurts or helps pact but can't crack open `initSQLite` ...
+
+# Index problems and nested savepoints
+
+## Fixing index on versioned tables
+
+HUGE improvement: index on (rowkey, blockheight, txid), pact pragmas
+
+```
+benchmarking pact-backend/checkpointer/usertable
+time                 80.96 μs   (80.46 μs .. 81.97 μs)
+                     0.999 R²   (0.997 R² .. 1.000 R²)
+mean                 81.36 μs   (80.50 μs .. 82.52 μs)
+std dev              3.181 μs   (2.226 μs .. 4.413 μs)
+variance introduced by outliers: 41% (moderately inflated)
+```
+
+## Nested savepoints
+
+Bracketing the benchmark in an outer savepoint actually IMPROVES performance:
+
+```
+benchmarking pact-backend/checkpointer/usertable
+time                 68.97 μs   (68.39 μs .. 69.49 μs)
+                     0.999 R²   (0.998 R² .. 1.000 R²)
+mean                 70.07 μs   (69.10 μs .. 71.65 μs)
+std dev              4.127 μs   (1.893 μs .. 6.809 μs)
+variance introduced by outliers: 61% (severely inflated)
+```

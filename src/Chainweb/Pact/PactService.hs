@@ -169,7 +169,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
 
     logFunctionText chainwebLogger Info $ "opening sqlitedb named " <> (T.pack sqlitefile)
 
-    withSQLiteConnection sqlitefile fastNoJournalPragmas False $ \sqlenv -> do
+    withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
 
       checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
 

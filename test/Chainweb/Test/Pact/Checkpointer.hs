@@ -412,7 +412,7 @@ simpleBlockEnvInit ::
      (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
      -> IO a
 simpleBlockEnvInit f =
-    withTempSQLiteConnection fastNoJournalPragmas $ \sqlenv ->
+    withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
            f chainwebPactDb
             (BlockEnv
                 (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment"))
