@@ -170,9 +170,11 @@ data SQLiteDeltaKey = SQLiteDeltaKey
   deriving (Show, Generic, Eq)
   deriving anyclass Hashable
 
+-- todo: try difference list here
+type TxLogMap = Map TableName [TxLog Value]
 type SQLitePendingTableCreations = HashSet ByteString
 type SQLitePendingWrites = HashMap SQLiteDeltaKey [SQLiteRowDelta]
-type SQLitePendingData = (SQLitePendingTableCreations, SQLitePendingWrites)
+type SQLitePendingData = (SQLitePendingTableCreations, SQLitePendingWrites, TxLogMap)
 
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
@@ -192,7 +194,7 @@ data BlockState = BlockState
     deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = (mempty, mempty)
+emptySQLitePendingData = (mempty, mempty, mempty)
 
 initBlockState :: BlockState
 initBlockState = BlockState 0 Nothing 0 mempty emptySQLitePendingData Nothing

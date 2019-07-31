@@ -116,7 +116,7 @@ doReadRow d k =
     lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
     lookupWithKey key = do
         pds <- getPendingData
-        let lookPD = foldl1 (<|>) $ map (lookupInPendingData key) pds
+        let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
         let lookDB = lookupInDb key
         runMaybeT (lookPD <|> lookDB)
 
@@ -125,7 +125,7 @@ doReadRow d k =
         => Utf8
         -> SQLitePendingData
         -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInPendingData (Utf8 rowkey) (_, m) = do
+    lookupInPendingData (Utf8 rowkey) (_, m, _) = do
         let deltaKey = SQLiteDeltaKey tableNameBS rowkey
         ddata <- map _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey m)
         if null ddata
@@ -148,18 +148,19 @@ doReadRow d k =
 
 writeSys
     :: (AsString k, ToJSON v)
-    => WriteType
-    -> Domain k v
+    => Domain k v
     -> k
     -> v
     -> BlockHandler SQLiteEnv ()
-writeSys wt d k v = do
-    bh <- gets _bsBlockHeight
-    txid <- gets _bsTxId
-    callDb "writeSys" (write (getKeyString k) bh txid)
-    record (toTableName $ domainTableName d) d k v
+writeSys d k v = gets _bsTxId >>= go
   where
+    go txid = do
+        recordPendingUpdate keyStr tableName txid v
+        recordTxLog (toTableName tableName) d k v
+
+    keyStr = getKeyString k
     toTableName (Utf8 str) = TableName $ toS str
+    tableName = domainTableName d
 
     getKeyString = case d of
         KeySets -> convKeySetName
@@ -168,49 +169,35 @@ writeSys wt d k v = do
         Pacts -> convPactId
         UserTables _ -> error "impossible"
 
-    write key bh txid db = f key (domainTableName d) bh txid v db
-      where
-        f = case wt of
-            Insert -> backendWriteInsert
-            Update -> backendWriteUpdate
-            Write -> backendWriteWrite
-
-backendWriteInsert
+recordPendingUpdate
     :: ToJSON v
     => Utf8
     -> Utf8
-    -> BlockHeight
     -> TxId
     -> v
-    -> Database
-    -> IO ()
-backendWriteInsert key tn bh txid v db = do
-    exec' db q [ SText key
-               , SInt (fromIntegral bh)
-               , SInt (fromIntegral txid)
-               , SBlob (toStrict (Data.Aeson.encode v))]
-    markTableMutation tn bh db
+    -> BlockHandler SQLiteEnv ()
+recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
-    q = mconcat [ "INSERT INTO ["
-                , tn
-                , "] ('rowkey','blockheight','txid','rowdata') \
-                  \ VALUES (?,?,?,?);"
-                ]
+    !vs = toStrict (Data.Aeson.encode v)
+    delta = SQLiteRowDelta tn txid key vs
+    deltaKey = SQLiteDeltaKey tn key
+
+    modf (a, m, l) = (a, upd m, l)
+    upd = HashMap.insertWith (flip (++)) deltaKey [delta]
 
 backendWriteUpdate
-    :: ToJSON v
-    => Utf8
+    :: Utf8
     -> Utf8
     -> BlockHeight
     -> TxId
-    -> v
+    -> Utf8
     -> Database
     -> IO ()
-backendWriteUpdate key tn bh txid v db = do
+backendWriteUpdate key tn bh txid (Utf8 v) db = do
     exec' db q [ SText key
                , SInt (fromIntegral bh)
                , SInt (fromIntegral txid)
-               , SBlob (toStrict (Data.Aeson.encode v))
+               , SBlob v
                ]
     markTableMutation tn bh db
   where
@@ -220,73 +207,58 @@ backendWriteUpdate key tn bh txid v db = do
       , "](rowkey,blockheight,txid,rowdata) "
       , "VALUES(?,?,?,?)"]
 
-backendWriteWrite
-    :: ToJSON v
-    => Utf8
-    -> Utf8
-    -> BlockHeight
-    -> TxId
-    -> v
-    -> Database
-    -> IO ()
-backendWriteWrite key tn bh txid v db = do
-    exec' db q [ SText key
-               , SInt (fromIntegral bh)
-               , SInt (fromIntegral txid)
-               , SBlob (toStrict (Data.Aeson.encode v))
-               ]
-    markTableMutation tn bh db
-  where
-    q = mconcat [ "INSERT OR REPLACE INTO ["
-                , tn
-                , "] ('rowkey','blockheight','txid','rowdata') \
-                  \ VALUES (?,?,?,?) ;"
-                ]
-
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
 markTableMutation tablename blockheight db = do
     exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
   where
     mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
 
+checkInsertIsOK
+    :: WriteType
+    -> Domain RowKey (ObjectMap PactValue)
+    -> RowKey
+    -> BlockHandler SQLiteEnv (Maybe (ObjectMap PactValue))
+checkInsertIsOK wt d k = do
+    olds <- doReadRow d k
+    case (olds, wt) of
+        (Nothing, Insert) -> return Nothing
+        (Just _, Insert) -> err "Insert: row found for key "
+        (Nothing, Write) -> return Nothing
+        (Just old, Write) -> return $ Just old
+        (Just old, Update) -> return $ Just old
+        (Nothing, Update) -> err "Update: no row found for key "
+  where
+    err msg = internalError $ "checkInsertIsOK: " <> msg <> asString k
 
 writeUser
-  :: WriteType
+    :: WriteType
     -> Domain RowKey (ObjectMap PactValue)
     -> RowKey
     -> ObjectMap PactValue
     -> BlockHandler SQLiteEnv ()
-writeUser wt d k row = do
-    txid <- gets _bsTxId
-    bh <- gets _bsBlockHeight
-    userWrite k bh txid
+writeUser wt d k row = gets _bsTxId >>= go
   where
     toTableName (Utf8 str) = TableName $ toS str
+    tn = domainTableName d
+    ttn = toTableName tn
 
-    userWrite key bh txid = do
-        olds <- doReadRow d key
-        case (olds, wt) of
-            (Nothing, Insert) -> ins
-            (Just _, Insert) -> err "Insert: row found for key "
-            (Nothing, Write) -> ins
-            (Just old, Write) -> upd old
-            (Just old, Update) -> upd old
-            (Nothing, Update) -> err "Update: no row found for key "
+    go txid = do
+        m <- checkInsertIsOK wt d k
+        row' <- case m of
+                    Nothing -> ins
+                    (Just old) -> upd old
+        recordTxLog ttn d k row'
+
       where
-        err msg = internalError $
-          "writeUser: " <> msg <>
-          asString key
         upd oldrow = do
+            _ <- fail "remove this line when writes are handled at save time"
             let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
-                tn = domainTableName d
-            callDb "writeUser"
-              $ backendWriteUpdate (Utf8 $! toS $ asString key) tn bh txid row'
-            record (toTableName tn) d key row'
+            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row'
+            return row'
+
         ins = do
-            let tn = domainTableName d
-            callDb "writeUser"
-              $ backendWriteInsert (Utf8 $! toS $ asString key) tn bh txid row
-            record (toTableName tn) d key row
+            recordPendingUpdate (Utf8 $! toS $ asString k) tn txid row
+            return row
 
 
 doWriteRow
@@ -298,7 +270,7 @@ doWriteRow
     -> BlockHandler SQLiteEnv ()
 doWriteRow wt d k v = case d of
     (UserTables _) -> writeUser wt d k v
-    _ -> writeSys wt d k v
+    _ -> writeSys d k v
 
 doKeys
     :: (IsString k, AsString k)
@@ -327,7 +299,7 @@ doKeys d = do
   where
     tn = domainTableName d
     tnS = toS tn
-    collect (_, m) =
+    collect (_, m, _) =
         let flt k _ = _dkTable k == tnS
         in concat $ HashMap.elems $ HashMap.filterWithKey flt m
 {-# INLINE doKeys #-}
@@ -356,28 +328,37 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 
     tnS = toS tn
-    collect (_, m) = let flt k _ = _dkTable k == tnS
-                         txids = map _deltaTxId $
-                                 concat $
-                                 HashMap.elems $
-                                 HashMap.filterWithKey flt m
-                     in filter (> _tid) txids
+    collect (_, m, _) =
+        let flt k _ = _dkTable k == tnS
+            txids = map _deltaTxId $
+                    concat $
+                    HashMap.elems $
+                    HashMap.filterWithKey flt m
+        in filter (> _tid) txids
 {-# INLINE doTxIds #-}
 
-record
+recordTxLog
     :: (AsString k, ToJSON v)
     => TableName
     -> Domain k v
     -> k
     -> v
     -> BlockHandler SQLiteEnv ()
-record tt d k v =
-    bsTxRecord %= M.insertWith (flip (++)) tt txlogs
+recordTxLog tt d k v = do
+    -- are we in a tx?
+    mptx <- use bsPendingTx
+    _ <- fail "TODO: remove when we migrate txlogs on commit and save"
+    case mptx of
+      Nothing -> modify' (over bsPendingBlock upd)
+      (Just _) -> modify' (over (bsPendingTx . _Just) upd)
+
   where
+    upd (a, b, m) = (a, b, M.insertWith (flip (++)) tt txlogs m)
     txlogs = [TxLog (asString d) (asString k) (toJSON v)]
 
-modifyPendingData :: (SQLitePendingData -> SQLitePendingData)
-              -> BlockHandler SQLiteEnv ()
+modifyPendingData
+    :: (SQLitePendingData -> SQLitePendingData)
+    -> BlockHandler SQLiteEnv ()
 modifyPendingData f = do
     m <- use bsPendingTx
     case m of
@@ -388,15 +369,19 @@ doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn = do
     -- TODO: perform createUserTable at save
     -- bh <- gets _bsBlockHeight
-    void $ fail "FIXME"
+    void $ fail "FIXME: remove when we createUserTables at save"
     createUserTable tn 0
     -- createUserTable tn bh
-    modifyPendingData $ \(c, w) -> (HashSet.insert (T.encodeUtf8 ttxt) c, w)
-    bsTxRecord %= M.insertWith (flip (++)) "SYS:usertables" txlogs
+    modifyPendingData $ \(c, w, l) ->
+        let c' = HashSet.insert (T.encodeUtf8 ttxt) c
+            l' = M.insertWith (flip (++)) (TableName txlogKey) txlogs l
+        in (c', w, l')
+
   where
+    txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
-    txlogs = [TxLog "SYS:usertables" stn (toJSON uti)]
+    txlogs = [TxLog txlogKey stn (toJSON uti)]
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
@@ -419,10 +404,12 @@ doCommit = use bsMode >>= \mm -> case mm of
         return $! concat txrs
   where
     merge Nothing a = a
-    merge (Just (creationsA, writesA)) (creationsB, writesB) =
+    merge (Just (creationsA, writesA, logsA)) (creationsB, writesB, logsB) =
         let creations = HashSet.union creationsA creationsB
             writes = HashMap.unionWith (flip (++)) writesA writesB
-        in (creations, writes)
+            logs = M.unionWith (flip (++)) logsA logsB
+        in (creations, writes, logs)
+
 {-# INLINE doCommit #-}
 
 doBegin :: ExecutionMode -> BlockHandler SQLiteEnv (Maybe TxId)
@@ -434,12 +421,13 @@ doBegin m = do
         Nothing -> return ()
     resetTemp
     bsMode .= Just m
-    bsPendingTx .= Just (mempty, mempty)
+    bsPendingTx .= Just (mempty, mempty, mempty)
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
 {-# INLINE doBegin #-}
 
+-- TODO: remove / fold this
 resetTemp :: BlockHandler SQLiteEnv ()
 resetTemp = bsMode  .= Nothing >> bsTxRecord .= M.empty
 
@@ -452,8 +440,10 @@ doGetTxLog d txid = do
 
   where
     readFromPending = do
-        (_, pendingWrites) <- use bsPendingBlock
-        let deltas = concat $ HashMap.elems pendingWrites
+        pb <- use bsPendingBlock
+        ptx <- maybe [] (:[]) <$> use bsPendingTx
+        let pendingWrites = map (\(_, a, _) -> a) (ptx ++ [pb])
+        let deltas = concat $ concatMap HashMap.elems pendingWrites
         let ourDeltas = filter (\delta -> _deltaTxId delta == txid) deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
