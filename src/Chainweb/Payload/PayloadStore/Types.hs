@@ -61,7 +61,7 @@ import Control.Lens
 import Control.Monad.Trans.Maybe
 
 import Data.Hashable
-import qualified Data.Sequence as S
+import qualified Data.Vector as V
 
 import GHC.Generics
 
@@ -239,7 +239,7 @@ instance PayloadCas cas => IsCas (PayloadDb cas) where
             (_payloadCacheBlockOutputs $ _payloadCache db)
             outsHash
         return $ PayloadWithOutputs
-            { _payloadWithOutputsTransactions = S.zip (_blockTransactions txs) (_blockOutputs outs)
+            { _payloadWithOutputsTransactions = V.zip (_blockTransactions txs) (_blockOutputs outs)
             , _payloadWithOutputsMiner = _blockMinerData txs
             , _payloadWithOutputsCoinbase = _blockCoinbaseOutput outs
             , _payloadWithOutputsPayloadHash = k
