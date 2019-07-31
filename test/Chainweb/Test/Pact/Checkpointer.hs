@@ -56,7 +56,12 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 
 tests :: ScheduledTest
-tests = testGroupSch "Checkpointer" [testInMemory, testKeyset, testRelational, testCase "PactDb Regression" testRegress]
+tests = testGroupSch "Checkpointer"
+    [testInMemory
+    , testKeyset
+    , testRelational
+    , testCase "PactDb Regression" testRegress
+    , testCase "readRow unitTest" readRowUnitTest]
 
 testInMemory :: TestTree
 testInMemory = checkpointerTest "In-memory Checkpointer" InMem
@@ -402,13 +407,22 @@ testRegress =
     toTup (BlockState txid _ blockVersion txRecord) =
       (txid, blockVersion, txRecord)
 
+
+simpleBlockEnvInit ::
+     (PactDb (BlockEnv SQLiteEnv) -> BlockEnv SQLiteEnv -> (MVar (BlockEnv SQLiteEnv) -> IO ()) -> IO a)
+     -> IO a
+simpleBlockEnvInit f =
+    withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
+           f chainwebPactDb
+            (BlockEnv
+                (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment"))
+                    initBlockState)
+            (\v -> runBlockEnv v initSchema)
+  where
+    loggers = pactTestLogger False
+
 regressChainwebPactDb :: IO (MVar (BlockEnv SQLiteEnv))
-regressChainwebPactDb = do
- withTempSQLiteConnection chainwebPragmas $ \sqlenv -> do
-        let loggers = pactTestLogger False
-        runRegression chainwebPactDb
-          (BlockEnv (BlockDbEnv sqlenv (newLogger loggers "BlockEnvironment")) initBlockState)
-          (\v -> runBlockEnv v initSchema)
+regressChainwebPactDb =  simpleBlockEnvInit runRegression
 
  {- this should be moved to pact -}
 begin :: PactDb e -> Method e (Maybe TxId)
@@ -417,6 +431,39 @@ begin pactdb = _beginTx pactdb Transactional
 {- this should be moved to pact -}
 commit :: PactDb e -> Method e [TxLog Value]
 commit pactdb = _commitTx pactdb
+
+readRowUnitTest :: Assertion
+readRowUnitTest = simpleBlockEnvInit runUnitTest
+  where
+    writeRow' pactdb writeType conn i  =
+      _writeRow pactdb writeType (UserTables "user1") "key1"
+      (ObjectMap $ M.fromList [("f", (PLiteral (LInteger i)))]) conn
+    runUnitTest pactdb e schemaInit = do
+      conn <- newMVar e
+      void $ schemaInit conn
+      let user1 = "user1"
+          usert = UserTables user1
+      void $ begin pactdb conn
+      _createUserTable pactdb user1 "someModule" conn
+      writeRow' pactdb Insert conn 1
+      void $ commit pactdb conn
+      let numWrites = 100 :: Int
+          loop current =
+            if current == numWrites
+              then return ()
+              else do
+                void $ begin pactdb conn
+                writeRow' pactdb Update conn $
+                   fromIntegral $ current + 1
+                void $ commit pactdb conn
+                loop (current + 1)
+      loop 1
+      r <- _readRow pactdb usert "key1" conn
+      case r of
+        Nothing -> assertFailure "Unsuccessful write"
+        Just (ObjectMap m) -> case M.lookup "f" m of
+          Just l -> assertEquals "Unsuccesful write at field key \"f\"" l (PLiteral (LInteger 100))
+          Nothing -> assertFailure "Field not found"
 
 {- this should be moved to pact -}
 runRegression ::
