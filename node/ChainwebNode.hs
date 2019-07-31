@@ -10,6 +10,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -68,6 +69,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
@@ -78,11 +80,14 @@ import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version (ChainwebVersion(..))
 
+import Data.CAS
 import Data.LogMessage
 import Data.PQueue
 import qualified Data.TaskMap as TM
@@ -159,6 +164,17 @@ runMonitorLoop label logger = runForeverThrottled
     label
     10 -- 10 bursts in case of failure
     (10 * mega) -- allow restart every 10 seconds in case of failure
+
+runTxCounter :: PayloadCas cas => Logger logger => logger -> CutDb cas -> IO ()
+runTxCounter logger db = L.withLoggerLabel ("component", "tx-counter") logger $ \l ->
+    runMonitorLoop "ChainwebNode.txCounter" l $ do
+        logFunctionText l Info $ "Initialized tx counter"
+        blockStream db
+            & S.mapM (casLookupM payloadCas . _blockPayloadHash)
+            & S.map (length . _payloadWithOutputsTransactions)
+            & S.mapM_ (\i -> logFunctionText l Info $ "Validated block with " <> sshow i <> "txs")
+  where
+    payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
 
 runCutMonitor :: Logger logger => logger -> CutDb cas -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
@@ -243,6 +259,7 @@ node conf logger = do
             , runAmberdataBlockMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
+            , runTxCounter (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             ]
   where
     cwConf = _nodeConfigChainweb conf

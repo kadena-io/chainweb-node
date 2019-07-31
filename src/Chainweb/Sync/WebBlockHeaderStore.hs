@@ -43,6 +43,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 -- * Utils
 , memoInsert
 , PactExecutionService(..)
+, chainValue
 ) where
 
 import Control.Concurrent.Async
@@ -337,7 +338,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
     validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
     validateAndInsertPayload hdr p = do
-        outs <- trace 
+        outs <- trace
             logfun
             "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal.pact"
             (_blockHash hdr)
