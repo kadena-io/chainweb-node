@@ -44,9 +44,9 @@ import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import Data.Ratio ((%))
 import Data.Reflection (Given, give)
-import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T5(..))
+import qualified Data.Vector as V
 import Data.Word
 
 import Foreign.Marshal.Alloc
@@ -82,6 +82,8 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+
+import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -130,7 +132,7 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
                     _payloadWithOutputsTransactions payload
             !nmb = NewMinedBlock
                    (ObjectEncoded newBh)
-                   (int . Seq.length $ _payloadWithOutputsTransactions payload)
+                   (int . V.length $ _payloadWithOutputsTransactions payload)
                    (int bytes)
                    (estimatedHashes p newBh)
 
@@ -148,7 +150,8 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
         -- at the same cut for a longer time, we are most likely in catchup
         -- mode.
         --
-        void $ awaitCut cdb c
+        trace lf "Miner.POW.powMiner.awaitCut" (cutIdToTextShort $ _cutId c) 1
+            $ void $ awaitCut cdb c
 
         let !wh = case window $ _blockChainwebVersion newBh of
               Just (WindowWidth w) -> BlockHeight (int w)
@@ -225,7 +228,8 @@ mineCut logfun conf nid cdb g !c !adjustments = do
 
             -- get payload
             --
-            payload <- _pactNewBlock pact (_configMinerInfo conf) p
+            payload <- trace logfun "Miner.POW.mineCut._pactNewBlock" (_blockHash p) 1
+                $ _pactNewBlock pact (_configMinerInfo conf) p
 
             -- get target
             --

@@ -182,6 +182,7 @@ library
         , Chainweb.Utils
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
+        , Chainweb.Utils.Bench
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebBlockHeaderDB.Types
@@ -216,6 +217,7 @@ library
         , P2P.TaskQueue.Test
 
         -- pact
+        , Chainweb.Pact.Backend.Bench
         , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.Backend.RelationalCheckpointer
@@ -239,6 +241,7 @@ library
         -- utils
         , Utils.Logging
         , Utils.Logging.Config
+        , Utils.Logging.Trace
 
     build-depends:
           Decimal >= 0.4.2
@@ -263,6 +266,7 @@ library
         , configuration-tools >= 0.4.1
         , connection >=0.2
         , containers >= 0.5
+        , criterion
         , cryptonite >= 0.25
         , data-default >=0.7
         , data-dword >= 0.3
@@ -309,6 +313,7 @@ library
         , servant-swagger >= 1.1
         , stm >= 2.4
         , stm-chans
+        , stopwatch >= 0.1
         , streaming >= 0.2
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2
@@ -320,6 +325,7 @@ library
         , text >= 1.2
         , time >= 1.8
         , tls >=1.5
+        , token-bucket >= 0.1
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , uuid >= 1.3
@@ -624,3 +630,21 @@ executable cwtool
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
+
+
+benchmark bench
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -with-rtsopts=-N
+    hs-source-dirs: bench
+    main-is: Bench.hs
+    type: exitcode-stdio-1.0
+    other-modules:
+    build-depends:
+                  base
+                , chainweb
+                , criterion
+                , direct-sqlite
+                , neat-interpolation
+                , yaml

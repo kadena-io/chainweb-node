@@ -41,6 +41,7 @@ module Chainweb.Pact.Backend.Types
     , PactDbState(..)
     , pdbsDbEnv
     , BlockState(..)
+    , initBlockState
     , bsBlockHeight
     , bsTxRecord
     , bsMode
@@ -181,6 +182,9 @@ data BlockState = BlockState
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     }
     deriving Show
+
+initBlockState :: BlockState
+initBlockState = BlockState 0 Nothing 0 mempty
 
 makeLenses ''BlockState
 

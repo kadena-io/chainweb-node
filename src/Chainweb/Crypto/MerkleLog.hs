@@ -175,9 +175,9 @@ import Data.Memory.Endian
 import qualified Data.Memory.Endian as BA
 import Data.MerkleLog hiding (Expected, Actual)
 import Data.Proxy
-import qualified Data.Sequence as S
 import qualified Data.Text as T
 import Data.Word
+import qualified Data.Vector as V
 
 import Foreign.Storable
 
@@ -350,7 +350,7 @@ data MerkleLogEntries
   where
     MerkleLogBody
         :: IsMerkleLogEntry u b
-        => S.Seq b
+        => V.Vector b
         -> MerkleLogEntries u '[] b
 
     (:+:)
@@ -372,17 +372,22 @@ emptyBody = MerkleLogBody mempty
 {-# INLINE emptyBody #-}
 
 mapLogEntries
-    :: (forall x . IsMerkleLogEntry u x => x -> b)
+    :: forall u h s b
+    . (forall x . IsMerkleLogEntry u x => x -> b)
     -> MerkleLogEntries u h s
-    -> S.Seq b
-mapLogEntries f (MerkleLogBody s) = f <$> s
-mapLogEntries f (h :+: t) = f h S.<| mapLogEntries f t
+    -> V.Vector b
+mapLogEntries f m = V.concat $ go m
+  where
+    go :: forall h' . MerkleLogEntries u h' s -> [V.Vector b]
+    go (MerkleLogBody s) = [V.map f s]
+    go (h :+: t) = V.singleton (f h) : go t
+{-# INLINE mapLogEntries #-}
 
 entriesHeaderSize :: MerkleLogEntries u l s -> Int
 entriesHeaderSize MerkleLogBody{} = 0
 entriesHeaderSize (_ :+: t) = succ $ entriesHeaderSize t
 
-entriesBody :: MerkleLogEntries u l s -> S.Seq s
+entriesBody :: MerkleLogEntries u l s -> V.Vector s
 entriesBody (MerkleLogBody s) = s
 entriesBody (_ :+: t) = entriesBody t
 {-# INLINE entriesBody #-}
@@ -541,7 +546,7 @@ instance {-# INCOHERENT #-}
 
 -- | Get the body sequence of a Merkle log.
 --
-body :: MerkleLog a l s -> S.Seq s
+body :: MerkleLog a l s -> V.Vector s
 body = entriesBody . _merkleLogEntries
 {-# INLINE body #-}
 
@@ -554,7 +559,7 @@ headerSize = entriesHeaderSize . _merkleLogEntries
 -- | Get the number of entries in the body of a Merkle log.
 --
 bodySize :: MerkleLog a l s -> Int
-bodySize = S.length . body
+bodySize = V.length . body
 {-# INLINE bodySize #-}
 
 -- | Compute the Merkle root hash for an instance of 'HasMerkleLog'.
@@ -668,7 +673,7 @@ bodyTree b i = (node, i_, _merkleLogTree @u mlog)
   where
     mlog = toLog @u b
     i_ = i + headerSize mlog
-    node = S.index (mapLogEntries (toMerkleNodeTagged @u) $ _merkleLogEntries mlog) i_
+    node = (mapLogEntries (toMerkleNodeTagged @u) $ _merkleLogEntries mlog) V.! i_
 
 -- | Create the parameters for creating nested inclusion proofs with the
 -- 'merkleProof_' of the merkle-log package.
