@@ -39,6 +39,10 @@ module Chainweb.Pact.TransactionExec
 , logDebugRequestKey
 , logErrorRequestKey
 , publicMetaOf
+  -- * capabilities
+, magic_COINBASE
+, magic_FUND_TX
+, initCapabilities
 ) where
 
 import Control.Lens hiding ((.=))

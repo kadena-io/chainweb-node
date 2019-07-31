@@ -31,12 +31,13 @@ import Data.Aeson (Value)
 import Data.Text (Text,pack)
 import qualified Pact.Types.Hash as H
 import Pact.Types.Server (CommandEnv(..))
-import Chainweb.Pact.TransactionExec (applyExec', buildExecParsedCode)
+import Chainweb.Pact.TransactionExec (applyExec', buildExecParsedCode,initCapabilities,magic_COINBASE)
 import Data.Default
 import Pact.Types.SPV (noSPVSupport)
 import qualified Data.Text.IO as T
 import Chainweb.BlockHash (nullBlockHash)
 import Pact.ApiReq
+import Pact.Types.Runtime (Capability)
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend"
@@ -46,7 +47,7 @@ bench = C.bgroup "pact-backend"
   ]
 
 cpBench :: C.Benchmark
-cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "checkpointer" (benches e)
+cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "cp-sqlite" (benches e)
   where
 
     setup = do
@@ -138,43 +139,60 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
 
 
 coinCPBench :: C.Benchmark
-coinCPBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData ((_,c),_)) -> C.bgroup "checkpointer" (benches c)
+coinCPBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData ((_,c,p),_)) -> C.bgroup "coin-cp" (benches c p)
   where
 
     setup = do
+
       (f,deleter) <- newTempFile
       !sqliteEnv <- openSQLiteConnection f chainwebPragmas
-      let nolog = newLogger neverLog ""
+      let nolog = newLogger neverLog "" -- change to alwaysLog to troubleshoot
+
       cpe@CheckpointEnv{..} <-
         initRelationalCheckpointer initBlockState sqliteEnv nolog freeGasEnv
+
       g <- restore _cpeCheckpointer Nothing
+
+      coinSig <- T.readFile "pact/coin-contract/coin-sig.pact"
+      void $ runExec cpe g [] Nothing coinSig
+
       coinContract <- T.readFile "pact/coin-contract/coin.pact"
-      void $ runExec cpe g Nothing coinContract
+      void $ runExec cpe g [] Nothing coinContract
+
       ((ApiReq{..},_,_,_),_) <- mkApiReq "pact/genesis/testnet00/grants.yaml"
       case (_ylCode) of
         Nothing -> die "failed reading grants.yaml"
         (Just c) -> do
-          void $ runExec cpe g _ylData (pack c)
-          save _cpeCheckpointer nullBlockHash
-          return $ NoopNFData ((sqliteEnv,cpe), deleter)
+          void $ runExec cpe g [magic_COINBASE] _ylData (pack c)
 
-    teardown (NoopNFData ((s,_), deleter)) = do
+          save _cpeCheckpointer nullBlockHash
+
+          sqlenv <- restore _cpeCheckpointer $ Just (1,nullBlockHash)
+
+          return $ NoopNFData ((sqliteEnv,cpe,sqlenv), deleter)
+
+    teardown (NoopNFData ((s,_,_), deleter)) = do
+
       closeSQLiteConnection s
       deleter
 
-    benches :: CheckpointEnv -> [C.Benchmark]
-    benches cpe =
+    benches :: CheckpointEnv -> PactDbEnv' -> [C.Benchmark]
+    benches cpe pde =
       [
-        benchTransfer cpe
+        benchTransfer cpe pde
       ]
 
 
-benchTransfer :: CheckpointEnv -> C.Benchmark
-benchTransfer CheckpointEnv{..} = C.bench "transfer" $ C.nfIO $ return ()
+benchTransfer :: CheckpointEnv -> PactDbEnv' -> C.Benchmark
+benchTransfer cpe pde = C.bench "transfer" $ C.nfIO $ do
+  PI.EvalResult{..} <- runExec cpe pde [] Nothing "(coin.account-balance 'sender01)"
+  return $ PI._erOutput
 
 
-runExec :: CheckpointEnv -> PactDbEnv' -> Maybe Value -> Text -> IO PI.EvalResult
-runExec CheckpointEnv{..} (PactDbEnv' pactdbenv) eData eCode = do
+
+
+runExec :: CheckpointEnv -> PactDbEnv' -> [Capability] -> Maybe Value -> Text -> IO PI.EvalResult
+runExec CheckpointEnv{..} (PactDbEnv' pactdbenv) caps eData eCode = do
   let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
   execMsg <- buildExecParsedCode eData eCode
-  applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
+  applyExec' cmdenv (initCapabilities caps) execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))

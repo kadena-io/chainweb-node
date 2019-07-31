@@ -172,3 +172,18 @@ mean                 70.07 μs   (69.10 μs .. 71.65 μs)
 std dev              4.127 μs   (1.893 μs .. 6.809 μs)
 variance introduced by outliers: 61% (severely inflated)
 ```
+# User queries
+
+Benchmark setup loads coin contract and grants.
+
+## Benchmarking `coin.account-balance`
+
+Query performance is miserable, 28ms.
+
+```
+benchmarking pact-backend/coin-cp/transfer
+time                 28.15 ms   (27.68 ms .. 29.00 ms)
+                     0.998 R²   (0.995 R² .. 1.000 R²)
+mean                 27.93 ms   (27.76 ms .. 28.28 ms)
+std dev              523.9 μs   (255.0 μs .. 928.7 μs)
+```
