@@ -325,7 +325,11 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
     validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
     validateAndInsertPayload hdr p = do
-        outs <- trace logfun "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal.pact" (_blockHash hdr) (length (_payloadDataTransactions p))
+        outs <- trace 
+            logfun
+            "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal.pact"
+            (_blockHash hdr)
+            (length (_payloadDataTransactions p))
             $ pact hdr p
         casInsert (_webBlockPayloadStoreCas payloadStore) outs
 
