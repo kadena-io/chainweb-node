@@ -45,7 +45,6 @@ import Data.ByteString (ByteString)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
-import qualified Data.Map.Strict as M
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
@@ -150,7 +149,6 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
     let loggers = pactLoggers chainwebLogger
     let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
     let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
-    let blockstate = BlockState 0 Nothing 0 M.empty
     let getsqliteDir = case dbDir of
           Nothing -> getXdgDirectory XdgData
             $ "chainweb-node/" <> sshow ver <> maybe mempty (("/" <>) . T.unpack . toText) nodeid <> "/sqlite"
@@ -170,9 +168,9 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
 
     logFunctionText chainwebLogger Info $ "opening sqlitedb named " <> (T.pack sqlitefile)
 
-    withSQLiteConnection sqlitefile fastNoJournalPragmas False $ \sqlenv -> do
+    withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
 
-      checkpointEnv <- initRelationalCheckpointer blockstate sqlenv logger gasEnv
+      checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
 
       let !pd = P.PublicData def def def
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
