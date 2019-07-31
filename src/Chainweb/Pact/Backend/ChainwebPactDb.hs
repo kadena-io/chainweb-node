@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -22,7 +23,9 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 
 import Control.Lens
 import Control.Monad
+import Control.Applicative
 import Control.Monad.Reader
+import Control.Monad.Trans.Maybe
 import Control.Monad.State.Strict
 
 import Data.Aeson hiding ((.=))
@@ -78,6 +81,13 @@ chainwebPactDb = PactDb
     , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
     }
 
+getPendingData :: BlockHandler SQLiteEnv [SQLitePendingData]
+getPendingData = do
+    pb <- use bsPendingBlock
+    ptx <- maybe [] (:[]) <$> use bsPendingTx
+    -- lookup in pending transactions first
+    return $ ptx ++ [pb]
+
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
@@ -85,30 +95,56 @@ doReadRow
     -> BlockHandler SQLiteEnv (Maybe v)
 doReadRow d k =
     case d of
-        KeySets -> callDbWithKey (convKeySetName k)
+        KeySets -> lookupWithKey (convKeySetName k)
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> callDbWithKey (convModuleName k)
-        Namespaces -> callDbWithKey (convNamespaceName k)
-        (UserTables _) -> callDbWithKey (convRowKey k)
-        Pacts -> callDbWithKey (convPactId k)
+        Modules -> lookupWithKey (convModuleName k)
+        Namespaces -> lookupWithKey (convNamespaceName k)
+        (UserTables _) -> lookupWithKey (convRowKey k)
+        Pacts -> lookupWithKey (convPactId k)
   where
-    callDbWithKey :: FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
-    callDbWithKey kstr = do
-        result <- callDb "doReadRow" $ \db -> qry db stmt [SText kstr] [RBlob]
+    tableName = domainTableName d
+    (Utf8 tableNameBS) = tableName
+
+    queryStmt = mconcat [ "SELECT rowdata FROM ["
+                        , tableName
+                        , "]  WHERE rowkey = ? \
+                          \ORDER BY blockheight DESC, txid DESC \
+                          \LIMIT 1;"
+                        ]
+
+    lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
+    lookupWithKey key = do
+        pds <- getPendingData
+        let lookPD = foldl1 (<|>) $ map (lookupInPendingData key) pds
+        let lookDB = lookupInDb key
+        runMaybeT (lookPD <|> lookDB)
+
+    lookupInPendingData
+        :: forall v . FromJSON v
+        => Utf8
+        -> SQLitePendingData
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    lookupInPendingData (Utf8 rowkey) (_, m) = do
+        let deltaKey = SQLiteDeltaKey tableNameBS rowkey
+        ddata <- map _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey m)
+        if null ddata
+            -- should be impossible, but we'll check this case
+            then mzero
+            -- we merge with (flip (++)) which should produce txids in order --
+            -- we care about the last update to this rowkey
+            else MaybeT $ return $! decode $ fromStrict $ last ddata
+
+    lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
+    lookupInDb rowkey = do
+        result <- lift $ callDb "doReadRow"
+                       $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
-            [] -> return Nothing
-            [[SBlob a]] -> return $ decode $ fromStrict a
+            [] -> mzero
+            [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
-      where
-        stmt =
-          "SELECT rowdata \
-          \FROM [" <> domainTableName d <> "]\
-          \ WHERE rowkey = ?\
-          \ ORDER BY blockheight DESC, txid DESC\
-          \ LIMIT 1"
 
 writeSys
     :: (AsString k, ToJSON v)
