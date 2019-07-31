@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -11,21 +12,26 @@ module Chainweb.Mempool.InMem
   (
    -- * Initialization functions
     withInMemoryMempool
+   , withInMemoryMempool_
     -- * Low-level create/destroy functions
   , makeSelfFinalizingInMemPool
 
     -- * Low-level create/destroy functions
   , makeInMemPool
   , newInMemMempoolData
+
+    -- * statistics
+  , getMempoolStats
   ) where
 
 ------------------------------------------------------------------------------
 import Control.Applicative (pure, (<|>))
 import Control.Concurrent (forkIOWithUnmask, killThread, threadDelay)
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
     (MVar, newMVar, readMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
-import Control.Exception (bracket, bracketOnError, mask_)
+import Control.Exception (bracket, bracketOnError, mask_, throw)
 import Control.Monad (forever, void, (<$!>))
 
 import Data.Foldable (foldl', foldlM)
@@ -42,15 +48,16 @@ import Pact.Types.Gas (GasPrice(..))
 
 import Prelude hiding (init, lookup, pred)
 
+import System.LogLevel
 import System.Random
 
 -- internal imports
 
+import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (fromJuste)
-
+import Chainweb.Utils (InternalInvariantViolation(..), fromJuste, runForeverThrottled, mega)
 
 ------------------------------------------------------------------------------
 toPriority :: GasPrice -> GasLimit -> Priority
@@ -69,6 +76,14 @@ makeInMemPool cfg = mask_ $ do
 destroyInMemPool :: InMemoryMempool t -> IO ()
 destroyInMemPool = mask_ . killThread . _inmemReaper
 
+getMempoolStats :: InMemoryMempool t -> IO MempoolStats
+getMempoolStats m = do
+    d <- readMVar $ _inmemDataLock m
+    MempoolStats
+        <$> (length <$> readIORef (_inmemPending d))
+        <*> (length <$> readIORef (_inmemValidated d))
+        <*> (length <$> readIORef (_inmemConfirmed d))
+        <*> (length . _rlRecent <$> readIORef (_inmemRecentLog d))
 
 ------------------------------------------------------------------------------
 newInMemMempoolData :: IO (InMemoryMempoolData t)
@@ -200,6 +215,31 @@ withInMemoryMempool cfg f = do
           back <- toMempoolBackend inMem
           f $! back
     bracket (makeInMemPool cfg) destroyInMemPool action
+
+withInMemoryMempool_ :: Logger logger
+                    => logger
+                    -> InMemConfig t
+                    -> (MempoolBackend t -> IO a)
+                    -> IO a
+withInMemoryMempool_ l cfg f = do
+    let action inMem = do
+          r <- race (monitor inMem) $ do
+            back <- toMempoolBackend inMem
+            f $! back
+          case r of
+            Left () -> throw $ InternalInvariantViolation "mempool monitor exited unexpectedly"
+            Right result -> return result
+    bracket (makeInMemPool cfg) destroyInMemPool action
+  where
+    monitor m = do
+        let lf = logFunction l
+        logFunctionText l Info $ "Initialized Mempool Monitor"
+        runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
+            stats <- getMempoolStats m
+            logFunctionText l Debug $ "got stats"
+            logFunctionJson l Info stats
+            logFunctionText l Debug $ "logged stats"
+            threadDelay 60000000 {- 1 minute -}
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)

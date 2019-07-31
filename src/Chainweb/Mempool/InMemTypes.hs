@@ -1,5 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
@@ -16,19 +19,27 @@ module Chainweb.Mempool.InMemTypes
   , PSQ
   , RecentItem
   , RecentLog(..)
+  , MempoolStats(..)
   ) where
 
-------------------------------------------------------------------------------
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.MVar (MVar)
+import Control.DeepSeq
 
+import Data.Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.HashPSQ (HashPSQ)
 import Data.HashSet (HashSet)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
 
+import GHC.Generics
+
 import Pact.Types.Gas (GasPrice(..))
+
+------------------------------------------------------------------------------
+
+
 
 -- internal imports
 
@@ -85,3 +96,15 @@ data RecentLog = RecentLog {
     _rlNext :: {-# UNPACK #-} !MempoolTxId
   , _rlRecent :: ![RecentItem]
   }
+
+------------------------------------------------------------------------------
+
+data MempoolStats = MempoolStats
+    { _mStatsPendingCount :: {-# UNPACK #-} !Int
+    , _mStatsValidateCount :: {-# UNPACK #-} !Int
+    , _mStatsConfirmedCount :: {-# UNPACK #-} !Int
+    , _mStatsRecentCount :: {-# UNPACK #-} !Int
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (ToJSON, NFData)
+

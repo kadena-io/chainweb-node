@@ -128,7 +128,7 @@ withChainResources
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+      Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb dbDir nodeid resetDb $
           \requestQ -> do
