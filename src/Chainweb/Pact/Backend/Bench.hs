@@ -180,12 +180,12 @@ coinCPBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData ((_,c,p,ms),_)) -
     benches :: CheckpointEnv -> PactDbEnv' -> ModuleCache -> [C.Benchmark]
     benches cpe pde mc =
       [
-        benchTransfer cpe pde mc
+        benchAcctBal cpe pde mc
       ]
 
 
-benchTransfer :: CheckpointEnv -> PactDbEnv' -> ModuleCache -> C.Benchmark
-benchTransfer cpe pde mc = C.bench "transfer" $ C.nfIO $ do
+benchAcctBal :: CheckpointEnv -> PactDbEnv' -> ModuleCache -> C.Benchmark
+benchAcctBal cpe pde mc = C.bench "account-balance" $ C.nfIO $ do
   PI.EvalResult{..} <- runExec cpe pde [] mc Nothing "(coin.account-balance 'sender01)"
   return $ PI._erOutput
 
