@@ -44,9 +44,9 @@ import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import Data.Ratio ((%))
 import Data.Reflection (Given, give)
-import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T5(..))
+import qualified Data.Vector as V
 import Data.Word
 
 import Foreign.Marshal.Alloc
@@ -132,7 +132,7 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
                     _payloadWithOutputsTransactions payload
             !nmb = NewMinedBlock
                    (ObjectEncoded newBh)
-                   (int . Seq.length $ _payloadWithOutputsTransactions payload)
+                   (int . V.length $ _payloadWithOutputsTransactions payload)
                    (int bytes)
                    (estimatedHashes p newBh)
 

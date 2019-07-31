@@ -228,8 +228,11 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
     memoInsert cas memoMap h $ \k@(ChainValue _ k') -> do
 
-        -- query BlockHeader via origin or query BlockHeader via task queue of
-        -- P2P network
+        -- query BlockHeader via
+        --
+        -- - candidates header cache,
+        -- - cut origin, or
+        -- - task queue of P2P network
         --
         (maybeOrigin', header) <- casLookup candidateHeaderCas k' >>= \case
             Just !x -> return $! (maybeOrigin, x)
@@ -254,10 +257,19 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             $ Concurrently (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
 
             -- query parent (recursively)
+            --
             <* queryPrerequesiteHeader (_blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
             <* mconcat (queryPrerequesiteHeader <$> adjParents header)
+
+            -- TODO Above recursive calls are potentially long running
+            -- computations. In particular pact validation can take significant
+            -- amounts of time. We may try make these calls tail recursive by
+            -- providing a continuation. This would allow earlier garbage
+            -- collection of some stack resources.
+            --
+            -- This requires to provide a CPS version of memoInsert.
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal got pre-requesites for " <> sshow h
 

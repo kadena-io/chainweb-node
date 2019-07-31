@@ -166,7 +166,7 @@ genesisBlockHeader' v p ct n = fromLog mlog
         :+: BlockHeight 0
         :+: v
         :+: genesisMiner v cid
-        :+: MerkleLogBody (blockHashRecordToSequence adjParents)
+        :+: MerkleLogBody (blockHashRecordToVector adjParents)
     adjParents = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
 

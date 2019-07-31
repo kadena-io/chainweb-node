@@ -40,8 +40,8 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import Data.Reflection
-import qualified Data.Sequence as Seq
 import Data.Tuple.Strict
+import qualified Data.Vector as V
 
 import GHC.Stack
 
@@ -469,8 +469,8 @@ randomTransaction cutDb = do
     return
         ( bh
         , txIx
-        , Seq.index (_blockTransactions btxs) txIx
-        , Seq.index (_blockOutputs outs) txIx
+        , _blockTransactions btxs V.! txIx
+        , _blockOutputs outs V.! txIx
         )
   where
     payloadDb = view cutDbPayloadCas cutDb
@@ -488,7 +488,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
       \_ d -> return
               $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_ _ -> do
-        payload <- generate $ Seq.fromList . getNonEmpty <$> arbitrary
+        payload <- generate $ V.fromList . getNonEmpty <$> arbitrary
         return $ newPayloadWithOutputs fakeMiner coinbase payload
 
   , _pactLocal = \_t -> error "Unimplemented"

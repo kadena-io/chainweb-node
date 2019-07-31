@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -97,8 +98,8 @@ import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Hashable
 import Data.MerkleLog
-import qualified Data.Sequence as S
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Data.Void
 
 import GHC.Generics
@@ -394,7 +395,7 @@ data BlockTransactions = BlockTransactions
         -- ^ Root of 'TransactionTree' of the block. Primary key of
         -- 'BlockTransactionsStore'. Foreign key into 'TransactionTreeStore'.
 
-    , _blockTransactions :: !(S.Seq Transaction)
+    , _blockTransactions :: !(V.Vector Transaction)
         -- ^ Ordered list of all transactions of the block.
 
     , _blockMinerData :: !MinerData
@@ -425,11 +426,11 @@ instance HasMerkleLog ChainwebHashTag BlockTransactions where
 
     toLog a = merkleLog root entries
       where
-        BlockTransactionsHash (MerkleLogHash root) = _blockTransactionsHash a
-        entries = _blockMinerData a :+: MerkleLogBody (_blockTransactions a)
+        BlockTransactionsHash (MerkleLogHash (!root)) = _blockTransactionsHash a
+        !entries = _blockMinerData a :+: MerkleLogBody (_blockTransactions a)
 
     fromLog l = BlockTransactions
-        { _blockTransactionsHash = BlockTransactionsHash $ MerkleLogHash $ _merkleLogRoot l
+        { _blockTransactionsHash = BlockTransactionsHash $! MerkleLogHash $! _merkleLogRoot l
         , _blockTransactions = txs
         , _blockMinerData = mi
         }
@@ -497,7 +498,7 @@ data BlockOutputs = BlockOutputs
         -- ^ Root of 'OutputTree' of the block. Primary key of
         -- 'BlockOutputsStore'. Foreign key into 'OutputTreeStore'.
 
-    , _blockOutputs :: !(S.Seq TransactionOutput)
+    , _blockOutputs :: !(V.Vector TransactionOutput)
         -- ^ Output of all transactions of a block in the order of the
         -- transactions in the block.
 
@@ -529,11 +530,11 @@ instance HasMerkleLog ChainwebHashTag BlockOutputs where
 
     toLog a = merkleLog root entries
       where
-        BlockOutputsHash (MerkleLogHash root) = _blockOutputsHash a
-        entries = _blockCoinbaseOutput a :+: MerkleLogBody (_blockOutputs a)
+        BlockOutputsHash (MerkleLogHash (!root)) = _blockOutputsHash a
+        !entries = _blockCoinbaseOutput a :+: MerkleLogBody (_blockOutputs a)
 
     fromLog l = BlockOutputs
-        { _blockOutputsHash = BlockOutputsHash $ MerkleLogHash $ _merkleLogRoot l
+        { _blockOutputsHash = BlockOutputsHash $! MerkleLogHash $! _merkleLogRoot l
         , _blockOutputs = outs
         , _blockCoinbaseOutput = co
         }
@@ -613,13 +614,13 @@ instance FromJSON OutputTree where
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newTransactionLog :: MinerData -> S.Seq Transaction -> BlockTransactionsLog
+newTransactionLog :: MinerData -> V.Vector Transaction -> BlockTransactionsLog
 newTransactionLog md txs =
   newMerkleLog $ md :+: MerkleLogBody txs
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockTransactions :: MinerData -> S.Seq Transaction -> (TransactionTree, BlockTransactions)
+newBlockTransactions :: MinerData -> V.Vector Transaction -> (TransactionTree, BlockTransactions)
 newBlockTransactions mi txs = (tree, blockTxs)
   where
     mlog = newTransactionLog mi txs
@@ -649,12 +650,12 @@ transactionLog txs tree
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockOutputLog :: CoinbaseOutput -> S.Seq TransactionOutput -> BlockOutputsLog
+newBlockOutputLog :: CoinbaseOutput -> V.Vector TransactionOutput -> BlockOutputsLog
 newBlockOutputLog co tos = newMerkleLog $ co :+: MerkleLogBody tos
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
-newBlockOutputs :: CoinbaseOutput -> S.Seq TransactionOutput -> (OutputTree, BlockOutputs)
+newBlockOutputs :: CoinbaseOutput -> V.Vector TransactionOutput -> (OutputTree, BlockOutputs)
 newBlockOutputs co outs = (tree, blkOuts)
   where
     mlog = newBlockOutputLog co outs
@@ -686,7 +687,7 @@ blockOutputLog outs tree
 --
 blockPayload :: BlockTransactions -> BlockOutputs -> BlockPayload
 blockPayload txs outs
-    = fromLog $ newMerkleLog @ChainwebHashTag
+    = fromLog $! newMerkleLog @ChainwebHashTag
         $ _blockTransactionsHash txs
         :+: _blockOutputsHash outs
         :+: emptyBody
@@ -694,12 +695,12 @@ blockPayload txs outs
 newBlockPayload
     :: MinerData
     -> CoinbaseOutput
-    -> S.Seq (Transaction, TransactionOutput)
+    -> V.Vector (Transaction, TransactionOutput)
     -> BlockPayload
 newBlockPayload mi co s = blockPayload txs outs
   where
-    (_, txs) = newBlockTransactions mi (fst <$!> s)
-    (_, outs) = newBlockOutputs co (snd <$!> s)
+    (_, !txs) = newBlockTransactions mi (fst <$!> s)
+    (_, !outs) = newBlockOutputs co (snd <$!> s)
 
 -- -------------------------------------------------------------------------- --
 -- Payload Data
@@ -710,7 +711,7 @@ newBlockPayload mi co s = blockPayload txs outs
 -- This data structure is used maintly to transfer payloads over the wire.
 --
 data PayloadData = PayloadData
-    { _payloadDataTransactions :: !(S.Seq Transaction)
+    { _payloadDataTransactions :: !(V.Vector Transaction)
     , _payloadDataMiner :: !MinerData
     , _payloadDataPayloadHash :: !BlockPayloadHash
     , _payloadDataTransactionsHash :: !BlockTransactionsHash
@@ -759,7 +760,7 @@ type PayloadDataCas cas = CasConstraint cas PayloadData
 -- All Payload Data in a Single Structure
 
 data PayloadWithOutputs = PayloadWithOutputs
-    { _payloadWithOutputsTransactions :: !(S.Seq (Transaction, TransactionOutput))
+    { _payloadWithOutputsTransactions :: !(V.Vector (Transaction, TransactionOutput))
     , _payloadWithOutputsMiner :: !MinerData
     , _payloadWithOutputsCoinbase :: !CoinbaseOutput
     , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
@@ -775,10 +776,10 @@ instance IsCasValue PayloadWithOutputs where
 payloadWithOutputs
     :: PayloadData
     -> CoinbaseOutput
-    -> S.Seq TransactionOutput
+    -> V.Vector TransactionOutput
     -> PayloadWithOutputs
 payloadWithOutputs d co outputs = PayloadWithOutputs
-    { _payloadWithOutputsTransactions = S.zip (_payloadDataTransactions d) outputs
+    { _payloadWithOutputsTransactions = V.zip (_payloadDataTransactions d) outputs
     , _payloadWithOutputsMiner = _payloadDataMiner d
     , _payloadWithOutputsCoinbase = co
     , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
@@ -789,7 +790,7 @@ payloadWithOutputs d co outputs = PayloadWithOutputs
 newPayloadWithOutputs
     :: MinerData
     -> CoinbaseOutput
-    -> S.Seq (Transaction, TransactionOutput)
+    -> V.Vector (Transaction, TransactionOutput)
     -> PayloadWithOutputs
 newPayloadWithOutputs mi co s = PayloadWithOutputs
     { _payloadWithOutputsTransactions = s
@@ -827,7 +828,7 @@ payloadWithOutputsToBlockObjects PayloadWithOutputs {..} =
     , BlockOutputs _payloadWithOutputsOutputsHash outs _payloadWithOutputsCoinbase
     )
   where
-    (ins,outs) = S.unzip $ _payloadWithOutputsTransactions
+    (ins,outs) = V.unzip $ _payloadWithOutputsTransactions
 
 payloadWithOutputsToPayloadData :: PayloadWithOutputs -> PayloadData
 payloadWithOutputsToPayloadData o = PayloadData
