@@ -140,7 +140,7 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
             jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0) mcache'
               "tx failure for request key when running cmd"
 
-          Right (T2 cmdResult mcache'') -> do
+          Right (T2 cmdResult !mcache'') -> do
 
             logDebugRequestKey logger requestKey "success for requestKey"
 
@@ -156,13 +156,13 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
                 jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult) mcache''
                   "tx failure for request key while redeeming gas"
 
-              Right (T2 redeemResult mcache''') -> do
+              Right (T2 redeemResult !mcache''') -> do
 
                 let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
                     !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
 
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                pure $! T2 finalResult mcache'''
+                pure $! T2 finalResult $! mcache'''
 
 applyGenesisCmd
     :: Logger
@@ -388,7 +388,7 @@ buyGas env cmd (MinerInfo minerId minerKeys) supply mcache = do
     result <- applyExec' env initState buyGasCmd
       (_pSigners $ _cmdPayload cmd) bgHash
 
-    let mcache' = _erLoadedModules result
+    let !mcache' = _erLoadedModules result
 
     case _erExec result of
       Nothing -> return $!
