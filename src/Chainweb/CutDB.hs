@@ -58,6 +58,8 @@ module Chainweb.CutDB
 , startCutDb
 , stopCutDb
 , cutDbQueueSize
+, blockStream
+, cutStreamToHeaderStream
 
 -- * Some CutDb
 , CutDbT(..)
@@ -73,6 +75,7 @@ import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
 import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
+import Control.Monad.Morph
 import Control.Monad.STM
 
 import Data.CAS.HashMap
@@ -80,6 +83,7 @@ import Data.Foldable
 import Data.Function
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
@@ -469,6 +473,40 @@ cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
             return c'
         S.yield new
         go new
+
+-- | Given a stream of cuts, produce a stream of all blocks included in those
+-- cuts. Blocks of the same chain are sorted by block height.
+--
+cutStreamToHeaderStream
+    :: forall m cas r
+    . MonadIO m
+    => CutDb cas
+    -> S.Stream (Of Cut) m r
+    -> S.Stream (Of BlockHeader) m r
+cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(p, n) ->
+    S.foldrT
+        (\(cid, a, b) x -> void $ S.mergeOn uniqueNumber x (branch cid a b))
+        (S.each $ zipCuts p n)
+  where
+    go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (Cut, Cut)) m r
+    go c st = lift (S.next st) >>= \case
+        Left r -> return r
+        Right (x, t) -> case c of
+            Nothing -> go (Just x) t
+            Just a -> S.yield (a, x) >> go (Just x) t
+
+    branch :: ChainId -> BlockHeader -> BlockHeader -> S.Stream (Of BlockHeader) m ()
+    branch cid p n = hoist liftIO $ getBranch
+        (db ^?! cutDbBlockHeaderDb cid)
+        (HS.singleton $ LowerBound $ _blockHash p)
+        (HS.singleton $ UpperBound $ _blockHash n)
+
+    o = order $ _chainGraph db
+
+    uniqueNumber bh = chainIdInt (_chainId bh) + (int $ _blockHeight bh) * o
+
+blockStream :: MonadIO m => CutDb cas -> S.Stream (Of BlockHeader) m r
+blockStream db = cutStreamToHeaderStream db $ cutStream db
 
 cutHashesToBlockHeaderMap
     :: PayloadCas cas
