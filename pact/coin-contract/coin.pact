@@ -27,10 +27,6 @@
   ; --------------------------------------------------------------------------
   ; Capabilities
 
-  (defcap GOVERNANCE ()
-    "Enforce non-upgradeability except in the case of a hard fork"
-    false)
-
   (defcap TRANSFER ()
     "Autonomous capability to protect debit and credit actions"
     true)
