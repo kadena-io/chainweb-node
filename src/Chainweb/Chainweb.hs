@@ -343,8 +343,10 @@ mempoolConfig enableReIntro = Mempool.InMemConfig
     enableReIntro
   where
     blockGasLimit = 1000000               -- TODO: policy decision
-    mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
-    maxRecentLog = 2048                   -- store 2k recent transaction hashes
+    -- mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
+    mempoolReapInterval = 1000000   -- 20 mins
+    -- maxRecentLog = 2048                   -- store 2k recent transaction hashes
+    maxRecentLog = 100                   -- store 2k recent transaction hashes
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
