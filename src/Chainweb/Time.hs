@@ -49,8 +49,9 @@ module Chainweb.Time
 , maybeCastTime
 , ceilingTime
 , floorTime
+, floorTimeBy
 , getCurrentTimeIntegral
-, epoche
+, epoch
 
 -- * TimeSpan values
 , microsecond
@@ -67,6 +68,12 @@ module Chainweb.Time
 , secondsToText
 , secondsFromText
 , Micros(..)
+
+-- * Math, constants
+, add
+, diff
+, kilo
+, mega
 ) where
 
 import Control.DeepSeq
@@ -81,6 +88,7 @@ import Data.Hashable (Hashable)
 import Data.Int
 import Data.Kind
 import qualified Data.Memory.Endian as BA
+import Data.Ratio
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX
 import Data.Word
@@ -165,9 +173,9 @@ instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
     {-# INLINE add #-}
     {-# INLINE diff #-}
 
-epoche :: Num a => Time a
-epoche = Time (TimeSpan 0)
-{-# INLINE epoche #-}
+epoch :: Num a => Time a
+epoch = Time (TimeSpan 0)
+{-# INLINE epoch #-}
 
 -- | Adhering to `Time`, this is the current number of microseconds since the
 -- epoch.
@@ -213,6 +221,11 @@ minTime = minBound
 maxTime :: Bounded a => Time a
 maxTime = maxBound
 {-# INLINE maxTime #-}
+
+floorTimeBy :: Integral a => TimeSpan a -> Time a -> Time a
+floorTimeBy (TimeSpan a) (Time (TimeSpan b))
+    = Time $ TimeSpan (floor (b % a) * a)
+{-# INLINE floorTimeBy #-}
 
 -- -------------------------------------------------------------------------- --
 -- Time Span Values

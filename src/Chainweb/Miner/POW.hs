@@ -24,6 +24,7 @@ module Chainweb.Miner.POW
 -- * Internal
 , mineCut
 , mine
+, usePowHash
 ) where
 
 import Control.Concurrent.Async
@@ -36,16 +37,16 @@ import Crypto.Hash.IO
 
 import qualified Data.ByteArray as BA
 import Data.Bytes.Put
-import qualified Data.ByteString as BS
 import qualified Data.ByteString as B
+import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import Data.Ratio ((%))
 import Data.Reflection (Given, give)
-import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T5(..))
+import qualified Data.Vector as V
 import Data.Word
 
 import Foreign.Marshal.Alloc
@@ -67,6 +68,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
+import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
@@ -80,6 +82,8 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+
+import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -128,7 +132,7 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
                     _payloadWithOutputsTransactions payload
             !nmb = NewMinedBlock
                    (ObjectEncoded newBh)
-                   (int . Seq.length $ _payloadWithOutputsTransactions payload)
+                   (int . V.length $ _payloadWithOutputsTransactions payload)
                    (int bytes)
                    (estimatedHashes p newBh)
 
@@ -137,13 +141,17 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
 
         -- Publish the new Cut into the CutDb (add to queue).
         --
-        addCutHashes cdb (cutToCutHashes Nothing c')
+        addCutHashes cdb $! cutToCutHashes Nothing c'
+            & set cutHashesHeaders (HM.singleton (_blockHash newBh) newBh)
+            & set cutHashesPayloads
+                (HM.singleton (_blockPayloadHash newBh) (payloadWithOutputsToPayloadData payload))
 
         -- Wait for a new cut. We never mine twice on the same cut. If it stays
         -- at the same cut for a longer time, we are most likely in catchup
         -- mode.
         --
-        void $ awaitCut cdb c
+        trace lf "Miner.POW.powMiner.awaitCut" (cutIdToTextShort $ _cutId c) 1
+            $ void $ awaitCut cdb c
 
         let !wh = case window $ _blockChainwebVersion newBh of
               Just (WindowWidth w) -> BlockHeight (int w)
@@ -219,7 +227,9 @@ mineCut logfun conf nid cdb g !c !adjustments = do
         Just adjParents -> do
 
             -- get payload
-            payload <- _pactNewBlock pact (_configMinerInfo conf) p
+            --
+            payload <- trace logfun "Miner.POW.mineCut._pactNewBlock" (_blockHash p) 1
+                $ _pactNewBlock pact (_configMinerInfo conf) p
 
             -- get target
             --
@@ -247,34 +257,17 @@ mineCut logfun conf nid cdb g !c !adjustments = do
             --
             !c' <- monotonicCutExtension c newHeader
 
-            -- Validate payload
-            --
-            logg Info $! "validate block payload"
-            validatePayload newHeader payload
-            logg Info $! "add block payload to payload cas"
-            addNewPayload payloadDb payload
-
-            logg Info $! "add block to payload db"
-            insertWebBlockHeaderDb newHeader
-
             return $! T5 (PrevBlock p) newHeader payload c' adj'
   where
     v = _chainwebVersion cdb
     wcdb = view cutDbWebBlockHeaderDb cdb
-    payloadDb = view cutDbPayloadCas cdb
     payloadStore = view cutDbPayloadStore cdb
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
 
-    logg :: LogLevel -> T.Text -> IO ()
-    logg = logfun
-
     blockDb :: ChainId -> Maybe BlockHeaderDb
     blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
-
-    validatePayload :: BlockHeader -> PayloadWithOutputs -> IO ()
-    validatePayload h o = void . _pactValidateBlock pact h $ toPayloadData o
 
     getTarget
         :: ChainId
@@ -288,15 +281,6 @@ mineCut logfun conf nid cdb g !c !adjustments = do
             Just db -> do
                 t <- hashTarget db bh
                 pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
-
-    toPayloadData :: PayloadWithOutputs -> PayloadData
-    toPayloadData d = PayloadData
-              { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
-              , _payloadDataMiner = _payloadWithOutputsMiner d
-              , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
-              , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
-              , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
-              }
 
 -- -------------------------------------------------------------------------- --
 --
@@ -328,8 +312,10 @@ usePowHash Test{} f = f $ Proxy @SHA512t_256
 usePowHash TimedConsensus{} f = f $ Proxy @SHA512t_256
 usePowHash PowConsensus{} f = f $ Proxy @SHA512t_256
 usePowHash TimedCPM{} f = f $ Proxy @SHA512t_256
+usePowHash Development{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
 usePowHash Testnet01{} f = f $ Proxy @SHA512t_256
+usePowHash Testnet02{} f = f $ Proxy @SHA512t_256
 
 -- | This Miner makes low-level assumptions about the chainweb protocol. It may
 -- break if the protocol changes.

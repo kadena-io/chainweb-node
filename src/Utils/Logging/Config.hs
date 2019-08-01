@@ -17,7 +17,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Configuration for generic logging utils
 --
 module Utils.Logging.Config
 (
@@ -43,17 +43,6 @@ module Utils.Logging.Config
 , pBackendConfig
 , pBackendConfig_
 
--- * Logging Config
-, ClusterId
-, LogConfig(..)
-, logConfigLogger
-, logConfigBackend
-, logConfigTelemetryBackend
-, logConfigClusterId
-, defaultLogConfig
-, validateLogConfig
-, pLogConfig
-, pLogConfig_
 ) where
 
 import Configuration.Utils
@@ -71,7 +60,6 @@ import qualified Data.Text as T
 import GHC.Generics
 
 import System.Logger.Backend.ColorOption
-import System.Logger.Logger
 
 -- internal modules
 
@@ -141,10 +129,12 @@ handleConfigFromText x = case CI.mk x of
     "stderr" -> return StdErr
     _ | CI.mk (T.take 5 x) == "file:" -> return $ FileHandle (T.unpack (T.drop 5 x))
     _ | CI.mk (T.take 3 x) == "es:" -> ElasticSearch <$> fromText (T.drop 3 x)
+    e -> configFromTextErr e
 
-    e -> throwM $ DecodeException $ "unexpected logger handle value: "
-        <> fromString (show e)
-        <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<HOST>:<PORT>\""
+  where configFromTextErr e =
+          throwM $ DecodeException $ "unexpected logger handle value: "
+          <> fromString (show e)
+          <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<HOST>:<PORT>\""
 
 handleConfigToText :: HandleConfig -> T.Text
 handleConfigToText StdOut = "stdout"
@@ -238,77 +228,3 @@ pBackendConfig_ prefix = id
     <*< backendConfigFormat .:: pLogFormat_ prefix
     <*< backendConfigHandle .:: pHandleConfig_ prefix
 
--- -------------------------------------------------------------------------- --
--- Logging System Configuration
-
--- | An user provided label that is used to tag log messages from nodes.
---
--- It intended purpose is to allow users to defines arbitrary groups of nodes
--- and tag the respective log messages.
---
-newtype ClusterId = ClusterId T.Text
-    deriving (Show, Eq, Ord, Generic)
-    deriving newtype (IsString, ToJSON, FromJSON)
-    deriving anyclass (NFData)
-
-instance HasTextRepresentation ClusterId where
-    toText (ClusterId t) = t
-    fromText = return . ClusterId
-
-data LogConfig = LogConfig
-    { _logConfigLogger :: !LoggerConfig
-    , _logConfigBackend :: !BackendConfig
-    , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
-    , _logConfigClusterId :: !(Maybe ClusterId)
-    }
-    deriving (Show, Eq, Ord, Generic)
-
-makeLenses ''LogConfig
-
-defaultLogConfig :: LogConfig
-defaultLogConfig = LogConfig
-    { _logConfigLogger = defaultLoggerConfig
-    , _logConfigBackend = defaultBackendConfig
-    , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
-    , _logConfigClusterId = Nothing
-    }
-
-validateLogConfig :: ConfigValidation LogConfig []
-validateLogConfig o = do
-    validateLoggerConfig $ _logConfigLogger o
-    validateBackendConfig $ _logConfigBackend o
-    validateBackendConfig $ _enableConfigConfig $ _logConfigTelemetryBackend o
-
-instance ToJSON LogConfig where
-    toJSON o = object
-        [ "logger" .= _logConfigLogger o
-        , "backend" .= _logConfigBackend o
-        , "telemetryBackend" .= _logConfigTelemetryBackend o
-        , "clusterId" .= _logConfigClusterId o
-        ]
-
-instance FromJSON (LogConfig -> LogConfig) where
-    parseJSON = withObject "LogConfig" $ \o -> id
-        <$< logConfigLogger %.: "logger" % o
-        <*< logConfigBackend %.: "backend" % o
-        <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
-        <*< logConfigClusterId ..: "clusterId" % o
-
-pLogConfig :: MParser LogConfig
-pLogConfig = pLogConfig_ ""
-
--- | A version of 'pLogConfig' that takes a prefix for the command
--- line option.
---
-pLogConfig_
-    :: T.Text
-        -- ^ prefix for this and all subordinate command line options.
-    -> MParser LogConfig
-pLogConfig_ prefix = id
-    <$< logConfigLogger %:: pLoggerConfig_ prefix
-    <*< logConfigBackend %:: pBackendConfig_ prefix
-    <*< logConfigTelemetryBackend %::
-        pEnableConfig "telemetry-logger" (pBackendConfig_ $ "telemetry-" <> prefix)
-    <*< logConfigClusterId .:: fmap Just % textOption
-        % long "cluster-id"
-        <> help "a label that is added to all log messages from this node"

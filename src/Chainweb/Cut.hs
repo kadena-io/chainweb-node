@@ -73,6 +73,9 @@ module Chainweb.Cut
 -- * Meet
 , meet
 
+-- * Misc internal tools
+, zipCuts
+
 ) where
 
 import Control.DeepSeq

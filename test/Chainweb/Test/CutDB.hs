@@ -39,8 +39,9 @@ import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Function
-import qualified Data.Sequence as Seq
+import Data.Reflection
 import Data.Tuple.Strict
+import qualified Data.Vector as V
 
 import GHC.Stack
 
@@ -99,7 +100,7 @@ withTestCutDb
         -- ^ the chainweb version
     -> Int
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
-    -> WebPactExecutionService
+    -> (WebBlockHeaderDb -> PayloadDb RocksDbCas -> IO WebPactExecutionService)
         -- ^ a pact execution service.
         --
         -- When transaction don't matter you can use 'fakePact' from this module.
@@ -112,13 +113,14 @@ withTestCutDb
     -> (CutDb RocksDbCas -> IO a)
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> IO a
-withTestCutDb rdb v n pact logfun f = do
+withTestCutDb rdb v n pactIO logfun f = do
     rocksDb <- testRocksDb "withTestCutDb" rdb
     let payloadDb = newPayloadDb rocksDb
         cutHashesDb = cutHashesTable rocksDb
     initializePayloadDb v payloadDb
     webDb <- initWebBlockHeaderDb rocksDb v
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
+    pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
             withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
@@ -249,7 +251,8 @@ withTestCutDbWithoutPact
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> (CutDb RocksDbCas -> IO a)
     -> IO a
-withTestCutDbWithoutPact rdb v n = withTestCutDb rdb v n fakePact
+withTestCutDbWithoutPact rdb v n =
+    withTestCutDb rdb v n (const $ const $ return fakePact)
 
 -- | A version of withTestCutDb that can be used as a Tasty TestTree resource.
 --
@@ -357,7 +360,7 @@ mine miner pact cutDb c = do
     -- * the transaction generator produces valid blocks.
     cid <- getRandomUnblockedChain c
 
-    tryMine miner pact cutDb c cid >>= \case
+    tryMineForChain miner pact cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
             "Failed to create new cut. This is a bug in Test.Chainweb.CutDB or one of it's users"
         Right x -> do
@@ -383,7 +386,7 @@ getRandomUnblockedChain c = do
 -- | Build a linear chainweb (no forks). No POW or poison delay is applied.
 -- Block times are real times.
 --
-tryMine
+tryMineForChain
     :: forall cas
     . HasCallStack
     => PayloadCas cas
@@ -397,21 +400,30 @@ tryMine
     -> Cut
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
-tryMine miner webPact cutDb c cid = do
+tryMineForChain miner webPact cutDb c cid = do
     outputs <- _webPactNewBlock webPact miner parent
+    let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
-    x <- testMineWithPayload webDb payloadDb (Nonce 0) target t outputs (NodeId 0) cid c pact
+    x <- testMineWithPayloadHash (Nonce 0) target t payloadHash (NodeId 0) cid c
     case x of
-        Right (T2 _ c') -> do
+        Right (T2 h c') -> do
+            validate h outputs
             addCutHashes cutDb (cutToCutHashes Nothing c')
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where
     parent = c ^?! ixg cid -- parent to mine on
     target = _blockTarget parent -- No difficulty adjustment
+
     payloadDb = view cutDbPayloadCas cutDb
     webDb = view cutDbWebBlockHeaderDb cutDb
     pact = _webPactExecutionService webPact
+
+    validate h outputs = do
+        let pd = payloadWithOutputsToPayloadData outputs
+        void $ _pactValidateBlock pact h pd
+        addNewPayload payloadDb outputs
+        give webDb (insertWebBlockHeaderDb h)
 
 -- | picks a random block header from a web chain. The result header is
 -- guaranteed to not be a genesis header.
@@ -457,8 +469,8 @@ randomTransaction cutDb = do
     return
         ( bh
         , txIx
-        , Seq.index (_blockTransactions btxs) txIx
-        , Seq.index (_blockOutputs outs) txIx
+        , _blockTransactions btxs V.! txIx
+        , _blockOutputs outs V.! txIx
         )
   where
     payloadDb = view cutDbPayloadCas cutDb
@@ -476,7 +488,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
       \_ d -> return
               $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_ _ -> do
-        payload <- generate $ Seq.fromList . getNonEmpty <$> arbitrary
+        payload <- generate $ V.fromList . getNonEmpty <$> arbitrary
         return $ newPayloadWithOutputs fakeMiner coinbase payload
 
   , _pactLocal = \_t -> error "Unimplemented"

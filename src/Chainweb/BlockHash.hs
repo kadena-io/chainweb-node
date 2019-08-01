@@ -47,8 +47,8 @@ module Chainweb.BlockHash
 , encodeBlockHashRecord
 , decodeBlockHashRecord
 , decodeBlockHashRecordChecked
-, blockHashRecordToSequence
-, blockHashRecordFromSequence
+, blockHashRecordToVector
+, blockHashRecordFromVector
 , blockHashRecordChainIdx
 
 -- * Exceptions
@@ -71,9 +71,9 @@ import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
 import qualified Data.List as L
-import qualified Data.Sequence as S
 import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import GHC.Generics
 
@@ -236,21 +236,21 @@ decodeBlockHashRecordChecked ps = do
     hashes <- mapM decodeBlockHashWithChainIdChecked (Expected <$!> getExpected ps)
     return $! BlockHashRecord $! HM.fromList hashes
 
-blockHashRecordToSequence :: BlockHashRecord -> S.Seq BlockHash
-blockHashRecordToSequence = S.fromList . fmap snd . sort . HM.toList . _getBlockHashRecord
+blockHashRecordToVector :: BlockHashRecord -> V.Vector BlockHash
+blockHashRecordToVector = V.fromList . fmap snd . sort . HM.toList . _getBlockHashRecord
 
 blockHashRecordChainIdx :: BlockHashRecord -> ChainId -> Maybe Int
 blockHashRecordChainIdx r cid
     = L.findIndex (== cid) . sort . HM.keys $ _getBlockHashRecord r
 
-blockHashRecordFromSequence
+blockHashRecordFromVector
     :: HasChainGraph g
     => HasChainId c
     => g
     -> c
-    -> S.Seq BlockHash
+    -> V.Vector BlockHash
     -> BlockHashRecord
-blockHashRecordFromSequence g cid = BlockHashRecord
+blockHashRecordFromVector g cid = BlockHashRecord
     . HM.fromList
     . zip (sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList

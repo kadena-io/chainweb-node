@@ -65,6 +65,7 @@ module Chainweb.Test.Utils
 , withBlockHeaderDbsServer
 , withPeerDbsServer
 , withPayloadServer
+, withRocksResource
 
 -- * QuickCheck Properties
 , prop_iso
@@ -125,6 +126,8 @@ import Numeric.Natural
 
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
+import System.Directory
+import System.IO.Temp
 import System.Random (randomIO)
 
 import Test.QuickCheck
@@ -162,8 +165,6 @@ import Data.CAS.RocksDB
 
 import Network.X509.SelfSigned
 
-import Numeric.AffineSpace
-
 import qualified P2P.Node.PeerDB as P2P
 
 -- -------------------------------------------------------------------------- --
@@ -191,6 +192,22 @@ testRocksDb
 testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
+
+withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
+withRocksResource m = withResource create destroy wrap
+  where
+    create = do
+      sysdir <- getCanonicalTemporaryDirectory
+      dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
+      rocks <- openRocksDb dir
+      return (dir, rocks)
+    destroy (dir, rocks) = do
+        closeRocksDb rocks
+        destroyRocksDb dir
+        removeDirectoryRecursive dir
+          `catchAllSynchronous` (const $ return ())
+    wrap ioact = let io' = snd <$> ioact in m io'
+
 
 -- -------------------------------------------------------------------------- --
 -- Toy Values

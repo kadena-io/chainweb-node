@@ -102,7 +102,7 @@ import Control.Monad.IO.Class
 import Control.Monad.STM
 import Control.Monad.Trans.Control
 
-import Data.Aeson.Encoding hiding (int)
+import Data.Aeson.Encoding hiding (int, bool)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Text as T
@@ -667,17 +667,19 @@ withFileHandleLogger config f =
 
 withExampleLogger
     :: W.Port
-    -> LogConfig
+    -> L.LoggerConfig
         -- ^ Logger configuration
+    -> BackendConfig
+        -- ^ Logger backend configurationjk
     -> FilePath
     -> (L.Logger SomeLogMessage -> IO a)
     -> IO a
-withExampleLogger port config staticDir f = do
+withExampleLogger port loggerConfig backendConfig staticDir f = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
-    withBaseHandleBackend "example-logger" mgr (_logConfigBackend config) $ \baseBackend ->
+    withBaseHandleBackend "example-logger" mgr backendConfig $ \baseBackend ->
         withJsonEventSourceAppBackend @(JsonLog P2pSessionInfo) port staticDir $ \sessionsBackend -> do
             let loggerBackend = logHandles
                     [ logHandler sessionsBackend ]
                     baseBackend
                         -- The type system enforces that backend is a base logger.
-            L.withLogger (_logConfigLogger config) loggerBackend f
+            L.withLogger loggerConfig loggerBackend f

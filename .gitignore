@@ -1,3 +1,4 @@
+*.dump-hi
 *.pem
 .dir-locals.el
 dist
@@ -42,3 +43,4 @@ hlint.hs
 *.png
 *.graphml
 cache/
+*.dump-hi

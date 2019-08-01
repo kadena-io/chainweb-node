@@ -2,10 +2,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
@@ -48,7 +48,6 @@ import Control.Monad.Catch (Exception(..))
 import Data.Aeson
 import Data.Default (def)
 import Data.Foldable (for_)
-import Data.Int (Int64)
 import Data.Maybe
 import Data.Text (Text, pack)
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -125,9 +124,9 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
               $ set cePublicData pd' buyGasEnv
 
         -- initialize refstate with cached module definitions
-        let ist = set (evalRefs . rsLoadedModules) mcache' def
+        let st0 = set (evalRefs . rsLoadedModules) mcache' def
 
-        cmdResultE <- catchesPactError $! runPayload payloadEnv ist cmd buyGasLogs
+        cmdResultE <- catchesPactError $! runPayload payloadEnv st0 cmd buyGasLogs
 
         case cmdResultE of
 
@@ -136,14 +135,14 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
             jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0) mcache'
               "tx failure for request key when running cmd"
 
-          Right (T2 cmdResult mcache'') -> do
+          Right (T2 cmdResult !mcache'') -> do
 
             logDebugRequestKey logger requestKey "success for requestKey"
 
             let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
                 cmdLogs = fromMaybe [] $ _crLogs cmdResult
             redeemResultE <- catchesPactError $!
-              redeemGas redeemGasEnv cmd cmdResult pactId supply cmdLogs mcache''
+              redeemGas redeemGasEnv cmd cmdResult pactId cmdLogs mcache''
 
             case redeemResultE of
 
@@ -152,13 +151,13 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
                 jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult) mcache''
                   "tx failure for request key while redeeming gas"
 
-              Right (T2 redeemResult mcache''') -> do
+              Right (T2 redeemResult !mcache''') -> do
 
                 let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
                     !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
 
                 logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                pure $! T2 finalResult mcache'''
+                pure $! T2 finalResult $! mcache'''
 
 applyGenesisCmd
     :: Logger
@@ -305,7 +304,7 @@ applyExec env@CommandEnv{..} initState rk em senderSigs hsh prevLogs = do
 -- | variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
 applyExec'
-    ::CommandEnv p
+    :: CommandEnv p
     -> EvalState
     -> ExecMsg ParsedCode
     -> [Signer]
@@ -384,7 +383,7 @@ buyGas env cmd (MinerInfo minerId minerKeys) supply mcache = do
     result <- applyExec' env initState buyGasCmd
       (_pSigners $ _cmdPayload cmd) bgHash
 
-    let mcache' = _erLoadedModules result
+    let !mcache' = _erLoadedModules result
 
     case _erExec result of
       Nothing -> return $!
@@ -401,25 +400,21 @@ redeemGas
     -> Command (Payload PublicMeta ParsedCode)
     -> CommandResult a -- ^ result from the user command payload
     -> GasId           -- ^ result of the buy-gas continuation
-    -> GasSupply       -- ^ the total calculated supply of gas (as Decimal)
     -> [TxLog Value]   -- ^ previous txlogs
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-redeemGas env cmd cmdResult gid supply prevLogs mcache = do
-    let (Gas fee) = _crGas cmdResult
+redeemGas env cmd cmdResult gid prevLogs mcache = do
+    let fee       = gasFeeOf (_crGas cmdResult) (gasPriceOf cmd)
         rk        = cmdToRequestKey cmd
         initState = set (evalRefs . rsLoadedModules) mcache
           $ initCapabilities [magic_FUND_TX]
 
-    applyContinuation env initState rk (redeemGasCmd fee supply gid)
+    applyContinuation env initState rk (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
 
   where
-    redeemGasCmd :: Int64 -> GasSupply -> GasId -> ContMsg
-    redeemGasCmd fee total (GasId pid) =
-      ContMsg pid 1 False (object [ "fee" .= feeOf total fee ]) Nothing
-
-    feeOf total fee = total - fromIntegral @Int64 @GasSupply fee
+    redeemGasCmd fee (GasId pid) =
+      ContMsg pid 1 False (object [ "fee" .= fee ]) Nothing
 
 -- | Build the 'coin-contract.buygas' command
 --
@@ -495,6 +490,13 @@ gasSupplyOf cmd = l * p
     l :: GasSupply = fromIntegral @GasLimit @GasSupply $ gasLimitOf cmd
     p :: GasSupply = fromRational $ toRational $ gasPriceOf cmd
 {-# INLINABLE gasSupplyOf #-}
+
+gasFeeOf :: Gas -> GasPrice -> GasSupply
+gasFeeOf gas gp = s * p
+  where
+    p = fromRational $ toRational gp
+    s = fromIntegral @Gas @GasSupply gas
+{-# INLINABLE gasFeeOf #-}
 
 -- | Log request keys at DEBUG when successful
 --

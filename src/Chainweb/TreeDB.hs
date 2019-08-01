@@ -65,6 +65,7 @@ module Chainweb.TreeDB
 , forkEntry
 , branchDiff
 , branchDiff_
+, collectForkBlocks
 
 -- * properties
 , properties
@@ -88,6 +89,8 @@ import qualified Data.List as L
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import Data.Typeable
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 
 import GHC.Generics
 
@@ -95,6 +98,7 @@ import Numeric.Natural
 
 import Prelude hiding (lookup)
 
+import Streaming.Prelude (Of)
 import qualified Streaming.Prelude as S
 
 import Test.QuickCheck
@@ -327,6 +331,9 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     --
     -- The result stream may return less than the requested number of items.
     --
+    -- Also see 'getBranch' for a less powerful but easier to use variant of
+    -- this function.
+    --
     branchEntries
         :: db
         -> Maybe (NextItem (DbKey db))
@@ -419,9 +426,9 @@ applyRank l u
     = maybe id (\x -> S.filter (\e -> rank e <= x)) (_getMaxRank <$> u)
     . maybe id (\x -> S.filter (\e -> rank e >= x)) (_getMinRank <$> l)
 
--- | @getBranch s a b@ returns all nodes that are predecessors of nodes in @a@
--- and not predecessors of any node in @b@. Entries are returned in descending
--- order.
+-- | @getBranch db lower upper@ returns all nodes that are predecessors of nodes
+-- in @upper@ and not predecessors of any node in @lower@. Entries are returned
+-- in descending order.
 --
 getBranch
     :: forall db
@@ -633,7 +640,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         GenesisParentSelf -> return $ Just e
         GenesisParentNone -> return Nothing
         GenesisParentThrow -> throwM
-            $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block"
+            $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block. Most likely this means that the genesis headers haven't been generated correctly. If you are using a development or testing chainweb version consider resetting the databases."
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
         (Just !x) -> return $! Just x
@@ -669,6 +676,8 @@ toTree db = do
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
 
+-- | Returns the fork entry of two branches of the 'TreeDb'.
+--
 forkEntry
     :: TreeDb db
     => db
@@ -677,6 +686,11 @@ forkEntry
     -> IO (DbEntry db)
 forkEntry db a b = S.effects $ branchDiff_ db a b
 
+-- | Compares two branches of a 'TreeDb'. The fork entry is included as last
+-- item in the stream.
+--
+-- If you only need one branch of the fork you may use 'getBranch' instead.
+--
 branchDiff
     :: TreeDb db
     => db
@@ -685,6 +699,11 @@ branchDiff
     -> S.Stream (Of (DiffItem (DbEntry db))) IO ()
 branchDiff db l r = branchDiff_ db l r >>= \i -> S.yield (BothD i i)
 
+-- | Compares two branches of a 'TreeDb'. The fork entry is returned as the
+-- result of the stream computation.
+--
+-- If you only need one branch of the fork you may use 'getBranch' instead.
+--
 branchDiff_
     :: TreeDb db
     => db
@@ -709,6 +728,37 @@ branchDiff_ db = go
             rp <- step r
             go lp rp
     step = lift . lookupParentM GenesisParentThrow db
+
+
+-- -------------------------------------------------------------------------- --
+-- | Collects the blocks on the old and new branches of a fork. Returns
+--   @(commonAncestor, oldBlocks, newBlocks)@.
+collectForkBlocks
+    :: forall db . TreeDb db
+    => db
+    -> DbEntry db
+    -> DbEntry db
+    -> IO (DbEntry db, Vector (DbEntry db), Vector (DbEntry db))
+collectForkBlocks db lastHeader newHeader = do
+    (oldL, newL) <- go (branchDiff db lastHeader newHeader) ([], [])
+    when (null oldL) $ throwM $ TreeDbParentMissing @db lastHeader
+    let !common = head oldL
+    let !old = V.fromList $ tail oldL
+    let !new = V.fromList $ tail newL
+    return $! (common, old, new)
+  where
+    go !stream (!oldBlocks, !newBlocks) = do
+        nxt <- S.next stream
+        case nxt of
+            -- end of the stream, last item is common branch point of the forks
+            -- removing the common branch block with tail -- the lists should never be empty
+            Left _ -> return (oldBlocks, newBlocks)
+
+            Right (LeftD blk, strm) -> go strm (blk:oldBlocks, newBlocks)
+            Right (RightD blk, strm) -> go strm (oldBlocks, blk:newBlocks)
+            Right (BothD lBlk rBlk, strm) -> go strm ( lBlk:oldBlocks,
+                                                       rBlk:newBlocks )
+{-# INLINE collectForkBlocks #-}
 
 -- -------------------------------------------------------------------------- --
 -- Properties
