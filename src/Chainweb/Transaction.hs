@@ -56,7 +56,7 @@ instance FromJSON PayloadWithText where
     parseJSON = Aeson.withText "PayloadWithText" $ \text -> let bs = T.encodeUtf8 text in
         case traverse parsePact =<< Aeson.eitherDecodeStrict' bs of
           Left err -> fail err
-          (Right !payload) -> pure $! PayloadWithText bs payload
+          (Right !payload) -> pure $! PayloadWithText bs (force payload)
       where
         parsePact :: Text -> Either String ParsedCode
         parsePact code = ParsedCode code <$> parseExprs code
