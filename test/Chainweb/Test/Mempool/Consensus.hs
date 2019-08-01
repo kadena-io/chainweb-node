@@ -9,6 +9,7 @@ module Chainweb.Test.Mempool.Consensus
 
 import Control.Monad.IO.Class
 
+import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
@@ -149,7 +150,7 @@ getTransPool =
   where
     txHashes = fmap (\n -> do
                         mockTx <- mkMockTx n
-                        return $ TransactionHash $ mockEncode mockTx )
+                        return $ TransactionHash $ SB.toShort $ mockEncode mockTx )
                     [1..100]
 
 ----------------------------------------------------------------------------------------------------
