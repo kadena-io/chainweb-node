@@ -14,6 +14,7 @@ module Chainweb.WebPactExecutionService
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TQueue
+import Control.DeepSeq
 import Control.Monad.Catch
 import qualified Data.Either as Either
 import Data.Foldable
@@ -104,7 +105,7 @@ markAllValidated mempool payload height hash = mempoolMarkValidated mempool vali
     decodeTx = codecDecode $ txCodec txcfg
     decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
                    $ toList $ _payloadWithOutputsTransactions payload
-    !validatedTxs = V.fromList $ map ( \t -> ValidatedTransaction
+    !validatedTxs = V.fromList $ map ( \t -> force $ ValidatedTransaction
                                          { validatedHeight = height
                                          , validatedHash = hash
                                          , validatedTransaction = t }
