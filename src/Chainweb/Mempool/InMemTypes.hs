@@ -27,6 +27,8 @@ import Data.HashPSQ (HashPSQ)
 import Data.HashSet (HashSet)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
+import Data.Tuple.Strict
+import qualified Data.Vector as V
 
 import Pact.Types.Gas (GasPrice(..))
 
@@ -60,10 +62,10 @@ data InMemConfig t = InMemConfig {
 
 ------------------------------------------------------------------------------
 data InMemoryMempool t = InMemoryMempool {
-    _inmemCfg :: InMemConfig t
-  , _inmemDataLock :: MVar (InMemoryMempoolData t)
-  , _inmemReaper :: ThreadId
-  , _inmemNonce :: ServerNonce
+    _inmemCfg :: !(InMemConfig t)
+  , _inmemDataLock :: !(MVar (InMemoryMempoolData t))
+  , _inmemReaper :: !ThreadId
+  , _inmemNonce :: !ServerNonce
 }
 
 ------------------------------------------------------------------------------
@@ -80,8 +82,8 @@ data InMemoryMempoolData t = InMemoryMempoolData {
 }
 
 ------------------------------------------------------------------------------
-type RecentItem = (MempoolTxId, TransactionHash)
+type RecentItem = T2 MempoolTxId TransactionHash
 data RecentLog = RecentLog {
     _rlNext :: {-# UNPACK #-} !MempoolTxId
-  , _rlRecent :: ![RecentItem]
+  , _rlRecent :: !(V.Vector RecentItem)
   }

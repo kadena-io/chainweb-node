@@ -26,6 +26,7 @@ import Control.Lens
 import Control.Monad
 
 import qualified Data.Aeson as A
+import qualified Data.ByteString.Short as SB
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
@@ -169,7 +170,7 @@ testMPValidated
     -> RequestKeys
     -> Assertion
 testMPValidated mPool rks = do
-    let txHashes = V.fromList . NEL.toList . NEL.map (TransactionHash . H.unHash . unRequestKey) $ _rkRequestKeys rks
+    let txHashes = V.fromList . NEL.toList . NEL.map (TransactionHash . SB.toShort . H.unHash . unRequestKey) $ _rkRequestKeys rks
     b <- go maxMempoolRetries mPool txHashes
     assertBool "At least one transaction was not validated" b
   where
