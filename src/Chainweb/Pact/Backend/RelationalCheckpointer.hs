@@ -25,8 +25,11 @@ import Control.Monad.State (gets)
 import Data.ByteString (ByteString)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.List as List
 import Data.Serialize hiding (get)
 import qualified Data.Text as T
+import qualified Data.Vector as V
+import qualified Data.Vector.Algorithms.Tim as TimSort
 
 import Database.SQLite3.Direct (Utf8(..))
 
@@ -125,22 +128,24 @@ doSave dbenv hash = runBlockEnv dbenv $ do
     runPending bh = do
         (newTables, writes, _) <- use bsPendingBlock
         createNewTables bh $ toList newTables
-        runWrites bh $ concat $ HashMap.elems writes
+        writeV <- toVectorChunks writes
+        callDb "save" $ backendWriteUpdateBatch writeV bh
+
+    prepChunk [] = error "impossible: empty chunk from groupBy"
+    prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
+
+    toVectorChunks writes = liftIO $ do
+        mv <- V.unsafeThaw $ V.fromList $ concat $ HashMap.elems writes
+        TimSort.sort mv
+        l' <- V.toList <$> V.unsafeFreeze mv
+        let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'
+        return $ map prepChunk ll
 
     createNewTables
         :: BlockHeight
         -> [ByteString]
         -> BlockHandler SQLiteEnv ()
     createNewTables bh = mapM_ (\tn -> createUserTable (Utf8 tn) bh)
-
-    -- TODO: make this a big batch write
-    runWrites :: BlockHeight -> [SQLiteRowDelta] -> BlockHandler SQLiteEnv ()
-    runWrites bh = mapM_ (writeOne bh)
-
-    writeOne :: BlockHeight -> SQLiteRowDelta -> BlockHandler SQLiteEnv ()
-    writeOne bh (SQLiteRowDelta tn txid rowkey rowdata) =
-        callDb "save" $
-            backendWriteUpdate (Utf8 rowkey) (Utf8 tn) bh txid (Utf8 rowdata)
 
 doDiscard :: Db -> IO ()
 doDiscard dbenv = runBlockEnv dbenv $ do

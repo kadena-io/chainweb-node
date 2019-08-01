@@ -21,6 +21,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , initSchema
 , clearPendingTxState
 , backendWriteUpdate
+, backendWriteUpdateBatch
 , createUserTable
 ) where
 
@@ -46,6 +47,7 @@ import Data.String
 import Data.String.Conv
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Vector as V
 
 import Database.SQLite3.Direct as SQ3
 
@@ -210,6 +212,31 @@ backendWriteUpdate key tn bh txid (Utf8 v) db = do
       , "](rowkey,blockheight,txid,rowdata) "
       , "VALUES(?,?,?,?)"]
 
+backendWriteUpdateBatch
+    :: [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
+    -> BlockHeight
+    -> Database
+    -> IO ()
+backendWriteUpdateBatch writesByTable bh db = mapM_ writeTable writesByTable
+  where
+    ibh = fromIntegral bh
+    prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
+        [ SText (Utf8 rowkey)
+        , SInt ibh
+        , SInt (fromIntegral txid)
+        , SBlob rowdata ]
+
+    writeTable (tableName, writes) = do
+        execMulti db q (V.toList $ V.map prepRow writes)
+        markTableMutation tableName bh db
+      where
+        q = mconcat
+          ["INSERT OR REPLACE INTO ["
+          , tableName
+          , "](rowkey,blockheight,txid,rowdata) "
+          , "VALUES(?,?,?,?)"]
+
+
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
 markTableMutation tablename blockheight db = do
     exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
@@ -367,10 +394,7 @@ modifyPendingData f = do
       Nothing -> bsPendingBlock %= f
 
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
-doCreateUserTable tn@(TableName ttxt) mn = do
-    -- TODO: perform createUserTable at save
-    -- bh <- gets _bsBlockHeight
-    void $ fail "FIXME: remove when we createUserTables at save"
+doCreateUserTable tn@(TableName ttxt) mn =
     modifyPendingData $ \(c, w, l) ->
         let c' = HashSet.insert (T.encodeUtf8 ttxt) c
             l' = M.insertWith (flip (++)) (TableName txlogKey) txlogs l

@@ -160,13 +160,20 @@ data SQLiteRowDelta = SQLiteRowDelta
     , _deltaTxId :: {-# UNPACK #-} !TxId
     , _deltaRowKey :: !ByteString
     , _deltaData :: !ByteString
-    } deriving (Show, Generic)
+    } deriving (Show, Generic, Eq)
+
+instance Ord SQLiteRowDelta where
+    compare a b = compare aa bb
+      where
+        aa = (_deltaTableName a, _deltaRowKey a, _deltaTxId a)
+        bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
+    {-# INLINE compare #-}
 
 data SQLiteDeltaKey = SQLiteDeltaKey
     { _dkTable :: !ByteString
     , _dkRowKey :: !ByteString
     }
-  deriving (Show, Generic, Eq)
+  deriving (Show, Generic, Eq, Ord)
   deriving anyclass Hashable
 
 -- todo: try difference list here

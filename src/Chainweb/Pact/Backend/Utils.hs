@@ -22,6 +22,7 @@ import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Exception.Safe (tryAny)
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State.Strict
 
@@ -229,3 +230,16 @@ sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
 sqlite_open_fullmutex = 0x00010000
+
+
+execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
+execMulti db q rows = do
+    stmt <- prepStmt db q
+    forM_ rows $ \row -> do
+        bindParams stmt row
+        step stmt >>= checkStepResult
+    void $ finalize stmt
+  where
+    checkStepResult (Left e) = void $ fail $ "error during batch insert: " ++ show e
+    checkStepResult (Right Done) = return ()
+    checkStepResult (Right _) = void $ fail "error during batch insert: unexpected ROW"
