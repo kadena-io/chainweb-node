@@ -114,8 +114,8 @@ doReadRow d k =
     queryStmt = mconcat [ "SELECT rowdata FROM ["
                         , tableName
                         , "]  WHERE rowkey = ? \
-                          \ORDER BY blockheight DESC, txid DESC \
-                          \LIMIT 1;"
+                          \ ORDER BY blockheight DESC, txid DESC \
+                          \ LIMIT 1;"
                         ]
 
     lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
@@ -142,6 +142,9 @@ doReadRow d k =
 
     lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
     lookupInDb rowkey = do
+        -- First, check: did we create this table during this block? If so,
+        -- there's no point in looking up the key.
+        checkDbTableExists tableName
         result <- lift $ callDb "doReadRow"
                        $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
@@ -150,6 +153,16 @@ doReadRow d k =
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
+
+checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
+checkDbTableExists tableName = do
+    pd <- lift getPendingData
+    let checkOne (s, _, _) = do
+            let b = HashSet.member tableNameBS s
+            when b mzero
+    mapM_ checkOne pd
+  where
+    (Utf8 tableNameBS) = tableName
 
 writeSys
     :: (AsString k, ToJSON v)
@@ -306,13 +319,7 @@ doKeys
     => Domain k v
     -> BlockHandler SQLiteEnv [k]
 doKeys d = do
-    ks <- callDb "doKeys" $ \db ->
-            qry_ db  ("SELECT DISTINCT rowkey FROM [" <> tn <> "];") [RText]
-    dbKeys <- forM ks $ \row -> do
-        case row of
-            [SText (Utf8 k)] -> return $ toS k
-            _ -> internalError "doKeys: The impossible happened."
-
+    dbKeys <- getDbKeys
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
 
@@ -326,6 +333,19 @@ doKeys d = do
     return allKeys
 
   where
+    getDbKeys = do
+        m <- runMaybeT $ checkDbTableExists $ Utf8 tnS
+        case m of
+            Nothing -> return mempty
+            Just () -> do
+                ks <- callDb "doKeys" $ \db ->
+                          qry_ db  ("SELECT DISTINCT rowkey FROM ["
+                                    <> tn <> "];") [RText]
+                forM ks $ \row -> do
+                    case row of
+                        [SText (Utf8 k)] -> return $! toS k
+                        _ -> internalError "doKeys: The impossible happened."
+
     tn = domainTableName d
     tnS = toS tn
     collect (_, m, _) =
@@ -336,13 +356,7 @@ doKeys d = do
 -- tid is non-inclusive lower bound for the search
 doTxIds :: TableName -> TxId -> BlockHandler SQLiteEnv [TxId]
 doTxIds (TableName tn) _tid@(TxId tid) = do
-    rows <- callDb "doTxIds" $ \db ->
-      qry db stmt
-        [SInt (fromIntegral tid)]
-        [RInt]
-    dbOut <- forM rows $ \case
-        [SInt tid'] -> return $ TxId (fromIntegral tid')
-        _ -> internalError "doTxIds: the impossible happened"
+    dbOut <- getFromDb
 
     -- also collect from pending non-committed data
     pb <- use bsPendingBlock
@@ -354,6 +368,19 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
            $ dbOut ++ collect pb ++ maybe [] collect mptx
 
   where
+    getFromDb = do
+        m <- runMaybeT $ checkDbTableExists $ Utf8 tnS
+        case m of
+            Nothing -> return mempty
+            Just () -> do
+                rows <- callDb "doTxIds" $ \db ->
+                  qry db stmt
+                    [SInt (fromIntegral tid)]
+                    [RInt]
+                forM rows $ \case
+                    [SInt tid'] -> return $ TxId (fromIntegral tid')
+                    _ -> internalError "doTxIds: the impossible happened"
+
     stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 
     tnS = toS tn
@@ -421,8 +448,6 @@ doCommit = use bsMode >>= \mm -> case mm of
               pending <- use bsPendingTx
               modify' (over bsPendingBlock $ merge pending)
               (_, _, blockLogs) <- use bsPendingBlock
-              -- clear out txlog entries
-              modify' (over bsPendingBlock $ \(a, b, _) -> (a, b, mempty))
               bsPendingTx .= Nothing
               resetTemp
               return blockLogs
@@ -430,10 +455,10 @@ doCommit = use bsMode >>= \mm -> case mm of
         return $! concat txrs
   where
     merge Nothing a = a
-    merge (Just (creationsA, writesA, _)) (creationsB, writesB, logsB) =
+    merge (Just (creationsA, writesA, logsA)) (creationsB, writesB, _) =
         let creations = HashSet.union creationsA creationsB
             writes = HashMap.unionWith (flip (++)) writesA writesB
-            logs = logsB
+            logs = logsA
         in (creations, writes, logs)
 
 {-# INLINE doCommit #-}
@@ -460,7 +485,10 @@ doBegin m = do
 {-# INLINE doBegin #-}
 
 resetTemp :: BlockHandler SQLiteEnv ()
-resetTemp = bsMode .= Nothing
+resetTemp = do
+    bsMode .= Nothing
+    -- clear out txlog entries
+    modify' (over bsPendingBlock $ \(a, b, _) -> (a, b, mempty))
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
@@ -470,12 +498,21 @@ doGetTxLog d txid = do
     if null p then readFromDb else return p
 
   where
+    predicate delta = _deltaTxId delta == txid &&
+                      _deltaTableName delta == tableNameBS
+
+    tableName = domainTableName d
+    (Utf8 tableNameBS) = tableName
+
+    takeLast [] = []
+    takeLast xs = [last xs]
+
     readFromPending = do
-        pb <- use bsPendingBlock
         ptx <- maybe [] (:[]) <$> use bsPendingTx
+        pb <- use bsPendingBlock
         let pendingWrites = map (\(_, a, _) -> a) (ptx ++ [pb])
-        let deltas = concat $ concatMap HashMap.elems pendingWrites
-        let ourDeltas = filter (\delta -> _deltaTxId delta == txid) deltas
+        let deltas = concat $ map takeLast $ concatMap HashMap.elems pendingWrites
+        let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
     readFromDb = do
@@ -499,7 +536,7 @@ doGetTxLog d txid = do
               return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
 
     stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
-                , domainTableName d
+                , tableName
                 , "] WHERE txid = ? AND blockheight = ?"
                 ]
 
