@@ -138,7 +138,7 @@ doReadRow d k =
             then mzero
             -- we merge with (flip (++)) which should produce txids in order --
             -- we care about the last update to this rowkey
-            else MaybeT $ return $! decode $ fromStrict $ last ddata
+            else MaybeT $ return $! decode $ fromStrict $ head ddata
 
     lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
     lookupInDb rowkey = do
@@ -201,7 +201,7 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     deltaKey = SQLiteDeltaKey tn key
 
     modf (a, m, l) = (a, upd m, l)
-    upd = HashMap.insertWith (flip (++)) deltaKey [delta]
+    upd = HashMap.insertWith (++) deltaKey [delta]
 
 backendWriteUpdate
     :: Utf8
@@ -363,7 +363,8 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     mptx <- use bsPendingTx
 
     -- uniquify txids before returning
-    return $! Set.toList
+    return $! reverse
+           $ Set.toList
            $! Set.fromList
            $ dbOut ++ collect pb ++ maybe [] collect mptx
 
@@ -408,7 +409,7 @@ recordTxLog tt d k v = do
       (Just _) -> modify' (over (bsPendingTx . _Just) upd)
 
   where
-    upd (a, b, m) = (a, b, M.insertWith (flip (++)) tt txlogs m)
+    upd (a, b, m) = (a, b, M.insertWith (++) tt txlogs m)
     txlogs = [TxLog (asString d) (asString k) (toJSON v)]
 
 modifyPendingData
@@ -424,7 +425,7 @@ doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn =
     modifyPendingData $ \(c, w, l) ->
         let c' = HashSet.insert (T.encodeUtf8 ttxt) c
-            l' = M.insertWith (flip (++)) (TableName txlogKey) txlogs l
+            l' = M.insertWith (++) (TableName txlogKey) txlogs l
         in (c', w, l')
 
   where
