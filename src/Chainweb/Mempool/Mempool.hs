@@ -448,7 +448,7 @@ chainwebTestHashMeta = HashMeta "chainweb-sha512-256" 32
 data ValidatedTransaction t = ValidatedTransaction
     { validatedHeight :: {-# UNPACK #-} !BlockHeight
     , validatedHash :: {-# UNPACK #-} !BlockHash
-    , validatedTransaction :: t
+    , validatedTransaction :: !t
     }
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
