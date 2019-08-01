@@ -50,7 +50,7 @@ import System.Random
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (fromJuste)
+import Chainweb.Utils (fromJuste, ssnd)
 
 
 ------------------------------------------------------------------------------
@@ -471,6 +471,6 @@ getRecentTxs maxNumRecent oldHw rlog
   where
     oldNext = _rlNext rlog
     oldestHw = oldNext - fromIntegral maxNumRecent
-    txs = V.map (\(T2 _ b) -> b) $ V.takeWhile pred $ _rlRecent rlog
+    txs = V.map ssnd $ V.takeWhile pred $ _rlRecent rlog
     pred (T2 x _) = x >= oldHw
 
