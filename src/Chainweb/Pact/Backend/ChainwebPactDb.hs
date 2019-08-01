@@ -108,7 +108,7 @@ doReadRow d k =
           "SELECT rowdata \
           \FROM [" <> domainTableName d <> "]\
           \ WHERE rowkey = ?\
-          \ ORDER BY blockheight DESC\
+          \ ORDER BY blockheight DESC, txid DESC\
           \ LIMIT 1"
 
 writeSys
@@ -154,9 +154,8 @@ backendWriteInsert key tn bh txid v db = do
                , SInt (fromIntegral bh)
                , SInt (fromIntegral txid)
                , SBlob (toStrict (Data.Aeson.encode v))]
-    exec' db mutq [SText tn, SInt (fromIntegral bh)]
+    markTableMutation tn bh db
   where
-    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
     q = mconcat [ "INSERT INTO ["
                 , tn
                 , "] ('rowkey','blockheight','txid','rowdata') \
@@ -178,9 +177,8 @@ backendWriteUpdate key tn bh txid v db = do
                , SInt (fromIntegral txid)
                , SBlob (toStrict (Data.Aeson.encode v))
                ]
-    exec' db mutq [SText tn, SInt (fromIntegral bh)]
+    markTableMutation tn bh db
   where
-    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
     q = mconcat
       ["INSERT OR REPLACE INTO ["
       , tn
@@ -202,14 +200,20 @@ backendWriteWrite key tn bh txid v db = do
                , SInt (fromIntegral txid)
                , SBlob (toStrict (Data.Aeson.encode v))
                ]
-    exec' db mutq [SText tn, SInt (fromIntegral bh)]
+    markTableMutation tn bh db
   where
-    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
     q = mconcat [ "INSERT OR REPLACE INTO ["
                 , tn
                 , "] ('rowkey','blockheight','txid','rowdata') \
                   \ VALUES (?,?,?,?) ;"
                 ]
+
+markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
+markTableMutation tablename blockheight db = do
+    exec' db mutq [SText tablename, SInt (fromIntegral blockheight)]
+  where
+    mutq = "INSERT OR IGNORE INTO VersionedTableMutation VALUES (?,?);"
+
 
 writeUser
   :: WriteType
@@ -228,14 +232,14 @@ writeUser wt d k row = do
         olds <- doReadRow d key
         case (olds, wt) of
             (Nothing, Insert) -> ins
-            (Just _, Insert) -> err
+            (Just _, Insert) -> err "Insert: row found for key "
             (Nothing, Write) -> ins
             (Just old, Write) -> upd old
             (Just old, Update) -> upd old
-            (Nothing, Update) -> err
+            (Nothing, Update) -> err "Update: no row found for key "
       where
-        err = internalError $
-          "writeUser: Update: no row found for key " <>
+        err msg = internalError $
+          "writeUser: " <> msg <>
           asString key
         upd oldrow = do
             let row' = ObjectMap (M.union (_objectMap row) (_objectMap oldrow))
@@ -248,7 +252,6 @@ writeUser wt d k row = do
             callDb "writeUser"
               $ backendWriteInsert (Utf8 $! toS $ asString key) tn bh txid row
             record (toTableName tn) d key row
-
 
 doWriteRow
   :: (AsString k, ToJSON v)
@@ -433,25 +436,24 @@ createTableCreationTable =
 createTableMutationTable :: BlockHandler SQLiteEnv ()
 createTableMutationTable =
     callDb "createTableMutationTable" $ \db -> do
-      exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
-               \(tablename TEXT NOT NULL\
-               \, blockheight UNSIGNED BIGINT NOT NULL\
-               \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
-      exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON VersionedTableMutation(blockheight);"
+        exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
+                 \(tablename TEXT NOT NULL\
+                 \, blockheight UNSIGNED BIGINT NOT NULL\
+                 \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
+        exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON VersionedTableMutation(blockheight);"
 
 createUserTable :: TableName -> BlockHeight -> BlockHandler SQLiteEnv ()
 createUserTable name bh =
     callDb "createUserTable" $ \db -> do
-      createVersionedTable tablename indexname db
-      exec' db insertstmt insertargs
+        createVersionedTable tablename db
+        exec' db insertstmt insertargs
   where
     insertstmt = "INSERT OR IGNORE INTO VersionedTableCreation VALUES (?,?)"
     insertargs =  [SText tablename, SInt (fromIntegral bh)]
     tablename = Utf8 (toS $ asString name)
-    indexname = Utf8 (toS $ asString name <> "_bh")
 
-createVersionedTable :: Utf8 -> Utf8 -> Database -> IO ()
-createVersionedTable tablename indexname db = do
+createVersionedTable :: Utf8 -> Database -> IO ()
+createVersionedTable tablename db = do
     exec_ db createtablestmt
     exec_ db indexcreationstmt
   where
@@ -464,12 +466,12 @@ createVersionedTable tablename indexname db = do
              \, rowdata BLOB NOT NULL\
              \, UNIQUE (blockheight, rowkey, txid));"
     indexcreationstmt =
-        mconcat
-            ["CREATE INDEX IF NOT EXISTS ["
-            , indexname
-            , "] ON ["
-            , tablename
-            , "](rowkey, txid);"]
+       mconcat
+           ["CREATE INDEX IF NOT EXISTS ["
+           , tablename
+           , "_ix] ON ["
+           , tablename
+           , "](rowkey, blockheight, txid);"]
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
@@ -492,11 +494,11 @@ handlePossibleRewind bRestore hsh = do
         -- (B_restore-1,H_parent).
         historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
             qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
-                   \blockheight = ? and hash = ?;"
+                   \blockheight = ? AND hash = ?;"
                    [ SInt $! fromIntegral $ pred bRestore
                    , SBlob (Data.Serialize.encode hsh) ]
                    [RInt]
-            >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
+                >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (historyInvariant /= SInt 1) $
           internalError "handlePossibleRewind: History invariant violation"
 
@@ -519,20 +521,30 @@ handlePossibleRewind bRestore hsh = do
             vacuumTablesAtRewind bh droppedtbls db
         t <- deleteHistory
         assign bsTxId t
-
         clearTxIndex
         return $! t
 
 dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
-    toDropTblNames <- qry db findTablesToDropStmt [SInt (fromIntegral bh)] [RText]
-    fmap (HS.fromList) . forM toDropTblNames $ \case
+    toDropTblNames <- qry db findTablesToDropStmt
+                      [SInt (fromIntegral bh)] [RText]
+    tbls <- fmap (HS.fromList) . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tbl)] -> do
             exec_ db $ "DROP TABLE " <> tblname <> ";"
             return tbl
-        _ -> internalError "rewindBlock: dropTablesAtRewind: Couldn't resolve the name of the table to drop."
+        _ -> internalError rewindmsg
+    exec' db
+        "DELETE FROM VersionedTableCreation WHERE createBlockheight >= ?"
+        [SInt (fromIntegral bh)]
+    return tbls
   where findTablesToDropStmt =
-          "SELECT tablename FROM VersionedTableCreation where createBlockheight >= ?;"
+          "SELECT tablename FROM\
+          \ VersionedTableCreation\
+          \ WHERE createBlockheight >= ?;"
+        rewindmsg =
+          "rewindBlock:\
+          \ dropTablesAtRewind: \
+          \Couldn't resolve the name of the table to drop."
 
 vacuumTablesAtRewind :: BlockHeight -> HashSet BS.ByteString -> Database -> IO ()
 vacuumTablesAtRewind bh droppedtbls db = do
@@ -593,4 +605,4 @@ initSchema = withSavepoint DbTransaction $ do
   where
     create tablename = do
         log "DDL" $ "initSchema: "  ++ toS tablename
-        callDb "initSchema" $ createVersionedTable tablename (tablename <> "_bh")
+        callDb "initSchema" $ createVersionedTable tablename

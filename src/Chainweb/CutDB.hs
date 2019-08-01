@@ -58,6 +58,8 @@ module Chainweb.CutDB
 , startCutDb
 , stopCutDb
 , cutDbQueueSize
+, blockStream
+, cutStreamToHeaderStream
 
 -- * Some CutDb
 , CutDbT(..)
@@ -73,6 +75,7 @@ import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
 import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
+import Control.Monad.Morph
 import Control.Monad.STM
 
 import Data.CAS.HashMap
@@ -80,6 +83,7 @@ import Data.Foldable
 import Data.Function
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
@@ -120,6 +124,8 @@ import Data.PQueue
 import Data.Singletons
 
 import P2P.TaskQueue
+
+import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
@@ -389,7 +395,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.chain (\c -> loggc Debug c $ "fetch all prerequesites")
-    & S.mapM (cutHashesToBlockHeaderMap headerStore payloadStore)
+    & S.mapM (cutHashesToBlockHeaderMap logFun headerStore payloadStore)
     & S.chain (either
         (\c -> loggc Warn c "failed to get prerequesites for some blocks")
         (\c -> loggc Debug c "got all prerequesites")
@@ -402,7 +408,8 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
     -- an redundant 'readTVarIO' because it is eaiser to read.
     & S.mapM_ (\newCut -> do
         curCut <- readTVarIO cutVar
-        !resultCut <- joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
+        !resultCut <- trace logFun "Chainweb.CutDB.processCuts._joinIntoHeavier" () 1
+            $ joinIntoHeavier_ hdrStore (_cutMap curCut) newCut
         casInsert cutHashesStore (cutToCutHashes Nothing resultCut)
         atomically $ writeTVar cutVar resultCut
         loggc Info resultCut "published cut"
@@ -467,30 +474,66 @@ cutStream db = liftIO (_cut db) >>= \c -> S.yield c >> go c
         S.yield new
         go new
 
+-- | Given a stream of cuts, produce a stream of all blocks included in those
+-- cuts. Blocks of the same chain are sorted by block height.
+--
+cutStreamToHeaderStream
+    :: forall m cas r
+    . MonadIO m
+    => CutDb cas
+    -> S.Stream (Of Cut) m r
+    -> S.Stream (Of BlockHeader) m r
+cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(p, n) ->
+    S.foldrT
+        (\(cid, a, b) x -> void $ S.mergeOn uniqueNumber x (branch cid a b))
+        (S.each $ zipCuts p n)
+  where
+    go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (Cut, Cut)) m r
+    go c st = lift (S.next st) >>= \case
+        Left r -> return r
+        Right (x, t) -> case c of
+            Nothing -> go (Just x) t
+            Just a -> S.yield (a, x) >> go (Just x) t
+
+    branch :: ChainId -> BlockHeader -> BlockHeader -> S.Stream (Of BlockHeader) m ()
+    branch cid p n = hoist liftIO $ getBranch
+        (db ^?! cutDbBlockHeaderDb cid)
+        (HS.singleton $ LowerBound $ _blockHash p)
+        (HS.singleton $ UpperBound $ _blockHash n)
+
+    o = order $ _chainGraph db
+
+    uniqueNumber bh = chainIdInt (_chainId bh) + (int $ _blockHeight bh) * o
+
+blockStream :: MonadIO m => CutDb cas -> S.Stream (Of BlockHeader) m r
+blockStream db = cutStreamToHeaderStream db $ cutStream db
+
 cutHashesToBlockHeaderMap
     :: PayloadCas cas
-    => WebBlockHeaderStore
+    => LogFunction
+    -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> CutHashes
     -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap headerStore payloadStore hs = do
-    hdrs <- emptyCas
-    traverse_ (casInsert hdrs) $ _cutHashesHeaders hs
+cutHashesToBlockHeaderMap logfun headerStore payloadStore hs =
+    trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" (_cutId hs) 1 $ do
+        hdrs <- emptyCas
+        traverse_ (casInsert hdrs) $ _cutHashesHeaders hs
 
-    plds <- emptyCas
-    traverse_ (casInsert plds) $ _cutHashesPayloads hs
+        plds <- emptyCas
+        traverse_ (casInsert plds) $ _cutHashesPayloads hs
 
-    (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-        & S.map (fmap snd)
-        & S.mapM (tryGetBlockHeader hdrs plds)
-        & S.partitionEithers
-        & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
-        & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
-    if null missing
-        then return $! Right headers
-        else return $! Left missing
+        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
+            & S.map (fmap snd)
+            & S.mapM (tryGetBlockHeader hdrs plds)
+            & S.partitionEithers
+            & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
+            & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
+        if null missing
+            then return $! Right headers
+            else return $! Left missing
   where
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))

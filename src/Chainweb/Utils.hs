@@ -123,6 +123,7 @@ module Chainweb.Utils
 , trySynchronous
 , tryAllSynchronous
 , runForever
+, runForeverThrottled
 
 -- * Command Line Options
 , OptionParser
@@ -170,6 +171,7 @@ import Configuration.Utils hiding (Error, Lens)
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
+import Control.Concurrent.TokenBucket
 import Control.DeepSeq
 import Control.Exception
     (IOException, SomeAsyncException(..), bracket, evaluate)
@@ -563,6 +565,7 @@ encodeToText = TL.toStrict . encodeToLazyText
 --
 encodeToByteString :: ToJSON a => a -> B.ByteString
 encodeToByteString = BL.toStrict . encode
+{-# INLINE encodeToByteString #-}
 
 -- | Decode a JSON value from a strict 'B.ByteString'. If decoding fails a
 -- 'JsonDecodeException' is thrown.
@@ -826,7 +829,35 @@ runForever logfun name a = mask $ \umask -> do
     logfun Info $ "start " <> name
     let go = do
             forever (umask a) `catchAllSynchronous` \e ->
-                logfun Error $ name <> " failed: " <> sshow e
+                logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
+            go
+    void go `finally` logfun Info (name <> " stopped")
+
+-- | Repeatedly run a computation 'forever' at the given rate until it is
+-- stopped by receiving 'SomeAsyncException'.
+--
+-- If the computation throws an exception that is not contained in
+-- 'SomeAsyncException' an error message is logged and the function continues to
+-- repeat the computation 'forever'.
+--
+-- An info-level message is logged when processing starts and stops.
+--
+runForeverThrottled
+    :: (LogLevel -> T.Text -> IO ())
+    -> T.Text
+    -> Word64
+        -- ^ burst size (number of calls)
+    -> Word64
+        -- ^ rate limit (usec / call)
+    -> IO ()
+    -> IO ()
+runForeverThrottled logfun name burst rate a = mask $ \umask -> do
+    tokenBucket <- newTokenBucket
+    logfun Info $ "start " <> name
+    let runThrottled = tokenBucketWait tokenBucket burst rate >> a
+        go = do
+            forever (umask runThrottled) `catchAllSynchronous` \e ->
+                logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
     void go `finally` logfun Info (name <> " stopped")
 
@@ -1070,3 +1101,4 @@ sfst (T2 a _) = a
 
 ssnd :: T2 a b -> b
 ssnd (T2 _ b) = b
+

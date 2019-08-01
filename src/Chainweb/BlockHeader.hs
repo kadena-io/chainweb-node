@@ -90,7 +90,6 @@ module Chainweb.BlockHeader
 , decodeBlockHeaderChecked
 , decodeBlockHeaderCheckedChainId
 , ObjectEncoded(..)
-, NewMinedBlock(..)
 
 , timeBetween
 , getAdjacentHash
@@ -139,8 +138,6 @@ import qualified Data.Text as T
 import Data.Word
 
 import GHC.Generics (Generic)
-
-import Numeric.Natural (Natural)
 
 -- Internal imports
 
@@ -451,7 +448,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: _blockHeight bh
             :+: _blockChainwebVersion bh
             :+: _blockMiner bh
-            :+: MerkleLogBody (blockHashRecordToSequence $ _blockAdjacentHashes bh)
+            :+: MerkleLogBody (blockHashRecordToVector $ _blockAdjacentHashes bh)
 
     fromLog l = BlockHeader
             { _blockNonce = nonce
@@ -465,7 +462,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockHeight = height
             , _blockChainwebVersion = cwv
             , _blockMiner = miner
-            , _blockAdjacentHashes = blockHashRecordFromSequence cwv cid adjParents
+            , _blockAdjacentHashes = blockHashRecordFromVector cwv cid adjParents
             }
       where
         ( nonce
@@ -567,7 +564,7 @@ decodeBlockHeaderWithoutHash = do
         :+: a8
         :+: a9
         :+: a10
-        :+: MerkleLogBody (blockHashRecordToSequence a3)
+        :+: MerkleLogBody (blockHashRecordToVector a3)
 
 -- | Decode a BlockHeader and trust the result
 --
@@ -686,14 +683,6 @@ instance FromJSON (ObjectEncoded BlockHeader) where
         $ fmap ObjectEncoded . parseBlockHeaderObject
     {-# INLINE parseJSON #-}
 
-data NewMinedBlock = NewMinedBlock
-    { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
-    , _minedBlockTrans :: {-# UNPACK #-} !Word
-    , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-    , _minedHashAttempts :: !Natural }
-    deriving (Eq, Show, Generic)
-    deriving anyclass (ToJSON, NFData)
-
 -- -------------------------------------------------------------------------- --
 -- IsBlockHeader
 
@@ -746,7 +735,7 @@ newBlockHeader miner adj pay nonce target t b = fromLog $ newMerkleLog
     :+: _blockHeight b + 1
     :+: v
     :+: miner
-    :+: MerkleLogBody (blockHashRecordToSequence adj)
+    :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId b
     v = _blockChainwebVersion b
