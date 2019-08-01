@@ -136,8 +136,8 @@ doReadRow d k =
         if null ddata
             -- should be impossible, but we'll check this case
             then mzero
-            -- we merge with (flip (++)) which should produce txids in order --
-            -- we care about the last update to this rowkey
+            -- we merge with (++) which should produce txids most-recent-first
+            -- -- we care about the most recent update to this rowkey
             else MaybeT $ return $! decode $ fromStrict $ head ddata
 
     lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
@@ -363,8 +363,7 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     mptx <- use bsPendingTx
 
     -- uniquify txids before returning
-    return $! reverse
-           $ Set.toList
+    return $ Set.toList
            $! Set.fromList
            $ dbOut ++ collect pb ++ maybe [] collect mptx
 
@@ -453,12 +452,13 @@ doCommit = use bsMode >>= \mm -> case mm of
               resetTemp
               return blockLogs
           else doRollback >> return mempty
-        return $! concat txrs
+        return $! concat $ fmap reverse txrs
   where
     merge Nothing a = a
     merge (Just (creationsA, writesA, logsA)) (creationsB, writesB, _) =
         let creations = HashSet.union creationsA creationsB
-            writes = HashMap.unionWith (flip (++)) writesA writesB
+            mergeW a b = take 1 a ++ b
+            writes = HashMap.unionWith mergeW writesA writesB
             logs = logsA
         in (creations, writes, logs)
 
@@ -505,14 +505,14 @@ doGetTxLog d txid = do
     tableName = domainTableName d
     (Utf8 tableNameBS) = tableName
 
-    takeLast [] = []
-    takeLast xs = [last xs]
+    takeHead [] = []
+    takeHead (a:_) = [a]
 
     readFromPending = do
         ptx <- maybe [] (:[]) <$> use bsPendingTx
         pb <- use bsPendingBlock
         let pendingWrites = map (\(_, a, _) -> a) (ptx ++ [pb])
-        let deltas = concat $ map takeLast $ concatMap HashMap.elems pendingWrites
+        let deltas = concat $ map takeHead $ concatMap HashMap.elems pendingWrites
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
