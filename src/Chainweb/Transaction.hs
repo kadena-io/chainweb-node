@@ -42,8 +42,8 @@ import Chainweb.Utils (Codec(..))
 -- the Text that generated it, to make gossiping easier.
 --
 data PayloadWithText = PayloadWithText
-    { payloadBytes :: ByteString
-    , payloadObj :: Payload PublicMeta ParsedCode
+    { payloadBytes :: !ByteString
+    , payloadObj :: !(Payload PublicMeta ParsedCode)
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
