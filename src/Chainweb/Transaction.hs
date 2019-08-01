@@ -77,11 +77,11 @@ instance Hashable (HashableTrans PayloadWithText) where
 
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
-chainwebPayloadCodec = Codec (payloadBytes . _cmdPayload) chainwebPayloadDecode
+chainwebPayloadCodec = Codec (force . payloadBytes . _cmdPayload) (force . chainwebPayloadDecode)
 
 chainwebPayloadDecode :: ByteString -> Either String (Command PayloadWithText)
 chainwebPayloadDecode bs = case Aeson.decodeStrict' bs of
-    Just cmd -> Right cmd
+    Just cmd -> Right $ force cmd
     Nothing -> Left "decoding PayloadWithText failed"
 
 -- | Get the gas limit/supply of a public chain command payload
