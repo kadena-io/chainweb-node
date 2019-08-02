@@ -212,7 +212,7 @@ chainwebPragmas =
   , "journal_mode = WAL"
   , "locking_mode = EXCLUSIVE"
   , "temp_store = MEMORY"
-  , "auto_vacuum = FULL"
+  , "auto_vacuum = NONE"
   , "page_size = 8192"
   ]
 
