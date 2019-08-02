@@ -35,37 +35,13 @@ import Data.Monoid
 import Data.Maybe
 
 bench :: C.Benchmark
-bench = C.bgroup "pact-backend" $
-  map pactSqliteBench [1,5,10,20,50,100,200,500,1000]
-  ++
-  map cpBenchOverBlock [1,5,10,20,50,100,200,500,1000]
+bench = C.bgroup "pact-backend" $ merge (map pactSqliteBench [1,5,10,20,50,100,200,500,1000]) (map cpBenchOverBlock [1,5,10,20,50,100,200,500,1000])
 
-{-
-_cpBench :: C.Benchmark
-_cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "checkpointer" (benches e)
-  where
-
-    setup = do
-      (f,deleter) <- newTempFile
-      !sqliteEnv <- openSQLiteConnection f chainwebPragmas
-      let nolog = newLogger neverLog ""
-      blockEnv <- newMVar $ BlockEnv (BlockDbEnv sqliteEnv nolog) initBlockState
-      runBlockEnv blockEnv initSchema
-      runBlockEnv blockEnv $ beginSavepoint Block
-      return $ NoopNFData (PactDbEnv chainwebPactDb blockEnv, deleter)
-
-    teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
-      runBlockEnv e $ commitSavepoint Block
-      c <- readMVar e
-      closeSQLiteConnection $ _bdbenvDb $ _benvDb c
-      deleter
-
-    benches :: PactDbEnv e -> [C.Benchmark]
-    benches dbEnv =
-      [
-        benchUserTable dbEnv "usertable"
-      ]
--}
+merge :: [a] -> [a] -> [a]
+merge [] [] = []
+merge xs [] = xs
+merge [] ys = ys
+merge (x:xs) (y:ys) = x : y : merge xs ys
 
 cpBenchOverBlock :: Int -> C.Benchmark
 cpBenchOverBlock transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) -> C.bgroup ("batchedCheckpointer/transactionCount=" ++ show transactionCount) (benches e)
@@ -120,7 +96,7 @@ cpBenchOverBlock transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNF
             save _cpeCheckpointer hash02
             return result
           where
-            err = error "Something went in one of the transactions."
+            err = error "Something went wrong in one of the transactions."
             transaction db@(PactDbEnv pdb e) = do
               begin db
               r <- _readRow pdb ut k e
@@ -136,7 +112,7 @@ cpBenchOverBlock transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNF
                   Just _ -> die "field not integer"
 
 pactSqliteBench :: Int -> C.Benchmark
-pactSqliteBench _transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup ("pact-sqlite/transactionCount=" ++ show _transactionCount) (benches e)
+pactSqliteBench transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup ("pact-sqlite/transactionCount=" ++ show transactionCount) (benches e)
   where
 
     setup = do
@@ -154,7 +130,7 @@ pactSqliteBench _transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNF
     benches :: PactDbEnv e -> [C.Benchmark]
     benches dbEnv =
       [
-        benchUserTable _transactionCount dbEnv "usertable"
+        benchUserTable transactionCount dbEnv "usertable"
       ]
 
 begin :: PactDbEnv e -> IO ()
