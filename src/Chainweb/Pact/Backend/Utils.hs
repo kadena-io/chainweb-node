@@ -208,12 +208,12 @@ instance StringConv Utf8 String where
 
 chainwebPragmas :: [Pragma]
 chainwebPragmas =
-  [ "synchronous = OFF" -- was NORMAL
-  , "journal_mode = MEMORY" -- was WAL
+  [ "synchronous = NORMAL"
+  , "journal_mode = WAL"
   , "locking_mode = EXCLUSIVE"
   , "temp_store = MEMORY"
-  -- , "auto_vacuum = FULL"
-  -- , "page_size = 8192"
+  , "auto_vacuum = FULL"
+  , "page_size = 8192"
   ]
 
 
