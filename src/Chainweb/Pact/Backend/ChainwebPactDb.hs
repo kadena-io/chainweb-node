@@ -23,6 +23,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , backendWriteUpdate
 , backendWriteUpdateBatch
 , createUserTable
+, vacuumDb
 ) where
 
 import Control.Lens
@@ -742,3 +743,6 @@ initSchema = withSavepoint DbTransaction $ do
     create tablename = do
         log "DDL" $ "initSchema: "  ++ toS tablename
         callDb "initSchema" $ createVersionedTable tablename
+
+vacuumDb :: BlockHandler SQLiteEnv ()
+vacuumDb = callDb "vaccumDb" (`exec_` "VACUUM;")
