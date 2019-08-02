@@ -711,13 +711,10 @@ initSchema = withSavepoint DbTransaction $ do
 
 getEndingTxId :: BlockHeight -> BlockHandler SQLiteEnv TxId
 getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
-    if bh == 0
-      then return 0
-      else
-        qry db "SELECT endingtxid FROM BlockHistory where blockheight = ?"
-            [SInt (fromIntegral $ pred bh)]
-            [RInt]
-          >>= fmap convertInt . expectSingleRowCol "endingtxid for block"
+    qry db "SELECT endingtxid FROM BlockHistory where blockheight = ?"
+        [SInt (fromIntegral bh)]
+        [RInt]
+      >>= fmap convertInt . expectSingleRowCol "endingtxid for block"
   where
     convertInt (SInt thing) = fromIntegral thing
     convertInt _ = error "impossible"
