@@ -73,7 +73,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
-        , Chainweb.Test.Pact.PactReplay.tests
+        -- , Chainweb.Test.Pact.PactReplay.tests
         ]
 
 suite :: RocksDb -> [ScheduledTest]
