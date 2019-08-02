@@ -213,7 +213,7 @@ chainwebPragmas =
   , "locking_mode = EXCLUSIVE"
   , "temp_store = MEMORY"
   , "auto_vacuum = NONE"
-  , "page_size = 8192"
+  , "page_size = 1024"
   ]
 
 
