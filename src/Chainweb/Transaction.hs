@@ -25,6 +25,7 @@ import qualified Data.Aeson as Aeson
 import Data.Aeson.Types (FromJSON(..), ToJSON(..))
 import Data.Bytes.Get
 import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Short as SB
 import Data.Text (Text)
 import qualified Data.Text.Encoding as T
 
@@ -42,21 +43,21 @@ import Chainweb.Utils (Codec(..))
 -- the Text that generated it, to make gossiping easier.
 --
 data PayloadWithText = PayloadWithText
-    { payloadBytes :: ByteString
-    , payloadObj :: Payload PublicMeta ParsedCode
+    { payloadBytes :: !SB.ShortByteString
+    , payloadObj :: !(Payload PublicMeta ParsedCode)
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
 
 instance ToJSON PayloadWithText where
-    toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 bs)
-    toEncoding (PayloadWithText bs _) = toEncoding (T.decodeUtf8 bs)
+    toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 $ SB.fromShort bs)
+    toEncoding (PayloadWithText bs _) = toEncoding (T.decodeUtf8 $ SB.fromShort bs)
 
 instance FromJSON PayloadWithText where
     parseJSON = Aeson.withText "PayloadWithText" $ \text -> let bs = T.encodeUtf8 text in
         case traverse parsePact =<< Aeson.eitherDecodeStrict' bs of
           Left err -> fail err
-          (Right !payload) -> pure $! PayloadWithText bs payload
+          (Right !payload) -> pure $! PayloadWithText (SB.toShort bs) (force payload)
       where
         parsePact :: Text -> Either String ParsedCode
         parsePact code = ParsedCode code <$> parseExprs code
@@ -77,11 +78,13 @@ instance Hashable (HashableTrans PayloadWithText) where
 
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
-chainwebPayloadCodec = Codec (payloadBytes . _cmdPayload) chainwebPayloadDecode
+chainwebPayloadCodec = Codec
+    (force . SB.fromShort . payloadBytes . _cmdPayload)
+    (force . chainwebPayloadDecode)
 
 chainwebPayloadDecode :: ByteString -> Either String (Command PayloadWithText)
 chainwebPayloadDecode bs = case Aeson.decodeStrict' bs of
-    Just cmd -> Right cmd
+    Just cmd -> Right $ force cmd
     Nothing -> Left "decoding PayloadWithText failed"
 
 -- | Get the gas limit/supply of a public chain command payload
