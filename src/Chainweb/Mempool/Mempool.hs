@@ -50,6 +50,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Foldable (traverse_)
 import Data.Hashable (Hashable(hashWithSalt))
@@ -218,8 +219,8 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
   where
     getGasPrice = gasPriceOf . fmap payloadObj
     getGasLimit = gasLimitOf . fmap payloadObj
-    commandHash c = let (H.Hash h) = H.toUntypedHash $ _cmdHash c
-                    in TransactionHash h
+    commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
+                    in TransactionHash $! SB.toShort $ h
 
     -- TODO: plumb through origination + expiry time from pact once it makes it
     -- into PublicMeta
@@ -401,7 +402,7 @@ syncMempools log us localMempool remoteMempool =
 -- TODO: production versions of this kind of DB should salt with a
 -- runtime-generated constant to avoid collision attacks; see the \"hashing and
 -- security\" section of the hashable docs.
-newtype TransactionHash = TransactionHash ByteString
+newtype TransactionHash = TransactionHash SB.ShortByteString
   deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
@@ -411,16 +412,16 @@ instance Show TransactionHash where
 instance Hashable TransactionHash where
   hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
     where
-      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 h)
+      hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 $ SB.fromShort h)
   {-# INLINE hashWithSalt #-}
 
 instance ToJSON TransactionHash where
-  toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText x
+  toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText $ SB.fromShort x
 instance FromJSON TransactionHash where
   parseJSON = withText "TransactionHash" (either (fail . show) return . p)
     where
       p :: Text -> Either SomeException TransactionHash
-      p = (TransactionHash <$>) . decodeB64UrlNoPaddingText
+      !p = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
 
 
 ------------------------------------------------------------------------------
@@ -439,7 +440,7 @@ data HashMeta = HashMeta {
 }
 
 chainwebTestHasher :: ByteString -> TransactionHash
-chainwebTestHasher s = let b = convert $ hash @_ @SHA512t_256 $ "TEST" <> s
+chainwebTestHasher s = let !b = SB.toShort $ convert $ hash @_ @SHA512t_256 $ "TEST" <> s
                        in TransactionHash b
 
 chainwebTestHashMeta :: HashMeta
@@ -448,7 +449,7 @@ chainwebTestHashMeta = HashMeta "chainweb-sha512-256" 32
 data ValidatedTransaction t = ValidatedTransaction
     { validatedHeight :: {-# UNPACK #-} !BlockHeight
     , validatedHash :: {-# UNPACK #-} !BlockHash
-    , validatedTransaction :: t
+    , validatedTransaction :: !t
     }
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance

@@ -35,6 +35,7 @@ import qualified Data.HashSet as HashSet
 import Data.IORef
     (IORef, mkWeakIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Ord (Down(..))
+import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -49,7 +50,7 @@ import System.Random
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (fromJuste)
+import Chainweb.Utils (fromJuste, ssnd)
 
 
 ------------------------------------------------------------------------------
@@ -442,7 +443,7 @@ clearInMem lock = do
 
 ------------------------------------------------------------------------------
 emptyRecentLog :: RecentLog
-emptyRecentLog = RecentLog 0 []
+emptyRecentLog = RecentLog 0 mempty
 
 recordRecentTransactions :: Int -> Vector TransactionHash -> RecentLog -> RecentLog
 recordRecentTransactions maxNumRecent newTxs rlog = rlog'
@@ -454,9 +455,9 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
     numNewItems = V.length newTxs
     oldNext = _rlNext rlog
     newNext = oldNext + fromIntegral numNewItems
-    newTxs' = reverse ([oldNext..] `zip` V.toList newTxs)
-    newL' = newTxs' ++ _rlRecent rlog
-    newL = force $ take maxNumRecent newL'
+    newTxs' = V.reverse (V.map (T2 oldNext) newTxs)
+    newL' = newTxs' <> _rlRecent rlog
+    newL = force $ V.take maxNumRecent newL'
 
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
@@ -464,11 +465,12 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
 getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe [TransactionHash]
 getRecentTxs maxNumRecent oldHw rlog
     | oldHw <= oldestHw || oldHw > oldNext = Nothing
-    | oldHw == oldNext = Just []
-    | otherwise = Just $! txs
+    | oldHw == oldNext = Just mempty
+    | otherwise = Just $! V.toList txs
 
   where
     oldNext = _rlNext rlog
     oldestHw = oldNext - fromIntegral maxNumRecent
-    txs = map snd $ takeWhile pred $ _rlRecent rlog
-    pred x = fst x >= oldHw
+    txs = V.map ssnd $ V.takeWhile pred $ _rlRecent rlog
+    pred (T2 x _) = x >= oldHw
+
