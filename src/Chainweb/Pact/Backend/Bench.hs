@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 module Chainweb.Pact.Backend.Bench
   ( bench )
   where
@@ -24,12 +26,17 @@ import Pact.PersistPactDb (DbEnv(..),pactdb,initDbEnv)
 import qualified Data.Map.Strict as M
 import qualified Pact.Types.SQLite as PSQL
 import qualified Pact.Persist.SQLite as PSQL
-
+import Chainweb.Pact.Backend.RelationalCheckpointer
+import Pact.Gas
+import Chainweb.BlockHeader
+import Chainweb.BlockHash
+import Chainweb.MerkleLogHash
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend"
   [ cpBench
   , pactSqliteBench
+  , cpBenchOverBlock
   ]
 
 cpBench :: C.Benchmark
@@ -56,6 +63,73 @@ cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "c
       [
         benchUserTable dbEnv "usertable"
       ]
+
+
+cpBenchOverBlock :: C.Benchmark
+cpBenchOverBlock = C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) -> C.bgroup "checkpointer" (benches e)
+  where
+
+    setup = do
+      (f,deleter) <- newTempFile
+      !sqliteEnv <- openSQLiteConnection f chainwebPragmas
+      let nolog = newLogger neverLog ""
+      !cenv <- initRelationalCheckpointer initBlockState sqliteEnv nolog freeGasEnv
+      return $ NoopNFData (sqliteEnv, cenv, deleter)
+
+    teardown (NoopNFData (sqliteEnv, _cenv, deleter)) = do
+        closeSQLiteConnection sqliteEnv
+        deleter
+
+    benches :: CheckpointEnv -> [C.Benchmark]
+    benches cpenv =
+      [
+        datbench cpenv "usertable"
+      ]
+      where
+
+        datbench cp name = C.env (setup' cp) $ \ ~(ut) -> C.bench name $ C.nfIO (go cp ut)
+
+        setup' CheckpointEnv{..} = do
+          usertablename <- restore _cpeCheckpointer Nothing >>= \case
+              PactDbEnv' db@(PactDbEnv pdb e) -> do
+                let tn = "user1"
+                    ut = UserTables tn
+                begin db
+                _createUserTable pdb tn "someModule" e
+                writeRow db Insert ut 1
+                commit db
+                return $ NoopNFData ut
+          save _cpeCheckpointer hash01
+          return usertablename
+
+
+        f = "f"
+        k = "k"
+
+        hash01 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000001a"
+        hash02 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000002a"
+
+        writeRow (PactDbEnv pdb e) writeType ut i =
+            _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
+
+        go CheckpointEnv{..} (NoopNFData ut) = do
+          result <- restore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
+              PactDbEnv' db@(PactDbEnv pdb e) -> do
+                  begin db
+                  r <- _readRow pdb ut k e
+                  case r of
+                    Nothing  -> die "no row read"
+                    Just (ObjectMap m) -> case M.lookup f m of
+                        Nothing -> die "field not found"
+                        Just (PLiteral (LInteger i)) -> do
+                            let j = succ i
+                            writeRow db Update ut j
+                            commit db
+                            return j
+                        Just _ -> die "field not integer"
+          save _cpeCheckpointer hash02
+          return result
+
 
 pactSqliteBench :: C.Benchmark
 pactSqliteBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "pact-sqlite" (benches e)
