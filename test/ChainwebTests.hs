@@ -74,6 +74,8 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
         -- , Chainweb.Test.Pact.PactReplay.tests
+        -- Pact replay is hanging in some instances.
+        -- Temporarily disabling until a fix comes in the future.
         ]
 
 suite :: RocksDb -> [ScheduledTest]
