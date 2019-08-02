@@ -11,13 +11,14 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool (MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
+import Data.CAS.RocksDB
 ------------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup "Chainweb.Mempool.InMem"
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Mempool.InMem"
             $ Chainweb.Test.Mempool.tests
             $ MempoolWithFunc
-            $ InMem.withInMemoryMempool cfg
+            $ InMem.withInMemoryMempool cfg rdb
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
                               mockMeta (const $ return True)
