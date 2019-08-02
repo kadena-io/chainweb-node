@@ -575,7 +575,6 @@ createVersionedTable tablename db = do
     createtablestmt =
       "CREATE TABLE IF NOT EXISTS["
         <> tablename
-  -- blockheight UNSIGNED BIGINT NOT NULL\
         <> "] (rowkey TEXT\
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
