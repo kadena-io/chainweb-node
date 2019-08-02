@@ -35,6 +35,7 @@ import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -111,7 +112,7 @@ genPayloadModule v txFiles =
                 procCmd = verifyCommand cmdBS
             case procCmd of
                 f@ProcFail{} -> fail (show f)
-                ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) cmdBS
+                ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) (SB.toShort <$> cmdBS)
 
         let logger = genericLogger Warn TIO.putStrLn
 

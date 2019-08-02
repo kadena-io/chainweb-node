@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -28,13 +29,15 @@ import Control.DeepSeq
 import Control.Exception (bracket, bracketOnError, mask_)
 import Control.Monad (forever, void, (<$!>))
 
+import Data.Aeson
+import qualified Data.ByteString.Short as SB
 import Data.Foldable (foldl', foldlM)
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashPSQ as PSQ
 import qualified Data.HashSet as HashSet
 import Data.IORef
     (IORef, mkWeakIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Ord (Down(..))
+import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -49,8 +52,9 @@ import System.Random
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
-import Chainweb.Utils (fromJuste)
+import Chainweb.Utils (fromJuste, ssnd, encodeToByteString, decodeStrictOrThrow')
 
+import Data.CAS.RocksDB
 
 ------------------------------------------------------------------------------
 toPriority :: GasPrice -> GasLimit -> Priority
@@ -58,11 +62,14 @@ toPriority r s = (Down r, s)
 
 
 ------------------------------------------------------------------------------
-makeInMemPool :: InMemConfig t
+makeInMemPool :: ToJSON t
+              => FromJSON t
+              => InMemConfig t
+              -> RocksDb
               -> IO (InMemoryMempool t)
-makeInMemPool cfg = mask_ $ do
+makeInMemPool cfg db = mask_ $ do
     nonce <- randomIO
-    dataLock <- newInMemMempoolData >>= newMVar
+    dataLock <- newInMemMempoolData db >>= newMVar
     tid <- forkIOWithUnmask (reaperThread cfg dataLock)
     return $! InMemoryMempool cfg dataLock tid nonce
 
@@ -71,19 +78,25 @@ destroyInMemPool = mask_ . killThread . _inmemReaper
 
 
 ------------------------------------------------------------------------------
-newInMemMempoolData :: IO (InMemoryMempoolData t)
-newInMemMempoolData = InMemoryMempoolData <$!> newIORef PSQ.empty
-                           <*> newIORef HashMap.empty
+newInMemMempoolData :: ToJSON t => FromJSON t => RocksDb -> IO (InMemoryMempoolData t)
+newInMemMempoolData db = InMemoryMempoolData <$!> newIORef PSQ.empty
+                           <*> pure (newTable db valCodec keyCodec ["mempool", "validated"])
                            <*> newIORef HashSet.empty
                            <*> newIORef Nothing
                            <*> newIORef emptyRecentLog
+  where
+    valCodec = Codec (encodeToByteString) (decodeStrictOrThrow')
+    keyCodec = Codec (\(TransactionHash h) -> SB.fromShort h) (decodeStrictOrThrow')
 
 
 ------------------------------------------------------------------------------
-makeSelfFinalizingInMemPool :: InMemConfig t
+makeSelfFinalizingInMemPool :: FromJSON t
+                            => ToJSON t
+                            => InMemConfig t
+                            -> RocksDb
                             -> IO (MempoolBackend t)
-makeSelfFinalizingInMemPool cfg =
-    mask_ $ bracketOnError (makeInMemPool cfg) destroyInMemPool $ \mpool -> do
+makeSelfFinalizingInMemPool cfg db =
+    mask_ $ bracketOnError (makeInMemPool cfg db) destroyInMemPool $ \mpool -> do
         ref <- newIORef mpool
         wk <- mkWeakIORef ref (destroyInMemPool mpool)
         back <- toMempoolBackend mpool
@@ -192,14 +205,17 @@ toMempoolBackend mempool = do
 
 ------------------------------------------------------------------------------
 -- | A 'bracket' function for in-memory mempools.
-withInMemoryMempool :: InMemConfig t
+withInMemoryMempool :: ToJSON t
+                    => FromJSON t
+                    => InMemConfig t
+                    -> RocksDb
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg f = do
+withInMemoryMempool cfg db f = do
     let action inMem = do
           back <- toMempoolBackend inMem
           f $! back
-    bracket (makeInMemPool cfg) destroyInMemPool action
+    bracket (makeInMemPool cfg db) destroyInMemPool action
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
@@ -208,16 +224,18 @@ memberInMem :: MVar (InMemoryMempoolData t)
 memberInMem lock txs = do
     (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
         q <- readIORef $ _inmemPending mdata
-        validated <- readIORef $ _inmemValidated mdata
+        let validated = _inmemValidated mdata
         confirmed <- readIORef $ _inmemConfirmed mdata
         return $! (q, validated, confirmed)
-    return $! V.map (memberOne q validated confirmed) txs
+    V.mapM (memberOne q validated confirmed) txs
 
   where
-    memberOne q validated confirmed txHash =
-        PSQ.member txHash q ||
-        HashMap.member txHash validated ||
-        HashSet.member txHash confirmed
+    memberOne q validated confirmed txHash = do
+        v <- maybe False (const True) <$> tableLookup validated txHash
+        return $!
+            PSQ.member txHash q ||
+            v ||
+            HashSet.member txHash confirmed
 
 ------------------------------------------------------------------------------
 lookupInMem :: MVar (InMemoryMempoolData t)
@@ -226,19 +244,21 @@ lookupInMem :: MVar (InMemoryMempoolData t)
 lookupInMem lock txs = do
     (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
         q <- readIORef $ _inmemPending mdata
-        validated <- readIORef $ _inmemValidated mdata
+        let validated = _inmemValidated mdata
         confirmed <- readIORef $ _inmemConfirmed mdata
         return $! (q, validated, confirmed)
-    return $! V.map (fromJuste . lookupOne q validated confirmed) txs
+    V.mapM (fmap fromJuste . lookupOne q validated confirmed) txs
   where
-    lookupOne q validated confirmed txHash =
-        lookupQ q txHash <|>
-        lookupVal validated txHash <|>
-        lookupConfirmed confirmed txHash <|>
-        pure Missing
+    lookupOne q validated confirmed txHash = do
+        v <- fmap Validated <$> tableLookup validated txHash
+        return $!
+            lookupQ q txHash <|>
+            v <|>
+            lookupConfirmed confirmed txHash <|>
+            pure Missing
 
     lookupQ q txHash = Pending . snd <$> PSQ.lookup txHash q
-    lookupVal val txHash = Validated <$> HashMap.lookup txHash val
+    -- lookupVal val txHash = Validated <$> HashMap.lookup txHash val
     lookupConfirmed confirmed txHash =
         if HashSet.member txHash confirmed
           then Just Confirmed
@@ -269,9 +289,9 @@ insertInMem cfg lock txs = do
                         s = txGasLimit txcfg x
                     in toPriority r s
     exists mdata txhash = do
-        valMap <- readIORef $ _inmemValidated mdata
+        inValMap <- maybe False (const True) <$> tableLookup (_inmemValidated mdata) txhash
         confMap <- readIORef $ _inmemConfirmed mdata
-        return $! (HashMap.member txhash valMap || HashSet.member txhash confMap)
+        return $! (inValMap || HashSet.member txhash confMap)
     insOne mdata tx = do
         b <- exists mdata txhash
         v <- validateTx tx
@@ -328,7 +348,7 @@ markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata ->
     validateOne mdata tx = do
         let txhash = hash $ validatedTransaction tx
         modifyIORef' (_inmemPending mdata) $ PSQ.delete txhash
-        modifyIORef' (_inmemValidated mdata) $ HashMap.insert txhash tx
+        tableInsert (_inmemValidated mdata) txhash tx
 
 
 ------------------------------------------------------------------------------
@@ -340,7 +360,7 @@ markConfirmedInMem lock txhashes =
   where
     confirmOne mdata txhash = do
         modifyIORef' (_inmemPending mdata) $ PSQ.delete txhash
-        modifyIORef' (_inmemValidated mdata) $ HashMap.delete txhash
+        tableDelete (_inmemValidated mdata) txhash
         modifyIORef' (_inmemConfirmed mdata) $ HashSet.insert txhash
 
 
@@ -414,10 +434,10 @@ reintroduceInMem' cfg lock txhashes = do
                         s = limit x
                     in toPriority r s
     reintroduceOne mdata txhash = do
-        m <- HashMap.lookup txhash <$> readIORef (_inmemValidated mdata)
+        m <- tableLookup (_inmemValidated mdata) txhash
         maybe (return ()) (reintroduceIt mdata txhash) m
     reintroduceIt mdata txhash (ValidatedTransaction _ _ tx) = do
-        modifyIORef' (_inmemValidated mdata) $ HashMap.delete txhash
+        tableDelete (_inmemValidated mdata) txhash
         modifyIORef' (_inmemPending mdata) $ PSQ.insert txhash (getPriority tx) tx
 
 ------------------------------------------------------------------------------
@@ -435,14 +455,14 @@ clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
 clearInMem lock = do
     withMVarMasked lock $ \mdata -> do
         writeIORef (_inmemPending mdata) PSQ.empty
-        writeIORef (_inmemValidated mdata) HashMap.empty
+        -- writeIORef (_inmemValidated mdata) HashMap.empty
         writeIORef (_inmemConfirmed mdata) HashSet.empty
         writeIORef (_inmemRecentLog mdata) emptyRecentLog
 
 
 ------------------------------------------------------------------------------
 emptyRecentLog :: RecentLog
-emptyRecentLog = RecentLog 0 []
+emptyRecentLog = RecentLog 0 mempty
 
 recordRecentTransactions :: Int -> Vector TransactionHash -> RecentLog -> RecentLog
 recordRecentTransactions maxNumRecent newTxs rlog = rlog'
@@ -454,9 +474,9 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
     numNewItems = V.length newTxs
     oldNext = _rlNext rlog
     newNext = oldNext + fromIntegral numNewItems
-    newTxs' = reverse ([oldNext..] `zip` V.toList newTxs)
-    newL' = newTxs' ++ _rlRecent rlog
-    newL = force $ take maxNumRecent newL'
+    newTxs' = V.reverse (V.map (T2 oldNext) newTxs)
+    newL' = newTxs' <> _rlRecent rlog
+    newL = force $ V.take maxNumRecent newL'
 
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
@@ -464,11 +484,12 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
 getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe [TransactionHash]
 getRecentTxs maxNumRecent oldHw rlog
     | oldHw <= oldestHw || oldHw > oldNext = Nothing
-    | oldHw == oldNext = Just []
-    | otherwise = Just $! txs
+    | oldHw == oldNext = Just mempty
+    | otherwise = Just $! V.toList txs
 
   where
     oldNext = _rlNext rlog
     oldestHw = oldNext - fromIntegral maxNumRecent
-    txs = map snd $ takeWhile pred $ _rlRecent rlog
-    pred x = fst x >= oldHw
+    txs = V.map ssnd $ V.takeWhile pred $ _rlRecent rlog
+    pred (T2 x _) = x >= oldHw
+

@@ -42,6 +42,7 @@ import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Short as SB
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
@@ -532,7 +533,7 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
-    cmdBSToTx = toTransactionBytes . fmap payloadBytes
+    cmdBSToTx = toTransactionBytes . fmap (SB.fromShort . payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 
