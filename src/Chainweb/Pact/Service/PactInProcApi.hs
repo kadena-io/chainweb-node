@@ -101,7 +101,7 @@ withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
 -- TODO: get from config
 -- TODO: why is this declared both here and in Mempool
 maxBlockSize :: GasLimit
-maxBlockSize = 10000
+maxBlockSize = 100000
 
 pactMemPoolAccess
     :: Logger logger

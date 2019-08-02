@@ -22,7 +22,6 @@ module Chainweb.Mempool.InMemTypes
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.MVar (MVar)
 
-import Data.HashMap.Strict (HashMap)
 import Data.HashPSQ (HashPSQ)
 import Data.HashSet (HashSet)
 import Data.IORef (IORef)
@@ -36,6 +35,8 @@ import Pact.Types.Gas (GasPrice(..))
 
 import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+
+import Data.CAS.RocksDB
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -75,7 +76,8 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- we'll have to replay it.
     --
     -- N.B. atomic access to these IORefs is not necessary -- we hold the lock here.
-  , _inmemValidated :: !(IORef (HashMap TransactionHash (ValidatedTransaction t)))
+  -- , _inmemValidated :: !(IORef (HashMap TransactionHash (ValidatedTransaction t)))
+  , _inmemValidated :: RocksDbTable TransactionHash (ValidatedTransaction t)
   , _inmemConfirmed :: !(IORef (HashSet TransactionHash))
   , _inmemLastNewBlockParent :: !(IORef (Maybe BlockHeader))
   , _inmemRecentLog :: !(IORef RecentLog)

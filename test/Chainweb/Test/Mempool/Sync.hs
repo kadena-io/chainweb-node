@@ -26,13 +26,15 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
+
+import Data.CAS.RocksDB
 ------------------------------------------------------------------------------
 
 
-tests :: TestTree
-tests = testGroup "Chainweb.Mempool.sync" [
-            mempoolProperty "Mempool.syncMempools" gen propSync
-                $ MempoolWithFunc $ withInMemoryMempool testInMemCfg
+tests :: RocksDb -> TestTree
+tests db = testGroup "Chainweb.Mempool.sync" [
+            mempoolProperty "Mempool.syncMempools" gen (propSync db)
+                $ MempoolWithFunc $ withInMemoryMempool testInMemCfg db
             ]
   where
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
@@ -55,11 +57,12 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100) 2048 True
     hasher = chainwebTestHasher . codecEncode mockCodec
 
 propSync
-    :: (Set MockTx, Set MockTx , Set MockTx)
+    :: RocksDb
+    -> (Set MockTx, Set MockTx , Set MockTx)
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync (txs, missing, later) localMempool' =
-    withInMemoryMempool testInMemCfg $ \remoteMempool -> do
+propSync db (txs, missing, later) localMempool' =
+    withInMemoryMempool testInMemCfg db $ \remoteMempool -> do
         mempoolInsert localMempool' txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV
