@@ -129,7 +129,7 @@ doSave dbenv hash = runBlockEnv dbenv $ do
         (newTables, writes, _) <- use bsPendingBlock
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
-        callDb "save" $ backendWriteUpdateBatch writeV bh
+        callDb "save" $ backendWriteUpdateBatch bh writeV
 
     prepChunk [] = error "impossible: empty chunk from groupBy"
     prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)

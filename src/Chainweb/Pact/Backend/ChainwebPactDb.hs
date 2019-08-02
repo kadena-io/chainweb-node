@@ -20,7 +20,6 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , blockHistoryInsert
 , initSchema
 , clearPendingTxState
-, backendWriteUpdate
 , backendWriteUpdateBatch
 , createUserTable
 ) where
@@ -114,7 +113,7 @@ doReadRow d k =
     queryStmt = mconcat [ "SELECT rowdata FROM ["
                         , tableName
                         , "]  WHERE rowkey = ? \
-                          \ ORDER BY blockheight DESC, txid DESC \
+                          \ ORDER BY txid DESC \
                           \ LIMIT 1;"
                         ]
 
@@ -203,39 +202,16 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     modf (a, m, l) = (a, upd m, l)
     upd = HashMap.insertWith (++) deltaKey [delta]
 
-backendWriteUpdate
-    :: Utf8
-    -> Utf8
-    -> BlockHeight
-    -> TxId
-    -> Utf8
-    -> Database
-    -> IO ()
-backendWriteUpdate key tn bh txid (Utf8 v) db = do
-    exec' db q [ SText key
-               , SInt (fromIntegral bh)
-               , SInt (fromIntegral txid)
-               , SBlob v
-               ]
-    markTableMutation tn bh db
-  where
-    q = mconcat
-      ["INSERT OR REPLACE INTO ["
-      , tn
-      , "](rowkey,blockheight,txid,rowdata) "
-      , "VALUES(?,?,?,?)"]
 
 backendWriteUpdateBatch
-    :: [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
-    -> BlockHeight
+    :: BlockHeight
+    -> [(Utf8, V.Vector SQLiteRowDelta)]    -- ^ updates chunked on table name
     -> Database
     -> IO ()
-backendWriteUpdateBatch writesByTable bh db = mapM_ writeTable writesByTable
+backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
   where
-    ibh = fromIntegral bh
     prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
         [ SText (Utf8 rowkey)
-        , SInt ibh
         , SInt (fromIntegral txid)
         , SBlob rowdata ]
 
@@ -246,8 +222,8 @@ backendWriteUpdateBatch writesByTable bh db = mapM_ writeTable writesByTable
         q = mconcat
           ["INSERT OR REPLACE INTO ["
           , tableName
-          , "](rowkey,blockheight,txid,rowdata) "
-          , "VALUES(?,?,?,?)"]
+          , "](rowkey,txid,rowdata) "
+          , "VALUES(?,?,?)"]
 
 
 markTableMutation :: Utf8 -> BlockHeight -> Database -> IO ()
@@ -517,11 +493,8 @@ doGetTxLog d txid = do
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
     readFromDb = do
-        bh <- gets _bsBlockHeight
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt
-          [ SInt (fromIntegral txid)
-          , SInt (fromIntegral bh)
-          ]
+          [ SInt (fromIntegral txid) ]
           [RText, RBlob]
         forM rows $ \case
             [SText key, SBlob value] -> toTxLog key value
@@ -538,7 +511,7 @@ doGetTxLog d txid = do
 
     stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
                 , tableName
-                , "] WHERE txid = ? AND blockheight = ?"
+                , "] WHERE txid = ?"
                 ]
 
 unwrap :: Utf8 -> BS.ByteString
@@ -562,7 +535,8 @@ createBlockHistoryTable =
         \(blockheight UNSIGNED BIGINT NOT NULL,\
         \ hash BLOB NOT NULL,\
         \ endingtxid UNSIGNED BIGINT NOT NULL, \
-        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
+        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight)); \
+        \ CREATE INDEX blockHistoryIndex ON BlockHistory(hash)"
 
 createTableCreationTable :: BlockHandler SQLiteEnv ()
 createTableCreationTable =
@@ -570,7 +544,9 @@ createTableCreationTable =
       "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
       \(tablename TEXT NOT NULL\
       \, createBlockheight UNSIGNED BIGINT NOT NULL\
-      \, CONSTRAINT creation_unique UNIQUE(tablename, createBlockheight));"
+      \, CONSTRAINT creation_unique UNIQUE(tablename, createBlockheight)); \
+      \CREATE INDEX VersionedTableCreationIx ON VersionedTableCreation(\
+      \createBlockheight DESC);"
 
 createTableMutationTable :: BlockHandler SQLiteEnv ()
 createTableMutationTable =
@@ -579,7 +555,8 @@ createTableMutationTable =
                  \(tablename TEXT NOT NULL\
                  \, blockheight UNSIGNED BIGINT NOT NULL\
                  \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
-        exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON VersionedTableMutation(blockheight);"
+        exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON \
+                 \VersionedTableMutation(blockheight DESC);"
 
 createUserTable :: Utf8 -> BlockHeight -> BlockHandler SQLiteEnv ()
 createUserTable tablename bh =
@@ -598,18 +575,18 @@ createVersionedTable tablename db = do
     createtablestmt =
       "CREATE TABLE IF NOT EXISTS["
         <> tablename
+  -- blockheight UNSIGNED BIGINT NOT NULL\
         <> "] (rowkey TEXT\
-             \, blockheight UNSIGNED BIGINT NOT NULL\
              \, txid UNSIGNED BIGINT NOT NULL\
              \, rowdata BLOB NOT NULL\
-             \, UNIQUE (blockheight, rowkey, txid));"
+             \, UNIQUE (rowkey, txid));"
     indexcreationstmt =
        mconcat
            ["CREATE INDEX IF NOT EXISTS ["
            , tablename
            , "_ix] ON ["
            , tablename
-           , "](rowkey, blockheight, txid);"]
+           , "](rowkey, txid DESC);"]
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
@@ -653,13 +630,14 @@ handlePossibleRewind bRestore hsh = do
 
     rewindBlock bh = do
         assign bsBlockHeight bh
-        tableMaintenanceRowsVersionedSystemTables
+        endingtx <- getEndingTxId bh
+        tableMaintenanceRowsVersionedSystemTables endingtx
         callDb "rewindBlock" $ \db -> do
             droppedtbls <- dropTablesAtRewind bh db
-            vacuumTablesAtRewind bh droppedtbls db
-        t <- deleteHistory
-        assign bsTxId t
-        return $! t
+            vacuumTablesAtRewind bh endingtx droppedtbls db
+        deleteHistory bh
+        assign bsTxId endingtx
+        return endingtx
 
 dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
@@ -683,51 +661,40 @@ dropTablesAtRewind bh db = do
           \ dropTablesAtRewind: \
           \Couldn't resolve the name of the table to drop."
 
-vacuumTablesAtRewind :: BlockHeight -> HashSet BS.ByteString -> Database -> IO ()
-vacuumTablesAtRewind bh droppedtbls db = do
+vacuumTablesAtRewind :: BlockHeight -> TxId -> HashSet BS.ByteString -> Database -> IO ()
+vacuumTablesAtRewind bh endingtx droppedtbls db = do
     let processMutatedTables ms = fmap (HashSet.fromList) . forM ms $ \case
           [SText (Utf8 tbl)] -> return tbl
-          _ -> internalError "rewindBlock: Couldn't resolve the name of the table to possibly vacuum."
+          _ -> internalError "rewindBlock: Couldn't resolve the name \
+                             \of the table to possibly vacuum."
     mutatedTables <- qry db
         "SELECT DISTINCT tablename\
         \ FROM VersionedTableMutation WHERE blockheight >= ?;"
       [SInt (fromIntegral bh)]
       [RText]
       >>= processMutatedTables
-
     let toVacuumTblNames = HashSet.difference mutatedTables droppedtbls
-
     forM_ toVacuumTblNames $ \tblname ->
-      exec' db ("DELETE FROM [" <> (Utf8 tblname) <> "] WHERE blockheight >= ?") [SInt (fromIntegral bh)]
+        exec' db (mconcat ["DELETE FROM [", Utf8 tblname, "] WHERE txid >= ?"])
+              [SInt $! fromIntegral endingtx]
+    exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;"
+          [SInt (fromIntegral bh)]
 
-    exec' db "DELETE FROM VersionedTableMutation WHERE blockheight >= ?;" [SInt (fromIntegral bh)]
-
-tableMaintenanceRowsVersionedSystemTables :: BlockHandler SQLiteEnv ()
-tableMaintenanceRowsVersionedSystemTables = do
-    bh <- gets _bsBlockHeight
+tableMaintenanceRowsVersionedSystemTables :: TxId -> BlockHandler SQLiteEnv ()
+tableMaintenanceRowsVersionedSystemTables endingtx = do
     callDb "tableMaintenanceRowsVersionedSystemTables" $ \db -> do
-        exec' db "DELETE FROM [SYS:KeySets] WHERE blockheight >= ?"
-              [SInt (fromIntegral bh)]
-        exec' db "DELETE FROM [SYS:Modules] WHERE blockheight >= ?"
-              [SInt (fromIntegral bh)]
-        exec' db "DELETE FROM [SYS:Namespaces] WHERE blockheight >= ?"
-              [SInt (fromIntegral bh)]
-        exec' db "DELETE FROM [SYS:Pacts] WHERE blockheight >= ?"
-              [SInt (fromIntegral bh)]
+        exec' db "DELETE FROM [SYS:KeySets] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Modules] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Namespaces] WHERE txid >= ?" tx
+        exec' db "DELETE FROM [SYS:Pacts] WHERE txid >= ?" tx
+  where
+    tx = [SInt $! fromIntegral endingtx]
 
-deleteHistory :: BlockHandler SQLiteEnv TxId
-deleteHistory = do
-    bh <- gets _bsBlockHeight
-    callDb "Deleting from BlockHistory, VersionHistory. Also get txid." $ \db -> do
+deleteHistory :: BlockHeight -> BlockHandler SQLiteEnv ()
+deleteHistory bh = do
+    callDb "Deleting from BlockHistory, VersionHistory" $ \db -> do
         exec' db "DELETE FROM BlockHistory WHERE blockheight >= ?"
               [SInt (fromIntegral bh)]
-        t <- qry db "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?"
-            [SInt (fromIntegral $ pred bh)] [RInt]
-          >>= fmap convert . expectSingleRowCol "txid after delete history"
-        return t
-  where
-    convert (SInt thing) = fromIntegral thing
-    convert _ = error "deleteHistory: Something went wrong!"
 
 initSchema :: BlockHandler SQLiteEnv ()
 initSchema = withSavepoint DbTransaction $ do
@@ -742,3 +709,16 @@ initSchema = withSavepoint DbTransaction $ do
     create tablename = do
         log "DDL" $ "initSchema: "  ++ toS tablename
         callDb "initSchema" $ createVersionedTable tablename
+
+getEndingTxId :: BlockHeight -> BlockHandler SQLiteEnv TxId
+getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
+    if bh == 0
+      then return 0
+      else
+        qry db "SELECT endingtxid FROM BlockHistory where blockheight = ?"
+            [SInt (fromIntegral $ pred bh)]
+            [RInt]
+          >>= fmap convertInt . expectSingleRowCol "endingtxid for block"
+  where
+    convertInt (SInt thing) = fromIntegral thing
+    convertInt _ = error "impossible"
