@@ -15,7 +15,7 @@ import System.IO.Extra
 import Chainweb.Pact.Backend.Types
 import Chainweb.Utils.Bench
 import Pact.Types.Logger
-import Chainweb.Pact.Backend.ChainwebPactDb
+-- import Chainweb.Pact.Backend.ChainwebPactDb
 import Pact.Types.Persistence
 import Pact.Interpreter (PactDbEnv(..),mkPactDbEnv)
 import qualified Pact.Interpreter as PI
@@ -31,16 +31,18 @@ import Pact.Gas
 import Chainweb.BlockHeader
 import Chainweb.BlockHash
 import Chainweb.MerkleLogHash
+import Data.Monoid
+import Data.Maybe
 
 bench :: C.Benchmark
-bench = C.bgroup "pact-backend"
-  [ cpBench
-  , pactSqliteBench
-  , cpBenchOverBlock
-  ]
+bench = C.bgroup "pact-backend" $
+  map pactSqliteBench [1,5,10,20,50,100,200,500,1000]
+  ++
+  map cpBenchOverBlock [1,5,10,20,50,100,200,500,1000]
 
-cpBench :: C.Benchmark
-cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "checkpointer" (benches e)
+{-
+_cpBench :: C.Benchmark
+_cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "checkpointer" (benches e)
   where
 
     setup = do
@@ -63,10 +65,10 @@ cpBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "c
       [
         benchUserTable dbEnv "usertable"
       ]
+-}
 
-
-cpBenchOverBlock :: C.Benchmark
-cpBenchOverBlock = C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) -> C.bgroup "checkpointer" (benches e)
+cpBenchOverBlock :: Int -> C.Benchmark
+cpBenchOverBlock transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) -> C.bgroup ("batchedCheckpointer/transactionCount=" ++ show transactionCount) (benches e)
   where
 
     setup = do
@@ -113,26 +115,28 @@ cpBenchOverBlock = C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) -> 
             _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
 
         go CheckpointEnv{..} (NoopNFData ut) = do
-          result <- restore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
-              PactDbEnv' db@(PactDbEnv pdb e) -> do
-                  begin db
-                  r <- _readRow pdb ut k e
-                  case r of
-                    Nothing  -> die "no row read"
-                    Just (ObjectMap m) -> case M.lookup f m of
-                        Nothing -> die "field not found"
-                        Just (PLiteral (LInteger i)) -> do
-                            let j = succ i
-                            writeRow db Update ut j
-                            commit db
-                            return j
-                        Just _ -> die "field not integer"
-          save _cpeCheckpointer hash02
-          return result
+            result <- restore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
+                PactDbEnv' pactdbenv -> fromMaybe err . getLast <$> foldMap (fmap (Last . Just)) (replicate transactionCount (transaction pactdbenv))
+            save _cpeCheckpointer hash02
+            return result
+          where
+            err = error "Something went in one of the transactions."
+            transaction db@(PactDbEnv pdb e) = do
+              begin db
+              r <- _readRow pdb ut k e
+              case r of
+                Nothing  -> die "no row read"
+                Just (ObjectMap m) -> case M.lookup f m of
+                  Nothing -> die "field not found"
+                  Just (PLiteral (LInteger i)) -> do
+                    let j = succ i
+                    writeRow db Update ut j
+                    commit db
+                    return j
+                  Just _ -> die "field not integer"
 
-
-pactSqliteBench :: C.Benchmark
-pactSqliteBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup "pact-sqlite" (benches e)
+pactSqliteBench :: Int -> C.Benchmark
+pactSqliteBench _transactionCount = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.bgroup ("pact-sqlite/transactionCount=" ++ show _transactionCount) (benches e)
   where
 
     setup = do
@@ -150,7 +154,7 @@ pactSqliteBench = C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) -> C.b
     benches :: PactDbEnv e -> [C.Benchmark]
     benches dbEnv =
       [
-        benchUserTable dbEnv "usertable"
+        benchUserTable _transactionCount dbEnv "usertable"
       ]
 
 begin :: PactDbEnv e -> IO ()
@@ -162,8 +166,8 @@ commit db = void $ _commitTx (pdPactDb db) (pdPactDbVar db)
 die :: String -> IO a
 die = throwM . userError
 
-benchUserTable :: PactDbEnv e -> String -> C.Benchmark
-benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nfIO (go dbEnv ut)
+benchUserTable :: Int -> PactDbEnv e -> String -> C.Benchmark
+benchUserTable _transactionCount dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nfIO (go dbEnv ut)
 
   where
 
@@ -182,16 +186,18 @@ benchUserTable dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nf
     writeRow (PactDbEnv pdb e) writeType ut i = do
       _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
 
-    go db@(PactDbEnv pdb e) (NoopNFData ut) = do
-      begin db
-      r <- _readRow pdb ut k e
-      case r of
-        Nothing -> die "no row read"
-        Just (ObjectMap m) -> case M.lookup f m of
-          Nothing -> die "field not found"
-          Just (PLiteral (LInteger i)) -> do
-            let j = succ i
-            writeRow db Update ut j
-            commit db
-            return j
-          Just _ -> die "field not integer"
+    go db@(PactDbEnv pdb e) (NoopNFData ut) = fromJust . getLast <$> foldMap (fmap (Last . Just)) (replicate _transactionCount transaction)
+      where
+        transaction = do
+            begin db
+            r <- _readRow pdb ut k e
+            case r of
+              Nothing -> die "no row read"
+              Just (ObjectMap m) -> case M.lookup f m of
+                Nothing -> die "field not found"
+                Just (PLiteral (LInteger i)) -> do
+                  let j = succ i
+                  writeRow db Update ut j
+                  commit db
+                  return j
+                Just _ -> die "field not integer"
