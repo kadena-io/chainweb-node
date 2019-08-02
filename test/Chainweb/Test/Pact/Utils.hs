@@ -51,6 +51,7 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Short as SB
 import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
@@ -184,7 +185,7 @@ mkTestExecTransactions sender cid ks nonce gas gasrate txs =
 
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
-        ProcSucc t -> return $ fmap (k t) cmd
+        ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
         ProcFail e -> throwM $ userError e
 
     k t bs = PayloadWithText bs (_cmdPayload t)
@@ -223,7 +224,7 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof d = d
 
     cmd <- mkCommand ks pm nonce msg
     case verifyCommand cmd of
-      ProcSucc t -> return $ Vector.singleton $ fmap (k t) cmd
+      ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
       ProcFail e -> throwM $ userError e
 
   where
