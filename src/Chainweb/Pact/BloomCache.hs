@@ -219,7 +219,7 @@ updateChain' cutDb bdb minHeight blockHeader0 mp0 = go mp0 blockHeader0
             let payloadHash = _blockPayloadHash blockHeader
             (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
             hashes <- mapM (fmap (H.toUntypedHash . _cmdHash) . fromTx) txsBs
-            let ~bloom = Bloom.easyList bloomFalsePositiveRate $ toList hashes
+            let !bloom = Bloom.easyList bloomFalsePositiveRate $ toList hashes
             return $! HashMap.insert hkey bloom mp
 
     pdb = cutDb ^. CutDB.cutDbPayloadCas

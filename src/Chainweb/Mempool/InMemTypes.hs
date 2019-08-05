@@ -22,11 +22,12 @@ module Chainweb.Mempool.InMemTypes
 import Control.Concurrent (ThreadId)
 import Control.Concurrent.MVar (MVar)
 
-import Data.HashMap.Strict (HashMap)
 import Data.HashPSQ (HashPSQ)
 import Data.HashSet (HashSet)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
+import Data.Tuple.Strict
+import qualified Data.Vector as V
 
 import Pact.Types.Gas (GasPrice(..))
 
@@ -34,6 +35,8 @@ import Pact.Types.Gas (GasPrice(..))
 
 import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
+
+import Data.CAS.RocksDB
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -60,10 +63,10 @@ data InMemConfig t = InMemConfig {
 
 ------------------------------------------------------------------------------
 data InMemoryMempool t = InMemoryMempool {
-    _inmemCfg :: InMemConfig t
-  , _inmemDataLock :: MVar (InMemoryMempoolData t)
-  , _inmemReaper :: ThreadId
-  , _inmemNonce :: ServerNonce
+    _inmemCfg :: !(InMemConfig t)
+  , _inmemDataLock :: !(MVar (InMemoryMempoolData t))
+  , _inmemReaper :: !ThreadId
+  , _inmemNonce :: !ServerNonce
 }
 
 ------------------------------------------------------------------------------
@@ -73,15 +76,16 @@ data InMemoryMempoolData t = InMemoryMempoolData {
     -- we'll have to replay it.
     --
     -- N.B. atomic access to these IORefs is not necessary -- we hold the lock here.
-  , _inmemValidated :: !(IORef (HashMap TransactionHash (ValidatedTransaction t)))
+  -- , _inmemValidated :: !(IORef (HashMap TransactionHash (ValidatedTransaction t)))
+  , _inmemValidated :: RocksDbTable TransactionHash (ValidatedTransaction t)
   , _inmemConfirmed :: !(IORef (HashSet TransactionHash))
   , _inmemLastNewBlockParent :: !(IORef (Maybe BlockHeader))
   , _inmemRecentLog :: !(IORef RecentLog)
 }
 
 ------------------------------------------------------------------------------
-type RecentItem = (MempoolTxId, TransactionHash)
+type RecentItem = T2 MempoolTxId TransactionHash
 data RecentLog = RecentLog {
     _rlNext :: {-# UNPACK #-} !MempoolTxId
-  , _rlRecent :: ![RecentItem]
+  , _rlRecent :: !(V.Vector RecentItem)
   }

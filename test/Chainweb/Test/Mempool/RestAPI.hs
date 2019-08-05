@@ -31,8 +31,8 @@ import Network.X509.SelfSigned
 
 
 ------------------------------------------------------------------------------
-tests :: TestTree
-tests = withResource (newPool cfg) Pool.destroyAllResources $
+tests :: RocksDb -> TestTree
+tests rdb = withResource (newPool rdb cfg) Pool.destroyAllResources $
         \poolIO -> testGroup "Chainweb.Mempool.RestAPI"
             $ Chainweb.Test.Mempool.remoteTests
             $ MempoolWithFunc
@@ -52,8 +52,8 @@ data TestServer = TestServer {
   , _tsServerThread :: !ThreadId
   }
 
-newTestServer :: InMemConfig MockTx -> IO TestServer
-newTestServer inMemCfg = mask_ $ do
+newTestServer :: RocksDb -> InMemConfig MockTx -> IO TestServer
+newTestServer rdb inMemCfg = mask_ $ do
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
     tid <- forkIOWithUnmask $ server inmemMv envMv
@@ -64,7 +64,7 @@ newTestServer inMemCfg = mask_ $ do
 
   where
     server inmemMv envMv restore =
-        InMem.withInMemoryMempool inMemCfg $ \inmem -> do
+        InMem.withInMemoryMempool inMemCfg rdb $ \inmem -> do
             putMVar inmemMv inmem
             restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
                 putMVar envMv env
@@ -86,8 +86,8 @@ destroyTestServer :: TestServer -> IO ()
 destroyTestServer (TestServer _ _ tid) = killThread tid
 
 
-newPool :: InMemConfig MockTx -> IO (Pool.Pool TestServer)
-newPool cfg = Pool.createPool (newTestServer cfg) destroyTestServer 1 10 20
+newPool :: RocksDb -> InMemConfig MockTx -> IO (Pool.Pool TestServer)
+newPool rdb cfg = Pool.createPool (newTestServer rdb cfg) destroyTestServer 1 10 20
 
 ------------------------------------------------------------------------------
 

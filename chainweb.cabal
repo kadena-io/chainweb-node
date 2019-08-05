@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      0.1.0.0
+version:      0.2
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -289,6 +289,7 @@ library
         , loglevel >= 0.1
         , memory >=0.14
         , merkle-log
+        , mmorph >= 1.1
         , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
