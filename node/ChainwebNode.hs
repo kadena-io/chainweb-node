@@ -10,6 +10,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -79,6 +80,7 @@ import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
+import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
@@ -175,7 +177,7 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
 
-runAmberdataBlockMonitor :: Logger logger => Maybe ChainId -> logger -> CutDb cas -> IO ()
+runAmberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
 runAmberdataBlockMonitor cid logger db
     = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
         runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)

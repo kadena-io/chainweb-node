@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Logging.Amberdata
@@ -34,16 +35,21 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Lens.TH
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Reader (liftIO)
 import Control.Monad.Error.Class (throwError)
 
 import Data.Bool
+import Data.CAS
 import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString as BS
 import qualified Data.Foldable as HM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
+import qualified Data.HashMap.Strict as HMS
+
 
 import GHC.Generics
 
@@ -66,6 +72,9 @@ import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.NodeId
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
@@ -84,8 +93,8 @@ data AmberdataBlock = AmberdataBlock
   , _amberdataParentHash :: {-# UNPACK #-} !BlockHash
   , _amberdataNonce :: {-# UNPACK #-} !Nonce
   , _amberdataMiner :: {-# UNPACK #-} !ChainNodeId
-  , _amberdataSize :: !(Maybe Word)   -- ^ Bytes
-  , _amberdataNumTransactions :: !(Maybe Word)
+  , _amberdataSize :: {-# UNPACK #-} !Word  -- ^ Bytes
+  , _amberdataNumTransactions :: {-# UNPACK #-} !Word
   , _amberdataMeta :: {-# UNPACK #-} !ChainId
   , _amberdataDifficulty :: {-# UNPACK #-} !BlockWeight
   }
@@ -192,8 +201,8 @@ pAmberdataBlockchainId = textOption
 
 validateOptionalChainId :: ConfigValidation (Maybe ChainId) []
 validateOptionalChainId (Just cid)
-  | chainIdInt cid <= (0 :: Integer) =
-      liftIO $ throwError $ error "Positive chain id must be provided."
+  | chainIdInt cid < (0 :: Integer) =
+      liftIO $ throwError $ error "Negative values for chain id not permitted."
   | otherwise = return ()
 validateOptionalChainId _ = return ()
 
@@ -269,40 +278,68 @@ instance FromJSON (AmberdataConfig -> AmberdataConfig) where
 -- -------------------------------------------------------------------------- --
 -- Monitor
 
--- TODO how to filter chain id
-amberdataBlockMonitor :: Logger logger => Maybe ChainId -> logger -> CutDb cas -> IO ()
-amberdataBlockMonitor _ logger db = do
+amberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
+amberdataBlockMonitor cid logger db = do
     logFunctionText logger Info "Initialized Amberdata Block Monitor"
+    case cid of
+      Nothing -> logFunctionText logger Info "Sending blocks from ALL chains"
+      Just cid' -> logFunctionText logger Info ("Sending blocks from chain " <> toText cid')
     void
-        $ S.mapM_ (logAllBlocks logger)
-        $ S.map cutToAmberdataBlocks
+        $ S.mapM_ logBlocks
         $ cutStream db
   where
-    logAllBlocks :: Logger logger => logger -> [AmberdataBlock] -> IO ()
-    logAllBlocks l = mapM_ (logFunctionJson l Info)
+    logBlocks :: Cut -> IO ()
+    logBlocks c = case cid of
+      Nothing -> do
+        amberdataBlocks <- cutToAmberdataBlocks c
+        mapM_ (logFunctionJson logger Info) amberdataBlocks
+      Just cid' -> case (HMS.lookup cid' (_cutMap c)) of
+        Nothing -> logFunctionText logger Error ("Invalid chain id provided: " <> toText cid')
+        Just bheader -> do
+          amberdataBlock <- blockHeaderToAmberdataBlock _blockHeight bheader
+          logFunctionJson logger Info amberdataBlock
 
-    cutToAmberdataBlocks :: Cut -> [AmberdataBlock]
+    cutToAmberdataBlocks :: Cut -> IO [AmberdataBlock]
     cutToAmberdataBlocks c =
         let totalChains = length (_cutMap c)
-        in flip fmap (HM.toList $ _cutMap c) $ \bh -> AmberdataBlock
-            { _amberdataNumber = uniqueBlockHeight bh totalChains
-            , _amberdataHash = _blockHash bh
-            , _amberdataTimestamp = _blockCreationTime bh
-            , _amberdataParentHash = _blockParent bh
-            , _amberdataNonce = _blockNonce bh
-            , _amberdataMiner = _blockMiner bh
-            , _amberdataSize = Nothing
-            , _amberdataNumTransactions = Nothing
-            , _amberdataMeta = _blockChainId bh
-            , _amberdataDifficulty = _blockWeight bh
-            }
+        in flip traverse (HM.toList $ _cutMap c) $ \bh ->
+          blockHeaderToAmberdataBlock (uniqueBlockHeight totalChains) bh
 
-    uniqueBlockHeight :: BlockHeader -> Int -> BlockHeight
-    uniqueBlockHeight bheader totalChains =
+    blockHeaderToAmberdataBlock :: (BlockHeader -> BlockHeight) -> BlockHeader -> IO AmberdataBlock
+    blockHeaderToAmberdataBlock heightFunc bh = do
+      bpayload <- getBlockPayload bh
+      return $ AmberdataBlock
+        { _amberdataNumber = heightFunc bh
+        , _amberdataHash = _blockHash bh
+        , _amberdataTimestamp = _blockCreationTime bh
+        , _amberdataParentHash = _blockParent bh
+        , _amberdataNonce = _blockNonce bh
+        , _amberdataMiner = _blockMiner bh
+        , _amberdataSize = getPayloadSize bpayload
+        , _amberdataNumTransactions = getPayloadNumTransaction bpayload
+        , _amberdataMeta = _blockChainId bh
+        , _amberdataDifficulty = _blockWeight bh
+        }
+
+    uniqueBlockHeight :: Int -> BlockHeader -> BlockHeight
+    uniqueBlockHeight totalChains bheader =
         BlockHeight $ (h * (fromIntegral totalChains)) + (chainIdInt (_chainId bcid))
       where
         BlockHeight h = _blockHeight bheader
         bcid = _blockChainId bheader
+
+    payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+
+    getBlockPayload :: BlockHeader -> IO PayloadWithOutputs
+    getBlockPayload bheader = (casLookupM payloadCas . _blockPayloadHash) bheader
+
+    getPayloadNumTransaction :: PayloadWithOutputs -> Word
+    getPayloadNumTransaction = fromIntegral . length . _payloadWithOutputsTransactions
+
+    getPayloadSize :: PayloadWithOutputs -> Word
+    getPayloadSize payload = int $
+      HM.foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+                    _payloadWithOutputsTransactions payload
 
 -- -------------------------------------------------------------------------- --
 -- Amberdata Backend
