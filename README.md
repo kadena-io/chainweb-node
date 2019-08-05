@@ -6,7 +6,7 @@ With our recent release of Chainweb Testnet V2, we now offer a Linux binary.  Fo
 
 ## Table of Contents
 
-- [Download Instructures for Linux Users](#linux-users)
+- [Download Instructions for Linux Users](#linux-users)
 - [Download and Build Instructions for Mac Users](#mac-users)
 - [Run a Chainweb node](#running-a-chainweb-node)
 - [Configure a Chainweb node](#configuring-a-chainweb-node)
