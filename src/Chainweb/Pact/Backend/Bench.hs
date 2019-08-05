@@ -107,8 +107,7 @@ cpBenchNoRewindOverBlocks finalBlockHeight transactionCount =
         nextHash bytestring =
           (bytestring, BlockHash $ unsafeMerkleLogHash $ B.pack $ B.zipWith (+) bytestring inc)
           where
-            inc =
-              "\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\NUL\SOH\NUL"
+            inc = replicate 30 '\NUL' ++ "\SOH\NUL"
 
         writeRow (PactDbEnv pdb e) writeType ut i =
             _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
