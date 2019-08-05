@@ -5,9 +5,9 @@ Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for 
 With our recent release of Chainweb Testnet V2, we now offer a Linux binary.  For Mac users, please follow the instructions to build from source and then run a Chainweb node.
 
 ## Table of Contents
-- Download and Build Instructions
-  - [For Linux Users](#linux-users)
-  - [For Mac Users](#mac-users)
+
+- [Download For Linux Users](#linux-users)
+- [Download and Build Mac Users](#mac-users)
 - [Run a Chainweb node](#running-a-chainweb-node)
 - [Configure a Chainweb node](#configuring-a-chainweb-node)
 - [Component Structure Details](#component-structure)
@@ -17,10 +17,13 @@ With our recent release of Chainweb Testnet V2, we now offer a Linux binary.  Fo
 Download the binary: [chainweb-node-testnet-v2-ubuntu-18.04
 168](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v2/chainweb-node-testnet-v2-ubuntu-18.04)
 
-Install rocksdb: sudo apt install librocksdb5.8
+You will need to install rocksdb with the following command:
+
+```bash
+sudo apt install librocksdb5.8
+```
 
 At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
-
 
 ## Mac Users
 ### Building from Source
