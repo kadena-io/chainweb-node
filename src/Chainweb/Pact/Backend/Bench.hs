@@ -34,6 +34,7 @@ import Chainweb.MerkleLogHash
 import Data.Monoid
 import Data.Maybe
 import qualified Data.ByteString as B
+import Data.String.Conv
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend" $ merge3
@@ -107,7 +108,7 @@ cpBenchNoRewindOverBlocks finalBlockHeight transactionCount =
         nextHash bytestring =
           (bytestring, BlockHash $ unsafeMerkleLogHash $ B.pack $ B.zipWith (+) bytestring inc)
           where
-            inc = replicate 30 '\NUL' ++ "\SOH\NUL"
+            inc = toS $ replicate 30 '\NUL' ++ ['\SOH', '\NUL']
 
         writeRow (PactDbEnv pdb e) writeType ut i =
             _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
