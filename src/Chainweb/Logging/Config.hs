@@ -77,7 +77,7 @@ data LogConfig = LogConfig
     { _logConfigLogger :: !LoggerConfig
     , _logConfigBackend :: !BackendConfig
     , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
-    , _logConfigAmberdataBackend :: !(Maybe AmberdataConfig)
+    , _logConfigAmberdataBackend :: !(EnableConfig AmberdataConfig)
     , _logConfigClusterId :: !(Maybe ClusterId)
     }
     deriving (Show, Eq, Ord, Generic)
@@ -89,7 +89,7 @@ defaultLogConfig = LogConfig
     { _logConfigLogger = defaultLoggerConfig
     , _logConfigBackend = defaultBackendConfig
     , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
-    , _logConfigAmberdataBackend = Nothing
+    , _logConfigAmberdataBackend = EnableConfig False defaultAmberdataConfig
       -- ^ Amberdata logging disabled by default
     , _logConfigClusterId = Nothing
     }
@@ -99,6 +99,7 @@ validateLogConfig o = do
     validateLoggerConfig $ _logConfigLogger o
     validateBackendConfig $ _logConfigBackend o
     validateBackendConfig $ _enableConfigConfig $ _logConfigTelemetryBackend o
+    validateAmberdataConfig $ _enableConfigConfig $ _logConfigAmberdataBackend o
 
 instance ToJSON LogConfig where
     toJSON o = object
@@ -115,7 +116,7 @@ instance FromJSON (LogConfig -> LogConfig) where
         <*< logConfigBackend %.: "backend" % o
         <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
         <*< logConfigClusterId ..: "clusterId" % o
-        <*< logConfigAmberdataBackend ..: "amberdataBackend" % o
+        <*< logConfigAmberdataBackend %.: "amberdataBackend" % o
 
 pLogConfig :: MParser LogConfig
 pLogConfig = pLogConfig_ ""
@@ -135,8 +136,5 @@ pLogConfig_ prefix = id
     <*< logConfigClusterId .:: fmap Just % textOption
         % long "cluster-id"
         <> help "a label that is added to all log messages from this node"
-    <*< logConfigAmberdataBackend .:: fmap Just % textOption
-        % long (T.unpack prefix <> "amberdata-config")
-        <> metavar ("amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>"
-                <> " or amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>::debug")
-        <> help "config for logging to amberdata"
+    <*< logConfigAmberdataBackend %::
+        pEnableConfig "amberdata-logger" pAmberdataConfig

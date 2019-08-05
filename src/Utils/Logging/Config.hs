@@ -52,6 +52,7 @@ import Control.DeepSeq
 import Control.Lens.TH
 import Control.Monad.Catch
 import Control.Monad.Writer
+import Control.Monad.Error.Class (throwError)
 
 import qualified Data.CaseInsensitive as CI
 import Data.String
@@ -197,7 +198,8 @@ validateBackendConfig o = do
         validateHandleConfig $ _backendConfigHandle o
         case (_backendConfigHandle o, _backendConfigColor o) of
             (FileHandle _, ColorTrue) ->
-                tell ["log messages are formatted using ANSI color escape codes but are written to a file"]
+              liftIO $ throwError
+              $ error "log messages are formatted using ANSI color escape codes but are written to a file"
             _ -> return ()
 
 instance ToJSON BackendConfig where

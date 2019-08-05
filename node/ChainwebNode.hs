@@ -40,6 +40,7 @@ module Main
 ) where
 
 import Configuration.Utils hiding (Error)
+import Configuration.Utils.Validation (validateFilePath)
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -81,7 +82,7 @@ import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), ChainId)
 
 import Data.LogMessage
 import Data.PQueue
@@ -116,6 +117,12 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
     }
+
+validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
+validateChainwebNodeConfiguration o = do
+  validateLogConfig $ _nodeConfigLog o
+  maybe (return ()) (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
+
 
 instance ToJSON ChainwebNodeConfiguration where
     toJSON o = object
@@ -168,10 +175,10 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
 
-runAmberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runAmberdataBlockMonitor logger db
+runAmberdataBlockMonitor :: Logger logger => Maybe ChainId -> logger -> CutDb cas -> IO ()
+runAmberdataBlockMonitor cid logger db
     = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
-        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor l db)
+        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)
 
 -- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
 
@@ -240,7 +247,7 @@ node conf logger = do
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            , runAmberdataBlockMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
+            , runAmberdataBlockMonitor (amberdataChainId conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             ]
@@ -252,6 +259,7 @@ node conf logger = do
         Nothing -> getXdgDirectory XdgData
             $ "chainweb-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
         Just d -> return d
+    amberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
 
 withNodeLogger
     :: LogConfig
@@ -314,11 +322,11 @@ withNodeLogger logConfig v f = runManaged $ do
 
 mkAmberdataLogger
     :: HTTP.Manager
-    -> Maybe AmberdataConfig
+    -> EnableConfig AmberdataConfig
     -> (Backend (JsonLog AmberdataBlock) -> IO b)
     -> IO b
-mkAmberdataLogger _ Nothing inner = inner (const $ return ())
-mkAmberdataLogger mgr (Just config) inner = withAmberDataBlocksBackend mgr config inner
+mkAmberdataLogger mgr = configureHandler
+  $ withAmberDataBlocksBackend mgr
 
 mkTelemetryLogger
     :: forall a b
@@ -335,10 +343,11 @@ mkTelemetryLogger mgr = configureHandler
 -- main
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
-mainInfo = programInfo
+mainInfo = programInfoValidate
     "Chainweb Node"
     pChainwebNodeConfiguration
     (defaultChainwebNodeConfiguration Testnet01)
+    validateChainwebNodeConfiguration
 
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
