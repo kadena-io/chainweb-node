@@ -31,7 +31,7 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (catches, Handler(..), finally, try)
+import Control.Exception hiding (Handler(..), catches, finally, try)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -531,6 +531,7 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
     !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
     !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
     return $! Transactions (paired txOuts) coinOut
+
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes . fmap (SB.fromShort . payloadBytes)
