@@ -23,6 +23,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
+import qualified Data.DList as DL
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
@@ -129,13 +130,14 @@ doSave dbenv hash = runBlockEnv dbenv $ do
         (newTables, writes, _) <- use bsPendingBlock
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
-        callDb "save" $ backendWriteUpdateBatch writeV bh
+        callDb "save" $ backendWriteUpdateBatch bh writeV
 
     prepChunk [] = error "impossible: empty chunk from groupBy"
     prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
 
     toVectorChunks writes = liftIO $ do
-        mv <- V.unsafeThaw $ V.fromList $ concat $ HashMap.elems writes
+        mv <- V.unsafeThaw . V.fromList . DL.toList . DL.concat $
+              HashMap.elems writes
         TimSort.sort mv
         l' <- V.toList <$> V.unsafeFreeze mv
         let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'

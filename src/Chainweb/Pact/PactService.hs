@@ -165,7 +165,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
 
     logFunctionText chainwebLogger Info $ "opened sqlitedb for " <> sshow cid <> " in directory " <> sshow sqlitedir
 
-    let sqlitefile = sqlitedir <> "/" <> "pactservice-chain" <> T.unpack (chainIdToText  cid) <> ".sqlite"
+    let sqlitefile = sqlitedir <> "/" <> "pact-v1-chain-" <> T.unpack (chainIdToText  cid) <> ".sqlite"
 
     logFunctionText chainwebLogger Info $ "opening sqlitedb named " <> (T.pack sqlitefile)
 
