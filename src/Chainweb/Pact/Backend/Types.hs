@@ -155,6 +155,11 @@ instance FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
+-- | Within a @restore .. save@ block, mutations to the pact database are held
+-- in RAM to be written to the DB in batches at @save@ time. For any given db
+-- write, we need to record the table name, the current tx id, the row key, and
+-- the row value.
+--
 data SQLiteRowDelta = SQLiteRowDelta
     { _deltaTableName :: !ByteString -- utf8?
     , _deltaTxId :: {-# UNPACK #-} !TxId
@@ -169,6 +174,7 @@ instance Ord SQLiteRowDelta where
         bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
     {-# INLINE compare #-}
 
+-- | When we index 'SQLiteRowDelta' values, we need a lookup key.
 data SQLiteDeltaKey = SQLiteDeltaKey
     { _dkTable :: !ByteString
     , _dkRowKey :: !ByteString
@@ -176,10 +182,24 @@ data SQLiteDeltaKey = SQLiteDeltaKey
   deriving (Show, Generic, Eq, Ord)
   deriving anyclass Hashable
 
--- todo: try difference list here
+-- TODO: try difference list here
+
+-- | A map from table name to a list of 'TxLog' entries. This is maintained in
+-- 'BlockState' and is cleared upon pact transaction commit.
 type TxLogMap = Map TableName [TxLog Value]
+
+-- | Between a @restore..save@ bracket, we also need to record which tables
+-- were created during this block (so the necessary @CREATE TABLE@ statements
+-- can be performed upon block save).
 type SQLitePendingTableCreations = HashSet ByteString
+
+-- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
 type SQLitePendingWrites = HashMap SQLiteDeltaKey [SQLiteRowDelta]
+
+-- | A collection of pending mutations to the pact db. We maintain two of
+-- these; one for the block as a whole, and one for any pending pact
+-- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
+-- values are merged together.
 type SQLitePendingData = (SQLitePendingTableCreations, SQLitePendingWrites, TxLogMap)
 
 data SQLiteEnv = SQLiteEnv
@@ -189,6 +209,7 @@ data SQLiteEnv = SQLiteEnv
 
 makeLenses ''SQLiteEnv
 
+-- | Monad state for 'BlockHandler.
 data BlockState = BlockState
     { _bsTxId :: !TxId
     , _bsMode :: !(Maybe ExecutionMode)
