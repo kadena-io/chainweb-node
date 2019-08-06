@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -40,12 +41,21 @@ module Chainweb.Pact.Backend.Types
     , pdepPactDb
     , PactDbState(..)
     , pdbsDbEnv
+
+    , SQLiteRowDelta(..)
+    , SQLiteDeltaKey(..)
+    , SQLitePendingTableCreations
+    , SQLitePendingWrites
+    , SQLitePendingData
+    , emptySQLitePendingData
+
     , BlockState(..)
     , initBlockState
     , bsBlockHeight
-    , bsTxRecord
     , bsMode
     , bsTxId
+    , bsPendingBlock
+    , bsPendingTx
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -87,12 +97,17 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.Bits
+import Data.ByteString (ByteString)
+import Data.DList (DList)
+import Data.Hashable (Hashable)
+import Data.HashMap.Strict (HashMap)
+import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 
-import Foreign.C.Types (CInt(..))
-
 import Database.SQLite3.Direct as SQ3
+
+import Foreign.C.Types (CInt(..))
 
 import GHC.Generics
 
@@ -142,6 +157,51 @@ instance FromJSON PactDbConfig
 
 makeLenses ''PactDbConfig
 
+-- | Within a @restore .. save@ block, mutations to the pact database are held
+-- in RAM to be written to the DB in batches at @save@ time. For any given db
+-- write, we need to record the table name, the current tx id, the row key, and
+-- the row value.
+--
+data SQLiteRowDelta = SQLiteRowDelta
+    { _deltaTableName :: !ByteString -- utf8?
+    , _deltaTxId :: {-# UNPACK #-} !TxId
+    , _deltaRowKey :: !ByteString
+    , _deltaData :: !ByteString
+    } deriving (Show, Generic, Eq)
+
+instance Ord SQLiteRowDelta where
+    compare a b = compare aa bb
+      where
+        aa = (_deltaTableName a, _deltaRowKey a, _deltaTxId a)
+        bb = (_deltaTableName b, _deltaRowKey b, _deltaTxId b)
+    {-# INLINE compare #-}
+
+-- | When we index 'SQLiteRowDelta' values, we need a lookup key.
+data SQLiteDeltaKey = SQLiteDeltaKey
+    { _dkTable :: !ByteString
+    , _dkRowKey :: !ByteString
+    }
+  deriving (Show, Generic, Eq, Ord)
+  deriving anyclass Hashable
+
+-- | A map from table name to a list of 'TxLog' entries. This is maintained in
+-- 'BlockState' and is cleared upon pact transaction commit.
+type TxLogMap = Map TableName (DList (TxLog Value))
+
+-- | Between a @restore..save@ bracket, we also need to record which tables
+-- were created during this block (so the necessary @CREATE TABLE@ statements
+-- can be performed upon block save).
+type SQLitePendingTableCreations = HashSet ByteString
+
+-- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
+type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
+
+-- | A collection of pending mutations to the pact db. We maintain two of
+-- these; one for the block as a whole, and one for any pending pact
+-- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
+-- values are merged together.
+type SQLitePendingData = (SQLitePendingTableCreations, SQLitePendingWrites, TxLogMap)
+
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
     , _sConfig :: !SQLiteConfig
@@ -149,16 +209,21 @@ data SQLiteEnv = SQLiteEnv
 
 makeLenses ''SQLiteEnv
 
+-- | Monad state for 'BlockHandler.
 data BlockState = BlockState
     { _bsTxId :: !TxId
     , _bsMode :: !(Maybe ExecutionMode)
     , _bsBlockHeight :: !BlockHeight
-    , _bsTxRecord :: !(Map TableName [TxLog Value])
+    , _bsPendingBlock :: !SQLitePendingData
+    , _bsPendingTx :: !(Maybe SQLitePendingData)
     }
     deriving Show
 
+emptySQLitePendingData :: SQLitePendingData
+emptySQLitePendingData = (mempty, mempty, mempty)
+
 initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 mempty
+initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
 
 makeLenses ''BlockState
 
@@ -178,17 +243,17 @@ makeLenses ''BlockEnv
 
 newtype BlockHandler p a = BlockHandler
     { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
-    } deriving ( Functor
-               , Applicative
-               , Monad
-               , MonadState BlockState
-               , MonadThrow
-               , MonadCatch
-               , MonadMask
-               , MonadIO
-               , MonadReader (BlockDbEnv p)
-               , MonadFail
-               )
+    } deriving newtype ( Functor
+                       , Applicative
+                       , Monad
+                       , MonadState BlockState
+                       , MonadThrow
+                       , MonadCatch
+                       , MonadMask
+                       , MonadIO
+                       , MonadReader (BlockDbEnv p)
+                       , MonadFail
+                       )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 
@@ -227,7 +292,7 @@ data CheckpointEnv = CheckpointEnv
 makeLenses ''CheckpointEnv
 
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
-  deriving (Eq, Ord, Bits, Num)
+  deriving newtype (Eq, Ord, Bits, Num)
 
 data PactServiceEnv cas = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)

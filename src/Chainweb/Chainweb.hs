@@ -341,7 +341,7 @@ mempoolConfig enableReIntro = Mempool.InMemConfig
     maxRecentLog
     enableReIntro
   where
-    blockGasLimit = 1000000               -- TODO: policy decision
+    blockGasLimit = 100000               -- TODO: policy decision
     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
     maxRecentLog = 2048                   -- store 2k recent transaction hashes
 

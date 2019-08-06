@@ -22,6 +22,7 @@ import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Exception.Safe (tryAny)
 import Control.Lens
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State.Strict
 
@@ -104,7 +105,7 @@ rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
-data SavepointName = RewindSavepoint | Block | DbTransaction |  PreBlock | PactDbTransaction
+data SavepointName = RewindSavepoint | Block | DbTransaction |  PreBlock
   deriving (Eq, Ord, Enum)
 
 instance Show SavepointName where
@@ -112,7 +113,6 @@ instance Show SavepointName where
   show Block = "block"
   show DbTransaction = "db-transaction"
   show PreBlock = "preblock"
-  show PactDbTransaction = "pact-transaction"
 
 instance AsString SavepointName where
   asString = Data.Text.pack . show
@@ -208,12 +208,12 @@ instance StringConv Utf8 String where
 
 chainwebPragmas :: [Pragma]
 chainwebPragmas =
-  [ "synchronous = OFF" -- was NORMAL
-  , "journal_mode = MEMORY" -- was WAL
+  [ "synchronous = NORMAL"
+  , "journal_mode = WAL"
   , "locking_mode = EXCLUSIVE"
   , "temp_store = MEMORY"
-  -- , "auto_vacuum = FULL"
-  -- , "page_size = 8192"
+  , "auto_vacuum = NONE"
+  , "page_size = 1024"
   ]
 
 
@@ -230,3 +230,17 @@ sqlite_open_readwrite, sqlite_open_create, sqlite_open_fullmutex :: SQLiteFlag
 sqlite_open_readwrite = 0x00000002
 sqlite_open_create = 0x00000004
 sqlite_open_fullmutex = 0x00010000
+
+
+execMulti :: Traversable t => Database -> Utf8 -> t [SType] -> IO ()
+execMulti db q rows = do
+    stmt <- prepStmt db q
+    forM_ rows $ \row -> do
+        reset stmt >>= checkError
+        clearBindings stmt
+        bindParams stmt row
+        step stmt >>= checkError
+    finalize stmt >>= checkError
+  where
+    checkError (Left e) = void $ fail $ "error during batch insert: " ++ show e
+    checkError (Right _) = return ()

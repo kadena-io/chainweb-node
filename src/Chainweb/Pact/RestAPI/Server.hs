@@ -30,6 +30,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
+import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.HashMap.Strict (HashMap)
 import Data.List (find)
@@ -329,5 +330,5 @@ validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $! (\bs -> PayloadWithText bs (_cmdPayload cmd)) <$> cmdBS
+  ProcSucc cmd -> return $! (\bs -> PayloadWithText (SB.toShort bs) (_cmdPayload cmd)) <$> cmdBS
   ProcFail err -> Left $ err
