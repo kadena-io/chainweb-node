@@ -544,7 +544,7 @@ createBlockHistoryTable =
         \(blockheight UNSIGNED BIGINT NOT NULL,\
         \ hash BLOB NOT NULL,\
         \ endingtxid UNSIGNED BIGINT NOT NULL, \
-        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight, hash));"
+        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight));"
 
 createTableCreationTable :: BlockHandler SQLiteEnv ()
 createTableCreationTable =
