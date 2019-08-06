@@ -544,8 +544,7 @@ createBlockHistoryTable =
         \(blockheight UNSIGNED BIGINT NOT NULL,\
         \ hash BLOB NOT NULL,\
         \ endingtxid UNSIGNED BIGINT NOT NULL, \
-        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight)); \
-        \ CREATE INDEX blockHistoryIndex ON BlockHistory(hash)"
+        \ CONSTRAINT blockHashConstraint UNIQUE (blockheight, hash));"
 
 createTableCreationTable :: BlockHandler SQLiteEnv ()
 createTableCreationTable =
@@ -553,9 +552,7 @@ createTableCreationTable =
       "CREATE TABLE IF NOT EXISTS VersionedTableCreation\
       \(tablename TEXT NOT NULL\
       \, createBlockheight UNSIGNED BIGINT NOT NULL\
-      \, CONSTRAINT creation_unique UNIQUE(tablename, createBlockheight)); \
-      \CREATE INDEX VersionedTableCreationIx ON VersionedTableCreation(\
-      \createBlockheight DESC);"
+      \, CONSTRAINT creation_unique UNIQUE(createBlockheight, tablename));"
 
 createTableMutationTable :: BlockHandler SQLiteEnv ()
 createTableMutationTable =
@@ -563,9 +560,7 @@ createTableMutationTable =
         exec_ db "CREATE TABLE IF NOT EXISTS VersionedTableMutation\
                  \(tablename TEXT NOT NULL\
                  \, blockheight UNSIGNED BIGINT NOT NULL\
-                 \, CONSTRAINT mutation_unique UNIQUE(tablename,blockheight));"
-        exec_ db "CREATE INDEX IF NOT EXISTS mutation_bh ON \
-                 \VersionedTableMutation(blockheight DESC);"
+                 \, CONSTRAINT mutation_unique UNIQUE(blockheight, tablename));"
 
 createUserTable :: Utf8 -> BlockHeight -> BlockHandler SQLiteEnv ()
 createUserTable tablename bh =
@@ -594,7 +589,7 @@ createVersionedTable tablename db = do
            , tablename
            , "_ix] ON ["
            , tablename
-           , "](rowkey, txid DESC);"]
+           , "](txid DESC);"]
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
