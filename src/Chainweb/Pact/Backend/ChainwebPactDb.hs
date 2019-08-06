@@ -48,6 +48,7 @@ import Data.String.Conv
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
+import qualified Data.DList as DL
 
 import Database.SQLite3.Direct as SQ3
 
@@ -132,13 +133,13 @@ doReadRow d k =
         -> MaybeT (BlockHandler SQLiteEnv) v
     lookupInPendingData (Utf8 rowkey) (_, m, _) = do
         let deltaKey = SQLiteDeltaKey tableNameBS rowkey
-        ddata <- map _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey m)
+        ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey m)
         if null ddata
             -- should be impossible, but we'll check this case
             then mzero
             -- we merge with (++) which should produce txids most-recent-first
             -- -- we care about the most recent update to this rowkey
-            else MaybeT $ return $! decode $ fromStrict $ head ddata
+            else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
 
     lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
     lookupInDb rowkey = do
@@ -201,7 +202,7 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     deltaKey = SQLiteDeltaKey tn key
 
     modf (a, m, l) = (a, upd m, l)
-    upd = HashMap.insertWith (++) deltaKey [delta]
+    upd = HashMap.insertWith DL.append deltaKey (DL.singleton delta)
 
 
 backendWriteUpdateBatch
@@ -300,8 +301,9 @@ doKeys d = do
     pb <- use bsPendingBlock
     mptx <- use bsPendingTx
 
-    let memKeys = map (toS . _deltaRowKey) $
-                  collect pb ++ maybe [] collect mptx
+    let memKeys = DL.toList $
+                  fmap (toS . _deltaRowKey) $
+                  collect pb `DL.append` maybe DL.empty collect mptx
 
     let allKeys = map fromString $
                   HashSet.toList $
@@ -327,7 +329,7 @@ doKeys d = do
     tnS = toS tn
     collect (_, m, _) =
         let flt k _ = _dkTable k == tnS
-        in concat $ HashMap.elems $ HashMap.filterWithKey flt m
+        in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt m
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
@@ -363,8 +365,9 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     tnS = toS tn
     collect (_, m, _) =
         let flt k _ = _dkTable k == tnS
-            txids = map _deltaTxId $
-                    concat $
+            txids = DL.toList $
+                    fmap _deltaTxId $
+                    DL.concat $
                     HashMap.elems $
                     HashMap.filterWithKey flt m
         in filter (> _tid) txids
@@ -385,8 +388,8 @@ recordTxLog tt d k v = do
       (Just _) -> modify' (over (bsPendingTx . _Just) upd)
 
   where
-    upd (a, b, m) = (a, b, M.insertWith (++) tt txlogs m)
-    txlogs = [TxLog (asString d) (asString k) (toJSON v)]
+    upd (a, b, m) = (a, b, M.insertWith DL.append tt txlogs m)
+    txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
 
 modifyPendingData
     :: (SQLitePendingData -> SQLitePendingData)
@@ -401,14 +404,14 @@ doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn =
     modifyPendingData $ \(c, w, l) ->
         let c' = HashSet.insert (T.encodeUtf8 ttxt) c
-            l' = M.insertWith (++) (TableName txlogKey) txlogs l
+            l' = M.insertWith DL.append (TableName txlogKey) txlogs l
         in (c', w, l')
 
   where
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
-    txlogs = [TxLog txlogKey stn (toJSON uti)]
+    txlogs = DL.singleton (TxLog txlogKey stn (toJSON uti))
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
@@ -429,12 +432,15 @@ doCommit = use bsMode >>= \mm -> case mm of
               resetTemp
               return blockLogs
           else doRollback >> return mempty
-        return $! concat $ fmap reverse txrs
+        return $! concat $ fmap (reverse . DL.toList) txrs
   where
     merge Nothing a = a
     merge (Just (creationsA, writesA, logsA)) (creationsB, writesB, _) =
         let creations = HashSet.union creationsA creationsB
-            mergeW a b = take 1 a ++ b
+            mergeW a b = let aa = take 1 $ DL.toList a
+                         in case aa of
+                              [] -> b
+                              (x:_) -> DL.cons x b
             writes = HashMap.unionWith mergeW writesA writesB
             logs = logsA
         in (creations, writes, logs)
@@ -489,7 +495,9 @@ doGetTxLog d txid = do
         ptx <- maybe [] (:[]) <$> use bsPendingTx
         pb <- use bsPendingBlock
         let pendingWrites = map (\(_, a, _) -> a) (ptx ++ [pb])
-        let deltas = concat $ map takeHead $ concatMap HashMap.elems pendingWrites
+        let deltas = concat $
+                     map (takeHead . DL.toList) $
+                     concatMap HashMap.elems pendingWrites
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
