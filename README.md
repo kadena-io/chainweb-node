@@ -2,30 +2,47 @@
 
 Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
 
-## Building from Source
+With our recent release of Chainweb Testnet V2, we now offer a Linux binary.  For Mac users, please follow the instructions to build from source and then run a Chainweb node.
+
+## Table of Contents
+
+- [Download Instructions for Linux Users](#linux-users)
+- [Download and Build Instructions for Mac Users](#mac-users)
+- [Run a Chainweb node](#running-a-chainweb-node)
+- [Configure a Chainweb node](#configuring-a-chainweb-node)
+- [Component Structure Details](#component-structure)
+- [Architecture Overview](#architecture-overview)
+
+## Linux Users
+Download the binary: [chainweb-node-testnet-v2-ubuntu-18.04
+168](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v2/chainweb-node-testnet-v2-ubuntu-18.04)
+
+You will need to install rocksdb with the following command:
+
+```bash
+sudo apt install librocksdb5.8
+```
+
+At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
+
+## Mac Users
+### Building from Source
 
 Chainweb is a [Haskell](https://www.haskell.org/) project, and can be built in
 several ways.
 
-### Getting the Code
+#### Getting the Code
 
-#### Dependencies
+##### Dependencies
+- Homebrew: `brew install git`
+- [Installer](https://git-scm.com/downloads)
 
-- `git`
-  - [Linux](https://git-scm.com/download/linux)
-  - Mac
-    - Homebrew: `brew install git`
-    - [Installer](https://git-scm.com/downloads)
+To get the code, you can either use the [Chainweb-node Testnet v2 zip](https://github.com/kadena-io/chainweb-node/archive/testnet-v2.zip) or the [Chainweb-node Testnet v2 tar](https://github.com/kadena-io/chainweb-node/archive/testnet-v2.tar.gz)
 
-To fetch the code:
-
-```bash
-git clone https://github.com/kadena-io/chainweb-node.git
-```
 
 You have the code, now let's pick a build tool.
 
-### Building with Nix
+#### Building with Nix
 
 The fastest way to build and run chainweb is to use the Nix package manager
 which has binary caching capabilities that allow you to download pre-built
@@ -39,9 +56,9 @@ When the build is finished, you can run chainweb with the following command:
 ./result/ghc/chainweb/bin/chainweb-node
 ```
 
-### Building with Stack
+#### Building with Stack
 
-#### Dependencies
+##### Dependencies
 
 - `stack >= 1.9`
   - Mac (Homebrew): `brew install haskell-stack`
@@ -67,9 +84,9 @@ stack exec -- chainweb-node
 Alternatively, `stack install` will install the binary to `~/.local/bin/`, which
 you may need to add to your path. Then, you can call `chainweb-node` as-is.
 
-### Building with Cabal
+#### Building with Cabal
 
-#### Dependencies
+##### Dependencies
 
 - `ghc >= 8.4` (Haskell compiler) and `cabal >= 2.2` (Haskell build-tool)
   - [Linux / Mac](https://www.haskell.org/ghcup/)
@@ -95,7 +112,9 @@ To install a runnable binary to `~/.cabal/bin/`:
 cabal new-install
 ```
 
-## Running a `chainweb-node`
+
+
+## Running a chainweb node
 
 This section assumes you've installed the `chainweb-node` binary somewhere
 sensible, or otherwise have a simple way to refer to it.
@@ -166,7 +185,7 @@ across the web, we haven't revealed these to the public. This is for our own
 testing purposes. Eventually these nodes will be revealed and everyone will be
 able to participate in the global network.
 
-## Configuring a chainweb-node
+## Configuring a chainweb node
 
 Alternative or additional bootstrap nodes can be specified at startup, either on
 the command line or through a configuration file:
