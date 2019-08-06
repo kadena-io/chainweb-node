@@ -37,7 +37,6 @@ import Control.DeepSeq
 import Control.Lens.TH
 import Control.Lens (view)
 import Control.Monad
-import Control.Monad.Reader (liftIO)
 import Control.Monad.Error.Class (throwError)
 
 import Data.Bool
@@ -48,7 +47,6 @@ import qualified Data.Foldable as HM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
-import qualified Data.HashMap.Strict as HMS
 
 
 import GHC.Generics
@@ -67,7 +65,6 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
@@ -138,7 +135,7 @@ defaultAmberdataHost
 validateAmberdataHost :: ConfigValidation HostAddress []
 validateAmberdataHost h
   | h == defaultAmberdataHost =
-      liftIO $ throwError $ error "Amberdata host must be provided by the user."
+      throwError "Amberdata host must be provided by the user."
   | otherwise = return ()
 
 pAmberdataHost :: OptionParser HostAddress
@@ -164,7 +161,7 @@ instance FromJSON AmberdataApiKey where
 
 validateAmberdataApiKey :: ConfigValidation AmberdataApiKey []
 validateAmberdataApiKey (AmberdataApiKey "") =
-  liftIO $ throwError $ error "Nonempty Amberdata api key must be provided by the user."
+  throwError "Nonempty Amberdata api key must be provided by the user."
 validateAmberdataApiKey _ = return ()
 
 pAmberdataApiKey :: OptionParser AmberdataApiKey
@@ -190,21 +187,13 @@ instance FromJSON AmberdataBlockchainId where
 
 validateAmberdataBlockchainId :: ConfigValidation AmberdataBlockchainId []
 validateAmberdataBlockchainId (AmberdataBlockchainId "") =
-  liftIO $ throwError $ error "Nonempty Amberdata blockchain id must be provided by the user."
+  throwError "Nonempty Amberdata blockchain id must be provided by the user."
 validateAmberdataBlockchainId _ = return ()
 
 pAmberdataBlockchainId :: OptionParser AmberdataBlockchainId
 pAmberdataBlockchainId = textOption
     $ prefixLong (Just amberdataComponentPrefix) "blockchain-id"
     <> suffixHelp Nothing "Blockchain id for logging to Amberdata."
-
-
-validateOptionalChainId :: ConfigValidation (Maybe ChainId) []
-validateOptionalChainId (Just cid)
-  | chainIdInt cid < (0 :: Integer) =
-      liftIO $ throwError $ error "Negative values for chain id not permitted."
-  | otherwise = return ()
-validateOptionalChainId _ = return ()
 
 pAmberdataOptionalChainId :: OptionParser (Maybe ChainId)
 pAmberdataOptionalChainId = fmap Just $ textOption
@@ -246,7 +235,6 @@ validateAmberdataConfig o = do
   validateAmberdataHost $ _ambredataConfigHost o
   validateAmberdataApiKey $ _amberdataApiKey o
   validateAmberdataBlockchainId $ _amberdataBlockchainId o
-  validateOptionalChainId $ _amberdataChainId o
 
 pAmberdataConfig
   :: MParser AmberdataConfig
@@ -286,30 +274,20 @@ amberdataBlockMonitor cid logger db = do
       Just cid' -> logFunctionText logger Info ("Sending blocks from chain " <> toText cid')
     void
         $ S.mapM_ logBlocks
-        $ cutStream db
+        $ blockStream db
+        & S.filter (\x -> cid == Just (_chainId x)
+                          || cid == Nothing)
   where
-    logBlocks :: Cut -> IO ()
-    logBlocks c = case cid of
-      Nothing -> do
-        amberdataBlocks <- cutToAmberdataBlocks c
-        mapM_ (logFunctionJson logger Info) amberdataBlocks
-      Just cid' -> case (HMS.lookup cid' (_cutMap c)) of
-        Nothing -> logFunctionText logger Error ("Invalid chain id provided: " <> toText cid')
-        Just bheader -> do
-          amberdataBlock <- blockHeaderToAmberdataBlock _blockHeight bheader
-          logFunctionJson logger Info amberdataBlock
+    logBlocks :: BlockHeader -> IO ()
+    logBlocks bheader = do
+      amberdataBlock <- blockHeaderToAmberdataBlock bheader
+      logFunctionJson logger Info amberdataBlock
 
-    cutToAmberdataBlocks :: Cut -> IO [AmberdataBlock]
-    cutToAmberdataBlocks c =
-        let totalChains = length (_cutMap c)
-        in flip traverse (HM.toList $ _cutMap c) $ \bh ->
-          blockHeaderToAmberdataBlock (uniqueBlockHeight totalChains) bh
-
-    blockHeaderToAmberdataBlock :: (BlockHeader -> BlockHeight) -> BlockHeader -> IO AmberdataBlock
-    blockHeaderToAmberdataBlock heightFunc bh = do
+    blockHeaderToAmberdataBlock :: BlockHeader -> IO AmberdataBlock
+    blockHeaderToAmberdataBlock bh = do
       bpayload <- getBlockPayload bh
       return $ AmberdataBlock
-        { _amberdataNumber = heightFunc bh
+        { _amberdataNumber = blockHeightFunction bh
         , _amberdataHash = _blockHash bh
         , _amberdataTimestamp = _blockCreationTime bh
         , _amberdataParentHash = _blockParent bh
@@ -321,12 +299,20 @@ amberdataBlockMonitor cid logger db = do
         , _amberdataDifficulty = _blockWeight bh
         }
 
-    uniqueBlockHeight :: Int -> BlockHeader -> BlockHeight
-    uniqueBlockHeight totalChains bheader =
+    -- | Gives unique block height when sending all blocks.
+    --   Otherwise, block height not changed when sending blocks from specific chain.
+    blockHeightFunction :: BlockHeader -> BlockHeight
+    blockHeightFunction = case cid of
+      Nothing -> uniqueBlockHeight
+      Just _ -> _blockHeight
+
+    uniqueBlockHeight :: BlockHeader -> BlockHeight
+    uniqueBlockHeight bheader =
         BlockHeight $ (h * (fromIntegral totalChains)) + (chainIdInt (_chainId bcid))
       where
         BlockHeight h = _blockHeight bheader
         bcid = _blockChainId bheader
+        totalChains = length $ chainIds bheader
 
     payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
 

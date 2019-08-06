@@ -49,14 +49,17 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Managed
+import Control.Monad.Error.Class (throwError)
 
 import Data.CAS.RocksDB
 import qualified Data.Text as T
 import Data.Typeable
+import Data.Bool
 
 import GHC.Generics hiding (from)
 import GHC.Stats
 
+import qualified Data.HashSet as HS
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
 
@@ -84,7 +87,7 @@ import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
-import Chainweb.Version (ChainwebVersion(..), ChainId)
+import Chainweb.Version
 
 import Data.LogMessage
 import Data.PQueue
@@ -122,8 +125,21 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
-  validateLogConfig $ _nodeConfigLog o
-  maybe (return ()) (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
+    validateLogConfig $ _nodeConfigLog o
+    maybe (return ())
+          checkIfValidChain
+          (getAmberdataChainId o)
+    maybe (return ())
+          (validateFilePath "databaseDirectory")
+          (_nodeConfigDatabaseDirectory o)
+  where
+    chains = chainIds $ _nodeConfigChainweb o
+    checkIfValidChain cid
+      = bool
+        (throwError $ "Invalid chain id provided: " <> toText cid)
+        (return ())
+        (HS.member cid chains)
+    getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
 
 
 instance ToJSON ChainwebNodeConfiguration where
