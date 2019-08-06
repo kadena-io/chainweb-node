@@ -229,7 +229,7 @@ mineCut logfun conf nid cdb g !c !adjustments = do
             -- get payload
             --
             payload <- trace logfun "Miner.POW.mineCut._pactNewBlock" (_blockHash p) 1
-                $ _pactNewBlock pact (_configMiner conf) p
+                $ _pactNewBlock pact (_configMinerInfo conf) p
 
             -- get target
             --

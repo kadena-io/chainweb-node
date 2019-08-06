@@ -63,6 +63,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.NodeId
+import Chainweb.Pact.Miner
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -341,7 +342,7 @@ startLocalPayloadStore mgr payloadDb = do
 mine
     :: HasCallStack
     => PayloadCas cas
-    => MinerInfo
+    => Miner
         -- ^ The miner. For testing you may use 'defaultMiner'.
     -> WebPactExecutionService
         -- ^ only the new-block generator is used. For testing you may use
@@ -390,7 +391,7 @@ tryMineForChain
     :: forall cas
     . HasCallStack
     => PayloadCas cas
-    => MinerInfo
+    => Miner
         -- ^ The miner. For testing you may use 'defaultMiner'.
         -- miner.
     -> WebPactExecutionService

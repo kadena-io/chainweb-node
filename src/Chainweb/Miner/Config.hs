@@ -37,7 +37,7 @@ makeLenses ''MinerCount
 
 data MinerConfig = MinerConfig
     { _configTestMiners :: MinerCount
-    , _configMiner :: !Miner
+    , _configMinerInfo :: !Miner
     }
     deriving (Show, Eq, Generic)
 
@@ -46,19 +46,19 @@ makeLenses ''MinerConfig
 defaultMinerConfig :: MinerConfig
 defaultMinerConfig = MinerConfig
     { _configTestMiners = MinerCount 10
-    , _configMiner = noMiner
+    , _configMinerInfo = noMiner
     }
 
 instance ToJSON MinerConfig where
     toJSON o = object
         [ "testMiners" .= _minerCount (_configTestMiners o)
-        , "miner" .= _configMiner o
+        , "miner" .= _configMinerInfo o
         ]
 
 instance FromJSON (MinerConfig -> MinerConfig) where
     parseJSON = withObject "MinerConfig" $ \o -> id
         <$< (configTestMiners . minerCount) ..: "testMiners" % o
-        <*< configMiner ..: "miner" % o
+        <*< configMinerInfo ..: "miner" % o
 
 pMinerConfig :: MParser MinerConfig
 pMinerConfig = id

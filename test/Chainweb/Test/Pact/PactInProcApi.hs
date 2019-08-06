@@ -46,7 +46,7 @@ import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types
+import Chainweb.Pact.Miner
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils

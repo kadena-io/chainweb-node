@@ -48,11 +48,11 @@ import Chainweb.Logger
 import Chainweb.Miner.POW
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Miner
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore.Types
