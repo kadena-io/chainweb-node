@@ -499,6 +499,7 @@ executable chainweb-node
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
+        , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
         , unordered-containers >= 0.2
