@@ -70,7 +70,7 @@ initRelationalCheckpointer'
 initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
-    runBlockEnv db initSchema
+    runBlockEnv db $ initSchema >> vacuumDb
     return $!
       (PactDbEnv' (PactDbEnv chainwebPactDb db),
        CheckpointEnv

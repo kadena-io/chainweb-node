@@ -22,6 +22,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , clearPendingTxState
 , backendWriteUpdateBatch
 , createUserTable
+, vacuumDb
 ) where
 
 import Control.Lens
@@ -721,3 +722,6 @@ getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
   where
     convertInt (SInt thing) = fromIntegral thing
     convertInt _ = error "impossible"
+
+vacuumDb :: BlockHandler SQLiteEnv ()
+vacuumDb = callDb "vaccumDb" (`exec_` "VACUUM;")
