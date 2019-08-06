@@ -78,6 +78,7 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
+import Chainweb.Pact.Miner
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.PactQueue (getNextRequest)
@@ -272,7 +273,7 @@ toOutputBytes cr =
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
 
-toPayloadWithOutputs :: MinerInfo -> Transactions -> PayloadWithOutputs
+toPayloadWithOutputs :: Miner -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = _transactionPairs ts
         trans = fst <$> oldSeq
@@ -333,7 +334,7 @@ execNewBlock
     :: PayloadCas cas
     => MemPoolAccess
     -> BlockHeader
-    -> MinerInfo
+    -> Miner
     -> PactServiceM cas PayloadWithOutputs
 execNewBlock mpAccess parentHeader miner = do
     let pHeight@(BlockHeight bh) = _blockHeight parentHeader
@@ -371,7 +372,7 @@ execNewBlock mpAccess parentHeader miner = do
 -- | only for use in generating genesis blocks in tools
 execNewGenesisBlock
     :: PayloadCas cas
-    => MinerInfo
+    => Miner
     -> Vector ChainwebTransaction
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = do
@@ -523,7 +524,7 @@ execValidateBlock mpAccess currHeader plData =
 
 execTransactions
     :: Maybe BlockHash
-    -> MinerInfo
+    -> Miner
     -> Vector ChainwebTransaction
     -> PactDbEnv'
     -> PactServiceM cas Transactions
@@ -541,17 +542,17 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
 runCoinbase
     :: Maybe BlockHash
     -> P.PactDbEnv p
-    -> MinerInfo
+    -> Miner
     -> PactServiceM cas HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
-runCoinbase (Just parentHash) dbEnv mi@MinerInfo{..} = do
+runCoinbase (Just parentHash) dbEnv miner = do
   psEnv <- ask
 
   let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
       pd = _psPublicData psEnv
       logger = _cpeLogger . _psCheckpointEnv $ psEnv
 
-  cr <- liftIO $! applyCoinbase logger dbEnv mi reward pd parentHash
+  cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
   return $! toHashCommandResult cr
 
 
@@ -560,7 +561,7 @@ applyPactCmds
     :: Bool
     -> P.PactDbEnv p
     -> Vector ChainwebTransaction
-    -> MinerInfo
+    -> Miner
     -> PactServiceM cas (Vector HashCommandResult)
 applyPactCmds isGenesis env cmds miner =
     V.fromList . sfst <$> V.foldM f mempty cmds
@@ -572,7 +573,7 @@ applyPactCmd
     :: Bool
     -> P.PactDbEnv p
     -> ChainwebTransaction
-    -> MinerInfo
+    -> Miner
     -> ModuleCache
     -> [HashCommandResult]
     -> PactServiceM cas (T2 [HashCommandResult] ModuleCache)

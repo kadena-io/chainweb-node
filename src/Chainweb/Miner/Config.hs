@@ -24,8 +24,8 @@ import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
 -- internal modules
---
-import Chainweb.Pact.Types
+
+import Chainweb.Pact.Miner
 
 
 ---
@@ -37,7 +37,7 @@ makeLenses ''MinerCount
 
 data MinerConfig = MinerConfig
     { _configTestMiners :: MinerCount
-    , _configMinerInfo :: !MinerInfo
+    , _configMiner :: !Miner
     }
     deriving (Show, Eq, Generic)
 
@@ -46,19 +46,19 @@ makeLenses ''MinerConfig
 defaultMinerConfig :: MinerConfig
 defaultMinerConfig = MinerConfig
     { _configTestMiners = MinerCount 10
-    , _configMinerInfo = noMiner
+    , _configMiner = noMiner
     }
 
 instance ToJSON MinerConfig where
     toJSON o = object
         [ "testMiners" .= _minerCount (_configTestMiners o)
-        , "minerInfo" .= _configMinerInfo o
+        , "miner" .= _configMiner o
         ]
 
 instance FromJSON (MinerConfig -> MinerConfig) where
     parseJSON = withObject "MinerConfig" $ \o -> id
         <$< (configTestMiners . minerCount) ..: "testMiners" % o
-        <*< configMinerInfo ..: "minerInfo" % o
+        <*< configMiner ..: "miner" % o
 
 pMinerConfig :: MParser MinerConfig
 pMinerConfig = id
@@ -66,4 +66,3 @@ pMinerConfig = id
         % long "test-miners"
         <> short 'm'
         <> help "testing only: number of known miner nodes"
-

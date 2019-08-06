@@ -215,7 +215,7 @@ testMiner logFun conf nid cutDb = runForever logFun "Test Miner" $ do
         --
         let pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
         payload <- case mockPact of
-            False -> _pactNewBlock pact (_configMinerInfo conf) p
+            False -> _pactNewBlock pact (_configMiner conf) p
             True -> return
                 $ newPayloadWithOutputs (MinerData "miner") (CoinbaseOutput "coinbase")
                 $ V.fromList

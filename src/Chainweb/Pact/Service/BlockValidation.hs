@@ -23,6 +23,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
 
 import Chainweb.BlockHeader
+import Chainweb.Pact.Miner
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -30,7 +31,7 @@ import Chainweb.Payload
 import Chainweb.Transaction
 
 
-newBlock :: MinerInfo -> BlockHeader -> TQueue RequestMsg ->
+newBlock :: Miner -> BlockHeader -> TQueue RequestMsg ->
             IO (MVar (Either PactException PayloadWithOutputs))
 newBlock mi bHeader reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))

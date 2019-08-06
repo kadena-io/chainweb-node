@@ -73,8 +73,9 @@ import Pact.Types.Term (DefName(..), ModuleName(..))
 -- internal Chainweb modules
 
 import Chainweb.BlockHash
+import Chainweb.Pact.Miner
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Pact.Types (GasSupply(..), MinerInfo(..), GasId(..), ModuleCache)
+import Chainweb.Pact.Types (GasSupply(..), GasId(..), ModuleCache)
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 import Chainweb.Utils (sshow)
 
@@ -90,14 +91,14 @@ magic_FUND_TX = mkMagicCap "FUND_TX"
 applyCmd
     :: Logger
     -> PactDbEnv p
-    -> MinerInfo
+    -> Miner
     -> GasModel
     -> PublicData
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
+applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
         requestKey = cmdToRequestKey cmd
@@ -106,7 +107,7 @@ applyCmd logger pactDbEnv minerInfo gasModel pd spv cmd mcache = do
 
     let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv pd' spv
 
-    buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd minerInfo supply mcache
+    buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd miner supply mcache
 
     case buyGasResultE of
 
@@ -188,12 +189,12 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
 applyCoinbase
     :: Logger
     -> PactDbEnv p
-    -> MinerInfo
+    -> Miner
     -> ParsedDecimal
     -> PublicData
     -> BlockHash
     -> IO (CommandResult [TxLog Value])
-applyCoinbase logger dbEnv mi@(MinerInfo mid mks) reward pd ph = do
+applyCoinbase logger dbEnv mi@(Miner mid mks) reward pd ph = do
     -- cmd env with permissive gas model
     let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport
         initState = initCapabilities [magic_COINBASE]
@@ -366,11 +367,11 @@ applyContinuation' CommandEnv{..} initState cm senderSigs hsh = do
 buyGas
     :: CommandEnv p
     -> Command (Payload PublicMeta ParsedCode)
-    -> MinerInfo
+    -> Miner
     -> GasSupply
     -> ModuleCache
     -> IO (Either Text (T3 GasId [TxLog Value] ModuleCache))
-buyGas env cmd (MinerInfo minerId minerKeys) supply mcache = do
+buyGas env cmd (Miner mid mks) supply mcache = do
     let sender    = view (cmdPayload . pMeta . pmSender) cmd
         initState = set (evalRefs . rsLoadedModules) mcache
           $ initCapabilities [magic_FUND_TX]
@@ -379,7 +380,7 @@ buyGas env cmd (MinerInfo minerId minerKeys) supply mcache = do
 
     let bgHash = case chash of Hash h -> Hash (h <> "-buygas")
 
-    buyGasCmd <- mkBuyGasCmd minerId minerKeys sender supply
+    buyGasCmd <- mkBuyGasCmd mid mks sender supply
     result <- applyExec' env initState buyGasCmd
       (_pSigners $ _cmdPayload cmd) bgHash
 
@@ -419,32 +420,32 @@ redeemGas env cmd cmdResult gid prevLogs mcache = do
 -- | Build the 'coin-contract.buygas' command
 --
 mkBuyGasCmd
-    :: Text    -- ^ Id of the miner to fund
-    -> KeySet  -- ^ Miner keyset
-    -> Text    -- ^ Address of the sender from the command
+    :: MinerId   -- ^ Id of the miner to fund
+    -> MinerKeys -- ^ Miner keyset
+    -> Text      -- ^ Address of the sender from the command
     -> GasSupply -- ^ The gas limit total * price
     -> IO (ExecMsg ParsedCode)
-mkBuyGasCmd minerId minerKeys sender total =
+mkBuyGasCmd (MinerId mid) (MinerKeys ks) sender total =
     buildExecParsedCode buyGasData
       [text|
-        (coin.fund-tx '$sender '$minerId (read-keyset 'miner-keyset) (read-decimal 'total))
+        (coin.fund-tx '$sender '$mid (read-keyset 'miner-keyset) (read-decimal 'total))
         |]
   where
     buyGasData = Just $ object
-      [ "miner-keyset" .= minerKeys
+      [ "miner-keyset" .= ks
       , "total" .= total
       ]
 {-# INLINABLE mkBuyGasCmd #-}
 
-mkCoinbaseCmd :: Text -> KeySet -> ParsedDecimal -> IO (ExecMsg ParsedCode)
-mkCoinbaseCmd minerId minerKeys reward =
+mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
+mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
     buildExecParsedCode coinbaseData
       [text|
-        (coin.coinbase '$minerId (read-keyset 'miner-keyset) (read-decimal 'reward))
+        (coin.coinbase '$mid (read-keyset 'miner-keyset) (read-decimal 'reward))
         |]
   where
     coinbaseData = Just $ object
-      [ "miner-keyset" .= minerKeys
+      [ "miner-keyset" .= ks
       , "reward" .= reward
       ]
 {-# INLINABLE mkCoinbaseCmd #-}

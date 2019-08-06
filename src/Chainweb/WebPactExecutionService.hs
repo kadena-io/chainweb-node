@@ -23,6 +23,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Miner
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -31,7 +32,7 @@ import Chainweb.Transaction
 import Chainweb.Utils (codecDecode)
 import Chainweb.WebPactExecutionService.Types
 
-_webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs
+_webPactNewBlock :: WebPactExecutionService -> Miner -> BlockHeader -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
 
