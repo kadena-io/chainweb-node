@@ -41,21 +41,25 @@ module Chainweb.Pact.Miner
 import GHC.Generics (Generic)
 
 import Control.DeepSeq
-import Control.Lens (Lens', lens)
+import Control.Lens (Lens', lens, at, (^.))
 import Control.Monad.Catch
 
 import Data.Aeson
+-- import Data.Decimal
 import Data.Default
 import Data.Kind (Type)
+import Data.HashMap.Strict as HashMap
 import Data.Text (Text)
 
 -- chainweb types
 
 import Chainweb.Payload (MinerData(..))
+import Chainweb.Time
 import Chainweb.Utils
 
 -- Pact types
 
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 
 
@@ -67,7 +71,7 @@ import Pact.Types.Term (KeySet(..), Name(..))
 newtype MinerId :: Type where
     MinerId :: Text -> MinerId
     deriving stock (Eq, Ord, Show, Generic)
-    deriving newtype (NFData)
+    deriving anyclass (NFData)
 
 -- | Miner keys are a thin wrapper around a Pact 'KeySet' to differentiate it from
 -- user keysets
@@ -75,14 +79,14 @@ newtype MinerId :: Type where
 newtype MinerKeys :: Type where
     MinerKeys :: KeySet -> MinerKeys
     deriving stock (Eq, Ord, Show, Generic)
-    deriving newtype (NFData)
+    deriving anyclass (NFData)
 
 
 -- | Miner info data consists of a miner id (text), and
 -- its keyset (a pact type)
 data Miner where
     Miner :: !MinerId -> !MinerKeys -> Miner
-    deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show, Generic, NFData)
 
 instance ToJSON Miner where
     toJSON (Miner (MinerId m) (MinerKeys ks)) = object
@@ -94,12 +98,7 @@ instance ToJSON Miner where
 instance FromJSON Miner where
     parseJSON = withObject "Miner" $ \o -> Miner
       <$> (MinerId <$> o .: "m")
-      <*> ( MinerKeys <$>
-            ( KeySet
-            <$> o .: "ks"
-            <*> o .: "kp"
-            )
-          )
+      <*> (MinerKeys <$> (KeySet <$> o .: "ks" <*> o .: "kp"))
 
 -- | A lens into the miner id of a miner
 --
@@ -146,5 +145,20 @@ fromMinerData = decodeStrictOrThrow' . _minerData
 -- -------------------------------------------------------------------------- --
 -- Miner reward
 
-minerReward :: IO ()
-minerReward = undefined
+-- | Calculate miner reward. We want this to error hard in the case where
+-- block times have finally exceeded the 120-year range
+--
+minerReward :: TimeSpan Micros -> ParsedDecimal
+minerReward t = case rewards ^. at t of
+  Just f -> f
+  Nothing -> error
+    $ "Time span calculating miner reward is outside of admissible range: "
+    <> sshow t
+{-# INLINE minerReward #-}
+
+-- | Rewards table mapping 3-month periods to their rewards
+-- according to the calculated exponential decay over 120 year period
+--
+rewards :: HashMap (TimeSpan Micros) ParsedDecimal
+rewards = HashMap.fromList []
+{-# INLINE rewards #-}

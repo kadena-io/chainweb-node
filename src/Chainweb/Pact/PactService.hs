@@ -67,9 +67,10 @@ import qualified Pact.Types.SPV as P
 
 ------------------------------------------------------------------------------
 -- internal modules
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
+    (BlockHeader(..), BlockHeight(..), BlockCreationTime(..), isGenesisBlockHeader)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Chainweb.BlockHeaderDB
@@ -88,11 +89,14 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
+
+
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -363,8 +367,9 @@ execNewBlock mpAccess parentHeader miner = do
     -- rewind should usually be trivial / no-op
     rewindTo mpAccess rewindPoint $ \pdbenv -> do
         -- locally run 'execTransactions' with updated blockheight data
-        results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
-                   execTransactions (Just pHash) miner newTrans pdbenv
+        results <- execTransactions (Just pHash) miner newTrans pdbenv
+          & locally (psPublicData . P.pdBlockHeight) (const $ succ bh)
+
         discardCheckpointer
         return $! toPayloadWithOutputs miner results
 
@@ -426,8 +431,13 @@ playOneBlock mpAccess currHeader plData pdbenv = do
     -- TODO: check precondition?
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
-    !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
-                execTransactions pBlock miner trans pdbenv
+
+    let !(BlockCreationTime bt) = _blockCreationTime currHeader
+
+    !results <- execTransactions pBlock miner trans pdbenv
+      & locally (psPublicData . P.pdBlockHeight) (const bh)
+      & locally (psPublicData . P.pdBlockTime) (const . fromIntegral $ encodeTimeToWord64 bt)
+
     finalizeCheckpointer (flip save bHash)   -- caller must restore again
     psStateValidated .= Just currHeader
     liftIO $ mpaSetLastHeader mpAccess currHeader
@@ -529,8 +539,8 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
-    !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
-    !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
+    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
+    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
     return $! Transactions (paired txOuts) coinOut
 
   where
@@ -548,9 +558,10 @@ runCoinbase Nothing _ _ = return noCoinbase
 runCoinbase (Just parentHash) dbEnv miner = do
   psEnv <- ask
 
-  let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
-      pd = _psPublicData psEnv
-      logger = _cpeLogger . _psCheckpointEnv $ psEnv
+  let !pd = _psPublicData psEnv
+      !logger = _cpeLogger . _psCheckpointEnv $ psEnv
+
+  let !reward = minerReward $ microsToTimeSpan (Micros $ P._pdBlockTime pd)
 
   cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
   return $! toHashCommandResult cr
