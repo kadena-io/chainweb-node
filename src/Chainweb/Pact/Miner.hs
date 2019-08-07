@@ -148,17 +148,18 @@ fromMinerData = decodeStrictOrThrow' . _minerData
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range
 --
-minerReward :: TimeSpan Micros -> ParsedDecimal
-minerReward t = case rewards ^. at t of
-  Just f -> f
-  Nothing -> error
-    $ "Time span calculating miner reward is outside of admissible range: "
-    <> sshow t
+minerReward :: Time Micros -> ParsedDecimal
+minerReward t = case rewards ^. at (t `diff` epoch) of
+    Nothing -> error
+      $ "Time span calculating miner reward is outside of admissible range: "
+      <> sshow t
+    Just f -> f
 {-# INLINE minerReward #-}
 
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
 --
 rewards :: HashMap (TimeSpan Micros) ParsedDecimal
-rewards = HashMap.fromList []
+rewards = HashMap.fromList
+    [ ]
 {-# INLINE rewards #-}

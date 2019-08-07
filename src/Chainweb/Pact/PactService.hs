@@ -432,8 +432,6 @@ playOneBlock mpAccess currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
 
-    let !(BlockCreationTime bt) = _blockCreationTime currHeader
-
     !results <- execTransactions pBlock miner trans pdbenv
       & locally (psPublicData . P.pdBlockHeight) (const bh)
       & locally (psPublicData . P.pdBlockTime) (const . fromIntegral $ encodeTimeToWord64 bt)
@@ -445,6 +443,7 @@ playOneBlock mpAccess currHeader plData pdbenv = do
 
   where
     (BlockHeight bh) = _blockHeight currHeader
+    (BlockCreationTime bt) = _blockCreationTime currHeader
     bHash = _blockHash currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
@@ -556,16 +555,16 @@ runCoinbase
     -> PactServiceM cas HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
 runCoinbase (Just parentHash) dbEnv miner = do
-  psEnv <- ask
+    psEnv <- ask
 
-  let !pd = _psPublicData psEnv
-      !logger = _cpeLogger . _psCheckpointEnv $ psEnv
+    let !pd = _psPublicData psEnv
+        !logger = _cpeLogger . _psCheckpointEnv $ psEnv
 
-  let !reward = minerReward $ microsToTimeSpan (Micros $ P._pdBlockTime pd)
+    let !reward = minerReward . Time
+          $ microsToTimeSpan (Micros $ P._pdBlockTime pd)
 
-  cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
-  return $! toHashCommandResult cr
-
+    cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
+    return $! toHashCommandResult cr
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
