@@ -86,6 +86,7 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doLookupBlock db)
               (doGetBlockParent db)
               (doRegisterSuccessful db)
+              (doLookupSuccessful db)
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
@@ -206,6 +207,24 @@ doGetBlockParent dbenv (bh, hash) =
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 
+
 doRegisterSuccessful :: Db -> PactHash -> IO ()
 doRegisterSuccessful dbenv (TypedHash hash) =
     runBlockEnv dbenv (indexPactTransaction hash)
+
+
+doLookupSuccessful :: Db -> PactHash -> IO (Maybe (BlockHeight, BlockHash))
+doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
+    r <- callDb "doLookupSuccessful" $ \db ->
+         qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
+    case r of
+        [] -> return Nothing
+        (!o:_) -> return $! Just o
+  where
+    qtext = "SELECT blockheight, hash FROM \
+            \TransactionIndex INNER JOIN BlockHistory \
+            \USING (blockheight) WHERE txhash = ?;"
+    go [SInt h, SBlob blob] = do
+        !hsh <- either fail return $ Data.Serialize.decode blob
+        return $! (fromIntegral h, hsh)
+    go _ = fail "impossible"

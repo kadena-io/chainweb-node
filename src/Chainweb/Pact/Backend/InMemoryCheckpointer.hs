@@ -15,8 +15,11 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
 import Control.Concurrent.MVar
 import Control.Monad (when)
 
+import Data.Foldable (foldl')
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import Data.Text (pack)
 
 import Pact.Interpreter
@@ -38,7 +41,7 @@ data Store = Store
   { _theStore :: HashMap (BlockHeight, BlockHash) (DbEnv PureDb)
   , _lastBlock :: Maybe (BlockHeight, BlockHash)
   , _dbenv :: MVar (DbEnv PureDb)
-  , _playedTxs :: MVar (HashMap PactHash BlockHeight)
+  , _playedTxs :: MVar (HashSet PactHash, HashMap PactHash (BlockHeight, BlockHash))
   }
 
 initInMemoryCheckpointEnv :: Loggers -> Logger -> GasEnv -> IO CheckpointEnv
@@ -60,6 +63,7 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     (doLookupBlock inmem)
                     (doGetBlockParent inmem)
                     (doRegisterSuccessful inmem)
+                    (doLookupSuccessful inmem)
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
@@ -69,11 +73,11 @@ doRestore _ lock (Just (height, hash)) =
     modifyMVarMasked lock $ \store -> do
       let ph = pred height
       let bh = (ph, hash)
+      let filt (_, mp) = (mempty, HMS.filterWithKey (\_ (v, _) -> v <= ph) mp)
       case HMS.lookup bh (_theStore store) of
             Just dbenv -> do
               mdbenv <- newMVar dbenv
-              played <- readMVar (_playedTxs store)
-                        >>= newMVar . HMS.filterWithKey (\_ v -> v <= ph)
+              played <- readMVar (_playedTxs store) >>= newMVar . filt
 
               let !store' = store { _lastBlock = Just bh
                                   , _dbenv = mdbenv
@@ -97,7 +101,13 @@ doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv played) -> do
     let bh = case mheight of
                Nothing -> (BlockHeight 0, hash)
                Just (height, _) -> (succ height, hash)
+    modifyMVar_ played $ updatePlayed bh
     return $ Store (HMS.insert bh env store) (Just bh) dbenv played
+  where
+    updatePlayed bh (pset, mp) =
+        let !mp' = foldl' (\m h -> HMS.insert h bh m) mp pset
+            !out = (mempty, mp')
+        in return $! out
 
 doGetLatest :: MVar Store -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest lock = withMVar lock $ \(Store _ m _ _) -> return m
@@ -119,12 +129,19 @@ doGetBlockParent _lock (_bh, _hash) = error msg
 doRegisterSuccessful :: MVar Store -> PactHash -> IO ()
 doRegisterSuccessful lock hash =
     withMVar lock $
-    \(Store _ lastBlock _ played) -> modifyMVar_ played $
-    \mp -> do
-        let b = HMS.member hash mp
+    \(Store _ _ _ played) -> modifyMVar_ played $
+    \(pset, mp) -> do
+        let b = HMS.member hash mp || HashSet.member hash pset
+        -- TODO: need a better error recovery story here, because we need to
+        -- be able to blacklist the bad transaction(s)
         when b $ fail $ "duplicate transaction for hash " ++ show hash
-        let !bh = getBh lastBlock
-        return $! HMS.insert hash bh mp
-  where
-    getBh Nothing = 0
-    getBh (Just (h, _)) = succ h
+        let !pset' = HashSet.insert hash pset
+        let out = (pset', mp)
+        return $! out
+
+doLookupSuccessful :: MVar Store -> PactHash -> IO (Maybe (BlockHeight, BlockHash))
+doLookupSuccessful lock hash =
+    withMVar lock $
+    \(Store _ _ _ played) -> do
+        (_, mp) <- readMVar played
+        return $! HMS.lookup hash mp

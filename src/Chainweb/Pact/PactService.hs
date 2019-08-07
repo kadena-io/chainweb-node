@@ -594,10 +594,14 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
     cp <- view (psCheckpointEnv . cpeCheckpointer)
     -- mark the tx as processed at the checkpointer.
     liftIO $ registerProcessedTx cp pactHash
-    pure $! T2 (toHashCommandResult result : v) mcache'
+    let !res = toHashCommandResult result
+    pure $! T2 (res : v) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
-toHashCommandResult = over (P.crLogs . _Just) (P.pactHash . encodeToByteString)
+toHashCommandResult = over (P.crLogs . _Just) f
+  where
+    f !x = let !out = P.pactHash $ encodeToByteString x
+           in out
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do

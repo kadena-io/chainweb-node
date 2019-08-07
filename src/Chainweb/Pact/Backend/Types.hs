@@ -288,6 +288,7 @@ data Checkpointer = Checkpointer
       -- ^ is the checkpointer aware of the given block?
     , getBlockParent :: (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
     , registerProcessedTx :: P.PactHash -> IO ()
+    , lookupProcessedTx :: P.PactHash -> IO (Maybe (BlockHeight, BlockHash))
     }
 
 data CheckpointEnv = CheckpointEnv
