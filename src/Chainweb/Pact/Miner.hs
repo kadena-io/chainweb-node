@@ -105,11 +105,13 @@ instance FromJSON Miner where
 --
 minerId :: Lens' Miner MinerId
 minerId = lens (\(Miner i _) -> i) (\(Miner _ k) b -> Miner b k)
+{-# INLINE minerId #-}
 
 -- | A lens into the miner keys of a miner
 --
 minerKeys :: Lens' Miner MinerKeys
 minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
+{-# INLINE minerKeys #-}
 
 -- | Keyset taken from cp examples in Pact
 -- The private key here was taken from `examples/cp` from the Pact repository
@@ -121,6 +123,7 @@ defaultMiner = Miner (MinerId "miner")
         ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
         (Name "keys-all" def)
       )
+{-# INLINE defaultMiner #-}
 
 instance Default Miner where
     def = defaultMiner
@@ -129,6 +132,7 @@ instance Default Miner where
 --
 noMiner :: Miner
 noMiner = Miner (MinerId "NoMiner") (MinerKeys $ KeySet [] (Name "<" def))
+{-# INLINE noMiner #-}
 
 -- | Convert from Pact 'Miner' to Chainweb 'MinerData'
 --
