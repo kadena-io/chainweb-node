@@ -1,10 +1,11 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.ChainwebPactDb
@@ -19,25 +20,27 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , handlePossibleRewind
 , blockHistoryInsert
 , initSchema
-, indexTransaction
+, indexPactTransaction
+, indexPendingPactTransactions
 , clearPendingTxState
 , backendWriteUpdateBatch
 , createUserTable
 , vacuumDb
 ) where
 
+import Control.Applicative
 import Control.Lens
 import Control.Monad
-import Control.Applicative
 import Control.Monad.Reader
-import Control.Monad.Trans.Maybe
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Maybe
 
 import Data.Aeson hiding ((.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
-import Data.Foldable (concat)
+import qualified Data.DList as DL
+import Data.Foldable (concat, toList)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -50,7 +53,6 @@ import Data.String.Conv
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
-import qualified Data.DList as DL
 
 import Database.SQLite3.Direct as SQ3
 
@@ -133,7 +135,7 @@ doReadRow d k =
         => Utf8
         -> SQLitePendingData
         -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInPendingData (Utf8 rowkey) (_, m, _) = do
+    lookupInPendingData (Utf8 rowkey) (_, m, _, _) = do
         let deltaKey = SQLiteDeltaKey tableNameBS rowkey
         ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey m)
         if null ddata
@@ -160,7 +162,7 @@ doReadRow d k =
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
 checkDbTableExists tableName = do
     pd <- lift getPendingData
-    let checkOne (s, _, _) = do
+    let checkOne (s, _, _, _) = do
             let b = HashSet.member tableNameBS s
             when b mzero
     mapM_ checkOne pd
@@ -203,7 +205,7 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     delta = SQLiteRowDelta tn txid key vs
     deltaKey = SQLiteDeltaKey tn key
 
-    modf (a, m, l) = (a, upd m, l)
+    modf (a, m, l, p) = (a, upd m, l, p)
     upd = HashMap.insertWith DL.append deltaKey (DL.singleton delta)
 
 
@@ -328,7 +330,7 @@ doKeys d = do
 
     tn = domainTableName d
     tnS = toS tn
-    collect (_, m, _) =
+    collect (_, m, _, _) =
         let flt k _ = _dkTable k == tnS
         in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt m
 {-# INLINE doKeys #-}
@@ -364,7 +366,7 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 
     tnS = toS tn
-    collect (_, m, _) =
+    collect (_, m, _, _) =
         let flt k _ = _dkTable k == tnS
             txids = DL.toList $
                     fmap _deltaTxId $
@@ -389,7 +391,9 @@ recordTxLog tt d k v = do
       (Just _) -> modify' (over (bsPendingTx . _Just) upd)
 
   where
-    upd (a, b, m) = (a, b, M.insertWith DL.append tt txlogs m)
+    upd (a, b, m, p) = let !m' = M.insertWith DL.append tt txlogs m
+                           !t = (a, b, m', p)
+                       in t
     txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
 
 modifyPendingData
@@ -403,10 +407,11 @@ modifyPendingData f = do
 
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn =
-    modifyPendingData $ \(c, w, l) ->
-        let c' = HashSet.insert (T.encodeUtf8 ttxt) c
-            l' = M.insertWith DL.append (TableName txlogKey) txlogs l
-        in (c', w, l')
+    modifyPendingData $ \(c, w, l, p) ->
+        let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
+            !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
+            !t = (c', w, l', p)
+        in t
 
   where
     txlogKey = "SYS:usertables"
@@ -428,7 +433,7 @@ doCommit = use bsMode >>= \mm -> case mm of
               -- merge pending tx into block data
               pending <- use bsPendingTx
               modify' (over bsPendingBlock $ merge pending)
-              (_, _, blockLogs) <- use bsPendingBlock
+              (_, _, blockLogs, _) <- use bsPendingBlock
               bsPendingTx .= Nothing
               resetTemp
               return blockLogs
@@ -436,7 +441,7 @@ doCommit = use bsMode >>= \mm -> case mm of
         return $! concat $ fmap (reverse . DL.toList) txrs
   where
     merge Nothing a = a
-    merge (Just (creationsA, writesA, logsA)) (creationsB, writesB, _) =
+    merge (Just (creationsA, writesA, logsA, _)) (creationsB, writesB, _, idx) =
         let creations = HashSet.union creationsA creationsB
             mergeW a b = let aa = take 1 $ DL.toList a
                          in case aa of
@@ -444,7 +449,7 @@ doCommit = use bsMode >>= \mm -> case mm of
                               (x:_) -> DL.cons x b
             writes = HashMap.unionWith mergeW writesA writesB
             logs = logsA
-        in (creations, writes, logs)
+        in (creations, writes, logs, idx)
 
 {-# INLINE doCommit #-}
 
@@ -463,7 +468,7 @@ doBegin m = do
         Nothing -> return ()
     resetTemp
     bsMode .= Just m
-    bsPendingTx .= Just (mempty, mempty, mempty)
+    bsPendingTx .= Just emptySQLitePendingData
     case m of
         Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
@@ -473,7 +478,7 @@ resetTemp :: BlockHandler SQLiteEnv ()
 resetTemp = do
     bsMode .= Nothing
     -- clear out txlog entries
-    modify' (over bsPendingBlock $ \(a, b, _) -> (a, b, mempty))
+    modify' (over bsPendingBlock $ \(a, b, _, p) -> (a, b, mempty, p))
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
@@ -495,7 +500,7 @@ doGetTxLog d txid = do
     readFromPending = do
         ptx <- maybe [] (:[]) <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let pendingWrites = map (\(_, a, _) -> a) (ptx ++ [pb])
+        let pendingWrites = map (\(_, a, _, _) -> a) (ptx ++ [pb])
         let deltas = concat $
                      map (takeHead . DL.toList) $
                      concatMap HashMap.elems pendingWrites
@@ -547,13 +552,28 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
     exec_ db "CREATE INDEX IF NOT EXISTS \
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
-indexTransaction :: ByteString -> BlockHandler SQLiteEnv ()
-indexTransaction tx = do
-    bh <- gets _bsBlockHeight
-    callDb "indexTransaction" $ \db -> do
-        exec' db "INSERT INTO TransactionIndex (txhash, blockheight) \
-                 \ VALUES (?, ?)"
-              [ SBlob tx, SInt (fromIntegral bh) ]
+indexPactTransaction :: ByteString -> BlockHandler SQLiteEnv ()
+indexPactTransaction h = modify' (over bsPendingBlock upd)
+  where
+    upd (a, b, c, !d) = let !d' = HashSet.insert h d
+                            !t = (a, b, c, d')
+                        in t
+
+indexPendingPactTransactions :: BlockHandler SQLiteEnv ()
+indexPendingPactTransactions = do
+    txs <- (\(_, _, _, a) -> a) <$> gets _bsPendingBlock
+    dbIndexTransactions txs
+    -- this shouldn't be necessary since we will nuke all pending state on save.
+    -- modify' (over bsPendingBlock $ \(a, b, c, _) -> (a, b, c, mempty))
+
+  where
+    toRow bh b = [SBlob b, SInt bh]
+    dbIndexTransactions txs = do
+        bh <- fromIntegral <$> gets _bsBlockHeight
+        let rows = map (toRow bh) $ toList txs
+        callDb "dbIndexTransactions" $ \db -> do
+            execMulti db "INSERT INTO TransactionIndex (txhash, blockheight) \
+                         \ VALUES (?, ?)" rows
 
 clearTxIndex :: BlockHandler SQLiteEnv ()
 clearTxIndex = do
@@ -726,15 +746,17 @@ deleteHistory bh = do
               [SInt (fromIntegral bh)]
 
 initSchema :: BlockHandler SQLiteEnv ()
-initSchema = withSavepoint DbTransaction $ do
-    createBlockHistoryTable
-    createTableCreationTable
-    createTableMutationTable
-    createTransactionIndexTable
-    create (domainTableName KeySets)
-    create (domainTableName Modules)
-    create (domainTableName Namespaces)
-    create (domainTableName Pacts)
+initSchema = do
+    vacuumDb
+    withSavepoint DbTransaction $ do
+        createBlockHistoryTable
+        createTableCreationTable
+        createTableMutationTable
+        createTransactionIndexTable
+        create (domainTableName KeySets)
+        create (domainTableName Modules)
+        create (domainTableName Namespaces)
+        create (domainTableName Pacts)
   where
     create tablename = do
         log "DDL" $ "initSchema: "  ++ toS tablename

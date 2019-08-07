@@ -129,10 +129,11 @@ doSave dbenv hash = runBlockEnv dbenv $ do
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
     runPending bh = do
-        (newTables, writes, _) <- use bsPendingBlock
+        (newTables, writes, _, _) <- use bsPendingBlock
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
         callDb "save" $ backendWriteUpdateBatch bh writeV
+        indexPendingPactTransactions
 
     prepChunk [] = error "impossible: empty chunk from groupBy"
     prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
@@ -207,4 +208,4 @@ doGetBlockParent dbenv (bh, hash) =
 
 doRegisterSuccessful :: Db -> PactHash -> IO ()
 doRegisterSuccessful dbenv (TypedHash hash) =
-    runBlockEnv dbenv (indexTransaction hash)
+    runBlockEnv dbenv (indexPactTransaction hash)

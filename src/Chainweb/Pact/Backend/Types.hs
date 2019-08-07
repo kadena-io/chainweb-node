@@ -193,6 +193,9 @@ type TxLogMap = Map TableName (DList (TxLog Value))
 -- can be performed upon block save).
 type SQLitePendingTableCreations = HashSet ByteString
 
+-- | Pact transaction hashes resolved during this block.
+type SQLitePendingSuccessfulTxs = HashSet ByteString
+
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
 type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 
@@ -200,7 +203,11 @@ type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-type SQLitePendingData = (SQLitePendingTableCreations, SQLitePendingWrites, TxLogMap)
+type SQLitePendingData = ( SQLitePendingTableCreations
+                         , SQLitePendingWrites
+                         , TxLogMap
+                         , SQLitePendingSuccessfulTxs
+                         )
 
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
@@ -220,7 +227,7 @@ data BlockState = BlockState
     deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = (mempty, mempty, mempty)
+emptySQLitePendingData = (mempty, mempty, mempty, mempty)
 
 initBlockState :: BlockState
 initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
