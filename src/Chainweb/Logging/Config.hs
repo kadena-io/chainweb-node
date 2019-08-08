@@ -98,8 +98,8 @@ validateLogConfig :: ConfigValidation LogConfig []
 validateLogConfig o = do
     validateLoggerConfig $ _logConfigLogger o
     validateBackendConfig $ _logConfigBackend o
-    validateBackendConfig $ _enableConfigConfig $ _logConfigTelemetryBackend o
-    validateAmberdataConfig $ _enableConfigConfig $ _logConfigAmberdataBackend o
+    validateEnableConfig validateBackendConfig $ _logConfigTelemetryBackend o
+    validateEnableConfig validateAmberdataConfig $ _logConfigAmberdataBackend o
 
 instance ToJSON LogConfig where
     toJSON o = object
