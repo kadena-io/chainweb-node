@@ -542,7 +542,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/txg node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/txg tools/standalone node test
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
@@ -553,8 +553,11 @@ executable cwtool
         Ea
         Gexf
         Network.X509.SelfSigned.Test
+        PkgInfo
         RunNodes
         SlowTests
+        Standalone
+        Standalone.Utils
         TXG
         TXG.Simulate.Contracts.CoinContract
         TXG.Simulate.Contracts.Common
@@ -562,6 +565,8 @@ executable cwtool
         TXG.Simulate.Contracts.SimplePayments
         TXG.Simulate.Utils
         TXG.Types
+    autogen-modules:
+        PkgInfo
     build-depends:
         -- internal
           chainweb
@@ -576,6 +581,7 @@ executable cwtool
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
+        , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , chainweb-storage >= 0.1
@@ -594,6 +600,7 @@ executable cwtool
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
+        , managed >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
@@ -605,6 +612,7 @@ executable cwtool
         , pretty-simple >= 2.1
         , primitive >= 0.6
         , random >= 1.1
+        , reflection >= 2.1
         , resourcet >= 1.2
         , servant >= 0.14.1
         , servant-client >= 0.14
@@ -613,6 +621,7 @@ executable cwtool
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
+        , strict-tuple >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
