@@ -54,7 +54,8 @@ in
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
-          testTarget = "--test-option=--hide-successes";
+          # temporarily disabling to debug hanging test suites
+          # testTarget = "--test-option=--hide-successes";
         })));
 
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});

@@ -84,6 +84,9 @@ import Data.CAS.RocksDB
 import Data.LogMessage
 
 
+-- | Note: These tests are intermittently non-deterministic due to the way
+-- random chain sampling works with our test harnesses.
+--
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCase "standard SPV verification round trip" standard
