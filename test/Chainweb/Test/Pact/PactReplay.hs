@@ -45,10 +45,10 @@ import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
+import Chainweb.Miner
 import Chainweb.Miner.POW
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Miner
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue

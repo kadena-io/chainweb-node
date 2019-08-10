@@ -20,7 +20,7 @@
 --
 -- The definition of the pact miner and the Pact miner reward
 --
-module Chainweb.Pact.Miner
+module Chainweb.Miner
 ( -- * Data
   MinerId(..)
 , MinerKeys(..)
@@ -47,7 +47,6 @@ import Control.Monad.Catch
 import Data.Aeson
 -- import Data.Decimal
 import Data.Default
-import Data.Kind (Type)
 import Data.HashMap.Strict as HashMap
 import Data.Text (Text)
 
@@ -68,24 +67,21 @@ import Pact.Types.Term (KeySet(..), Name(..))
 
 -- | Miner id is a thin wrapper around 'Text' to differentiate it from user
 -- addresses
-newtype MinerId :: Type where
-    MinerId :: Text -> MinerId
+newtype MinerId = MinerId Text
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
 -- | Miner keys are a thin wrapper around a Pact 'KeySet' to differentiate it from
 -- user keysets
 --
-newtype MinerKeys :: Type where
-    MinerKeys :: KeySet -> MinerKeys
+newtype MinerKeys = MinerKeys KeySet
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
 
 -- | Miner info data consists of a miner id (text), and
 -- its keyset (a pact type)
-data Miner where
-    Miner :: !MinerId -> !MinerKeys -> Miner
+data Miner = Miner !MinerId !MinerKeys
     deriving (Eq, Ord, Show, Generic, NFData)
 
 instance ToJSON Miner where
@@ -149,7 +145,7 @@ fromMinerData = decodeStrictOrThrow' . _minerData
 -- block times have finally exceeded the 120-year range
 --
 minerReward :: Time Micros -> ParsedDecimal
-minerReward t = case rewards ^. at (t `diff` epoch) of
+minerReward (Time t) = case rewards ^. at t of
     Nothing -> error
       $ "Time span calculating miner reward is outside of admissible range: "
       <> sshow t

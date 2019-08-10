@@ -6,7 +6,7 @@ module Chainweb.WebPactExecutionService.Types
   ) where
 
 import Chainweb.BlockHeader
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload

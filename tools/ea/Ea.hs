@@ -52,7 +52,7 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 import Chainweb.Pact.PactService
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Transaction (PayloadWithText(..))

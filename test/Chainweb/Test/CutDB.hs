@@ -63,7 +63,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.NodeId
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore

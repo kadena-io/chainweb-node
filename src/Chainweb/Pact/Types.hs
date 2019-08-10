@@ -58,7 +58,7 @@ import Pact.Types.Term (PactId(..), Ref, ModuleName)
 -- internal chainweb modules
 
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 import Chainweb.Payload
 import Chainweb.Utils
 

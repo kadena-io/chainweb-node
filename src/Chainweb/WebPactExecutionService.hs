@@ -23,7 +23,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types

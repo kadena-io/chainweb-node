@@ -73,7 +73,7 @@ import Pact.Types.Term (DefName(..), ModuleName(..))
 -- internal Chainweb modules
 
 import Chainweb.BlockHash
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types (GasSupply(..), GasId(..), ModuleCache)
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)

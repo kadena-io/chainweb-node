@@ -18,7 +18,7 @@ import Data.Text (Text,pack)
 import GHC.Generics
 
 import Chainweb.BlockHeader (BlockHeader)
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction

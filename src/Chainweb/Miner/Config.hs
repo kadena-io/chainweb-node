@@ -25,7 +25,7 @@ import Numeric.Natural (Natural)
 
 -- internal modules
 
-import Chainweb.Pact.Miner
+import Chainweb.Miner
 
 
 ---
