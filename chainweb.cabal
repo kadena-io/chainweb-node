@@ -358,7 +358,7 @@ test-suite chainweb-tests
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N
+        -with-rtsopts=-N2
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: ChainwebTests.hs
@@ -412,7 +412,6 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
-        , direct-sqlite >= 2.3
         , exceptions
         , extra >= 1.6
         , hashable >= 1.2
@@ -421,7 +420,6 @@ test-suite chainweb-tests
         , lens >= 4.16
         , loglevel >= 0.1
         , mtl >= 2.2
-        , mwc-random >= 0.13
         , neat-interpolation >= 0.3
         , network >= 2.6
         , http-client-tls >=0.3
@@ -433,7 +431,6 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
-        , safe-exceptions >= 0.1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -648,6 +645,3 @@ benchmark bench
                   base
                 , chainweb
                 , criterion
-                , direct-sqlite
-                , neat-interpolation
-                , yaml

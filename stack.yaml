@@ -1,6 +1,6 @@
 resolver: lts-12.26
 
-# ghc-options: {"$locals": -ddump-to-file -ddump-hi}
+ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
 extra-deps:
   # --- Missing from Stackage --- #
@@ -32,12 +32,12 @@ extra-deps:
   # --- Forced Upgrades --- #
   - aeson-1.4.3.0
   - configuration-tools-0.4.1    # For Semigroup-based accumulation
-  - generic-lens-1.1.0.0         # For generic newtype unwrapping
+  - generic-lens-1.2.0.0         # For generic newtype unwrapping
   - nonempty-containers-0.3.1.0  # For latest API
   - scheduler-1.4.1              # For `replicateWork` function
   - tasty-1.2
-  - tls-1.5.0
-  - warp-tls-3.2.7               # To match `tls-1.5.0`
+  - tls-1.5.1
+  - warp-tls-3.2.7               # To match `tls-1.5`
   - yaml-0.11.1.0
 
   # --- Custom Pins --- #
