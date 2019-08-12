@@ -38,8 +38,11 @@ bench :: C.Benchmark
 bench = C.bgroup "pact-backend" $
         play [ pactSqliteBench False
              , pactSqliteBench True
+             , pactSqliteBenchKeys False
+             , pactSqliteBenchKeys True
              , cpBenchOverBlock
              , cpBenchNoRewindOverBlock
+             , cpBenchKeys
              ]
   where
     testPoints = [1,5,10,20,50,100,200,500,1000]
@@ -274,3 +277,90 @@ benchUserTable _transactionCount dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C
                   commit db
                   return j
                 Just _ -> die "field not integer"
+
+
+benchUserTableForKeys :: Int -> PactDbEnv e -> String -> C.Benchmark
+benchUserTableForKeys numKeys dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nfIO (go dbEnv ut)
+
+  where
+
+    setup db@(PactDbEnv pdb e) = do
+      let tn = "user1"
+          ut = UserTables "user1"
+      begin db
+      _createUserTable pdb tn "someModule" e
+      forM_ [1 .. numKeys] $ \i -> do
+        let rowkey = RowKey $ "k" <> toS (show i)
+        writeRow db Insert ut rowkey (fromIntegral i)
+      commit db
+      return $ NoopNFData ut
+
+    -- k = "k"
+    f = "f"
+
+    writeRow (PactDbEnv pdb e) writeType ut k i =
+      _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
+
+    go db@(PactDbEnv pdb e) (NoopNFData ut) = forM_ [1 .. numKeys] transaction
+      where
+        transaction numkey = do
+            begin db
+            let rowkey = RowKey $ "k" <> toS (show numkey)
+            r <- _readRow pdb ut rowkey e
+            case r of
+              Nothing -> die "no row read"
+              Just (ObjectMap m) -> case M.lookup f m of
+                Nothing -> die "field not found"
+                Just (PLiteral (LInteger i)) -> do
+                  let j = succ i
+                  writeRow db Update ut undefined j
+                  commit db
+                  return j
+                Just _ -> die "field not integer"
+
+
+
+type NumberOfKeys = Int
+
+pactSqliteBenchKeys :: Bool -> NumberOfKeys -> C.Benchmark
+pactSqliteBenchKeys unsafe transactionCount =
+    C.envWithCleanup setup teardown $ \ ~(NoopNFData (e,_)) ->
+                                        C.bgroup tname (benches e)
+  where
+    tname = mconcat [ "pact-sqlite/keys/"
+                    , if unsafe then "unsafe" else "safe"
+                    , "/tc="
+                    , show transactionCount
+                    ]
+    prags = if unsafe then PSQL.fastNoJournalPragmas else chainwebPragmas
+    setup = do
+        (f,deleter) <- newTempFile
+        !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig f prags) neverLog
+        dbe <- mkPactDbEnv pactdb (initDbEnv neverLog PSQL.persister sqliteEnv)
+        PI.initSchema dbe
+        -- forM_ [1 .. transactionCount] $ setupWrite dbe . fromIntegral
+        return $ NoopNFData (dbe, deleter)
+      -- where
+{-
+        field = "field"
+        setupWrite (PactDbEnv pdb e) i = _writeRow
+                pdb
+                Insert
+                (UserTables "keyfull")
+                (RowKey $ "k" <> (toS $ show i))
+                (ObjectMap $ M.fromList [(field,(PLiteral (LInteger i)))])
+                e
+-}
+    teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
+      c <- readMVar e
+      void $ PSQL.closeSQLite $ _db c
+      deleter
+
+    benches :: PactDbEnv e -> [C.Benchmark]
+    benches dbEnv =
+      [
+        benchUserTableForKeys transactionCount dbEnv "usertable"
+      ]
+
+cpBenchKeys :: NumberOfKeys -> C.Benchmark
+cpBenchKeys _numkeys = undefined
