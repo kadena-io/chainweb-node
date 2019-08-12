@@ -313,12 +313,10 @@ benchUserTableForKeys numKeys dbEnv name = C.env (setup dbEnv) $ \ ~(ut) -> C.be
                 Nothing -> die "field not found"
                 Just (PLiteral (LInteger i)) -> do
                   let j = succ i
-                  writeRow db Update ut undefined j
+                  writeRow db Update ut rowkey j
                   commit db
                   return j
                 Just _ -> die "field not integer"
-
-
 
 type NumberOfKeys = Int
 
@@ -338,19 +336,8 @@ pactSqliteBenchKeys unsafe transactionCount =
         !sqliteEnv <- PSQL.initSQLite (PSQL.SQLiteConfig f prags) neverLog
         dbe <- mkPactDbEnv pactdb (initDbEnv neverLog PSQL.persister sqliteEnv)
         PI.initSchema dbe
-        -- forM_ [1 .. transactionCount] $ setupWrite dbe . fromIntegral
         return $ NoopNFData (dbe, deleter)
-      -- where
-{-
-        field = "field"
-        setupWrite (PactDbEnv pdb e) i = _writeRow
-                pdb
-                Insert
-                (UserTables "keyfull")
-                (RowKey $ "k" <> (toS $ show i))
-                (ObjectMap $ M.fromList [(field,(PLiteral (LInteger i)))])
-                e
--}
+
     teardown (NoopNFData (PactDbEnv _ e, deleter)) = do
       c <- readMVar e
       void $ PSQL.closeSQLite $ _db c
@@ -363,4 +350,72 @@ pactSqliteBenchKeys unsafe transactionCount =
       ]
 
 cpBenchKeys :: NumberOfKeys -> C.Benchmark
-cpBenchKeys _numkeys = undefined
+cpBenchKeys numKeys = C.envWithCleanup setup teardown $ \ ~(NoopNFData (_,e,_)) -> C.bgroup name (benches e)
+  where
+
+    name = "batchedCheckpointer/keyCount="
+      ++ show numKeys
+
+    setup = do
+      (f,deleter) <- newTempFile
+      !sqliteEnv <- openSQLiteConnection f chainwebPragmas
+      let nolog = newLogger neverLog ""
+      !cenv <- initRelationalCheckpointer initBlockState sqliteEnv nolog freeGasEnv
+      return $ NoopNFData (sqliteEnv, cenv, deleter)
+
+    teardown (NoopNFData (sqliteEnv, _cenv, deleter)) = do
+        closeSQLiteConnection sqliteEnv
+        deleter
+
+    benches :: CheckpointEnv -> [C.Benchmark]
+    benches cpenv =
+      [
+        datbench cpenv "usertable"
+      ]
+      where
+
+        datbench cp benchname = C.env (setup' cp) $ \ ~(ut) -> C.bench benchname $ C.nfIO (go cp ut)
+
+        setup' CheckpointEnv{..} = do
+          usertablename <- restore _cpeCheckpointer Nothing >>= \case
+              PactDbEnv' db@(PactDbEnv pdb e) -> do
+                let tn = "user1"
+                    ut = UserTables tn
+                begin db
+                _createUserTable pdb tn "someModule" e
+                forM_ [1 .. numKeys] $ \i -> do
+                  let rowkey = RowKey $ "k" <> toS (show i)
+                  writeRow db Insert ut rowkey (fromIntegral i)
+                commit db
+                return $ NoopNFData ut
+          save _cpeCheckpointer hash01
+          return usertablename
+
+
+        f = "f"
+
+        hash01 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000001a"
+        hash02 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000002a"
+
+        writeRow (PactDbEnv pdb e) writeType ut k i =
+            _writeRow pdb writeType ut k (ObjectMap $ M.fromList [(f,(PLiteral (LInteger i)))]) e
+
+        go CheckpointEnv{..} (NoopNFData ut) = do
+            restore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
+                PactDbEnv' pactdbenv -> forM_ [1 .. numKeys] (transaction pactdbenv)
+            void $ save _cpeCheckpointer hash02
+          where
+            transaction db@(PactDbEnv pdb e) numkey = do
+              begin db
+              let rowkey = RowKey $ "k" <> toS (show numkey)
+              r <- _readRow pdb ut rowkey e
+              case r of
+                Nothing -> die "no row read"
+                Just (ObjectMap m) -> case M.lookup f m of
+                  Nothing -> die "field not found"
+                  Just (PLiteral (LInteger i)) -> do
+                    let j = succ i
+                    writeRow db Update ut rowkey j
+                    commit db
+                    return j
+                  Just _ -> die "field not integer"
