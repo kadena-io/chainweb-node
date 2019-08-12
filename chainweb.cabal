@@ -358,7 +358,7 @@ test-suite chainweb-tests
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N
+        -with-rtsopts=-N2
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: ChainwebTests.hs
