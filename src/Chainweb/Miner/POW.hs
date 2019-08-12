@@ -23,8 +23,6 @@ module Chainweb.Miner.POW
 
 -- * Internal
 , mineCut
-, mine
-, usePowHash
 ) where
 
 import Control.Concurrent.Async
@@ -32,26 +30,14 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.STM
 
-import Crypto.Hash.Algorithms
-import Crypto.Hash.IO
-
-import qualified Data.ByteArray as BA
-import Data.Bytes.Put
-import qualified Data.ByteString as B
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
-import Data.Proxy
 import Data.Ratio ((%))
 import Data.Reflection (Given, give)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T5(..))
 import qualified Data.Vector as V
-import Data.Word
-
-import Foreign.Marshal.Alloc
-import Foreign.Ptr
-import Foreign.Storable
 
 import Numeric.Natural (Natural)
 
@@ -70,6 +56,7 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.Miner.Core (mine, usePowHash)
 import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -248,7 +235,7 @@ mineCut logfun conf nid cdb g !c !adjustments = do
                     creationTime
                     p
 
-            newHeader <- usePowHash v mine candidateHeader nonce
+            newHeader <- usePowHash v mine candidateHeader
 
             -- create cut with new block
             --
@@ -303,109 +290,3 @@ getAdjacentParents c p = BlockHashRecord <$> newAdjHashes
         | _blockHeight b == h = Just $! _blockHash b
         | _blockHeight b == h + 1 = Just $! _blockParent b
         | otherwise = Nothing
-
--- -------------------------------------------------------------------------- --
--- Inner Mining loop
-
-usePowHash :: ChainwebVersion -> (forall a . HashAlgorithm a => Proxy a -> f) -> f
-usePowHash Test{} f = f $ Proxy @SHA512t_256
-usePowHash TimedConsensus{} f = f $ Proxy @SHA512t_256
-usePowHash PowConsensus{} f = f $ Proxy @SHA512t_256
-usePowHash TimedCPM{} f = f $ Proxy @SHA512t_256
-usePowHash Development{} f = f $ Proxy @SHA512t_256
-usePowHash Testnet00{} f = f $ Proxy @SHA512t_256
-usePowHash Testnet01{} f = f $ Proxy @SHA512t_256
-usePowHash Testnet02{} f = f $ Proxy @SHA512t_256
-
--- | This Miner makes low-level assumptions about the chainweb protocol. It may
--- break if the protocol changes.
---
--- TODO: Check the chainweb version to make sure this function can handle the
--- respective version.
---
-mine
-    :: forall a
-    . HashAlgorithm a
-    => Proxy a
-    -> BlockHeader
-    -> Nonce
-    -> IO BlockHeader
-mine _ h nonce = BA.withByteArray initialTargetBytes $ \trgPtr -> do
-    !ctx <- hashMutableInit @a
-    bytes <- BA.copy initialBytes $ \buf ->
-        allocaBytes (powSize :: Int) $ \pow -> do
-
-            -- inner mining loop
-            --
-            -- We do 100000 hashes before we update the creation time.
-            --
-            let go 100000 !n = do
-                    -- update the block creation time
-                    ct <- getCurrentTimeIntegral
-                    injectTime ct buf
-                    go 0 n
-
-                go !i !n = do
-                    -- Compute POW hash for the nonce
-                    injectNonce n buf
-                    hash ctx buf pow
-
-                    -- check whether the nonce meets the target
-                    fastCheckTarget trgPtr (castPtr pow) >>= \case
-                        True -> return ()
-                        False -> go (succ i) (succ n)
-
-            -- Start inner mining loop
-            go (0 :: Int) nonce
-
-    -- On success: deserialize and return the new BlockHeader
-    runGet decodeBlockHeaderWithoutHash bytes
-  where
-    !initialBytes = runPutS $ encodeBlockHeaderWithoutHash h
-    !bufSize = B.length initialBytes
-    !target = _blockTarget h
-    !initialTargetBytes = runPutS $ encodeHashTarget target
-    !powSize = int $ hashDigestSize @a undefined
-
-    --  Compute POW hash
-    hash :: MutableContext a -> Ptr Word8 -> Ptr Word8 -> IO ()
-    hash ctx buf pow = do
-        hashMutableReset ctx
-        BA.withByteArray ctx $ \ctxPtr -> do
-            hashInternalUpdate @a ctxPtr buf (int bufSize)
-            hashInternalFinalize ctxPtr (castPtr pow)
-    {-# INLINE hash #-}
-
-    injectTime :: Time Micros -> Ptr Word8 -> IO ()
-    injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
-    {-# INLINE injectTime #-}
-
-    injectNonce :: Nonce -> Ptr Word8 -> IO ()
-    injectNonce n buf = poke (castPtr buf) $ encodeNonceToWord64 n
-    {-# INLINE injectNonce #-}
-
-    -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
-    -- in little endian encoding.
-    --
-    fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
-    fastCheckTarget !trgPtr !powPtr =
-        fastCheckTargetN 3 trgPtr powPtr >>= \case
-            LT -> return False
-            GT -> return True
-            EQ -> fastCheckTargetN 2 trgPtr powPtr >>= \case
-                LT -> return False
-                GT -> return True
-                EQ -> fastCheckTargetN 1 trgPtr powPtr >>= \case
-                    LT -> return False
-                    GT -> return True
-                    EQ -> fastCheckTargetN 0 trgPtr powPtr >>= \case
-                        LT -> return False
-                        GT -> return True
-                        EQ -> return True
-    {-# INLINE fastCheckTarget #-}
-
-    fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
-    fastCheckTargetN n trgPtr powPtr = compare
-        <$> peekElemOff trgPtr n
-        <*> peekElemOff powPtr n
-    {-# INLINE fastCheckTargetN #-}
