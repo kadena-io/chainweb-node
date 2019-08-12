@@ -22,18 +22,15 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative (pure, (<|>))
-import Control.Concurrent (forkIOWithUnmask, killThread, threadDelay)
 import Control.Concurrent.MVar
     (MVar, newMVar, readMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
 import Control.Exception (bracket, bracketOnError, mask_)
-import Control.Monad (forever, void, (<$!>))
+import Control.Monad (void, (<$!>))
 
 import Data.Aeson
-import qualified Data.ByteString.Short as SB
-import Data.Foldable (foldl', foldlM)
+import Data.Foldable (foldlM)
 import qualified Data.HashPSQ as PSQ
-import qualified Data.HashSet as HashSet
 import Data.IORef
     (IORef, mkWeakIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Ord (Down(..))
@@ -51,10 +48,7 @@ import System.Random
 
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import qualified Chainweb.Time as Time
-import Chainweb.Utils (fromJuste, ssnd, encodeToByteString, decodeStrictOrThrow')
-
-import Data.CAS.RocksDB
+import Chainweb.Utils (fromJuste, ssnd)
 
 ------------------------------------------------------------------------------
 toPriority :: GasPrice -> GasLimit -> Priority
@@ -65,38 +59,29 @@ toPriority r s = (Down r, s)
 makeInMemPool :: ToJSON t
               => FromJSON t
               => InMemConfig t
-              -> RocksDb
               -> IO (InMemoryMempool t)
-makeInMemPool cfg db = mask_ $ do
+makeInMemPool cfg = mask_ $ do
     nonce <- randomIO
-    dataLock <- newInMemMempoolData db >>= newMVar
-    tid <- forkIOWithUnmask (reaperThread cfg dataLock)
-    return $! InMemoryMempool cfg dataLock tid nonce
+    dataLock <- newInMemMempoolData >>= newMVar
+    return $! InMemoryMempool cfg dataLock nonce
 
 destroyInMemPool :: InMemoryMempool t -> IO ()
-destroyInMemPool = mask_ . killThread . _inmemReaper
+destroyInMemPool = const $ return ()
 
 
 ------------------------------------------------------------------------------
-newInMemMempoolData :: ToJSON t => FromJSON t => RocksDb -> IO (InMemoryMempoolData t)
-newInMemMempoolData db = InMemoryMempoolData <$!> newIORef PSQ.empty
-                           <*> pure (newTable db valCodec keyCodec ["mempool", "validated"])
-                           <*> newIORef HashSet.empty
-                           <*> newIORef Nothing
-                           <*> newIORef emptyRecentLog
-  where
-    valCodec = Codec (encodeToByteString) (decodeStrictOrThrow')
-    keyCodec = Codec (\(TransactionHash h) -> SB.fromShort h) (decodeStrictOrThrow')
+newInMemMempoolData :: ToJSON t => FromJSON t => IO (InMemoryMempoolData t)
+newInMemMempoolData =
+    InMemoryMempoolData <$!> newIORef PSQ.empty <*> newIORef emptyRecentLog
 
 
 ------------------------------------------------------------------------------
 makeSelfFinalizingInMemPool :: FromJSON t
                             => ToJSON t
                             => InMemConfig t
-                            -> RocksDb
                             -> IO (MempoolBackend t)
-makeSelfFinalizingInMemPool cfg db =
-    mask_ $ bracketOnError (makeInMemPool cfg db) destroyInMemPool $ \mpool -> do
+makeSelfFinalizingInMemPool cfg =
+    mask_ $ bracketOnError (makeInMemPool cfg) destroyInMemPool $ \mpool -> do
         ref <- newIORef mpool
         wk <- mkWeakIORef ref (destroyInMemPool mpool)
         back <- toMempoolBackend mpool
@@ -104,7 +89,7 @@ makeSelfFinalizingInMemPool cfg db =
         let bsl = mempoolBlockGasLimit back
         return $ wrapBackend txcfg bsl (ref, wk)
 
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 wrapBackend :: TransactionConfig t
             -> GasLimit
             -> (IORef (InMemoryMempool t), b)
@@ -117,9 +102,6 @@ wrapBackend txcfg bsl mp =
       , mempoolLookup = withRef mp . flip mempoolLookup
       , mempoolInsert = withRef mp . flip mempoolInsert
       , mempoolGetBlock = withRef mp . flip mempoolGetBlock
-      , mempoolMarkValidated = withRef mp . flip mempoolMarkValidated
-      , mempoolMarkConfirmed = withRef mp . flip mempoolMarkConfirmed
-      , mempoolReintroduce = withRef mp . flip mempoolReintroduce
       , mempoolGetPendingTransactions = getPnd mp
       , mempoolClear = withRef mp mempoolClear
       }
@@ -146,29 +128,6 @@ wrapBackend txcfg bsl mp =
             return x
 
 ------------------------------------------------------------------------------
-reaperThread :: InMemConfig t
-             -> MVar (InMemoryMempoolData t)
-             -> (forall a . IO a -> IO a)
-             -> IO b
-reaperThread cfg dataLock restore = forever $ do
-    restore $ threadDelay interval   -- TODO: randomize wait time slightly to
-                                     -- avoid thundering herd on wakeup
-    withMVar dataLock $ \mdata -> reap mdata
-  where
-    txcfg = _inmemTxCfg cfg
-    expiryTime = txMetaExpiryTime . (txMetadata txcfg)
-    interval = _inmemReaperIntervalMicros cfg
-    reap (InMemoryMempoolData pendingRef _ _ _ _) = do
-        now <- Time.getCurrentTimeIntegral
-        modifyIORef' pendingRef $ reapPending now
-
-    reapPending !now !pending =
-        let agg k _ !tx !txs = if expiryTime tx <= now
-                               then (k:txs) else txs
-            tooOld = PSQ.fold' agg [] pending
-        in foldl' (flip PSQ.delete) pending tooOld
-
-------------------------------------------------------------------------------
 toMempoolBackend
     :: InMemoryMempool t
     -> IO (MempoolBackend t)
@@ -180,9 +139,6 @@ toMempoolBackend mempool = do
       , mempoolLookup = lookup
       , mempoolInsert = insert
       , mempoolGetBlock = getBlock
-      , mempoolMarkValidated = markValidated
-      , mempoolMarkConfirmed = markConfirmed
-      , mempoolReintroduce = reintroduce
       , mempoolGetPendingTransactions = getPending
       , mempoolClear = clear
       }
@@ -191,14 +147,11 @@ toMempoolBackend mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg blockSizeLimit _ _ _ = cfg
+    InMemConfig tcfg blockSizeLimit _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
     insert = insertInMem cfg lockMVar
     getBlock = getBlockInMem cfg lockMVar
-    markValidated = markValidatedInMem cfg lockMVar
-    markConfirmed = markConfirmedInMem lockMVar
-    reintroduce = reintroduceInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     clear = clearInMem lockMVar
 
@@ -208,61 +161,36 @@ toMempoolBackend mempool = do
 withInMemoryMempool :: ToJSON t
                     => FromJSON t
                     => InMemConfig t
-                    -> RocksDb
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg db f = do
+withInMemoryMempool cfg f = do
     let action inMem = do
           back <- toMempoolBackend inMem
           f $! back
-    bracket (makeInMemPool cfg db) destroyInMemPool action
+    bracket (makeInMemPool cfg) destroyInMemPool action
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
             -> IO (Vector Bool)
 memberInMem lock txs = do
-    (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
-        q <- readIORef $ _inmemPending mdata
-        let validated = _inmemValidated mdata
-        confirmed <- readIORef $ _inmemConfirmed mdata
-        return $! (q, validated, confirmed)
-    V.mapM (memberOne q validated confirmed) txs
+    q <- withMVarMasked lock (readIORef . _inmemPending)
+    V.mapM (memberOne q) txs
 
   where
-    memberOne q validated confirmed txHash = do
-        v <- maybe False (const True) <$> tableLookup validated txHash
-        return $!
-            PSQ.member txHash q ||
-            v ||
-            HashSet.member txHash confirmed
+    memberOne q txHash = return $! PSQ.member txHash q
 
 ------------------------------------------------------------------------------
 lookupInMem :: MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
             -> IO (Vector (LookupResult t))
 lookupInMem lock txs = do
-    (q, validated, confirmed) <- withMVarMasked lock $ \mdata -> do
-        q <- readIORef $ _inmemPending mdata
-        let validated = _inmemValidated mdata
-        confirmed <- readIORef $ _inmemConfirmed mdata
-        return $! (q, validated, confirmed)
-    V.mapM (fmap fromJuste . lookupOne q validated confirmed) txs
+    q <- withMVarMasked lock (readIORef . _inmemPending)
+    V.mapM (fmap fromJuste . lookupOne q) txs
   where
-    lookupOne q validated confirmed txHash = do
-        v <- fmap Validated <$> tableLookup validated txHash
-        return $!
-            lookupQ q txHash <|>
-            v <|>
-            lookupConfirmed confirmed txHash <|>
-            pure Missing
-
+    lookupOne q txHash = return $! (lookupQ q txHash <|>
+                                    pure Missing)
     lookupQ q txHash = Pending . snd <$> PSQ.lookup txHash q
-    -- lookupVal val txHash = Validated <$> HashMap.lookup txHash val
-    lookupConfirmed confirmed txHash =
-        if HashSet.member txHash confirmed
-          then Just Confirmed
-          else Nothing
 
 
 ------------------------------------------------------------------------------
@@ -288,24 +216,32 @@ insertInMem cfg lock txs = do
     getPriority x = let r = txGasPrice txcfg x
                         s = txGasLimit txcfg x
                     in toPriority r s
-    exists mdata txhash = do
-        inValMap <- maybe False (const True) <$> tableLookup (_inmemValidated mdata) txhash
-        confMap <- readIORef $ _inmemConfirmed mdata
-        return $! (inValMap || HashSet.member txhash confMap)
+
+    exists _mdata _txhash = do
+        -- TODO: here's the hook into the validation oracle
+        error "TODO: call validation oracle here"
+
     insOne mdata tx = do
+        let !txhash = hasher tx
+        let good = (txhash, True)
+        let bad = (txhash, False)
+
         b <- exists mdata txhash
-        v <- validateTx tx
-        -- TODO: return error on unsuccessful validation?
-        if v && not b && sizeOK tx
-          then do
-            -- TODO: is it any better to build up a PSQ in pure code and then
-            -- union? Union is only one modifyIORef
-            modifyIORef' (_inmemPending mdata) $
-               PSQ.insert txhash (getPriority tx) tx
-            return (txhash, True)
-          else return (txhash, False)
-      where
-        txhash = hasher tx
+        if b
+          then return $! bad
+          else do
+            v <- validateTx tx
+            -- TODO: return error on unsuccessful validation?
+            if v && sizeOK tx
+              then do
+                -- TODO: is it any better to build up a PSQ in pure code and then
+                -- union? Union is only one modifyIORef
+                --
+                -- or, this should be a fold inside modifyIORef'
+                modifyIORef' (_inmemPending mdata) $
+                   PSQ.insert txhash (getPriority tx) tx
+                return $! good
+              else return $! bad
 
 
 ------------------------------------------------------------------------------
@@ -333,35 +269,6 @@ getBlockInMem cfg lock size0 = do
         if txSz <= sz
           then return (tx, (psq', sz - txSz))
           else lookahead sz (skipsLeft - 1) psq'
-
-
-------------------------------------------------------------------------------
-markValidatedInMem :: InMemConfig t
-                   -> MVar (InMemoryMempoolData t)
-                   -> Vector (ValidatedTransaction t)
-                   -> IO ()
-markValidatedInMem cfg lock txs = withMVarMasked lock $ \mdata ->
-    V.mapM_ (validateOne mdata) txs
-  where
-    hash = txHasher $ _inmemTxCfg cfg
-
-    validateOne mdata tx = do
-        let txhash = hash $ validatedTransaction tx
-        modifyIORef' (_inmemPending mdata) $ PSQ.delete txhash
-        tableInsert (_inmemValidated mdata) txhash tx
-
-
-------------------------------------------------------------------------------
-markConfirmedInMem :: MVar (InMemoryMempoolData t)
-                   -> Vector TransactionHash
-                   -> IO ()
-markConfirmedInMem lock txhashes =
-    withMVarMasked lock $ \mdata -> V.mapM_ (confirmOne mdata) txhashes
-  where
-    confirmOne mdata txhash = do
-        modifyIORef' (_inmemPending mdata) $ PSQ.delete txhash
-        tableDelete (_inmemValidated mdata) txhash
-        modifyIORef' (_inmemConfirmed mdata) $ HashSet.insert txhash
 
 
 ------------------------------------------------------------------------------
@@ -418,45 +325,10 @@ getPendingInMem cfg nonce lock since callback = do
     sendChunk dl _ = callback $! V.fromList $ dl []
 
 ------------------------------------------------------------------------------
-reintroduceInMem' :: InMemConfig t
-                  -> MVar (InMemoryMempoolData t)
-                  -> Vector TransactionHash
-                  -> IO ()
-reintroduceInMem' cfg lock txhashes = do
-    withMVarMasked lock $ \mdata ->
-        V.mapM_ (reintroduceOne mdata) txhashes
-
-  where
-    txcfg = _inmemTxCfg cfg
-    price = txGasPrice txcfg
-    limit = txGasLimit txcfg
-    getPriority x = let r = price x
-                        s = limit x
-                    in toPriority r s
-    reintroduceOne mdata txhash = do
-        m <- tableLookup (_inmemValidated mdata) txhash
-        maybe (return ()) (reintroduceIt mdata txhash) m
-    reintroduceIt mdata txhash (ValidatedTransaction _ _ tx) = do
-        tableDelete (_inmemValidated mdata) txhash
-        modifyIORef' (_inmemPending mdata) $ PSQ.insert txhash (getPriority tx) tx
-
-------------------------------------------------------------------------------
-reintroduceInMem :: InMemConfig t
-                 -> MVar (InMemoryMempoolData t)
-                 -> Vector t
-                 -> IO ()
-reintroduceInMem cfg lock txs =
-    reintroduceInMem' cfg lock (V.map hashIt txs)
-  where
-    hashIt = txHasher $ _inmemTxCfg cfg
-
-------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
 clearInMem lock = do
     withMVarMasked lock $ \mdata -> do
         writeIORef (_inmemPending mdata) PSQ.empty
-        -- writeIORef (_inmemValidated mdata) HashMap.empty
-        writeIORef (_inmemConfirmed mdata) HashSet.empty
         writeIORef (_inmemRecentLog mdata) emptyRecentLog
 
 

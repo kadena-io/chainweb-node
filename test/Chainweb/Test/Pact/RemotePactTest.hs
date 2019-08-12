@@ -26,7 +26,6 @@ import Control.Lens
 import Control.Monad
 
 import qualified Data.Aeson as A
-import qualified Data.ByteString.Short as SB
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
@@ -37,8 +36,6 @@ import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
-import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 import Network.Connection as HTTP
 import Network.HTTP.Client.TLS as HTTP
@@ -72,8 +69,6 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
@@ -118,7 +113,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
         withRequestKeys net $ \rks ->
             testGroup "PactRemoteTests"
                 [ responseGolden net rks
-                , mempoolValidation net rks
+--                , mempoolValidation net rks
                 ]
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
@@ -131,6 +126,7 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
+{-
 mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     rks <- rksIO
@@ -139,6 +135,7 @@ mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
     let tConfig = mempoolTxConfig noopPool
     let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
     testMPValidated mPool rks
+-}
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -168,6 +165,7 @@ testPoll cmds env rks = do
         Left e -> assertFailure (show e)
         Right rsp -> return rsp
 
+{-
 testMPValidated
     :: MempoolBackend ChainwebTransaction
     -> RequestKeys
@@ -196,6 +194,7 @@ checkValidated results =
     f (Validated _) = True
     f Confirmed = True
     f _ = False
+-}
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do

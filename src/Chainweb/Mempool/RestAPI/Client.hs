@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -56,9 +55,6 @@ toMempool version chain txcfg blocksizeLimit env =
     , mempoolLookup = lookup
     , mempoolInsert = insert
     , mempoolGetBlock = getBlock
-    , mempoolMarkValidated = markValidated
-    , mempoolMarkConfirmed = markConfirmed
-    , mempoolReintroduce = reintroduce
     , mempoolGetPendingTransactions = getPending
     , mempoolClear = clear
     }
@@ -77,9 +73,6 @@ toMempool version chain txcfg blocksizeLimit env =
                 return (_pendingTransactionsHighwaterMark ptxs)
 
     unsupported = fail "unsupported"
-    markValidated _ = unsupported
-    markConfirmed _ = unsupported
-    reintroduce _ = unsupported
     clear = unsupported
 
 

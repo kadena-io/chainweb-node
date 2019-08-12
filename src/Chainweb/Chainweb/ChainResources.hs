@@ -128,8 +128,8 @@ withChainResources
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-      Mempool.withInMemoryMempool mempoolCfg rdb $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
+      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+        mpc <- MPCon.mkMempoolConsensus True mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb dbDir nodeid resetDb $
           \requestQ -> do
             -- prune block header db
@@ -168,7 +168,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
   where
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
     diam = diameter (_chainGraph v)
-    reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
+    -- reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
     pes mempool requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService

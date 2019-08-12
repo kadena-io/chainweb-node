@@ -73,9 +73,9 @@ import System.LogLevel
 
 -- internal modules
 
-import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.Command
-import Pact.Types.Gas (GasPrice(..),GasLimit(..))
+import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
@@ -90,8 +90,6 @@ import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
-                    | Validated (ValidatedTransaction t)
-                    | Confirmed
                     | Pending t
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
@@ -145,16 +143,6 @@ data MempoolBackend t = MempoolBackend {
     -- Not sure this is something an external client should be dictating.
   , mempoolGetBlock :: GasLimit -> IO (Vector t)
 
-    -- | mark the given transactions as being mined and validated.
-  , mempoolMarkValidated :: Vector (ValidatedTransaction t) -> IO ()
-
-    -- | mark the given hashes as being past confirmation depth.
-  , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
-
-    -- | These transactions were on a losing fork. Reintroduce them.
-
-  , mempoolReintroduce :: Vector t -> IO ()
-
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
     -- the callback in chunks. No ordering of hashes is presupposed. Returns
@@ -179,9 +167,6 @@ noopMempool = do
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
     , mempoolGetBlock = noopGetBlock
-    , mempoolMarkValidated = noopMarkValidated
-    , mempoolMarkConfirmed = noopMarkConfirmed
-    , mempoolReintroduce = noopReintroduce
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
     }
@@ -198,9 +183,6 @@ noopMempool = do
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
     noopGetBlock = const $ return V.empty
-    noopMarkValidated = const $ return ()
-    noopMarkConfirmed = const $ return ()
-    noopReintroduce = const $ return ()
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 

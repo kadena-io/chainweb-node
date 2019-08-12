@@ -127,11 +127,14 @@ pactMemPoolGetBlock mpc theLogger height hash _bHeader = do
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn = logFunction
 
+
 pactProcessFork
     :: Logger logger
     => MempoolConsensus ChainwebTransaction
     -> logger
     -> (BlockHeader -> IO ())
+pactProcessFork = error "TODO: REWORK THIS"
+{-
 pactProcessFork mpc theLogger bHeader = do
     let forkFunc = (mpcProcessFork mpc) (logFunction theLogger)
     txHashes <- forkFunc bHeader
@@ -141,6 +144,7 @@ pactProcessFork mpc theLogger bHeader = do
   where
    logFn :: Logger l => l -> LogFunctionText
    logFn lg = logFunction lg
+-}
 
 pactMempoolSetLastHeader
     :: Logger logger

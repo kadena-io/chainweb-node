@@ -11,13 +11,10 @@ module Chainweb.Test.Mempool
   , mempoolTestCase
   , mempoolProperty
   , lookupIsPending
-  , lookupIsValidated
-  , lookupIsConfirmed
   , lookupIsMissing
   ) where
 
 import Control.Applicative
-import Control.Concurrent (threadDelay)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
@@ -32,7 +29,7 @@ import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Gen (Gen, chooseAny, generate, resize)
+import Test.QuickCheck.Gen (Gen, chooseAny)
 import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -43,11 +40,8 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Gas (GasPrice(..))
 
-import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
-import Chainweb.Test.Utils (toyChainId, toyGenesis)
 import qualified Chainweb.Time as Time
-import qualified Numeric.AffineSpace as AF
 
 ------------------------------------------------------------------------------
 -- | Several operations (reintroduce, validate, confirm) can only be performed
@@ -85,12 +79,10 @@ genTwoSets = do
     ord = compare `on` onFees
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
--- | Local-only tests plus all of the tests that are safe for remote.
+-- TODO: remove "remoteTests" here and fold in the test funcs, since there is
+-- no longer a distinction
 tests :: MempoolWithFunc -> [TestTree]
-tests withMempool = map ($ withMempool) [
-      mempoolProperty "validate txs" genTwoSets propValidate
-    , mempoolTestCase "old transactions are reaped" testTooOld
-    ] ++ remoteTests withMempool
+tests withMempool = remoteTests withMempool
 
 arbitraryDecimal :: Gen Decimal
 arbitraryDecimal = do
@@ -135,6 +127,7 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
 testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()
 
+{-
 testTooOld :: MempoolBackend MockTx -> IO ()
 testTooOld mempool = do
     -- TODO: improve this test. Testing via threadDelay is flaky.
@@ -166,6 +159,7 @@ testTooOld mempool = do
     extendTime now = Time.TimeSpan 75000 `AF.add` now
     setTooOld now x = x { mockMeta = (mockMeta x) { txMetaExpiryTime = extendTime now } }
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
+-}
 
 propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propOverlarge (txs, overlarge0) mempool = runExceptT $ do
@@ -258,52 +252,11 @@ uniq l@[_] = l
 uniq (x:ys@(y:rest)) | x == y    = uniq (x:rest)
                      | otherwise = x : uniq ys
 
-propValidate :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propValidate (txs0, txs1) mempool = runExceptT $ do
-    insert txs0
-    insert txs1
-    lookup txs0 >>= V.mapM_ lookupIsPending
-    lookup txs1 >>= V.mapM_ lookupIsPending
-
-    markValidated txs1
-    lookup txs0 >>= V.mapM_ lookupIsPending
-    lookup txs1 >>= V.mapM_ lookupIsValidated
-
-    reintroduce txs1
-    lookup txs1 >>= V.mapM_ lookupIsPending
-
-    markConfirmed txs1
-    lookup txs1 >>= V.mapM_ lookupIsConfirmed
-
-  where
-    hash = txHasher $ mempoolTxConfig mempool
-    insert = liftIO . mempoolInsert mempool . V.fromList
-    lookup = liftIO . mempoolLookup mempool . V.fromList . map hash
-
-    markValidated = liftIO . mempoolMarkValidated mempool . V.fromList . map validate
-
-    reintroduce = liftIO . mempoolReintroduce mempool . V.fromList
-    markConfirmed = liftIO . mempoolMarkConfirmed mempool . V.fromList . map hash
-
-    -- BlockHash and BlockHeight don't matter for this test...
-    validate = ValidatedTransaction (_blockHeight someBlockHeader) (_blockHash someBlockHeader)
-
-
-someBlockHeader :: BlockHeader
-someBlockHeader = head $ testBlockHeaders (toyGenesis toyChainId)
 
 lookupIsPending :: Monad m => LookupResult t -> m ()
 lookupIsPending (Pending _) = return ()
 lookupIsPending _ = fail "lookup failure: expected pending"
 
-lookupIsConfirmed :: Monad m => LookupResult t -> m ()
-lookupIsConfirmed Confirmed = return ()
-lookupIsConfirmed _ = fail "lookup failure: expected confirmed"
-
 lookupIsMissing :: Monad m => LookupResult t -> m ()
 lookupIsMissing Missing = return ()
 lookupIsMissing _ = fail "lookup failure: expected missing"
-
-lookupIsValidated :: Monad m => LookupResult t -> m ()
-lookupIsValidated (Validated _) = return ()
-lookupIsValidated _ = fail "lookup failure: expected validated"

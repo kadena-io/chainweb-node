@@ -12,12 +12,12 @@ module Chainweb.WebPactExecutionService
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TQueue
-import Control.DeepSeq
+-- import Control.DeepSeq
 import Control.Monad.Catch
-import qualified Data.Either as Either
-import Data.Foldable
+-- import qualified Data.Either as Either
+-- import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import qualified Data.Vector as V
+-- import qualified Data.Vector as V
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -28,7 +28,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
-import Chainweb.Utils (codecDecode)
+-- import Chainweb.Utils (codecDecode)
 import Chainweb.WebPactExecutionService.Types
 
 _webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs
@@ -88,6 +88,8 @@ markAllValidated
     -> BlockHeight
     -> BlockHash
     -> IO ()
+markAllValidated = error "TODO: remove this"
+{-
 markAllValidated mempool payload height hash = mempoolMarkValidated mempool validatedTxs
   where
     txcfg = mempoolTxConfig mempool
@@ -99,3 +101,4 @@ markAllValidated mempool payload height hash = mempoolMarkValidated mempool vali
                                          , validatedHash = hash
                                          , validatedTransaction = t }
                                      ) decodedTxs
+-}

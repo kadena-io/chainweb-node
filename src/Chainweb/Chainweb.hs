@@ -333,16 +333,13 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
 --
-mempoolConfig :: Bool -> Mempool.InMemConfig ChainwebTransaction
-mempoolConfig enableReIntro = Mempool.InMemConfig
+mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
+mempoolConfig = Mempool.InMemConfig
     Mempool.chainwebTransactionConfig
     blockGasLimit
-    mempoolReapInterval
     maxRecentLog
-    enableReIntro
   where
     blockGasLimit = 100000               -- TODO: policy decision
-    mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
     maxRecentLog = 2048                   -- store 2k recent transaction hashes
 
 -- Intializes all local chainweb components but doesn't start any networking.
@@ -364,7 +361,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> withChainResources v cid rocksDb peer (chainLogger cid)
-                 mempoolConf cdbv payloadDb prune dbDir nodeid resetDb)
+                 mempoolConfig cdbv payloadDb prune dbDir nodeid resetDb)
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
@@ -446,8 +443,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
-    enableTxsReintro = _configReintroTxs conf
-    mempoolConf = mempoolConfig enableTxsReintro
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)
