@@ -17,6 +17,7 @@ import qualified Data.ByteString as B
 import qualified Data.Map.Strict as M
 
 import System.IO.Extra
+import System.Random
 
 -- pact imports
 
@@ -51,7 +52,8 @@ bench = C.bgroup "pact-backend" $
              , pactSqliteWithBench True . benchUserTableForKeys
              , cpWithBench . cpBenchNoRewindOverBlock
              , cpWithBench . cpBenchOverBlock
-             , cpWithBench . cpBenchKeys
+             , cpWithBench . cpBenchSampleKeys
+             -- , cpWithBench . cpBenchKeys
              ]
   where
     testPoints = [1,5,10,20,50,100,200,500,1000]
@@ -238,25 +240,41 @@ incIntegerAtKey db@(PactDbEnv pdb e) ut f k z = do
             Just _ -> die "field not integer"
 
 benchUserTableForKeys :: Int -> PactDbEnv e -> C.Benchmark
-benchUserTableForKeys numKeys dbEnv = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nfIO (go dbEnv ut)
+benchUserTableForKeys numSampleEvents dbEnv = C.env (setup dbEnv) $ \ ~(ut) -> C.bench name $ C.nfIO (go dbEnv ut)
   where
 
+    numberOfKeys :: Integer
+    numberOfKeys = 10
+
     setup db = setupUserTable db $ \ut ->
-      forM_ [1 .. numKeys] $ \i -> do
+      forM_ [1 .. numberOfKeys] $ \i -> do
         let rowkey = RowKey $ "k" <> toS (show i)
-        writeRow db Insert ut f rowkey (fromIntegral i)
+        writeRow db Insert ut f rowkey i
 
     f = "f"
-    name = "user-table-keys/numkeys=" ++ show numKeys
 
-    go db (NoopNFData ut) = forM_ [1 .. numKeys] transaction
-      where
-        transaction numkey = do
-            let rowkey = RowKey $ "k" <> toS (show numkey)
-            incIntegerAtKey db ut f rowkey 1
+    name = "user-table-keys/sampleEvents=" ++ show numSampleEvents
 
-cpBenchKeys :: Int -> CheckpointEnv -> C.Benchmark
-cpBenchKeys numKeys cp = C.env (setup' cp) $ \ ~(ut) -> C.bench name $ C.nfIO (go cp ut)
+    unpack = \case
+      Nothing -> die "no row read"
+      Just (ObjectMap m) -> case M.lookup f m of
+        Nothing -> die "field not found"
+        Just (PLiteral (LInteger result)) -> return result
+        Just _ -> die "field not integer"
+
+
+    go db@(PactDbEnv pdb e) (NoopNFData ut) = forM_ [1 .. numSampleEvents] $ \_ -> do
+        let torowkey ind = RowKey $ "k" <> toS (show ind)
+        rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
+        rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
+        a <- _readRow pdb ut rowkeya e >>= unpack
+        b <- _readRow pdb ut rowkeyb e >>= unpack
+        writeRow db Update ut f rowkeya b
+        writeRow db Update ut f rowkeyb a
+
+
+_cpBenchKeys :: Int -> CheckpointEnv -> C.Benchmark
+_cpBenchKeys numKeys cp = C.env (setup' cp) $ \ ~(ut) -> C.bench name $ C.nfIO (go cp ut)
   where
     name = "withKeys/keyCount="
       ++ show numKeys
@@ -283,3 +301,45 @@ cpBenchKeys numKeys cp = C.env (setup' cp) $ \ ~(ut) -> C.bench name $ C.nfIO (g
         transaction db numkey = do
           let rowkey = RowKey $ "k" <> toS (show numkey)
           incIntegerAtKey db ut f rowkey 1
+
+cpBenchSampleKeys :: Int -> CheckpointEnv -> C.Benchmark
+cpBenchSampleKeys numSampleEvents cp = C.env (setup' cp) $ \ ~(ut) -> C.bench name $ C.nfIO (go cp ut)
+  where
+    name = "user-table-keys/sampleEvents=" ++ show numSampleEvents
+    numberOfKeys :: Integer
+    numberOfKeys = 10
+    setup' CheckpointEnv {..} = do
+      usertablename <- restore _cpeCheckpointer Nothing >>= \case
+          PactDbEnv' db ->
+            setupUserTable db $ \ut -> forM_ [1 .. numberOfKeys] $ \i -> do
+              let rowkey = RowKey $ "k" <> toS (show i)
+              writeRow db Insert ut f rowkey i
+
+      save _cpeCheckpointer hash01
+      return usertablename
+
+    unpack = \case
+      Nothing -> die "no row read"
+      Just (ObjectMap m) -> case M.lookup f m of
+        Nothing -> die "field not found"
+        Just (PLiteral (LInteger result)) -> return result
+        Just _ -> die "field not integer"
+
+
+    hash01 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000001a"
+    hash02 = BlockHash $ unsafeMerkleLogHash "0000000000000000000000000000002a"
+
+    f = "f"
+
+    go CheckpointEnv {..} (NoopNFData ut) = do
+        restore _cpeCheckpointer (Just (BlockHeight 1, hash01)) >>= \case
+              PactDbEnv' db@(PactDbEnv pdb e) -> forM_ [1 .. numSampleEvents] $ \_ -> do
+                        let torowkey ind = RowKey $ "k" <> toS (show ind)
+                        rowkeya <- torowkey <$> randomRIO (1,numberOfKeys)
+                        rowkeyb <- torowkey <$> randomRIO (1,numberOfKeys)
+                        a <- _readRow pdb ut rowkeya e >>= unpack
+                        b <- _readRow pdb ut rowkeyb e >>= unpack
+                        writeRow db Update ut f rowkeya b
+                        writeRow db Update ut f rowkeyb a
+        void $ save _cpeCheckpointer hash02
+      where
