@@ -16,7 +16,6 @@ category: Data
 tested-with:
       GHC==8.6.5
     , GHC==8.4.4
-    , GHC==8.2.2
 extra-source-files:
     README.md
     CHANGELOG.md
