@@ -55,6 +55,10 @@ module Data.CAS.RocksDB
 , tableInsert
 , tableDelete
 
+-- * Batch Updates
+, RocksDbUpdate(..)
+, updateBatch
+
 -- * Rocks DB Table Iterator
 , RocksDbTableIter
 , createTableIter
@@ -300,6 +304,45 @@ tableDelete db k = R.delete
     R.defaultWriteOptions
     (encKey db k)
 {-# INLINE tableDelete #-}
+
+-- -------------------------------------------------------------------------- --
+-- Batches
+
+-- | A single update operation for a 'RocksDbTable'
+--
+data RocksDbUpdate
+    = forall k v . RocksDbDelete
+        { _rocksDbUpdateTable :: !(RocksDbTable k v)
+        , _rocksDbUpdateKey :: !k
+        }
+    | forall k v . RocksDbInsert
+        { _rocksDbUpdateTable :: !(RocksDbTable k v)
+        , _rocksDbUpdateKey :: !k
+        , _rocksDbUpdateValue :: !v
+        }
+
+rocksDbUpdateDb :: RocksDbUpdate -> R.DB
+rocksDbUpdateDb (RocksDbDelete t _) = _rocksDbTableDb t
+rocksDbUpdateDb (RocksDbInsert t _ _) = _rocksDbTableDb t
+{-# INLINE rocksDbUpdateDb #-}
+
+-- | Atomically execute a batch of rocks db updates.
+--
+-- All tables in the batch operations belong to the same rocks db instance.
+-- Otherwise an error is raised.
+--
+updateBatch :: HasCallStack => [RocksDbUpdate] -> IO ()
+updateBatch [] = return ()
+updateBatch batch = R.write rdb R.defaultWriteOptions $ checkMkOp <$> batch
+  where
+    rdb = rocksDbUpdateDb $ head batch
+
+    checkMkOp o
+        | rdb == rocksDbUpdateDb o = mkOp o
+        | otherwise = error "Data.CAS.RocksDB.updateBatch: all operations in a batch must be for the same RocksDB instance."
+
+    mkOp (RocksDbDelete t k) = R.Del (encKey t k)
+    mkOp (RocksDbInsert t k v) = R.Put (encKey t k) (encVal t v)
 
 -- -------------------------------------------------------------------------- --
 -- Table Iterator
