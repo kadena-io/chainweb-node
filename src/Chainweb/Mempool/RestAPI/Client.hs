@@ -54,6 +54,7 @@ toMempool version chain txcfg blocksizeLimit env =
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
+    , mempoolQuarantine = insert
     , mempoolGetBlock = getBlock
     , mempoolGetPendingTransactions = getPending
     , mempoolClear = clear

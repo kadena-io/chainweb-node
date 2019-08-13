@@ -37,7 +37,7 @@ insertHandler :: Show t => MempoolBackend t -> [t] -> Handler NoContent
 insertHandler mempool txs = handleErrs (NoContent <$ liftIO ins)
   where
     txV = V.fromList txs
-    ins = mempoolInsert mempool txV
+    ins = mempoolQuarantine mempool txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]

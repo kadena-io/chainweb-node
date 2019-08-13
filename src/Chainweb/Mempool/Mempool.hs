@@ -111,7 +111,7 @@ data TransactionConfig t = TransactionConfig {
     -- | getter for transaction gas limit.
   , txGasLimit :: t -> GasLimit
   , txMetadata :: t -> TransactionMetadata
-  , txValidate :: t -> IO Bool
+  , txValidate :: BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
   }
 
 ------------------------------------------------------------------------------
@@ -136,6 +136,11 @@ data MempoolBackend t = MempoolBackend {
 
     -- | Insert the given transactions into the mempool.
   , mempoolInsert :: Vector t -> IO ()
+
+    -- | Add some transactions into the quarantine pool. The quarantine pool is
+    -- for transactions that haven't been validated yet; they will be validated
+    -- and inserted into the mempool during newBlock.
+  , mempoolQuarantine :: Vector t -> IO ()
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
@@ -166,6 +171,7 @@ noopMempool = do
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
+    , mempoolQuarantine = noopQuarantine
     , mempoolGetBlock = noopGetBlock
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
@@ -178,10 +184,12 @@ noopMempool = do
     noopSize = const 1
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
-                              noopMeta (const $ return True)
+                              noopMeta
+                              (const $ const $ return . V.map (const True))
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
+    noopQuarantine = const $ return ()
     noopGetBlock = const $ return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
@@ -196,7 +204,8 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     getGasPrice
     getGasLimit
     (const txmeta)
-    (const $ return True)       -- TODO: insert extra transaction validation here
+    (const $ const $ return . V.map (const True))
+    -- TODO: insert extra transaction validation here
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj

@@ -20,6 +20,7 @@ module Chainweb.Mempool.InMemTypes
 ------------------------------------------------------------------------------
 import Control.Concurrent.MVar (MVar)
 
+import Data.HashMap.Strict (HashMap)
 import Data.HashPSQ (HashPSQ)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
@@ -64,6 +65,7 @@ data InMemoryMempool t = InMemoryMempool {
 data InMemoryMempoolData t = InMemoryMempoolData {
     _inmemPending :: !(IORef (PSQ t))
   , _inmemRecentLog :: !(IORef RecentLog)
+  , _inmemQuarantine :: !(IORef (HashMap TransactionHash t))
 }
 
 ------------------------------------------------------------------------------
