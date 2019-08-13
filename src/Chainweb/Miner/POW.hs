@@ -56,7 +56,6 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.Miner.Core (mine, usePowHash)
 import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -80,14 +79,14 @@ type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 newtype PrevBlock = PrevBlock BlockHeader
 
 powMiner
-    :: forall cas
-    . PayloadCas cas
-    => LogFunction
+    :: forall cas. PayloadCas cas
+    => (BlockHeader -> IO BlockHeader)
+    -> LogFunction
     -> MinerConfig
     -> NodeId
     -> CutDb cas
     -> IO ()
-powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
+powMiner mine lf conf nid cdb = runForever lf "POW Miner" $ do
     g <- MWC.createSystemRandom
     give wcdb $ give payloadDb $ go g 1 HM.empty
   where
@@ -111,7 +110,7 @@ powMiner lf conf nid cdb = runForever lf "POW Miner" $ do
         c <- _cut cdb
 
         let f !x =
-              race (awaitCut cdb x) (mineCut @cas lf conf nid cdb g x adj) >>= either f pure
+              race (awaitCut cdb x) (mineCut @cas mine lf conf nid cdb g x adj) >>= either f pure
 
         T5 p newBh payload c' adj' <- f c
 
@@ -184,7 +183,8 @@ mineCut
     :: PayloadCas cas
     => Given WebBlockHeaderDb
     => Given (PayloadDb cas)
-    => LogFunction
+    => (BlockHeader -> IO BlockHeader)
+    -> LogFunction
     -> MinerConfig
     -> NodeId
     -> CutDb cas
@@ -192,7 +192,7 @@ mineCut
     -> Cut
     -> Adjustments
     -> IO (T5 PrevBlock BlockHeader PayloadWithOutputs Cut Adjustments)
-mineCut logfun conf nid cdb g !c !adjustments = do
+mineCut mine logfun conf nid cdb g !c !adjustments = do
 
     -- Randomly pick a chain to mine on.
     --
@@ -208,7 +208,7 @@ mineCut logfun conf nid cdb g !c !adjustments = do
     --
     case getAdjacentParents c p of
 
-        Nothing -> mineCut logfun conf nid cdb g c adjustments
+        Nothing -> mineCut mine logfun conf nid cdb g c adjustments
             -- spin until a chain is found that isn't blocked
 
         Just adjParents -> do
@@ -235,7 +235,7 @@ mineCut logfun conf nid cdb g !c !adjustments = do
                     creationTime
                     p
 
-            newHeader <- usePowHash v mine candidateHeader
+            newHeader <- mine candidateHeader
 
             -- create cut with new block
             --
@@ -246,7 +246,6 @@ mineCut logfun conf nid cdb g !c !adjustments = do
 
             return $! T5 (PrevBlock p) newHeader payload c' adj'
   where
-    v = _chainwebVersion cdb
     wcdb = view cutDbWebBlockHeaderDb cdb
     payloadStore = view cutDbPayloadStore cdb
 
