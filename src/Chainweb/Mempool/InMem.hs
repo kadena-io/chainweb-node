@@ -20,8 +20,7 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative (pure, (<|>))
-import Control.Concurrent.MVar
-    (MVar, newMVar, readMVar, withMVar, withMVarMasked)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
 import Control.Exception (bracket, mask_)
 import Control.Monad (void, (<$!>))
@@ -44,6 +43,8 @@ import System.Random
 
 -- internal imports
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Utils (fromJuste, ssnd)
@@ -194,28 +195,75 @@ insertInMem cfg lock txs = do
 ------------------------------------------------------------------------------
 getBlockInMem :: InMemConfig t
               -> MVar (InMemoryMempoolData t)
+              -> BlockHeight
+              -> BlockHash
               -> GasLimit
               -> IO (Vector t)
-getBlockInMem cfg lock size0 = do
-    psq <- readMVar lock >>= (readIORef . _inmemPending)
-    return $! V.unfoldr go (psq, size0)
+getBlockInMem cfg lock pheight phash size0 = do
+    -- validate quarantined instructions.
+    withMVar lock $ \mdata -> do
+        let qref = _inmemQuarantine mdata
+        q <- V.fromList . HashMap.elems <$> readIORef qref
+        void $ validateBatch mdata q True
+        writeIORef qref mempty
+        psq <- readIORef $ _inmemPending mdata
+        go mdata psq size0 []
 
   where
-    -- as the block is getting full, we'll skip ahead this many transactions to
-    -- try to find a smaller tx to fit in the block. DECIDE: exhaustive search
-    -- of pending instead?
-    maxSkip = 30 :: Int
-    getSize = txGasLimit $ _inmemTxCfg cfg
+    getPriority x = let r = txGasPrice txcfg x
+                        s = txGasLimit txcfg x
+                    in toPriority r s
 
-    go (psq, sz) = lookahead sz maxSkip psq
+    ins !psq !tx = let h = hasher tx
+                       p = getPriority tx
+                   in PSQ.insert h p tx psq
 
-    lookahead _ 0 _ = Nothing
-    lookahead !sz !skipsLeft !psq = do
-        (_, _, tx, psq') <- PSQ.minView psq
-        let txSz = getSize tx
-        if txSz <= sz
-          then return (tx, (psq', sz - txSz))
-          else lookahead sz (skipsLeft - 1) psq'
+    del !psq tx = let h = hasher tx
+                  in PSQ.delete h psq
+
+    hasher = txHasher txcfg
+    txcfg = _inmemTxCfg cfg
+    getSize = txGasLimit txcfg
+
+    validateBatch mdata q doInsert = do
+        oks <- txValidate txcfg pheight phash q
+        let (bad0, good0) = V.partition snd $ V.zip q oks
+        let bad = V.map fst bad0
+        let good = V.map fst good0
+        modifyIORef' (_inmemPending mdata) $ \psq ->
+            let !psq' = if doInsert
+                          then V.foldl' ins psq good
+                          else psq
+                !psq'' = V.foldl' del psq' bad
+            in psq''
+        return good
+
+
+    maxInARow :: Int
+    maxInARow = 200
+
+    nextBatch !psq !remainingGas = getBatch psq remainingGas [] 0
+    getBatch !psq !sz !soFar !inARow
+        -- we'll keep looking for transactions until we hit maxInARow that are
+        -- too large
+      | inARow >= maxInARow || sz <= 0 = (psq, soFar)
+      | otherwise =
+            case PSQ.minView psq of
+              Nothing -> (psq, soFar)
+              (Just (_, _, tx, !psq')) ->
+                  let txSz = getSize tx
+                  in if txSz <= sz
+                       then getBatch psq' (sz - txSz) (tx:soFar) 0
+                       else getBatch psq' sz soFar (inARow + 1)
+
+    go !mdata !psq !remainingGas !soFar = do
+        let (psq', nb) = nextBatch psq remainingGas
+        if null nb
+          then return $! V.concat soFar
+          else do
+            good <- validateBatch mdata (V.fromList nb) False
+            let newGas = V.foldl' (\s t -> s + getSize t) 0 good
+            go mdata psq' (remainingGas - newGas) (good : soFar)
 
 
 ------------------------------------------------------------------------------

@@ -227,7 +227,11 @@ maxPollRetries :: Int
 maxPollRetries = 30
 
 -- | To allow time for node to startup, retry a number of times
-pollWithRetry :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO (Either ClientError PollResponses)
+pollWithRetry
+    :: PactTestApiCmds
+    -> ClientEnv
+    -> RequestKeys
+    -> IO (Either ClientError PollResponses)
 pollWithRetry cmds env rks = do
   sleep 3
   go maxPollRetries

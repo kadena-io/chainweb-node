@@ -146,7 +146,7 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     -- TODO what is the relationship of this GasLimit to the configured one?
     -- Not sure this is something an external client should be dictating.
-  , mempoolGetBlock :: GasLimit -> IO (Vector t)
+  , mempoolGetBlock :: BlockHeight -> BlockHash -> GasLimit -> IO (Vector t)
 
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
@@ -190,7 +190,7 @@ noopMempool = do
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
     noopQuarantine = const $ return ()
-    noopGetBlock = const $ return V.empty
+    noopGetBlock = const $ const $ const $ return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 

@@ -65,7 +65,11 @@ toMempool version chain txcfg blocksizeLimit env =
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient version chain (V.toList v))
     insert v = void $ go (insertClient version chain (V.toList v))
-    getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
+
+    -- TODO: should we permit remote getBlock?
+    -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
+    getBlock _ _ _ = unsupported
+
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
             Left e -> throwIO e

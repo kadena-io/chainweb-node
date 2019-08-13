@@ -40,6 +40,7 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Gas (GasPrice(..))
 
+import Chainweb.BlockHash
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
 
@@ -192,7 +193,7 @@ propTrivial txs mempool = runExceptT $ do
     insert = mempoolInsert mempool . V.fromList
     lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = mempoolGetBlock mempool (mempoolBlockGasLimit mempool)
+    getBlock = mempoolGetBlock mempool 0 nullBlockHash (mempoolBlockGasLimit mempool)
     onFees x = (Down (mockGasPrice x), mockGasLimit x)
 
 
