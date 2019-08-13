@@ -83,7 +83,7 @@ slow-tests:
   script:
     - echo This is a master slow test run.
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
-    - result/ghc/chainweb/bin/cwtool slow-tests
+    - result/ghc/chainweb/bin/cwtool slow-tests +RTS -N4
 
 # pages:
 #   stage: deploy
@@ -107,4 +107,4 @@ nightly-nix:
 
     # It probably makes sense to run coverage nightly
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg runCoverage true
-    - result/ghc/chainweb/bin/cwtool slow-tests
+    - result/ghc/chainweb/bin/cwtool slow-tests +RTS -N4
