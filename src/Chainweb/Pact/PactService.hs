@@ -559,9 +559,9 @@ runCoinbase (Just parentHash) dbEnv miner = do
 
     let !pd = _psPublicData psEnv
         !logger = _cpeLogger . _psCheckpointEnv $ psEnv
+        !bh = BlockHeight $ P._pdBlockHeight pd
 
-    let !reward = minerReward . Time
-          $ microsToTimeSpan (Micros $ P._pdBlockTime pd)
+    let !reward = minerReward bh
 
     cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
     return $! toHashCommandResult cr

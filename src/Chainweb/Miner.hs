@@ -52,8 +52,8 @@ import Data.Text (Text)
 
 -- chainweb types
 
+import Chainweb.BlockHeader
 import Chainweb.Payload (MinerData(..))
-import Chainweb.Time
 import Chainweb.Utils
 
 -- Pact types
@@ -69,18 +69,18 @@ import Pact.Types.Term (KeySet(..), Name(..))
 -- addresses
 newtype MinerId = MinerId Text
     deriving stock (Eq, Ord, Show, Generic)
-    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON, NFData)
 
 -- | Miner keys are a thin wrapper around a Pact 'KeySet' to differentiate it from
 -- user keysets
 --
 newtype MinerKeys = MinerKeys KeySet
     deriving stock (Eq, Ord, Show, Generic)
-    deriving anyclass (NFData)
-
+    deriving newtype (ToJSON, FromJSON, NFData)
 
 -- | Miner info data consists of a miner id (text), and
 -- its keyset (a pact type)
+--
 data Miner = Miner !MinerId !MinerKeys
     deriving (Eq, Ord, Show, Generic, NFData)
 
@@ -123,7 +123,7 @@ defaultMiner = Miner (MinerId "miner")
 instance Default Miner where
     def = defaultMiner
 
--- | Empty Miner
+-- | Trivial Miner
 --
 noMiner :: Miner
 noMiner = Miner (MinerId "NoMiner") (MinerKeys $ KeySet [] (Name "<" def))
@@ -133,10 +133,12 @@ noMiner = Miner (MinerId "NoMiner") (MinerKeys $ KeySet [] (Name "<" def))
 --
 toMinerData :: Miner -> MinerData
 toMinerData = MinerData . encodeToByteString
+{-# INLINABLE toMinerData  #-}
 
 -- | Convert from Chainweb 'MinerData' to Pact Miner
 fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
+{-# INLINABLE fromMinerData #-}
 
 -- -------------------------------------------------------------------------- --
 -- Miner reward
@@ -144,18 +146,17 @@ fromMinerData = decodeStrictOrThrow' . _minerData
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range
 --
-minerReward :: Time Micros -> ParsedDecimal
-minerReward (Time t) = case rewards ^. at t of
+minerReward :: BlockHeight -> ParsedDecimal
+minerReward bh = case rewards ^. at bh of
     Nothing -> error
-      $ "Time span calculating miner reward is outside of admissible range: "
-      <> sshow t
-    Just f -> f
+      $ "Block Height calculating miner reward is outside of admissible range: "
+      <> sshow bh
+    Just d -> d
 {-# INLINE minerReward #-}
 
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
 --
-rewards :: HashMap (TimeSpan Micros) ParsedDecimal
-rewards = HashMap.fromList
-    [ ]
+rewards :: HashMap BlockHeight ParsedDecimal
+rewards = HashMap.fromList []
 {-# INLINE rewards #-}
