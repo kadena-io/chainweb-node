@@ -3,6 +3,7 @@ module Chainweb.Test.Mempool.InMem
   ) where
 
 ------------------------------------------------------------------------------
+import qualified Data.Vector as V
 import Test.Tasty
 ------------------------------------------------------------------------------
 import qualified Chainweb.Mempool.InMem as InMem
@@ -20,9 +21,9 @@ tests = testGroup "Chainweb.Mempool.InMem"
             $ InMem.withInMemoryMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
-                              mockMeta (const $ return True)
+                              mockMeta (const $ return . V.map (const True))
     -- run the reaper @100Hz for testing
     cfg = InMemConfig txcfg mockBlockGasLimit 2048
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
-----------------------------------------------------------------------------------------------------
+

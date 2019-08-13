@@ -31,6 +31,8 @@ import Prelude hiding (lookup)
 import Servant.API
 import Servant.Client
 ------------------------------------------------------------------------------
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
@@ -63,8 +65,8 @@ toMempool version chain txcfg blocksizeLimit env =
 
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient version chain (V.toList v))
-    insert v = void $ go (insertClient version chain (V.toList v))
-    getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
+    insert _ v = void $ go (insertClient version chain (V.toList v))
+    getBlock pht pha sz = V.fromList <$> go (getBlockClient version chain pht pha (Just sz))
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
             Left e -> throwIO e
@@ -133,7 +135,9 @@ lookupClient v c txs = runIdentity $ do
 getBlockClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, FromJSON t)
-    => Maybe GasLimit
+    => Maybe BlockHeight
+    -> Maybe BlockHash
+    -> Maybe GasLimit
     -> ClientM [t]
 getBlockClient_ = client (mempoolGetBlockApi @v @c)
 
@@ -141,12 +145,14 @@ getBlockClient
   :: FromJSON t
   => ChainwebVersion
   -> ChainId
+  -> BlockHeight
+  -> BlockHash
   -> Maybe GasLimit
   -> ClientM [t]
-getBlockClient v c mbBs = runIdentity $ do
+getBlockClient v c pha pht mbBs = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ getBlockClient_ @v @c mbBs
+    return $ getBlockClient_ @v @c (Just pha) (Just pht) mbBs
 
 
 ------------------------------------------------------------------------------

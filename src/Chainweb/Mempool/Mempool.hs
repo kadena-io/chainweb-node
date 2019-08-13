@@ -17,7 +17,6 @@ module Chainweb.Mempool.Mempool
   , TransactionMetadata(..)
   , MempoolTxId
   , HashMeta(..)
-  , ValidatedTransaction(..)
   , LookupResult(..)
   , MockTx(..)
   , ServerNonce
@@ -111,7 +110,12 @@ data TransactionConfig t = TransactionConfig {
     -- | getter for transaction gas limit.
   , txGasLimit :: t -> GasLimit
   , txMetadata :: t -> TransactionMetadata
-  , txValidate :: t -> IO Bool
+
+    -- | Are the given transactions valid (i.e. playable) at the given parent
+    -- blockheight / hash? E.g. not played before, gas limit ok, etc. If the
+    -- parent height/hash are not supplied, they can be e.g. obtained from
+    -- consensus.
+  , txValidate :: Maybe (BlockHeight, BlockHash) -> Vector t -> IO (Vector Bool)
   }
 
 ------------------------------------------------------------------------------
@@ -134,14 +138,16 @@ data MempoolBackend t = MempoolBackend {
     -- | Lookup transactions in the pending queue by hash.
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
-    -- | Insert the given transactions into the mempool.
-  , mempoolInsert :: Vector t -> IO ()
+    -- | Insert the given transactions into the mempool. The optional
+    -- blockheight and hash are used to validate the transactions against a
+    -- specific parent block.
+  , mempoolInsert :: Maybe (BlockHeight, BlockHash) -> Vector t -> IO ()
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
     -- TODO what is the relationship of this GasLimit to the configured one?
     -- Not sure this is something an external client should be dictating.
-  , mempoolGetBlock :: GasLimit -> IO (Vector t)
+  , mempoolGetBlock :: BlockHeight -> BlockHash -> GasLimit -> IO (Vector t)
 
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
@@ -178,11 +184,11 @@ noopMempool = do
     noopSize = const 1
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
-                              noopMeta (const $ return True)
+                              noopMeta (const $ return . V.map (const True))
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
-    noopInsert = const $ return ()
-    noopGetBlock = const $ return V.empty
+    noopInsert = const $ const $ return ()
+    noopGetBlock = const $ const $ const $ return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
@@ -196,7 +202,9 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     getGasPrice
     getGasLimit
     (const txmeta)
-    (const $ return True)       -- TODO: insert extra transaction validation here
+    -- TODO: chainweb validation must consist of at least a double-play and a
+    -- gas check
+    (const $ return . V.map (const True))
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj
@@ -290,10 +298,11 @@ syncMempools' log0 us localMempool remoteMempool = sync
     isPending (Pending _) = True
     isPending _ = False
 
+
     fetchMissing chunk = do
         res <- mempoolLookup remoteMempool chunk
         let !newTxs = V.map fromPending $ V.filter isPending res
-        mempoolInsert localMempool newTxs
+        mempoolInsert localMempool Nothing newTxs
 
     deb :: Text -> IO ()
     deb = log0 Debug
@@ -365,7 +374,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        when (not $ V.null v) $ mempoolInsert remoteMempool v
+        when (not $ V.null v) $ mempoolInsert remoteMempool Nothing v
 
 
 syncMempools
@@ -427,15 +436,6 @@ chainwebTestHasher s = let !b = SB.toShort $ convert $ hash @_ @SHA512t_256 $ "T
 
 chainwebTestHashMeta :: HashMeta
 chainwebTestHashMeta = HashMeta "chainweb-sha512-256" 32
-
-data ValidatedTransaction t = ValidatedTransaction
-    { validatedHeight :: {-# UNPACK #-} !BlockHeight
-    , validatedHash :: {-# UNPACK #-} !BlockHash
-    , validatedTransaction :: !t
-    }
-  deriving (Show, Generic)
-  deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
-
 
 ------------------------------------------------------------------------------
 -- | Mempool only cares about a few projected values from the transaction type

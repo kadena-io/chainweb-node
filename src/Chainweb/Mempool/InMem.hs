@@ -46,6 +46,8 @@ import System.Random
 
 -- internal imports
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Utils (fromJuste, ssnd)
@@ -90,7 +92,7 @@ makeSelfFinalizingInMemPool cfg =
         return $ wrapBackend txcfg bsl (ref, wk)
 
 ------------------------------------------------------------------------------
-wrapBackend :: TransactionConfig t
+wrapBackend :: forall b t . TransactionConfig t
             -> GasLimit
             -> (IORef (InMemoryMempool t), b)
             -> MempoolBackend t
@@ -98,29 +100,32 @@ wrapBackend txcfg bsl mp =
       MempoolBackend
       { mempoolTxConfig = txcfg
       , mempoolBlockGasLimit = bsl
-      , mempoolMember = withRef mp . flip mempoolMember
-      , mempoolLookup = withRef mp . flip mempoolLookup
-      , mempoolInsert = withRef mp . flip mempoolInsert
-      , mempoolGetBlock = withRef mp . flip mempoolGetBlock
-      , mempoolGetPendingTransactions = getPnd mp
-      , mempoolClear = withRef mp mempoolClear
+      , mempoolMember = withRef . flip mempoolMember
+      , mempoolLookup = withRef . flip mempoolLookup
+      , mempoolInsert = mpIn
+      , mempoolGetBlock = gb
+      , mempoolGetPendingTransactions = getPnd
+      , mempoolClear = withRef mempoolClear
       }
     where
-      getPnd :: (IORef (InMemoryMempool t), a)
-             -> Maybe HighwaterMark
+      getPnd :: Maybe HighwaterMark
              -> (Vector TransactionHash -> IO ())
              -> IO HighwaterMark
-      getPnd (ref, _wk) a b = do
+      getPnd a b = do
+          let ref = fst mp
           mpl <- readIORef ref
           mb <- toMempoolBackend mpl
           x <- mempoolGetPendingTransactions mb a b
           writeIORef ref mpl
           return x
 
-      withRef :: (IORef (InMemoryMempool t), a)
-              -> (MempoolBackend t -> IO z)
-              -> IO z
-      withRef (ref, _wk) f = do
+      mpIn p txs = withRef $ \m -> mempoolInsert m p txs
+      gb pht pha x = withRef $ \m -> mempoolGetBlock m pht pha x
+
+      withRef :: forall a . (MempoolBackend t -> IO a)
+              -> IO a
+      withRef f = do
+            let ref = fst mp
             mpl <- readIORef ref
             mb <- toMempoolBackend mpl
             x <- f mb
@@ -150,7 +155,7 @@ toMempoolBackend mempool = do
     InMemConfig tcfg blockSizeLimit _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
-    insert = insertInMem cfg lockMVar
+    insert p xs = insertInMem cfg lockMVar p xs
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     clear = clearInMem lockMVar
@@ -196,17 +201,30 @@ lookupInMem lock txs = do
 ------------------------------------------------------------------------------
 insertInMem :: InMemConfig t    -- ^ in-memory config
             -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+            -> Maybe (BlockHeight, BlockHash)
             -> Vector t  -- ^ new transactions
             -> IO ()
-insertInMem cfg lock txs = do
+insertInMem cfg lock mbp inTxs = do
+    txs <- preprocessTxs
     withMVarMasked lock $ \mdata -> do
-        newHashes <- (V.map fst . V.filter snd) <$> V.mapM (insOne mdata) txs
+        newHashes <- V.mapM (insOne mdata) txs
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
 
   where
+    validate txs = do
+        oks1 <- txValidate txcfg mbp txs
+        let oks2 = V.map sizeOK txs
+        return $! V.zipWith (&&) oks1 oks2
+
+    preprocessTxs = do
+        -- TODO: we currently silently eat errors here, mainly because
+        -- validateTx will be used to detect duplicate transactions. Return
+        -- error on unsuccessful validation?
+        oks <- validate inTxs
+        return $! V.map fst $ V.filter snd $ V.zip inTxs oks
+
     txcfg = _inmemTxCfg cfg
-    validateTx = txValidate txcfg
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     maxRecent = _inmemMaxRecentItems cfg
@@ -217,39 +235,25 @@ insertInMem cfg lock txs = do
                         s = txGasLimit txcfg x
                     in toPriority r s
 
-    exists _mdata _txhash = do
-        -- TODO: here's the hook into the validation oracle
-        error "TODO: call validation oracle here"
-
     insOne mdata tx = do
-        let !txhash = hasher tx
-        let good = (txhash, True)
-        let bad = (txhash, False)
-
-        b <- exists mdata txhash
-        if b
-          then return $! bad
-          else do
-            v <- validateTx tx
-            -- TODO: return error on unsuccessful validation?
-            if v && sizeOK tx
-              then do
-                -- TODO: is it any better to build up a PSQ in pure code and then
-                -- union? Union is only one modifyIORef
-                --
-                -- or, this should be a fold inside modifyIORef'
-                modifyIORef' (_inmemPending mdata) $
-                   PSQ.insert txhash (getPriority tx) tx
-                return $! good
-              else return $! bad
+        -- TODO: is it any better to build up a PSQ in pure code and then
+        -- union? Union is only one modifyIORef
+        --
+        -- or, this should be a fold inside modifyIORef'
+        let !h = hasher tx
+        modifyIORef' (_inmemPending mdata) $
+           PSQ.insert h (getPriority tx) tx
+        return h
 
 
 ------------------------------------------------------------------------------
 getBlockInMem :: InMemConfig t
               -> MVar (InMemoryMempoolData t)
+              -> BlockHeight
+              -> BlockHash
               -> GasLimit
               -> IO (Vector t)
-getBlockInMem cfg lock size0 = do
+getBlockInMem cfg lock _pheight _phash size0 = do
     psq <- readMVar lock >>= (readIORef . _inmemPending)
     return $! V.unfoldr go (psq, size0)
 

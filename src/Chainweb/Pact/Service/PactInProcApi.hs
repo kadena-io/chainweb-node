@@ -122,7 +122,7 @@ pactMemPoolGetBlock
 pactMemPoolGetBlock mpc theLogger height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) maxBlockSize
+    mempoolGetBlock (mpcMempool mpc) height hash maxBlockSize
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn = logFunction

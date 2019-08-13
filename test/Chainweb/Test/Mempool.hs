@@ -40,6 +40,7 @@ import Test.Tasty.QuickCheck hiding ((.&.))
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Gas (GasPrice(..))
 
+import Chainweb.BlockHash
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Time as Time
 
@@ -169,7 +170,7 @@ propOverlarge (txs, overlarge0) mempool = runExceptT $ do
   where
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert = mempoolInsert mempool . V.fromList
+    insert = mempoolInsert mempool Nothing . V.fromList
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
@@ -189,10 +190,10 @@ propTrivial txs mempool = runExceptT $ do
                   in V.and ffs
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert = mempoolInsert mempool . V.fromList
+    insert = mempoolInsert mempool Nothing . V.fromList
     lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = mempoolGetBlock mempool (mempoolBlockGasLimit mempool)
+    getBlock = mempoolGetBlock mempool 0 nullBlockHash (mempoolBlockGasLimit mempool)
     onFees x = (Down (mockGasPrice x), mockGasLimit x)
 
 
@@ -217,7 +218,7 @@ propGetPending txs0 mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert = mempoolInsert mempool . V.fromList
+    insert = mempoolInsert mempool Nothing . V.fromList
 
 propHighWater :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propHighWater (txs0, txs1) mempool = runExceptT $ do
@@ -243,7 +244,7 @@ propHighWater (txs0, txs1) mempool = runExceptT $ do
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert = mempoolInsert mempool . V.fromList
+    insert = mempoolInsert mempool Nothing . V.fromList
 
 
 uniq :: Eq a => [a] -> [a]

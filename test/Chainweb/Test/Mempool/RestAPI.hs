@@ -6,6 +6,7 @@ import Control.Concurrent.STM
 import Control.Exception
 
 import qualified Data.Pool as Pool
+import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
 import Servant.Client (BaseUrl(..), Scheme(..), mkClientEnv)
@@ -39,8 +40,8 @@ tests = withResource (newPool cfg) Pool.destroyAllResources $
             $ withRemoteMempool poolIO
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta (const $ return True)
-    -- run the reaper @100Hz for testing
+                              mockGasLimit mockMeta
+                              (const $ return . V.map (const True))
     cfg = InMemConfig txcfg mockBlockGasLimit 2048
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
