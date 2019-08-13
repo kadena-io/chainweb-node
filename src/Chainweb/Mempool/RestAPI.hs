@@ -45,8 +45,6 @@ import GHC.Generics
 import Servant
 
 ------------------------------------------------------------------------------
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.RestAPI.Utils
@@ -110,8 +108,6 @@ type MempoolLookupApi v c t =
     ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult t]
 type MempoolGetBlockApi v c t =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getBlock" :>
-    QueryParam "pheight" BlockHeight :>
-    QueryParam "phash" BlockHash :>
     QueryParam "blockSize" GasLimit :> Post '[JSON] [t]
 type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getPending" :>

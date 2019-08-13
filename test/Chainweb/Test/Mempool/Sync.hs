@@ -48,8 +48,7 @@ testInMemCfg :: InMemConfig MockTx
 testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta
-                              (const $ return . V.map (const True))
+                              mockGasLimit mockMeta (const $ return True)
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
 
@@ -59,9 +58,9 @@ propSync
     -> IO (Either String ())
 propSync (txs, missing, later) localMempool' =
     withInMemoryMempool testInMemCfg $ \remoteMempool -> do
-        mempoolInsert localMempool' Nothing txsV
-        mempoolInsert remoteMempool Nothing txsV
-        mempoolInsert remoteMempool Nothing missingV
+        mempoolInsert localMempool' txsV
+        mempoolInsert remoteMempool txsV
+        mempoolInsert remoteMempool missingV
 
         syncThMv <- newEmptyMVar
         syncFinished <- newEmptyMVar
@@ -92,7 +91,7 @@ propSync (txs, missing, later) localMempool' =
             -- We should now be subscribed and waiting for V.length laterV
             -- more transactions before getting killed. Transactions
             -- inserted into remote should get synced to us.
-            mempoolInsert remoteMempool Nothing laterV
+            mempoolInsert remoteMempool laterV
             Async.wait syncTh
 
         maybe (fail "timeout") return m
@@ -123,8 +122,8 @@ timebomb k act mp = do
     ref <- newIORef k
     return $! mp { mempoolInsert = ins ref }
   where
-    ins ref p v = do
-        mempoolInsert mp p v
+    ins ref v = do
+        mempoolInsert mp v
         c <- atomicModifyIORef' ref (\x -> let !x' = x - V.length v
                                            in (x', x'))
         when (c == 0) $ void act     -- so that the bomb only triggers once

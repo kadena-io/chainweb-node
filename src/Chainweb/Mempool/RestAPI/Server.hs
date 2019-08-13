@@ -24,8 +24,6 @@ import qualified Data.Vector as V
 import Servant
 
 ------------------------------------------------------------------------------
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
@@ -35,14 +33,11 @@ import Chainweb.Utils
 import Chainweb.Version
 
 ------------------------------------------------------------------------------
-insertHandler :: Show t
-              => MempoolBackend t
-              -> [t]
-              -> Handler NoContent
+insertHandler :: Show t => MempoolBackend t -> [t] -> Handler NoContent
 insertHandler mempool txs = handleErrs (NoContent <$ liftIO ins)
   where
     txV = V.fromList txs
-    ins = mempoolInsert mempool Nothing txV
+    ins = mempoolInsert mempool txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
@@ -59,21 +54,11 @@ lookupHandler mempool txs = handleErrs (liftIO look)
     look = V.toList <$> mempoolLookup mempool txV
 
 
-getBlockHandler
-    :: Show t
-    => MempoolBackend t
-    -> Maybe BlockHeight
-    -> Maybe BlockHash
-    -> Maybe GasLimit
-    -> Handler [t]
-getBlockHandler mempool mbHt mbHa mbSz = handleErrs (liftIO gb)
+getBlockHandler :: Show t => MempoolBackend t -> Maybe GasLimit -> Handler [t]
+getBlockHandler mempool mbSz = handleErrs (liftIO gb)
   where
     sz = fromMaybe (mempoolBlockGasLimit mempool) mbSz
-    gb = do
-        -- TODO: fail more sensibly
-        ht <- maybe (fail "parent height is required") return mbHt
-        ha <- maybe (fail "parent hash is required") return mbHa
-        V.toList <$> mempoolGetBlock mempool ht ha sz
+    gb = V.toList <$> mempoolGetBlock mempool sz
 
 
 getPendingHandler

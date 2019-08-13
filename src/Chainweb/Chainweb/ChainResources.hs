@@ -168,6 +168,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
   where
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
     diam = diameter (_chainGraph v)
+    -- reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
     pes mempool requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
