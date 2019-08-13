@@ -140,6 +140,7 @@ module Chainweb.Utils
 , defaultEnableConfig
 , pEnableConfig
 , enabledConfig
+, validateEnableConfig
 
 -- * Configuration Exception
 , ConfigurationException(..)
@@ -906,6 +907,9 @@ instance FromJSON (a -> a) => FromJSON (EnableConfig a -> EnableConfig a) where
     parseJSON = withObject "EnableConfig" $ \o -> id
         <$< enableConfigEnabled ..: "enabled" % o
         <*< enableConfigConfig %.: "configuration" % o
+
+validateEnableConfig :: ConfigValidation a l -> ConfigValidation (EnableConfig a) l
+validateEnableConfig v c = when (_enableConfigEnabled c) $ v (_enableConfigConfig c)
 
 -- | Command line parser for the configuration of a component that can be
 -- enabled or disabled.

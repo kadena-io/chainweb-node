@@ -1,9 +1,8 @@
-{-# LANGUAGE BangPatterns      #-}
-{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications  #-}
-{-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Pact.PactReplay where
 
@@ -21,11 +20,11 @@ import Data.CAS.HashMap
 import Data.CAS.RocksDB
 import Data.IORef
 import Data.Text (Text)
-import Data.Tuple.Strict (T3(..))
-import Data.Word
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
+import Data.Word
 
 import NeatInterpolation (text)
 
@@ -46,7 +45,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
 import Chainweb.Miner
-import Chainweb.Miner.POW
+import Chainweb.Miner.Core (mine, usePowHash)
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
@@ -167,7 +166,7 @@ mineBlock parentHeader cid nonce iopdb iobhdb r = do
                            creationTime
                            parentHeader
 
-     newHeader <- usePowHash testVersion mine candidateHeader nonce
+     newHeader <- usePowHash testVersion mine candidateHeader
 
      mv' <- r >>= validateBlock newHeader (toPayloadData payload)
 
