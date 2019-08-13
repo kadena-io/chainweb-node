@@ -67,13 +67,16 @@ import Test.Tasty
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
+import Pact.Gas
 import Pact.Types.ChainId
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
+import Pact.Types.Gas
 import Pact.Types.Logger
-import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
-import Pact.Types.SPV (noSPVSupport)
+import Pact.Types.RPC
+import Pact.Types.Runtime (PactId)
+import Pact.Types.SPV
 import Pact.Types.SQLite
 import Pact.Types.Util (toB16Text)
 
@@ -98,12 +101,6 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-
-import Pact.Gas
-import Pact.Types.Gas
-import Pact.Types.RPC
-import Pact.Types.Runtime (PactId)
-import Pact.Types.SPV
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -153,7 +150,7 @@ goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransacti
 goldenTestTransactions txs = do
     ks <- testKeyPairs
 
-    mkTestExecTransactions "sender00" "0" ks "1" 100 0.1 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 100 0.1 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -172,15 +169,19 @@ mkTestExecTransactions
       -- ^ starting gas
     -> GasPrice
       -- ^ gas rate
+    -> TTLSeconds
+      -- ^ time in seconds until expiry (from offset)
+    -> TxCreationTime
+      -- ^ time in seconds until creation (from offset)
     -> Vector PactTransaction
       -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkTestExecTransactions sender cid ks nonce gas gasrate txs =
+mkTestExecTransactions sender cid ks nonce gas gasrate ttl ct txs =
     traverse go txs
   where
     go (PactTransaction c d) = do
       let dd = mergeObjects (toList d)
-          pm = PublicMeta cid sender gas gasrate
+          pm = PublicMeta cid sender gas gasrate ttl ct
           msg = Exec (ExecMsg c dd)
 
       cmd <- mkCommand ks pm nonce msg
@@ -215,10 +216,14 @@ mkTestContTransaction
       -- ^ rollback?
     -> Maybe ContProof
       -- ^ SPV proof
+    -> TTLSeconds
+      -- ^ time in seconds until expiry (from offset)
+    -> TxCreationTime
+      -- ^ time in seconds until creation (from offset)
     -> Value
     -> IO (Vector ChainwebTransaction)
-mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof d = do
-    let pm = PublicMeta cid sender gas rate
+mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl ct d = do
+    let pm = PublicMeta cid sender gas rate ttl ct
         msg :: PactRPC ContMsg =
           Continuation (ContMsg pid step rollback d proof)
 
