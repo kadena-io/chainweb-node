@@ -9,17 +9,18 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module: Chainweb.Miner.POW
+-- Module: Chainweb.Miner.Coordinator
 -- Copyright: Copyright © 2018 Kadena LLC.
 -- License: MIT
--- Maintainer: Lars Kuhtz <lars@kadena.io>
+-- Maintainer: Lars Kuhtz <lars@kadena.io>, Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
--- A true Proof of Work miner.
+-- A true mining coordination module that can dispatch to various types of
+-- mining schemes.
 --
 
-module Chainweb.Miner.POW
-( powMiner
+module Chainweb.Miner.Coordinator
+( mining
 
 -- * Internal
 , mineCut
@@ -30,6 +31,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.STM
 
+import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
@@ -78,7 +80,7 @@ type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
 newtype PrevBlock = PrevBlock BlockHeader
 
-powMiner
+mining
     :: forall cas. PayloadCas cas
     => (BlockHeader -> IO BlockHeader)
     -> LogFunction
@@ -86,7 +88,7 @@ powMiner
     -> NodeId
     -> CutDb cas
     -> IO ()
-powMiner mine lf conf nid cdb = runForever lf "POW Miner" $ do
+mining mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
     g <- MWC.createSystemRandom
     give wcdb $ give payloadDb $ go g 1 HM.empty
   where
@@ -122,7 +124,7 @@ powMiner mine lf conf nid cdb = runForever lf "POW Miner" $ do
                    (int bytes)
                    (estimatedHashes p newBh)
 
-        logg Info $! "POW Miner: created new block" <> sshow i
+        logg Info $! "Miner: created new block" <> sshow i
         lf @(JsonLog NewMinedBlock) Info $ JsonLog nmb
 
         -- Publish the new Cut into the CutDb (add to queue).
@@ -139,12 +141,6 @@ powMiner mine lf conf nid cdb = runForever lf "POW Miner" $ do
         trace lf "Miner.POW.powMiner.awaitCut" (cutIdToTextShort $ _cutId c) 1
             $ void $ awaitCut cdb c
 
-        let !wh = case window $ _blockChainwebVersion newBh of
-              Just (WindowWidth w) -> BlockHeight (int w)
-              Nothing -> error "POW miner used with non-POW chainweb!"
-            !limit | _blockHeight newBh < wh = 0
-                   | otherwise = _blockHeight newBh - wh
-
         -- Since mining has been successful, we prune the
         -- `HashMap` of adjustment values that we've seen.
         --
@@ -158,7 +154,15 @@ powMiner mine lf conf nid cdb = runForever lf "POW Miner" $ do
         -- N = W * C
         -- @
         --
-        go g (i + 1) (HM.filter (\(T2 h _) -> h > limit) adj')
+        go g (i + 1) $ filterAdjustments newBh adj'
+
+filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
+filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
+    Nothing -> mempty
+    Just (WindowWidth w) ->
+        let wh = BlockHeight (int w)
+            limit = bool (_blockHeight newBh - wh) 0 (_blockHeight newBh < wh)
+        in HM.filter (\(T2 h _) -> h > limit) as
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
@@ -220,7 +224,7 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
 
             -- get target
             --
-            T2 target adj' <- getTarget cid p adjustments
+            T2 target adj' <- getTarget (_blockChainwebVersion p) cid p adjustments
 
             -- Assemble block without Nonce and Timestamp
             --
@@ -255,18 +259,33 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
     blockDb :: ChainId -> Maybe BlockHeaderDb
     blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
 
+    -- TODO What's with the discrepancy between `as` and `adjustments` here?
+    -- Which is the true container we wish to manipulate?
     getTarget
-        :: ChainId
+        :: ChainwebVersion
+        -> ChainId
         -> BlockHeader
         -> Adjustments
         -> IO (T2 HashTarget Adjustments)
-    getTarget cid bh as = case HM.lookup (_blockHash bh) as of
-        Just (T2 _ t) -> pure $! T2 t adjustments
-        Nothing -> case blockDb cid of
+    getTarget v cid bh as = case v of
+        Test{} -> testTarget
+        TimedConsensus{} -> testTarget
+        TimedCPM{} -> testTarget
+        PowConsensus{} -> prodTarget
+        Development -> prodTarget
+        Testnet00 -> prodTarget
+        Testnet01 -> prodTarget
+        Testnet02 -> prodTarget
+      where
+        testTarget = pure $ T2 (_blockTarget bh) mempty
+        prodTarget = case HM.lookup (_blockHash bh) as of
+          Just (T2 _ t) -> pure $! T2 t adjustments
+          Nothing -> case blockDb cid of
             Nothing -> pure $! T2 (_blockTarget bh) adjustments
             Just db -> do
-                t <- hashTarget db bh
-                pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
+              t <- hashTarget db bh
+              pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
+
 
 -- -------------------------------------------------------------------------- --
 --
