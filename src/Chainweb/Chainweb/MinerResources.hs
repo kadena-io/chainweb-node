@@ -22,17 +22,19 @@ module Chainweb.Chainweb.MinerResources
 
 -- internal modules
 
-import Chainweb.CutDB
-import Chainweb.Logger
-import Chainweb.Miner.Config
-import Chainweb.Miner.POW
-import Chainweb.Miner.Test
-import Chainweb.NodeId
+import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.CutDB (CutDb)
+import Chainweb.Logger (Logger, logFunction)
+import Chainweb.Miner.Config (MinerConfig)
+import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.Miner.POW (powMiner)
+import Chainweb.Miner.Test (testMiner)
+import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..))
-import Chainweb.Version
+import Chainweb.Version (ChainwebVersion(..))
 
-import Data.LogMessage
+import Data.LogMessage (LogFunction)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -82,9 +84,16 @@ runMiner v m = (chooseMiner v)
         -> IO ()
     chooseMiner Test{} = testMiner
     chooseMiner TimedConsensus{} = testMiner
-    chooseMiner PowConsensus{} = powMiner
+    chooseMiner PowConsensus{} = powMiner (localMining v)
     chooseMiner TimedCPM{} = testMiner
-    chooseMiner Development = powMiner
-    chooseMiner Testnet00 = powMiner
-    chooseMiner Testnet01 = powMiner
-    chooseMiner Testnet02 = powMiner
+    chooseMiner Development = powMiner (localMining v)
+    chooseMiner Testnet00 = powMiner (localMining v)
+    chooseMiner Testnet01 = powMiner (localMining v)
+    chooseMiner Testnet02 = powMiner (localMining v)
+
+-- | A single-threaded in-process mining loop.
+localMining :: ChainwebVersion -> BlockHeader -> IO BlockHeader
+localMining v = usePowHash v mine
+
+-- remoteMining :: BlockHeader -> IO BlockHeader
+-- remoteMining = undefined  -- TODO!
