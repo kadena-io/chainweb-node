@@ -545,7 +545,7 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
 newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v) v }
 
 instance IsCasValue v => IsCas (RocksDbCas v) where
-    type instance CasValueType (RocksDbCas v) = v
+    type CasValueType (RocksDbCas v) = v
 
     casLookup (RocksDbCas x) = casLookup x
     casInsert (RocksDbCas x) = casInsert x
