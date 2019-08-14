@@ -90,7 +90,7 @@ defaultLogConfig = LogConfig
     , _logConfigBackend = defaultBackendConfig
     , _logConfigTelemetryBackend = defaultEnableConfig defaultBackendConfig
     , _logConfigAmberdataBackend = EnableConfig False defaultAmberdataConfig
-      -- ^ Amberdata logging disabled by default
+        -- Amberdata logging disabled by default
     , _logConfigClusterId = Nothing
     }
 
