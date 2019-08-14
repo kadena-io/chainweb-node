@@ -25,7 +25,7 @@ import Numeric.Natural (Natural)
 
 -- internal modules
 
-import Chainweb.HostAddress (Hostname)
+import Chainweb.HostAddress (HostAddress)
 import Chainweb.Pact.Types
 import Chainweb.Utils (textOption)
 
@@ -39,7 +39,7 @@ makeLenses ''MinerCount
 data MinerConfig = MinerConfig
     { _configTestMiners :: !MinerCount
     , _configMinerInfo :: !MinerInfo
-    , _configRemoteMiners :: ![Hostname]
+    , _configRemoteMiners :: ![HostAddress]
     }
     deriving (Show, Eq, Generic)
 
@@ -76,4 +76,4 @@ pMinerConfig = id
     pRemoteMiner = textOption
         % long "remote-miner"
         <> help "Remote address of a process that obeys the Chainweb Mining API. This option can be used multiple times."
-        <> metavar "<HOSTADDRESS>"
+        <> metavar "<HOSTNAME:PORT>"
