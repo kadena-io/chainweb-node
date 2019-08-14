@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -18,14 +19,13 @@ module Chainweb.Test.Pact.RemotePactTest
 , withRequestKeys
 ) where
 
-import Control.Concurrent hiding (putMVar, readMVar)
+import Control.Concurrent hiding (putMVar, readMVar, modifyMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Exception
 import Control.Lens
 import Control.Monad
 
-import Data.IORef
 import qualified Data.Aeson as A
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
@@ -49,7 +49,6 @@ import Servant.API
 import Servant.Client
 
 import System.IO.Extra
-import System.IO.Unsafe
 import System.LogLevel
 import System.Time.Extra
 
@@ -112,11 +111,12 @@ testCmds = apiCmds version cid
 tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
-        withRequestKeys net $ \rks ->
-            testGroup "PactRemoteTests"
-                [ responseGolden net rks
+        withMVarResource 0 $ \iomvar ->
+          withRequestKeys iomvar net $ \rks ->
+              testGroup "PactRemoteTests"
+                  [ responseGolden net rks
 --                , mempoolValidation net rks
-                ]
+                  ]
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
@@ -143,18 +143,20 @@ mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
 -- Utils
 
 withRequestKeys
-    :: IO ChainwebNetwork
+    :: IO (MVar Int)
+    -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
     -> TestTree
-withRequestKeys networkIO = withResource mkKeys (\_ -> return ())
+withRequestKeys ioNonce networkIO = withResource mkKeys (\_ -> return ())
   where
     mkKeys = do
         cwEnv <- _getClientEnv <$> networkIO
-        testSend testCmds cwEnv
+        mNonce <- ioNonce
+        testSend mNonce testCmds cwEnv
 
-testSend :: PactTestApiCmds -> ClientEnv -> IO RequestKeys
-testSend cmds env = do
-    sb <- testBatch
+testSend :: MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
+testSend mNonce cmds env = do
+    sb <- testBatch mNonce
     result <- sendWithRetry cmds env sb
     case result of
         Left e -> assertFailure (show e)
@@ -183,7 +185,7 @@ testMPValidated mPool rks = do
         results <- mempoolLookup mp hashes
         if checkValidated results then return True
         else do
-            sleep 1
+            sleep
             go (retries - 1) mp hashes
 
 maxMempoolRetries :: Int
@@ -252,18 +254,13 @@ pollWithRetry cmds env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
-{-# NOINLINE nonceRef #-}
-nonceRef :: IORef Int
-nonceRef = unsafePerformIO $ newIORef 0
-
-testBatch :: IO SubmitBatch
-testBatch = do
-    nn <- readIORef nonceRef
-    writeIORef nonceRef $! nn + 1
-    let nonce = "nonce" <> sshow nn
-    kps <- testKeyPairs
-    c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
-    pure $ SubmitBatch (pure c)
+testBatch :: MVar Int -> IO SubmitBatch
+testBatch mnonce = do
+    modifyMVar mnonce $ \(!nn) -> do
+        let nonce = "nonce" <> sshow nn
+        kps <- testKeyPairs
+        c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
+        pure $ (succ nn, SubmitBatch (pure c))
   where
     pm :: CM.PublicMeta
     pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.1 1000000 0

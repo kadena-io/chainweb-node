@@ -26,6 +26,7 @@ module Chainweb.Test.Pact.Utils
 , mkTestExecTransactions
 , mkTestContTransaction
 , pactTestLogger
+, withMVarResource
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -439,3 +440,6 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
       evalPactServiceM ctx (initialPayloadState v cid mempty)
       return (ctx, dbSt)
+
+withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
+withMVarResource value = withResource (newMVar value) (const $ return ())
