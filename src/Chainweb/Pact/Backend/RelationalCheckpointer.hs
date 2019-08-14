@@ -29,7 +29,6 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import Data.Serialize hiding (get)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
@@ -52,7 +51,6 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Utils (sshow)
 
 
 initRelationalCheckpointer
@@ -133,7 +131,6 @@ doSave dbenv hash = runBlockEnv dbenv $ do
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
     runPending bh = do
-        liftIO $ T.putStrLn $ "hello runPending @" <> sshow bh <> ", " <> sshow hash
         (newTables, writes, _, _) <- use bsPendingBlock
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes

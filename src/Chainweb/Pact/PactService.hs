@@ -49,7 +49,6 @@ import Data.Foldable (toList)
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -348,7 +347,6 @@ validateChainwebTxsPreBlock
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
 validateChainwebTxsPreBlock _cp _bh _hash _txs = do
-    T.putStrLn "hello from validate"
     return $! V.replicate (V.length _txs) True
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new

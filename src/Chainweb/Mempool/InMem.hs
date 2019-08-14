@@ -26,14 +26,11 @@ import Control.Exception (bracket, mask_)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
-import Data.Foldable (foldl', foldlM, toList)
+import Data.Foldable (foldl', foldlM)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashPSQ as PSQ
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Ord (Down(..))
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -217,24 +214,15 @@ getBlockInMem :: InMemConfig t
               -> IO (Vector t)
 getBlockInMem cfg lock pheight phash size0 = do
     -- validate quarantined instructions.
-    T.putStrLn "hello getBlock"
     withMVar lock $ \mdata -> do
         let qref = _inmemQuarantine mdata
         q <- V.fromList . HashMap.elems <$> readIORef qref
-        T.putStrLn $ T.concat [ "validating batch of "
-                              , sshow $ length q
-                              , "transactions" ]
         void $ validateBatch mdata q True
         writeIORef qref mempty
         psq <- readIORef $ _inmemPending mdata
-        T.putStrLn $ T.concat ["psq is: ", pshow psq]
         go mdata psq size0 []
 
   where
-    pshow psq = let l = toList psq
-                in T.intercalate "\n" $ map showOne l
-    showOne v = T.decodeUtf8 $ codecEncode (txCodec txcfg) v
-
     getPriority x = let r = txGasPrice txcfg x
                         s = txGasLimit txcfg x
                     in toPriority r s

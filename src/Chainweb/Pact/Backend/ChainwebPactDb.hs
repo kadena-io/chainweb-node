@@ -52,7 +52,6 @@ import Data.String
 import Data.String.Conv
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 
 import Database.SQLite3.Direct as SQ3
@@ -77,7 +76,6 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Utils
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -564,7 +562,6 @@ indexPactTransaction h = modify' (over bsPendingBlock upd)
 indexPendingPactTransactions :: BlockHandler SQLiteEnv ()
 indexPendingPactTransactions = do
     txs <- (\(_, _, _, a) -> a) <$> gets _bsPendingBlock
-    liftIO $ T.putStrLn $ "index: txs are: " <> sshow txs
     dbIndexTransactions txs
     -- this shouldn't be necessary since we will nuke all pending state on save.
     -- modify' (over bsPendingBlock $ \(a, b, c, _) -> (a, b, c, mempty))
