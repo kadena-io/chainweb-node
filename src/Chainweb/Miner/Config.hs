@@ -24,9 +24,10 @@ import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
 -- internal modules
---
-import Chainweb.Pact.Types
 
+import Chainweb.HostAddress (Hostname)
+import Chainweb.Pact.Types
+import Chainweb.Utils (textOption)
 
 ---
 
@@ -36,8 +37,9 @@ newtype MinerCount = MinerCount { _minerCount :: Natural }
 makeLenses ''MinerCount
 
 data MinerConfig = MinerConfig
-    { _configTestMiners :: MinerCount
+    { _configTestMiners :: !MinerCount
     , _configMinerInfo :: !MinerInfo
+    , _configRemoteMiners :: ![Hostname]
     }
     deriving (Show, Eq, Generic)
 
@@ -47,18 +49,21 @@ defaultMinerConfig :: MinerConfig
 defaultMinerConfig = MinerConfig
     { _configTestMiners = MinerCount 10
     , _configMinerInfo = noMiner
+    , _configRemoteMiners = []
     }
 
 instance ToJSON MinerConfig where
     toJSON o = object
         [ "testMiners" .= _minerCount (_configTestMiners o)
         , "minerInfo" .= _configMinerInfo o
+        , "remoteMiners" .= _configRemoteMiners o
         ]
 
 instance FromJSON (MinerConfig -> MinerConfig) where
     parseJSON = withObject "MinerConfig" $ \o -> id
         <$< (configTestMiners . minerCount) ..: "testMiners" % o
         <*< configMinerInfo ..: "minerInfo" % o
+        <*< configRemoteMiners ..: "remoteMiners" % o
 
 pMinerConfig :: MParser MinerConfig
 pMinerConfig = id
@@ -66,4 +71,9 @@ pMinerConfig = id
         % long "test-miners"
         <> short 'm'
         <> help "testing only: number of known miner nodes"
-
+    <*< configRemoteMiners %:: pLeftMonoidalUpdate (pure <$> pRemoteMiner)
+  where
+    pRemoteMiner = textOption
+        % long "remote-miner"
+        <> help "Remote address of a process that obeys the Chainweb Mining API. This option can be used multiple times."
+        <> metavar "<HOSTADDRESS>"

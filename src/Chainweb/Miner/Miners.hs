@@ -79,6 +79,9 @@ localPOW v = usePowHash v mine
 -- -----------------------------------------------------------------------------
 -- Remote Mining
 
+-- | Shared between the `remoteMining` function here and the /chainweb-miner/
+-- executable.
+--
 type MiningAPI =
     "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
     :<|> "poll" :> Capture "chainid" ChainId
