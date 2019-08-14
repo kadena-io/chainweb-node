@@ -59,10 +59,15 @@ main :: IO ()
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
     withToyDB rdb toyChainId $ \h0 db -> do
-        defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
+        defaultMain
+            $ adjustOption adj
+            $ testGroup "Chainweb Tests" . schedule Sequential
             $ pactTestSuite rdb
             : mempoolTestSuite db h0
             : suite rdb
+  where
+    adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
+    adj x = x
 
 mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
