@@ -5,7 +5,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Pact.Backend.ChainwebPactDb
 -- Copyright: Copyright © 2019 Kadena LLC.

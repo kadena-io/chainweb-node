@@ -225,7 +225,7 @@ withPact iopdb iobhdb mempool iodir f = withResource startPact stopPact $ f . fm
         dir <- iodir
 
         a <- async $ initPactService testVersion cid logger reqQ mempool mv bhdb pdb (Just dir) Nothing False
-
+        link a
         return (a, reqQ)
 
     stopPact (a, reqQ) = do

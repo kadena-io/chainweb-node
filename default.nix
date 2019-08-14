@@ -181,12 +181,12 @@ in
         });
         # --- end of `tasty` dependents --- #
 
-        # pact-3.0.1
+        # pact-3.2.1
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "a622a1e1097fa9bf1a966e0914e05c9ceffdb46a";
-          sha256 = "09wwlzmj4qfjclnmchbp1hzbnrck4fipp3x2x10h565n28am5icg";
+          rev = "3a5be9d227ab25a371fb5edef86d90c02bb5aacf";
+          sha256 = "101aknz0z77npmdhvvj2ky8hf9arxwpsdpy94p1b1wbqd7x64yh6";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
