@@ -1,29 +1,34 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
+ {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Standalone where
 
-import Configuration.Utils hiding (Error)
+import Configuration.Utils hiding (Error, disabled)
 
-import Control.Concurrent.Async
 import Control.Concurrent
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Managed
 
+import Data.ByteString (ByteString)
 import Data.CAS
 import Data.CAS.RocksDB
 import Data.Foldable
@@ -31,15 +36,20 @@ import Data.Function
 import Data.List
 import Data.LogMessage
 import Data.PQueue
+import Data.Text (Text)
+import Data.Typeable
 import qualified  Data.HashMap.Strict as HM
+import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Short as SB
 import qualified Data.TaskMap as TM
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import Data.Typeable
+import qualified Data.Vector as Vector
 
 import GHC.Stats
 import GHC.Generics
 
+import Network.Wai
+import Network.Wai.Middleware.Throttle
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
 
@@ -50,10 +60,9 @@ import P2P.Node.Configuration
 
 import PkgInfo
 
-import Standalone.Utils
-
 import qualified Streaming.Prelude as S
 
+import System.Clock
 import System.Directory
 import qualified System.Logger as L
 import System.LogLevel
@@ -61,6 +70,16 @@ import System.LogLevel
 import Utils.Logging
 import Utils.Logging.Config
 import Utils.Logging.Trace
+
+-- pact imports
+
+import Pact.ApiReq
+import qualified Pact.Types.ChainId as PactChain
+import Pact.Types.ChainMeta
+import Pact.Types.Command
+import Pact.Types.Crypto
+import Pact.Types.RPC
+import Pact.Types.Util (toB16Text)
 
 -- chainweb imports
 
@@ -70,6 +89,7 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.MinerResources
+import Chainweb.Chainweb.PeerResources
 import Chainweb.Counter
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
@@ -80,75 +100,24 @@ import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.NodeId
+import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
+-- -- import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore.Types
+import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
-import qualified Chainweb.Mempool.Consensus as MPCon
-import qualified Chainweb.Mempool.InMem as Mempool
-import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Pact.BloomCache as Bloom
 
-defaultV :: ChainwebVersion
-defaultV = TimedCPM petersonChainGraph
-
--- Let's create a benchmark that incorporates unfurled components
--- (that may also be configured differently to isolate certain
--- behaviours) of the chainweb system (e.g. Mempool, Pact Service). We
--- are trying to investigate which portion of this system leads to
--- memory/time leaks or any other stability issues.
-
-unfurledChainweb :: Maybe Int -> ChainwebVersion -> IO ()
-unfurledChainweb _limit v =
-  withAll v $ \sqlenv0s -> do
-    let pactIO bhdb pdb =
-          testWebPactExecutionService v Nothing
-          (return bhdb) (return pdb)
-          (return mempty) sqlenv0s
-    withTempRocksDb "standalone" $ \rdb ->
-        -- this version of withTestCutDb is slightly different because
-        -- it can mine for an unbounded number of blocks (by providing
-        -- Nothing instead of Just [some number])
-        withTestCutDb rdb v 20 pactIO logg' $ \cutDB -> do
-            _cdb <- newMVar cutDB
-            return ()
-    return ()
-
-logg' :: LogMessage a => LogLevel -> a -> IO ()
-logg' l
-  | l <= Warn = T.putStrLn . logText
-  | otherwise = const $ return ()
-
-
--- initChainweb :: ChainwebVersion -> IO ()
--- initChainweb =
---     withTempRocksDb "standalone" $ \rocks ->
---     withBlockHeaderDb rocks
-
-{-
-withChainwebInternal'
-  :: Logger logger
-  => ChainwebConfiguration
-  -> logger
-  -> RocksDb
-  -> Maybe FilePath
-  -> Maybe NodeId
-  -> Bool
-  -> (Chainweb logger RocksDbCas -> IO a)
-  -> IO a
-withChainwebInternal' = undefined
--}
-
-
--- let's see if this works
-
-withChainwebNoNetwork
+withChainwebStandalone
     :: Logger logger
     => ChainwebConfiguration
     -> logger
@@ -157,117 +126,218 @@ withChainwebNoNetwork
     -> Bool
     -> (Chainweb logger RocksDbCas -> IO a)
     -> IO a
-withChainwebNoNetwork c logger rocksDb dbDir resetDb inner =
-  withChainwebInternalNoNetwork
-    c
-    logger
-    rocksDb
-    dbDir
-    (Just (_configNodeId c))
-    resetDb
-    inner
-
-withChainResources'
-  :: Logger logger
-  => PayloadCas cas
-  => ChainwebVersion
-  -> ChainId
-  -> RocksDb
-  -> logger
-  -> Mempool.InMemConfig ChainwebTransaction
-  -> MVar (CutDb cas)
-  -> PayloadDb cas
-  -> Bool
-    -- ^ whether to prune the database
-  -> Maybe FilePath
-    -- ^ database directory for checkpointer
-  -> Maybe NodeId
-  -> Bool
-    -- ^ reset database directory
-  -> (ChainResources logger -> IO a)
-  -> IO a
-withChainResources' v cid rdb logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
-  withBlockHeaderDb rdb v cid $ \cdb ->
-    -- we'll need to place a shim here
-    Mempool.withInMemoryMempool mempoolCfg rdb $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb dbDir nodeid resetDb $
-          \requestQ -> do
-                -- prune blockheader db
-                when prune $ do
-                    logg Info "start pruning block header database"
-                    x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
-
-                    -- FIXME At the time of writing his payload hashes are not
-                    -- unique. The pruning algorithm can handle non-uniquness
-                    -- between within a chain between forks, but not across
-                    -- chains. Also cas-deletion is sound for payload hashes if
-                    -- outputs are unique for payload hashes.
-                    --
-                    -- Renable this code once pact
-                    --
-                    -- includes the parent hash into the coinbase hash,
-                    -- includes the transaction hash into the respective output hash, and
-                    -- guarantees that transaction hashes are unique.
-                    --
-                    -- unless payloadInUse
-                    --     $ casDelete payloadDb (_blockPayloadHash h)
-                      return ()
-                    logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
-
-                -- replay pact
-                let pact = pes mempool requestQ
-
-                -- run inner
-                inner ChainResources
-                    { _chainResPeer = undefined
-                    , _chainResBlockHeaderDb = cdb
-                    , _chainResLogger = logger
-                    , _chainResMempool = mempool
-                    , _chainResPact = pact
-                    }
+withChainwebStandalone c logger rocksDb dbDir resetDb inner =
+    withPeerResources v (view configP2p conf) logger $ \logger' peer ->
+      withChainwebInternalStandalone
+        (set configP2p (_peerResConfig peer) conf)
+        logger'
+        peer
+        rocksDb
+        dbDir
+        (Just (_configNodeId c))
+        resetDb
+        inner
   where
+    v = _chainwebVersion c
+
+    -- Here we inject the hard-coded bootstrap peer infos for the configured
+    -- chainweb version into the configuration.
+    conf
+        | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
+        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
+
+defaultMemPoolAccess :: ChainId -> Int -> MemPoolAccess
+defaultMemPoolAccess cid blocksize  = MemPoolAccess
+    { mpaGetBlock = \_height _hash _prevBlock ->
+        makeBlock cid blocksize ("(+ 1 2)", Nothing)
+    , mpaSetLastHeader = const $ return ()
+    , mpaProcessFork = const $ return ()
+    }
+  where
+    makeBlock
+        :: ChainId
+        -> Int
+        -> (Text, Maybe Value)
+        -> IO (Vector.Vector ChainwebTransaction)
+    makeBlock cidd n = Vector.replicateM n . go
+        where
+          go (c, d) = do
+              let dd = mergeObjects (toList d)
+                  pm =
+                    PublicMeta
+                        (PactChain.ChainId (chainIdToText cidd))
+                        sender
+                        100
+                        0.1
+                  sender = "sender00"
+                  msg = Exec (ExecMsg c dd)
+                  nonce = "1" :: Text
+              ks <- testKeyPairs
+              cmd <- mkCommand ks pm nonce msg
+              case verifyCommand cmd of
+                ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+                ProcFail e -> throwM $ userError e
+
+          k t bs = PayloadWithText bs (_cmdPayload t)
+
+    -- | Merge a list of JSON Objects together. Note: this will yield an empty
+    -- object in the case that there are no objects in the list of values.
+    --
+    mergeObjects :: [Value] -> Value
+    mergeObjects = Object . HM.unions . foldr unwrap []
+      where
+        unwrap (Object o) = (:) o
+        unwrap _ = id
+
+-- MOVE TO UTILS
+
+testKeyPairs :: IO [SomeKeyPair]
+testKeyPairs = do
+    let (pub, priv, addr, scheme) = someED25519Pair
+        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+    mkKeyPairs [apiKP]
+
+
+-- | note this is "sender00"'s key
+someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+someED25519Pair =
+    ( PubBS $ getByteString
+        "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
+    , PrivBS $ getByteString
+        "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
+    , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
+    , ED25519
+    )
+
+getByteString :: ByteString -> ByteString
+getByteString = fst . B16.decode
+
+formatB16PubKey :: SomeKeyPair -> Text
+formatB16PubKey = toB16Text . formatPublicKey
+
+-- MOVE TO UTILS
+
+
+withChainResourcesStandalone
+    :: Logger logger
+    => PayloadCas cas
+    => ChainwebVersion
+    -> ChainId
+    -> RocksDb
+    -> logger
+    -> MVar (CutDb cas)
+    -> PayloadDb cas
+    -> Bool
+      -- ^ whether to prune the database
+    -> Maybe FilePath
+      -- ^ database directory for checkpointer
+    -> Maybe NodeId
+    -> Bool
+      -- ^ reset database directory
+    -> (ChainResources logger -> IO a)
+    -> IO a
+withChainResourcesStandalone v cid rdb logger cdbv payloadDb prune dbDir nodeid resetDb inner =
+    withBlockHeaderDb rdb v cid $ \cdb -> do
+        -- placing mempool access shim here
+        -- putting a default here for now.
+          let mpa = defaultMemPoolAccess cid 1
+          withPactService' v cid (setComponent "pact" logger)
+                mpa cdbv cdb payloadDb dbDir nodeid resetDb $
+            \requestQ -> do
+                  -- prune blockheader db
+                  when prune $ do
+                      logg Info "start pruning block header database"
+                      x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
+
+                      -- FIXME At the time of writing his payload hashes are not
+                      -- unique. The pruning algorithm can handle non-uniquness
+                      -- between within a chain between forks, but not across
+                      -- chains. Also cas-deletion is sound for payload hashes if
+                      -- outputs are unique for payload hashes.
+                      --
+                      -- Renable this code once pact
+                      --
+                      -- includes the parent hash into the coinbase hash,
+                      -- includes the transaction hash into the respective output hash, and
+                      -- guarantees that transaction hashes are unique.
+                      --
+                      -- unless payloadInUse
+                      --     $ casDelete payloadDb (_blockPayloadHash h)
+                        return ()
+                      logg Info $
+                        "finished pruning block header database. Deleted "
+                        <> sshow x
+                        <> " block headers."
+
+                  -- replay pact
+                  let pact = pes requestQ
+
+                  -- run inner
+                  inner ChainResources
+                      { _chainResPeer = error peerMsg
+                      , _chainResBlockHeaderDb = cdb
+                      , _chainResLogger = logger
+                      , _chainResMempool = error mempoolErrMsg
+                      , _chainResPact = pact
+                      }
+  where
+    peerMsg = "_chainResPeer is not defined in standalone. \
+              \If you're getting this error, you've goofed something up."
+    mempoolErrMsg =
+      "A standard mempool is not defined in standalone. \
+      \If you're getting this error, you've goofed something up."
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
     diam = diameter (_chainGraph v)
-    reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
-    pes mempool requestQ = case v of
+    pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService mempool requestQ
-        Development -> mkPactExecutionService mempool requestQ
-        Testnet00 -> mkPactExecutionService mempool requestQ
-        Testnet01 -> mkPactExecutionService mempool requestQ
-        Testnet02 -> mkPactExecutionService mempool requestQ
+        TimedCPM{} -> mkPactExecutionService' requestQ
+        Development -> mkPactExecutionService' requestQ
+        Testnet00 -> mkPactExecutionService' requestQ
+        Testnet01 -> mkPactExecutionService' requestQ
+        Testnet02 -> mkPactExecutionService' requestQ
 
--- TODO: might need a different version of mkPactExecutionService that
--- factors out mempool.
+mkPactExecutionService' :: TQueue RequestMsg -> PactExecutionService
+mkPactExecutionService' q = emptyPactExecutionService
+  { _pactValidateBlock = \h pd -> do
+      mv <- validateBlock h pd q
+      r <- takeMVar mv
+      case r of
+          (Right !pdo) -> return pdo
+          Left e -> throwM e
+  , _pactNewBlock = \m h -> do
+      mv <- newBlock m h q
+      r <- takeMVar mv
+      case r of
+          (Right !pdo) -> return pdo
+          Left e -> throwM e
+  }
 
-
-withChainwebInternalNoNetwork
+withChainwebInternalStandalone
     :: Logger logger
     => ChainwebConfiguration
     -> logger
+    -> PeerResources logger
     -> RocksDb
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
     -> (Chainweb logger RocksDbCas -> IO a)
     -> IO a
-withChainwebInternalNoNetwork conf logger rocksDb dbDir nodeid resetDb inner = do
+withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inner = do
     initializePayloadDb v payloadDb
     cdbv <- newEmptyMVar
     concurrentWith
       -- initialize chains concurrently
-      (\cid -> withChainResources' v cid rocksDb (chainLogger cid)
-               mempoolquestionmark cdbv payloadDb prune dbDir nodeid resetDb)
+      (\cid -> withChainResourcesStandalone v cid rocksDb (chainLogger cid)
+                cdbv payloadDb prune dbDir nodeid resetDb)
 
       -- initialize global resources after all chain resources are
       -- initialized
       (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
       cidsList
   where
-    mempoolquestionmark = undefined
     prune = _configPruneChainDatabase conf
     cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
@@ -276,63 +346,75 @@ withChainwebInternalNoNetwork conf logger rocksDb dbDir nodeid resetDb inner = d
 
     -- initialize global resources
     global cs cdbv = do
-      let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
-          pact = mkWebPactExecutionService (HM.map _chainResPact cs)
-          cutLogger = setComponent "cut" logger
-          -- mgr = _peer
-      logg Info "start initializing cut resources"
-      withCutResources' cutConfig cutLogger rocksDb webchain payloadDb pact $ \cuts -> do
-        logg Info "finished initializing cut resources"
-        let mLogger = setComponent "miner" logger
-            mConf = _configMiner conf
-            mCutDb = _cutResCutDb cuts
+        let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
+            pact = mkWebPactExecutionService (HM.map _chainResPact cs)
+            cutLogger = setComponent "cut" logger
+            mgr = _peerResManager peer
+        logg Info "start initializing cut resources"
+        withCutResources cutConfig peer cutLogger
+            rocksDb webchain payloadDb mgr pact $ \cuts -> do
+                logg Info "finished initializing cut resources"
+                let mLogger = setComponent "miner" logger
+                    mConf = _configMiner conf
+                    mCutDb = _cutResCutDb cuts
 
-        -- no throttling necessary
+                    -- initialize throttler
+                throttler <- initThrottler
+                    (defaultThrottleSettings $ TimeSpec 4 0)
+                    { throttleSettingsRate = int $ _configThrottleRate conf
+                    , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
+                    , throttleSettingsBurst = int $ _configThrottleRate conf
+                    , throttleSettingsIsThrottled = const True
+                    -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
+                    --     [ "cut"
+                    --     , "header"
+                    --     , "payload"
+                    --     , "mempool"
+                    --     , "peer"
+                    --     ]
+                    }
 
-        void $! putMVar cdbv mCutDb
+                void $! putMVar cdbv mCutDb
 
-        logg Info "start synchronizing Pact DBs"
-        synchronizePactDb cs mCutDb
-        logg Info "finished synchronizing Pact DBs"
+                logg Info "start synchronizing Pact DBs"
+                synchronizePactDb cs mCutDb
+                logg Info "finished synchronizing Pact DBs"
 
-        withPactData cs cuts $ \pactData -> do
-            logg Info "start initializing miner resources"
-            withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
-              logg Info "finished initializing miner resources"
-              inner Chainweb
-                        { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                        , _chainwebChains = cs
-                        , _chainwebCutResources = cuts
-                        , _chainwebNodeId = cwnid
-                        , _chainwebMiner = m
-                        , _chainwebLogger = logger
-                        -- , _chainwebPeer = peer
-                        , _chainwebPeer = undefined
-                        , _chainwebPayloadDb = payloadDb
-                        -- , _chainwebManager = mgr
-                        , _chainwebManager = undefined
-                        , _chainwebPactData = pactData
-                        -- , _chainwebThrottler = throttler
-                        , _chainwebThrottler = undefined
-                        , _chainwebConfig = conf
-                        }
+                withPactData cs cuts $ \pactData -> do
+                    logg Info "start initializing miner resources"
+                    withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
+                        logg Info "finished initializing miner resources"
+                        inner Chainweb
+                                  { _chainwebHostAddress =
+                                      _peerConfigAddr
+                                      $ _p2pConfigPeer
+                                      $ _configP2p conf
+                                  , _chainwebChains = cs
+                                  , _chainwebCutResources = cuts
+                                  , _chainwebNodeId = cwnid
+                                  , _chainwebMiner = m
+                                  , _chainwebLogger = logger
+                                  , _chainwebPeer = peer
+                                  , _chainwebPayloadDb = payloadDb
+                                  , _chainwebManager = mgr
+                                  , _chainwebPactData = pactData
+                                  , _chainwebThrottler = throttler
+                                  , _chainwebConfig = conf
+                                  }
 
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
-              logg Info "Transaction index enabled"
-              let l = sortBy (compare `on` fst) (HM.toList cs)
-                  bdbs = map (\(c, cr) -> (c, _chainResBlockHeaderDb cr)) l
-              Bloom.withCache (cuts ^. cutsCutDb) bdbs $ \bloom ->
-                 m $ map (\(c, cr) -> (c, (cuts, cr, bloom))) l
-
+            logg Info "Transaction index enabled"
+            let l = sortBy (compare `on` fst) (HM.toList cs)
+                bdbs = map (\(c, cr) -> (c, _chainResBlockHeaderDb cr)) l
+            Bloom.withCache (cuts ^. cutsCutDb) bdbs $ \bloom ->
+               m $ map (\(c, cr) -> (c, (cuts, cr, bloom))) l
         | otherwise = do
-              logg Info "Transaction index disabled"
-              m []
+            logg Info "Transaction index disabled"
+            m []
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
-    _enableTxsReintro = _configReintroTxs conf
-    _mempoolConf = _mempoolConfig _enableTxsReintro
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)
@@ -359,31 +441,6 @@ withChainwebInternalNoNetwork conf logger rocksDb dbDir nodeid resetDb inner = d
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
-
-
-withCutResources' :: a
-withCutResources' = undefined
-
-_mempoolConfig :: a -> b
-_mempoolConfig _enableReIntro = undefined
-
--- -- TODO: The type InMempoolConfig contains parameters that should be
--- -- configurable as well as parameters that are determined by the chainweb
--- -- version or the chainweb protocol. These should be separated in to two
--- -- different types.
--- --
--- mempoolConfig :: Bool -> Mempool.InMemConfig ChainwebTransaction
--- mempoolConfig enableReIntro = Mempool.InMemConfig
---     Mempool.chainwebTransactionConfig
---     blockGasLimit
---     mempoolReapInterval
---     maxRecentLog
---     enableReIntro
---   where
---     blockGasLimit = 100000               -- TODO: policy decision
---     mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
---     maxRecentLog = 2048                   -- store 2k recent transaction hashes
-
 
 
 -- -------------------------------------------------------------------------- --
@@ -477,8 +534,8 @@ node conf logger = do
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory" <> sshow rocksDbDir
-        withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
-            [ runChainweb cw
+        withChainwebStandalone cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+            [ runChainweb' cw
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runAmberdataBlockMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -490,8 +547,128 @@ node conf logger = do
     v = _configChainwebVersion cwConf
     getRocksDbDir = case _nodeConfigDatabaseDirectory conf of
       Nothing -> getXdgDirectory XdgData
-            $ "chainweb-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
+            $ "chainweb-standalone-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
       Just d -> return d
+
+-- | Starts server and runs all network clients
+--
+runChainweb'
+    :: forall logger cas
+    . Logger logger
+    => PayloadCas cas
+    => Chainweb logger cas
+    -> IO ()
+runChainweb' cw = do
+    logg Info "start chainweb node"
+
+    -- 1. Start serving Rest API
+    --
+    withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \_server ->
+        forever (threadDelay 1000000)
+        {-
+        logg Info "started server"
+
+        -- 2. Start Clients
+        --
+        mpClients <- mempoolSyncClients
+        let clients = concat
+              [ miner
+              , cutNetworks mgr (_chainwebCutResources cw)
+              , mpClients
+              ]
+        mapConcurrently_ id clients
+        wait server
+        -}
+
+  where
+    logg = logFunctionText $ _chainwebLogger cw
+
+    -- chains
+    _chains = HM.toList (_chainwebChains cw)
+    _chainVals = map snd _chains
+
+    -- collect server resources
+    _proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
+    _proj f = flip map _chains $ \(k, ch) -> (k, f ch)
+
+    _chainDbsToServe = _proj _chainResBlockHeaderDb
+    _mempoolsToServe = _proj _chainResMempool
+    -- chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+    -- memP2pToServe = bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+
+    _payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+    _pactDbsToServe = _chainwebPactData cw
+
+    {-
+    serverSettings
+        = setOnException
+            (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
+        $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
+    -}
+
+    serve = return undefined
+
+    {-
+    serve = serveChainwebSocketTls
+        serverSettings
+        (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
+        (_peerKey $ _peerResPeer $ _chainwebPeer cw)
+        (_peerResSocket $ _chainwebPeer cw)
+        (_chainwebVersion cw)
+        ChainwebServerDbs
+            { _chainwebServerCutDb = Just cutDb
+            , _chainwebServerBlockHeaderDbs = chainDbsToServe
+            , _chainwebServerMempools = mempoolsToServe
+            , _chainwebServerPayloadDbs = payloadDbsToServe
+            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
+            , _chainwebServerPactDbs = pactDbsToServe
+            }
+    -}
+
+    -- HTTP Request Logger
+
+    httpLog :: Middleware
+    httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
+
+    _loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
+    _loggServerError Nothing e = "HTTP server error: " <> sshow e
+
+    -- Cut DB and Miner
+
+    _cutDb = _cutResCutDb $ _chainwebCutResources cw
+    _cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
+
+    _miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
+
+    -- Configure Clients
+
+    _mgr = _chainwebManager cw
+
+
+    -- Mempool
+
+    _mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
+
+    -- Decide whether to enable the mempool sync clients
+    _mempoolSyncClients = case enabledConfig _mempoolP2pConfig of
+      Nothing -> disabled
+      Just c -> case _chainwebVersion cw of
+        Test{} -> disabled
+        TimedConsensus{} -> disabled
+        PowConsensus{} -> disabled
+        TimedCPM{} -> enabled c
+        Development -> enabled c
+        Testnet00 -> enabled c
+        Testnet01 -> enabled c
+        Testnet02 -> enabled c
+      where
+        disabled = do
+          logg Info "Mempool p2p sync disabled"
+          return []
+        enabled conf = do
+          logg Info "Mempool p2p sync enabled"
+          return $ map (runMempoolSyncClient _mgr conf) _chainVals
+
 
 
 data StandaloneConfiguration = StandaloneConfiguration
@@ -626,7 +803,6 @@ mainInfo = programInfo
     "Chainweb Node"
     pStandaloneConfiguration
     (defaultStandaloneConfiguration Testnet01)
-
 
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
