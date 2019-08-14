@@ -54,9 +54,10 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 data MempoolConsensus t = MempoolConsensus
     { mpcMempool :: !(MempoolBackend t)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
-    , mpcProcessFork :: LogFunction
-                     -> BlockHeader
-                     -> IO (Vector ChainwebTransaction)
+    , mpcProcessFork
+          :: LogFunction
+          -> BlockHeader
+          -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
     }
 
 data ReintroducedTxsLog = ReintroducedTxsLog
@@ -74,7 +75,7 @@ instance Show MempoolException where
 
 instance Exception MempoolException
 
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 mkMempoolConsensus
     :: PayloadCas cas
     => Bool
@@ -99,10 +100,10 @@ mkMempoolConsensus txReintroEnabled mempool blockHeaderDb payloadStore = do
         -> IORef (Maybe BlockHeader)
         -> LogFunction
         -> BlockHeader
-        -> IO (Vector ChainwebTransaction)
+        -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
     processForkFunc = if txReintroEnabled then processFork else skipProcessFork
 
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 skipProcessFork
     :: PayloadCas cas
     => BlockHeaderDb
@@ -110,8 +111,8 @@ skipProcessFork
     -> IORef (Maybe BlockHeader)
     -> LogFunction
     -> BlockHeader
-    -> IO (Vector ChainwebTransaction)
-skipProcessFork _ _ _ _ _ = return V.empty
+    -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
+skipProcessFork _ _ _ _ _ = return (V.empty, V.empty)
 
 processFork
     :: PayloadCas cas
@@ -120,13 +121,14 @@ processFork
     -> IORef (Maybe BlockHeader)
     -> LogFunction
     -> BlockHeader
-    -> IO (Vector ChainwebTransaction)
+    -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     lastHeader <- readIORef lastHeaderRef
-    hashTxs <- processFork' logFun blockHeaderDb newHeader lastHeader (payloadLookup payloadStore)
-    return $ V.map unHashable hashTxs
+    (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
+                           (payloadLookup payloadStore)
+    return (V.map unHashable a, V.map unHashable b)
 
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 -- called directly from some unit tests...
 processFork'
   :: (Eq x, Hashable x)
@@ -135,9 +137,9 @@ processFork'
     -> BlockHeader
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (HashSet x))
-    -> IO (V.Vector x)
+    -> IO (V.Vector x, V.Vector x)
 processFork' logFun db newHeader lastHeaderM plLookup =
-    maybe (return V.empty) go lastHeaderM
+    maybe (return (V.empty, V.empty)) go lastHeaderM
   where
     go lastHeader = do
         (_, oldBlocks, newBlocks) <- collectForkBlocks db lastHeader newHeader
@@ -149,6 +151,7 @@ processFork' logFun db newHeader lastHeaderM plLookup =
         -- the winning fork (aka newBlocks):
         let !results = V.fromList $ HS.toList
                                   $ oldTrans `HS.difference` newTrans
+        let !deletes = V.fromList $ HS.toList newTrans
 
         unless (V.null results) $ do
             -- create data for the dashboard showing number or reintroduced
@@ -159,12 +162,12 @@ processFork' logFun db newHeader lastHeaderM plLookup =
                                , numReintroduced = V.length results
                                }
             logFun @(JsonLog ReintroducedTxsLog) Info $ JsonLog reIntro
-        return results
+        return (results, deletes)
       where
         toSet !trans !header = HS.union trans <$!> plLookup header
 
 
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 payloadLookup
     :: forall cas . PayloadCas cas
     => Maybe (PayloadDb cas)
@@ -184,7 +187,7 @@ payloadLookup payloadStore bh =
             Just pwo -> return pwo
 
 
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 chainwebTxsFromPWO :: PayloadWithOutputs -> IO (HashSet (HashableTrans PayloadWithText))
 chainwebTxsFromPWO pwo = do
     let transSeq = fst <$> _payloadWithOutputsTransactions pwo

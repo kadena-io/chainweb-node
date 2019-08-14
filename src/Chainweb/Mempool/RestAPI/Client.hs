@@ -55,6 +55,7 @@ toMempool version chain txcfg blocksizeLimit env =
     , mempoolLookup = lookup
     , mempoolInsert = insert
     , mempoolQuarantine = insert
+    , mempoolMarkValidated = markValidated
     , mempoolGetBlock = getBlock
     , mempoolGetPendingTransactions = getPending
     , mempoolClear = clear
@@ -69,6 +70,7 @@ toMempool version chain txcfg blocksizeLimit env =
     -- TODO: should we permit remote getBlock?
     -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
     getBlock _ _ _ = unsupported
+    markValidated _ = unsupported
 
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case

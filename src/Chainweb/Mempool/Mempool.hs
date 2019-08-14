@@ -148,6 +148,9 @@ data MempoolBackend t = MempoolBackend {
     -- and inserted into the mempool during newBlock.
   , mempoolQuarantine :: Vector t -> IO ()
 
+    -- | Remove the given hashes from the pending set.
+  , mempoolMarkValidated :: Vector TransactionHash -> IO ()
+
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
     -- TODO what is the relationship of this GasLimit to the configured one?
@@ -178,6 +181,7 @@ noopMempool = do
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
     , mempoolQuarantine = noopQuarantine
+    , mempoolMarkValidated = noopMV
     , mempoolGetBlock = noopGetBlock
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
@@ -196,6 +200,7 @@ noopMempool = do
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
     noopQuarantine = const $ return ()
+    noopMV = const $ return ()
     noopGetBlock = const $ const $ const $ return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()

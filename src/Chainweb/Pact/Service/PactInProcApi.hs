@@ -141,13 +141,19 @@ pactProcessFork
     -> (BlockHeader -> IO ())
 pactProcessFork mpc theLogger bHeader = do
     let forkFunc = (mpcProcessFork mpc) (logFunction theLogger)
-    txHashes <- forkFunc bHeader
-    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length txHashes)
+    (reintroTxs, validatedTxs) <- forkFunc bHeader
+    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length reintroTxs)
                            <> " transactions to reintroduce"
-    mempoolInsert (mpcMempool mpc) txHashes
+    mempoolInsert (mpcMempool mpc) reintroTxs
+    mempoolMarkValidated (mpcMempool mpc) $ fmap hasher validatedTxs
+
   where
-   logFn :: Logger l => l -> LogFunctionText
-   logFn lg = logFunction lg
+    mempool = mpcMempool mpc
+    txcfg = mempoolTxConfig mempool
+    hasher = txHasher txcfg
+
+    logFn :: Logger l => l -> LogFunctionText
+    logFn lg = logFunction lg
 
 pactMempoolSetLastHeader
     :: Logger logger

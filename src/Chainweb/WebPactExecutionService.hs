@@ -19,7 +19,7 @@ import Control.Monad.Catch
 import qualified Data.HashMap.Strict as HM
 -- import qualified Data.Vector as V
 
-import Chainweb.BlockHash
+-- import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
@@ -53,13 +53,12 @@ mkPactExecutionService
     :: MempoolBackend ChainwebTransaction
     -> TQueue RequestMsg
     -> PactExecutionService
-mkPactExecutionService mempool q = PactExecutionService
+mkPactExecutionService _mempool q = PactExecutionService
   { _pactValidateBlock = \h pd -> do
       mv <- validateBlock h pd q
       r <- takeMVar mv
       case r of
-        (Right !pdo) -> markAllValidated mempool pdo (_blockHeight h) (_blockHash h)
-                          >> return pdo
+        (Right !pdo) -> return pdo
         Left e -> throwM e
   , _pactNewBlock = \m h -> do
       mv <- newBlock m h q
@@ -82,23 +81,19 @@ emptyPactExecutionService = PactExecutionService
     , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
     }
 
+{-
 markAllValidated
     :: MempoolBackend ChainwebTransaction
     -> PayloadWithOutputs
     -> BlockHeight
     -> BlockHash
     -> IO ()
-markAllValidated = error "TODO: remove this"
-{-
-markAllValidated mempool payload height hash = mempoolMarkValidated mempool validatedTxs
+markAllValidated mempool payload _ _ =
+    mempoolMarkValidated mempool txhashes
   where
     txcfg = mempoolTxConfig mempool
     decodeTx = codecDecode $ txCodec txcfg
     decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
                    $ toList $ _payloadWithOutputsTransactions payload
-    !validatedTxs = V.fromList $ map ( \t -> force $ ValidatedTransaction
-                                         { validatedHeight = height
-                                         , validatedHash = hash
-                                         , validatedTransaction = t }
-                                     ) decodedTxs
+    txhashes = V.fromList $! map (txHasher txcfg) decodedTxs
 -}

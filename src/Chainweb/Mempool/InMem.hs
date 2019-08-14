@@ -26,7 +26,7 @@ import Control.Exception (bracket, mask_)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
-import Data.Foldable (foldlM, toList)
+import Data.Foldable (foldl', foldlM, toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashPSQ as PSQ
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
@@ -91,6 +91,7 @@ toMempoolBackend mempool = do
       , mempoolLookup = lookup
       , mempoolInsert = insert
       , mempoolQuarantine = quarantine
+      , mempoolMarkValidated = markValidated
       , mempoolGetBlock = getBlock
       , mempoolGetPendingTransactions = getPending
       , mempoolClear = clear
@@ -105,6 +106,7 @@ toMempoolBackend mempool = do
     lookup = lookupInMem lockMVar
     insert = insertInMem cfg lockMVar
     quarantine = quarantineInMem cfg lockMVar
+    markValidated = markValidatedInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     clear = clearInMem lockMVar
@@ -145,6 +147,17 @@ lookupInMem lock txs = do
     lookupOne q txHash = return $! (lookupQ q txHash <|>
                                     pure Missing)
     lookupQ q txHash = Pending . snd <$> PSQ.lookup txHash q
+
+
+------------------------------------------------------------------------------
+markValidatedInMem :: MVar (InMemoryMempoolData t)
+                   -> Vector TransactionHash
+                   -> IO ()
+markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
+    let pref = _inmemPending mdata
+    let qref = _inmemQuarantine mdata
+    modifyIORef' pref $ \psq -> foldl' (flip PSQ.delete) psq txs
+    modifyIORef' qref $ \q -> foldl' (flip HashMap.delete) q txs
 
 
 ------------------------------------------------------------------------------
