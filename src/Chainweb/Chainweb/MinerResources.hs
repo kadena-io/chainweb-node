@@ -20,27 +20,19 @@ module Chainweb.Chainweb.MinerResources
   , runMiner
   ) where
 
-import Control.Concurrent (threadDelay)
-
-import Numeric.Natural (Natural)
-
 import qualified System.Random.MWC as MWC
-import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.CutDB (CutDb)
-import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
 import Chainweb.Miner.Coordinator (mining)
-import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
-import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (EnableConfig(..), int)
-import Chainweb.Version (ChainwebVersion(..), order, _chainGraph)
+import Chainweb.Utils (EnableConfig(..))
+import Chainweb.Version (ChainwebVersion(..))
 
 import Data.LogMessage (LogFunction)
 
@@ -107,30 +99,3 @@ runMiner v m = do
     chooseMiner _ Testnet00 = mining (localPOW v)
     chooseMiner _ Testnet01 = mining (localPOW v)
     chooseMiner _ Testnet02 = mining (localPOW v)
-
--- | Artificially delay the mining process to simulate Proof-of-Work.
---
-localTest :: MWC.GenIO -> MinerCount -> BlockHeader -> IO BlockHeader
-localTest gen miners bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
-  where
-    v :: ChainwebVersion
-    v = _blockChainwebVersion bh
-
-    t :: Double
-    t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
-
-    graphOrder :: Natural
-    graphOrder = order $ _chainGraph v
-
-    meanBlockTime :: Double
-    meanBlockTime = case blockRate v of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show v
-
--- | A single-threaded in-process Proof-of-Work mining loop.
---
-localPOW :: ChainwebVersion -> BlockHeader -> IO BlockHeader
-localPOW v = usePowHash v mine
-
--- remoteMining :: BlockHeader -> IO BlockHeader
--- remoteMining = undefined  -- TODO!
