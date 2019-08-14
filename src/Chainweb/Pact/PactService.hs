@@ -31,7 +31,7 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception hiding (Handler(..), catches, finally, try)
+import Control.Exception hiding (Handler(..), bracket, catches, finally, try)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -346,8 +346,20 @@ validateChainwebTxsPreBlock
     -> BlockHash
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxsPreBlock _cp _bh _hash _txs = do
-    return $! V.replicate (V.length _txs) True
+validateChainwebTxsPreBlock cp bh hash txs = bracket begin end go
+  where
+    begin = restore cp $ Just (bh, hash)
+    end = const $ discard cp
+    go _ = V.mapM checkOne txs
+
+    -- TODOs:
+    --
+    --   - gas limit check here
+    --   - sender key check
+    checkOne tx = do
+        let pactHash = view P.cmdHash tx
+        mb <- lookupProcessedTx cp pactHash
+        return $! mb == Nothing
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be

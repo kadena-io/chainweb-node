@@ -112,13 +112,14 @@ genPayloadModule v txFiles =
                 procCmd = verifyCommand cmdBS
             case procCmd of
                 f@ProcFail{} -> fail (show f)
-                ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) (SB.toShort <$> cmdBS)
+                ProcSucc c -> fixupPayload cmdBS c
 
         let logger = genericLogger Warn TIO.putStrLn
-
+        pmv <- newEmptyMVar
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger (const noSPVSupport) bhdb pdb Nothing Nothing False $
-            execNewGenesisBlock noMiner (V.fromList cwTxs)
+        payloadWO <- initPactService' v cid pmv logger (const noSPVSupport)
+                         bhdb pdb Nothing Nothing False $
+                         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
             modl = T.unlines $ startModule v <> [payloadYaml] <> endModule
@@ -126,6 +127,9 @@ genPayloadModule v txFiles =
 
         TIO.writeFile (T.unpack fileName) modl
   where
+    fixupPayload cmdBS c =
+        return $! fmap (\bs -> PayloadWithText bs (_cmdPayload c))
+                       (SB.toShort <$> cmdBS)
     cid = someChainId Testnet00
 
 startModule :: ChainwebVersion -> [Text]
