@@ -23,7 +23,7 @@ import Control.Applicative (pure, (<|>))
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
 import Control.Exception (bracket, mask_)
-import Control.Monad (void, (<$!>))
+import Control.Monad (void, when, (<$!>))
 
 import Data.Aeson
 import Data.Foldable (foldl', foldlM)
@@ -236,21 +236,27 @@ getBlockInMem cfg lock pheight phash size0 = do
 
     hasher = txHasher txcfg
     txcfg = _inmemTxCfg cfg
+    maxRecent = _inmemMaxRecentItems cfg
     getSize = txGasLimit txcfg
+    maxSize = _inmemTxBlockSizeLimit cfg
+    sizeOK tx = getSize tx <= maxSize
 
     validateBatch mdata q doInsert = do
-        oks <- txValidate txcfg pheight phash q
-        let (bad0, good0) = V.partition snd $ V.zip q oks
-        let bad = V.map fst bad0
+        oks1 <- txValidate txcfg pheight phash q
+        let oks2 = V.map sizeOK q
+        let oks = V.zipWith (&&) oks1 oks2
+        let (good0, bad0) = V.partition snd $ V.zip q oks
         let good = V.map fst good0
+        let bad = V.map fst bad0
         modifyIORef' (_inmemPending mdata) $ \psq ->
             let !psq' = if doInsert
                           then V.foldl' ins psq good
                           else psq
                 !psq'' = V.foldl' del psq' bad
             in psq''
+        when doInsert $ modifyIORef' (_inmemRecentLog mdata) $
+            recordRecentTransactions maxRecent (V.map hasher good)
         return good
-
 
     maxInARow :: Int
     maxInARow = 200

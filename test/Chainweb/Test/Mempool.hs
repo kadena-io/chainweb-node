@@ -16,7 +16,7 @@ module Chainweb.Test.Mempool
 
 import Control.Applicative
 import Control.Monad (void, when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.Decimal (Decimal)
 import Data.Function (on)
@@ -162,6 +162,13 @@ testTooOld mempool = do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 -}
 
+triggerGetBlock :: MonadIO m => MempoolBackend MockTx -> m ()
+triggerGetBlock mp =
+    liftIO $ void $ mempoolGetBlock mp 0 nullBlockHash gasLimit
+  where
+    gasLimit = mempoolBlockGasLimit mp
+
+
 propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propOverlarge (txs, overlarge0) mempool = runExceptT $ do
     liftIO $ insert $ txs ++ overlarge
@@ -170,7 +177,9 @@ propOverlarge (txs, overlarge0) mempool = runExceptT $ do
   where
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert = mempoolInsert mempool . V.fromList
+    insert v = do
+        mempoolQuarantine mempool $ V.fromList v
+        triggerGetBlock mempool
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
@@ -190,7 +199,9 @@ propTrivial txs mempool = runExceptT $ do
                   in V.and ffs
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert = mempoolInsert mempool . V.fromList
+    insert v = do
+        mempoolQuarantine mempool $ V.fromList v
+        triggerGetBlock mempool
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     getBlock = mempoolGetBlock mempool 0 nullBlockHash (mempoolBlockGasLimit mempool)
@@ -218,7 +229,9 @@ propGetPending txs0 mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert = mempoolInsert mempool . V.fromList
+    insert v = do
+        mempoolQuarantine mempool $ V.fromList v
+        triggerGetBlock mempool
 
 propHighWater :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propHighWater (txs0, txs1) mempool = runExceptT $ do
@@ -244,7 +257,9 @@ propHighWater (txs0, txs1) mempool = runExceptT $ do
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert = mempoolInsert mempool . V.fromList
+    insert txs = do
+        mempoolQuarantine mempool $ V.fromList txs
+        triggerGetBlock mempool
 
 
 uniq :: Eq a => [a] -> [a]
