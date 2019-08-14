@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
+
 -- |
 -- Module: Chainweb.Miner.Miners
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -7,24 +10,33 @@
 --
 -- TODO
 --
-module Chainweb.Miner.Miners where
+module Chainweb.Miner.Miners
+  ( -- * Local Mining
+    localPOW
+  , localTest
+    -- * Remote Mining
+  , MiningAPI
+  , remoteMining
+  ) where
 
 import Control.Concurrent (threadDelay)
 
 import Numeric.Natural (Natural)
+
+import Servant.API
 
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader (BlockHeader(..), BlockHeight)
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core (mine, usePowHash)
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils (int)
-import Chainweb.Version (ChainwebVersion(..), order, _chainGraph)
+import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
 
 ---
 
@@ -51,6 +63,15 @@ localTest gen miners bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
 --
 localPOW :: ChainwebVersion -> BlockHeader -> IO BlockHeader
 localPOW v = usePowHash v mine
+
+-- -----------------------------------------------------------------------------
+-- REMOTE MINING
+
+type MiningAPI =
+    "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
+    :<|> "poll" :> Capture "chainid" ChainId
+                :> Capture "blockheight" BlockHeight
+                :> Get '[JSON] (Maybe BlockHeader)
 
 -- | Some remote process which is performing the low-level mining for us. May be
 -- on a different machine, may be on multiple machines, may be arbitrarily

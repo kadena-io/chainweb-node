@@ -96,6 +96,7 @@ import Servant.Server (Application, Server, serve)
 -- internal modules
 import Chainweb.BlockHeader
 import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.Miner.Miners (MiningAPI)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Utils (int)
 import Chainweb.Version
@@ -103,16 +104,11 @@ import Chainweb.Version
 --------------------------------------------------------------------------------
 -- Servant
 
-type API = "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
-    :<|> "poll" :> Capture "chainid" ChainId
-                :> Capture "blockheight" BlockHeight
-                :> Get '[JSON] (Maybe BlockHeader)
-
-server :: Env -> Server API
+server :: Env -> Server MiningAPI
 server e = liftIO . submit e :<|> (\cid h -> liftIO $ poll e cid h)
 
 app :: Env -> Application
-app = serve (Proxy :: Proxy API) . server
+app = serve (Proxy :: Proxy MiningAPI) . server
 
 --------------------------------------------------------------------------------
 -- CLI
