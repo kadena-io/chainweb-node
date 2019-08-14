@@ -74,6 +74,7 @@ module Chainweb.Chainweb
 -- ** Mempool integration
 , ChainwebTransaction
 , Mempool.chainwebTransactionConfig
+, Mempool.validatingChainwebTransactionConfig
 
 , withChainweb
 , runChainweb
@@ -86,7 +87,7 @@ module Chainweb.Chainweb
 import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (newEmptyMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
@@ -332,15 +333,17 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 -- configurable as well as parameters that are determined by the chainweb
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
---
-mempoolConfig :: Mempool.InMemConfig ChainwebTransaction
-mempoolConfig = Mempool.InMemConfig
-    Mempool.chainwebTransactionConfig
+
+validatingMempoolConfig
+    :: MVar (Mempool.MempoolValidator ChainwebTransaction)
+    -> Mempool.InMemConfig ChainwebTransaction
+validatingMempoolConfig mv = Mempool.InMemConfig
+    (Mempool.validatingChainwebTransactionConfig mv)
     blockGasLimit
     maxRecentLog
   where
-    blockGasLimit = 100000               -- TODO: policy decision
-    maxRecentLog = 2048                   -- store 2k recent transaction hashes
+    blockGasLimit = 100000
+    maxRecentLog = 2048
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -361,7 +364,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> withChainResources v cid rocksDb peer (chainLogger cid)
-                 mempoolConfig cdbv payloadDb prune dbDir nodeid resetDb)
+                     validatingMempoolConfig cdbv payloadDb prune dbDir nodeid
+                     resetDb)
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)

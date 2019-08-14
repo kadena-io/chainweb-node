@@ -49,6 +49,7 @@ import Data.Foldable (toList)
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -77,6 +78,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Logger
+import Chainweb.Mempool.Mempool (MempoolValidator)
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
@@ -114,6 +116,7 @@ initPactService
     => PayloadCas cas
     => ChainwebVersion
     -> ChainId
+    -> MVar (MempoolValidator ChainwebTransaction)
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
@@ -124,12 +127,10 @@ initPactService
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
+initPactService ver cid vmvar chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
                 nodeid resetDb =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
-        nodeid resetDb go
-  where
-    go = do
+    initPactService' ver cid vmvar chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
+                     nodeid resetDb $ do
         initialPayloadState ver cid mempoolAccess
         serviceRequests mempoolAccess reqQ
 
@@ -138,6 +139,7 @@ initPactService'
     => PayloadCas cas
     => ChainwebVersion
     -> ChainId
+    -> MVar (MempoolValidator ChainwebTransaction)
     -> logger
     -> (P.Logger -> P.SPVSupport)
     -> BlockHeaderDb
@@ -147,37 +149,49 @@ initPactService'
     -> Bool
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = do
-    let loggers = pactLoggers chainwebLogger
-    let logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
-    let gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
-    let getsqliteDir = case dbDir of
-          Nothing -> getXdgDirectory XdgData
-            $ "chainweb-node/" <> sshow ver <> maybe mempty (("/" <>) . T.unpack . toText) nodeid <> "/sqlite"
-          Just d -> return (d <> "sqlite")
+initPactService' ver cid vmvar chainwebLogger spv bhDb pdb dbDir nodeid
+                 doResetDb act = do
+    sqlitedir <- getSqliteDir
+    when doResetDb $ resetDb sqlitedir
+    createDirectoryIfMissing True sqlitedir
+    logFunctionText chainwebLogger Info $
+        mconcat [ "opened sqlitedb for "
+                , sshow cid
+                , " in directory "
+                , sshow sqlitedir ]
 
-    sqlitedir <- getsqliteDir
+    let sqlitefile = getSqliteFile sqlitedir
+    logFunctionText chainwebLogger Info $
+        "opening sqlitedb named " <> (T.pack sqlitefile)
 
-    when resetDb $ do
+    withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
+      checkpointEnv <- initRelationalCheckpointer
+                           initBlockState sqlenv logger gasEnv
+      let !pd = P.PublicData def def def
+      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
+      let cp = view cpeCheckpointer checkpointEnv
+      putMVar vmvar $ validateChainwebTxsPreBlock cp
+      evalStateT (runReaderT act pse) (PactServiceState Nothing)
+  where
+    loggers = pactLoggers chainwebLogger
+    logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
+    gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
+
+    resetDb sqlitedir = do
       exist <- doesDirectoryExist sqlitedir
       when exist $ removeDirectoryRecursive sqlitedir
 
-    createDirectoryIfMissing True sqlitedir
+    getSqliteFile dir = mconcat [
+        dir, "/pact-v1-chain-", T.unpack (chainIdToText cid), ".sqlite"]
 
-    logFunctionText chainwebLogger Info $ "opened sqlitedb for " <> sshow cid <> " in directory " <> sshow sqlitedir
-
-    let sqlitefile = sqlitedir <> "/" <> "pact-v1-chain-" <> T.unpack (chainIdToText  cid) <> ".sqlite"
-
-    logFunctionText chainwebLogger Info $ "opening sqlitedb named " <> (T.pack sqlitefile)
-
-    withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
-
-      checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
-
-      let !pd = P.PublicData def def def
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
-
-      evalStateT (runReaderT act pse) (PactServiceState Nothing)
+    getSqliteDir =
+        case dbDir of
+            Nothing -> getXdgDirectory XdgData $
+                       mconcat [ "chainweb-node/"
+                               , show ver
+                               , maybe mempty (("/" <>) . T.unpack . toText) nodeid
+                               , "/sqlite" ]
+            Just d -> return (d <> "sqlite")
 
 initialPayloadState
     :: PayloadCas cas
@@ -219,7 +233,7 @@ initializeCoinContract v cid mpa = do
                        _payloadWithOutputsOutputsHash
     genesisHeader = genesisBlockHeader v cid
 
--- | Forever loop serving Pact ececution requests and reponses from the queues
+-- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
     :: PayloadCas cas
     => MemPoolAccess
@@ -327,6 +341,15 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
+validateChainwebTxsPreBlock
+    :: Checkpointer
+    -> BlockHeight
+    -> BlockHash
+    -> Vector ChainwebTransaction
+    -> IO (Vector Bool)
+validateChainwebTxsPreBlock _cp _bh _hash _txs = do
+    T.putStrLn "hello from validate"
+    return $! V.replicate (V.length _txs) True
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -341,7 +364,6 @@ execNewBlock mpAccess parentHeader miner = do
         pHash = _blockHash parentHeader
         bHeight = succ pHeight
 
-    -- TODO: shouldn't we process fork on validate?
     logInfo $ "execNewBlock, about to get call processFork: "
            <> " (parent height = " <> sshow pHeight <> ")"
            <> " (parent hash = " <> sshow pHash <> ")"

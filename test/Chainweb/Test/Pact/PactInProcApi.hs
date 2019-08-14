@@ -78,14 +78,16 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
+        vmv <- newEmptyMVar
         reqQ <- atomically newTQueue
         rdb <- rocksIO
         let genesisHeader = genesisBlockHeader testVersion cid
         bhdb <- testBlockHeaderDb rdb genesisHeader
         pdb <- newPayloadDb
 
-        a <- async (withTempDir $ \dir -> PS.initPactService testVersion cid logger reqQ mempool
-                        mv bhdb pdb (Just dir) Nothing False)
+        a <- async $ withTempDir $ \dir ->
+             PS.initPactService testVersion cid vmv logger reqQ mempool mv
+                                bhdb pdb (Just dir) Nothing False
         link a
         return (a, reqQ)
 

@@ -215,16 +215,18 @@ withPact
     -> IO FilePath
     -> (IO (TQueue RequestMsg) -> TestTree)
     -> TestTree
-withPact iopdb iobhdb mempool iodir f = withResource startPact stopPact $ f . fmap snd
+withPact iopdb iobhdb mempool iodir f =
+    withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
+        vmv <- newEmptyMVar
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-
-        a <- async $ initPactService testVersion cid logger reqQ mempool mv bhdb pdb (Just dir) Nothing False
+        a <- async $ initPactService testVersion cid vmv logger reqQ mempool mv
+                                     bhdb pdb (Just dir) Nothing False
         link a
         return (a, reqQ)
 

@@ -12,6 +12,7 @@
 
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
+  , MempoolValidator
   , TransactionConfig(..)
   , TransactionHash(..)
   , TransactionMetadata(..)
@@ -24,6 +25,7 @@ module Chainweb.Mempool.Mempool
   , HighwaterMark
 
   , chainwebTransactionConfig
+  , validatingChainwebTransactionConfig
   , mockCodec
   , mockEncode
   , mockBlockGasLimit
@@ -36,6 +38,7 @@ module Chainweb.Mempool.Mempool
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Monad (replicateM, when)
@@ -95,6 +98,9 @@ data LookupResult t = Missing
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
 ------------------------------------------------------------------------------
+type MempoolValidator t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
+
+------------------------------------------------------------------------------
 data TransactionConfig t = TransactionConfig {
     -- | converting transactions to/from bytestring.
     txCodec :: {-# UNPACK #-} !(Codec t)
@@ -111,7 +117,7 @@ data TransactionConfig t = TransactionConfig {
     -- | getter for transaction gas limit.
   , txGasLimit :: t -> GasLimit
   , txMetadata :: t -> TransactionMetadata
-  , txValidate :: BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
+  , txValidate :: MempoolValidator t
   }
 
 ------------------------------------------------------------------------------
@@ -216,6 +222,17 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     -- TODO: plumb through origination + expiry time from pact once it makes it
     -- into PublicMeta
     txmeta = TransactionMetadata Time.minTime Time.maxTime
+
+------------------------------------------------------------------------------
+validatingChainwebTransactionConfig
+    :: MVar (MempoolValidator ChainwebTransaction)
+    -> TransactionConfig ChainwebTransaction
+validatingChainwebTransactionConfig mv =
+    chainwebTransactionConfig { txValidate = val }
+  where
+    val h ha v = do
+        valFn <- readMVar mv
+        valFn h ha v
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {

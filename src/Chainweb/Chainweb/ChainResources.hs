@@ -32,7 +32,7 @@ module Chainweb.Chainweb.ChainResources
 
 import Chainweb.Time
 
-import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
@@ -114,7 +114,8 @@ withChainResources
     -> RocksDb
     -> PeerResources logger
     -> logger
-    -> Mempool.InMemConfig ChainwebTransaction
+    -> (MVar (Mempool.MempoolValidator ChainwebTransaction)
+        -> Mempool.InMemConfig ChainwebTransaction)
     -> MVar (CutDb cas)
     -> PayloadDb cas
     -> Bool
@@ -127,11 +128,12 @@ withChainResources
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
-    withBlockHeaderDb rdb v cid $ \cdb ->
-      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+    withBlockHeaderDb rdb v cid $ \cdb -> do
+      vmvar <- newEmptyMVar
+      Mempool.withInMemoryMempool (mempoolCfg vmvar) $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus True mempool cdb $ Just payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb dbDir nodeid resetDb $
-          \requestQ -> do
+        withPactService v cid vmvar (setComponent "pact" logger) mpc cdbv cdb
+                        payloadDb dbDir nodeid resetDb $ \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"

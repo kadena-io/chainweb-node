@@ -25,6 +25,7 @@ import Control.Exception
 import Control.Lens
 import Control.Monad
 
+import Data.IORef
 import qualified Data.Aeson as A
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
@@ -48,6 +49,7 @@ import Servant.API
 import Servant.Client
 
 import System.IO.Extra
+import System.IO.Unsafe
 import System.LogLevel
 import System.Time.Extra
 
@@ -250,11 +252,17 @@ pollWithRetry cmds env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
+{-# NOINLINE nonceRef #-}
+nonceRef :: IORef Int
+nonceRef = unsafePerformIO $ newIORef 0
 
 testBatch :: IO SubmitBatch
 testBatch = do
+    nn <- readIORef nonceRef
+    writeIORef nonceRef $! nn + 1
+    let nonce = "nonce" <> sshow nn
     kps <- testKeyPairs
-    c <- mkExec "(+ 1 2)" A.Null pm kps (Just "nonce")
+    c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
     pure $ SubmitBatch (pure c)
   where
     pm :: CM.PublicMeta

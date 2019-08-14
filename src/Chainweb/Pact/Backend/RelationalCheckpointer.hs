@@ -29,6 +29,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import Data.Serialize hiding (get)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
@@ -51,6 +52,7 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Utils (sshow)
 
 
 initRelationalCheckpointer
@@ -115,6 +117,7 @@ doRestore dbenv Nothing = runBlockEnv dbenv $ do
             _ -> internalError "Something went wrong when resetting tables."
         exec_ db "DELETE FROM VersionedTableCreation;"
         exec_ db "DELETE FROM VersionedTableMutation;"
+        exec_ db "DELETE FROM TransactionIndex;"
     beginSavepoint Block
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
@@ -130,6 +133,7 @@ doSave dbenv hash = runBlockEnv dbenv $ do
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
     runPending bh = do
+        liftIO $ T.putStrLn $ "hello runPending @" <> sshow bh <> ", " <> sshow hash
         (newTables, writes, _, _) <- use bsPendingBlock
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
