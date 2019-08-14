@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -19,11 +20,18 @@ module Chainweb.Miner.Miners
   , remoteMining
   ) where
 
+import Data.Proxy (Proxy(..))
+
 import Control.Concurrent (threadDelay)
+import Control.Monad.Catch (throwM)
+import Control.Scheduler
+
+import Network.HTTP.Client (Manager)
 
 import Numeric.Natural (Natural)
 
 import Servant.API
+import Servant.Client
 
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
@@ -34,11 +42,15 @@ import Chainweb.BlockHeader (BlockHeader(..), BlockHeight)
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils (int)
 import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
 
 ---
+
+-- -----------------------------------------------------------------------------
+-- Local Mining
 
 -- | Artificially delay the mining process to simulate Proof-of-Work.
 --
@@ -65,7 +77,7 @@ localPOW :: ChainwebVersion -> BlockHeader -> IO BlockHeader
 localPOW v = usePowHash v mine
 
 -- -----------------------------------------------------------------------------
--- REMOTE MINING
+-- Remote Mining
 
 type MiningAPI =
     "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
@@ -73,14 +85,35 @@ type MiningAPI =
                 :> Capture "blockheight" BlockHeight
                 :> Get '[JSON] (Maybe BlockHeader)
 
+submit :: BlockHeader -> ClientM ()
+poll   :: ChainId -> BlockHeight -> ClientM (Maybe BlockHeader)
+submit :<|> poll = client (Proxy :: Proxy MiningAPI)
+
 -- | Some remote process which is performing the low-level mining for us. May be
 -- on a different machine, may be on multiple machines, may be arbitrarily
 -- multithreaded.
 --
-remoteMining :: BlockHeader -> IO BlockHeader
-remoteMining = do
-    -- Get miner addresses from config
-    -- Submit work to remote miners
-    -- Ask for result every second
-    -- Return result
-    undefined
+remoteMining :: Manager -> [BaseUrl] -> BlockHeader -> IO BlockHeader
+remoteMining m urls bh = traverseConcurrently_ Par' submission urls >> polling
+  where
+    -- TODO Better error handling. Don't bail the entire thread if at least one
+    -- miner was successfully communicated with. Just log the rest.
+    submission :: BaseUrl -> IO ()
+    submission url = runClientM (submit bh) (ClientEnv m url Nothing) >>= either throwM pure
+
+    -- TODO Use different `Comp`?
+    polling :: IO BlockHeader
+    polling = fmap head . withScheduler Par' $ \sch ->
+        traverse_ (scheduleWork sch . go sch) urls
+      where
+        go :: Scheduler IO BlockHeader -> BaseUrl -> IO BlockHeader
+        go sch url = runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
+            Left err -> throwM err
+            Right Nothing -> threadDelay 500000 >> go sch url
+            Right (Just new) -> terminateWith sch new
+
+        cid :: ChainId
+        cid = _blockChainId bh
+
+        bht :: BlockHeight
+        bht = _blockHeight bh
