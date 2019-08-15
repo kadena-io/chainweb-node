@@ -518,12 +518,14 @@ executable chainweb-miner
           chainweb
 
         -- external
+        , aeson >= 1.4
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , containers >= 0.5
         , errors >= 2.3
         , optparse-applicative >= 0.14
+        , pretty-simple >= 2.1
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-server >= 0.14

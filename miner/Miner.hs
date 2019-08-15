@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RankNTypes #-}
@@ -81,6 +83,7 @@ import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Error.Util (note)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
+import Data.Aeson (ToJSON)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -93,22 +96,29 @@ import Options.Applicative
 import Servant.API
 import Servant.Server (Application, Server, serve)
 
+import Text.Pretty.Simple (pPrintNoColor)
+
 -- internal modules
 import Chainweb.BlockHeader
 import Chainweb.Miner.Core (mine, usePowHash)
 import Chainweb.Miner.Miners (MiningAPI)
 import Chainweb.RestAPI.Orphans ()
-import Chainweb.Utils (int)
+import Chainweb.Utils (int, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
 -- Servant
 
-server :: Env -> Server MiningAPI
-server e = liftIO . submit e :<|> (\cid h -> liftIO $ poll e cid h)
+type API = "env" :> Get '[JSON] ClientArgs
+    :<|> MiningAPI
+
+server :: Env -> Server API
+server e = pure (args e)
+    :<|> liftIO . submit e
+    :<|> (\cid h -> liftIO $ poll e cid h)
 
 app :: Env -> Application
-app = serve (Proxy :: Proxy MiningAPI) . server
+app = serve (Proxy :: Proxy API) . server
 
 --------------------------------------------------------------------------------
 -- CLI
@@ -119,7 +129,7 @@ data ClientArgs = ClientArgs
     { cores :: Word16
     , version :: ChainwebVersion
     , port :: Int
-    }
+    } deriving (Show, Generic, ToJSON)
 
 data Env = Env
     { work :: TMVar BlockHeader
@@ -138,9 +148,12 @@ pCores = option auto
 pVersion :: Parser ChainwebVersion
 pVersion = option cver
     (long "version" <> metavar "VERSION"
-     <> value Development
-     <> help "Chainweb Network Version (default: development)")
+     <> value defv
+     <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
   where
+    defv :: ChainwebVersion
+    defv = Development
+
     cver :: ReadM ChainwebVersion
     cver = eitherReader $ \s ->
         note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
@@ -157,6 +170,7 @@ main :: IO ()
 main = do
     env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> execParser opts
     miner <- async $ mining env
+    pPrintNoColor $ args env
     W.run (port $ args env) $ app env
     wait miner
   where
