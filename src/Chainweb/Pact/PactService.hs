@@ -69,7 +69,6 @@ import qualified Pact.Types.SPV as P
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-    (BlockHeader(..), BlockHeight(..), isGenesisBlockHeader)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
 import Chainweb.BlockHeaderDB
@@ -87,6 +86,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
@@ -173,8 +173,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
 
       checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
 
-      let !pd = P.PublicData def def def
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
+      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb bhDb
 
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
 
@@ -336,7 +335,7 @@ execNewBlock
     -> MinerInfo
     -> PactServiceM cas PayloadWithOutputs
 execNewBlock mpAccess parentHeader miner = do
-    let pHeight@(BlockHeight bh) = _blockHeight parentHeader
+    let pHeight = _blockHeight parentHeader
         pHash = _blockHash parentHeader
         bHeight = succ pHeight
 
@@ -362,8 +361,9 @@ execNewBlock mpAccess parentHeader miner = do
     -- rewind should usually be trivial / no-op
     rewindTo mpAccess rewindPoint $ \pdbenv -> do
         -- locally run 'execTransactions' with updated blockheight data
-        results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
-                   execTransactions (Just pHash) miner newTrans pdbenv
+        results <- withParentBlockData parentHeader $
+          execTransactions (Just pHash) miner newTrans pdbenv
+
         discardCheckpointer
         return $! toPayloadWithOutputs miner results
 
@@ -413,6 +413,42 @@ logError = logg "ERROR"
 logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
+-- | Run a pact service action with public blockheader data fed into the
+-- reader environment
+--
+withBlockData
+    :: forall cas a
+    . BlockHeader
+    -> PactServiceM cas a
+    -> PactServiceM cas a
+withBlockData bhe action = action
+    & locally (psPublicData . P.pdBlockHeight) (const bh)
+    & locally (psPublicData . P.pdBlockTime) (const bt)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+  where
+    (BlockHeight !bh) = _blockHeight bhe
+    (BlockCreationTime (Time (TimeSpan (Micros !bt)))) = _blockCreationTime bhe
+    (BlockHash !ph) = _blockParent bhe
+
+-- | Run a pact service action with public blockheader data fed into the
+-- reader environment where the block header is a -parent- header
+-- (used in 'execNewBlock')
+--
+-- note: it does not make sense to run 'execNewBlock' with parent block time
+-- in the env
+--
+withParentBlockData
+    :: forall cas a
+    . BlockHeader
+    -> PactServiceM cas a
+    -> PactServiceM cas a
+withParentBlockData phe action = action
+    & locally (psPublicData . P.pdBlockHeight) (const bh)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+  where
+    (BlockHeight !bh) = succ $ _blockHeight phe
+    (BlockHash !ph) = _blockHash phe
+
 playOneBlock
     :: MemPoolAccess
     -> BlockHeader
@@ -425,15 +461,13 @@ playOneBlock mpAccess currHeader plData pdbenv = do
     -- TODO: check precondition?
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
-    !results <- locally (psPublicData . P.pdBlockHeight) (const bh) $
-                execTransactions pBlock miner trans pdbenv
+    !results <- withBlockData currHeader $ execTransactions pBlock miner trans pdbenv
     finalizeCheckpointer (flip save bHash)   -- caller must restore again
     psStateValidated .= Just currHeader
     liftIO $ mpaSetLastHeader mpAccess currHeader
     return $! toPayloadWithOutputs miner results
 
   where
-    (BlockHeight bh) = _blockHeight currHeader
     bHash = _blockHash currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
