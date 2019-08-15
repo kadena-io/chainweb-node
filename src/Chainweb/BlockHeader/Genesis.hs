@@ -37,9 +37,7 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as D
-import qualified Chainweb.BlockHeader.Genesis.Testnet00Payload as TN0
-import qualified Chainweb.BlockHeader.Genesis.Testnet01Payload as TN1
-import qualified Chainweb.BlockHeader.Genesis.Testnet01Payload as TN2
+import qualified Chainweb.BlockHeader.Genesis.Testnet02Payload as TN2
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -88,10 +86,6 @@ genesisTime TimedCPM{} = BlockCreationTime epoch
 -- Thursday, 2019 July 17, 11:28 AM
 genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
 -- Tuesday, 2019 February 26, 10:55 AM
-genesisTime Testnet00 = BlockCreationTime . Time $ TimeSpan 1551207336601038
--- Thursday, 2019 April 18, 11:52 AM
-genesisTime Testnet01 = BlockCreationTime . Time $ TimeSpan 1555613536726767
--- Thursday, 2019 July 17, 11:28 AM
 genesisTime Testnet02 = BlockCreationTime . Time $ TimeSpan 1563388117613832
 
 -- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
@@ -105,8 +99,6 @@ genesisMiner TimedCPM{} p = ChainNodeId (_chainId p) 0
 -- Development Instances
 genesisMiner Development p = ChainNodeId (_chainId p) 0
 -- Production Instances
-genesisMiner Testnet00 p = ChainNodeId (_chainId p) 0
-genesisMiner Testnet01 p = ChainNodeId (_chainId p) 0
 genesisMiner Testnet02 p = ChainNodeId (_chainId p) 0
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
@@ -121,12 +113,10 @@ genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
-genesisBlockPayload TimedCPM{} _ = TN0.payloadBlock
+genesisBlockPayload TimedCPM{} _ = TN2.payloadBlock
 -- Development Instances
 genesisBlockPayload Development _ = D.payloadBlock
 -- Production Instances
-genesisBlockPayload Testnet00 _ = TN0.payloadBlock
-genesisBlockPayload Testnet01 _ = TN1.payloadBlock
 genesisBlockPayload Testnet02 _ = TN2.payloadBlock
 
 -- | A block chain is globally uniquely identified by its genesis hash.

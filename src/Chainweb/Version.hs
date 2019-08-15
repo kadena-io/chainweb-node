@@ -191,8 +191,6 @@ data ChainwebVersion
     -----------------------
     -- PRODUCTION INSTANCES
     -----------------------
-    | Testnet00
-    | Testnet01
     | Testnet02
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
@@ -220,15 +218,11 @@ chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Development = 0x00000001
-chainwebVersionId Testnet00 = 0x00000002
-chainwebVersionId Testnet01 = 0x00000003
 chainwebVersionId Testnet02 = 0x00000004
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromChainwebVersionId 0x00000001 = Development
-fromChainwebVersionId 0x00000002 = Testnet00
-fromChainwebVersionId 0x00000003 = Testnet01
 fromChainwebVersionId 0x00000004 = Testnet02
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
@@ -259,8 +253,6 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
 -- new `ChainwebVersion` value!
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Development = "development"
-chainwebVersionToText Testnet00 = "testnet00"
-chainwebVersionToText Testnet01 = "testnet01"
 chainwebVersionToText Testnet02 = "testnet02"
 chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
@@ -271,8 +263,6 @@ chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "development" = pure Development
-chainwebVersionFromText "testnet00" = pure Testnet00
-chainwebVersionFromText "testnet01" = pure Testnet01
 chainwebVersionFromText "testnet02" = pure Testnet02
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
@@ -302,8 +292,6 @@ chainwebVersions = HM.fromList $
     <> f PowConsensus "powConsensus"
     <> f TimedCPM "timedCPM"
     <> [ ("development", Development)
-       , ("testnet00", Testnet00)
-       , ("testnet01", Testnet01)
        , ("testnet02", Testnet02)
        ]
   where
@@ -371,10 +359,6 @@ testVersionToCode PowConsensus{} = 0x80000002
 testVersionToCode TimedCPM{} = 0x80000003
 testVersionToCode Development =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
-testVersionToCode Testnet00 =
-    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
-testVersionToCode Testnet01 =
-    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet02 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
@@ -391,8 +375,6 @@ chainwebVersionGraph (TimedConsensus g) = g
 chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph Development = twentyChainGraph
-chainwebVersionGraph Testnet00 = petersonChainGraph
-chainwebVersionGraph Testnet01 = twentyChainGraph
 chainwebVersionGraph Testnet02 = twentyChainGraph
 
 instance HasChainGraph ChainwebVersion where

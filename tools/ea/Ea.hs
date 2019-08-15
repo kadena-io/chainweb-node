@@ -77,7 +77,7 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
-    for_ [Development, Testnet00, Testnet01, Testnet02] $ \v -> do
+    for_ [Development, Testnet02] $ \v -> do
         let txs = bool txs0 [defCoinContractSig, defCoinContract, defGrants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v txs
@@ -93,7 +93,7 @@ defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
 
 defGrants :: FilePath
-defGrants = "pact/genesis/testnet00/grants.yaml"
+defGrants = "pact/genesis/testnet02/grants.yaml"
 
 moduleName :: ChainwebVersion -> Text
 moduleName = T.toTitle . chainwebVersionToText
@@ -126,7 +126,7 @@ genPayloadModule v txFiles =
 
         TIO.writeFile (T.unpack fileName) modl
   where
-    cid = someChainId Testnet00
+    cid = someChainId v
 
 startModule :: ChainwebVersion -> [Text]
 startModule v =

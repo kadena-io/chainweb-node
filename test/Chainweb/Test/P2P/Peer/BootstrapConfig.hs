@@ -40,10 +40,6 @@ bootstrapPeerConfig v@PowConsensus{} = testBootstrapPeerConfig v
 bootstrapPeerConfig v@TimedCPM{} = testBootstrapPeerConfig v
 bootstrapPeerConfig Development = error
     $ "bootstrap peer config isn't defined for chainweb version Development"
-bootstrapPeerConfig Testnet00 = error
-    $ "bootstrap peer config isn't defined for chainweb version Testnet00"
-bootstrapPeerConfig Testnet01 = error
-    $ "bootstrap peer config isn't defined for chainweb version Testnet01"
 bootstrapPeerConfig Testnet02 = error
     $ "bootstrap peer config isn't defined for chainweb version Testnet02"
 
@@ -73,10 +69,6 @@ bootstrapCertificate PowConsensus{} = testBootstrapCertificate
 bootstrapCertificate TimedCPM{} = testBootstrapCertificate
 bootstrapCertificate Development = error
     $ "bootstrap certificate isn't defined for chainweb version Development"
-bootstrapCertificate Testnet00 = error
-    $ "bootstrap certificate isn't defined for chainweb version Testnet00"
-bootstrapCertificate Testnet01 = error
-    $ "bootstrap certificate isn't defined for chainweb version Testnet01"
 bootstrapCertificate Testnet02 = error
     $ "bootstrap certificate isn't defined for chainweb version Testnet02"
 
@@ -136,10 +128,6 @@ bootstrapKey PowConsensus{} = testBootstrapKey
 bootstrapKey TimedCPM{} = testBootstrapKey
 bootstrapKey Development = error
     $ "bootstrap key isn't defined for chainweb version Development"
-bootstrapKey Testnet00 = error
-    $ "bootstrap key isn't defined for chainweb version Testnet00"
-bootstrapKey Testnet01 = error
-    $ "bootstrap key isn't defined for chainweb version Testnet01"
 bootstrapKey Testnet02 = error
     $ "bootstrap key isn't defined for chainweb version Testnet02"
 

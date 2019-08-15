@@ -48,13 +48,13 @@ import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Managed
 import Control.Monad.Error.Class (throwError)
+import Control.Monad.Managed
 
+import Data.Bool
 import Data.CAS.RocksDB
 import qualified Data.Text as T
 import Data.Typeable
-import Data.Bool
 
 import GHC.Generics hiding (from)
 import GHC.Stats
@@ -364,7 +364,7 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Testnet01)
+    (defaultChainwebNodeConfiguration Testnet02)
     validateChainwebNodeConfiguration
 
 main :: IO ()

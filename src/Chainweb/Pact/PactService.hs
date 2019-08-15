@@ -70,7 +70,8 @@ import qualified Pact.Types.SPV as P
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import Chainweb.BlockHeader.Genesis.Testnet00Payload (payloadBlock)
+import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as D
+import qualified Chainweb.BlockHeader.Genesis.Testnet02Payload as TN02
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
@@ -186,35 +187,35 @@ initialPayloadState
 initialPayloadState Test{} _ _ = pure ()
 initialPayloadState TimedConsensus{} _ _ = pure ()
 initialPayloadState PowConsensus{} _ _ = pure ()
-initialPayloadState v@TimedCPM{} cid mpa = initializeCoinContract v cid mpa
-initialPayloadState v@Development cid mpa = initializeCoinContract v cid mpa
-initialPayloadState v@Testnet00 cid mpa = initializeCoinContract v cid mpa
-initialPayloadState v@Testnet01 cid mpa = initializeCoinContract v cid mpa
-initialPayloadState v@Testnet02 cid mpa = initializeCoinContract v cid mpa
+initialPayloadState v@TimedCPM{} cid mpa = initializeCoinContract v cid mpa TN02.payloadBlock
+initialPayloadState v@Development cid mpa = initializeCoinContract v cid mpa D.payloadBlock
+initialPayloadState v@Testnet02 cid mpa = initializeCoinContract v cid mpa TN02.payloadBlock
 
 initializeCoinContract
-    :: PayloadCas cas
+    :: forall cas. PayloadCas cas
     => ChainwebVersion
     -> ChainId
     -> MemPoolAccess
+    -> PayloadWithOutputs
     -> PactServiceM cas ()
-initializeCoinContract v cid mpa = do
+initializeCoinContract v cid mpa pwo = do
     cp <- view (psCheckpointEnv . cpeCheckpointer)
     genesisExists <- liftIO $ lookupBlockInCheckpointer cp (0, ghash)
     when (not genesisExists) createCoinContract
 
   where
+    ghash :: BlockHash
     ghash = _blockHash genesisHeader
+
+    createCoinContract :: ReaderT (PactServiceEnv cas) (StateT PactServiceState IO) ()
     createCoinContract = do
         txs <- execValidateBlock mpa genesisHeader inputPayloadData
         bitraverse_ throwM pure $ validateHashes txs genesisHeader
 
-    PayloadWithOutputs{..} = payloadBlock
-    inputPayloadData = PayloadData (fmap fst _payloadWithOutputsTransactions)
-                       _payloadWithOutputsMiner
-                       _payloadWithOutputsPayloadHash
-                       _payloadWithOutputsTransactionsHash
-                       _payloadWithOutputsOutputsHash
+    inputPayloadData :: PayloadData
+    inputPayloadData = payloadWithOutputsToPayloadData pwo
+
+    genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
 
 -- | Forever loop serving Pact ececution requests and reponses from the queues
