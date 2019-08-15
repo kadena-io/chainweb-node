@@ -30,6 +30,8 @@ module Chainweb.Version
 , chainwebVersionFromText
 , chainwebVersionToText
 , chainwebVersionId
+, MiningProtocol(..)
+, miningProtocol
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -289,6 +291,21 @@ instance HasTextRepresentation ChainwebVersion where
     {-# INLINE toText #-}
     fromText = chainwebVersionFromText
     {-# INLINE fromText #-}
+
+-- | Fundamental mining strategies used by the various values of
+-- `ChainwebVersion`.
+--
+data MiningProtocol = Timed | ProofOfWork
+
+miningProtocol :: ChainwebVersion -> MiningProtocol
+miningProtocol Test{} = Timed
+miningProtocol TimedConsensus{} = Timed
+miningProtocol TimedCPM{} = Timed
+miningProtocol PowConsensus{} = ProofOfWork
+miningProtocol Development = ProofOfWork
+miningProtocol Testnet00 = ProofOfWork
+miningProtocol Testnet01 = ProofOfWork
+miningProtocol Testnet02 = ProofOfWork
 
 -- -------------------------------------------------------------------------- --
 -- Value Maps

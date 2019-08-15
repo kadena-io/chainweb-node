@@ -40,7 +40,8 @@ import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..))
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version
+    (ChainwebVersion(..), MiningProtocol(..), miningProtocol)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -75,7 +76,7 @@ runMiner
     -> MinerResources logger cas
     -> IO ()
 runMiner v mr = do
-    inner <- chooseMiner v
+    inner <- chooseMiner
     mining
       inner
       (logFunction $ _minerResLogger mr)
@@ -89,15 +90,10 @@ runMiner v mr = do
     miners :: MinerCount
     miners = _configTestMiners conf
 
-    chooseMiner :: ChainwebVersion -> IO (BlockHeader -> IO BlockHeader)
-    chooseMiner Test{} = testMiner
-    chooseMiner TimedConsensus{} = testMiner
-    chooseMiner PowConsensus{} = powMiner
-    chooseMiner TimedCPM{} = testMiner
-    chooseMiner Development = powMiner
-    chooseMiner Testnet00 = powMiner
-    chooseMiner Testnet01 = powMiner
-    chooseMiner Testnet02 = powMiner
+    chooseMiner :: IO (BlockHeader -> IO BlockHeader)
+    chooseMiner = case miningProtocol v of
+        Timed -> testMiner
+        ProofOfWork -> powMiner
 
     testMiner :: IO (BlockHeader -> IO BlockHeader)
     testMiner = do

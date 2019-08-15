@@ -267,15 +267,9 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
         -> BlockHeader
         -> Adjustments
         -> IO (T2 HashTarget Adjustments)
-    getTarget v cid bh as = case v of
-        Test{} -> testTarget
-        TimedConsensus{} -> testTarget
-        TimedCPM{} -> testTarget
-        PowConsensus{} -> prodTarget
-        Development -> prodTarget
-        Testnet00 -> prodTarget
-        Testnet01 -> prodTarget
-        Testnet02 -> prodTarget
+    getTarget v cid bh as = case miningProtocol v of
+        Timed -> testTarget
+        ProofOfWork -> prodTarget
       where
         testTarget = pure $ T2 (_blockTarget bh) mempty
         prodTarget = case HM.lookup (_blockHash bh) as of
