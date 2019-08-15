@@ -107,14 +107,10 @@ mining mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
         -> IO ()
     go g !i !adj = do
 
-        -- Mine a new Cut
+        -- Mine a new Cut.
         --
         c <- _cut cdb
-
-        let f !x =
-              race (awaitCut cdb x) (mineCut @cas mine lf conf nid cdb g x adj) >>= either f pure
-
-        T5 p newBh payload c' adj' <- f c
+        T5 p newBh payload c' adj' <- raceMine c
 
         let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                     _payloadWithOutputsTransactions payload
@@ -155,6 +151,14 @@ mining mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
         -- @
         --
         go g (i + 1) $ filterAdjustments newBh adj'
+      where
+        -- | Attempt to mine on the given `Cut`, until a new one should come in
+        -- from the network.
+        --
+        raceMine :: Cut -> IO (T5 PrevBlock BlockHeader PayloadWithOutputs Cut Adjustments)
+        raceMine !c = do
+            ecut <- race (awaitCut cdb c) (mineCut @cas mine lf conf nid cdb g c adj)
+            either raceMine pure ecut
 
 filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
 filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
@@ -184,7 +188,7 @@ awaitCut cdb c = atomically $ do
     return c'
 
 mineCut
-    :: PayloadCas cas
+    :: forall cas. PayloadCas cas
     => Given WebBlockHeaderDb
     => Given (PayloadDb cas)
     => (BlockHeader -> IO BlockHeader)
@@ -224,7 +228,8 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
 
             -- get target
             --
-            T2 target adj' <- getTarget (_blockChainwebVersion p) cid p adjustments
+            let bdb = fromJuste $ blockDb cid
+            T2 target adj' <- getTarget bdb (_blockChainwebVersion p) p adjustments
 
             -- Assemble block without Nonce and Timestamp
             --
@@ -250,7 +255,10 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
 
             return $! T5 (PrevBlock p) newHeader payload c' adj'
   where
+    wcdb :: WebBlockHeaderDb
     wcdb = view cutDbWebBlockHeaderDb cdb
+
+    payloadStore :: WebBlockPayloadStore cas
     payloadStore = view cutDbPayloadStore cdb
 
     pact :: PactExecutionService
@@ -259,27 +267,27 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
     blockDb :: ChainId -> Maybe BlockHeaderDb
     blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
 
-    -- TODO What's with the discrepancy between `as` and `adjustments` here?
-    -- Which is the true container we wish to manipulate?
-    getTarget
-        :: ChainwebVersion
-        -> ChainId
-        -> BlockHeader
-        -> Adjustments
-        -> IO (T2 HashTarget Adjustments)
-    getTarget v cid bh as = case miningProtocol v of
-        Timed -> testTarget
-        ProofOfWork -> prodTarget
-      where
-        testTarget = pure $ T2 (_blockTarget bh) mempty
-        prodTarget = case HM.lookup (_blockHash bh) as of
-          Just (T2 _ t) -> pure $! T2 t adjustments
-          Nothing -> case blockDb cid of
-            Nothing -> pure $! T2 (_blockTarget bh) adjustments
-            Just db -> do
-              t <- hashTarget db bh
-              pure $! T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) adjustments)
+-- | Obtain a new Proof-of-Work target.
+--
+getTarget
+    :: BlockHeaderDb
+    -> ChainwebVersion
+    -> BlockHeader
+    -> Adjustments
+    -> IO (T2 HashTarget Adjustments)
+getTarget blockDb v bh as = case miningProtocol v of
+    Timed -> pure testTarget
+    ProofOfWork -> prodTarget
+  where
+    testTarget :: T2 HashTarget Adjustments
+    testTarget = T2 (_blockTarget bh) mempty
 
+    prodTarget :: IO (T2 HashTarget Adjustments)
+    prodTarget = case HM.lookup (_blockHash bh) as of
+        Just (T2 _ t) -> pure $ T2 t as
+        Nothing -> do
+            t <- hashTarget blockDb bh
+            pure $ T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) as)
 
 -- -------------------------------------------------------------------------- --
 --
