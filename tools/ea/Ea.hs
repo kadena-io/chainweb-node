@@ -93,7 +93,7 @@ defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
 
 defGrants :: FilePath
-defGrants = "pact/genesis/testnet02/grants.yaml"
+defGrants = "pact/genesis/testnet/grants.yaml"
 
 moduleName :: ChainwebVersion -> Text
 moduleName = T.toTitle . chainwebVersionToText
