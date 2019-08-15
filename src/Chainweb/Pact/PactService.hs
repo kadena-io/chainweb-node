@@ -346,16 +346,16 @@ validateChainwebTxsPreBlock
     -> BlockHash
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxsPreBlock cp bh hash txs = bracket begin end go
+validateChainwebTxsPreBlock cp bh hash txs = do
+    lb <- getLatestBlock cp
+    when (Just (pred bh, hash) /= lb) $
+        fail "internal error: restore point is wrong, refusing to validate."
+    V.mapM checkOne txs
   where
-    begin = restore cp $ Just (bh, hash)
-    end = const $ discard cp
-    go _ = V.mapM checkOne txs
-
     -- TODOs:
     --
     --   - gas limit check here
-    --   - sender key check
+    --   - sender key/signature check
     checkOne tx = do
         let pactHash = view P.cmdHash tx
         mb <- lookupProcessedTx cp pactHash
@@ -374,12 +374,6 @@ execNewBlock mpAccess parentHeader miner = do
         pHash = _blockHash parentHeader
         bHeight = succ pHeight
 
-    logInfo $ "execNewBlock, about to get call processFork: "
-           <> " (parent height = " <> sshow pHeight <> ")"
-           <> " (parent hash = " <> sshow pHash <> ")"
-    liftIO $ mpaProcessFork mpAccess parentHeader
-
-    newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
     let rewindPoint = Just (bHeight, pHash)
 
     -- TODO: should we work towards uncommenting this? Currently, cutdb traffic
@@ -394,6 +388,11 @@ execNewBlock mpAccess parentHeader miner = do
 
     -- rewind should usually be trivial / no-op
     rewindTo mpAccess rewindPoint $ \pdbenv -> do
+        logInfo $ "execNewBlock, about to get call processFork: "
+               <> " (parent height = " <> sshow pHeight <> ")"
+               <> " (parent hash = " <> sshow pHash <> ")"
+        liftIO $ mpaProcessFork mpAccess parentHeader
+        newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
         -- locally run 'execTransactions' with updated blockheight data
         results <- locally (psPublicData . P.pdBlockHeight) (const (succ bh)) $
                    execTransactions (Just pHash) miner newTrans pdbenv
