@@ -166,8 +166,7 @@ initPactService' ver cid vmvar chainwebLogger spv bhDb pdb dbDir nodeid
     withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
       checkpointEnv <- initRelationalCheckpointer
                            initBlockState sqlenv logger gasEnv
-      let !pd = P.PublicData def def def
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
+      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb bhDb
       let cp = view cpeCheckpointer checkpointEnv
       putMVar vmvar $ validateChainwebTxsPreBlock cp
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
