@@ -144,9 +144,8 @@ library
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
+        , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
-        , Chainweb.Miner.POW
-        , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
