@@ -140,6 +140,13 @@ testMemPoolAccess  = MemPoolAccess
               , PactTransaction "(create-table test1.accounts)" d
               , PactTransaction "(test1.create-global-accounts)" d
               , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
+              , PactTransaction "(at 'prev-block-hash (chain-data))" d
+              , PactTransaction "(at 'block-time (chain-data))" d
+              , PactTransaction "(at 'block-height (chain-data))" d
+              , PactTransaction "(at 'gas-limit (chain-data))" d
+              , PactTransaction "(at 'gas-price (chain-data))" d
+              , PactTransaction "(at 'chain-id (chain-data))" d
+              , PactTransaction "(at 'sender (chain-data))" d
               ]
         goldenTestTransactions txs
 
