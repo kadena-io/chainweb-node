@@ -16,10 +16,12 @@ module Main
 
 import Control.Concurrent.Async
 import Control.Exception
+import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
 import qualified Data.ByteString.Char8 as B8
+import Data.List
 
 import Text.Read
 
@@ -56,54 +58,90 @@ intTable db tableName = newTable db intCodec intCodec [tableName]
 -- -------------------------------------------------------------------------- --
 -- Tests
 
+assertEmptyTable :: RocksDbTable Int Int -> IO ()
+assertEmptyTable t = do
+    assertIO (tableLookup t 1) Nothing
+    assertEntries t []
+
+assertEntries :: RocksDbTable Int Int -> [(Int, Int)] -> IO ()
+assertEntries t l_ = do
+    forM_ l $ \(k,v) ->
+        assertIO (tableLookup t k) (Just v)
+
+    assertIO (tableMinKey t) (firstOf (folded._1) l)
+    assertIO (tableMinValue t) (firstOf (folded._2) l)
+
+    assertIO (tableMaxKey t) (lastOf (folded._1) l)
+    assertIO (tableMaxValue t) (lastOf (folded._2) l)
+
+    -- check forward iteration and first and last
+    withTableIter t $ \i -> do
+        assertIO (tableIterFirst i >> tableIterKey i) (firstOf (folded._1) l)
+        assertIO (tableIterLast i >> tableIterKey i) (lastOf (folded._1) l)
+
+        tableIterFirst i
+        assertIO (tableIterValid i) (not $ null l)
+        forM_ l $ \(k,v) -> do
+            assertIO (tableIterEntry i) (Just (k,v))
+            tableIterNext i
+        assertIO (tableIterValid i) False
+
+    -- check backward iteration
+    withTableIter t $ \i -> do
+        tableIterLast i
+        assertIO (tableIterValid i) (not $ null l)
+        forM_ (reverse l) $ \(k,v) -> do
+            assertIO (tableIterEntry i) (Just (k,v))
+            tableIterPrev i
+        assertIO (tableIterValid i) False
+  where
+    l = sort l_
+
 tableTests :: RocksDb -> B8.ByteString -> IO ()
 tableTests db tableName = do
 
-    assertIO (tableLookup t 1) Nothing
-    assertIO (tableMaxKey t) Nothing
-    assertIO (tableMinKey t) Nothing
-    withTableIter t $ \i -> do
-        assertIO (tableIterFirst i >> tableIterKey i) Nothing
-        assertIO (tableIterLast i >> tableIterKey i) Nothing
-
+    assertEmptyTable t
     tableInsert t 1 8
-    assertIO (tableLookup t 1) (Just 8)
-    assertIO (tableMinKey t) (Just 1)
-    assertIO (tableMinValue t) (Just 8)
-    assertIO (tableMaxKey t) (Just 1)
-    assertIO (tableMaxValue t) (Just 8)
-    withTableIter t $ \i -> do
-        assertIO (tableIterFirst i >> tableIterKey i) (Just 1)
-        assertIO (tableIterLast i >> tableIterKey i) (Just 1)
-
+    assertEntries t [(1,8)]
     tableInsert t 2 9
-    assertIO (tableLookup t 1) (Just 8)
-    assertIO (tableLookup t 2) (Just 9)
-    assertIO (tableMinKey t) (Just 1)
-    assertIO (tableMinValue t) (Just 8)
-    assertIO (tableMaxKey t) (Just 2)
-    assertIO (tableMaxValue t) (Just 9)
-    withTableIter t $ \i -> do
-        assertIO (tableIterFirst i >> tableIterKey i) (Just 1)
-        assertIO (tableIterLast i >> tableIterKey i) (Just 2)
-
+    assertEntries t [(1,8), (2,9)]
     tableDelete t 1
-    assertIO (tableLookup t 2) (Just 9)
-    assertIO (tableMinKey t) (Just 2)
-    assertIO (tableMinValue t) (Just 9)
-    assertIO (tableMaxKey t) (Just 2)
-    assertIO (tableMaxValue t) (Just 9)
-    withTableIter t $ \i -> do
-        assertIO (tableIterFirst i >> tableIterKey i) (Just 2)
-        assertIO (tableIterLast i >> tableIterKey i) (Just 2)
-
+    assertEntries t [(2,9)]
+    tableInsert t 2 8
+    assertEntries t [(2,8)]
     tableDelete t 2
-    assertIO (tableLookup t 1) Nothing
-    assertIO (tableMaxKey t) Nothing
-    assertIO (tableMinKey t) Nothing
-    withTableIter t $ \i -> do
-        assertIO (tableIterFirst i >> tableIterKey i) Nothing
-        assertIO (tableIterLast i >> tableIterKey i) Nothing
+    assertEmptyTable t
+  where
+    t = intTable db tableName
+
+tableBatchTests :: RocksDb -> B8.ByteString -> IO ()
+tableBatchTests db tableName = do
+
+    assertEmptyTable t
+    updateBatch []
+    assertEmptyTable t
+
+    updateBatch [ RocksDbInsert t 1 8]
+    assertEntries t [(1,8)]
+
+    updateBatch [RocksDbInsert t 2 9]
+    assertEntries t [(1,8), (2,9)]
+    updateBatch [RocksDbDelete t 2]
+    assertEntries t [(1,8)]
+    updateBatch [RocksDbInsert t 2 9, RocksDbDelete t 2]
+    assertEntries t [(1,8)]
+    updateBatch [RocksDbInsert t 2 9, RocksDbDelete t 2, RocksDbInsert t 2 9]
+    assertEntries t [(1,8), (2,9)]
+    updateBatch [RocksDbInsert t 1 8, RocksDbDelete t 1]
+    assertEntries t [(2,9)]
+    updateBatch [RocksDbInsert t 1 7, RocksDbInsert t 1 8, RocksDbInsert t 1 8]
+    assertEntries t [(1,8), (2,9)]
+    updateBatch [RocksDbDelete t 1, RocksDbInsert t 3 7]
+    assertEntries t [(2,9), (3,7)]
+    updateBatch [RocksDbInsert t 4 6, RocksDbInsert t 5 5]
+    assertEntries t [(2,9), (3,7), (4,6), (5,5)]
+    updateBatch [RocksDbDelete t 2, RocksDbDelete t 3, RocksDbDelete t 4, RocksDbDelete t 5]
+    assertEmptyTable t
   where
     t = intTable db tableName
 
@@ -111,7 +149,9 @@ tableTests db tableName = do
 -- Main
 
 main :: IO ()
-main = withTempRocksDb "testDb" $ \db -> mapConcurrently_
-    (\i -> tableTests db $ "testTable" <> B8.pack (show i))
-    [0..100 :: Int]
+main = withTempRocksDb "testDb" $ \db -> do
+    mapConcurrently_
+        (\i -> tableTests db $ "testTable" <> B8.pack (show i))
+        [0..100 :: Int]
+    tableBatchTests db "testTable"
 

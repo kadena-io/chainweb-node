@@ -73,6 +73,7 @@ test-suite rocksdb-tests
         , base >=4.10 && <4.15
         , bytestring >=0.10
         , exceptions >=0.10
+        , lens >=4.16
 
 executable dedup-profiling
     hs-source-dirs: tools
