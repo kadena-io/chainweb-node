@@ -115,16 +115,20 @@ app = serve (Proxy :: Proxy MiningAPI) . server
 
 type ResultMap = Map (T2 ChainId BlockHeight) BlockHeader
 
-data Env = Env
-    { work :: TMVar BlockHeader
-    , results :: TVar ResultMap
-    , cores :: Word16
+data ClientArgs = ClientArgs
+    { cores :: Word16
     , version :: ChainwebVersion
     , port :: Int
     }
 
-pEnv :: TMVar BlockHeader -> TVar ResultMap -> Parser Env
-pEnv tbh thm = Env tbh thm <$> pCores <*> pVersion <*> pPort
+data Env = Env
+    { work :: TMVar BlockHeader
+    , results :: TVar ResultMap
+    , args :: ClientArgs
+    }
+
+pClientArgs :: Parser ClientArgs
+pClientArgs = ClientArgs <$> pCores <*> pVersion <*> pPort
 
 pCores :: Parser Word16
 pCores = option auto
@@ -151,13 +155,13 @@ pPort = option auto
 
 main :: IO ()
 main = do
-    env <- (opts <$> newEmptyTMVarIO <*> newTVarIO mempty) >>= execParser
+    env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> execParser opts
     miner <- async $ mining env
-    W.run (port env) $ app env
+    W.run (port $ args env) $ app env
     wait miner
   where
-    opts :: TMVar BlockHeader -> TVar ResultMap -> ParserInfo Env
-    opts tbh thm = info (pEnv tbh thm <**> helper)
+    opts :: ParserInfo ClientArgs
+    opts = info (pClientArgs <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
@@ -214,10 +218,10 @@ mining e = do
     -- pruning.
     --
     cap :: Natural
-    cap = 256 * (order . _chainGraph $ version e)
+    cap = 256 * (order . _chainGraph . version $ args e)
 
     comp :: Comp
-    comp = case cores e of
+    comp = case cores $ args e of
         1 -> Seq
         n -> ParN n
 
@@ -225,5 +229,5 @@ mining e = do
     -- found some legal result.
     go :: BlockHeader -> IO BlockHeader
     go bh = fmap head . withScheduler comp $ \sch ->
-        replicateWork (int $ cores e) sch $
-            usePowHash (version e) mine bh >>= terminateWith sch
+        replicateWork (int . cores $ args e) sch $
+            usePowHash (version $ args e) mine bh >>= terminateWith sch
