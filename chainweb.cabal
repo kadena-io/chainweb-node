@@ -100,7 +100,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.Testnet02Payload
+        , Chainweb.BlockHeader.Genesis.TestnetPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI

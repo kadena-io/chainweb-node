@@ -36,8 +36,8 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as D
-import qualified Chainweb.BlockHeader.Genesis.Testnet02Payload as TN2
+import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as DN
+import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as TN
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -113,11 +113,11 @@ genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
-genesisBlockPayload TimedCPM{} _ = TN2.payloadBlock
+genesisBlockPayload TimedCPM{} _ = TN.payloadBlock
 -- Development Instances
-genesisBlockPayload Development _ = D.payloadBlock
+genesisBlockPayload Development _ = DN.payloadBlock
 -- Production Instances
-genesisBlockPayload Testnet02 _ = TN2.payloadBlock
+genesisBlockPayload Testnet02 _ = TN.payloadBlock
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
