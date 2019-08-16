@@ -55,8 +55,7 @@ import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Data.CAS.RocksDB
 
 testVersion :: ChainwebVersion
-testVersion = Testnet00
-
+testVersion = Development
 
 tests :: ScheduledTest
 tests = ScheduledTest label $ withRocksResource $ \rocksIO ->
@@ -86,6 +85,7 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
 
         a <- async (withTempDir $ \dir -> PS.initPactService testVersion cid logger reqQ mempool
                         mv bhdb pdb (Just dir) Nothing False)
+        link a
         return (a, reqQ)
 
     stopPact (a, reqQ) = do
@@ -137,6 +137,13 @@ testMemPoolAccess  = MemPoolAccess
               , PactTransaction "(create-table test1.accounts)" d
               , PactTransaction "(test1.create-global-accounts)" d
               , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
+              , PactTransaction "(at 'prev-block-hash (chain-data))" d
+              , PactTransaction "(at 'block-time (chain-data))" d
+              , PactTransaction "(at 'block-height (chain-data))" d
+              , PactTransaction "(at 'gas-limit (chain-data))" d
+              , PactTransaction "(at 'gas-price (chain-data))" d
+              , PactTransaction "(at 'chain-id (chain-data))" d
+              , PactTransaction "(at 'sender (chain-data))" d
               ]
         goldenTestTransactions txs
 

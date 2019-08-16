@@ -36,8 +36,6 @@ import Chainweb.Version (ChainwebVersion(..))
 tests :: TestTree
 tests = testGroup "Chainweb.Test.BlockHeader.Genesis" $ map blockHash
     [ Development
-    , Testnet00
-    , Testnet01
     , Testnet02
     ]
 

@@ -100,9 +100,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.Testnet00Payload
-        , Chainweb.BlockHeader.Genesis.Testnet01Payload
-        , Chainweb.BlockHeader.Genesis.Testnet02Payload
+        , Chainweb.BlockHeader.Genesis.TestnetPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -144,8 +142,8 @@ library
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
-        , Chainweb.Miner.POW
-        , Chainweb.Miner.Test
+        , Chainweb.Miner.Coordinator
+        , Chainweb.Miner.Core
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
@@ -358,7 +356,7 @@ test-suite chainweb-tests
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N
+        -with-rtsopts=-N2
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: ChainwebTests.hs
@@ -412,7 +410,6 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
-        , direct-sqlite >= 2.3
         , exceptions
         , extra >= 1.6
         , hashable >= 1.2
@@ -421,7 +418,6 @@ test-suite chainweb-tests
         , lens >= 4.16
         , loglevel >= 0.1
         , mtl >= 2.2
-        , mwc-random >= 0.13
         , neat-interpolation >= 0.3
         , network >= 2.6
         , http-client-tls >=0.3
@@ -433,7 +429,6 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
-        , safe-exceptions >= 0.1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -499,6 +494,7 @@ executable chainweb-node
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
+        , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
         , unordered-containers >= 0.2
@@ -521,12 +517,8 @@ executable chainweb-miner
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
-        , bytestring >= 0.10
-        , bytes >= 0.15
         , containers >= 0.5
-        , cryptonite >= 0.25
         , errors >= 2.3
-        , memory >= 0.14
         , optparse-applicative >= 0.14
         , scheduler >= 1.4.1
         , servant >= 0.14
@@ -559,6 +551,7 @@ executable cwtool
         Standalone
         Standalone.Utils
         TXG
+        TXGRepl
         TXG.Simulate.Contracts.CoinContract
         TXG.Simulate.Contracts.Common
         TXG.Simulate.Contracts.HelloWorld
@@ -656,6 +649,3 @@ benchmark bench
                   base
                 , chainweb
                 , criterion
-                , direct-sqlite
-                , neat-interpolation
-                , yaml

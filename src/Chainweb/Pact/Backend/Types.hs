@@ -98,6 +98,7 @@ import Control.Monad.State.Strict
 import Data.Aeson
 import Data.Bits
 import Data.ByteString (ByteString)
+import Data.DList (DList)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
@@ -182,11 +183,9 @@ data SQLiteDeltaKey = SQLiteDeltaKey
   deriving (Show, Generic, Eq, Ord)
   deriving anyclass Hashable
 
--- TODO: try difference list here
-
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
-type TxLogMap = Map TableName [TxLog Value]
+type TxLogMap = Map TableName (DList (TxLog Value))
 
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
@@ -194,7 +193,7 @@ type TxLogMap = Map TableName [TxLog Value]
 type SQLitePendingTableCreations = HashSet ByteString
 
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
-type SQLitePendingWrites = HashMap SQLiteDeltaKey [SQLiteRowDelta]
+type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 
 -- | A collection of pending mutations to the pact db. We maintain two of
 -- these; one for the block as a whole, and one for any pending pact

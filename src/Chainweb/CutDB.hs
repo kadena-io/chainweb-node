@@ -90,6 +90,7 @@ import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
 
@@ -519,11 +520,11 @@ cutHashesToBlockHeaderMap
         -- a 'Cut'.
 cutHashesToBlockHeaderMap logfun headerStore payloadStore hs =
     trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" (_cutId hs) 1 $ do
-        hdrs <- emptyCas
-        traverse_ (casInsert hdrs) $ _cutHashesHeaders hs
-
         plds <- emptyCas
-        traverse_ (casInsert plds) $ _cutHashesPayloads hs
+        casInsertBatch plds $ V.fromList $ HM.elems $ _cutHashesPayloads hs
+
+        hdrs <- emptyCas
+        casInsertBatch hdrs $ V.fromList $ HM.elems $ _cutHashesHeaders hs
 
         (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
             & S.map (fmap snd)

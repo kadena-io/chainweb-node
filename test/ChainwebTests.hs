@@ -33,7 +33,7 @@ import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
--- import qualified Chainweb.Test.Pact.PactReplay
+import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.RestAPI
@@ -42,7 +42,9 @@ import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
-import Chainweb.Test.Utils (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId, withToyDB)
+import Chainweb.Test.Utils
+    (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
+    withToyDB)
 import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
@@ -57,10 +59,15 @@ main :: IO ()
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
     withToyDB rdb toyChainId $ \h0 db -> do
-        defaultMain $ testGroup "Chainweb Tests" . schedule Sequential
+        defaultMain
+            $ adjustOption adj
+            $ testGroup "Chainweb Tests" . schedule Sequential
             $ pactTestSuite rdb
             : mempoolTestSuite db h0
             : suite rdb
+  where
+    adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
+    adj x = x
 
 mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
@@ -73,9 +80,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
-        -- , Chainweb.Test.Pact.PactReplay.tests
-        -- Pact replay is hanging in some instances.
-        -- Temporarily disabling until a fix comes in the future.
+        , Chainweb.Test.Pact.PactReplay.tests
         ]
 
 suite :: RocksDb -> [ScheduledTest]
