@@ -84,16 +84,16 @@
 
 ;; transfers should respect balances as intended
 (credit 'k1 (read-keyset 'k1) 1.0)
-(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) 0.0))
-(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 (read-keyset 'k2) (- 1.0)))
-(expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k1 'k2 (read-keyset 'k2) 1.0))
-(expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k2 'k1 (read-keyset 'k1) 1.0))
+(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 0.0))
+(expect-failure "transfers of trivial or negative quantities fails fast" (transfer 'k1 'k2 (- 1.0)))
+(expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k1 'k2 1.0))
+(expect "roundtrip 1.0 transfer succeeds" "Write succeeded" (transfer 'k2 'k1 1.0))
 
-(transfer 'k1 'k2 (read-keyset 'k2) 1.0)
+(transfer 'k1 'k2 1.0)
 (expect "k1 now has 0.6 coins after transfer to 'k2" 0.6 (account-balance 'k1))
 (expect "k2 now has 1.4 coins after transfer from 'k1" 1.4 (account-balance 'k2))
 (expect-failure "k1 now has insufficient funds and cannot transfer"
-                (transfer 'k1 'k2 (read-keyset 'k2) 1.0))
+                (transfer 'k1 'k2 1.0))
 
 ; coinbase should fail when 'COINBASE' capability is not in scope
 ; and should magically create tokens for users and reflect correct balance
