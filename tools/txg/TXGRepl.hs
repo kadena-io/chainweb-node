@@ -7,11 +7,13 @@
 
 module TXGRepl where
 
+import Control.Lens
 import Control.Monad
 import Control.Monad.State
 
 import Data.Aeson
 import Data.Decimal
+import Data.Default
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy
 import qualified Data.Text as T
@@ -34,7 +36,6 @@ import Pact.ApiReq
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.ChainMeta
-import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Crypto
 
 -- chainweb imports
@@ -93,20 +94,17 @@ genClientEnv hostaddress = do
 
 easyTxToCommand :: TxContent -> IO (Command Text)
 easyTxToCommand txContent = do
-  ks <- testSomeKeyPairs
-  txToCommand defPubMeta ks txContent
+    ks <- testSomeKeyPairs
+    txToCommand defPubMeta ks txContent
 
 txToCommand :: PublicMeta -> Keyset -> TxContent -> IO (Command Text)
 txToCommand pubmeta ks = \case
-  PactCode str -> easyCmd str
-  Define Hello -> helloWorldContractLoader pubmeta ks
-  Define Payments -> simplePaymentsContractLoader pubmeta ks
-  CallBuiltin (CC coinReq) ->
-    createCoinContractRequest pubmeta coinReq
-  CallBuiltin (SP spReq mkeyset) ->
-    simplePayReq pubmeta spReq mkeyset
-  CallBuiltin (HelloCode helloname) ->
-    helloRequest (Name helloname)
+    PactCode str -> easyCmd str
+    Define Hello -> helloWorldContractLoader pubmeta ks
+    Define Payments -> simplePaymentsContractLoader pubmeta ks
+    CallBuiltin (CC coinReq) -> createCoinContractRequest pubmeta coinReq
+    CallBuiltin (SP spReq mkeyset) -> simplePayReq pubmeta spReq mkeyset
+    CallBuiltin (HelloCode helloname) -> helloRequest $ Name helloname
 
 defChainwebVersion :: ChainwebVersion
 defChainwebVersion = Development
@@ -120,7 +118,11 @@ defHostAddressText :: Text
 defHostAddressText = "us2.testnet.chainweb.com:443"
 
 defPubMeta :: PublicMeta
-defPubMeta = PublicMeta (Pact.ChainId "0") "sender00" 100 1.0
+defPubMeta = def
+    & set pmChainId "0"
+    & set pmSender "0"
+    & set pmGasLimit 100
+    & set pmGasPrice 1.0
 
 primSend
     :: HostAddress
@@ -134,8 +136,8 @@ primSend h v cid xs = do
 
 easySend :: [Command Text] -> IO (Either ClientError RequestKeys)
 easySend xs = do
-  hostaddress <- hostAddressFromText defHostAddressText
-  primSend hostaddress defChainwebVersion defChainId xs
+    hostaddress <- hostAddressFromText defHostAddressText
+    primSend hostaddress defChainwebVersion defChainId xs
 
 easyCmd :: String -> IO (Command Text)
 easyCmd str = primCommand str Null defPubMeta [] Nothing
@@ -150,8 +152,8 @@ primCommand = mkExec
 
 simplePoll :: RequestKeys -> IO (Either ClientError PollResponses)
 simplePoll rkeys = do
-  h <- hostAddressFromText defHostAddressText
-  primPoll defChainwebVersion defChainId h rkeys
+    h <- hostAddressFromText defHostAddressText
+    primPoll defChainwebVersion defChainId h rkeys
 
 primPoll
     :: ChainwebVersion
@@ -160,8 +162,8 @@ primPoll
     -> RequestKeys
     -> IO (Either ClientError PollResponses)
 primPoll v cid h rkeys = do
-  ce <- genClientEnv h
-  runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+    ce <- genClientEnv h
+    runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
 
 api version chainid =
     case someChainwebVersionVal version of
@@ -199,10 +201,10 @@ generateDefaultSimpleCommands batchsize =
     replicateM batchsize $ getStdRandom (runState go) >>= easyCmd
   where
     go = do
-      a <- state $ randomR (1, 100 :: Integer)
-      b <- state $ randomR (1, 100 :: Integer)
-      opIndex <- state $ randomR (0, 2 :: Int)
-      return $ printf "(%s %s %s)" ["+-*" !! opIndex] a b
+        a <- state $ randomR (1, 100 :: Integer)
+        b <- state $ randomR (1, 100 :: Integer)
+        opIndex <- state $ randomR (0, 2 :: Int)
+        return $ printf "(%s %s %s)" ["+-*" !! opIndex] a b
 
 sendSimpleBatch :: Int -> IO (Either ClientError RequestKeys)
 sendSimpleBatch batchsize =
