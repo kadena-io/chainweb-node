@@ -104,8 +104,6 @@ runMiner v m = do
     chooseMiner _ PowConsensus{} = mining (localPOW v)
     chooseMiner g TimedCPM{} = mining (localTest g miners)
     chooseMiner _ Development = mining (localPOW v)
-    chooseMiner _ Testnet00 = mining (localPOW v)
-    chooseMiner _ Testnet01 = mining (localPOW v)
     chooseMiner _ Testnet02 = mining (localPOW v)
 
 -- | Artificially delay the mining process to simulate Proof-of-Work.

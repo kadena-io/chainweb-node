@@ -62,8 +62,8 @@ instance Arbitrary ChainwebVersion where
         , PowConsensus petersonChainGraph
         , TimedCPM singletonChainGraph
         , TimedCPM petersonChainGraph
-        , Testnet00
-        , Testnet01
+        , Development
+        , Testnet02
         ]
 
 instance Arbitrary ChainNodeId where

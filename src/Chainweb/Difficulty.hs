@@ -323,10 +323,6 @@ blockRate TimedCPM{} = Just $ BlockRate 4
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Development = Just $ BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Testnet00 = Just $ BlockRate 30
--- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Testnet01 = Just $ BlockRate 30
--- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet02 = Just $ BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
@@ -347,10 +343,6 @@ window TimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
-window Testnet00 = Just $ WindowWidth 120
--- 120 blocks, should take 1 hour given a 30 second BlockRate.
-window Testnet01 = Just $ WindowWidth 120
--- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet02 = Just $ WindowWidth 120
 
 -- | The minimum factor of change that a single application of `adjust` must
@@ -369,8 +361,6 @@ minAdjust PowConsensus{} = Just $ MinAdjustment 3
 minAdjust TimedCPM{} = Nothing
 -- See `adjust` for motivation.
 minAdjust Development = Just $ MinAdjustment 3
-minAdjust Testnet00 = Just $ MinAdjustment 3
-minAdjust Testnet01 = Just $ MinAdjustment 3
 minAdjust Testnet02 = Just $ MinAdjustment 3
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N

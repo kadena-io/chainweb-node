@@ -452,8 +452,6 @@ bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos Development = productionBootstrapPeerInfo
-bootstrapPeerInfos Testnet00 = productionBootstrapPeerInfo
-bootstrapPeerInfos Testnet01 = productionBootstrapPeerInfo
 bootstrapPeerInfos Testnet02 = productionBootstrapPeerInfo
 
 testBootstrapPeerInfos :: PeerInfo
