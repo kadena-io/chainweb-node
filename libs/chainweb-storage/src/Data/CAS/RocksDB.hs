@@ -107,6 +107,7 @@ import qualified Data.ByteString.Char8 as B8
 import Data.CAS
 import Data.String
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import qualified Database.RocksDB.Base as R
 import qualified Database.RocksDB.Iterator as I
@@ -576,9 +577,17 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
     casInsert db a = tableInsert db (casKey a) a
     casDelete = tableDelete
 
+    casInsertBatch db vs = updateBatch (mkOp <$> V.toList vs)
+      where
+        mkOp v = RocksDbInsert db (casKey v) v
+
+    casDeleteBatch db vs = updateBatch (RocksDbDelete db <$> V.toList vs)
+
     {-# INLINE casLookup #-}
     {-# INLINE casInsert #-}
     {-# INLINE casDelete #-}
+    {-# INLINE casInsertBatch #-}
+    {-# INLINE casDeleteBatch #-}
 
 -- | A newtype wrapper that takes only a single type constructor. This useful in
 -- situations where a Higher Order type constructor for a CAS is required. A
@@ -593,10 +602,14 @@ instance IsCasValue v => IsCas (RocksDbCas v) where
     casLookup (RocksDbCas x) = casLookup x
     casInsert (RocksDbCas x) = casInsert x
     casDelete (RocksDbCas x) = casDelete x
+    casInsertBatch (RocksDbCas x) = casInsertBatch x
+    casDeleteBatch (RocksDbCas x) = casDeleteBatch x
 
     {-# INLINE casLookup #-}
     {-# INLINE casInsert #-}
     {-# INLINE casDelete #-}
+    {-# INLINE casInsertBatch #-}
+    {-# INLINE casDeleteBatch #-}
 
 -- | Create a new 'RocksDbCas'.
 --
