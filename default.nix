@@ -315,8 +315,8 @@ in
         chainweb-storage = pkgs.haskell.lib.dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "chainweb-storage";
-          rev = "351ace4436b1d88f96e9d17dfeecfcb58f205027";
-          sha256 = "0hsp7qpzas1lmxymxmkys20bdzvqr6rfvrbb89y7adyqima8qxhj";
+          rev = "17a5fb130926582eff081eeb1b94cb6c7097c67a";
+          sha256 = "03ihjgwqpif68870wwsgz1s4yz45zql1slky1lj4ixfxbig06md4";
         }) {});
 
         # Our own custom fork
