@@ -66,6 +66,7 @@ module Chainweb.TreeDB
 , branchDiff
 , branchDiff_
 , collectForkBlocks
+, seekAncestor
 
 -- * properties
 , properties
@@ -115,11 +116,13 @@ data TreeDbException db
     = TreeDbParentMissing (DbEntry db)
     | TreeDbKeyNotFound (DbKey db)
     | TreeDbInvalidRank (DbEntry db)
+    | TreeDbAncestorMissing (DbEntry db)
 
 instance (Show (DbEntry db), Show (DbKey db)) => Show (TreeDbException db) where
     show (TreeDbParentMissing e) = "TreeDbParentMissing: " ++ show e
     show (TreeDbKeyNotFound e) = "TreeDbKeyNotFound: " ++ show e
     show (TreeDbInvalidRank e) = "TreeDbInvalidRank: " ++ show e
+    show (TreeDbAncestorMissing e) = "TreeDbAncestorMissing: " ++ show e
 
 instance
     ( Show (DbEntry db)
@@ -759,6 +762,85 @@ collectForkBlocks db lastHeader newHeader = do
             Right (BothD lBlk rBlk, strm) -> go strm ( lBlk:oldBlocks,
                                                        rBlk:newBlocks )
 {-# INLINE collectForkBlocks #-}
+
+-- -------------------------------------------------------------------------- --
+-- Query an item with given rank on a branch
+
+-- The following is implemented using branchEntries. Alternatively, we could
+-- integrate this into the default implementation of branchEntries.
+
+-- | This has expected constant complexity on tree databases that have very long
+-- linear trunks and only short branches, which is the case, for instance, for
+-- block chains. Worst case complexity is \(O(n)\), and at least twice as much
+-- as calling `getBranch` directly, which is used as fallback.
+--
+-- The function returns 'Nothing' only if the requested rank is larger than the
+-- rank of the given header.
+--
+seekAncestor
+    :: forall db
+    . TreeDb db
+    => db
+    -> DbEntry db
+        -- Branch
+    -> Natural
+        -- Rank
+    -> IO (Maybe (DbEntry db))
+seekAncestor db h r
+    | r > hh = return Nothing
+    | r == hh = return $ Just h
+    | otherwise = fastRoute1
+  where
+    -- If there is only a single block at the requested block height, it must be
+    -- a predecessor of any block of larger height. We first do an efficient
+    -- pointwise lookup and return the result if it is unique.
+    --
+    -- fastRoute1 :: ChainId -> BlockHeader -> IO BlockHeader
+    fastRoute1 = do
+        a <- S.toList_ & entries db Nothing (Just 2) (Just $ int r) (Just $ int r)
+        case a of
+            [] -> throwM $ TreeDbAncestorMissing @db h
+            [x] -> return $ Just x
+            _ -> fastRoute2 1
+
+    hh = rank h
+
+    -- If it turns out that the fastRoute doesn't return a result, we start a
+    -- backward traversal with all blocks that are a constant number blocks
+    -- above the target block height. With high probability the history will
+    -- have narrowed to a single block once we reach the target height.
+    --
+    fastRoute2 (i :: Int)
+        | 2 * l < hh = do
+            -- get all blocks at height l
+            !as <- S.toList_ & entries db Nothing Nothing (Just $ int l) (Just $ int l)
+
+            -- traverse backward to find blocks at height ch
+            !bs <- S.toList_ & branchEntries db
+                Nothing (Just 2)
+                (Just $ int r) (Just $ int r)
+                mempty (HS.fromList $ UpperBound . key <$> as)
+
+            -- check that result is unique
+            case bs of
+                [] -> throwM $ TreeDbAncestorMissing @db h
+                [x] -> return $ Just x
+                _ -> fastRoute2 (succ i)
+        | otherwise = slowRoute
+      where
+        l = 2^i
+
+    -- We find the predecessor of requested height of the block in the given cut
+    -- by traversing along the parent relation.
+    --
+    slowRoute = do
+        !a <- S.head_ & branchEntries db
+            Nothing (Just 1)
+            (Just $ int r) (Just $ int r)
+            mempty (HS.singleton $ UpperBound $ key h)
+        case a of
+            Nothing -> throwM $ TreeDbAncestorMissing @db h
+            x -> return x
 
 -- -------------------------------------------------------------------------- --
 -- Properties
