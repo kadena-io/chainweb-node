@@ -109,6 +109,9 @@ testCmds = apiCmds version cid
 -- -------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
 
+-- | Note: These tests are intermittently non-deterministic due to the way
+-- random chain sampling works with our test harnesses.
+--
 tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
@@ -252,7 +255,7 @@ testBatch = do
     pure $ SubmitBatch (pure c)
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.1
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.1 1000000 0
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)

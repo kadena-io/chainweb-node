@@ -3,9 +3,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Logging.Amberdata
@@ -19,25 +22,32 @@
 module Chainweb.Logging.Amberdata
 ( AmberdataBlock(..)
 , AmberdataConfig(..)
+, defaultAmberdataConfig
+, validateAmberdataConfig
+, pAmberdataConfig
 , amberdataBlockMonitor
 , withAmberDataBlocksBackend
 ) where
 
+import Configuration.Utils hiding (Error, Lens)
+
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.DeepSeq
+import Control.Lens.TH
+import Control.Lens (view)
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Error.Class (throwError)
 
-import Data.Aeson hiding (Error)
 import Data.Bool
+import Data.CAS
 import qualified Data.ByteString.Builder as BB
-import qualified Data.CaseInsensitive as CI
+import qualified Data.ByteString as BS
 import qualified Data.Foldable as HM
-import Data.String
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
+
 
 import GHC.Generics
 
@@ -55,11 +65,13 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.NodeId
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
@@ -78,8 +90,8 @@ data AmberdataBlock = AmberdataBlock
   , _amberdataParentHash :: {-# UNPACK #-} !BlockHash
   , _amberdataNonce :: {-# UNPACK #-} !Nonce
   , _amberdataMiner :: {-# UNPACK #-} !ChainNodeId
-  , _amberdataSize :: !(Maybe Word)   -- ^ Bytes
-  , _amberdataNumTransactions :: !(Maybe Word)
+  , _amberdataSize :: {-# UNPACK #-} !Word  -- ^ Bytes
+  , _amberdataNumTransactions :: {-# UNPACK #-} !Word
   , _amberdataMeta :: {-# UNPACK #-} !ChainId
   , _amberdataDifficulty :: {-# UNPACK #-} !BlockWeight
   }
@@ -112,94 +124,208 @@ instance ToJSON AmberdataBlock where
 
 -- | Backend for logging to Amberdata
 --
+amberdataComponentPrefix :: String
+amberdataComponentPrefix = "amberdata"
+
+
+defaultAmberdataHost :: HostAddress
+defaultAmberdataHost
+  = unsafeHostAddressFromText "localhost:443"
+
+validateAmberdataHost :: ConfigValidation HostAddress []
+validateAmberdataHost h
+  | h == defaultAmberdataHost =
+      throwError "Amberdata host must be provided by the user."
+  | otherwise = return ()
+
+pAmberdataHost :: OptionParser HostAddress
+pAmberdataHost = textOption
+  $ prefixLong (Just amberdataComponentPrefix) "host"
+  <> suffixHelp Nothing "<HOST>:<PORT> to send Amberdata logs."
+
+
+newtype AmberdataApiKey
+  = AmberdataApiKey T.Text
+  deriving (Show, Eq, Ord, Generic, NFData)
+instance HasTextRepresentation AmberdataApiKey where
+    toText (AmberdataApiKey a) = a
+    fromText t = return $ AmberdataApiKey t
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+instance ToJSON AmberdataApiKey where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+instance FromJSON AmberdataApiKey where
+    parseJSON = parseJsonFromText "AmberdataApiKey"
+    {-# INLINE parseJSON #-}
+
+validateAmberdataApiKey :: ConfigValidation AmberdataApiKey []
+validateAmberdataApiKey (AmberdataApiKey "") =
+  throwError "Nonempty Amberdata api key must be provided by the user."
+validateAmberdataApiKey _ = return ()
+
+pAmberdataApiKey :: OptionParser AmberdataApiKey
+pAmberdataApiKey = textOption
+    $ prefixLong (Just amberdataComponentPrefix) "api-key"
+    <> suffixHelp Nothing "API key for logging to Amberdata."
+
+
+newtype AmberdataBlockchainId
+  = AmberdataBlockchainId T.Text
+  deriving (Show, Eq, Ord, Generic, NFData)
+instance HasTextRepresentation AmberdataBlockchainId where
+    toText (AmberdataBlockchainId a) = a
+    fromText t = return $ AmberdataBlockchainId t
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+instance ToJSON AmberdataBlockchainId where
+    toJSON = toJSON . toText
+    {-# INLINE toJSON #-}
+instance FromJSON AmberdataBlockchainId where
+    parseJSON = parseJsonFromText "AmberdataBlockchainId"
+    {-# INLINE parseJSON #-}
+
+validateAmberdataBlockchainId :: ConfigValidation AmberdataBlockchainId []
+validateAmberdataBlockchainId (AmberdataBlockchainId "") =
+  throwError "Nonempty Amberdata blockchain id must be provided by the user."
+validateAmberdataBlockchainId _ = return ()
+
+pAmberdataBlockchainId :: OptionParser AmberdataBlockchainId
+pAmberdataBlockchainId = textOption
+    $ prefixLong (Just amberdataComponentPrefix) "blockchain-id"
+    <> suffixHelp Nothing "Blockchain id for logging to Amberdata."
+
+pAmberdataOptionalChainId :: OptionParser (Maybe ChainId)
+pAmberdataOptionalChainId = fmap Just $ textOption
+  $ prefixLong (Just amberdataComponentPrefix) "chain-id"
+  <> suffixHelp Nothing
+     ("If present, will only log Amberdata data from given chain. "
+      ++ "If absent, will log Amberdata data from ALL chains.")
+
+
+pEnableAmberdataDebug
+  :: OptionParser Bool
+pEnableAmberdataDebug = enableDisableFlag
+  $ prefixLong (Just amberdataComponentPrefix) "debug"
+  <> suffixHelp Nothing "Whether to enable Amberdata debugging."
+
+
 data AmberdataConfig = AmberdataConfig
     { _ambredataConfigHost :: HostAddress
-    , _amberdataApiKey :: T.Text
-    , _amberdataBlockchainId :: T.Text
+    , _amberdataApiKey :: AmberdataApiKey
+    , _amberdataBlockchainId :: AmberdataBlockchainId
+    , _amberdataChainId :: Maybe ChainId
     , _amberdataDebug :: Bool
     }
     deriving (Show, Eq, Ord, Generic)
 
-amberdataConfigFromText :: MonadThrow m => T.Text -> m AmberdataConfig
-amberdataConfigFromText x
-  | CI.mk (T.take (T.length hostPrefix) x) == CI.mk hostPrefix =
-      case T.splitOn "::" x of
-        [hostStr, api, bid, "debug"] -> formatConfig hostStr api bid True
-        [hostStr, api, bid] -> formatConfig hostStr api bid False
-        _ -> configFromTextErr $ CI.mk x
-  | otherwise = configFromTextErr $ CI.mk x
+makeLenses ''AmberdataConfig
 
-  where
-    hostPrefix = "amberdata:"
+defaultAmberdataConfig :: AmberdataConfig
+defaultAmberdataConfig
+  = AmberdataConfig
+    defaultAmberdataHost
+    (AmberdataApiKey "")
+    (AmberdataBlockchainId "")
+    Nothing
+    True
 
-    configFromTextErr e =
-        throwM $ DecodeException $ "unexpected logger handle value: "
-            <> fromString (show e)
-            <> ", expected \"amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>\""
-            <> " or \"amberdata:<HOST>:<PORT>::<APIKEY>::<BLOCKCHAINID>::debug\""
+validateAmberdataConfig :: ConfigValidation AmberdataConfig []
+validateAmberdataConfig o = do
+  validateAmberdataHost $ _ambredataConfigHost o
+  validateAmberdataApiKey $ _amberdataApiKey o
+  validateAmberdataBlockchainId $ _amberdataBlockchainId o
 
-    formatConfig hostStr api bid doDebug = do
-        hostAddr <- fromText $ T.drop (T.length hostPrefix) hostStr
-        return $ AmberdataConfig hostAddr api bid doDebug
-
-amberdataConfigToText :: AmberdataConfig -> T.Text
-amberdataConfigToText (AmberdataConfig serv api bid debugResp)
-    = "amberdata:" <> toText serv
-        <> "::" <> api
-        <> "::" <> bid
-        <> bool "" ("::" <> "debug") debugResp
-
-instance HasTextRepresentation AmberdataConfig where
-    toText = amberdataConfigToText
-    fromText = amberdataConfigFromText
-
-    {-# INLINE toText #-}
-    {-# INLINE fromText #-}
+pAmberdataConfig
+  :: MParser AmberdataConfig
+pAmberdataConfig = id
+  <$< ambredataConfigHost .:: pAmberdataHost
+  <*< amberdataApiKey .:: pAmberdataApiKey
+  <*< amberdataBlockchainId .:: pAmberdataBlockchainId
+  <*< amberdataChainId .:: pAmberdataOptionalChainId
+  <*< amberdataDebug .:: pEnableAmberdataDebug
 
 instance ToJSON AmberdataConfig where
-    toJSON = String . amberdataConfigToText
+  toJSON o = object
+    [ "host" .= _ambredataConfigHost o
+    , "apiKey" .= _amberdataApiKey o
+    , "blockchainId" .= _amberdataBlockchainId o
+    , "chainId" .= _amberdataChainId o
+    , "debug" .= _amberdataDebug o
+    ]
 
-instance FromJSON AmberdataConfig where
-    parseJSON = parseJsonFromText "AmberdataConfig"
+instance FromJSON (AmberdataConfig -> AmberdataConfig) where
+  parseJSON = withObject "AmberdataConfig" $ \o -> id
+    <$< ambredataConfigHost ..: "host" % o
+    <*< amberdataApiKey ..: "apiKey" % o
+    <*< amberdataBlockchainId ..: "blockchainId" % o
+    <*< amberdataChainId ..: "chainId" % o
+    <*< amberdataDebug ..: "debug" % o
 
 
 -- -------------------------------------------------------------------------- --
 -- Monitor
 
-amberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-amberdataBlockMonitor logger db = do
+amberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
+amberdataBlockMonitor cid logger db = do
     logFunctionText logger Info "Initialized Amberdata Block Monitor"
+    case cid of
+      Nothing -> logFunctionText logger Info "Sending blocks from ALL chains"
+      Just cid' -> logFunctionText logger Info ("Sending blocks from chain " <> toText cid')
     void
-        $ S.mapM_ (logAllBlocks logger)
-        $ S.map cutToAmberdataBlocks
-        $ cutStream db
+        $ S.mapM_ logBlocks
+        $ blockStream db
+        & S.filter (\x -> cid == Just (_chainId x)
+                          || cid == Nothing)
   where
-    logAllBlocks :: Logger logger => logger -> [AmberdataBlock] -> IO ()
-    logAllBlocks l = mapM_ (logFunctionJson l Info)
+    logBlocks :: BlockHeader -> IO ()
+    logBlocks bheader = do
+      amberdataBlock <- blockHeaderToAmberdataBlock bheader
+      logFunctionJson logger Info amberdataBlock
 
-    cutToAmberdataBlocks :: Cut -> [AmberdataBlock]
-    cutToAmberdataBlocks c =
-        let totalChains = length (_cutMap c)
-        in flip fmap (HM.toList $ _cutMap c) $ \bh -> AmberdataBlock
-            { _amberdataNumber = uniqueBlockHeight bh totalChains
-            , _amberdataHash = _blockHash bh
-            , _amberdataTimestamp = _blockCreationTime bh
-            , _amberdataParentHash = _blockParent bh
-            , _amberdataNonce = _blockNonce bh
-            , _amberdataMiner = _blockMiner bh
-            , _amberdataSize = Nothing
-            , _amberdataNumTransactions = Nothing
-            , _amberdataMeta = _blockChainId bh
-            , _amberdataDifficulty = _blockWeight bh
-            }
+    blockHeaderToAmberdataBlock :: BlockHeader -> IO AmberdataBlock
+    blockHeaderToAmberdataBlock bh = do
+      bpayload <- getBlockPayload bh
+      return $ AmberdataBlock
+        { _amberdataNumber = blockHeightFunction bh
+        , _amberdataHash = _blockHash bh
+        , _amberdataTimestamp = _blockCreationTime bh
+        , _amberdataParentHash = _blockParent bh
+        , _amberdataNonce = _blockNonce bh
+        , _amberdataMiner = _blockMiner bh
+        , _amberdataSize = getPayloadSize bpayload
+        , _amberdataNumTransactions = getPayloadNumTransaction bpayload
+        , _amberdataMeta = _blockChainId bh
+        , _amberdataDifficulty = _blockWeight bh
+        }
 
+    -- | Gives unique block height when sending all blocks.
+    --   Otherwise, block height not changed when sending blocks from specific chain.
+    blockHeightFunction :: BlockHeader -> BlockHeight
+    blockHeightFunction = case cid of
+      Nothing -> uniqueBlockHeight
+      Just _ -> _blockHeight
 
-    uniqueBlockHeight :: BlockHeader -> Int -> BlockHeight
-    uniqueBlockHeight bheader totalChains =
-        BlockHeight $ (h * (fromIntegral totalChains)) + (chainIdInt (_chainId cid))
+    uniqueBlockHeight :: BlockHeader -> BlockHeight
+    uniqueBlockHeight bheader =
+        BlockHeight $ (h * (fromIntegral totalChains)) + (chainIdInt (_chainId bcid))
       where
         BlockHeight h = _blockHeight bheader
-        cid = _blockChainId bheader
+        bcid = _blockChainId bheader
+        totalChains = length $ chainIds bheader
+
+    payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+
+    getBlockPayload :: BlockHeader -> IO PayloadWithOutputs
+    getBlockPayload bheader = (casLookupM payloadCas . _blockPayloadHash) bheader
+
+    getPayloadNumTransaction :: PayloadWithOutputs -> Word
+    getPayloadNumTransaction = fromIntegral . length . _payloadWithOutputsTransactions
+
+    getPayloadSize :: PayloadWithOutputs -> Word
+    getPayloadSize payload = int $
+      HM.foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+                    _payloadWithOutputsTransactions payload
 
 -- -------------------------------------------------------------------------- --
 -- Amberdata Backend
@@ -220,14 +346,16 @@ withAmberDataBlocksBackend
     -> AmberdataConfig
     -> (Backend (JsonLog AmberdataBlock) -> IO b)
     -> IO b
-withAmberDataBlocksBackend mgr (AmberdataConfig esServer api bid doDebug) inner = do
+withAmberDataBlocksBackend mgr conf inner = do
     queue <- newTBQueueIO 2000
     withAsync (runForever errorLogFun "Utils.Logging.withAmberdataBackend" (processor queue)) $ \_ -> do
         inner $ \a -> atomically (writeTBQueue queue a)
 
   where
+    (AmberdataConfig esServer (AmberdataApiKey api) (AmberdataBlockchainId bid) _ doDebug) = conf
+    
     errorLogFun Error msg = T.hPutStrLn stderr msg
-    -- Print debug statements only if debugging turned on
+    -- Print debug statements only if debugging is turned on.
     errorLogFun Debug msg = bool (return ()) (T.hPutStrLn stdout msg) doDebug
     errorLogFun _ _ = return ()
 

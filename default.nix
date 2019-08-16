@@ -54,7 +54,8 @@ in
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
-          testTarget = "--test-option=--hide-successes";
+          # temporarily disabling to debug hanging test suites
+          # testTarget = "--test-option=--hide-successes";
         })));
 
         rocksdb-haskell = dontCheck (self.callHackage "rocksdb-haskell" "1.0.1" {});
@@ -79,8 +80,8 @@ in
 
         generic-lens = callHackageDirect {
           pkg = "generic-lens";
-          ver = "1.1.0.0";
-          sha256 = "1s4b8sq40acqpmc9qkzbspc4qn18ym4fxbnh0s55p2nv5v8m1qia";
+          ver = "1.2.0.0";
+          sha256 = "1ryp2l9xh9s7cj7qcmk7jbswk1rbfh3lyw96pl2gkvpri9nyqhra";
         };
 
         # --- massiv --- #
@@ -180,12 +181,12 @@ in
         });
         # --- end of `tasty` dependents --- #
 
-        # pact-3.0.1
+        # pact-3.2.1
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "a622a1e1097fa9bf1a966e0914e05c9ceffdb46a";
-          sha256 = "09wwlzmj4qfjclnmchbp1hzbnrck4fipp3x2x10h565n28am5icg";
+          rev = "62d36047a4585fd6ac03faa80798ff923f8d1ec5";
+          sha256 = "1wchj9smlwg7fnprng2bx0iqlzbpydqglp28hix88p4vxsgmwva7";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -241,8 +242,8 @@ in
 
         tls = callHackageDirect {
             pkg = "tls";
-            ver = "1.5.0";
-            sha256 = "05srd9lssgs437h45mawaxbd79lqyxj7qx7fx2sdgncr6m0h8vm0";
+            ver = "1.5.1";
+            sha256 = "0rh7302v2swbbfkjp15mgvs5xhbzqd0id30rqpjhmawszr1hnnd1";
         };
 
         warp-tls = callHackageDirect {

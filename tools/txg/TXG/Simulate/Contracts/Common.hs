@@ -121,7 +121,7 @@ distinctPair = fake >>= \a -> (,) a <$> suchThat fake (/= a)
 
 -- hardcoded sender (sender00)
 makeMeta :: ChainId -> CM.PublicMeta
-makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 100 1.0
+makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 100 1.0 100000 0
 
 newtype ContractName = ContractName { getContractName :: String }
   deriving (Eq, Ord, Show, Generic)

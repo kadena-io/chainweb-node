@@ -22,8 +22,17 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
+import Data.ByteString (ByteString)
+import qualified Data.DList as DL
+import Data.Foldable (toList)
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.List as List
 import Data.Serialize hiding (get)
 import qualified Data.Text as T
+import qualified Data.Vector as V
+import qualified Data.Vector.Algorithms.Tim as TimSort
+
+import Database.SQLite3.Direct (Utf8(..))
 
 import Prelude hiding (log)
 
@@ -62,7 +71,7 @@ initRelationalCheckpointer'
 initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
-    runBlockEnv db initSchema
+    runBlockEnv db $ initSchema >> vacuumDb
     return $!
       (PactDbEnv' (PactDbEnv chainwebPactDb db),
        CheckpointEnv
@@ -83,12 +92,13 @@ type Db = MVar (BlockEnv SQLiteEnv)
 
 
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore dbenv (Just (bh, hash)) = do
-    runBlockEnv dbenv $ do
-        void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
-        beginSavepoint Block
+doRestore dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+    clearPendingTxState
+    void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
+    beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
 doRestore dbenv Nothing = runBlockEnv dbenv $ do
+    clearPendingTxState
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
         exec_ db "DELETE FROM BlockHistory;"
@@ -108,13 +118,41 @@ doRestore dbenv Nothing = runBlockEnv dbenv $ do
 
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
+    height <- gets _bsBlockHeight
+    runPending height
     commitSavepoint Block
     nextTxId <- gets _bsTxId
-    height <- gets _bsBlockHeight
     blockHistoryInsert height hash nextTxId
+    clearPendingTxState
+  where
+    runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
+    runPending bh = do
+        (newTables, writes, _) <- use bsPendingBlock
+        createNewTables bh $ toList newTables
+        writeV <- toVectorChunks writes
+        callDb "save" $ backendWriteUpdateBatch bh writeV
+
+    prepChunk [] = error "impossible: empty chunk from groupBy"
+    prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
+
+    toVectorChunks writes = liftIO $ do
+        mv <- V.unsafeThaw . V.fromList . DL.toList . DL.concat $
+              HashMap.elems writes
+        TimSort.sort mv
+        l' <- V.toList <$> V.unsafeFreeze mv
+        let ll = List.groupBy (\a b -> _deltaTableName a == _deltaTableName b) l'
+        return $ map prepChunk ll
+
+    createNewTables
+        :: BlockHeight
+        -> [ByteString]
+        -> BlockHandler SQLiteEnv ()
+    createNewTables bh = mapM_ (\tn -> createUserTable (Utf8 tn) bh)
 
 doDiscard :: Db -> IO ()
-doDiscard dbenv = runBlockEnv dbenv $ rollbackSavepoint Block
+doDiscard dbenv = runBlockEnv dbenv $ do
+    clearPendingTxState
+    rollbackSavepoint Block
 
 doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
