@@ -100,9 +100,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.Testnet00Payload
-        , Chainweb.BlockHeader.Genesis.Testnet01Payload
-        , Chainweb.BlockHeader.Genesis.Testnet02Payload
+        , Chainweb.BlockHeader.Genesis.TestnetPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -144,9 +142,8 @@ library
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
+        , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
-        , Chainweb.Miner.POW
-        , Chainweb.Miner.Test
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore

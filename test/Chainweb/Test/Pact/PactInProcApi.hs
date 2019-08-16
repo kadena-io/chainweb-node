@@ -55,8 +55,7 @@ import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Data.CAS.RocksDB
 
 testVersion :: ChainwebVersion
-testVersion = Testnet00
-
+testVersion = Development
 
 tests :: ScheduledTest
 tests = ScheduledTest label $ withRocksResource $ \rocksIO ->
