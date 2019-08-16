@@ -273,8 +273,6 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
         TimedCPM{} -> testTarget
         PowConsensus{} -> prodTarget
         Development -> prodTarget
-        Testnet00 -> prodTarget
-        Testnet01 -> prodTarget
         Testnet02 -> prodTarget
       where
         testTarget = pure $ T2 (_blockTarget bh) mempty

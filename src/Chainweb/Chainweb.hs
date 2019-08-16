@@ -83,7 +83,7 @@ module Chainweb.Chainweb
 
 ) where
 
-import Configuration.Utils hiding (Error, Lens', (<.>), disabled)
+import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
@@ -563,8 +563,6 @@ runChainweb cw = do
 
     mgr = view chainwebManager cw
 
-
-
     -- Mempool
 
     mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
@@ -578,8 +576,6 @@ runChainweb cw = do
         PowConsensus{} -> disabled
         TimedCPM{} -> enabled c
         Development -> enabled c
-        Testnet00 -> enabled c
-        Testnet01 -> enabled c
         Testnet02 -> enabled c
       where
         disabled = do
