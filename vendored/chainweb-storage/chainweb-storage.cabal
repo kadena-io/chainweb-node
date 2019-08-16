@@ -74,6 +74,7 @@ test-suite rocksdb-tests
         , bytestring >=0.10
         , exceptions >=0.10
         , lens >=4.16
+        , vector >=0.12
 
 executable dedup-profiling
     hs-source-dirs: tools
