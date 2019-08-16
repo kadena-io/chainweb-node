@@ -1,37 +1,21 @@
 {-# LANGUAGE CPP                        #-}
-{-# LANGUAGE DeriveAnyClass             #-}
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module TXGRepl where
 
 import Control.Monad
--- import Control.Monad.Catch
--- import Control.Monad.Reader
 import Control.Monad.State
--- import Control.Lens hiding ((.=))
 
 import Data.Aeson
--- import Data.Aeson.Types
--- import Data.ByteString (ByteString)
 import Data.Decimal
--- import Data.Foldable
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy
 import qualified Data.Text as T
 import Data.Text (Text)
--- import Data.Text.Encoding
-
-import GHC.Generics
 
 import Network.HTTP.Client hiding (Proxy(..))
 import Network.HTTP.Client.TLS
@@ -71,8 +55,6 @@ import TXG.Simulate.Utils
 -- for ghci
 
 data Builtin = Hello | Payments
-    deriving (Show, Eq, Ord, Bounded, Enum, Generic)
-    deriving anyclass (FromJSON, ToJSON)
 
 type Keyset = NEL.NonEmpty SomeKeyPair
 
@@ -88,17 +70,6 @@ type Balance = Decimal
 
 type Amount = Decimal
 
--- data CoinCode
---     = CoinCreateAccount Account Guard
---     | CoinAccountBalance Account
---     | CoinTransfer SenderName ReceiverName Amount
---     | CoinTransferAndCreate SenderName ReceiverName Amount  Keyset
-
--- data SimplePaymentsCode =
---     SPGetBalance Account
---     | SPPay Account Account Amount
---     | SPCreateAccount Account Balance Keyset
-
 data CallBuiltIn'
     = CC CoinContractRequest
     | SP SimplePaymentRequest (Maybe Keyset)
@@ -108,29 +79,6 @@ data TxContent
     = PactCode String
     | Define Builtin
     | CallBuiltin CallBuiltIn'
-
-{-
-data TxConfig = TxConfig
-    { txcfgVersion :: ChainwebVersion
-    , txcfgHostAddress :: HostAddress
-    , txcfgChainId :: ChainId
-    }
-    deriving Show
--}
-
-{-
-defaultTxConfig :: MonadThrow m => m TxConfig
-defaultTxConfig =
-    TxConfig Testnet02
-    <$> hostAddressFromText "us2.testnet.chainweb.com:443"
-    <*> chainIdFromText "0"
-
-mkTxConfig :: MonadThrow f => T.Text -> T.Text -> f TxConfig
-mkTxConfig hostaddress cid =
-    TxConfig Testnet02
-    <$> hostAddressFromText hostaddress
-    <*> chainIdFromText cid
--}
 
 genClientEnv :: HostAddress -> IO ClientEnv
 genClientEnv hostaddress = do
@@ -143,31 +91,16 @@ genClientEnv hostaddress = do
               ""
     pure $! mkClientEnv mgr url
 
-{-
-newtype Txg a = Txg {runTxg' :: ReaderT TxConfig IO a}
-  deriving newtype
-    (Functor
-    , Applicative
-    , Monad
-    , MonadIO
-    , MonadReader TxConfig)
-
-runTxg :: TxConfig -> Txg a -> IO a
-runTxg = flip $ runReaderT . runTxg'
--}
-
 easyTxToCommand :: TxContent -> IO (Command Text)
-easyTxToCommand = txToCommand defPubMeta
+easyTxToCommand txContent = do
+  ks <- testSomeKeyPairs
+  txToCommand defPubMeta ks txContent
 
-txToCommand :: PublicMeta -> TxContent -> IO (Command Text)
-txToCommand pubmeta = \case
+txToCommand :: PublicMeta -> Keyset -> TxContent -> IO (Command Text)
+txToCommand pubmeta ks = \case
   PactCode str -> easyCmd str
-  Define Hello -> do
-    ks <- testSomeKeyPairs
-    helloWorldContractLoader pubmeta ks
-  Define Payments -> do
-    ks <- testSomeKeyPairs
-    simplePaymentsContractLoader pubmeta ks
+  Define Hello -> helloWorldContractLoader pubmeta ks
+  Define Payments -> simplePaymentsContractLoader pubmeta ks
   CallBuiltin (CC coinReq) ->
     createCoinContractRequest pubmeta coinReq
   CallBuiltin (SP spReq mkeyset) ->
@@ -214,6 +147,21 @@ primCommand
     -> [SomeKeyPair]
     -> Maybe String -> IO (Command Text)
 primCommand = mkExec
+
+simplePoll :: RequestKeys -> IO (Either ClientError PollResponses)
+simplePoll rkeys = do
+  h <- hostAddressFromText defHostAddressText
+  primPoll defChainwebVersion defChainId h rkeys
+
+primPoll
+    :: ChainwebVersion
+    -> ChainId
+    -> HostAddress
+    -> RequestKeys
+    -> IO (Either ClientError PollResponses)
+primPoll v cid h rkeys = do
+  ce <- genClientEnv h
+  runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
 
 api version chainid =
     case someChainwebVersionVal version of
