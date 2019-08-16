@@ -201,16 +201,12 @@ initializeCoinContract
 initializeCoinContract v cid mpa pwo = do
     cp <- view (psCheckpointEnv . cpeCheckpointer)
     genesisExists <- liftIO $ lookupBlockInCheckpointer cp (0, ghash)
-    when (not genesisExists) createCoinContract
-
+    unless genesisExists $ do
+        txs <- execValidateBlock mpa genesisHeader inputPayloadData
+        bitraverse_ throwM pure $ validateHashes txs genesisHeader
   where
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
-
-    createCoinContract :: ReaderT (PactServiceEnv cas) (StateT PactServiceState IO) ()
-    createCoinContract = do
-        txs <- execValidateBlock mpa genesisHeader inputPayloadData
-        bitraverse_ throwM pure $ validateHashes txs genesisHeader
 
     inputPayloadData :: PayloadData
     inputPayloadData = payloadWithOutputsToPayloadData pwo
