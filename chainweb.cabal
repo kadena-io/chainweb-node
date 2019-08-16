@@ -578,6 +578,7 @@ executable cwtool
         , bytes >= 0.15
         , bytestring >= 0.10
         , chainweb-storage >= 0.1
+        , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
         , data-default >= 0.7
@@ -626,6 +627,7 @@ executable cwtool
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
+        , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
         , xmlgen >= 0.6
