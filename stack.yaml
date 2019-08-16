@@ -46,4 +46,4 @@ extra-deps:
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
   - github: kadena-io/chainweb-storage
-    commit: 351ace4436b1d88f96e9d17dfeecfcb58f205027
+    commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
