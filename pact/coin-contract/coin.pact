@@ -115,7 +115,24 @@
       )
     )
 
-  (defun transfer:string (sender:string receiver:string receiver-guard:guard amount:decimal)
+  (defun transfer:string (sender:string receiver:string amount:decimal)
+
+    (enforce (not (= sender receiver))
+      "sender cannot be the receiver of a transfer")
+
+    (enforce (> amount 0.0)
+      "transfer amount must be positive")
+
+    (with-capability (TRANSFER)
+      (debit sender amount)
+      (with-read coin-table receiver
+        { "guard" := g }
+
+        (credit receiver g amount))
+      )
+    )
+
+  (defun transfer-and-create:string (sender:string receiver:string receiver-guard:guard amount:decimal)
 
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")

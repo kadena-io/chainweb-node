@@ -1,4 +1,3 @@
-
 (interface coin-sig
 
   "'coin-sig' represents the Kadena Coin Contract interface. This contract     \
@@ -10,7 +9,17 @@
     @model [ (property (not (= account ""))) ]
     )
 
-  (defun transfer:string (sender:string receiver:string receiver-guard:guard amount:decimal)
+  (defun transfer:string (sender:string receiver:string amount:decimal)
+    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
+    \This fails if both accounts do not exist. Create-on-transfer can be      \
+    \handled by sending in a create command in the same tx."
+
+    @model [ (property (> amount 0.0))
+             (property (not (= sender receiver)))
+           ]
+    )
+
+  (defun transfer-and-create:string (sender:string receiver:string receiver-guard:guard amount:decimal)
     @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
     \This fails if both accounts do not exist. Create-on-transfer can be      \
     \handled by sending in a create command in the same tx."
