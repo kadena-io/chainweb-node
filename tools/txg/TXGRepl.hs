@@ -37,6 +37,7 @@ import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.ChainMeta
 import Pact.Types.Crypto
+import Pact.Types.Hash
 
 -- chainweb imports
 
@@ -165,6 +166,23 @@ primPoll v cid h rkeys = do
     ce <- genClientEnv h
     runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
 
+easyLocal
+   :: Command Text
+   -> IO (Either ClientError (CommandResult Hash))
+easyLocal cmd = do
+    hostaddress <- hostAddressFromText defHostAddressText
+    primLocal defChainwebVersion defChainId hostaddress cmd
+
+primLocal
+    :: ChainwebVersion
+    -> ChainId
+    -> HostAddress
+    -> Command Text
+    -> IO (Either ClientError (CommandResult Hash))
+primLocal v cid h cmd = do
+    ce <- genClientEnv h
+    runClientM (local v cid cmd) ce
+
 api version chainid =
     case someChainwebVersionVal version of
       SomeChainwebVersionT (_ :: Proxy cv) ->
@@ -195,6 +213,15 @@ listen
 listen version chainid = go
   where
     _ :<|> _ :<|> go :<|> _ = api version chainid
+
+local
+    :: ChainwebVersion
+    -> ChainId
+    -> Command Text
+    -> ClientM (CommandResult Hash)
+local version chainid = go
+  where
+    _ :<|> _ :<|> _ :<|> go = api version chainid
 
 generateDefaultSimpleCommands :: Int -> IO [Command Text]
 generateDefaultSimpleCommands batchsize =
