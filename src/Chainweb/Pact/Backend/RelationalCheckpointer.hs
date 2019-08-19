@@ -16,7 +16,6 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
   ) where
 
 import Control.Concurrent.MVar
-import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
@@ -82,7 +81,9 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doSave db)
               (doDiscard db)
               (doGetLatest db)
-              (doWithAtomicRewind db)
+              (doBeginBatch db)
+              (doCommitBatch db)
+              (doDiscardBatch db)
               (doLookupBlock db)
               (doGetBlockParent db)
               (doRegisterSuccessful db)
@@ -175,14 +176,14 @@ doGetLatest dbenv =
         in return $! (fromIntegral hgt, hash)
     go _ = fail "impossible"
 
-doWithAtomicRewind :: Db -> IO a -> IO a
-doWithAtomicRewind db m = mask $ \r -> do
-    r (runBlockEnv db $ beginSavepoint RewindSavepoint)
-    a <- r m `onException` rollback
-    r (runBlockEnv db $ commitSavepoint RewindSavepoint)
-    return a
-  where
-    rollback = runBlockEnv db (rollbackSavepoint RewindSavepoint)
+doBeginBatch :: Db -> IO ()
+doBeginBatch db = runBlockEnv db $ beginSavepoint BatchSavepoint
+
+doCommitBatch :: Db -> IO ()
+doCommitBatch db = runBlockEnv db $ commitSavepoint BatchSavepoint
+
+doDiscardBatch :: Db -> IO ()
+doDiscardBatch db = runBlockEnv db $ rollbackSavepoint BatchSavepoint
 
 doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do

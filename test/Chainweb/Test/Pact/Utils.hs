@@ -286,7 +286,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-    evalPactServiceM ctx (initialPayloadState v cid mempty)
+    evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False
@@ -309,7 +309,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
       <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-    evalPactServiceM ctx (initialPayloadState v cid mempty)
+    evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False
@@ -339,7 +339,7 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock mempoolAccess h d
+            evalPactServiceM ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
@@ -438,7 +438,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-      evalPactServiceM ctx (initialPayloadState v cid mempty)
+      evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree

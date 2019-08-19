@@ -59,7 +59,9 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     (doSave inmem)
                     (doDiscard inmem)
                     (doGetLatest inmem)
-                    id  -- in-mem doesn't require tx rewind
+                    noop        -- in-mem doesn't batch
+                    noop
+                    noop
                     (doLookupBlock inmem)
                     (doGetBlockParent inmem)
                     (doRegisterSuccessful inmem)
@@ -67,6 +69,8 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
+  where
+    noop = return ()
 
 doRestore :: DbEnv PureDb -> MVar Store ->  Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore _ lock (Just (height, hash)) =

@@ -280,10 +280,9 @@ data Checkpointer = Checkpointer
       -- ^ discard pending block changes
     , getLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
       -- ^ get the checkpointer's idea of the latest block
-    , withAtomicRewind :: forall a . IO a -> IO a
-      -- ^ in the event of rewind we may wish to play through many blocks. In
-      -- the event of any of them failing, we should discard the whole
-      -- transaction in total.
+    , beginCheckpointerBatch :: IO ()
+    , commitCheckpointerBatch :: IO ()
+    , discardCheckpointerBatch :: IO ()
     , lookupBlockInCheckpointer :: (BlockHeight, BlockHash) -> IO Bool
       -- ^ is the checkpointer aware of the given block?
     , getBlockParent :: (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
