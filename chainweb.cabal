@@ -374,6 +374,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
+        Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -433,6 +434,7 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
+        , scheduler >= 1.4
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14

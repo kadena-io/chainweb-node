@@ -30,6 +30,7 @@ import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Sync
+import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
@@ -101,6 +102,7 @@ suite rdb =
         , Chainweb.Test.Mempool.InMem.tests rdb
         , Chainweb.Test.Mempool.Sync.tests rdb
         , Chainweb.Test.Mempool.RestAPI.tests rdb
+        , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
