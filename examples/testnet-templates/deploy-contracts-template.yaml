@@ -1,16 +1,11 @@
-chainwebNodePort:
-  _chainwebPort: 443
 isChainweb: true
-nodeChainId: 0
-serverRootPrefix: https://us1.chainweb.com
-chainwebVersion: testnet00
-timingDistribution:
-  mean: 1000000
-  tag: Gaussian
-  var: 62500
+batchSize: 1
+chainwebVersion: development
+hostAddresses:
+- hostname: us1.chainweb.com
+  port: 443
 scriptCommand:
   tag: DeployContracts
-  contents:
-    - []
-    - _getOption: false
+  contents: []
+nodeChainIds: []
 logHandle: stdout
