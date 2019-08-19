@@ -43,11 +43,13 @@ import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as SB
+import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
@@ -322,6 +324,42 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
+-- | Read row from coin-table defined in coin contract, retrieving balance and keyset
+-- associated with account name
+--
+readCoinAccount
+    :: forall e
+    . PactDbEnv'
+      -- ^ pact db backend (sqlite)
+    -> Text
+      -- ^ account name
+    -> IO (T2 Decimal P.Guard)
+readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a =
+    pdbv & _readRow pdb $ (UserTables "coin-table") a
+
+-- | Read row from coin-table defined in coin contract, retrieving balance
+-- associated with account name
+--
+readAccountBalance
+    :: forall e
+    . PactDbEnv'
+      -- ^ pact db backend (sqlite)
+    -> Text
+      -- ^ account name
+    -> IO Decimal
+readAccountBalance pdb account = sfst <$> readCoinAccount pdb account
+
+-- | Read row from coin-table defined in coin contract, retrieving guard
+-- associated with account name
+--
+readAccountGuard
+    :: forall e
+    . PactDbEnv'
+      -- ^ pact db backend (sqlite)
+    -> Text
+      -- ^ account name
+    -> IO Decimal
+readAccountGuard pdb account = ssnd <$> readCoinAccount pdb account
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be

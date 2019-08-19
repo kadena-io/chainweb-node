@@ -173,6 +173,8 @@ module Chainweb.Utils
 -- * Strict tuple-2 accessors
 , sfst
 , ssnd
+, scurry
+, suncurry
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -1143,9 +1145,22 @@ concurrentWith alloc inner params = do
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
 
+-- | First projections for strict tuples
+--
 sfst :: T2 a b -> a
 sfst (T2 a _) = a
 
+-- | Second projections for strict tuples
+--
 ssnd :: T2 a b -> b
 ssnd (T2 _ b) = b
 
+-- | Currying for functions of strict tuples
+--
+scurry :: forall a b c. ((T2 a b) -> c) -> a -> b -> c
+scurry k a b = k (T2 a b)
+
+-- | Uncurrying for functions of strict tuples
+--
+suncurry :: forall a b c. (a -> b -> c) -> T2 a b -> c
+suncurry k (T2 a b) = k a b
