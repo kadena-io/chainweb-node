@@ -430,11 +430,11 @@ withBlockData
 withBlockData bhe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
     & locally (psPublicData . P.pdBlockTime) (const bt)
-    & locally (psPublicData . P.pdPrevBlockHash) (const ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
   where
     (BlockHeight !bh) = _blockHeight bhe
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) = _blockCreationTime bhe
-    !ph = sshow $ _blockParent bhe
+    (BlockHash !ph) = _blockParent bhe
 
 -- | Run a pact service action with public blockheader data fed into the
 -- reader environment where the block header is a -parent- header
@@ -450,10 +450,10 @@ withParentBlockData
     -> PactServiceM cas a
 withParentBlockData phe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
-    & locally (psPublicData . P.pdPrevBlockHash) (const ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
   where
     (BlockHeight !bh) = succ $ _blockHeight phe
-    !ph = sshow $ _blockHash phe
+    (BlockHash !ph) = sshow $ _blockHash phe
 
 playOneBlock
     :: MemPoolAccess
