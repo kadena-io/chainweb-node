@@ -1,14 +1,15 @@
 isChainweb: true
-nodeChainId: 0
-chainwebHostAddress:
-  hostname: https://us1.chainweb.com
+batchSize: 1
+chainwebVersion: timedCPM-peterson
+hostAddresses:
+- hostname: us1.chainweb.com
   port: 443
-chainwebVersion: testnet00
 scriptCommand:
   tag: RunStandardContracts
   contents:
-  - mean: 1000000
-    tag: Gaussian
-    var: 62500
-  - measureTime: false
+    tag: GaussianTD
+    contents:
+      mean: 1000000
+      var: 62500
+nodeChainIds: []
 logHandle: stdout
