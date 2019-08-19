@@ -453,7 +453,7 @@ withParentBlockData phe action = action
     & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
   where
     (BlockHeight !bh) = succ $ _blockHeight phe
-    (BlockHash !ph) = sshow $ _blockHash phe
+    (BlockHash !ph) = _blockHash phe
 
 playOneBlock
     :: MemPoolAccess
