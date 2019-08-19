@@ -49,8 +49,8 @@ import qualified Data.Vector as Vector
 import GHC.Stats
 import GHC.Generics
 
-import Network.Wai
-import Network.Wai.Handler.Warp
+-- import Network.Wai
+-- import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
@@ -108,12 +108,12 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
-import Chainweb.RestAPI
-import Chainweb.RestAPI.NetworkID
+-- import Chainweb.RestAPI
+-- import Chainweb.RestAPI.NetworkID
 import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Transaction
 import Chainweb.Utils
-import Chainweb.Utils.RequestLog
+-- import Chainweb.Utils.RequestLog
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
@@ -587,6 +587,12 @@ runChainweb'
 runChainweb' cw = do
     logg Info "start chainweb node"
 
+    -- miner
+    withAsync miner wait
+
+    -- forever (threadDelay 1000000)
+
+{-
     -- 1. Start serving Rest API
     --
     withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \_server ->
@@ -606,9 +612,16 @@ runChainweb' cw = do
         mapConcurrently_ id clients
         wait server
         -}
-
+-}
   where
     logg = logFunctionText $ _chainwebLogger cw
+    miner = maybe go (\m -> runMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
+        where
+          go = do
+            logg Warn "No miner configured. Starting consensus without mining."
+            forever (threadDelay 1000000)
+    -- miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
+{-
 
     -- chains
     _chains = HM.toList (_chainwebChains cw)
@@ -691,7 +704,7 @@ runChainweb' cw = do
         enabled conf = do
           logg Info "Mempool p2p sync enabled"
           return $ map (runMempoolSyncClient mgr conf) _chainVals
-
+-}
 
 
 data StandaloneConfiguration = StandaloneConfiguration
