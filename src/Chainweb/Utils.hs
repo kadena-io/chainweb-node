@@ -60,17 +60,6 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 
--- * Diffs
-, DiffItem(..)
-, mapDiffItem
-, leftDiffItem
-, rightDiffItem
-, foldrDiffItem
-, leftItem
-, rightItem
-, traverseDiffItem
-, resolve
-
 -- * Encoding and Serialization
 , EncodingException(..)
 
@@ -358,64 +347,6 @@ class IxedGet a where
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg = ix
     {-# INLINE ixg #-}
-
--- -------------------------------------------------------------------------- --
--- * Diffs
-
--- | An difference between to collection of values.
---
-data DiffItem a
-    = LeftD a
-        -- ^ the item @a@ is present only in the left collection.
-    | RightD a
-        -- ^ the item @a@ is present only in the right collection.
-    | BothD a a
-        -- ^ the item is is present only in both collection and has the given
-        -- values.
-    deriving (Show, Eq, Ord, Generic, Hashable, Functor, Foldable, Traversable)
-
-mapDiffItem :: (a -> b) -> (a -> b) -> DiffItem a -> DiffItem b
-mapDiffItem f _ (LeftD a) = LeftD (f a)
-mapDiffItem _ g (RightD b) = RightD (g b)
-mapDiffItem f g (BothD a b) = BothD (f a) (g b)
-
-leftDiffItem :: (a -> a) -> DiffItem a -> DiffItem a
-leftDiffItem f = mapDiffItem f id
-{-# INLINE leftDiffItem #-}
-
-rightDiffItem :: (a -> a) -> DiffItem a -> DiffItem a
-rightDiffItem g = mapDiffItem id g
-{-# INLINE rightDiffItem #-}
-
-foldrDiffItem :: (a -> c -> c) -> (a -> c -> c) -> c -> DiffItem a -> c
-foldrDiffItem f _ c (LeftD a) = f a c
-foldrDiffItem _ g c (RightD b) = g b c
-foldrDiffItem f g c (BothD a b) = f a (g b c)
-
-leftItem :: Alternative f => DiffItem a -> f a
-leftItem = foldrDiffItem (const . pure) (\_ _ -> empty) empty
-{-# INLINE leftItem #-}
-
-rightItem :: Alternative f => DiffItem a -> f a
-rightItem = foldrDiffItem (\_ _ -> empty) (const . pure) empty
-{-# INLINE rightItem #-}
-
-traverseDiffItem
-    :: Applicative f
-    => (a -> f b)
-    -> (a -> f b)
-    -> DiffItem a
-    -> f (DiffItem b)
-traverseDiffItem f _ (LeftD a) = LeftD <$> f a
-traverseDiffItem _ g (RightD b) = RightD <$> g b
-traverseDiffItem f g (BothD a b) = BothD <$> f a <*> g b
-
--- | Resolve a difference by applying a function to the content of a 'DiffItem'.
---
-resolve :: (a -> b) -> (a -> b) -> (a -> a -> b) -> DiffItem a -> b
-resolve l _ _ (LeftD a) = l a
-resolve _ r _ (RightD a) = r a
-resolve _ _ m (BothD a b) = m a b
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization

@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RankNTypes #-}
@@ -81,6 +83,7 @@ import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Error.Util (note)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
+import Data.Aeson (ToJSON)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -93,23 +96,26 @@ import Options.Applicative
 import Servant.API
 import Servant.Server (Application, Server, serve)
 
+import Text.Pretty.Simple (pPrintNoColor)
+
 -- internal modules
 import Chainweb.BlockHeader
 import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.Miner.Miners (MiningAPI)
 import Chainweb.RestAPI.Orphans ()
-import Chainweb.Utils (int)
+import Chainweb.Utils (int, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
 -- Servant
 
-type API = "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
-    :<|> "poll" :> Capture "chainid" ChainId
-                :> Capture "blockheight" BlockHeight
-                :> Get '[JSON] (Maybe BlockHeader)
+type API = "env" :> Get '[JSON] ClientArgs
+    :<|> MiningAPI
 
 server :: Env -> Server API
-server e = liftIO . submit e :<|> (\cid h -> liftIO $ poll e cid h)
+server e = pure (args e)
+    :<|> liftIO . submit e
+    :<|> (\cid h -> liftIO $ poll e cid h)
 
 app :: Env -> Application
 app = serve (Proxy :: Proxy API) . server
@@ -119,16 +125,20 @@ app = serve (Proxy :: Proxy API) . server
 
 type ResultMap = Map (T2 ChainId BlockHeight) BlockHeader
 
+data ClientArgs = ClientArgs
+    { cores :: Word16
+    , version :: ChainwebVersion
+    , port :: Int
+    } deriving (Show, Generic, ToJSON)
+
 data Env = Env
     { work :: TMVar BlockHeader
     , results :: TVar ResultMap
-    , cores :: Word16
-    , version :: ChainwebVersion
-    , port :: Int
+    , args :: ClientArgs
     }
 
-pEnv :: TMVar BlockHeader -> TVar ResultMap -> Parser Env
-pEnv tbh thm = Env tbh thm <$> pCores <*> pVersion <*> pPort
+pClientArgs :: Parser ClientArgs
+pClientArgs = ClientArgs <$> pCores <*> pVersion <*> pPort
 
 pCores :: Parser Word16
 pCores = option auto
@@ -138,9 +148,12 @@ pCores = option auto
 pVersion :: Parser ChainwebVersion
 pVersion = option cver
     (long "version" <> metavar "VERSION"
-     <> value Development
-     <> help "Chainweb Network Version (default: development)")
+     <> value defv
+     <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
   where
+    defv :: ChainwebVersion
+    defv = Development
+
     cver :: ReadM ChainwebVersion
     cver = eitherReader $ \s ->
         note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
@@ -155,13 +168,14 @@ pPort = option auto
 
 main :: IO ()
 main = do
-    env <- (opts <$> newEmptyTMVarIO <*> newTVarIO mempty) >>= execParser
+    env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> execParser opts
     miner <- async $ mining env
-    W.run (port env) $ app env
+    pPrintNoColor $ args env
+    W.run (port $ args env) $ app env
     wait miner
   where
-    opts :: TMVar BlockHeader -> TVar ResultMap -> ParserInfo Env
-    opts tbh thm = info (pEnv tbh thm <**> helper)
+    opts :: ParserInfo ClientArgs
+    opts = info (pClientArgs <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
@@ -218,10 +232,10 @@ mining e = do
     -- pruning.
     --
     cap :: Natural
-    cap = 256 * (order . _chainGraph $ version e)
+    cap = 256 * (order . _chainGraph . version $ args e)
 
     comp :: Comp
-    comp = case cores e of
+    comp = case cores $ args e of
         1 -> Seq
         n -> ParN n
 
@@ -229,5 +243,5 @@ mining e = do
     -- found some legal result.
     go :: BlockHeader -> IO BlockHeader
     go bh = fmap head . withScheduler comp $ \sch ->
-        replicateWork (int $ cores e) sch $
-            usePowHash (version e) mine bh >>= terminateWith sch
+        replicateWork (int . cores $ args e) sch $
+            usePowHash (version $ args e) mine bh >>= terminateWith sch

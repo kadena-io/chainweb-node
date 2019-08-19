@@ -1,12 +1,11 @@
 isChainweb: true
-nodeChainId: 0
-chainwebHostAddress:
-  hostname: 127.0.0.1
+batchSize: 1
+chainwebVersion: timedCPM-peterson
+hostAddresses:
+- hostname: 127.0.0.1
   port: 1789
-chainwebVersion: testWithTime-peterson
 scriptCommand:
   tag: DeployContracts
-  contents:
-  - []
-  - measureTime: false
+  contents: []
+nodeChainIds: []
 logHandle: stdout
