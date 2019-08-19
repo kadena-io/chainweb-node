@@ -60,10 +60,6 @@ module Chainweb.Utils
 , (&)
 , IxedGet(..)
 
--- * Diffs
-, DiffItem(..)
-, resolve
-
 -- * Encoding and Serialization
 , EncodingException(..)
 
@@ -351,28 +347,6 @@ class IxedGet a where
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg = ix
     {-# INLINE ixg #-}
-
--- -------------------------------------------------------------------------- --
--- * Diffs
-
--- | An difference between to collection of values.
---
-data DiffItem a
-    = LeftD a
-        -- ^ the item @a@ is present only in the left collection.
-    | RightD a
-        -- ^ the item @a@ is present only in the right collection.
-    | BothD a a
-        -- ^ the item is is present only in both collection and has the given
-        -- values.
-    deriving (Show, Eq, Ord, Generic, Hashable, Functor, Foldable, Traversable)
-
--- | Resolve a difference by applying a function to the content of a 'DiffItem'.
---
-resolve :: (a -> b) -> (a -> b) -> (a -> a -> b) -> DiffItem a -> b
-resolve l _ _ (LeftD a) = l a
-resolve _ r _ (RightD a) = r a
-resolve _ _ m (BothD a b) = m a b
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
