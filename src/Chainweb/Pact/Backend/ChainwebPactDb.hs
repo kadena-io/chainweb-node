@@ -563,8 +563,6 @@ indexPendingPactTransactions :: BlockHandler SQLiteEnv ()
 indexPendingPactTransactions = do
     txs <- (\(_, _, _, a) -> a) <$> gets _bsPendingBlock
     dbIndexTransactions txs
-    -- this shouldn't be necessary since we will nuke all pending state on save.
-    -- modify' (over bsPendingBlock $ \(a, b, c, _) -> (a, b, c, mempty))
 
   where
     toRow bh b = [SBlob b, SInt bh]
