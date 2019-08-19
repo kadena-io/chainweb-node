@@ -20,6 +20,8 @@ module Chainweb.Chainweb.MinerResources
   , runMiner
   ) where
 
+import qualified Data.List.NonEmpty as NEL
+import qualified Data.Set.NonEmpty as NES
 import qualified Data.Text as T
 
 import Network.HTTP.Client (defaultManagerSettings, newManager)
@@ -101,11 +103,11 @@ runMiner v mr = do
         pure $ localTest gen miners
 
     powMiner :: IO (BlockHeader -> IO BlockHeader)
-    powMiner = case _configRemoteMiners conf of
-        [] -> pure $ localPOW v
-        rs -> do
+    powMiner = case NEL.nonEmpty $ _configRemoteMiners conf of
+        Nothing -> pure $ localPOW v
+        Just rs -> do
             m <- newManager defaultManagerSettings
-            pure . remoteMining m $ map f rs
+            pure . remoteMining m . NES.fromList $ NEL.map f rs
 
     f :: HostAddress -> BaseUrl
     f (HostAddress hn p) = BaseUrl Http hn' p' ""
