@@ -77,10 +77,10 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
-    for_ [Development, Testnet00, Testnet01, Testnet02] $ \v -> do
+    for_ [(Development, "Development"), (Testnet02, "Testnet")] $ \(v, tag) -> do
         let txs = bool txs0 [defCoinContractSig, defCoinContract, defGrants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
-        genPayloadModule v txs
+        genPayloadModule v tag txs
     putStrLn "Done."
   where
     opts = info (pEnv <**> helper)
@@ -93,17 +93,14 @@ defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
 
 defGrants :: FilePath
-defGrants = "pact/genesis/testnet00/grants.yaml"
-
-moduleName :: ChainwebVersion -> Text
-moduleName = T.toTitle . chainwebVersionToText
+defGrants = "pact/genesis/testnet/grants.yaml"
 
 ---------------------
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> [FilePath] -> IO ()
-genPayloadModule v txFiles =
+genPayloadModule :: ChainwebVersion -> Text -> [FilePath] -> IO ()
+genPayloadModule v tag txFiles =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
         rawTxs <- traverse mkTx txFiles
@@ -122,23 +119,23 @@ genPayloadModule v txFiles =
                          execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
-            modl = T.unlines $ startModule v <> [payloadYaml] <> endModule
-            fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> "Payload.hs"
+            modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
+            fileName = "src/Chainweb/BlockHeader/Genesis/" <> tag <> "Payload.hs"
 
         TIO.writeFile (T.unpack fileName) modl
   where
     fixupPayload cmdBS c =
         return $! fmap (\bs -> PayloadWithText bs (_cmdPayload c))
                        (SB.toShort <$> cmdBS)
-    cid = someChainId Testnet00
+    cid = someChainId v
 
-startModule :: ChainwebVersion -> [Text]
-startModule v =
+startModule :: Text -> [Text]
+startModule tag =
     [ "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
     , ""
-    , "module Chainweb.BlockHeader.Genesis." <> moduleName v <> "Payload ( payloadBlock ) where"
+    , "module Chainweb.BlockHeader.Genesis." <> tag <> "Payload ( payloadBlock ) where"
     , ""
     , "import Data.Text.Encoding (encodeUtf8)"
     , "import Data.Yaml (decodeThrow)"

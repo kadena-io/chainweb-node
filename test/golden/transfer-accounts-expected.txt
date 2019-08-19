@@ -1,6 +1,6 @@
 - output: mZVwyjWM4J_uL_t19LWkBTifxamy2nnnEamh2ejlzlY
   cmd: coinbase
-- output: aZnUTCRE6iNRZH8fQpJ2GARQUeX4dh04PCqJRRLgnuI
+- output: USSVypMbb47NOo-RmmqnKJT8RN92fEGDk5Qf71QO6Jk
   cmd:
     tag: Code
     contents: (test1.transfer "Acct1" "Acct2" 1.00)

@@ -100,9 +100,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.Testnet00Payload
-        , Chainweb.BlockHeader.Genesis.Testnet01Payload
-        , Chainweb.BlockHeader.Genesis.Testnet02Payload
+        , Chainweb.BlockHeader.Genesis.TestnetPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -549,6 +547,7 @@ executable cwtool
         RunNodes
         SlowTests
         TXG
+        TXGRepl
         TXG.Simulate.Contracts.CoinContract
         TXG.Simulate.Contracts.Common
         TXG.Simulate.Contracts.HelloWorld
