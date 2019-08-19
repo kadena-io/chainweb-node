@@ -50,6 +50,7 @@ import GHC.Stats
 import GHC.Generics
 
 import Network.Wai
+import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
@@ -107,6 +108,8 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.RestAPI
+import Chainweb.RestAPI.NetworkID
 import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -172,7 +175,7 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
                     & set pmGasPrice 0.1
                     & set pmChainId (PactChain.ChainId (chainIdToText cidd))
                   msg = Exec (ExecMsg c dd)
-                  -- This might need to be something more fleshed out.
+                  -- TODO: This might need to be something more fleshed out.
                   nonce = T.pack $ show height
               ks <- testKeyPairs
               cmd <- mkCommand ks pm nonce msg
@@ -587,7 +590,8 @@ runChainweb' cw = do
     -- 1. Start serving Rest API
     --
     withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \_server ->
-        forever (threadDelay 1000000)
+        wait _server
+        -- forever (threadDelay 1000000)
         {-
         logg Info "started server"
 
@@ -611,27 +615,24 @@ runChainweb' cw = do
     _chainVals = map snd _chains
 
     -- collect server resources
-    _proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    _proj f = flip map _chains $ \(k, ch) -> (k, f ch)
+    proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
+    proj f = flip map _chains $ \(k, ch) -> (k, f ch)
 
-    _chainDbsToServe = _proj _chainResBlockHeaderDb
-    _mempoolsToServe = _proj _chainResMempool
-    -- chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
-    -- memP2pToServe = bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+    chainDbsToServe = proj _chainResBlockHeaderDb
+    mempoolsToServe = proj _chainResMempool
+    chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+    memP2pToServe = bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
-    _payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
-    _pactDbsToServe = _chainwebPactData cw
+    payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+    pactDbsToServe = _chainwebPactData cw
 
-    {-
     serverSettings
         = setOnException
             (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
         $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
-    -}
 
-    serve = return undefined
+    -- serve = return undefined
 
-    {-
     serve = serveChainwebSocketTls
         serverSettings
         (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
@@ -646,26 +647,25 @@ runChainweb' cw = do
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe
             }
-    -}
 
     -- HTTP Request Logger
 
     httpLog :: Middleware
     httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
 
-    _loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
-    _loggServerError Nothing e = "HTTP server error: " <> sshow e
+    loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
+    loggServerError Nothing e = "HTTP server error: " <> sshow e
 
     -- Cut DB and Miner
 
-    _cutDb = _cutResCutDb $ _chainwebCutResources cw
-    _cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
+    cutDb = _cutResCutDb $ _chainwebCutResources cw
+    cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
 
     _miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
 
     -- Configure Clients
 
-    _mgr = _chainwebManager cw
+    mgr = _chainwebManager cw
 
 
     -- Mempool
@@ -690,7 +690,7 @@ runChainweb' cw = do
           return []
         enabled conf = do
           logg Info "Mempool p2p sync enabled"
-          return $ map (runMempoolSyncClient _mgr conf) _chainVals
+          return $ map (runMempoolSyncClient mgr conf) _chainVals
 
 
 
