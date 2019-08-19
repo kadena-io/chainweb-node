@@ -23,7 +23,7 @@
 -- > became enamoured of its beauty, and of its history which they saw beginning
 -- > and unfolding as in a vision. Therefore Ilúvatar gave to their vision Being,
 -- > and set it amid the Void, and the Secret Fire was sent to burn at the heart
--- > of the World; and it was called Eä.  -- The Silmarillion - Ainulindalë
+-- > of the World; and it was called Eä.  -- The Silmarillion - Valaquenta
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
