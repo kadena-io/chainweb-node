@@ -387,13 +387,22 @@ execLocal cmd = do
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
 
-    !pdbst <- restoreCheckpointer $ Just (succ $ _blockHeight bh, _blockHash bh)
+    let bhe@(BlockHeight !bhe') = succ $ _blockHeight bh
+        bha@(BlockHash !bha') = _blockHash bh
+
+    !pdbst <- restoreCheckpointer $ Just (bhe, bha)
 
     case pdbst of
         PactDbEnv' pactdbenv -> do
             PactServiceEnv{..} <- ask
+
+            let pd = _psPublicData
+                  { P._pdBlockHeight = bhe'
+                  , P._pdPrevBlockHash = toText bha'
+                  }
+
             r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
-                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
+                 pd _psSpvSupport (fmap payloadObj cmd)
             discardCheckpointer
             return $! toHashCommandResult r
 
@@ -421,11 +430,11 @@ withBlockData
 withBlockData bhe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
     & locally (psPublicData . P.pdBlockTime) (const bt)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const ph)
   where
     (BlockHeight !bh) = _blockHeight bhe
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) = _blockCreationTime bhe
-    (BlockHash !ph) = _blockParent bhe
+    !ph = sshow $ _blockParent bhe
 
 -- | Run a pact service action with public blockheader data fed into the
 -- reader environment where the block header is a -parent- header
@@ -441,10 +450,10 @@ withParentBlockData
     -> PactServiceM cas a
 withParentBlockData phe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const ph)
   where
     (BlockHeight !bh) = succ $ _blockHeight phe
-    (BlockHash !ph) = _blockHash phe
+    !ph = sshow $ _blockHash phe
 
 playOneBlock
     :: MemPoolAccess
