@@ -1,14 +1,15 @@
 isChainweb: true
-nodeChainId: 0
-chainwebHostAddress:
-  hostname: 127.0.0.1
+batchSize: 1
+chainwebVersion: timedCPM-peterson
+hostAddresses:
+- hostname: 127.0.0.1
   port: 1789
-chainwebVersion: testWithTime-peterson
 scriptCommand:
   tag: RunSimpleExpressions
   contents:
-  - mean: 1000000
-    tag: Gaussian
-    var: 62500
-  - measureTime: false
+    tag: GaussianTD
+    contents:
+      mean: 1000000
+      var: 62500
+nodeChainIds: []
 logHandle: stdout
