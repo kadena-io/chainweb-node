@@ -89,6 +89,7 @@ import Data.Kind
 import qualified Data.List as L
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
+import Data.These
 import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -699,8 +700,8 @@ branchDiff
     => db
     -> DbEntry db
     -> DbEntry db
-    -> S.Stream (Of (DiffItem (DbEntry db))) IO ()
-branchDiff db l r = branchDiff_ db l r >>= \i -> S.yield (BothD i i)
+    -> S.Stream (Of (These (DbEntry db) (DbEntry db))) IO ()
+branchDiff db l r = branchDiff_ db l r >>= \i -> S.yield (These i i)
 
 -- | Compares two branches of a 'TreeDb'. The fork entry is returned as the
 -- result of the stream computation.
@@ -712,21 +713,21 @@ branchDiff_
     => db
     -> DbEntry db
     -> DbEntry db
-    -> S.Stream (Of (DiffItem (DbEntry db))) IO (DbEntry db)
+    -> S.Stream (Of (These (DbEntry db) (DbEntry db))) IO (DbEntry db)
 branchDiff_ db = go
   where
     go l r
         | key l == key r = return l
         | rank l > rank r = do
-            S.yield (LeftD l)
+            S.yield (This l)
             lp <- step l
             go lp r
         | rank r > rank l = do
-            S.yield (RightD r)
+            S.yield (That r)
             rp <- step r
             go l rp
         | otherwise = do
-            S.yield (BothD l r)
+            S.yield (These l r)
             lp <- step l
             rp <- step r
             go lp rp
@@ -757,10 +758,12 @@ collectForkBlocks db lastHeader newHeader = do
             -- removing the common branch block with tail -- the lists should never be empty
             Left _ -> return (oldBlocks, newBlocks)
 
-            Right (LeftD blk, strm) -> go strm (blk:oldBlocks, newBlocks)
-            Right (RightD blk, strm) -> go strm (oldBlocks, blk:newBlocks)
-            Right (BothD lBlk rBlk, strm) -> go strm ( lBlk:oldBlocks,
-                                                       rBlk:newBlocks )
+            Right (This blk, strm) ->
+                go strm (blk:oldBlocks, newBlocks)
+            Right (That blk, strm) ->
+                go strm (oldBlocks, blk:newBlocks)
+            Right (These lBlk rBlk, strm) ->
+                go strm (lBlk:oldBlocks, rBlk:newBlocks)
 {-# INLINE collectForkBlocks #-}
 
 -- -------------------------------------------------------------------------- --

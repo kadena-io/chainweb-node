@@ -144,6 +144,7 @@ library
         , Chainweb.Miner.Config
         , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
+        , Chainweb.Miner.Miners
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
@@ -305,6 +306,7 @@ library
         , resourcet >= 1.2
         , safeio >= 0.0
         , safe-exceptions >= 0.1
+        , scheduler >= 1.4
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -322,6 +324,7 @@ library
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2
+        , these >= 0.7 && < 1
         , time >= 1.8
         , tls >=1.5
         , token-bucket >= 0.1
@@ -514,12 +517,14 @@ executable chainweb-miner
           chainweb
 
         -- external
+        , aeson >= 1.4
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , containers >= 0.5
         , errors >= 2.3
         , optparse-applicative >= 0.14
+        , pretty-simple >= 2.1
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-server >= 0.14
