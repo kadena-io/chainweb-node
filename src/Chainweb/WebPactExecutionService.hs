@@ -74,20 +74,3 @@ emptyPactExecutionService = PactExecutionService
     , _pactNewBlock = \_ _ -> pure emptyPayload
     , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
     }
-
-{-
-markAllValidated
-    :: MempoolBackend ChainwebTransaction
-    -> PayloadWithOutputs
-    -> BlockHeight
-    -> BlockHash
-    -> IO ()
-markAllValidated mempool payload _ _ =
-    mempoolMarkValidated mempool txhashes
-  where
-    txcfg = mempoolTxConfig mempool
-    decodeTx = codecDecode $ txCodec txcfg
-    decodedTxs = Either.rights $ fmap (decodeTx . _transactionBytes . fst)
-                   $ toList $ _payloadWithOutputsTransactions payload
-    txhashes = V.fromList $! map (txHasher txcfg) decodedTxs
--}

@@ -128,39 +128,6 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
 testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()
 
-{-
-testTooOld :: MempoolBackend MockTx -> IO ()
-testTooOld mempool = do
-    -- TODO: improve this test. Testing via threadDelay is flaky.
-    --
-    -- We have to wait for pruning to run, so it's difficult to test this more
-    -- correctly without adding a method to trigger pruning manually (and wait
-    -- for prune to complete)
-    now <- Time.getCurrentTimeIntegral
-    txs <- sortTxs <$> generate (resize 1000 $ arbitrary :: Gen [MockTx])
-    tooOld <- overrideAge now <$> generate (resize 100 $ arbitrary :: Gen [MockTx])
-
-    insert $ txs ++ tooOld
-    threadDelay 1000000   -- 1 second should be enough to trigger pruning,
-                          -- expiry is set 75ms in the future and prune runs at
-                          -- 100Hz
-    runE "existing lookups still exist" $
-        (liftIO (lookup txs) >>= V.mapM_ lookupIsPending)
-    runE "too old lookups were pruned" $
-        (liftIO (lookup tooOld) >>= V.mapM_ lookupIsMissing)
-  where
-    runE msg m = runExceptT m >>=
-                 either (\s -> fail $ "expecting: " ++ msg ++ ": " ++ s) (const $ return ())
-    txcfg = mempoolTxConfig mempool
-    hash = txHasher txcfg
-    insert = mempoolInsert mempool . V.fromList
-    lookup = mempoolLookup mempool . V.fromList . map hash
-    sortTxs = uniq . sortBy (compare `on` onFees)
-    overrideAge now = sortTxs . map (setTooOld now)
-    extendTime now = Time.TimeSpan 75000 `AF.add` now
-    setTooOld now x = x { mockMeta = (mockMeta x) { txMetaExpiryTime = extendTime now } }
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
--}
 
 triggerGetBlock :: MonadIO m => MempoolBackend MockTx -> m ()
 triggerGetBlock mp =
