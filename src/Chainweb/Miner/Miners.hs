@@ -120,11 +120,18 @@ remoteMining m (NES.toList -> urls) bh = submission >> polling
     polling = fmap head . withScheduler Par' $ \sch ->
         traverse_ (scheduleWork sch . go sch) urls
       where
+        -- TODO Don't bother scheduling retries for `url`s that fail?
         go :: Scheduler IO BlockHeader -> BaseUrl -> IO BlockHeader
-        go sch url = runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
-            Left err -> throwM err
-            Right Nothing -> threadDelay 500000 >> go sch url
-            Right (Just new) -> terminateWith sch new
+        go sch url = do
+            -- This prevents scheduled retries from slamming the miners.
+            threadDelay 100000
+            runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
+                Right (Just new) -> terminateWith sch new
+                -- While it looks as if the stale `bh` is being returned here,
+                -- this is only to satisfy type checking. The only `BlockHeader`
+                -- value actually yielded from this entire operation is the
+                -- freshly mined one supplied by `terminateWith` above.
+                _ -> scheduleWork sch (go sch url) >> pure bh
 
         cid :: ChainId
         cid = _blockChainId bh
