@@ -12,14 +12,9 @@ module Chainweb.WebPactExecutionService
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TQueue
--- import Control.DeepSeq
 import Control.Monad.Catch
--- import qualified Data.Either as Either
--- import Data.Foldable
 import qualified Data.HashMap.Strict as HM
--- import qualified Data.Vector as V
 
--- import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
@@ -28,7 +23,6 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
--- import Chainweb.Utils (codecDecode)
 import Chainweb.WebPactExecutionService.Types
 
 _webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs

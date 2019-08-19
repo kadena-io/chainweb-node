@@ -282,20 +282,9 @@ lookupRequestKeyInBlock cutR chain key minHeight = go
     keyHash = unRequestKey key
 
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
-    go !blockHeader = do
-        -- TODO: this code is getting ripped out once we have tx index
-        --
-        let needToLook = True
-        {-
-        -- bloom reports false positives, so if it says "no" we're sure the
-        -- transaction is not in this block and we can skip decoding it.
-        needToLook <- liftIO $ Bloom.member keyHash
-                          (_blockHeight blockHeader, _blockHash blockHeader)
-                          bloomCache
-        -}
-        if needToLook
-          then lookupInPayload blockHeader
-          else lookupParent blockHeader
+
+    -- TODO: use the transaction index to implement pact tx lookup
+    go !blockHeader = lookupInPayload blockHeader
 
     lookupInPayload blockHeader = do
         let payloadHash = _blockPayloadHash blockHeader
