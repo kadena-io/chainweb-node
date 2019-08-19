@@ -53,14 +53,9 @@ lookupHandler mempool txs = handleErrs (liftIO look)
     look = V.toList <$> mempoolLookup mempool txV
 
 
+-- TODO: should we re-implement get block for remote?
 getBlockHandler :: Show t => MempoolBackend t -> Maybe GasLimit -> Handler [t]
 getBlockHandler _ _ = handleErrs (liftIO $ fail "unsupported")
-{-
-getBlockHandler mempool mbSz = handleErrs (liftIO gb)
-  where
-    sz = fromMaybe (mempoolBlockGasLimit mempool) mbSz
-    gb = V.toList <$> mempoolGetBlock mempool sz
--}
 
 
 getPendingHandler
