@@ -23,6 +23,9 @@ module Chainweb.Pact.PactService
     , execValidateBlock
     , execTransactions
     , initPactService
+    , readCoinAccount
+    , readAccountBalance
+    , readAccountGuard
       -- * For Side-tooling
     , execNewGenesisBlock
     , initPactService'
@@ -42,11 +45,14 @@ import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as SB
+import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.Map as Map
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
@@ -59,9 +65,11 @@ import System.LogLevel
 -- external pact modules
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
+import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
 
@@ -338,16 +346,71 @@ validateChainwebTxsPreBlock cp bh hash txs = do
     lb <- getLatestBlock cp
     when (Just (pred bh, hash) /= lb) $
         fail "internal error: restore point is wrong, refusing to validate."
+
     V.mapM checkOne txs
   where
-    -- TODOs:
-    --
-    --   - gas limit check here
-    --   - sender key/signature check
+    checkAccount s l =
+      readCoinAccount undefined s >>= \case
+        Nothing -> return ()
+        Just (T2 b _g) -> do
+          when (b < fromIntegral l) $
+            fail "internal error: account balance is less than gas limit"
+
     checkOne tx = do
         let pactHash = view P.cmdHash tx
+            !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
+
+        let !sender = P._pmSender pm
+            (P.GasLimit (P.ParsedInteger !limit)) = P._pmGasLimit pm
+
+        checkAccount sender limit
         mb <- lookupProcessedTx cp pactHash
         return $! mb == Nothing
+
+-- | Read row from coin-table defined in coin contract, retrieving balance and keyset
+-- associated with account name
+--
+readCoinAccount
+    :: PactDbEnv'
+      -- ^ pact db backend (sqlite)
+    -> Text
+      -- ^ account name
+    -> IO (Maybe (T2 Decimal (P.Guard (P.Term P.Name))))
+readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = row >>= \case
+    Nothing -> return Nothing
+    Just (P.ObjectMap o) -> case Map.toList o of
+      [(P.FieldKey "balance", b), (P.FieldKey "guard", g)] ->
+        case (P.fromPactValue b, P.fromPactValue g) of
+          (P.TLiteral (P.LDecimal d) _, P.TGuard t _) ->
+            return $! Just $ T2 d t
+          _ -> internalError' "unexpected pact value types"
+      _ -> internalError' "wrong table accessed in account lookup"
+  where
+    row = pdbv & P._readRow pdb (P.UserTables "coin-table") (P.RowKey a)
+
+-- | Read row from coin-table defined in coin contract, retrieving balance
+-- associated with account name
+--
+readAccountBalance
+    :: PactDbEnv'
+      -- ^ pact db backend (sqlite)
+    -> Text
+      -- ^ account name
+    -> IO (Maybe Decimal)
+readAccountBalance pdb account
+    = fmap sfst <$> readCoinAccount pdb account
+
+-- | Read row from coin-table defined in coin contract, retrieving guard
+-- associated with account name
+--
+readAccountGuard
+    :: PactDbEnv'
+      -- ^ pact db backend (sqlite)
+    -> Text
+      -- ^ account name
+    -> IO (Maybe (P.Guard (P.Term P.Name)))
+readAccountGuard pdb account
+    = fmap ssnd <$> readCoinAccount pdb account
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
