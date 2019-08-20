@@ -19,6 +19,9 @@ import Configuration.Utils
 
 import Control.Lens hiding ((.=))
 
+import Data.Set (Set)
+import qualified Data.Set as S
+
 import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
@@ -39,7 +42,7 @@ makeLenses ''MinerCount
 data MinerConfig = MinerConfig
     { _configTestMiners :: !MinerCount
     , _configMinerInfo :: !MinerInfo
-    , _configRemoteMiners :: ![HostAddress]
+    , _configRemoteMiners :: !(Set HostAddress)
     }
     deriving (Show, Eq, Generic)
 
@@ -49,7 +52,7 @@ defaultMinerConfig :: MinerConfig
 defaultMinerConfig = MinerConfig
     { _configTestMiners = MinerCount 10
     , _configMinerInfo = noMiner
-    , _configRemoteMiners = []
+    , _configRemoteMiners = S.empty
     }
 
 instance ToJSON MinerConfig where
@@ -71,7 +74,7 @@ pMinerConfig = id
         % long "test-miners"
         <> short 'm'
         <> help "testing only: number of known miner nodes"
-    <*< configRemoteMiners %:: pLeftMonoidalUpdate (pure <$> pRemoteMiner)
+    <*< configRemoteMiners %:: pLeftMonoidalUpdate (S.singleton <$> pRemoteMiner)
   where
     pRemoteMiner = textOption
         % long "remote-miner"
