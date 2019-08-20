@@ -57,6 +57,7 @@ module Chainweb.Utils
 , allEqOn
 , unlessM
 , whenM
+, partitionEithersNEL
 , (&)
 , IxedGet(..)
 
@@ -190,11 +191,14 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NEL
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
@@ -203,6 +207,7 @@ import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
+import Data.These (These(..))
 import Data.Tuple.Strict
 import Data.Word (Word64)
 
@@ -328,6 +333,13 @@ unlessM c a = c >>= flip unless a
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
+
+partitionEithersNEL :: NonEmpty (Either a b) -> These (NonEmpty a) (NonEmpty b)
+partitionEithersNEL (h :| es) = case bimap NEL.nonEmpty NEL.nonEmpty $ partitionEithers es of
+    (Nothing, Nothing) -> either (This . pure) (That . pure) h
+    (Just as, Nothing) -> This as
+    (Nothing, Just bs) -> That bs
+    (Just as, Just bs) -> These as bs
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
@@ -1079,4 +1091,3 @@ sfst (T2 a _) = a
 
 ssnd :: T2 a b -> b
 ssnd (T2 _ b) = b
-

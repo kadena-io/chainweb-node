@@ -20,7 +20,10 @@ module Chainweb.Miner.Miners
   , remoteMining
   ) where
 
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
+import Data.These (these)
 
 import Control.Concurrent (threadDelay)
 import Control.Monad.Catch (throwM)
@@ -44,7 +47,7 @@ import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core (mine, usePowHash)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int)
+import Chainweb.Utils (int, partitionEithersNEL)
 import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
 
 ---
@@ -96,24 +99,39 @@ submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 -- on a different machine, may be on multiple machines, may be arbitrarily
 -- multithreaded.
 --
-remoteMining :: Manager -> [BaseUrl] -> BlockHeader -> IO BlockHeader
-remoteMining m urls bh = traverseConcurrently_ Par' submission urls >> polling
+-- ASSUMPTION: The contents of the given @NonEmpty BaseUrl@ are unique.
+--
+remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO BlockHeader
+remoteMining m urls bh = submission >> polling
   where
-    -- TODO Better error handling. Don't bail the entire thread if at least one
-    -- miner was successfully communicated with. Just log the rest.
-    submission :: BaseUrl -> IO ()
-    submission url = runClientM (submit bh) (ClientEnv m url Nothing) >>= either throwM pure
+    -- TODO Report /all/ miner calls that errored?
+    -- | Submit work to each given mining client. Will succeed so long as at
+    -- least one call returns back successful.
+    submission :: IO ()
+    submission = do
+        rs <- partitionEithersNEL <$> traverseConcurrently Par' f urls
+        these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
+      where
+        f :: BaseUrl -> IO (Either ServantError ())
+        f url = runClientM (submit bh) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?
     polling :: IO BlockHeader
     polling = fmap head . withScheduler Par' $ \sch ->
         traverse_ (scheduleWork sch . go sch) urls
       where
+        -- TODO Don't bother scheduling retries for `url`s that fail?
         go :: Scheduler IO BlockHeader -> BaseUrl -> IO BlockHeader
-        go sch url = runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
-            Left err -> throwM err
-            Right Nothing -> threadDelay 500000 >> go sch url
-            Right (Just new) -> terminateWith sch new
+        go sch url = do
+            -- This prevents scheduled retries from slamming the miners.
+            threadDelay 100000
+            runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
+                Right (Just new) -> terminateWith sch new
+                -- While it looks as if the stale `bh` is being returned here,
+                -- this is only to satisfy type checking. The only `BlockHeader`
+                -- value actually yielded from this entire operation is the
+                -- freshly mined one supplied by `terminateWith` above.
+                _ -> scheduleWork sch (go sch url) >> pure bh
 
         cid :: ChainId
         cid = _blockChainId bh
