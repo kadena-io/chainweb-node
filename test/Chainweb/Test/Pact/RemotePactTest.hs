@@ -219,7 +219,7 @@ testBatch mnonce = do
         pure $ (succ nn, SubmitBatch (pure c))
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.1 1000000 0
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.01 1000000 0
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)

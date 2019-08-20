@@ -146,14 +146,17 @@ mergeObjects = Object . HM.unions . foldr unwrap []
 adminData :: IO (Maybe Value)
 adminData = fmap k testKeyPairs
   where
-    k ks = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
+    k ks = Just $ object
+        [ "test-admin-keyset" .= fmap formatB16PubKey ks
+        ]
 
 -- | Shim for 'PactExec' and 'PactInProcApi' tests
-goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
+goldenTestTransactions
+    :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
     let nonce = "1"
-    mkTestExecTransactions "sender00" "0" ks nonce 100 0.1 1000000 0 txs
+    mkTestExecTransactions "sender00" "0" ks nonce 100 1.0 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions

@@ -373,7 +373,7 @@ validateChainwebTxsPreBlock dbEnvMVar cp bh hash txs = do
       m <- readCoinAccount dbEnv sender
       case m of
         Nothing -> return True
-        Just (T2 b _g) -> return $! b < fromIntegral limit
+        Just (T2 b _g) -> return $ b > fromIntegral limit
 
     checkOne dbEnv tx = do
         let pactHash = view P.cmdHash tx
@@ -401,7 +401,7 @@ readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = row >>= \case
           _ -> internalError' "unexpected pact value types"
       _ -> internalError' "wrong table accessed in account lookup"
   where
-    row = pdbv & P._readRow pdb (P.UserTables "coin-table") (P.RowKey a)
+    row = pdbv & P._readRow pdb (P.UserTables "coin_coin-table") (P.RowKey a)
 
 -- | Read row from coin-table defined in coin contract, retrieving balance
 -- associated with account name
