@@ -338,8 +338,8 @@ readCoinAccount
     -> Text
       -- ^ account name
     -> IO (Maybe (T2 Decimal (P.Guard (P.Term P.Name))))
-readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = rows >>= \case
-    Nothing -> return Nothfing
+readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = row >>= \case
+    Nothing -> return Nothing
     Just (P.ObjectMap o) -> case Map.toList o of
       [(P.FieldKey "balance", b), (P.FieldKey "guard", g)] ->
         case (P.fromPactValue b, P.fromPactValue g) of
@@ -348,7 +348,7 @@ readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = rows >>= \case
           _ -> internalError' "unexpected pact value types"
       _ -> internalError' "wrong table accessed in account lookup"
   where
-    rows = pdbv & P._readRow pdb (P.UserTables "coin-table") (P.RowKey a)
+    row = pdbv & P._readRow pdb (P.UserTables "coin-table") (P.RowKey a)
 
 -- | Read row from coin-table defined in coin contract, retrieving balance
 -- associated with account name
