@@ -114,9 +114,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
         withMVarResource 0 $ \iomvar ->
           withRequestKeys iomvar net $ \rks ->
               testGroup "PactRemoteTests"
-                  [ responseGolden net rks
---                , mempoolValidation net rks
-                  ]
+                  [ responseGolden net rks ]
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
@@ -127,17 +125,6 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
-
-{-
-mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
-    rks <- rksIO
-    cwEnv <- _getClientEnv <$> networkIO
-    noopPool <- noopMempool
-    let tConfig = mempoolTxConfig noopPool
-    let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
-    testMPValidated mPool rks
--}
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -168,37 +155,6 @@ testPoll cmds env rks = do
     case response of
         Left e -> assertFailure (show e)
         Right rsp -> return rsp
-
-{-
-testMPValidated
-    :: MempoolBackend ChainwebTransaction
-    -> RequestKeys
-    -> Assertion
-testMPValidated mPool rks = do
-    let txHashes = V.fromList . NEL.toList . NEL.map (TransactionHash . SB.toShort . H.unHash . unRequestKey) $ _rkRequestKeys rks
-    b <- go maxMempoolRetries mPool txHashes
-    assertBool "At least one transaction was not validated" b
-  where
-    go :: Int -> MempoolBackend ChainwebTransaction -> Vector TransactionHash ->  IO Bool
-    go 0 _ _ = return False
-    go retries mp hashes = do
-        results <- mempoolLookup mp hashes
-        if checkValidated results then return True
-        else do
-            sleep
-            go (retries - 1) mp hashes
-
-maxMempoolRetries :: Int
-maxMempoolRetries = 30
-
-checkValidated :: Vector (LookupResult ChainwebTransaction) -> Bool
-checkValidated results =
-    not (null results) && V.all f results
-  where
-    f (Validated _) = True
-    f Confirmed = True
-    f _ = False
--}
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
