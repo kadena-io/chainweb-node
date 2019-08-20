@@ -433,13 +433,18 @@ execLocal cmd = withDiscardedBatch $ do
     bh <- use psStateValidated >>= \v -> case v of
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
-
-    rewindTo (Just (succ $ _blockHeight bh, _blockHash bh)) $ \pdbst ->
+    let bhe@(BlockHeight !bhe') = succ $ _blockHeight bh
+        bha@(BlockHash !bha') = _blockHash bh
+    rewindTo (Just (bhe, bha)) $ \pdbst ->
         case pdbst of
             PactDbEnv' pactdbenv -> do
                 PactServiceEnv{..} <- ask
+                let pd = _psPublicData
+                      { P._pdBlockHeight = bhe'
+                      , P._pdPrevBlockHash = toText bha'
+                      }
                 r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
-                     _psPublicData _psSpvSupport (fmap payloadObj cmd)
+                     pd _psSpvSupport (fmap payloadObj cmd)
                 return $! toHashCommandResult r
 
 logg :: String -> String -> PactServiceM cas ()
@@ -466,7 +471,7 @@ withBlockData
 withBlockData bhe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
     & locally (psPublicData . P.pdBlockTime) (const bt)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
   where
     (BlockHeight !bh) = _blockHeight bhe
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) = _blockCreationTime bhe
@@ -486,7 +491,7 @@ withParentBlockData
     -> PactServiceM cas a
 withParentBlockData phe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
   where
     (BlockHeight !bh) = succ $ _blockHeight phe
     (BlockHash !ph) = _blockHash phe
