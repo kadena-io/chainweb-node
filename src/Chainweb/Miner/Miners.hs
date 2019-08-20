@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -21,10 +23,13 @@ module Chainweb.Miner.Miners
     localPOW
   , localTest
     -- * Remote Mining
+  , HeaderBytes(..)
   , MiningAPI
   , remoteMining
   ) where
 
+import Data.Bytes.Put (runPutS)
+import Data.ByteString (ByteString)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
@@ -46,7 +51,7 @@ import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight)
+import Chainweb.BlockHeader
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core (mine, usePowHash)
@@ -55,7 +60,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, partitionEithersNEL)
+import Chainweb.Utils (int, partitionEithersNEL, runGet)
 import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
 
 ---
@@ -90,17 +95,22 @@ localPOW v = usePowHash v mine
 -- -----------------------------------------------------------------------------
 -- Remote Mining
 
+-- | The encoded form of a `BlockHeader`.
+--
+newtype HeaderBytes = HeaderBytes { _headerBytes :: ByteString }
+    deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
+
 -- | Shared between the `remoteMining` function here and the /chainweb-miner/
 -- executable.
 --
 type MiningAPI =
-    "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
+    "submit" :> ReqBody '[OctetStream] HeaderBytes :> Post '[JSON] ()
     :<|> "poll" :> Capture "chainid" ChainId
                 :> Capture "blockheight" BlockHeight
-                :> Get '[JSON] (Maybe BlockHeader)
+                :> Get '[OctetStream] HeaderBytes
 
-submit :: BlockHeader -> ClientM ()
-poll   :: ChainId -> BlockHeight -> ClientM (Maybe BlockHeader)
+submit :: HeaderBytes -> ClientM ()
+poll   :: ChainId -> BlockHeight -> ClientM HeaderBytes
 submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 
 -- | Some remote process which is performing the low-level mining for us. May be
@@ -112,6 +122,9 @@ submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO BlockHeader
 remoteMining m urls bh = submission >> polling
   where
+    hbytes :: HeaderBytes
+    hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
+
     -- TODO Report /all/ miner calls that errored?
     -- | Submit work to each given mining client. Will succeed so long as at
     -- least one call returns back successful.
@@ -121,25 +134,27 @@ remoteMining m urls bh = submission >> polling
         these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
         f :: BaseUrl -> IO (Either ClientError ())
-        f url = runClientM (submit bh) $ ClientEnv m url Nothing
+        f url = runClientM (submit hbytes) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?
     polling :: IO BlockHeader
-    polling = fmap head . withScheduler Par' $ \sch ->
-        traverse_ (scheduleWork sch . go sch) urls
+    polling = do
+        rs <- withScheduler Par' $ \sch -> traverse_ (scheduleWork sch . go sch) urls
+        -- This head is safe, since `withScheduler` is guaranteed to return.
+        runGet decodeBlockHeaderWithoutHash . _headerBytes $ head rs
       where
         -- TODO Don't bother scheduling retries for `url`s that fail?
-        go :: Scheduler IO BlockHeader -> BaseUrl -> IO BlockHeader
+        go :: Scheduler IO HeaderBytes -> BaseUrl -> IO HeaderBytes
         go sch url = do
             -- This prevents scheduled retries from slamming the miners.
             threadDelay 100000
             runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
-                Right (Just new) -> terminateWith sch new
+                Right new -> terminateWith sch new
                 -- While it looks as if the stale `bh` is being returned here,
                 -- this is only to satisfy type checking. The only `BlockHeader`
                 -- value actually yielded from this entire operation is the
                 -- freshly mined one supplied by `terminateWith` above.
-                _ -> scheduleWork sch (go sch url) >> pure bh
+                _ -> scheduleWork sch (go sch url) >> pure hbytes
 
         cid :: ChainId
         cid = _blockChainId bh
