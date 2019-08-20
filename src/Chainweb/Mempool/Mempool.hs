@@ -10,6 +10,61 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+------------------------------------------------------------------------------
+-- | Mempool
+--
+-- The mempool contains an in-memory store of all of the pending transactions
+-- that have been submitted by users for inclusion into blocks, and is
+-- responsible for collecting the candidate transaction set when we prepare a
+-- new block for mining.
+--
+-- The in-memory mempool implementation (see @InMem.hs@ and @InMemTypes.hs@)
+-- contains three datasets:
+--
+-- 1. a priority search queue of pending transactions, keyed by pact
+-- transaction hash, and (currently) ordered by gas price (descending) with
+-- ties broken by gas limit (ascending). Basically -- we prefer highest bidder
+-- first, and all else being equal, smaller transactions.
+--
+-- 2. a \"quarantine\" map from hash to transaction, where we store
+-- transactions that were sent to us but haven't yet been validated. More on
+-- this below.
+--
+-- 3. a recent-modifications log, storing the last @k@ updates to the mempool.
+-- This is in here so peers can sync with us by fetching starting with a
+-- high-water mark, rather than having to go through a complete re-sync of all
+-- transaction hashes.
+--
+-- Transaction lifecycle:
+--
+--   - a transaction is created and signed by a user, and sent (via the pact
+--     @/send@ endpoint) to the mempool, using 'mempoolQuarantine'
+--
+--   - the transaction enters a /quarantine pool/ until it can be validated.
+--     Mempool will not gossip a transaction to peers until it has been
+--     validated.
+--
+--   - at new block time for the chain, the transactions in the quarantine pool
+--     are validated vs the current candidate block (for structural
+--     well-formedness issues like gas balance check, signature verification,
+--     double-spend check, etc). Transactions that are valid are placed into
+--     the pending pool, from which they can be gossiped to other nodes or
+--     considered for inclusion into a new block. Invalid transactions (already
+--     played, expired, not enough gas, etc) are deleted.
+--
+--   - the transaction makes it into a mined block
+--
+--   - consensus calls pact's @newBlock@ to create the next block; at this
+--     point, the Consensus module processes the fork and: a) removes any
+--     transactions that made it onto the winning fork so that they are no
+--     longer considered for inclusion in blocks or gossiped, b) reintroduces
+--     any transactions into the mempool that were on the losing fork but
+--     didn't make it onto the winning one. Reintroduced transactions skip the
+--     quarantine queue (they must be valid, they made it onto a validated
+--     block) and go immediately into pending.
+--
+-- The mempool API is defined as a record-of-functions in 'MempoolBackend'.
+
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , MempoolValidator
@@ -101,6 +156,10 @@ data LookupResult t = Missing
 type MempoolValidator t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
 
 ------------------------------------------------------------------------------
+-- | Mempool operates over a transaction type @t@. Mempool needs several
+-- functions on @t@, e.g. \"how do you encode and decode @t@ over the wire?\"
+-- and \"how is @t@ hashed?\". This information is passed to mempool in a
+-- 'TransactionConfig'.
 data TransactionConfig t = TransactionConfig {
     -- | converting transactions to/from bytestring.
     txCodec :: {-# UNPACK #-} !(Codec t)
@@ -108,7 +167,7 @@ data TransactionConfig t = TransactionConfig {
     -- | hash function to use when making transaction hashes.
   , txHasher :: t -> TransactionHash
 
-    -- | hash function metadata.
+    -- | hash function metadata. Currently informational only -- for future use.
   , txHashMeta :: {-# UNPACK #-} !HashMeta
 
     -- | getter for the transaction gas price.
@@ -116,7 +175,11 @@ data TransactionConfig t = TransactionConfig {
 
     -- | getter for transaction gas limit.
   , txGasLimit :: t -> GasLimit
+
+    -- | getter for transaction metadata (creation and expiry timestamps)
   , txMetadata :: t -> TransactionMetadata
+
+    -- | transaction validator.
   , txValidate :: MempoolValidator t
   }
 
@@ -131,7 +194,6 @@ data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
-    -- TODO this can potentially change at runtime
   , mempoolBlockGasLimit :: GasLimit
 
     -- | Returns true if the given transaction hash is known to this mempool.
@@ -153,8 +215,8 @@ data MempoolBackend t = MempoolBackend {
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
-    -- TODO what is the relationship of this GasLimit to the configured one?
-    -- Not sure this is something an external client should be dictating.
+    --
+    -- TODO remove gas limit argument here
   , mempoolGetBlock :: BlockHeight -> BlockHash -> GasLimit -> IO (Vector t)
 
     -- | given a previous high-water mark and a chunk callback function, loops
