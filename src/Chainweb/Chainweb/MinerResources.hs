@@ -20,9 +20,10 @@ module Chainweb.Chainweb.MinerResources
   , runMiner
   ) where
 
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
-import Data.Set.NonEmpty (NESet)
-import qualified Data.Set.NonEmpty as NES
+import Data.Set (Set)
+import qualified Data.Set as S
 import qualified Data.Text as T
 
 import Network.HTTP.Client (defaultManagerSettings, newManager)
@@ -110,8 +111,8 @@ runMiner v mr = do
             m <- newManager defaultManagerSettings
             pure $ remoteMining m rs
 
-    g :: [HostAddress] -> Maybe (NESet BaseUrl)
-    g = fmap (NES.fromList . NEL.map f) . NEL.nonEmpty
+    g :: Set HostAddress -> Maybe (NonEmpty BaseUrl)
+    g = fmap (NEL.map f) . NEL.nonEmpty . S.toList
 
     f :: HostAddress -> BaseUrl
     f (HostAddress hn p) = BaseUrl Http hn' p' ""

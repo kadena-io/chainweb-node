@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Miner.Miners
@@ -21,10 +20,9 @@ module Chainweb.Miner.Miners
   , remoteMining
   ) where
 
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
-import Data.Set.NonEmpty (NESet)
-import qualified Data.Set.NonEmpty as NES
 import Data.These (these)
 
 import Control.Concurrent (threadDelay)
@@ -101,8 +99,10 @@ submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 -- on a different machine, may be on multiple machines, may be arbitrarily
 -- multithreaded.
 --
-remoteMining :: Manager -> NESet BaseUrl -> BlockHeader -> IO BlockHeader
-remoteMining m (NES.toList -> urls) bh = submission >> polling
+-- ASSUMPTION: The contents of the given @NonEmpty BaseUrl@ are unique.
+--
+remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO BlockHeader
+remoteMining m urls bh = submission >> polling
   where
     -- TODO Report /all/ miner calls that errored?
     -- | Submit work to each given mining client. Will succeed so long as at
