@@ -61,7 +61,7 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     (doGetLatest inmem)
                     noop        -- in-mem doesn't batch
                     noop
-                    noop
+                    (doDiscard inmem)
                     (doLookupBlock inmem)
                     (doGetBlockParent inmem)
                     (doRegisterSuccessful inmem)
