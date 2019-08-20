@@ -23,13 +23,11 @@ module Chainweb.Miner.Miners
     localPOW
   , localTest
     -- * Remote Mining
-  , HeaderBytes(..)
   , MiningAPI
   , remoteMining
   ) where
 
 import Data.Bytes.Put (runPutS)
-import Data.ByteString (ByteString)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
@@ -54,7 +52,7 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHeader
 import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Miner.Config (MinerCount(..))
-import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.Miner.Core (HeaderBytes(..), mine, usePowHash)
 import Chainweb.RestAPI.Orphans ()
 #if !MIN_VERSION_servant_client(0,16,0)
 import Chainweb.RestAPI.Utils
@@ -94,11 +92,6 @@ localPOW v = usePowHash v mine
 
 -- -----------------------------------------------------------------------------
 -- Remote Mining
-
--- | The encoded form of a `BlockHeader`.
---
-newtype HeaderBytes = HeaderBytes { _headerBytes :: ByteString }
-    deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
 
 -- | Shared between the `remoteMining` function here and the /chainweb-miner/
 -- executable.

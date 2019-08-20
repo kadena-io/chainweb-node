@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -12,7 +14,8 @@
 -- Stability: experimental
 
 module Chainweb.Miner.Core
-  ( usePowHash
+  ( HeaderBytes(..)
+  , usePowHash
   , mine
   ) where
 
@@ -29,6 +32,8 @@ import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (peekElemOff, poke)
 
+import Servant.API
+
 -- internal modules
 
 import Chainweb.BlockHeader
@@ -37,6 +42,11 @@ import Chainweb.Utils (int, runGet)
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
+
+-- | The encoded form of a `BlockHeader`.
+--
+newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
+    deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
 
 -- | Select a hashing algorithm.
 --
