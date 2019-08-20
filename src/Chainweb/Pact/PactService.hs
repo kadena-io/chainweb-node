@@ -23,6 +23,9 @@ module Chainweb.Pact.PactService
     , execValidateBlock
     , execTransactions
     , initPactService
+    , readCoinAccount
+    , readAccountBalance
+    , readAccountGuard
       -- * For Side-tooling
     , execNewGenesisBlock
     , initPactService'
@@ -47,6 +50,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import qualified Data.Map as Map
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
@@ -64,6 +68,7 @@ import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Logger as P
+import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
 
@@ -328,38 +333,46 @@ _liftCPErr = either internalError' return
 -- associated with account name
 --
 readCoinAccount
-    :: forall e
-    . PactDbEnv'
+    :: PactDbEnv'
       -- ^ pact db backend (sqlite)
     -> Text
       -- ^ account name
-    -> IO (T2 Decimal P.Guard)
-readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a =
-    pdbv & _readRow pdb $ (UserTables "coin-table") a
+    -> IO (Maybe (T2 Decimal (P.Guard (P.Term P.Name))))
+readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = rows >>= \case
+    Nothing -> return Nothfing
+    Just (P.ObjectMap o) -> case Map.toList o of
+      [(P.FieldKey "balance", b), (P.FieldKey "guard", g)] ->
+        case (P.fromPactValue b, P.fromPactValue g) of
+          (P.TLiteral (P.LDecimal d) _, P.TGuard t _) ->
+            return $! Just $ T2 d t
+          _ -> internalError' "unexpected pact value types"
+      _ -> internalError' "wrong table accessed in account lookup"
+  where
+    rows = pdbv & P._readRow pdb (P.UserTables "coin-table") (P.RowKey a)
 
 -- | Read row from coin-table defined in coin contract, retrieving balance
 -- associated with account name
 --
 readAccountBalance
-    :: forall e
-    . PactDbEnv'
+    :: PactDbEnv'
       -- ^ pact db backend (sqlite)
     -> Text
       -- ^ account name
-    -> IO Decimal
-readAccountBalance pdb account = sfst <$> readCoinAccount pdb account
+    -> IO (Maybe Decimal)
+readAccountBalance pdb account
+    = fmap sfst <$> readCoinAccount pdb account
 
 -- | Read row from coin-table defined in coin contract, retrieving guard
 -- associated with account name
 --
 readAccountGuard
-    :: forall e
-    . PactDbEnv'
+    :: PactDbEnv'
       -- ^ pact db backend (sqlite)
     -> Text
       -- ^ account name
-    -> IO Decimal
-readAccountGuard pdb account = ssnd <$> readCoinAccount pdb account
+    -> IO (Maybe (P.Guard (P.Term P.Name)))
+readAccountGuard pdb account
+    = fmap ssnd <$> readCoinAccount pdb account
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
