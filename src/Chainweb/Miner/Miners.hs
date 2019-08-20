@@ -50,9 +50,9 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.Difficulty (BlockRate(..), blockRate)
+import Chainweb.Difficulty (BlockRate(..), blockRate, encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
-import Chainweb.Miner.Core (HeaderBytes(..), mine, usePowHash)
+import Chainweb.Miner.Core
 import Chainweb.RestAPI.Orphans ()
 #if !MIN_VERSION_servant_client(0,16,0)
 import Chainweb.RestAPI.Utils
@@ -88,7 +88,18 @@ localTest gen miners bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
 localPOW :: ChainwebVersion -> BlockHeader -> IO BlockHeader
-localPOW v = usePowHash v mine
+localPOW v bh = do
+    HeaderBytes new <- usePowHash v (\p -> mine p tbytes nbytes) hbytes
+    runGet decodeBlockHeaderWithoutHash new
+  where
+    hbytes :: HeaderBytes
+    hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
+
+    tbytes :: TargetBytes
+    tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+
+    nbytes :: NonceBytes
+    nbytes = NonceBytes . encodeNonceToWord64 $ _blockNonce bh
 
 -- -----------------------------------------------------------------------------
 -- Remote Mining

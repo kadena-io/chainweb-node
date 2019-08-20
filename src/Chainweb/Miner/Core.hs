@@ -15,6 +15,8 @@
 
 module Chainweb.Miner.Core
   ( HeaderBytes(..)
+  , TargetBytes(..)
+  , NonceBytes(..)
   , usePowHash
   , mine
   ) where
@@ -23,7 +25,6 @@ import Crypto.Hash.Algorithms (SHA512t_256)
 import Crypto.Hash.IO
 
 import qualified Data.ByteArray as BA
-import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString as B
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64, Word8)
@@ -36,9 +37,6 @@ import Servant.API
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.Difficulty (HashTarget, encodeHashTarget)
-import Chainweb.Utils (int, runGet)
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
@@ -47,6 +45,15 @@ import Chainweb.Version (ChainwebVersion(..))
 --
 newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
+
+-- | The encoded form of a `HashTarget`.
+--
+newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
+
+-- | The encoded form of a `Nonce`.
+--
+newtype NonceBytes = NonceBytes { _nonceBytes :: Word64 }
+    deriving newtype (Enum)
 
 -- | Select a hashing algorithm.
 --
@@ -66,15 +73,21 @@ usePowHash Testnet02 f = f $ Proxy @SHA512t_256
 --
 -- TODO: Remove the `Proxy`?
 --
-mine :: forall a. HashAlgorithm a => Proxy a -> BlockHeader -> IO BlockHeader
-mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
+mine
+  :: forall a. HashAlgorithm a
+  => Proxy a
+  -> TargetBytes
+  -> NonceBytes
+  -> HeaderBytes
+  -> IO HeaderBytes
+mine _ (TargetBytes tbytes) nonce (HeaderBytes hbytes) = BA.withByteArray tbytes $ \trgPtr -> do
     !ctx <- hashMutableInit @a
-    bytes <- BA.copy initialBytes $ \buf ->
+    fmap HeaderBytes . BA.copy hbytes $ \buf ->
         allocaBytes (powSize :: Int) $ \pow -> do
 
             -- inner mining loop
             --
-            let go !i !n = do
+            let go !n = do
                     -- Compute POW hash for the nonce
                     injectNonce n buf
                     hash ctx buf pow
@@ -82,35 +95,26 @@ mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
                     -- check whether the nonce meets the target
                     fastCheckTarget trgPtr (castPtr pow) >>= \case
                         True -> pure ()
-                        False -> go (succ i) (succ n)
+                        False -> go (succ n)
 
             -- Start inner mining loop
-            go (0 :: Int) $ _blockNonce h
-
-    -- On success: deserialize and return the new BlockHeader
-    runGet decodeBlockHeaderWithoutHash bytes
+            go nonce
   where
-    initialBytes :: B.ByteString
-    !initialBytes = runPutS $ encodeBlockHeaderWithoutHash h
-
-    initialTargetBytes :: B.ByteString
-    !initialTargetBytes = runPutS $ encodeHashTarget target
+    -- tbytes :: B.ByteString
+    -- !tbytes = runPutS $ encodeHashTarget target
 
     bufSize :: Int
-    !bufSize = B.length initialBytes
-
-    target :: HashTarget
-    !target = _blockTarget h
+    !bufSize = B.length hbytes
 
     powSize :: Int
-    !powSize = int $ hashDigestSize @a undefined
+    !powSize = hashDigestSize @a undefined
 
     --  Compute POW hash
     hash :: MutableContext a -> Ptr Word8 -> Ptr Word8 -> IO ()
     hash ctx buf pow = do
         hashMutableReset ctx
         BA.withByteArray ctx $ \ctxPtr -> do
-            hashInternalUpdate @a ctxPtr buf (int bufSize)
+            hashInternalUpdate @a ctxPtr buf (fromIntegral bufSize)
             hashInternalFinalize ctxPtr (castPtr pow)
     {-# INLINE hash #-}
 
@@ -118,8 +122,8 @@ mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
     -- hashed `BlockHeader`. If that layout changes, this functions need to be
     -- updated. The assumption allows us to iterate on new nonces quickly.
     --
-    injectNonce :: Nonce -> Ptr Word8 -> IO ()
-    injectNonce n buf = poke (castPtr buf) $ encodeNonceToWord64 n
+    injectNonce :: NonceBytes -> Ptr Word8 -> IO ()
+    injectNonce (NonceBytes n) buf = poke (castPtr buf) n
     {-# INLINE injectNonce #-}
 
     -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
