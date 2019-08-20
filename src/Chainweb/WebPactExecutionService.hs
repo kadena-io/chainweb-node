@@ -12,17 +12,16 @@ module Chainweb.WebPactExecutionService
 
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TQueue
+import Control.Exception (evaluate)
 import Control.Monad.Catch
 import qualified Data.HashMap.Strict as HM
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
-import Chainweb.Transaction
 import Chainweb.WebPactExecutionService.Types
 
 _webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs
@@ -44,10 +43,9 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
           Nothing -> throwM (userError $ "PactExecutionService: Invalid chain ID in header: " ++ show h)
 
 mkPactExecutionService
-    :: MempoolBackend ChainwebTransaction
-    -> TQueue RequestMsg
+    :: TQueue RequestMsg
     -> PactExecutionService
-mkPactExecutionService _mempool q = PactExecutionService
+mkPactExecutionService q = PactExecutionService
   { _pactValidateBlock = \h pd -> do
       mv <- validateBlock h pd q
       r <- takeMVar mv
@@ -57,9 +55,7 @@ mkPactExecutionService _mempool q = PactExecutionService
   , _pactNewBlock = \m h -> do
       mv <- newBlock m h q
       r <- takeMVar mv
-      case r of
-        (Right !pdo) -> return pdo
-        Left e -> throwM e
+      either throwM evaluate r
   , _pactLocal = \ct -> do
       mv <- local ct q
       takeMVar mv

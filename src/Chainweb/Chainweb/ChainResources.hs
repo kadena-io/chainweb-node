@@ -131,7 +131,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
     withBlockHeaderDb rdb v cid $ \cdb -> do
       vmvar <- newEmptyMVar
       Mempool.withInMemoryMempool (mempoolCfg vmvar) $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus True mempool cdb $ Just payloadDb
+        mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid vmvar (setComponent "pact" logger) mpc cdbv cdb
                         payloadDb dbDir nodeid resetDb $ \requestQ -> do
             -- prune block header db
@@ -157,7 +157,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
             -- replay pact
-            let pact = pes mempool requestQ
+            let pact = pes requestQ
 
             -- run inner
             inner $ ChainResources
@@ -170,13 +170,13 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
   where
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
     diam = diameter (_chainGraph v)
-    pes mempool requestQ = case v of
+    pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService mempool requestQ
-        Development -> mkPactExecutionService mempool requestQ
-        Testnet02 -> mkPactExecutionService mempool requestQ
+        TimedCPM{} -> mkPactExecutionService requestQ
+        Development -> mkPactExecutionService requestQ
+        Testnet02 -> mkPactExecutionService requestQ
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

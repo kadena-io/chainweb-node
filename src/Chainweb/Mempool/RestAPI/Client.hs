@@ -16,7 +16,6 @@ module Chainweb.Mempool.RestAPI.Client
   , getPendingClient
   , memberClient
   , lookupClient
-  , getBlockClient
   , toMempool
   ) where
 
@@ -135,26 +134,6 @@ lookupClient v c txs = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ lookupClient_ @v @c txs
-
-
-------------------------------------------------------------------------------
-getBlockClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, FromJSON t)
-    => Maybe GasLimit
-    -> ClientM [t]
-getBlockClient_ = client (mempoolGetBlockApi @v @c)
-
-getBlockClient
-  :: FromJSON t
-  => ChainwebVersion
-  -> ChainId
-  -> Maybe GasLimit
-  -> ClientM [t]
-getBlockClient v c mbBs = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ getBlockClient_ @v @c mbBs
 
 
 ------------------------------------------------------------------------------

@@ -78,42 +78,21 @@ instance Exception MempoolException
 ------------------------------------------------------------------------------
 mkMempoolConsensus
     :: PayloadCas cas
-    => Bool
-    -> MempoolBackend t
+    => MempoolBackend t
     -> BlockHeaderDb
     -> Maybe (PayloadDb cas)
     -> IO (MempoolConsensus t)
-mkMempoolConsensus txReintroEnabled mempool blockHeaderDb payloadStore = do
+mkMempoolConsensus mempool blockHeaderDb payloadStore = do
     lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
 
     return MempoolConsensus
         { mpcMempool = mempool
         , mpcLastNewBlockParent = lastParentRef
-        , mpcProcessFork = processForkFunc blockHeaderDb payloadStore lastParentRef
+        , mpcProcessFork = processFork blockHeaderDb payloadStore lastParentRef
         }
 
-  where
-    processForkFunc -- (type repeated to help avoid compiler confusion)
-        :: PayloadCas cas
-        => BlockHeaderDb
-        -> Maybe (PayloadDb cas)
-        -> IORef (Maybe BlockHeader)
-        -> LogFunction
-        -> BlockHeader
-        -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
-    processForkFunc = if txReintroEnabled then processFork else skipProcessFork
 
 ------------------------------------------------------------------------------
-skipProcessFork
-    :: PayloadCas cas
-    => BlockHeaderDb
-    -> Maybe (PayloadDb cas)
-    -> IORef (Maybe BlockHeader)
-    -> LogFunction
-    -> BlockHeader
-    -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
-skipProcessFork _ _ _ _ _ = return (V.empty, V.empty)
-
 processFork
     :: PayloadCas cas
     => BlockHeaderDb
