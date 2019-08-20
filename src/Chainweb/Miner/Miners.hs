@@ -21,11 +21,11 @@ module Chainweb.Miner.Miners
   , remoteMining
   ) where
 
-import Data.Bifoldable (bitraverse_)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
 import Data.Set.NonEmpty (NESet)
 import qualified Data.Set.NonEmpty as NES
+import Data.These (these)
 
 import Control.Concurrent (threadDelay)
 import Control.Monad.Catch (throwM)
@@ -109,8 +109,8 @@ remoteMining m (NES.toList -> urls) bh = submission >> polling
     -- least one call returns back successful.
     submission :: IO ()
     submission = do
-        rs <- traverseConcurrently Par' f urls
-        bitraverse_ (throwM . NEL.head) pure $ partitionEithersNEL rs
+        rs <- partitionEithersNEL <$> traverseConcurrently Par' f urls
+        these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
         f :: BaseUrl -> IO (Either ServantError ())
         f url = runClientM (submit bh) $ ClientEnv m url Nothing
