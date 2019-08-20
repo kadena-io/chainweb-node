@@ -299,7 +299,6 @@ library
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6
-        , nonempty-containers >= 0.3
         , optparse-applicative >= 0.14
         , pact >= 2.6
         , paths >= 0.2
