@@ -86,8 +86,10 @@ module Chainweb.Pact.Backend.Types
     , psStateValidated
     , psPdb
     , psBlockHeaderDb
+    , psActiveDbHandle
     ) where
 
+import Control.Concurrent.MVar
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
@@ -310,6 +312,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
+    , _psActiveDbHandle :: MVar (Maybe PactDbEnv')
     }
 
 data PactServiceState = PactServiceState
