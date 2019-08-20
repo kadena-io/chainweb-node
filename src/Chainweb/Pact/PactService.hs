@@ -349,23 +349,23 @@ validateChainwebTxsPreBlock cp bh hash txs = do
 
     V.mapM checkOne txs
   where
-    checkAccount s l =
-      readCoinAccount undefined s >>= \case
-        Nothing -> return ()
-        Just (T2 b _g) -> do
-          when (b < fromIntegral l) $
-            fail "internal error: account balance is less than gas limit"
+    checkAccount tx = do
+      let !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
+
+      let !sender = P._pmSender pm
+          (P.GasLimit (P.ParsedInteger !limit)) = P._pmGasLimit pm
+
+      m <- readCoinAccount undefined sender
+      case m of
+        Nothing -> return True
+        Just (T2 b _g) -> return $! b < fromIntegral limit
 
     checkOne tx = do
         let pactHash = view P.cmdHash tx
-            !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
-
-        let !sender = P._pmSender pm
-            (P.GasLimit (P.ParsedInteger !limit)) = P._pmGasLimit pm
-
-        checkAccount sender limit
         mb <- lookupProcessedTx cp pactHash
-        return $! mb == Nothing
+        if mb == Nothing
+        then checkAccount tx
+        else return False
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
 -- associated with account name
@@ -496,18 +496,13 @@ execLocal cmd = withDiscardedBatch $ do
     bh <- use psStateValidated >>= \v -> case v of
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
-    let bhe@(BlockHeight !bhe') = succ $ _blockHeight bh
-        bha@(BlockHash !bha') = _blockHash bh
-    rewindTo (Just (bhe, bha)) $ \pdbst ->
+
+    rewindTo (Just (succ $ _blockHeight bh, _blockHash bh)) $ \pdbst ->
         case pdbst of
             PactDbEnv' pactdbenv -> do
                 PactServiceEnv{..} <- ask
-                let pd = _psPublicData
-                      { P._pdBlockHeight = bhe'
-                      , P._pdPrevBlockHash = toText bha'
-                      }
                 r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
-                     pd _psSpvSupport (fmap payloadObj cmd)
+                     _psPublicData _psSpvSupport (fmap payloadObj cmd)
                 return $! toHashCommandResult r
 
 logg :: String -> String -> PactServiceM cas ()
@@ -534,7 +529,7 @@ withBlockData
 withBlockData bhe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
     & locally (psPublicData . P.pdBlockTime) (const bt)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
   where
     (BlockHeight !bh) = _blockHeight bhe
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) = _blockCreationTime bhe
@@ -554,7 +549,7 @@ withParentBlockData
     -> PactServiceM cas a
 withParentBlockData phe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
   where
     (BlockHeight !bh) = succ $ _blockHeight phe
     (BlockHash !ph) = _blockHash phe
