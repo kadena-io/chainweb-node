@@ -103,13 +103,23 @@ newtype HeaderBytes = HeaderBytes { _headerBytes :: ByteString }
 -- | Shared between the `remoteMining` function here and the /chainweb-miner/
 -- executable.
 --
+-- /poll/ only supports the most recent block mined on some chain at some
+-- height. "Newness" is taken as a sign of legitimacy. If some forking event
+-- creates another block at the same height, the old one is considered unneeded
+-- and is lost. By then it would have long been associated with a `Cut` and
+-- submitted to the network, so the Mining Client is the last place you'd look
+-- for that old block anyway.
+--
 type MiningAPI =
-    "submit" :> ReqBody '[OctetStream] HeaderBytes :> Post '[JSON] ()
+    "submit" :> Capture "chainid" ChainId
+             :> Capture "blockheight" BlockHeight
+             :> ReqBody '[OctetStream] HeaderBytes
+             :> Post '[JSON] ()
     :<|> "poll" :> Capture "chainid" ChainId
                 :> Capture "blockheight" BlockHeight
                 :> Get '[OctetStream] HeaderBytes
 
-submit :: HeaderBytes -> ClientM ()
+submit :: ChainId -> BlockHeight -> HeaderBytes -> ClientM ()
 poll   :: ChainId -> BlockHeight -> ClientM HeaderBytes
 submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 
@@ -125,6 +135,12 @@ remoteMining m urls bh = submission >> polling
     hbytes :: HeaderBytes
     hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
 
+    cid :: ChainId
+    cid = _blockChainId bh
+
+    bht :: BlockHeight
+    bht = _blockHeight bh
+
     -- TODO Report /all/ miner calls that errored?
     -- | Submit work to each given mining client. Will succeed so long as at
     -- least one call returns back successful.
@@ -134,7 +150,7 @@ remoteMining m urls bh = submission >> polling
         these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
         f :: BaseUrl -> IO (Either ClientError ())
-        f url = runClientM (submit hbytes) $ ClientEnv m url Nothing
+        f url = runClientM (submit cid bht hbytes) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?
     polling :: IO BlockHeader
@@ -155,9 +171,3 @@ remoteMining m urls bh = submission >> polling
                 -- value actually yielded from this entire operation is the
                 -- freshly mined one supplied by `terminateWith` above.
                 _ -> scheduleWork sch (go sch url) >> pure hbytes
-
-        cid :: ChainId
-        cid = _blockChainId bh
-
-        bht :: BlockHeight
-        bht = _blockHeight bh
