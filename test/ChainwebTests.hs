@@ -99,9 +99,9 @@ suite rdb =
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.SPV.tests rdb
         , Chainweb.Test.Pact.SPV.tests
-        , Chainweb.Test.Mempool.InMem.tests rdb
-        , Chainweb.Test.Mempool.Sync.tests rdb
-        , Chainweb.Test.Mempool.RestAPI.tests rdb
+        , Chainweb.Test.Mempool.InMem.tests
+        , Chainweb.Test.Mempool.Sync.tests
+        , Chainweb.Test.Mempool.RestAPI.tests
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties

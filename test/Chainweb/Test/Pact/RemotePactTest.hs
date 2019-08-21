@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -18,7 +19,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , withRequestKeys
 ) where
 
-import Control.Concurrent hiding (putMVar, readMVar)
+import Control.Concurrent hiding (putMVar, readMVar, modifyMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Exception
@@ -26,7 +27,6 @@ import Control.Lens
 import Control.Monad
 
 import qualified Data.Aeson as A
-import qualified Data.ByteString.Short as SB
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
@@ -37,8 +37,6 @@ import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
-import Data.Vector (Vector)
-import qualified Data.Vector as V
 
 import Network.Connection as HTTP
 import Network.HTTP.Client.TLS as HTTP
@@ -72,8 +70,6 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.RestAPI.Client
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
@@ -115,11 +111,10 @@ testCmds = apiCmds version cid
 tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
-        withRequestKeys net $ \rks ->
-            testGroup "PactRemoteTests"
-                [ responseGolden net rks
-                , mempoolValidation net rks
-                ]
+        withMVarResource 0 $ \iomvar ->
+          withRequestKeys iomvar net $ \rks ->
+              testGroup "PactRemoteTests"
+                  [ responseGolden net rks ]
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
@@ -131,31 +126,24 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
-mempoolValidation :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-mempoolValidation networkIO rksIO = testCase "mempoolValidationCheck" $ do
-    rks <- rksIO
-    cwEnv <- _getClientEnv <$> networkIO
-    noopPool <- noopMempool
-    let tConfig = mempoolTxConfig noopPool
-    let mPool = toMempool version cid tConfig 10000 cwEnv :: MempoolBackend ChainwebTransaction
-    testMPValidated mPool rks
-
 -- -------------------------------------------------------------------------- --
 -- Utils
 
 withRequestKeys
-    :: IO ChainwebNetwork
+    :: IO (MVar Int)
+    -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
     -> TestTree
-withRequestKeys networkIO = withResource mkKeys (\_ -> return ())
+withRequestKeys ioNonce networkIO = withResource mkKeys (\_ -> return ())
   where
     mkKeys = do
         cwEnv <- _getClientEnv <$> networkIO
-        testSend testCmds cwEnv
+        mNonce <- ioNonce
+        testSend mNonce testCmds cwEnv
 
-testSend :: PactTestApiCmds -> ClientEnv -> IO RequestKeys
-testSend cmds env = do
-    sb <- testBatch
+testSend :: MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
+testSend mNonce cmds env = do
+    sb <- testBatch mNonce
     result <- sendWithRetry cmds env sb
     case result of
         Left e -> assertFailure (show e)
@@ -167,35 +155,6 @@ testPoll cmds env rks = do
     case response of
         Left e -> assertFailure (show e)
         Right rsp -> return rsp
-
-testMPValidated
-    :: MempoolBackend ChainwebTransaction
-    -> RequestKeys
-    -> Assertion
-testMPValidated mPool rks = do
-    let txHashes = V.fromList . NEL.toList . NEL.map (TransactionHash . SB.toShort . H.unHash . unRequestKey) $ _rkRequestKeys rks
-    b <- go maxMempoolRetries mPool txHashes
-    assertBool "At least one transaction was not validated" b
-  where
-    go :: Int -> MempoolBackend ChainwebTransaction -> Vector TransactionHash ->  IO Bool
-    go 0 _ _ = return False
-    go retries mp hashes = do
-        results <- mempoolLookup mp hashes
-        if checkValidated results then return True
-        else do
-            sleep 1
-            go (retries - 1) mp hashes
-
-maxMempoolRetries :: Int
-maxMempoolRetries = 30
-
-checkValidated :: Vector (LookupResult ChainwebTransaction) -> Bool
-checkValidated results =
-    not (null results) && V.all f results
-  where
-    f (Validated _) = True
-    f Confirmed = True
-    f _ = False
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
@@ -228,7 +187,11 @@ maxPollRetries :: Int
 maxPollRetries = 30
 
 -- | To allow time for node to startup, retry a number of times
-pollWithRetry :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO (Either ClientError PollResponses)
+pollWithRetry
+    :: PactTestApiCmds
+    -> ClientEnv
+    -> RequestKeys
+    -> IO (Either ClientError PollResponses)
 pollWithRetry cmds env rks = do
   sleep 3
   go maxPollRetries
@@ -247,15 +210,16 @@ pollWithRetry cmds env rks = do
                   putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                   return result
 
-
-testBatch :: IO SubmitBatch
-testBatch = do
-    kps <- testKeyPairs
-    c <- mkExec "(+ 1 2)" A.Null pm kps (Just "nonce")
-    pure $ SubmitBatch (pure c)
+testBatch :: MVar Int -> IO SubmitBatch
+testBatch mnonce = do
+    modifyMVar mnonce $ \(!nn) -> do
+        let nonce = "nonce" <> sshow nn
+        kps <- testKeyPairs
+        c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
+        pure $ (succ nn, SubmitBatch (pure c))
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.1 1000000 0
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.01 1000000 0
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)

@@ -16,7 +16,6 @@ module Chainweb.Mempool.RestAPI.Client
   , getPendingClient
   , memberClient
   , lookupClient
-  , getBlockClient
   , toMempool
   ) where
 
@@ -55,10 +54,8 @@ toMempool version chain txcfg blocksizeLimit env =
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
-    , mempoolGetBlock = getBlock
     , mempoolMarkValidated = markValidated
-    , mempoolMarkConfirmed = markConfirmed
-    , mempoolReintroduce = reintroduce
+    , mempoolGetBlock = getBlock
     , mempoolGetPendingTransactions = getPending
     , mempoolClear = clear
     }
@@ -68,7 +65,12 @@ toMempool version chain txcfg blocksizeLimit env =
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient version chain (V.toList v))
     insert v = void $ go (insertClient version chain (V.toList v))
-    getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
+
+    -- TODO: should we permit remote getBlock?
+    -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
+    getBlock _ _ _ _ = unsupported
+    markValidated _ = unsupported
+
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
             Left e -> throwIO e
@@ -77,9 +79,6 @@ toMempool version chain txcfg blocksizeLimit env =
                 return (_pendingTransactionsHighwaterMark ptxs)
 
     unsupported = fail "unsupported"
-    markValidated _ = unsupported
-    markConfirmed _ = unsupported
-    reintroduce _ = unsupported
     clear = unsupported
 
 
@@ -134,26 +133,6 @@ lookupClient v c txs = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ lookupClient_ @v @c txs
-
-
-------------------------------------------------------------------------------
-getBlockClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, FromJSON t)
-    => Maybe GasLimit
-    -> ClientM [t]
-getBlockClient_ = client (mempoolGetBlockApi @v @c)
-
-getBlockClient
-  :: FromJSON t
-  => ChainwebVersion
-  -> ChainId
-  -> Maybe GasLimit
-  -> ClientM [t]
-getBlockClient v c mbBs = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ getBlockClient_ @v @c mbBs
 
 
 ------------------------------------------------------------------------------

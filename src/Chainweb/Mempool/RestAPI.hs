@@ -29,12 +29,10 @@ module Chainweb.Mempool.RestAPI
   , MempoolInsertApi
   , MempoolMemberApi
   , MempoolLookupApi
-  , MempoolGetBlockApi
   , MempoolGetPendingApi
   , mempoolInsertApi
   , mempoolMemberApi
   , mempoolLookupApi
-  , mempoolGetBlockApi
   , mempoolGetPendingApi
   ) where
 
@@ -94,7 +92,6 @@ mempoolApi = Proxy
 type MempoolApi v c t = MempoolInsertApi v c t :<|>
                         MempoolMemberApi v c t :<|>
                         MempoolLookupApi v c t :<|>
-                        MempoolGetBlockApi v c t :<|>
                         MempoolGetPendingApi v c t
 
 type MempoolInsertApi v c t =
@@ -106,9 +103,6 @@ type MempoolMemberApi v c t =
 type MempoolLookupApi v c t =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "lookup" :>
     ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult t]
-type MempoolGetBlockApi v c t =
-    'ChainwebEndpoint v :> MempoolEndpoint c :> "getBlock" :>
-    QueryParam "blockSize" GasLimit :> Post '[JSON] [t]
 type MempoolGetPendingApi v c t =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getPending" :>
     QueryParam "nonce" ServerNonce :>
@@ -126,10 +120,6 @@ mempoolMemberApi = Proxy
 mempoolLookupApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                  . Proxy (MempoolLookupApi v c t)
 mempoolLookupApi = Proxy
-
-mempoolGetBlockApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                   . Proxy (MempoolGetBlockApi v c t)
-mempoolGetBlockApi = Proxy
 
 mempoolGetPendingApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
                      . Proxy (MempoolGetPendingApi v c t)

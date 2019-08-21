@@ -13,11 +13,11 @@ import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
-import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HS
 import Data.Int
+import Data.IORef
 import Data.Tree
 import Data.Vector ((!))
 import qualified Data.Vector as V
@@ -63,8 +63,8 @@ prop_validTxSource db genBlock = monadicIO $ do
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
 
-    reIntroTransV <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
-                           fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
+    (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
+                                    fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
     let reIntroTrans = HS.fromList $ V.toList reIntroTransV
 
     assert $ (reIntroTrans `isSubsetOf` fiOldForkTrans)
@@ -99,8 +99,8 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
 
-    reIntroTransV <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
-                           fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
+    (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
+                                    fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
     let reIntroTrans = HS.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `HS.difference` fiNewForkTrans
 
