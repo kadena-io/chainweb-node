@@ -31,10 +31,10 @@ import P2P.Peer
 
 import System.Clock
 import System.LogLevel
+
 -- chainweb imports
 
 import Chainweb.BlockHeader
-import Chainweb.Payload
 import Chainweb.BlockHeaderDB
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
@@ -46,6 +46,7 @@ import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Utils
@@ -54,7 +55,7 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 import qualified Chainweb.Mempool.InMem as Mempool
 import qualified Chainweb.Mempool.InMemTypes as Mempool
-import qualified Chainweb.Pact.BloomCache as Bloom
+import qualified Chainweb.Mempool.Mempool as Mempool
 
 import Standalone.Utils
 
@@ -109,7 +110,7 @@ withChainResourcesStandalone
     -> IO a
 withChainResourcesStandalone v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-        Mempool.withInMemoryMempool mempoolCfg rdb $ \mempool -> do
+        Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
             -- placing mempool access shim here
             -- putting a default here for now.
               let mpa = defaultMemPoolAccess cid 1
@@ -165,6 +166,15 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg cdbv payloadDb pru
         -- Testnet01 -> mkPactExecutionService' requestQ
         Testnet02 -> mkPactExecutionService' requestQ
 
+validatingMempoolConfig :: Mempool.InMemConfig ChainwebTransaction
+validatingMempoolConfig = Mempool.InMemConfig
+    Mempool.chainwebTransactionConfig
+    blockGasLimit
+    maxRecentLog
+  where
+    blockGasLimit = 100000
+    maxRecentLog = 2048
+
 withChainwebInternalStandalone
     :: Logger logger
     => ChainwebConfiguration
@@ -182,7 +192,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     concurrentWith
       -- initialize chains concurrently
       (\cid -> withChainResourcesStandalone v cid rocksDb peer (chainLogger cid)
-                mempoolConf cdbv payloadDb prune dbDir nodeid resetDb)
+                validatingMempoolConfig cdbv payloadDb prune dbDir nodeid resetDb)
 
       -- initialize global resources after all chain resources are
       -- initialized
@@ -194,8 +204,6 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
     logg = logFunctionText logger
-    enableTxsReintro = _configReintroTxs conf
-    mempoolConf = mempoolConfig enableTxsReintro
 
     -- initialize global resources
     global cs cdbv = do
@@ -259,9 +267,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
         | _enableConfigEnabled (_configTransactionIndex conf) = do
             logg Info "Transaction index enabled"
             let l = sortBy (compare `on` fst) (HM.toList cs)
-                bdbs = map (\(c, cr) -> (c, _chainResBlockHeaderDb cr)) l
-            Bloom.withCache (cuts ^. cutsCutDb) bdbs $ \bloom ->
-               m $ map (\(c, cr) -> (c, (cuts, cr, bloom))) l
+            m $ map (\(c, cr) -> (c, (cuts, cr))) l
         | otherwise = do
             logg Info "Transaction index disabled"
             m []

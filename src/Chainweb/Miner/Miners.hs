@@ -112,7 +112,8 @@ remoteMining m urls bh = submission >> polling
         rs <- partitionEithersNEL <$> traverseConcurrently Par' f urls
         these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
-        f :: BaseUrl -> IO (Either ServantError ())
+        -- f :: BaseUrl -> IO (Either ServantError ())
+        f :: BaseUrl -> IO (Either ClientError ())
         f url = runClientM (submit bh) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?

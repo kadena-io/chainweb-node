@@ -38,11 +38,6 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 import Chainweb.WebPactExecutionService
--- import Chainweb.WebPactExecutionService.Types
--- import qualified Chainweb.Mempool.InMem as Mempool
-import qualified Chainweb.Mempool.InMemTypes as Mempool
-import qualified Chainweb.Mempool.Mempool as Mempool
--- import qualified Chainweb.Pact.BloomCache as Bloom
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -68,10 +63,15 @@ getByteString = fst . B16.decode
 formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
+-- TODO: This function shall be completed at a later time. I've just left the
+-- skeleton here as a reminder to complete at the appropriate time. We'll
+-- probably need more input parameters.
+_onlyCoinTransferMemPoolAccess :: ChainId -> Int -> MemPoolAccess
+_onlyCoinTransferMemPoolAccess _cid _blocksize = undefined
 
 defaultMemPoolAccess :: ChainId -> Int -> MemPoolAccess
 defaultMemPoolAccess cid blocksize  = MemPoolAccess
-    { mpaGetBlock = \height _hash _prevBlock ->
+    { mpaGetBlock = \_preblockcheck height _hash _prevBlock ->
         makeBlock height cid blocksize ("(+ 1 2)", Nothing)
     , mpaSetLastHeader = const $ return ()
     , mpaProcessFork = const $ return ()
@@ -128,20 +128,3 @@ mkPactExecutionService' q = emptyPactExecutionService
           (Right !pdo) -> return pdo
           Left e -> throwM e
   }
-
--- TODO: The type InMempoolConfig contains parameters that should be
--- configurable as well as parameters that are determined by the chainweb
--- version or the chainweb protocol. These should be separated in to two
--- different types.
---
-mempoolConfig :: Bool -> Mempool.InMemConfig ChainwebTransaction
-mempoolConfig enableReIntro = Mempool.InMemConfig
-    Mempool.chainwebTransactionConfig
-    blockGasLimit
-    mempoolReapInterval
-    maxRecentLog
-    enableReIntro
-  where
-    blockGasLimit = 100000               -- TODO: policy decision
-    mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
-    maxRecentLog = 2048                   -- store 2k recent transaction hashes
