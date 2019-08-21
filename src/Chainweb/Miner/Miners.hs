@@ -28,6 +28,7 @@ module Chainweb.Miner.Miners
   ) where
 
 import Data.Bytes.Put (runPutS)
+import Data.Coerce (coerce)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
@@ -89,7 +90,7 @@ localTest gen miners bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
 --
 localPOW :: ChainwebVersion -> BlockHeader -> IO BlockHeader
 localPOW v bh = do
-    HeaderBytes new <- usePowHash v (\p -> mine p tbytes nbytes) hbytes
+    HeaderBytes new <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
     runGet decodeBlockHeaderWithoutHash new
   where
     hbytes :: HeaderBytes
@@ -97,9 +98,6 @@ localPOW v bh = do
 
     tbytes :: TargetBytes
     tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
-
-    nbytes :: NonceBytes
-    nbytes = NonceBytes . encodeNonceToWord64 $ _blockNonce bh
 
 -- -----------------------------------------------------------------------------
 -- Remote Mining
@@ -117,13 +115,13 @@ localPOW v bh = do
 type MiningAPI =
     "submit" :> Capture "chainid" ChainId
              :> Capture "blockheight" BlockHeight
-             :> ReqBody '[OctetStream] HeaderBytes
+             :> ReqBody '[OctetStream] Bites
              :> Post '[JSON] ()
     :<|> "poll" :> Capture "chainid" ChainId
                 :> Capture "blockheight" BlockHeight
                 :> Get '[OctetStream] HeaderBytes
 
-submit :: ChainId -> BlockHeight -> HeaderBytes -> ClientM ()
+submit :: ChainId -> BlockHeight -> Bites -> ClientM ()
 poll   :: ChainId -> BlockHeight -> ClientM HeaderBytes
 submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 
@@ -138,6 +136,12 @@ remoteMining m urls bh = submission >> polling
   where
     hbytes :: HeaderBytes
     hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
+
+    tbytes :: TargetBytes
+    tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+
+    bites :: Bites
+    bites = Bites $ coerce tbytes <> coerce hbytes
 
     cid :: ChainId
     cid = _blockChainId bh
@@ -154,7 +158,7 @@ remoteMining m urls bh = submission >> polling
         these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
         f :: BaseUrl -> IO (Either ClientError ())
-        f url = runClientM (submit cid bht hbytes) $ ClientEnv m url Nothing
+        f url = runClientM (submit cid bht bites) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?
     polling :: IO BlockHeader
