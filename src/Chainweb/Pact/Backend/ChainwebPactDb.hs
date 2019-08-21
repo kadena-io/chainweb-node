@@ -745,7 +745,6 @@ deleteHistory bh = do
 
 initSchema :: BlockHandler SQLiteEnv ()
 initSchema = do
-    vacuumDb
     withSavepoint DbTransaction $ do
         createBlockHistoryTable
         createTableCreationTable
@@ -773,5 +772,7 @@ getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
     convertInt (SInt thing) = fromIntegral thing
     convertInt _ = error "impossible"
 
+-- Careful doing this! It's expensive and for our use case, probably pointless.
+-- We should reserve vacuuming for an offline process
 vacuumDb :: BlockHandler SQLiteEnv ()
 vacuumDb = callDb "vaccumDb" (`exec_` "VACUUM;")
