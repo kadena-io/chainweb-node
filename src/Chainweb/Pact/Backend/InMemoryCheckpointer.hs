@@ -77,11 +77,13 @@ doRestore _ lock (Just (height, hash)) =
     modifyMVarMasked lock $ \store -> do
       let ph = pred height
       let bh = (ph, hash)
-      let filt (_, mp) = (mempty, HMS.filterWithKey (\_ (v, _) -> v <= ph) mp)
+      let filt (_, !mp) = let !mp' = HMS.filterWithKey (\_ (v, _) -> v <= ph) mp
+                              !out = (mempty, mp')
+                          in newMVar out
       case HMS.lookup bh (_theStore store) of
             Just dbenv -> do
               mdbenv <- newMVar dbenv
-              played <- readMVar (_playedTxs store) >>= newMVar . filt
+              played <- readMVar (_playedTxs store) >>= filt
 
               let !store' = store { _lastBlock = Just bh
                                   , _dbenv = mdbenv
