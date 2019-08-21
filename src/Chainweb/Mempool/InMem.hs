@@ -23,11 +23,10 @@ import Control.Applicative (pure, (<|>))
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
 import Control.Exception (bracket, mask_)
-import Control.Monad (void, when, (<$!>))
+import Control.Monad (void, (<$!>))
 
 import Data.Aeson
 import Data.Foldable (foldl', foldlM)
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashPSQ as PSQ
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Ord (Down(..))
@@ -73,7 +72,6 @@ newInMemMempoolData :: ToJSON t => FromJSON t => IO (InMemoryMempoolData t)
 newInMemMempoolData =
     InMemoryMempoolData <$!> newIORef PSQ.empty
                         <*> newIORef emptyRecentLog
-                        <*> newIORef mempty
 
 
 ------------------------------------------------------------------------------
@@ -87,7 +85,6 @@ toMempoolBackend mempool = do
       , mempoolMember = member
       , mempoolLookup = lookup
       , mempoolInsert = insert
-      , mempoolQuarantine = quarantine
       , mempoolMarkValidated = markValidated
       , mempoolGetBlock = getBlock
       , mempoolGetPendingTransactions = getPending
@@ -102,7 +99,6 @@ toMempoolBackend mempool = do
     member = memberInMem lockMVar
     lookup = lookupInMem lockMVar
     insert = insertInMem cfg lockMVar
-    quarantine = quarantineInMem cfg lockMVar
     markValidated = markValidatedInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
@@ -152,30 +148,7 @@ markValidatedInMem :: MVar (InMemoryMempoolData t)
                    -> IO ()
 markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
     let pref = _inmemPending mdata
-    let qref = _inmemQuarantine mdata
     modifyIORef' pref $ \psq -> foldl' (flip PSQ.delete) psq txs
-    modifyIORef' qref $ \q -> foldl' (flip HashMap.delete) q txs
-
-
-------------------------------------------------------------------------------
-quarantineInMem :: InMemConfig t    -- ^ in-memory config
-                -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
-                -> Vector t  -- ^ new transactions
-                -> IO ()
-quarantineInMem cfg lock txs =
-    withMVarMasked lock $ \mdata -> V.mapM_ (insOne mdata) txs
-  where
-    txcfg = _inmemTxCfg cfg
-    hasher = txHasher txcfg
-    getSize = txGasLimit txcfg
-    maxSize = _inmemTxBlockSizeLimit cfg
-    sizeOK tx = getSize tx <= maxSize
-
-    insOne mdata tx = do
-        let !txhash = hasher tx
-        if sizeOK tx
-          then void $ modifyIORef' (_inmemQuarantine mdata) $ HashMap.insert txhash tx
-          else return ()
 
 
 ------------------------------------------------------------------------------
@@ -183,14 +156,22 @@ insertInMem :: InMemConfig t    -- ^ in-memory config
             -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
             -> Vector t  -- ^ new transactions
             -> IO ()
-insertInMem cfg lock txs = do
+insertInMem cfg lock txs0 = do
+    txs <- V.filterM preGossipCheck txs0
     withMVarMasked lock $ \mdata -> do
         newHashes <- V.mapM (insOne mdata) txs
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
 
   where
+    preGossipCheck tx = do
+        -- TODO: other well-formedness checks go here (e.g. ttl check)
+        return $! sizeOK tx
+
     txcfg = _inmemTxCfg cfg
+    getSize = txGasLimit txcfg
+    maxSize = _inmemTxBlockSizeLimit cfg
+    sizeOK tx = getSize tx <= maxSize
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
 
@@ -214,35 +195,21 @@ getBlockInMem :: InMemConfig t
               -> GasLimit
               -> IO (Vector t)
 getBlockInMem cfg lock txValidate bheight phash size0 = do
-    -- validate quarantined instructions.
     withMVar lock $ \mdata -> do
-        let qref = _inmemQuarantine mdata
-        q <- V.fromList . HashMap.elems <$> readIORef qref
-        void $ validateBatch mdata q True
-        writeIORef qref mempty
         psq <- readIORef $ _inmemPending mdata
         go mdata psq size0 []
 
   where
-    getPriority x = let r = txGasPrice txcfg x
-                        s = txGasLimit txcfg x
-                    in toPriority r s
-
-    ins !psq !tx = let h = hasher tx
-                       p = getPriority tx
-                   in PSQ.insert h p tx psq
-
     del !psq tx = let h = hasher tx
                   in PSQ.delete h psq
 
     hasher = txHasher txcfg
     txcfg = _inmemTxCfg cfg
-    maxRecent = _inmemMaxRecentItems cfg
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     sizeOK tx = getSize tx <= maxSize
 
-    validateBatch mdata q doInsert = do
+    validateBatch mdata q = do
         oks1 <- txValidate bheight phash q
         let oks2 = V.map sizeOK q
         let oks = V.zipWith (&&) oks1 oks2
@@ -250,13 +217,8 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
         let good = V.map fst good0
         let bad = V.map fst bad0
         modifyIORef' (_inmemPending mdata) $ \psq ->
-            let !psq' = if doInsert
-                          then V.foldl' ins psq good
-                          else psq
-                !psq'' = V.foldl' del psq' bad
-            in psq''
-        when doInsert $ modifyIORef' (_inmemRecentLog mdata) $
-            recordRecentTransactions maxRecent $! V.map hasher good
+            let !psq' = V.foldl' del psq bad
+            in psq'
         return good
 
     maxInARow :: Int
@@ -281,7 +243,7 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
         if null nb
           then return $! V.concat soFar
           else do
-            good <- validateBatch mdata (V.fromList nb) False
+            good <- validateBatch mdata (V.fromList nb)
             let newGas = V.foldl' (\s t -> s + getSize t) 0 good
             go mdata psq' (remainingGas - newGas) (good : soFar)
 

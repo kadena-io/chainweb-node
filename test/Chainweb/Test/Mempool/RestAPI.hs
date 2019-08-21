@@ -58,9 +58,7 @@ newTestServer inMemCfg = mask_ $ do
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
     let remoteMp0 = MClient.toMempool version chain txcfg blocksizeLimit env
-    -- allow remoteMp to call the local mempool's getBlock -- otherwise we will
-    -- never be able to move txs from the quarantine pool (since you can't call
-    -- getBlock on a remote pool right now)
+    -- allow remoteMp to call the local mempool's getBlock (for testing)
     let remoteMp = remoteMp0 {
                        mempoolGetBlock = \a b c -> mempoolGetBlock inmem a b c
                      }

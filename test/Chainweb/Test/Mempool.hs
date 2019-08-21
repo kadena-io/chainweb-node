@@ -129,13 +129,6 @@ testStartup :: MempoolBackend MockTx -> IO ()
 testStartup = const $ return ()
 
 
-triggerGetBlock :: MonadIO m => MempoolBackend MockTx -> m ()
-triggerGetBlock mp =
-    liftIO $ void $ mempoolGetBlock mp noopMempoolPreBlockCheck 0 nullBlockHash gasLimit
-  where
-    gasLimit = mempoolBlockGasLimit mp
-
-
 propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propOverlarge (txs, overlarge0) mempool = runExceptT $ do
     liftIO $ insert $ txs ++ overlarge
@@ -144,9 +137,7 @@ propOverlarge (txs, overlarge0) mempool = runExceptT $ do
   where
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = do
-        mempoolQuarantine mempool $ V.fromList v
-        triggerGetBlock mempool
+    insert v = mempoolInsert mempool $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
@@ -166,9 +157,7 @@ propTrivial txs mempool = runExceptT $ do
                   in V.and ffs
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = do
-        mempoolQuarantine mempool $ V.fromList v
-        triggerGetBlock mempool
+    insert v = mempoolInsert mempool $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     getBlock = mempoolGetBlock mempool noopMempoolPreBlockCheck 0 nullBlockHash
@@ -197,9 +186,7 @@ propGetPending txs0 mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert v = do
-        mempoolQuarantine mempool $ V.fromList v
-        triggerGetBlock mempool
+    insert v = mempoolInsert mempool $ V.fromList v
 
 propHighWater :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
 propHighWater (txs0, txs1) mempool = runExceptT $ do
@@ -225,9 +212,7 @@ propHighWater (txs0, txs1) mempool = runExceptT $ do
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert txs = do
-        mempoolQuarantine mempool $ V.fromList txs
-        triggerGetBlock mempool
+    insert txs = mempoolInsert mempool $ V.fromList txs
 
 
 uniq :: Eq a => [a] -> [a]

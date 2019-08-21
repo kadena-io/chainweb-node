@@ -26,11 +26,7 @@
 -- ties broken by gas limit (ascending). Basically -- we prefer highest bidder
 -- first, and all else being equal, smaller transactions.
 --
--- 2. a \"quarantine\" map from hash to transaction, where we store
--- transactions that were sent to us but haven't yet been validated. More on
--- this below.
---
--- 3. a recent-modifications log, storing the last @k@ updates to the mempool.
+-- 2. a recent-modifications log, storing the last @k@ updates to the mempool.
 -- This is in here so peers can sync with us by fetching starting with a
 -- high-water mark, rather than having to go through a complete re-sync of all
 -- transaction hashes.
@@ -38,19 +34,11 @@
 -- Transaction lifecycle:
 --
 --   - a transaction is created and signed by a user, and sent (via the pact
---     @/send@ endpoint) to the mempool, using 'mempoolQuarantine'
+--     @/send@ endpoint) to the mempool, using 'mempoolInsert'
 --
---   - the transaction enters a /quarantine pool/ until it can be validated.
---     Mempool will not gossip a transaction to peers until it has been
---     validated.
---
---   - at new block time for the chain, the transactions in the quarantine pool
---     are validated vs the current candidate block (for structural
---     well-formedness issues like gas balance check, signature verification,
---     double-spend check, etc). Transactions that are valid are placed into
---     the pending pool, from which they can be gossiped to other nodes or
---     considered for inclusion into a new block. Invalid transactions (already
---     played, expired, not enough gas, etc) are deleted.
+--   - miner calls 'mempoolGetBlock', at which point the top transactions (up
+--     to the gas limit) are run through the MempoolPreBlockCheck and discarded
+--     if they fail
 --
 --   - the transaction makes it into a mined block
 --
@@ -59,9 +47,7 @@
 --     transactions that made it onto the winning fork so that they are no
 --     longer considered for inclusion in blocks or gossiped, b) reintroduces
 --     any transactions into the mempool that were on the losing fork but
---     didn't make it onto the winning one. Reintroduced transactions skip the
---     quarantine queue (they must be valid, they made it onto a validated
---     block) and go immediately into pending.
+--     didn't make it onto the winning one.
 --
 -- The mempool API is defined as a record-of-functions in 'MempoolBackend'.
 
@@ -201,11 +187,6 @@ data MempoolBackend t = MempoolBackend {
     -- | Insert the given transactions into the mempool.
   , mempoolInsert :: Vector t -> IO ()
 
-    -- | Add some transactions into the quarantine pool. The quarantine pool is
-    -- for transactions that haven't been validated yet; they will be validated
-    -- and inserted into the mempool during newBlock.
-  , mempoolQuarantine :: Vector t -> IO ()
-
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
 
@@ -241,7 +222,6 @@ noopMempool = do
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
-    , mempoolQuarantine = noopQuarantine
     , mempoolMarkValidated = noopMV
     , mempoolGetBlock = noopGetBlock
     , mempoolGetPendingTransactions = noopGetPending
@@ -259,7 +239,6 @@ noopMempool = do
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
-    noopQuarantine = const $ return ()
     noopMV = const $ return ()
     noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
