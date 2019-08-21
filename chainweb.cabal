@@ -557,6 +557,9 @@ executable cwtool
         RunNodes
         SlowTests
         Standalone
+        Standalone.Chainweb
+        Standalone.Mining
+        Standalone
         Standalone.Utils
         TXG
         TXGRepl
