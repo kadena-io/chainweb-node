@@ -109,12 +109,21 @@ testMemPoolAccess  = MemPoolAccess
   where
     ksData :: Text -> Value
     ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-    getTestBlock _bHeight _bHash bHeader = do
+    getTestBlock validate _bHeight _bHash bHeader = do
         let Nonce nonce = _blockNonce bHeader
             moduleStr = defModule (T.pack $ show nonce)
             d = Just $ ksData (T.pack $ show nonce)
         let txs = V.fromList $ [PactTransaction moduleStr d]
-        goldenTestTransactions txs
+        outtxs <- goldenTestTransactions txs
+        oks <- validate _bHeight _bHash outtxs
+        when (not $ V.and oks) $ do
+            fail $ mconcat [ "tx failed validation! input list: \n"
+                           , show txs
+                           , "\n\nouttxs: "
+                           , show outtxs
+                           , "\n\noks: "
+                           , show oks ]
+        return outtxs
 
 dupegenMemPoolAccess :: MemPoolAccess
 dupegenMemPoolAccess  = MemPoolAccess
@@ -125,12 +134,21 @@ dupegenMemPoolAccess  = MemPoolAccess
   where
     ksData :: Text -> Value
     ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-    getTestBlock _bHeight _bHash _bHeader = do
+    getTestBlock validate _bHeight _bHash _bHeader = do
         let nonce = "0"
             moduleStr = defModule (T.pack nonce)
             d = Just $ ksData (T.pack nonce)
         let txs = V.fromList $ [PactTransaction moduleStr d]
-        goldenTestTransactions txs
+        outtxs <- goldenTestTransactions txs
+        oks <- validate _bHeight _bHash outtxs
+        when (not $ V.and oks) $ do
+            fail $ mconcat [ "tx failed validation! input list: \n"
+                           , show txs
+                           , "\n\nouttxs: "
+                           , show outtxs
+                           , "\n\noks: "
+                           , show oks ]
+        return outtxs
 
 
 firstPlayThrough
@@ -271,13 +289,12 @@ withPact iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
-        vmv <- newEmptyMVar
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ initPactService testVersion cid vmv logger reqQ mempool mv
+        a <- async $ initPactService testVersion cid logger reqQ mempool mv
                                      bhdb pdb (Just dir) Nothing False
         link a
         return (a, reqQ)

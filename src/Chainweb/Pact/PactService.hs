@@ -84,7 +84,6 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolValidator)
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
@@ -123,7 +122,6 @@ initPactService
     => PayloadCas cas
     => ChainwebVersion
     -> ChainId
-    -> MVar (MempoolValidator ChainwebTransaction)
     -> logger
     -> TQueue RequestMsg
     -> MemPoolAccess
@@ -134,9 +132,9 @@ initPactService
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid vmvar chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
                 nodeid resetDb =
-    initPactService' ver cid vmvar chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
+    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
                      nodeid resetDb $ do
         initialPayloadState ver cid
         serviceRequests mempoolAccess reqQ
@@ -146,7 +144,6 @@ initPactService'
     => PayloadCas cas
     => ChainwebVersion
     -> ChainId
-    -> MVar (MempoolValidator ChainwebTransaction)
     -> logger
     -> (P.Logger -> P.SPVSupport)
     -> BlockHeaderDb
@@ -156,7 +153,7 @@ initPactService'
     -> Bool
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid vmvar chainwebLogger spv bhDb pdb dbDir nodeid
+initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
                  doResetDb act = do
     sqlitedir <- getSqliteDir
     when doResetDb $ resetDb sqlitedir
@@ -174,11 +171,8 @@ initPactService' ver cid vmvar chainwebLogger spv bhDb pdb dbDir nodeid
     withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
       checkpointEnv <- initRelationalCheckpointer
                            initBlockState sqlenv logger gasEnv
-      activeDb <- newMVar Nothing
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
-                                bhDb activeDb
-      let cp = view cpeCheckpointer checkpointEnv
-      putMVar vmvar $ validateChainwebTxsPreBlock activeDb cp
+                                bhDb
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where
     loggers = pactLoggers chainwebLogger
@@ -325,46 +319,32 @@ restoreCheckpointer
 restoreCheckpointer maybeBB = do
     checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
     logInfo $ "restoring " <> sshow maybeBB
-    env <- liftIO $ restore checkPointer maybeBB
-    -- stash the environment for the mempool validator
-    mv <- view psActiveDbHandle
-    liftIO $ modifyMVar_ mv $ const $ return $! Just env
-    return env
+    liftIO $ restore checkPointer maybeBB
 
 
 finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
 finalizeCheckpointer finalize = do
     checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
     liftIO $! finalize checkPointer
-    mv <- view psActiveDbHandle
-    liftIO $ modifyMVar_ mv $ const $ return Nothing
 
 
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
 validateChainwebTxsPreBlock
-    :: MVar (Maybe PactDbEnv')
+    :: PactDbEnv'
     -> Checkpointer
     -> BlockHeight
     -> BlockHash
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxsPreBlock dbEnvMVar cp bh hash txs = do
+validateChainwebTxsPreBlock dbEnv cp bh hash txs = do
     lb <- getLatestBlock cp
-
-    -- TODO: I hate that we are passing the pact db environment via MVar here,
-    -- but without significantly reworking the checkpointer api I don't see any
-    -- other way of getting it here
-    dbEnv <- readMVar dbEnvMVar >>=
-             maybe (fail "impossible: we should be within an active \
-                         \restore block") return
     when (Just (pred bh, hash) /= lb) $
         fail "internal error: restore point is wrong, refusing to validate."
-
-    V.mapM (checkOne dbEnv) txs
+    V.mapM checkOne txs
   where
-    checkAccount dbEnv tx = do
+    checkAccount tx = do
       let !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
 
       let !sender = P._pmSender pm
@@ -375,11 +355,11 @@ validateChainwebTxsPreBlock dbEnvMVar cp bh hash txs = do
         Nothing -> return True
         Just (T2 b _g) -> return $ b > fromIntegral limit
 
-    checkOne dbEnv tx = do
+    checkOne tx = do
         let pactHash = view P.cmdHash tx
         mb <- lookupProcessedTx cp pactHash
         if mb == Nothing
-        then checkAccount dbEnv tx
+        then checkAccount tx
         else return False
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
@@ -459,7 +439,10 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
                <> " (parent hash = " <> sshow pHash <> ")"
         liftIO $ mpaProcessFork mpAccess parentHeader
         liftIO $ mpaSetLastHeader mpAccess parentHeader
-        newTrans <- liftIO $! mpaGetBlock mpAccess bHeight pHash parentHeader
+        cp <- view (psCheckpointEnv . cpeCheckpointer)
+        let validate = validateChainwebTxsPreBlock pdbenv cp
+        newTrans <- liftIO $
+                    mpaGetBlock mpAccess validate bHeight pHash parentHeader
         -- locally run 'execTransactions' with updated blockheight data
         results <- withParentBlockData parentHeader $
           execTransactions (Just pHash) miner newTrans pdbenv
@@ -471,26 +454,19 @@ withBatch :: PactServiceM cas a -> PactServiceM cas a
 withBatch act = mask $ \r -> do
     cp <- view (psCheckpointEnv . cpeCheckpointer)
     r $ liftIO $ beginCheckpointerBatch cp
-    v <- r wrap `catch` hndl cp
+    v <- r act `catch` hndl cp
     r $ liftIO $ commitCheckpointerBatch cp
     return v
 
   where
-    wrap = act `finally` do
-        mv <- view psActiveDbHandle
-        liftIO $ modifyMVar_ mv $ const $ return Nothing
-
     hndl cp (e :: SomeException) = do
         liftIO $ discardCheckpointerBatch cp
         throwM e
 
 
 withDiscardedBatch :: PactServiceM cas a -> PactServiceM cas a
-withDiscardedBatch act = bracket start end (const wrap)
+withDiscardedBatch act = bracket start end (const act)
   where
-    wrap = act `finally` do
-        mv <- view psActiveDbHandle
-        liftIO $ modifyMVar_ mv $ const $ return Nothing
     start = do
         cp <- view (psCheckpointEnv . cpeCheckpointer)
         liftIO (beginCheckpointerBatch cp)

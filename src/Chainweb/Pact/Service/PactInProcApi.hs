@@ -58,7 +58,6 @@ withPactService
     => Logger logger
     => ChainwebVersion
     -> ChainId
-    -> MVar (MempoolValidator ChainwebTransaction)
     -> logger
     -> MempoolConsensus ChainwebTransaction
     -> MVar (CutDb cas)
@@ -69,10 +68,9 @@ withPactService
     -> Bool
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService ver cid vmvar logger mpc cdbv bhdb pdb dbDir nodeid resetDb
-                action =
-    withPactService' ver cid vmvar logger mpa cdbv bhdb pdb dbDir nodeid
-                     resetDb action
+withPactService ver cid logger mpc cdbv bhdb pdb dbDir nodeid resetDb action =
+    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid resetDb
+                     action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -83,7 +81,6 @@ withPactService'
     => Logger logger
     => ChainwebVersion
     -> ChainId
-    -> MVar (MempoolValidator ChainwebTransaction)
     -> logger
     -> MemPoolAccess
     -> MVar (CutDb cas)
@@ -94,13 +91,13 @@ withPactService'
     -> Bool
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid vmvar logger memPoolAccess cdbv bhDb pdb dbDir nodeid
+withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid
                  resetDb action =
     mask $ \rst -> do
         reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
         a <- async $
-             PS.initPactService ver cid vmvar logger reqQ memPoolAccess cdbv
-                                bhDb pdb dbDir nodeid resetDb
+             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb
+                                pdb dbDir nodeid resetDb
         link a
         evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 
@@ -124,11 +121,15 @@ pactMemPoolGetBlock
     :: Logger logger
     => MempoolConsensus ChainwebTransaction
     -> logger
-    -> (BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction))
-pactMemPoolGetBlock mpc theLogger height hash _bHeader = do
+    -> (MempoolPreBlockCheck ChainwebTransaction
+            -> BlockHeight
+            -> BlockHash
+            -> BlockHeader
+            -> IO (Vector ChainwebTransaction))
+pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) height hash maxBlockSize
+    mempoolGetBlock (mpcMempool mpc) validate height hash maxBlockSize
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn = logFunction

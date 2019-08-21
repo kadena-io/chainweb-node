@@ -6,7 +6,6 @@ import Control.Concurrent.STM
 import Control.Exception
 
 import qualified Data.Pool as Pool
-import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
 import Servant.Client (BaseUrl(..), Scheme(..), mkClientEnv)
@@ -41,7 +40,6 @@ tests = withResource (newPool cfg) Pool.destroyAllResources $
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
                               mockGasLimit mockMeta
-                              (const $ const $ return . V.map (const True))
     cfg = InMemConfig txcfg mockBlockGasLimit 2048
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec

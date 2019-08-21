@@ -49,7 +49,6 @@ testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
                               mockGasLimit mockMeta
-                              (const $ const $ return . V.map (const True))
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
 

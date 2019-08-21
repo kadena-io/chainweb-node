@@ -112,9 +112,8 @@ genPayloadModule v tag txFiles =
                 ProcSucc c -> fixupPayload cmdBS c
 
         let logger = genericLogger Warn TIO.putStrLn
-        pmv <- newEmptyMVar
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid pmv logger (const noSPVSupport)
+        payloadWO <- initPactService' v cid logger (const noSPVSupport)
                          bhdb pdb Nothing Nothing False $
                          execNewGenesisBlock noMiner (V.fromList cwTxs)
 

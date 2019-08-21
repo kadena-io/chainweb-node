@@ -208,11 +208,12 @@ insertInMem cfg lock txs = do
 ------------------------------------------------------------------------------
 getBlockInMem :: InMemConfig t
               -> MVar (InMemoryMempoolData t)
+              -> MempoolPreBlockCheck t
               -> BlockHeight
               -> BlockHash
               -> GasLimit
               -> IO (Vector t)
-getBlockInMem cfg lock bheight phash size0 = do
+getBlockInMem cfg lock txValidate bheight phash size0 = do
     -- validate quarantined instructions.
     withMVar lock $ \mdata -> do
         let qref = _inmemQuarantine mdata
@@ -242,7 +243,7 @@ getBlockInMem cfg lock bheight phash size0 = do
     sizeOK tx = getSize tx <= maxSize
 
     validateBatch mdata q doInsert = do
-        oks1 <- txValidate txcfg bheight phash q
+        oks1 <- txValidate bheight phash q
         let oks2 = V.map sizeOK q
         let oks = V.zipWith (&&) oks1 oks2
         let (good0, bad0) = V.partition snd $ V.zip q oks
@@ -255,7 +256,7 @@ getBlockInMem cfg lock bheight phash size0 = do
                 !psq'' = V.foldl' del psq' bad
             in psq''
         when doInsert $ modifyIORef' (_inmemRecentLog mdata) $
-            recordRecentTransactions maxRecent (V.map hasher good)
+            recordRecentTransactions maxRecent $! V.map hasher good
         return good
 
     maxInARow :: Int

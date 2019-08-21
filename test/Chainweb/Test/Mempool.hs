@@ -131,7 +131,7 @@ testStartup = const $ return ()
 
 triggerGetBlock :: MonadIO m => MempoolBackend MockTx -> m ()
 triggerGetBlock mp =
-    liftIO $ void $ mempoolGetBlock mp 0 nullBlockHash gasLimit
+    liftIO $ void $ mempoolGetBlock mp noopMempoolPreBlockCheck 0 nullBlockHash gasLimit
   where
     gasLimit = mempoolBlockGasLimit mp
 
@@ -171,7 +171,8 @@ propTrivial txs mempool = runExceptT $ do
         triggerGetBlock mempool
     lookup = mempoolLookup mempool . V.fromList . map hash
 
-    getBlock = mempoolGetBlock mempool 0 nullBlockHash (mempoolBlockGasLimit mempool)
+    getBlock = mempoolGetBlock mempool noopMempoolPreBlockCheck 0 nullBlockHash
+                               (mempoolBlockGasLimit mempool)
     onFees x = (Down (mockGasPrice x), mockGasLimit x)
 
 

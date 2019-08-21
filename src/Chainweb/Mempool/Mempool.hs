@@ -67,7 +67,7 @@
 
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
-  , MempoolValidator
+  , MempoolPreBlockCheck
   , TransactionConfig(..)
   , TransactionHash(..)
   , TransactionMetadata(..)
@@ -80,20 +80,19 @@ module Chainweb.Mempool.Mempool
   , HighwaterMark
 
   , chainwebTransactionConfig
-  , validatingChainwebTransactionConfig
   , mockCodec
   , mockEncode
   , mockBlockGasLimit
   , chainwebTestHasher
   , chainwebTestHashMeta
   , noopMempool
+  , noopMempoolPreBlockCheck
   , syncMempools
   , syncMempools'
   , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.MVar
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Monad (replicateM, when)
@@ -153,7 +152,7 @@ data LookupResult t = Missing
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
 ------------------------------------------------------------------------------
-type MempoolValidator t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
+type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
 
 ------------------------------------------------------------------------------
 -- | Mempool operates over a transaction type @t@. Mempool needs several
@@ -178,9 +177,6 @@ data TransactionConfig t = TransactionConfig {
 
     -- | getter for transaction metadata (creation and expiry timestamps)
   , txMetadata :: t -> TransactionMetadata
-
-    -- | transaction validator.
-  , txValidate :: MempoolValidator t
   }
 
 ------------------------------------------------------------------------------
@@ -217,7 +213,8 @@ data MempoolBackend t = MempoolBackend {
     -- for mining.
     --
     -- TODO remove gas limit argument here
-  , mempoolGetBlock :: BlockHeight -> BlockHash -> GasLimit -> IO (Vector t)
+  , mempoolGetBlock
+      :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> GasLimit -> IO (Vector t)
 
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
@@ -233,6 +230,8 @@ data MempoolBackend t = MempoolBackend {
   , mempoolClear :: IO ()
 }
 
+noopMempoolPreBlockCheck :: MempoolPreBlockCheck t
+noopMempoolPreBlockCheck _ _ v = return $! V.replicate (V.length v) True
 
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do
@@ -257,13 +256,12 @@ noopMempool = do
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
                               noopMeta
-                              (const $ const $ return . V.map (const True))
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
     noopQuarantine = const $ return ()
     noopMV = const $ return ()
-    noopGetBlock = const $ const $ const $ return V.empty
+    noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
@@ -277,8 +275,6 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     getGasPrice
     getGasLimit
     (const txmeta)
-    (const $ const $ return . V.map (const True))
-    -- TODO: insert extra transaction validation here
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj
@@ -289,17 +285,6 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     -- TODO: plumb through origination + expiry time from pact once it makes it
     -- into PublicMeta
     txmeta = TransactionMetadata Time.minTime Time.maxTime
-
-------------------------------------------------------------------------------
-validatingChainwebTransactionConfig
-    :: MVar (MempoolValidator ChainwebTransaction)
-    -> TransactionConfig ChainwebTransaction
-validatingChainwebTransactionConfig mv =
-    chainwebTransactionConfig { txValidate = val }
-  where
-    val h ha v = do
-        valFn <- readMVar mv
-        valFn h ha v
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {

@@ -86,10 +86,8 @@ module Chainweb.Pact.Backend.Types
     , psStateValidated
     , psPdb
     , psBlockHeaderDb
-    , psActiveDbHandle
     ) where
 
-import Control.Concurrent.MVar
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
@@ -128,6 +126,7 @@ import Pact.Types.SPV
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 
@@ -312,7 +311,6 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
-    , _psActiveDbHandle :: MVar (Maybe PactDbEnv')
     }
 
 data PactServiceState = PactServiceState
@@ -321,8 +319,14 @@ data PactServiceState = PactServiceState
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
 
+-- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
-  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+  { mpaGetBlock
+        :: MempoolPreBlockCheck ChainwebTransaction
+        -> BlockHeight
+        -> BlockHash
+        -> BlockHeader
+        -> IO (Vector ChainwebTransaction)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
   }

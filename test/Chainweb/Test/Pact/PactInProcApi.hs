@@ -21,6 +21,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Monad (when)
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
@@ -77,7 +78,6 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
-        vmv <- newEmptyMVar
         reqQ <- atomically newTQueue
         rdb <- rocksIO
         let genesisHeader = genesisBlockHeader testVersion cid
@@ -85,7 +85,7 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
         pdb <- newPayloadDb
 
         a <- async $ withTempDir $ \dir ->
-             PS.initPactService testVersion cid vmv logger reqQ mempool mv
+             PS.initPactService testVersion cid logger reqQ mempool mv
                                 bhdb pdb (Just dir) Nothing False
         link a
         return (a, reqQ)
@@ -131,7 +131,7 @@ testMemPoolAccess  = MemPoolAccess
     , mpaProcessFork = \_ -> return ()
     }
   where
-    getTestBlock _bHeight _bHash _bHeader = do
+    getTestBlock validate _bHeight _bHash _bHeader = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         d <- adminData
         let txs = V.fromList
@@ -147,12 +147,21 @@ testMemPoolAccess  = MemPoolAccess
               , PactTransaction "(at 'chain-id (chain-data))" d
               , PactTransaction "(at 'sender (chain-data))" d
               ]
-        goldenTestTransactions txs
+        outtxs <- goldenTestTransactions txs
+        oks <- validate _bHeight _bHash outtxs
+        when (not $ V.and oks) $ do
+            fail $ mconcat [ "tx failed validation! input list: \n"
+                           , show txs
+                           , "\n\nouttxs: "
+                           , show outtxs
+                           , "\n\noks: "
+                           , show oks ]
+        return outtxs
 
 
 testEmptyMemPool :: MemPoolAccess
 testEmptyMemPool = MemPoolAccess
-    { mpaGetBlock = \_ _ _ -> goldenTestTransactions V.empty
+    { mpaGetBlock = \_ _ _ _ -> goldenTestTransactions V.empty
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }

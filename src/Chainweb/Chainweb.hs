@@ -74,7 +74,6 @@ module Chainweb.Chainweb
 -- ** Mempool integration
 , ChainwebTransaction
 , Mempool.chainwebTransactionConfig
-, Mempool.validatingChainwebTransactionConfig
 
 , withChainweb
 , runChainweb
@@ -87,7 +86,7 @@ module Chainweb.Chainweb
 import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
@@ -334,11 +333,9 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
 
-validatingMempoolConfig
-    :: MVar (Mempool.MempoolValidator ChainwebTransaction)
-    -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig mv = Mempool.InMemConfig
-    (Mempool.validatingChainwebTransactionConfig mv)
+validatingMempoolConfig :: Mempool.InMemConfig ChainwebTransaction
+validatingMempoolConfig = Mempool.InMemConfig
+    Mempool.chainwebTransactionConfig
     blockGasLimit
     maxRecentLog
   where

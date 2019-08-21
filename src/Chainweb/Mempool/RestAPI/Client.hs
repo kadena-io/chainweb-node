@@ -69,7 +69,7 @@ toMempool version chain txcfg blocksizeLimit env =
 
     -- TODO: should we permit remote getBlock?
     -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
-    getBlock _ _ _ = unsupported
+    getBlock _ _ _ _ = unsupported
     markValidated _ = unsupported
 
     getPending hw cb = do
