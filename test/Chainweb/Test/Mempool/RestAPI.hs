@@ -31,18 +31,16 @@ import Network.X509.SelfSigned
 
 
 ------------------------------------------------------------------------------
-tests :: RocksDb -> TestTree
-tests rdb = withResource (newPool rdb cfg) Pool.destroyAllResources $
+tests :: TestTree
+tests = withResource (newPool cfg) Pool.destroyAllResources $
         \poolIO -> testGroup "Chainweb.Mempool.RestAPI"
             $ Chainweb.Test.Mempool.remoteTests
             $ MempoolWithFunc
             $ withRemoteMempool poolIO
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta (const $ return True)
-    -- run the reaper @100Hz for testing
-    cfg = InMemConfig txcfg mockBlockGasLimit (hz 100) 2048 True
-    hz x = 1000000 `div` x
+                              mockGasLimit mockMeta
+    cfg = InMemConfig txcfg mockBlockGasLimit 2048
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
 
@@ -52,19 +50,23 @@ data TestServer = TestServer {
   , _tsServerThread :: !ThreadId
   }
 
-newTestServer :: RocksDb -> InMemConfig MockTx -> IO TestServer
-newTestServer rdb inMemCfg = mask_ $ do
+newTestServer :: InMemConfig MockTx -> IO TestServer
+newTestServer inMemCfg = mask_ $ do
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
     tid <- forkIOWithUnmask $ server inmemMv envMv
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
-    let remoteMp = MClient.toMempool version chain txcfg blocksizeLimit env
+    let remoteMp0 = MClient.toMempool version chain txcfg blocksizeLimit env
+    -- allow remoteMp to call the local mempool's getBlock (for testing)
+    let remoteMp = remoteMp0 {
+                       mempoolGetBlock = \a b c -> mempoolGetBlock inmem a b c
+                     }
     return $! TestServer remoteMp inmem tid
 
   where
     server inmemMv envMv restore =
-        InMem.withInMemoryMempool inMemCfg rdb $ \inmem -> do
+        InMem.withInMemoryMempool inMemCfg $ \inmem -> do
             putMVar inmemMv inmem
             restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
                 putMVar envMv env
@@ -86,8 +88,8 @@ destroyTestServer :: TestServer -> IO ()
 destroyTestServer (TestServer _ _ tid) = killThread tid
 
 
-newPool :: RocksDb -> InMemConfig MockTx -> IO (Pool.Pool TestServer)
-newPool rdb cfg = Pool.createPool (newTestServer rdb cfg) destroyTestServer 1 10 20
+newPool :: InMemConfig MockTx -> IO (Pool.Pool TestServer)
+newPool cfg = Pool.createPool (newTestServer cfg) destroyTestServer 1 10 20
 
 ------------------------------------------------------------------------------
 

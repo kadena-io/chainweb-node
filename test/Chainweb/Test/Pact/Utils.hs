@@ -26,6 +26,7 @@ module Chainweb.Test.Pact.Utils
 , mkTestExecTransactions
 , mkTestContTransaction
 , pactTestLogger
+, withMVarResource
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -56,7 +57,9 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 
@@ -143,14 +146,17 @@ mergeObjects = Object . HM.unions . foldr unwrap []
 adminData :: IO (Maybe Value)
 adminData = fmap k testKeyPairs
   where
-    k ks = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
+    k ks = Just $ object
+        [ "test-admin-keyset" .= fmap formatB16PubKey ks
+        ]
 
 -- | Shim for 'PactExec' and 'PactInProcApi' tests
-goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
+goldenTestTransactions
+    :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
-
-    mkTestExecTransactions "sender00" "0" ks "1" 100 0.1 1000000 0 txs
+    let nonce = "1"
+    mkTestExecTransactions "sender00" "0" ks nonce 100 1.0 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -176,14 +182,18 @@ mkTestExecTransactions
     -> Vector PactTransaction
       -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkTestExecTransactions sender cid ks nonce gas gasrate ttl ct txs =
-    traverse go txs
+mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
+    nref <- newIORef (0 :: Int)
+    traverse (go nref) txs
   where
-    go (PactTransaction c d) = do
+    go nref (PactTransaction c d) = do
       let dd = mergeObjects (toList d)
           pm = PublicMeta cid sender gas gasrate ttl ct
           msg = Exec (ExecMsg c dd)
 
+      nn <- readIORef nref
+      writeIORef nref $! succ nn
+      let nonce = T.append nonce0 (T.pack $ show nn)
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
         ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
@@ -279,7 +289,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-    evalPactServiceM ctx (initialPayloadState v cid mempty)
+    evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False
@@ -302,7 +312,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
       <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-    evalPactServiceM ctx (initialPayloadState v cid mempty)
+    evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False
@@ -332,7 +342,7 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock mempoolAccess h d
+            evalPactServiceM ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
@@ -431,5 +441,8 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
-      evalPactServiceM ctx (initialPayloadState v cid mempty)
+      evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
+
+withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
+withMVarResource value = withResource (newMVar value) (const $ return ())

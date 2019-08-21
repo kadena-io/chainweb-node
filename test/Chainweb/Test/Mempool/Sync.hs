@@ -26,16 +26,14 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
-
-import Data.CAS.RocksDB
 ------------------------------------------------------------------------------
 
 
-tests :: RocksDb -> TestTree
-tests db = testGroup "Chainweb.Mempool.sync" [
-            mempoolProperty "Mempool.syncMempools" gen (propSync db)
-                $ MempoolWithFunc $ withInMemoryMempool testInMemCfg db
-            ]
+tests :: TestTree
+tests = testGroup "Chainweb.Mempool.sync" [
+            mempoolProperty "Mempool.syncMempools" gen propSync
+                $ MempoolWithFunc $ withInMemoryMempool testInMemCfg
+         ]
   where
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
@@ -47,22 +45,19 @@ tests db = testGroup "Chainweb.Mempool.sync" [
       return (xss, yss, zss)
 
 testInMemCfg :: InMemConfig MockTx
-testInMemCfg = InMemConfig txcfg mockBlockGasLimit (hz 100) 2048 True
+testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta (const $ return True)
-    -- run the reaper @100Hz for testing
-    hz x = 1000000 `div` x
+                              mockGasLimit mockMeta
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
 
 propSync
-    :: RocksDb
-    -> (Set MockTx, Set MockTx , Set MockTx)
+    :: (Set MockTx, Set MockTx , Set MockTx)
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync db (txs, missing, later) localMempool' =
-    withInMemoryMempool testInMemCfg db $ \remoteMempool -> do
+propSync (txs, missing, later) localMempool' =
+    withInMemoryMempool testInMemCfg $ \remoteMempool -> do
         mempoolInsert localMempool' txsV
         mempoolInsert remoteMempool txsV
         mempoolInsert remoteMempool missingV

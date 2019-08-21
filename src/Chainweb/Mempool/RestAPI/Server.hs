@@ -19,7 +19,6 @@ import Control.Monad.IO.Class
 import Data.Aeson.Types (FromJSON, ToJSON)
 import qualified Data.DList as D
 import Data.IORef
-import Data.Maybe (fromMaybe)
 import qualified Data.Vector as V
 import Servant
 
@@ -52,13 +51,6 @@ lookupHandler mempool txs = handleErrs (liftIO look)
   where
     txV = V.fromList txs
     look = V.toList <$> mempoolLookup mempool txV
-
-
-getBlockHandler :: Show t => MempoolBackend t -> Maybe GasLimit -> Handler [t]
-getBlockHandler mempool mbSz = handleErrs (liftIO gb)
-  where
-    sz = fromMaybe (mempoolBlockGasLimit mempool) mbSz
-    gb = V.toList <$> mempoolGetBlock mempool sz
 
 
 getPendingHandler
@@ -117,7 +109,6 @@ mempoolServer (Mempool_ mempool) =
     insertHandler mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool
-    :<|> getBlockHandler mempool
     :<|> getPendingHandler mempool
 
 

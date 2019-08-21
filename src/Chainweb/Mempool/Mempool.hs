@@ -10,8 +10,50 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+------------------------------------------------------------------------------
+-- | Mempool
+--
+-- The mempool contains an in-memory store of all of the pending transactions
+-- that have been submitted by users for inclusion into blocks, and is
+-- responsible for collecting the candidate transaction set when we prepare a
+-- new block for mining.
+--
+-- The in-memory mempool implementation (see @InMem.hs@ and @InMemTypes.hs@)
+-- contains three datasets:
+--
+-- 1. a priority search queue of pending transactions, keyed by pact
+-- transaction hash, and (currently) ordered by gas price (descending) with
+-- ties broken by gas limit (ascending). Basically -- we prefer highest bidder
+-- first, and all else being equal, smaller transactions.
+--
+-- 2. a recent-modifications log, storing the last @k@ updates to the mempool.
+-- This is in here so peers can sync with us by fetching starting with a
+-- high-water mark, rather than having to go through a complete re-sync of all
+-- transaction hashes.
+--
+-- Transaction lifecycle:
+--
+--   - a transaction is created and signed by a user, and sent (via the pact
+--     @/send@ endpoint) to the mempool, using 'mempoolInsert'
+--
+--   - miner calls 'mempoolGetBlock', at which point the top transactions (up
+--     to the gas limit) are run through the MempoolPreBlockCheck and discarded
+--     if they fail
+--
+--   - the transaction makes it into a mined block
+--
+--   - consensus calls pact's @newBlock@ to create the next block; at this
+--     point, the Consensus module processes the fork and: a) removes any
+--     transactions that made it onto the winning fork so that they are no
+--     longer considered for inclusion in blocks or gossiped, b) reintroduces
+--     any transactions into the mempool that were on the losing fork but
+--     didn't make it onto the winning one.
+--
+-- The mempool API is defined as a record-of-functions in 'MempoolBackend'.
+
 module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
+  , MempoolPreBlockCheck
   , TransactionConfig(..)
   , TransactionHash(..)
   , TransactionMetadata(..)
@@ -30,6 +72,7 @@ module Chainweb.Mempool.Mempool
   , chainwebTestHasher
   , chainwebTestHashMeta
   , noopMempool
+  , noopMempoolPreBlockCheck
   , syncMempools
   , syncMempools'
   , GasLimit(..)
@@ -73,9 +116,9 @@ import System.LogLevel
 
 -- internal modules
 
-import Pact.Parse (ParsedDecimal(..),ParsedInteger(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.Command
-import Pact.Types.Gas (GasPrice(..),GasLimit(..))
+import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
@@ -90,13 +133,18 @@ import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
 data LookupResult t = Missing
-                    | Validated (ValidatedTransaction t)
-                    | Confirmed
                     | Pending t
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
 ------------------------------------------------------------------------------
+type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
+
+------------------------------------------------------------------------------
+-- | Mempool operates over a transaction type @t@. Mempool needs several
+-- functions on @t@, e.g. \"how do you encode and decode @t@ over the wire?\"
+-- and \"how is @t@ hashed?\". This information is passed to mempool in a
+-- 'TransactionConfig'.
 data TransactionConfig t = TransactionConfig {
     -- | converting transactions to/from bytestring.
     txCodec :: {-# UNPACK #-} !(Codec t)
@@ -104,7 +152,7 @@ data TransactionConfig t = TransactionConfig {
     -- | hash function to use when making transaction hashes.
   , txHasher :: t -> TransactionHash
 
-    -- | hash function metadata.
+    -- | hash function metadata. Currently informational only -- for future use.
   , txHashMeta :: {-# UNPACK #-} !HashMeta
 
     -- | getter for the transaction gas price.
@@ -112,8 +160,9 @@ data TransactionConfig t = TransactionConfig {
 
     -- | getter for transaction gas limit.
   , txGasLimit :: t -> GasLimit
+
+    -- | getter for transaction metadata (creation and expiry timestamps)
   , txMetadata :: t -> TransactionMetadata
-  , txValidate :: t -> IO Bool
   }
 
 ------------------------------------------------------------------------------
@@ -127,7 +176,6 @@ data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
 
     -- TODO: move this inside TransactionConfig or new MempoolConfig ?
-    -- TODO this can potentially change at runtime
   , mempoolBlockGasLimit :: GasLimit
 
     -- | Returns true if the given transaction hash is known to this mempool.
@@ -139,21 +187,15 @@ data MempoolBackend t = MempoolBackend {
     -- | Insert the given transactions into the mempool.
   , mempoolInsert :: Vector t -> IO ()
 
+    -- | Remove the given hashes from the pending set.
+  , mempoolMarkValidated :: Vector TransactionHash -> IO ()
+
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
-    -- TODO what is the relationship of this GasLimit to the configured one?
-    -- Not sure this is something an external client should be dictating.
-  , mempoolGetBlock :: GasLimit -> IO (Vector t)
-
-    -- | mark the given transactions as being mined and validated.
-  , mempoolMarkValidated :: Vector (ValidatedTransaction t) -> IO ()
-
-    -- | mark the given hashes as being past confirmation depth.
-  , mempoolMarkConfirmed :: Vector TransactionHash -> IO ()
-
-    -- | These transactions were on a losing fork. Reintroduce them.
-
-  , mempoolReintroduce :: Vector t -> IO ()
+    --
+    -- TODO remove gas limit argument here
+  , mempoolGetBlock
+      :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> GasLimit -> IO (Vector t)
 
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
@@ -169,6 +211,8 @@ data MempoolBackend t = MempoolBackend {
   , mempoolClear :: IO ()
 }
 
+noopMempoolPreBlockCheck :: MempoolPreBlockCheck t
+noopMempoolPreBlockCheck _ _ v = return $! V.replicate (V.length v) True
 
 noopMempool :: IO (MempoolBackend t)
 noopMempool = do
@@ -178,10 +222,8 @@ noopMempool = do
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
+    , mempoolMarkValidated = noopMV
     , mempoolGetBlock = noopGetBlock
-    , mempoolMarkValidated = noopMarkValidated
-    , mempoolMarkConfirmed = noopMarkConfirmed
-    , mempoolReintroduce = noopReintroduce
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
     }
@@ -193,14 +235,12 @@ noopMempool = do
     noopSize = const 1
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
-                              noopMeta (const $ return True)
+                              noopMeta
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
-    noopGetBlock = const $ return V.empty
-    noopMarkValidated = const $ return ()
-    noopMarkConfirmed = const $ return ()
-    noopReintroduce = const $ return ()
+    noopMV = const $ return ()
+    noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
@@ -214,7 +254,6 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     getGasPrice
     getGasLimit
     (const txmeta)
-    (const $ return True)       -- TODO: insert extra transaction validation here
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj

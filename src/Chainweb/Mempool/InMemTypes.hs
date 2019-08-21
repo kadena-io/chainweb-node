@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
@@ -19,11 +18,9 @@ module Chainweb.Mempool.InMemTypes
   ) where
 
 ------------------------------------------------------------------------------
-import Control.Concurrent (ThreadId)
 import Control.Concurrent.MVar (MVar)
 
 import Data.HashPSQ (HashPSQ)
-import Data.HashSet (HashSet)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
 import Data.Tuple.Strict
@@ -33,10 +30,7 @@ import Pact.Types.Gas (GasPrice(..))
 
 -- internal imports
 
-import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool
-
-import Data.CAS.RocksDB
 
 ------------------------------------------------------------------------------
 -- | Priority for the search queue
@@ -56,30 +50,19 @@ _defaultTxQueueLen = 64
 data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit
-  , _inmemReaperIntervalMicros :: {-# UNPACK #-} !Int
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
-  , _inmemEnableReIntro :: !Bool
 }
 
 ------------------------------------------------------------------------------
 data InMemoryMempool t = InMemoryMempool {
     _inmemCfg :: !(InMemConfig t)
   , _inmemDataLock :: !(MVar (InMemoryMempoolData t))
-  , _inmemReaper :: !ThreadId
   , _inmemNonce :: !ServerNonce
 }
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
     _inmemPending :: !(IORef (PSQ t))
-    -- | We've seen this in a valid block, but if it gets forked and loses
-    -- we'll have to replay it.
-    --
-    -- N.B. atomic access to these IORefs is not necessary -- we hold the lock here.
-  -- , _inmemValidated :: !(IORef (HashMap TransactionHash (ValidatedTransaction t)))
-  , _inmemValidated :: RocksDbTable TransactionHash (ValidatedTransaction t)
-  , _inmemConfirmed :: !(IORef (HashSet TransactionHash))
-  , _inmemLastNewBlockParent :: !(IORef (Maybe BlockHeader))
   , _inmemRecentLog :: !(IORef RecentLog)
 }
 
