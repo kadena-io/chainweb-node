@@ -262,6 +262,7 @@ library
         , bytes >= 0.15
         , bytestring >= 0.10
         , case-insensitive >= 1.2
+        , cassava >= 0.5.1
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , clock >= 0.7

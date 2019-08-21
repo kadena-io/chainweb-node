@@ -86,6 +86,7 @@ module Chainweb.Pact.Backend.Types
     , psStateValidated
     , psPdb
     , psBlockHeaderDb
+    , psChainwebVersion
     ) where
 
 import Control.Exception
@@ -127,6 +128,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
+import Chainweb.Version
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -299,6 +301,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
+    , _psChainwebVersion :: ChainwebVersion
     }
 
 data PactServiceState = PactServiceState

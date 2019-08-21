@@ -11,6 +11,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Pact.Miner
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -41,18 +42,24 @@ module Chainweb.Miner
 import GHC.Generics (Generic)
 
 import Control.DeepSeq
-import Control.Lens (Lens', lens, at, (^.))
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
-import Data.Aeson
--- import Data.Decimal
+import Data.Aeson hiding (decode)
+import Data.ByteString.Lazy as LBS
+import Data.Csv (decode, HasHeader(NoHeader))
+import Data.Decimal
 import Data.Default
-import Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import Data.Text (Text)
+import Data.Vector as V
+import Data.Word (Word64)
 
 -- chainweb types
 
 import Chainweb.BlockHeader
+import Chainweb.Graph
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
@@ -68,15 +75,15 @@ import Pact.Types.Term (KeySet(..), Name(..))
 -- | Miner id is a thin wrapper around 'Text' to differentiate it from user
 -- addresses
 newtype MinerId = MinerId Text
-    deriving stock (Eq, Ord, Show, Generic)
-    deriving newtype (ToJSON, FromJSON, NFData)
+    deriving stock (Eq, Ord, Generic)
+    deriving newtype (Show, ToJSON, FromJSON, NFData)
 
 -- | Miner keys are a thin wrapper around a Pact 'KeySet' to differentiate it from
 -- user keysets
 --
 newtype MinerKeys = MinerKeys KeySet
-    deriving stock (Eq, Ord, Show, Generic)
-    deriving newtype (ToJSON, FromJSON, NFData)
+    deriving stock (Eq, Ord, Generic)
+    deriving newtype (Show, ToJSON, FromJSON, NFData)
 
 -- | Miner info data consists of a miner id (text), and
 -- its keyset (a pact type)
@@ -146,17 +153,39 @@ fromMinerData = decodeStrictOrThrow' . _minerData
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range
 --
-minerReward :: BlockHeight -> ParsedDecimal
-minerReward bh = case rewards ^. at bh of
-    Nothing -> error
-      $ "Block Height calculating miner reward is outside of admissible range: "
-      <> sshow bh
-    Just d -> d
-{-# INLINE minerReward #-}
+minerReward
+    :: HasChainGraph v
+    => v -> BlockHeight -> IO ParsedDecimal
+minerReward v bh = do
+    rs <- rewards v
+    case rs ^. at (roundBy bh 500000) of
+      Nothing -> error
+          $ "Block Height calculating miner reward is outside of admissible range: "
+          <> sshow bh
+      Just d -> return d
 
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
 --
-rewards :: HashMap BlockHeight ParsedDecimal
-rewards = HashMap.fromList []
-{-# INLINE rewards #-}
+rewards
+    :: HasChainGraph v
+    => v -> IO (HashMap BlockHeight ParsedDecimal)
+rewards v = do
+    rs <- LBS.readFile "rewards/miner_rewards.csv"
+    case decode NoHeader rs of
+      Left _ -> error "rewards: cannot construct miner reward map"
+      Right vs -> return
+        $ HashMap.fromList
+        . V.toList
+        . V.map formatRow
+        $ vs
+  where
+    formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
+    formatRow (!a,!b) =
+      let
+        n :: Decimal
+        !n = fromIntegral $ size $ v ^. chainGraph
+
+        m :: Decimal
+        !m = fromRational $ toRational b
+      in (BlockHeight a, ParsedDecimal $ m / n)

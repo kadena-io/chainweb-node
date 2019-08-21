@@ -179,7 +179,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb act = 
       checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
 
       let !pd = P.PublicData def def def
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb
+      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) pd pdb bhDb ver
 
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
 
@@ -560,9 +560,10 @@ runCoinbase (Just parentHash) dbEnv miner = do
     let !pd = _psPublicData psEnv
         !logger = _cpeLogger . _psCheckpointEnv $ psEnv
         !bh = BlockHeight $ P._pdBlockHeight pd
+        !v = _psChainwebVersion psEnv
 
-    let !reward = minerReward bh
-
+    reward <- liftIO $! minerReward v bh
+    liftIO $ print reward
     cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
     return $! toHashCommandResult cr
 

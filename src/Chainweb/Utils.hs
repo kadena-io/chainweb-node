@@ -55,6 +55,7 @@ module Chainweb.Utils
 , maxBy
 , minBy
 , allEqOn
+, roundBy
 , unlessM
 , whenM
 , (&)
@@ -332,6 +333,13 @@ unlessM c a = c >>= flip unless a
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
+
+-- | Round an integral `n` up to the nearest multiple of
+-- an integral `m`
+--
+roundBy :: Integral a => a -> a -> a
+roundBy n m = ((n `div` m) + 1) * m
+{-# INLINE roundBy #-}
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
@@ -1105,4 +1113,3 @@ sfst (T2 a _) = a
 
 ssnd :: T2 a b -> b
 ssnd (T2 _ b) = b
-
