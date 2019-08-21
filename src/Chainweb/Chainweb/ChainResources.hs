@@ -154,7 +154,6 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
                     return ()
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
-            -- replay pact
             let pact = pes requestQ
 
             -- run inner
