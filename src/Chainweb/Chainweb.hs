@@ -85,6 +85,7 @@ module Chainweb.Chainweb
 
 import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
@@ -130,7 +131,6 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
-import qualified Chainweb.Pact.BloomCache as Bloom
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -333,18 +333,15 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 -- configurable as well as parameters that are determined by the chainweb
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
---
-mempoolConfig :: Bool -> Mempool.InMemConfig ChainwebTransaction
-mempoolConfig enableReIntro = Mempool.InMemConfig
+
+validatingMempoolConfig :: Mempool.InMemConfig ChainwebTransaction
+validatingMempoolConfig = Mempool.InMemConfig
     Mempool.chainwebTransactionConfig
     blockGasLimit
-    mempoolReapInterval
     maxRecentLog
-    enableReIntro
   where
-    blockGasLimit = 100000               -- TODO: policy decision
-    mempoolReapInterval = 60 * 20 * 1000000   -- 20 mins
-    maxRecentLog = 2048                   -- store 2k recent transaction hashes
+    blockGasLimit = 100000
+    maxRecentLog = 2048
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -365,7 +362,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> withChainResources v cid rocksDb peer (chainLogger cid)
-                 mempoolConf cdbv payloadDb prune dbDir nodeid resetDb)
+                     validatingMempoolConfig cdbv payloadDb prune dbDir nodeid
+                     resetDb)
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
@@ -435,11 +433,10 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
+              -- TODO: delete this knob
               logg Info "Transaction index enabled"
               let l = sortBy (compare `on` fst) (HM.toList cs)
-                  bdbs = map (\(c, cr) -> (c, _chainResBlockHeaderDb cr)) l
-              Bloom.withCache (cuts ^. cutsCutDb) bdbs $ \bloom ->
-                 m $ map (\(c, cr) -> (c, (cuts, cr, bloom))) l
+              m $ map (\(c, cr) -> (c, (cuts, cr))) l
 
         | otherwise = do
               logg Info "Transaction index disabled"
@@ -448,8 +445,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     v = _configChainwebVersion conf
     cids = chainIds v
     cwnid = _configNodeId conf
-    enableTxsReintro = _configReintroTxs conf
-    mempoolConf = mempoolConfig enableTxsReintro
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)
@@ -460,7 +455,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
-        mapM_ syncOne $ mergeCutResources $ _cutMap currentCut
+        mapConcurrently_ syncOne $ mergeCutResources $ _cutMap currentCut
       where
         mergeCutResources c =
             let f cid bh = (bh, fromJuste $ HM.lookup cid cs)
@@ -488,24 +483,20 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-
-    -- 1. Start serving Rest API
-    --
-    withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \server -> do
-        logg Info "started server"
-
-        -- 2. Start Clients
-        --
+    concurrently_
+        -- 1. Start serving Rest API
+        (serve (throttle (_chainwebThrottler cw) . httpLog))
+        -- 2. Start Clients (with a delay of 500ms)
+        (threadDelay 500000 >> clients)
+  where
+    clients = do
         mpClients <- mempoolSyncClients
-        let clients = concat
+        mapConcurrently_ id $ concat
               [ miner
               , cutNetworks mgr (_chainwebCutResources cw)
               , mpClients
               ]
-        mapConcurrently_ id clients
-        wait server
 
-  where
     logg = logFunctionText $ _chainwebLogger cw
 
     -- chains

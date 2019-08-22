@@ -86,6 +86,7 @@ module Chainweb.Pact.Backend.Types
     , psStateValidated
     , psPdb
     , psBlockHeaderDb
+    , psMinerRewards
     ) where
 
 import Control.Exception
@@ -112,9 +113,11 @@ import Foreign.C.Types (CInt(..))
 import GHC.Generics
 
 import Pact.Interpreter (PactDbEnv(..))
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import Pact.Types.ChainMeta (PublicData(..))
+import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
     (ExecutionMode(..), GasEnv(..), PactDb(..), TableName(..), TxId(..),
@@ -125,8 +128,10 @@ import Pact.Types.SPV
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
+
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -192,6 +197,9 @@ type TxLogMap = Map TableName (DList (TxLog Value))
 -- can be performed upon block save).
 type SQLitePendingTableCreations = HashSet ByteString
 
+-- | Pact transaction hashes resolved during this block.
+type SQLitePendingSuccessfulTxs = HashSet ByteString
+
 -- | Pending writes to the pact db during a block, to be recorded in 'BlockState'.
 type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 
@@ -199,7 +207,11 @@ type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-type SQLitePendingData = (SQLitePendingTableCreations, SQLitePendingWrites, TxLogMap)
+type SQLitePendingData = ( SQLitePendingTableCreations
+                         , SQLitePendingWrites
+                         , TxLogMap
+                         , SQLitePendingSuccessfulTxs
+                         )
 
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
@@ -219,7 +231,7 @@ data BlockState = BlockState
     deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = (mempty, mempty, mempty)
+emptySQLitePendingData = (mempty, mempty, mempty, mempty)
 
 initBlockState :: BlockState
 initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
@@ -272,13 +284,16 @@ data Checkpointer = Checkpointer
       -- ^ discard pending block changes
     , getLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
       -- ^ get the checkpointer's idea of the latest block
-    , withAtomicRewind :: forall a . IO a -> IO a
-      -- ^ in the event of rewind we may wish to play through many blocks. In
-      -- the event of any of them failing, we should discard the whole
-      -- transaction in total.
+    , beginCheckpointerBatch :: IO ()
+    , commitCheckpointerBatch :: IO ()
+    , discardCheckpointerBatch :: IO ()
     , lookupBlockInCheckpointer :: (BlockHeight, BlockHash) -> IO Bool
       -- ^ is the checkpointer aware of the given block?
     , getBlockParent :: (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
+    , registerProcessedTx :: P.PactHash -> IO ()
+
+      -- TODO: this would be nicer as a batch lookup :(
+    , lookupProcessedTx :: P.PactHash -> IO (Maybe (BlockHeight, BlockHash))
     }
 
 data CheckpointEnv = CheckpointEnv
@@ -299,6 +314,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
+    , _psMinerRewards :: HashMap BlockHeight ParsedDecimal
     }
 
 data PactServiceState = PactServiceState
@@ -307,8 +323,14 @@ data PactServiceState = PactServiceState
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
 
+-- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
-  { mpaGetBlock :: BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+  { mpaGetBlock
+        :: MempoolPreBlockCheck ChainwebTransaction
+        -> BlockHeight
+        -> BlockHash
+        -> BlockHeader
+        -> IO (Vector ChainwebTransaction)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
   }

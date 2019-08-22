@@ -18,10 +18,10 @@ import Data.Text (Text,pack)
 import GHC.Generics
 
 import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.Miner
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
-
 
 data PactException
   = BlockValidationFailure Text
@@ -49,7 +49,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
 
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
-    , _newMiner :: MinerInfo
+    , _newMiner :: Miner
     , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
 instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)

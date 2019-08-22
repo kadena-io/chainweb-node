@@ -246,7 +246,7 @@ roundtrip sid0 tid0 burn create =
 
 chainToMPA :: TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess
 chainToMPA f cid = MemPoolAccess
-    { mpaGetBlock = f cid
+    { mpaGetBlock = const $ f cid
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork  = \_ -> return ()
     }

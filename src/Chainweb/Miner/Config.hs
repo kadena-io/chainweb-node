@@ -29,7 +29,7 @@ import Numeric.Natural (Natural)
 -- internal modules
 
 import Chainweb.HostAddress (HostAddress)
-import Chainweb.Pact.Types
+import Chainweb.Miner
 import Chainweb.Utils (textOption)
 
 ---
@@ -41,7 +41,7 @@ makeLenses ''MinerCount
 
 data MinerConfig = MinerConfig
     { _configTestMiners :: !MinerCount
-    , _configMinerInfo :: !MinerInfo
+    , _configMinerInfo :: !Miner
     , _configRemoteMiners :: !(Set HostAddress)
     }
     deriving (Show, Eq, Generic)

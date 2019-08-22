@@ -55,6 +55,7 @@ module Chainweb.Utils
 , maxBy
 , minBy
 , allEqOn
+, roundBy
 , unlessM
 , whenM
 , partitionEithersNEL
@@ -163,6 +164,8 @@ module Chainweb.Utils
 -- * Strict tuple-2 accessors
 , sfst
 , ssnd
+, scurry
+, suncurry
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -333,6 +336,13 @@ unlessM c a = c >>= flip unless a
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
+
+-- | Round an integral `n` up to the nearest multiple of
+-- an integral `m`
+--
+roundBy :: Integral a => a -> a -> a
+roundBy n m = ((n `div` m) + 1) * m
+{-# INLINE roundBy #-}
 
 partitionEithersNEL :: NonEmpty (Either a b) -> These (NonEmpty a) (NonEmpty b)
 partitionEithersNEL (h :| es) = case bimap NEL.nonEmpty NEL.nonEmpty $ partitionEithers es of
@@ -1086,8 +1096,26 @@ concurrentWith alloc inner params = do
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
 
+-- | First projections for strict tuples
+--
 sfst :: T2 a b -> a
 sfst (T2 a _) = a
+{-# INLINE sfst #-}
 
+-- | Second projections for strict tuples
+--
 ssnd :: T2 a b -> b
 ssnd (T2 _ b) = b
+{-# INLINE ssnd #-}
+
+-- | Currying for functions of strict tuples
+--
+scurry :: forall a b c. ((T2 a b) -> c) -> a -> b -> c
+scurry k a b = k (T2 a b)
+{-# INLINE scurry #-}
+
+-- | Uncurrying for functions of strict tuples
+--
+suncurry :: forall a b c. (a -> b -> c) -> T2 a b -> c
+suncurry k (T2 a b) = k a b
+{-# INLINE suncurry #-}

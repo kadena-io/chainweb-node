@@ -231,7 +231,7 @@ generateDefaultSimpleCommands batchsize =
         a <- state $ randomR (1, 100 :: Integer)
         b <- state $ randomR (1, 100 :: Integer)
         opIndex <- state $ randomR (0, 2 :: Int)
-        return $ printf "(%s %s %s)" ["+-*" !! opIndex] a b
+        return $ printf "(%s %u %u)" ["+-*" !! opIndex] a b
 
 sendSimpleBatch :: Int -> IO (Either ClientError RequestKeys)
 sendSimpleBatch batchsize =

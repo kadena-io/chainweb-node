@@ -141,6 +141,7 @@ library
         , Chainweb.Mempool.RestAPI.Server
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
+        , Chainweb.Miner
         , Chainweb.Miner.Config
         , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
@@ -224,7 +225,6 @@ library
         , Chainweb.Pact.Backend.SQLite.V2
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
-        , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
@@ -259,6 +259,7 @@ library
         , bytes >= 0.15
         , bytestring >= 0.10
         , case-insensitive >= 1.2
+        , cassava >= 0.5.1
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , clock >= 0.7

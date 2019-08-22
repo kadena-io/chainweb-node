@@ -52,8 +52,8 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
+import Chainweb.Miner
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Transaction (PayloadWithText(..))
 import Chainweb.Version
@@ -109,13 +109,13 @@ genPayloadModule v tag txFiles =
                 procCmd = verifyCommand cmdBS
             case procCmd of
                 f@ProcFail{} -> fail (show f)
-                ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) (SB.toShort <$> cmdBS)
+                ProcSucc c -> fixupPayload cmdBS c
 
         let logger = genericLogger Warn TIO.putStrLn
-
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger (const noSPVSupport) bhdb pdb Nothing Nothing False $
-            execNewGenesisBlock noMiner (V.fromList cwTxs)
+        payloadWO <- initPactService' v cid logger (const noSPVSupport)
+                         bhdb pdb Nothing Nothing False $
+                         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
             modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
@@ -123,6 +123,9 @@ genPayloadModule v tag txFiles =
 
         TIO.writeFile (T.unpack fileName) modl
   where
+    fixupPayload cmdBS c =
+        return $! fmap (\bs -> PayloadWithText bs (_cmdPayload c))
+                       (SB.toShort <$> cmdBS)
     cid = someChainId v
 
 startModule :: Text -> [Text]

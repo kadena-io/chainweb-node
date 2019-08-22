@@ -16,7 +16,6 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
   ) where
 
 import Control.Concurrent.MVar
-import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
@@ -40,6 +39,7 @@ import Prelude hiding (log)
 
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Gas (GasEnv(..))
+import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Logger (Logger(..))
 import Pact.Types.SQLite
 
@@ -81,9 +81,13 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               (doSave db)
               (doDiscard db)
               (doGetLatest db)
-              (doWithAtomicRewind db)
+              (doBeginBatch db)
+              (doCommitBatch db)
+              (doDiscardBatch db)
               (doLookupBlock db)
               (doGetBlockParent db)
+              (doRegisterSuccessful db)
+              (doLookupSuccessful db)
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
@@ -112,6 +116,7 @@ doRestore dbenv Nothing = runBlockEnv dbenv $ do
             _ -> internalError "Something went wrong when resetting tables."
         exec_ db "DELETE FROM VersionedTableCreation;"
         exec_ db "DELETE FROM VersionedTableMutation;"
+        exec_ db "DELETE FROM TransactionIndex;"
     beginSavepoint Block
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
@@ -127,10 +132,11 @@ doSave dbenv hash = runBlockEnv dbenv $ do
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
     runPending bh = do
-        (newTables, writes, _) <- use bsPendingBlock
+        (newTables, writes, _, _) <- use bsPendingBlock
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
         callDb "save" $ backendWriteUpdateBatch bh writeV
+        indexPendingPactTransactions
 
     prepChunk [] = error "impossible: empty chunk from groupBy"
     prepChunk chunk@(h:_) = (Utf8 $ _deltaTableName h, V.fromList chunk)
@@ -170,14 +176,14 @@ doGetLatest dbenv =
         in return $! (fromIntegral hgt, hash)
     go _ = fail "impossible"
 
-doWithAtomicRewind :: Db -> IO a -> IO a
-doWithAtomicRewind db m = mask $ \r -> do
-    r (runBlockEnv db $ beginSavepoint RewindSavepoint)
-    a <- r m `onException` rollback
-    r (runBlockEnv db $ commitSavepoint RewindSavepoint)
-    return a
-  where
-    rollback = runBlockEnv db (rollbackSavepoint RewindSavepoint)
+doBeginBatch :: Db -> IO ()
+doBeginBatch db = runBlockEnv db $ beginSavepoint BatchSavepoint
+
+doCommitBatch :: Db -> IO ()
+doCommitBatch db = runBlockEnv db $ commitSavepoint BatchSavepoint
+
+doDiscardBatch :: Db -> IO ()
+doDiscardBatch db = runBlockEnv db $ rollbackSavepoint BatchSavepoint
 
 doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
@@ -202,3 +208,25 @@ doGetBlockParent dbenv (bh, hash) =
             _ -> internalError "doGetBlockParent: output mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
+
+
+doRegisterSuccessful :: Db -> PactHash -> IO ()
+doRegisterSuccessful dbenv (TypedHash hash) =
+    runBlockEnv dbenv (indexPactTransaction hash)
+
+
+doLookupSuccessful :: Db -> PactHash -> IO (Maybe (BlockHeight, BlockHash))
+doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
+    r <- callDb "doLookupSuccessful" $ \db ->
+         qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
+    case r of
+        [] -> return Nothing
+        (!o:_) -> return $! Just o
+  where
+    qtext = "SELECT blockheight, hash FROM \
+            \TransactionIndex INNER JOIN BlockHistory \
+            \USING (blockheight) WHERE txhash = ?;"
+    go [SInt h, SBlob blob] = do
+        !hsh <- either fail return $ Data.Serialize.decode blob
+        return $! (fromIntegral h, hsh)
+    go _ = fail "impossible"
