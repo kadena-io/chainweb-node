@@ -28,6 +28,7 @@ module Chainweb.Miner.Miners
   ) where
 
 import Data.Bytes.Put (runPutS)
+import qualified Data.ByteString as B
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
@@ -173,7 +174,8 @@ remoteMining m urls bh = submission >> polling
             -- This prevents scheduled retries from slamming the miners.
             threadDelay 100000
             runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
-                Right new -> terminateWith sch new
+                -- NOTE The failure case for poll is an empty `ByteString`.
+                Right new | B.length (_headerBytes new) > 0 -> terminateWith sch new
                 -- While it looks as if the stale `hbytes` is being returned
                 -- here, this is only to satisfy type checking. The only
                 -- `HeaderBytes` value actually yielded from this entire

@@ -81,7 +81,6 @@ import Control.Concurrent.Async (async, race, wait)
 import Control.Concurrent.STM.TMVar
 import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Error.Util (note)
-import Control.Monad.Except (throwError)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
 import Data.Aeson (ToJSON)
@@ -117,7 +116,7 @@ type API = "env" :> Get '[JSON] ClientArgs
 server :: Env -> Server API
 server e = pure (args e)
     :<|> (\cid h bs -> liftIO $ submit e cid h bs)
-    :<|> poll e
+    :<|> (\cid h -> liftIO $ poll e cid h)
 
 app :: Env -> Application
 app = serve (Proxy :: Proxy API) . server
@@ -191,10 +190,11 @@ submit (work -> w) cid bh bs = atomically $
 
 -- | For some `ChainId` and `BlockHeight`, have we mined a result?
 --
-poll :: Env -> ChainId -> BlockHeight -> Handler HeaderBytes
-poll (results -> tm) cid h = M.lookup (T2 cid h) <$> liftIO (readTVarIO tm) >>= \case
-    Nothing -> throwError $ err404 { errBody = "No results for given ChainId/BlockHeight" }
-    Just hb -> pure hb
+-- NOTE: When the lookup fails, the result is an empty `ByteString`!
+--
+poll :: Env -> ChainId -> BlockHeight -> IO HeaderBytes
+poll (results -> tm) cid h =
+  fromMaybe (HeaderBytes mempty) . M.lookup (T2 cid h) <$> readTVarIO tm
 
 -- | A supervisor thread that listens for new work and supervises mining threads.
 --
