@@ -1,10 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+
 
 module Standalone.Utils where
 
 import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Monad
 import Control.Monad.Catch
 import Control.Lens
 
@@ -15,9 +19,12 @@ import qualified Data.ByteString.Short as SB
 import Data.Default
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as Vector
+
+import GHC.Generics
 
 -- pact imports
 
@@ -33,6 +40,8 @@ import Pact.Types.Util
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Cut
+import Chainweb.CutDB.Types
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
@@ -128,3 +137,24 @@ mkPactExecutionService' q = emptyPactExecutionService
           (Right !pdo) -> return pdo
           Left e -> throwM e
   }
+
+
+data StopState
+  = Height BlockHeight
+  | TimeLength Int
+  | Forever
+  deriving (Eq, Show, Generic, ToJSON, FromJSON)
+
+stopAtBlockHeight :: Maybe BlockHeight -> CutDb cas -> IO ()
+stopAtBlockHeight Nothing _ = forever $ threadDelay 1000000
+stopAtBlockHeight (Just bh) db = forever $ do
+    cut <- readTVarIO (_cutDbCut db)
+    let p = getAny $ foldMap go $ _cutMap cut
+    when p (throwM $ userError msg)
+    threadDelay 1000000
+  where
+    go v = Any $ _blockHeight v >= bh
+    msg =
+      "We have reached or passed "
+      ++ (show bh)
+      ++ ". Stopping chainweb-node!"

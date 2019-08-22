@@ -55,6 +55,7 @@ import qualified Streaming.Prelude as S
 import System.Directory
 import qualified System.Logger as L
 import System.LogLevel
+import System.Timeout
 
 import Utils.Logging
 import Utils.Logging.Config
@@ -62,6 +63,7 @@ import Utils.Logging.Trace
 
 -- chainweb imports
 
+import Chainweb.BlockHeader
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
@@ -79,6 +81,7 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Standalone.Chainweb
+import Standalone.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Monitors
@@ -168,16 +171,18 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionText l Info $ "logged stats"
             threadDelay 60000000 {- 1 minute -}
 
-node :: Logger logger => StandaloneConfiguration -> logger -> IO ()
-node conf logger = do
+node :: Logger logger => StandaloneConfiguration -> Maybe BlockHeight -> logger -> IO ()
+node conf mb logger = do
     rocksDbDir <- getRocksDbDir
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory" <> sshow rocksDbDir
-        withChainwebStandalone cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
+        withChainwebStandalone cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf)
+          $ \cw ->
+          stopWrapper cw $
+          mapConcurrently_ id
             [ runChainweb' cw
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
-            -- , runAmberdataBlockMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
             ]
@@ -189,6 +194,8 @@ node conf logger = do
       Nothing -> getXdgDirectory XdgData
             $ "chainweb-standalone-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
       Just d -> return d
+    stopWrapper cw =
+      concurrently_ (stopAtBlockHeight mb (_cutResCutDb $ _chainwebCutResources cw))
 
 -- | Starts server and runs all network clients
 --
@@ -204,29 +211,6 @@ runChainweb' cw = do
     -- miner
     withAsync miner wait
 
-    -- forever (threadDelay 1000000)
-
-{-
-    -- 1. Start serving Rest API
-    --
-    withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \_server ->
-        wait _server
-        -- forever (threadDelay 1000000)
-        {-
-        logg Info "started server"
-
-        -- 2. Start Clients
-        --
-        mpClients <- mempoolSyncClients
-        let clients = concat
-              [ miner
-              , cutNetworks mgr (_chainwebCutResources cw)
-              , mpClients
-              ]
-        mapConcurrently_ id clients
-        wait server
-        -}
--}
   where
     logg = logFunctionText $ _chainwebLogger cw
     miner = maybe go (\m -> runMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
@@ -234,97 +218,13 @@ runChainweb' cw = do
           go = do
             logg Warn "No miner configured. Starting consensus without mining."
             forever (threadDelay 1000000)
-    -- miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
-{-
-
-    -- chains
-    _chains = HM.toList (_chainwebChains cw)
-    _chainVals = map snd _chains
-
-    -- collect server resources
-    proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    proj f = flip map _chains $ \(k, ch) -> (k, f ch)
-
-    chainDbsToServe = proj _chainResBlockHeaderDb
-    mempoolsToServe = proj _chainResMempool
-    chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
-    memP2pToServe = bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
-
-    payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
-    pactDbsToServe = _chainwebPactData cw
-
-    serverSettings
-        = setOnException
-            (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
-        $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
-
-    -- serve = return undefined
-
-    serve = serveChainwebSocketTls
-        serverSettings
-        (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
-        (_peerKey $ _peerResPeer $ _chainwebPeer cw)
-        (_peerResSocket $ _chainwebPeer cw)
-        (_chainwebVersion cw)
-        ChainwebServerDbs
-            { _chainwebServerCutDb = Just cutDb
-            , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe
-            , _chainwebServerPayloadDbs = payloadDbsToServe
-            , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
-            , _chainwebServerPactDbs = pactDbsToServe
-            }
-
-    -- HTTP Request Logger
-
-    httpLog :: Middleware
-    httpLog = requestResponseLogger $ setComponent "http" (_chainwebLogger cw)
-
-    loggServerError (Just r) e = "HTTP server error: " <> sshow e <> ". Request: " <> sshow r
-    loggServerError Nothing e = "HTTP server error: " <> sshow e
-
-    -- Cut DB and Miner
-
-    cutDb = _cutResCutDb $ _chainwebCutResources cw
-    cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
-
-    _miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
-
-    -- Configure Clients
-
-    mgr = _chainwebManager cw
-
-
-    -- Mempool
-
-    _mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
-
-    -- Decide whether to enable the mempool sync clients
-    _mempoolSyncClients = case enabledConfig _mempoolP2pConfig of
-      Nothing -> disabled
-      Just c -> case _chainwebVersion cw of
-        Test{} -> disabled
-        TimedConsensus{} -> disabled
-        PowConsensus{} -> disabled
-        TimedCPM{} -> enabled c
-        Development -> enabled c
-        -- Testnet00 -> enabled c
-        -- Testnet01 -> enabled c
-        Testnet02 -> enabled c
-      where
-        disabled = do
-          logg Info "Mempool p2p sync disabled"
-          return []
-        enabled conf = do
-          logg Info "Mempool p2p sync enabled"
-          return $ map (runMempoolSyncClient mgr conf) _chainVals
--}
 
 data StandaloneConfiguration = StandaloneConfiguration
   { _nodeConfigChainweb :: !ChainwebConfiguration
   , _nodeConfigLog :: !LogConfig
   , _nodeConfigDatabaseDirectory :: !(Maybe FilePath)
   , _nodeConfigResetChainDbs :: !Bool
+  , _nodeConfigStopCondition :: StopState
   }
   deriving (Show, Eq, Generic)
 
@@ -337,6 +237,7 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
+    , _nodeConfigStopCondition = Forever
     }
 
 instance ToJSON StandaloneConfiguration where
@@ -345,6 +246,7 @@ instance ToJSON StandaloneConfiguration where
         , "logging" .= _nodeConfigLog o
         , "databaseDirectory" .= _nodeConfigDatabaseDirectory o
         , "resetChainDatabases" .= _nodeConfigResetChainDbs o
+        , "stopCondition" .= _nodeConfigStopCondition o
         ]
 
 instance FromJSON (StandaloneConfiguration -> StandaloneConfiguration) where
@@ -353,6 +255,7 @@ instance FromJSON (StandaloneConfiguration -> StandaloneConfiguration) where
         <*< nodeConfigLog %.: "logging" % o
         <*< nodeConfigDatabaseDirectory ..: "databaseDirectory" % o
         <*< nodeConfigResetChainDbs ..: "resetChainDatabases" % o
+        <*< nodeConfigStopCondition ..: "stopCondition" % o
 
 pStandaloneConfiguration :: MParser StandaloneConfiguration
 pStandaloneConfiguration = id
@@ -364,7 +267,7 @@ pStandaloneConfiguration = id
     <*< nodeConfigResetChainDbs .:: enableDisableFlag
         % long "reset-chain-databases"
         <> help "Reset the chain databases for all chains on startup"
-
+-- TODO: COME BACK TO THIS
 
 withNodeLogger
     :: LogConfig
@@ -456,4 +359,8 @@ mainInfo = programInfo
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
-    withNodeLogger (_nodeConfigLog conf) v $ node conf
+    withNodeLogger (_nodeConfigLog conf) v $ \logger ->
+      case _nodeConfigStopCondition conf of
+        Forever -> node conf Nothing logger
+        Height bh -> node conf (Just bh) logger
+        TimeLength duration ->  void $ timeout duration $ node conf Nothing logger
