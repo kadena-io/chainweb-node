@@ -32,6 +32,7 @@ import Pact.Types.Runtime
 
 -- internal chainweb modules
 
+import Chainweb.Miner
 import Chainweb.Pact.TransactionExec
 
 
@@ -81,16 +82,13 @@ ccReplTests = do
 sender0 :: Text
 sender0 = "sender"
 
-keyset0 :: KeySet
-keyset0 = KeySet
+minerKeys0 :: MinerKeys
+minerKeys0 = MinerKeys $ KeySet
   ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
   (Name "default" def)
 
-minerId0 :: Text
-minerId0 = "default miner"
-
-minerKeys0 :: KeySet
-minerKeys0 = keyset0
+minerId0 :: MinerId
+minerId0 = MinerId "default miner"
 
 ccFile :: String
 ccFile = "pact/coin-contract/coin.repl"
