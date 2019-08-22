@@ -392,8 +392,8 @@ readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = row >>= \case
         case (P.fromPactValue b, P.fromPactValue g) of
           (P.TLiteral (P.LDecimal d) _, P.TGuard t _) ->
             return $! Just $ T2 d t
-          _ -> internalError' "unexpected pact value types"
-      _ -> internalError' "wrong table accessed in account lookup"
+          _ -> internalError "unexpected pact value types"
+      _ -> internalError "wrong table accessed in account lookup"
   where
     row = pdbv & P._readRow pdb (P.UserTables "coin_coin-table") (P.RowKey a)
 
@@ -447,9 +447,12 @@ readRewards v = do
       in (BlockHeight a, P.ParsedDecimal $ m / n)
 
 -- | Calculate miner reward. We want this to error hard in the case where
--- block times have finally exceeded the 120-year range
+-- block times have finally exceeded the 120-year range. Rewards are calculated
+-- in 500k steps
 --
-minerReward :: forall cas. BlockHeight -> PactServiceM cas P.ParsedDecimal
+minerReward
+    :: forall cas
+    . BlockHeight -> PactServiceM cas P.ParsedDecimal
 minerReward bh = do
     m <- view $ psMinerRewards . at (roundBy bh 500000)
     case m of
