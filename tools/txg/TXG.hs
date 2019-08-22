@@ -146,10 +146,8 @@ randomEnum = toEnum <$> randomRIO @Int (0, fromEnum $ maxBound @a)
 
 generateTransactions
   :: forall m. (MonadIO m, MonadLog SomeLogMessage m)
-  => TXG m (ChainId, NonEmpty (Command Text))
-generateTransactions = do
-  contractIndex <- liftIO randomEnum
-
+  => Bool -> CmdChoice -> TXG m (ChainId, NonEmpty (Command Text))
+generateTransactions ifCoinOnlyTransfers contractIndex  = do
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- NES.head <$> gets gsChains
   field @"gsChains" %= rotate
@@ -161,7 +159,8 @@ generateTransactions = do
       BatchSize batch <- asks confBatchSize
       cmds <- liftIO . sequenceA . nelReplicate batch $
         case contractIndex of
-          CoinContract -> coinContract cid $ accounts "coin" accs
+          CoinContract ->
+            coinContract ifCoinOnlyTransfers cid $ accounts "coin" accs
           HelloWorld -> generate fake >>= helloRequest
           Payments -> payments cid $ accounts "payment" accs
       generateDelay >>= liftIO . threadDelay
@@ -170,9 +169,9 @@ generateTransactions = do
     accounts :: String -> Map Sim.Account (Map Sim.ContractName a) -> Map Sim.Account a
     accounts s = fromJuste . traverse (M.lookup (Sim.ContractName s))
 
-    coinContract :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
-    coinContract cid coinaccts = do
-      coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
+    coinContract :: Bool -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
+    coinContract transfers cid coinaccts = do
+      coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
       createCoinContractRequest (Sim.makeMeta cid) coinContractRequest
 
     payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
@@ -261,7 +260,7 @@ realTransactions config host tv distribution = do
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  let act = loop generateTransactions
+  let act = loop (liftIO randomEnum >>= generateTransactions False)
       env = set (field @"confKeysets") accountMap cfg
       stt = TXGState gen tv chains
 
@@ -313,7 +312,7 @@ realCoinTransactions config host tv distribution = do
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  let act = loop generateTransactions
+  let act = loop (generateTransactions True CoinContract)
       env = set (field @"confKeysets") accountMap cfg
       stt = TXGState gen tv chains
 
