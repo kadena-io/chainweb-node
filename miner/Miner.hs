@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -117,7 +116,6 @@ import Chainweb.Version
 type API = "env" :> Get '[JSON] ClientArgs
     :<|> MiningAPI
 
--- TODO Recheck the currying here.
 server :: Env -> Server API
 server e = pure (args e)
     :<|> (\cid h bites -> liftIO $ submit e cid h bites)
@@ -188,10 +186,10 @@ main = do
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
 submit :: Env -> ChainId -> BlockHeight -> Bites -> IO ()
-submit (work -> w) cid bh bites = atomically $ do
-    b <- isEmptyTMVar w
-    if | b -> putTMVar w $ T3 cid bh bites
-       | otherwise -> void . swapTMVar w $ T3 cid bh bites
+submit (work -> w) cid bh bites = atomically $
+    isEmptyTMVar w >>= bool (void $ swapTMVar w t3) (putTMVar w t3)
+  where
+    t3 = T3 cid bh bites
 
 -- | For some `ChainId` and `BlockHeight`, have we mined a result?
 --
@@ -226,15 +224,19 @@ mining e = do
         f m = M.insert key new . bool (prune m) m $ M.size m < int cap
 
     -- | Reduce the size of the result cache by half if we've crossed the "cap".
-    -- Clears old results out by `BlockCreationTime`.
+    -- Clears old results out by `BlockHeight`.
+    --
+    -- NOTE: There is an edge-case here involving hard-forks. Should a hard fork
+    -- occur and reset to a much lower `BlockHeight`, remote mining clients that
+    -- haven't been reset could potentially lose recent work when a `prune`
+    -- occurs.
     --
     prune :: ResultMap -> ResultMap
-    prune = undefined
-    -- prune = M.fromList
-    --     . snd
-    --     . splitAt (int cap `div` 2)
-    --     . sortBy (compare `on` (_blockCreationTime . snd))
-    --     . M.toList
+    prune = M.fromList
+        . snd
+        . splitAt (fromIntegral cap `div` 2)
+        . sortBy (compare `on` (\(T2 _ bh, _) -> bh))
+        . M.toList
 
     ver :: ChainwebVersion
     ver = version $ args e

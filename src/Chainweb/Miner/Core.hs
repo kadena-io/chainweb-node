@@ -57,6 +57,7 @@ newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
 --
 newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
 
+-- TODO This needs a unit test.
 unbites :: Bites -> T2 TargetBytes HeaderBytes
 unbites = undefined
 
