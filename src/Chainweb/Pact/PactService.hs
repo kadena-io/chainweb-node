@@ -442,7 +442,7 @@ readRewards v = do
     formatRow :: (Word64, Double) -> (BlockHeight, P.ParsedDecimal)
     formatRow (!a,!b) =
       let
-        !n = v ^. chainGraph . to (fromIntegral . size)
+        !n = v ^. chainGraph . to (int . size)
         !m = fromRational $ toRational b
       in (BlockHeight a, P.ParsedDecimal $ m / n)
 

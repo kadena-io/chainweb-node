@@ -59,7 +59,7 @@ import NeatInterpolation (text)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal)
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import Pact.Types.Hash as Pact
@@ -194,7 +194,7 @@ applyCoinbase
     -> PublicData
     -> BlockHash
     -> IO (CommandResult [TxLog Value])
-applyCoinbase logger dbEnv mi@(Miner mid mks) reward pd ph = do
+applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
     -- cmd env with permissive gas model
     let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport
         initState = initCapabilities [magic_COINBASE]
@@ -202,7 +202,7 @@ applyCoinbase logger dbEnv mi@(Miner mid mks) reward pd ph = do
 
     let rk = RequestKey ch
 
-    cexec <- mkCoinbaseCmd mid mks reward
+    cexec <- mkCoinbaseCmd mid mks mr
     cre <- catchesPactError $! applyExec' cenv initState cexec [] ch
 
     case cre of
@@ -210,9 +210,9 @@ applyCoinbase logger dbEnv mi@(Miner mid mks) reward pd ph = do
       Right !er -> do
         logDebugRequestKey logger rk
           $ "successful coinbase for miner "
-          ++ show mi
-          ++ ": "
-          ++ show reward
+          ++ show mid
+          ++ "of "
+          ++ (take 18 $ show d)
 
         let r = PactResult (Right (last $ _erOutput er))
 
