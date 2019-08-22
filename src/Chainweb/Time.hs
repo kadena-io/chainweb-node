@@ -67,7 +67,13 @@ module Chainweb.Time
 , timeSpanToSeconds
 , secondsToText
 , secondsFromText
+
+-- * Micros(..)
 , Micros(..)
+, microsToTimeSpan
+, timeSpanToMicros
+, microsToText
+, microsFromText
 
 -- * Math, constants
 , add
@@ -279,13 +285,16 @@ secondsToText (Seconds s) = sshow s
 
 secondsFromText :: MonadThrow m => T.Text -> m Seconds
 secondsFromText = fmap Seconds . treadM
-{-# INLINE secondsFromText #-}
+{-# INLINABLE secondsFromText #-}
 
 instance HasTextRepresentation Seconds where
     toText = secondsToText
     {-# INLINE toText #-}
     fromText = secondsFromText
     {-# INLINE fromText #-}
+
+-- -------------------------------------------------------------------------- --
+-- Microseconds
 
 -- | Will last for around ~300,000 years after the Linux epoch.
 --
@@ -294,6 +303,30 @@ newtype Micros = Micros Int64
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
     deriving newtype (Arbitrary, ToJSON, FromJSON)
+
+microsToTimeSpan :: Num a => Micros -> TimeSpan a
+microsToTimeSpan (Micros us) = scaleTimeSpan us microsecond
+{-# INLINE microsToTimeSpan #-}
+
+-- | Assumes that the `TimeSpan` contains milliseconds.
+--
+timeSpanToMicros :: Integral a => TimeSpan a -> Micros
+timeSpanToMicros (TimeSpan ms) = Micros . int $ ms * 1000
+{-# INLINE timeSpanToMicros #-}
+
+microsToText :: Micros -> T.Text
+microsToText (Micros us) = sshow us
+{-# INLINE microsToText #-}
+
+microsFromText :: MonadThrow m => T.Text -> m Micros
+microsFromText = fmap Micros . treadM
+{-# INLINABLE microsFromText #-}
+
+instance HasTextRepresentation Micros where
+    toText = microsToText
+    {-# INLINE toText #-}
+    fromText = microsFromText
+    {-# INLINABLE fromText #-}
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances

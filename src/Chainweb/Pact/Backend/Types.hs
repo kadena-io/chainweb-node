@@ -86,6 +86,7 @@ module Chainweb.Pact.Backend.Types
     , psStateValidated
     , psPdb
     , psBlockHeaderDb
+    , psMinerRewards
     ) where
 
 import Control.Exception
@@ -112,6 +113,7 @@ import Foreign.C.Types (CInt(..))
 import GHC.Generics
 
 import Pact.Interpreter (PactDbEnv(..))
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import Pact.Types.ChainMeta (PublicData(..))
@@ -129,6 +131,7 @@ import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
+
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
 
@@ -311,6 +314,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
+    , _psMinerRewards :: HashMap BlockHeight ParsedDecimal
     }
 
 data PactServiceState = PactServiceState

@@ -18,13 +18,14 @@ import qualified Data.HashMap.Strict as HM
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
+import Chainweb.Miner
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.WebPactExecutionService.Types
 
-_webPactNewBlock :: WebPactExecutionService -> MinerInfo -> BlockHeader -> IO PayloadWithOutputs
+_webPactNewBlock :: WebPactExecutionService -> Miner -> BlockHeader -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
 

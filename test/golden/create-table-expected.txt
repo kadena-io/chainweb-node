@@ -1,4 +1,4 @@
-- output: Bxr-JOBzKvaXtODcQB3OHfWsuVjgdos_9C4KWLpiKSo
+- output: yF2JJIgGGskplVAP8V08Bm0k2Wc1YFRYNm8E5qCzLfQ
   cmd: coinbase
 - output: r36xeIA32swfzX4pR4I-QVBq__C3k_UZ2nDsofQS0cw
   cmd:
