@@ -1,6 +1,11 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
+
+#ifndef MIN_VERSION_servant_client
+#define MIN_VERSION_servant_client(a,b,c) 1
+#endif
 
 -- |
 -- Module: Chainweb.Miner.Miners
@@ -46,6 +51,9 @@ import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core (mine, usePowHash)
 import Chainweb.RestAPI.Orphans ()
+#if !MIN_VERSION_servant_client(0,16,0)
+import Chainweb.RestAPI.Utils
+#endif
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils (int, partitionEithersNEL)
 import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
@@ -112,7 +120,7 @@ remoteMining m urls bh = submission >> polling
         rs <- partitionEithersNEL <$> traverseConcurrently Par' f urls
         these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
-        f :: BaseUrl -> IO (Either ServantError ())
+        f :: BaseUrl -> IO (Either ClientError ())
         f url = runClientM (submit bh) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?
