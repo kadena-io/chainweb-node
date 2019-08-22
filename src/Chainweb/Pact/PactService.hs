@@ -460,7 +460,7 @@ minerReward bh = do
           $ "block height outside of admissible range: "
           <> sshow bh
       Just r -> return r
-{-# INLINE minerReward #-}
+{-# INLINABLE minerReward #-}
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
