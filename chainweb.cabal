@@ -141,6 +141,7 @@ library
         , Chainweb.Mempool.RestAPI.Server
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
+        , Chainweb.Miner
         , Chainweb.Miner.Config
         , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
@@ -258,6 +259,7 @@ library
         , bytes >= 0.15
         , bytestring >= 0.10
         , case-insensitive >= 1.2
+        , cassava >= 0.5.1
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , clock >= 0.7

@@ -286,9 +286,10 @@ testPactCtx
     -> IO (TestPactCtx cas)
 testPactCtx v cid cdbv bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
+    rs <- readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -309,13 +310,14 @@ testPactCtxSQLite
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
+    rs <- readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger False
+    loggers = pactTestLogger True
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
@@ -438,9 +440,10 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       pdb <- pdbIO
       (_,s) <- ios
       (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger gasEnv
+      rs <- readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 

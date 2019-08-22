@@ -29,6 +29,8 @@ module Chainweb.Pact.PactService
       -- * For Side-tooling
     , execNewGenesisBlock
     , initPactService'
+    , readRewards
+    , minerReward
     ) where
 
 ------------------------------------------------------------------------------
@@ -44,11 +46,15 @@ import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
+import qualified Data.Csv as CSV
 import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
@@ -57,12 +63,14 @@ import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Word (Word64)
 
 import System.Directory
 import System.LogLevel
 
 ------------------------------------------------------------------------------
 -- external pact modules
+
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
@@ -75,6 +83,7 @@ import qualified Pact.Types.SPV as P
 
 ------------------------------------------------------------------------------
 -- internal modules
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
@@ -83,7 +92,9 @@ import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as TN
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
+import Chainweb.Graph (size)
 import Chainweb.Logger
+import Chainweb.Miner
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
@@ -99,8 +110,9 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), HasChainGraph(..))
 import Data.CAS (casLookupM)
+
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -171,8 +183,10 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
     withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
       checkpointEnv <- initRelationalCheckpointer
                            initBlockState sqlenv logger gasEnv
+
+      rs <- readRewards ver
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
-                                bhDb
+                                bhDb rs
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where
     loggers = pactLoggers chainwebLogger
@@ -282,7 +296,7 @@ toOutputBytes cr =
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
 
 
-toPayloadWithOutputs :: MinerInfo -> Transactions -> PayloadWithOutputs
+toPayloadWithOutputs :: Miner -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = _transactionPairs ts
         trans = fst <$> oldSeq
@@ -378,8 +392,8 @@ readCoinAccount (PactDbEnv' (P.PactDbEnv pdb pdbv)) a = row >>= \case
         case (P.fromPactValue b, P.fromPactValue g) of
           (P.TLiteral (P.LDecimal d) _, P.TGuard t _) ->
             return $! Just $ T2 d t
-          _ -> internalError' "unexpected pact value types"
-      _ -> internalError' "wrong table accessed in account lookup"
+          _ -> internalError "unexpected pact value types"
+      _ -> internalError "wrong table accessed in account lookup"
   where
     row = pdbv & P._readRow pdb (P.UserTables "coin_coin-table") (P.RowKey a)
 
@@ -407,13 +421,54 @@ readAccountGuard
 readAccountGuard pdb account
     = fmap ssnd <$> readCoinAccount pdb account
 
+-- | Rewards table mapping 3-month periods to their rewards
+-- according to the calculated exponential decay over 120 year period
+--
+readRewards
+    :: HasChainGraph v
+    => v -> IO (HashMap BlockHeight P.ParsedDecimal)
+readRewards v = do
+    rs <- LBS.readFile "rewards/miner_rewards.csv"
+    case CSV.decode CSV.NoHeader rs of
+      Left e -> internalError
+        $ "cannot construct miner reward map: "
+        <> sshow e
+      Right vs -> return
+        $ HM.fromList
+        . V.toList
+        . V.map formatRow
+        $ vs
+  where
+    formatRow :: (Word64, Double) -> (BlockHeight, P.ParsedDecimal)
+    formatRow (!a,!b) =
+      let
+        !n = v ^. chainGraph . to (int . size)
+        !m = fromRational $ toRational b
+      in (BlockHeight a, P.ParsedDecimal $ m / n)
+
+-- | Calculate miner reward. We want this to error hard in the case where
+-- block times have finally exceeded the 120-year range. Rewards are calculated
+-- in 500k steps
+--
+minerReward
+    :: forall cas
+    . BlockHeight -> PactServiceM cas P.ParsedDecimal
+minerReward bh = do
+    m <- view $ psMinerRewards . at (roundBy bh 500000)
+    case m of
+      Nothing -> internalError
+          $ "block height outside of admissible range: "
+          <> sshow bh
+      Just r -> return r
+{-# INLINABLE minerReward #-}
+
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 execNewBlock
     :: PayloadCas cas
     => MemPoolAccess
     -> BlockHeader
-    -> MinerInfo
+    -> Miner
     -> PactServiceM cas PayloadWithOutputs
 execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
     let pHeight = _blockHeight parentHeader
@@ -477,7 +532,7 @@ withDiscardedBatch act = bracket start end (const act)
 -- | only for use in generating genesis blocks in tools
 execNewGenesisBlock
     :: PayloadCas cas
-    => MinerInfo
+    => Miner
     -> Vector ChainwebTransaction
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $ do
@@ -647,13 +702,13 @@ execValidateBlock currHeader plData =
 
 execTransactions
     :: Maybe BlockHash
-    -> MinerInfo
+    -> Miner
     -> Vector ChainwebTransaction
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
-    !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
-    !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
+    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
+    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
     return $! Transactions (paired txOuts) coinOut
 
   where
@@ -665,26 +720,26 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
 runCoinbase
     :: Maybe BlockHash
     -> P.PactDbEnv p
-    -> MinerInfo
+    -> Miner
     -> PactServiceM cas HashCommandResult
 runCoinbase Nothing _ _ = return noCoinbase
-runCoinbase (Just parentHash) dbEnv mi@MinerInfo{..} = do
-  psEnv <- ask
+runCoinbase (Just parentHash) dbEnv miner = do
+    psEnv <- ask
 
-  let reward = 42.0 -- TODO. Not dispatching on chainweb version yet as E's PR will have PublicData
-      pd = _psPublicData psEnv
-      logger = _cpeLogger . _psCheckpointEnv $ psEnv
+    let !pd = _psPublicData psEnv
+        !logger = _cpeLogger . _psCheckpointEnv $ psEnv
+        !bh = BlockHeight $ P._pdBlockHeight pd
 
-  cr <- liftIO $! applyCoinbase logger dbEnv mi reward pd parentHash
-  return $! toHashCommandResult cr
-
+    reward <- minerReward bh
+    cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
+    return $! toHashCommandResult cr
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each
 applyPactCmds
     :: Bool
     -> P.PactDbEnv p
     -> Vector ChainwebTransaction
-    -> MinerInfo
+    -> Miner
     -> PactServiceM cas (Vector HashCommandResult)
 applyPactCmds isGenesis env cmds miner =
     V.fromList . sfst <$> V.foldM f mempty cmds
@@ -696,7 +751,7 @@ applyPactCmd
     :: Bool
     -> P.PactDbEnv p
     -> ChainwebTransaction
-    -> MinerInfo
+    -> Miner
     -> ModuleCache
     -> [HashCommandResult]
     -> PactServiceM cas (T2 [HashCommandResult] ModuleCache)

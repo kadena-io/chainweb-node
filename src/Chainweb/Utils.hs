@@ -55,6 +55,7 @@ module Chainweb.Utils
 , maxBy
 , minBy
 , allEqOn
+, roundBy
 , unlessM
 , whenM
 , partitionEithersNEL
@@ -335,6 +336,13 @@ unlessM c a = c >>= flip unless a
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
+
+-- | Round an integral `n` up to the nearest multiple of
+-- an integral `m`
+--
+roundBy :: Integral a => a -> a -> a
+roundBy n m = ((n `div` m) + 1) * m
+{-# INLINE roundBy #-}
 
 partitionEithersNEL :: NonEmpty (Either a b) -> These (NonEmpty a) (NonEmpty b)
 partitionEithersNEL (h :| es) = case bimap NEL.nonEmpty NEL.nonEmpty $ partitionEithers es of
