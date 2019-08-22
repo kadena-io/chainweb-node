@@ -71,6 +71,10 @@ common warning-flags
         -Wincomplete-uni-patterns
         -Widentities
 
+        -- This needed because -Werror and missing-home-modules causes
+        -- problems with ghci.
+        -Wno-missing-home-modules
+
 custom-setup
     setup-depends:
           Cabal
