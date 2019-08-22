@@ -61,11 +61,13 @@ import Utils.Logging.Config
 import Utils.Logging.Trace
 
 -- chainweb imports
+
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
@@ -77,7 +79,6 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Standalone.Chainweb
-import Standalone.Mining
 
 -- -------------------------------------------------------------------------- --
 -- Monitors
@@ -228,7 +229,7 @@ runChainweb' cw = do
 -}
   where
     logg = logFunctionText $ _chainwebLogger cw
-    miner = maybe go (\m -> runMiner' (_chainwebVersion cw) m) $ _chainwebMiner cw
+    miner = maybe go (\m -> runMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
         where
           go = do
             logg Warn "No miner configured. Starting consensus without mining."
@@ -450,7 +451,7 @@ mainInfo :: ProgramInfo StandaloneConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pStandaloneConfiguration
-    (defaultStandaloneConfiguration Testnet02)
+    (defaultStandaloneConfiguration (TimedCPM twentyChainGraph))
 
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
