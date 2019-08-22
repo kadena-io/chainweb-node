@@ -284,6 +284,53 @@ realTransactions config host tv distribution = do
         ps = (Sim.ContractName "payment", pks)
         cs = (Sim.ContractName "coin", cks)
 
+realCoinTransactions
+  :: Args
+  -> HostAddress
+  -> TVar TXCount
+  -> TimingDistribution
+  -> LoggerT SomeLogMessage IO ()
+realCoinTransactions config host tv distribution = do
+  cfg@(TXGConfig _ _ ce v _) <- liftIO $ mkTXGConfig (Just distribution) config host
+
+  let chains = maybe (versionChains $ nodeVersion config) NES.fromList
+               . NEL.nonEmpty
+               $ nodeChainIds config
+
+  accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
+    let !meta = Sim.makeMeta cid
+    (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts meta
+    pollresponse <- liftIO . runExceptT $ do
+      rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ coinAcc) ce
+      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+    case pollresponse of
+      Left e -> logg Error $ toLogMessage (sshow e :: Text)
+      Right _ -> pure ()
+    let accounts = buildGenAccountsKeysets Sim.accountNames coinKS
+    pure (cid, accounts)
+
+  logg Info $ toLogMessage ("Real Transactions: Transactions are being generated" :: Text)
+
+  -- Set up values for running the effect stack.
+  gen <- liftIO createSystemRandom
+  let act = loop generateTransactions
+      env = set (field @"confKeysets") accountMap cfg
+      stt = TXGState gen tv chains
+
+  evalStateT (runReaderT (runTXG act) env) stt
+  where
+    buildGenAccountsKeysets
+      :: NonEmpty Sim.Account
+      -> NonEmpty (NonEmpty SomeKeyPair)
+      -> Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPair))
+    buildGenAccountsKeysets accs cks =
+      M.fromList . NEL.toList $ NEL.zipWith go accs cks
+
+    go :: Sim.Account
+       -> NonEmpty SomeKeyPair
+       -> (Sim.Account, Map Sim.ContractName (NonEmpty SomeKeyPair))
+    go name cks = (name, M.singleton (Sim.ContractName "coin") cks)
+
 versionChains :: ChainwebVersion -> NESeq ChainId
 versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chainGraph
 
@@ -383,6 +430,8 @@ work cfg = do
           loadContracts cfg host $ initAdminKeysetContract :| map createLoader cs
         RunStandardContracts distribution ->
           realTransactions cfg host tv distribution
+        RunCoinContract distribution ->
+          realCoinTransactions cfg host tv distribution
         RunSimpleExpressions distribution ->
           simpleExpressions cfg host tv distribution
         PollRequestKeys rk -> liftIO $

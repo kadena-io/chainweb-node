@@ -101,6 +101,7 @@ defaultTimingDist = GaussianTD $ Gaussian 1000000 (1000000 / 16)
 data TXCmd
   = DeployContracts [Sim.ContractName]
   | RunStandardContracts TimingDistribution
+  | RunCoinContract TimingDistribution
   | RunSimpleExpressions TimingDistribution
   | PollRequestKeys ByteString
   | ListenerRequestKey ByteString

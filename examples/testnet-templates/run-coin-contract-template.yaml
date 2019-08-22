@@ -1,0 +1,15 @@
+isChainweb: true
+batchSize: 1
+chainwebVersion: timedCPM-peterson
+hostAddresses:
+- hostname: us1.chainweb.com
+  port: 443
+scriptCommand:
+  tag: RunCoinContract
+  contents:
+    tag: GaussianTD
+    contents:
+      mean: 1000000
+      var: 62500
+nodeChainIds: []
+logHandle: stdout
