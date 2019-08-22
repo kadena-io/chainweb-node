@@ -28,7 +28,6 @@ module Chainweb.Miner.Miners
   ) where
 
 import Data.Bytes.Put (runPutS)
-import Data.Coerce (coerce)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
@@ -140,8 +139,8 @@ remoteMining m urls bh = submission >> polling
     tbytes :: TargetBytes
     tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-    bites :: Bites
-    bites = Bites $ coerce tbytes <> coerce hbytes
+    bs :: Bites
+    bs = bites tbytes hbytes
 
     cid :: ChainId
     cid = _blockChainId bh
@@ -158,7 +157,7 @@ remoteMining m urls bh = submission >> polling
         these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
         f :: BaseUrl -> IO (Either ClientError ())
-        f url = runClientM (submit cid bht bites) $ ClientEnv m url Nothing
+        f url = runClientM (submit cid bht bs) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?
     polling :: IO BlockHeader

@@ -15,6 +15,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.Aeson
+import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.CAS.RocksDB
 import Data.IORef
@@ -44,7 +45,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
 import Chainweb.Miner
-import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
@@ -58,11 +59,11 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (runGet, sshow)
 import Chainweb.Version
 
-testVersion :: ChainwebVersion
-testVersion = Development
+testVer :: ChainwebVersion
+testVer = Development
 
 tests :: ScheduledTest
 tests =
@@ -83,9 +84,9 @@ tests =
             testCase "reject-dupes" $ testDupes genblock cid pdb bhdb reqQIO
         ]
   where
-    genblock = genesisBlockHeader testVersion cid
+    genblock = genesisBlockHeader testVer cid
     label = "Chainweb.Test.Pact.PactReplay"
-    cid = someChainId testVersion
+    cid = someChainId testVer
 
 onRestart ::
        ChainId
@@ -227,16 +228,19 @@ mineBlock parentHeader cid nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
      creationTime <- getCurrentTimeIntegral
-     let candidateHeader = newBlockHeader
-                           (ChainNodeId cid 0)
-                           (BlockHashRecord mempty)
-                           (_payloadWithOutputsPayloadHash payload)
-                           nonce
-                           maxTarget
-                           creationTime
-                           parentHeader
+     let bh = newBlockHeader
+              (ChainNodeId cid 0)
+              (BlockHashRecord mempty)
+              (_payloadWithOutputsPayloadHash payload)
+              nonce
+              maxTarget
+              creationTime
+              parentHeader
+         hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
+         tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-     newHeader <- usePowHash testVersion mine candidateHeader
+     HeaderBytes newBytes  <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
+     newHeader <- runGet decodeBlockHeaderWithoutHash newBytes
 
      mv' <- r >>= validateBlock newHeader (toPayloadData payload)
 
@@ -294,7 +298,7 @@ withPact iopdb iobhdb mempool iodir f =
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ initPactService testVersion cid logger reqQ mempool mv
+        a <- async $ initPactService testVer cid logger reqQ mempool mv
                                      bhdb pdb (Just dir) Nothing False
         link a
         return (a, reqQ)
@@ -304,7 +308,7 @@ withPact iopdb iobhdb mempool iodir f =
         cancel a
 
     logger = genericLogger Warn T.putStrLn
-    cid = someChainId testVersion
+    cid = someChainId testVer
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l

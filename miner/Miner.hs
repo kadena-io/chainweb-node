@@ -118,7 +118,7 @@ type API = "env" :> Get '[JSON] ClientArgs
 
 server :: Env -> Server API
 server e = pure (args e)
-    :<|> (\cid h bites -> liftIO $ submit e cid h bites)
+    :<|> (\cid h bs -> liftIO $ submit e cid h bs)
     :<|> poll e
 
 app :: Env -> Application
@@ -186,10 +186,10 @@ main = do
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
 submit :: Env -> ChainId -> BlockHeight -> Bites -> IO ()
-submit (work -> w) cid bh bites = atomically $
+submit (work -> w) cid bh bs = atomically $
     isEmptyTMVar w >>= bool (void $ swapTMVar w t3) (putTMVar w t3)
   where
-    t3 = T3 cid bh bites
+    t3 = T3 cid bh bs
 
 -- | For some `ChainId` and `BlockHeight`, have we mined a result?
 --
@@ -202,8 +202,8 @@ poll (results -> tm) cid h = M.lookup (T2 cid h) <$> liftIO (readTVarIO tm) >>= 
 --
 mining :: Env -> IO ()
 mining e = do
-    T3 cid bh bites <- atomically . takeTMVar $ work e
-    let T2 tbytes hbytes = unbites bites
+    T3 cid bh bs <- atomically . takeTMVar $ work e
+    let T2 tbytes hbytes = unbites bs
     race newWork (go (gen e) tbytes hbytes) >>= traverse_ (miningSuccess cid bh)
     mining e
   where

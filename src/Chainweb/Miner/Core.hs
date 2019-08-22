@@ -16,8 +16,7 @@
 module Chainweb.Miner.Core
   ( HeaderBytes(..)
   , TargetBytes(..)
-  , Bites(..)
-  , unbites
+  , Bites(..), bites, unbites
   , usePowHash
   , mine
   ) where
@@ -25,6 +24,7 @@ module Chainweb.Miner.Core
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Crypto.Hash.IO
 
+import Data.Bifunctor (bimap)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import Data.Proxy (Proxy(..))
@@ -51,15 +51,23 @@ newtype Bites = Bites { _bites :: B.ByteString }
 -- | The encoded form of a `BlockHeader`.
 --
 newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
+    deriving stock (Eq, Show)
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
 
 -- | The encoded form of a `HashTarget`.
 --
 newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
+    deriving stock (Eq, Show)
+
+bites :: TargetBytes -> HeaderBytes -> Bites
+bites (TargetBytes t) (HeaderBytes h) = Bites $ t <> h
 
 -- TODO This needs a unit test.
+-- | NOTE: This makes a low-level assumption about the encoded size of
+-- `HashTarget`!
+--
 unbites :: Bites -> T2 TargetBytes HeaderBytes
-unbites = undefined
+unbites = uncurry T2 . bimap TargetBytes HeaderBytes . B.splitAt 32 . _bites
 
 -- | Select a hashing algorithm.
 --
