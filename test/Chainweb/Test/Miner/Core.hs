@@ -30,11 +30,11 @@ import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 tests :: TestTree
 tests = testGroup "Core Mining Logic"
-    [ testCase "bites/unbites Isomorphism" bitesIso
+    [ testCase "workBytes/unWorkBytes Isomorphism" workBytesIso
     ]
 
-bitesIso :: Assertion
-bitesIso = unbites (bites tbytes hbytes) @?= T2 tbytes hbytes
+workBytesIso :: Assertion
+workBytesIso = unWorkBytes (workBytes tbytes hbytes) @?= T2 tbytes hbytes
   where
     v :: ChainwebVersion
     v = Test petersonChainGraph

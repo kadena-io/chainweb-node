@@ -134,7 +134,7 @@ data ClientArgs = ClientArgs
     } deriving (Show, Generic, ToJSON)
 
 data Env = Env
-    { work :: TMVar (T3 ChainId BlockHeight Bites)
+    { work :: TMVar (T3 ChainId BlockHeight WorkBytes)
     , results :: TVar ResultMap
     , gen :: MWC.GenIO
     , args :: ClientArgs
@@ -183,7 +183,7 @@ main = do
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
-submit :: Env -> ChainId -> BlockHeight -> Bites -> IO ()
+submit :: Env -> ChainId -> BlockHeight -> WorkBytes -> IO ()
 submit (work -> w) cid bh bs = atomically $
     isEmptyTMVar w >>= bool (void $ swapTMVar w t3) (putTMVar w t3)
   where
@@ -201,7 +201,7 @@ poll (results -> tm) cid h = M.lookup (T2 cid h) <$> liftIO (readTVarIO tm) >>= 
 mining :: Env -> IO ()
 mining e = do
     T3 cid bh bs <- atomically . takeTMVar $ work e
-    let T2 tbytes hbytes = unbites bs
+    let T2 tbytes hbytes = unWorkBytes bs
     race newWork (go (gen e) tbytes hbytes) >>= traverse_ (miningSuccess cid bh)
     mining e
   where

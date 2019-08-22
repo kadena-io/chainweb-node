@@ -16,7 +16,7 @@
 module Chainweb.Miner.Core
   ( HeaderBytes(..)
   , TargetBytes(..)
-  , Bites(..), bites, unbites
+  , WorkBytes(..), workBytes, unWorkBytes
   , usePowHash
   , mine
   ) where
@@ -44,8 +44,10 @@ import Chainweb.Version (ChainwebVersion(..))
 
 ---
 
--- | Encoding of @HashTarget + BlockHeader@.
-newtype Bites = Bites { _bites :: B.ByteString }
+-- | Encoding of @HashTarget + BlockHeader@ to be consumed by a remote Mining
+-- API.
+--
+newtype WorkBytes = WorkBytes { _workBytes :: B.ByteString }
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
 
 -- | The encoded form of a `BlockHeader`.
@@ -59,15 +61,17 @@ newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
 newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
     deriving stock (Eq, Show)
 
-bites :: TargetBytes -> HeaderBytes -> Bites
-bites (TargetBytes t) (HeaderBytes h) = Bites $ t <> h
+-- | Combine `TargetBytes` and `HeaderBytes` in such a way that can be later
+-- undone by `unWorkBytes`.
+--
+workBytes :: TargetBytes -> HeaderBytes -> WorkBytes
+workBytes (TargetBytes t) (HeaderBytes h) = WorkBytes $ t <> h
 
--- TODO This needs a unit test.
 -- | NOTE: This makes a low-level assumption about the encoded size of
 -- `HashTarget`!
 --
-unbites :: Bites -> T2 TargetBytes HeaderBytes
-unbites = uncurry T2 . bimap TargetBytes HeaderBytes . B.splitAt 32 . _bites
+unWorkBytes :: WorkBytes -> T2 TargetBytes HeaderBytes
+unWorkBytes = uncurry T2 . bimap TargetBytes HeaderBytes . B.splitAt 32 . _workBytes
 
 -- | Select a hashing algorithm.
 --

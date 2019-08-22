@@ -116,13 +116,13 @@ toBytes bh = T2 t h
 type MiningAPI =
     "submit" :> Capture "chainid" ChainId
              :> Capture "blockheight" BlockHeight
-             :> ReqBody '[OctetStream] Bites
+             :> ReqBody '[OctetStream] WorkBytes
              :> Post '[JSON] ()
     :<|> "poll" :> Capture "chainid" ChainId
                 :> Capture "blockheight" BlockHeight
                 :> Get '[OctetStream] HeaderBytes
 
-submit :: ChainId -> BlockHeight -> Bites -> ClientM ()
+submit :: ChainId -> BlockHeight -> WorkBytes -> ClientM ()
 poll   :: ChainId -> BlockHeight -> ClientM HeaderBytes
 submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 
@@ -137,8 +137,8 @@ remoteMining m urls bh = submission >> polling
   where
     T2 tbytes hbytes = toBytes bh
 
-    bs :: Bites
-    bs = bites tbytes hbytes
+    bs :: WorkBytes
+    bs = workBytes tbytes hbytes
 
     cid :: ChainId
     cid = _blockChainId bh
