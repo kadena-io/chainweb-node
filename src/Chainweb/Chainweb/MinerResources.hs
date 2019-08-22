@@ -15,24 +15,37 @@
 -- TODO
 --
 module Chainweb.Chainweb.MinerResources
-( MinerResources(..)
-, withMinerResources
-, runMiner
-) where
+  ( MinerResources(..)
+  , withMinerResources
+  , runMiner
+  ) where
+
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
+import Data.Set (Set)
+import qualified Data.Set as S
+import qualified Data.Text as T
+
+import Network.HTTP.Client (defaultManagerSettings, newManager)
+
+import Servant.Client.Core (BaseUrl(..), Scheme(..))
+
+import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.CutDB
-import Chainweb.Logger
-import Chainweb.Miner.Config
-import Chainweb.Miner.POW
-import Chainweb.Miner.Test
-import Chainweb.NodeId
+import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.CutDB (CutDb)
+import Chainweb.HostAddress (HostAddress(..), hostnameToText)
+import Chainweb.Logger (Logger, logFunction)
+import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
+import Chainweb.Miner.Coordinator (mining)
+import Chainweb.Miner.Miners
+import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..))
 import Chainweb.Version
-
-import Data.LogMessage
+    (ChainwebVersion(..), MiningProtocol(..), miningProtocol)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -66,25 +79,43 @@ runMiner
     => ChainwebVersion
     -> MinerResources logger cas
     -> IO ()
-runMiner v m = (chooseMiner v)
-    (logFunction $ _minerResLogger m)
-    (_minerResConfig m)
-    (_minerResNodeId m)
-    (_minerResCutDb m)
+runMiner v mr = do
+    inner <- chooseMiner
+    mining
+      inner
+      (logFunction $ _minerResLogger mr)
+      conf
+      (_minerResNodeId mr)
+      (_minerResCutDb mr)
   where
-    chooseMiner
-        :: PayloadCas cas
-        => ChainwebVersion
-        -> LogFunction
-        -> MinerConfig
-        -> NodeId
-        -> CutDb cas
-        -> IO ()
-    chooseMiner Test{} = testMiner
-    chooseMiner TimedConsensus{} = testMiner
-    chooseMiner PowConsensus{} = powMiner
-    chooseMiner TimedCPM{} = testMiner
-    chooseMiner Development = powMiner
-    chooseMiner Testnet00 = powMiner
-    chooseMiner Testnet01 = powMiner
-    chooseMiner Testnet02 = powMiner
+    conf :: MinerConfig
+    conf = _minerResConfig mr
+
+    miners :: MinerCount
+    miners = _configTestMiners conf
+
+    chooseMiner :: IO (BlockHeader -> IO BlockHeader)
+    chooseMiner = case miningProtocol v of
+        Timed -> testMiner
+        ProofOfWork -> powMiner
+
+    testMiner :: IO (BlockHeader -> IO BlockHeader)
+    testMiner = do
+        gen <- MWC.createSystemRandom
+        pure $ localTest gen miners
+
+    powMiner :: IO (BlockHeader -> IO BlockHeader)
+    powMiner = case g $ _configRemoteMiners conf of
+        Nothing -> pure $ localPOW v
+        Just rs -> do
+            m <- newManager defaultManagerSettings
+            pure $ remoteMining m rs
+
+    g :: Set HostAddress -> Maybe (NonEmpty BaseUrl)
+    g = fmap (NEL.map f) . NEL.nonEmpty . S.toList
+
+    f :: HostAddress -> BaseUrl
+    f (HostAddress hn p) = BaseUrl Http hn' p' ""
+      where
+        hn' = T.unpack $ hostnameToText hn
+        p'  = fromIntegral p

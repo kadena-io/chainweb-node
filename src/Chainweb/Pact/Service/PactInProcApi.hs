@@ -69,12 +69,13 @@ withPactService
     -> (TQueue RequestMsg -> IO a)
     -> IO a
 withPactService ver cid logger mpc cdbv bhdb pdb dbDir nodeid resetDb action =
-    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid resetDb action
+    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid resetDb
+                     action
   where
     mpa = pactMemPoolAccess mpc logger
 
--- | Alternate Initialization for Pact (in process) Api, only used directly in tests to provide memPool
---   with test transactions
+-- | Alternate Initialization for Pact (in process) Api, only used directly in
+--   tests to provide memPool with test transactions
 withPactService'
     :: PayloadCas cas
     => Logger logger
@@ -90,11 +91,13 @@ withPactService'
     -> Bool
     -> (TQueue RequestMsg -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb action =
+withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid
+                 resetDb action =
     mask $ \rst -> do
         reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
         a <- async $
-             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
+             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb
+                                pdb dbDir nodeid resetDb
         link a
         evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 
@@ -118,14 +121,19 @@ pactMemPoolGetBlock
     :: Logger logger
     => MempoolConsensus ChainwebTransaction
     -> logger
-    -> (BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction))
-pactMemPoolGetBlock mpc theLogger height hash _bHeader = do
+    -> (MempoolPreBlockCheck ChainwebTransaction
+            -> BlockHeight
+            -> BlockHash
+            -> BlockHeader
+            -> IO (Vector ChainwebTransaction))
+pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) maxBlockSize
+    mempoolGetBlock (mpcMempool mpc) validate height hash maxBlockSize
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn = logFunction
+
 
 pactProcessFork
     :: Logger logger
@@ -134,13 +142,19 @@ pactProcessFork
     -> (BlockHeader -> IO ())
 pactProcessFork mpc theLogger bHeader = do
     let forkFunc = (mpcProcessFork mpc) (logFunction theLogger)
-    txHashes <- forkFunc bHeader
-    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length txHashes)
+    (reintroTxs, validatedTxs) <- forkFunc bHeader
+    (logFn theLogger) Info $! "pactMemPoolAccess - " <> sshow (length reintroTxs)
                            <> " transactions to reintroduce"
-    mempoolReintroduce (mpcMempool mpc) txHashes
+    mempoolInsert (mpcMempool mpc) reintroTxs
+    mempoolMarkValidated (mpcMempool mpc) $ fmap hasher validatedTxs
+
   where
-   logFn :: Logger l => l -> LogFunctionText
-   logFn lg = logFunction lg
+    mempool = mpcMempool mpc
+    txcfg = mempoolTxConfig mempool
+    hasher = txHasher txcfg
+
+    logFn :: Logger l => l -> LogFunctionText
+    logFn lg = logFunction lg
 
 pactMempoolSetLastHeader
     :: Logger logger

@@ -13,15 +13,19 @@ module Chainweb.Pact.Backend.InMemoryCheckpointer
     ) where
 
 import Control.Concurrent.MVar
+import Control.Monad (when)
 
+import Data.Foldable (foldl')
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HMS
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import Data.Text (pack)
-
 
 import Pact.Interpreter
 import Pact.Persist.Pure
 import Pact.PersistPactDb
+import Pact.Types.Hash (PactHash)
 import Pact.Types.Logger
 import Pact.Types.Runtime hiding (hash)
 
@@ -37,6 +41,7 @@ data Store = Store
   { _theStore :: HashMap (BlockHeight, BlockHash) (DbEnv PureDb)
   , _lastBlock :: Maybe (BlockHeight, BlockHash)
   , _dbenv :: MVar (DbEnv PureDb)
+  , _playedTxs :: MVar (HashSet PactHash, HashMap PactHash (BlockHeight, BlockHash))
   }
 
 initInMemoryCheckpointEnv :: Loggers -> Logger -> GasEnv -> IO CheckpointEnv
@@ -44,7 +49,8 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
     pdenv@(PactDbEnv _ env) <- mkPureEnv loggers
     initSchema pdenv
     genesis <- readMVar env
-    inmem <- newMVar (Store mempty Nothing env)
+    played <- newMVar mempty
+    inmem <- newMVar (Store mempty Nothing env played)
     return $
         (CheckpointEnv
             { _cpeCheckpointer =
@@ -53,21 +59,36 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     (doSave inmem)
                     (doDiscard inmem)
                     (doGetLatest inmem)
-                    id  -- in-mem doesn't require tx rewind
+                    noop        -- in-mem doesn't batch
+                    noop
+                    (doDiscard inmem)
                     (doLookupBlock inmem)
                     (doGetBlockParent inmem)
+                    (doRegisterSuccessful inmem)
+                    (doLookupSuccessful inmem)
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
+  where
+    noop = return ()
 
 doRestore :: DbEnv PureDb -> MVar Store ->  Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore _ lock (Just (height, hash)) =
     modifyMVarMasked lock $ \store -> do
-      let bh = (pred height, hash)
+      let ph = pred height
+      let bh = (ph, hash)
+      let filt (_, !mp) = let !mp' = HMS.filterWithKey (\_ (v, _) -> v <= ph) mp
+                              !out = (mempty, mp')
+                          in newMVar out
       case HMS.lookup bh (_theStore store) of
             Just dbenv -> do
               mdbenv <- newMVar dbenv
-              let !store' = store { _lastBlock = Just bh, _dbenv = mdbenv }
+              played <- readMVar (_playedTxs store) >>= filt
+
+              let !store' = store { _lastBlock = Just bh
+                                  , _dbenv = mdbenv
+                                  , _playedTxs = played
+                                  }
               return $! (store', PactDbEnv' (PactDbEnv pactdb mdbenv))
             Nothing -> internalError $
               "InMemoryCheckpointer: Restore not found: height=" <> pack (show (pred height))
@@ -76,24 +97,32 @@ doRestore _ lock (Just (height, hash)) =
 doRestore genesis lock Nothing =
     modifyMVarMasked lock $ \_ -> do
       gen <- newMVar genesis
-      return $! (Store mempty Nothing gen, PactDbEnv' $ PactDbEnv pactdb gen)
+      played <- newMVar mempty
+      return $! (Store mempty Nothing gen played,
+                 PactDbEnv' (PactDbEnv pactdb gen))
 
 doSave :: MVar Store -> BlockHash -> IO ()
-doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv) -> do
+doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv played) -> do
     env <- readMVar dbenv
     let bh = case mheight of
                Nothing -> (BlockHeight 0, hash)
                Just (height, _) -> (succ height, hash)
-    return $ Store (HMS.insert bh env store) (Just bh) dbenv
+    modifyMVar_ played $ updatePlayed bh
+    return $ Store (HMS.insert bh env store) (Just bh) dbenv played
+  where
+    updatePlayed bh (pset, mp) =
+        let !mp' = foldl' (\m h -> HMS.insert h bh m) mp pset
+            !out = (mempty, mp')
+        in return $! out
 
 doGetLatest :: MVar Store -> IO (Maybe (BlockHeight, BlockHash))
-doGetLatest lock = withMVar lock $ \(Store _ m _) -> return m
+doGetLatest lock = withMVar lock $ \(Store _ m _ _) -> return m
 
 doDiscard :: MVar Store -> IO ()
 doDiscard _ = return ()
 
 doLookupBlock :: MVar Store -> (BlockHeight, BlockHash) -> IO Bool
-doLookupBlock lock x = withMVar lock $ \(Store s _ _) ->
+doLookupBlock lock x = withMVar lock $ \(Store s _ _ _) ->
                        return $! HMS.member x s
 
 doGetBlockParent :: MVar Store -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
@@ -102,3 +131,23 @@ doGetBlockParent _lock (_bh, _hash) = error msg
     msg =
       "getBlockParent: This function shouldn't be used with the in-memory checkpointer.\
       \ There exists more than one choice of hash, and there is no intelligble way to distinguish the correct hash."
+
+doRegisterSuccessful :: MVar Store -> PactHash -> IO ()
+doRegisterSuccessful lock hash =
+    withMVar lock $
+    \(Store _ _ _ played) -> modifyMVar_ played $
+    \(pset, mp) -> do
+        let b = HMS.member hash mp || HashSet.member hash pset
+        -- TODO: need a better error recovery story here, because we need to
+        -- be able to blacklist the bad transaction(s)
+        when b $ fail $ "duplicate transaction for hash " ++ show hash
+        let !pset' = HashSet.insert hash pset
+        let out = (pset', mp)
+        return $! out
+
+doLookupSuccessful :: MVar Store -> PactHash -> IO (Maybe (BlockHeight, BlockHash))
+doLookupSuccessful lock hash =
+    withMVar lock $
+    \(Store _ _ _ played) -> do
+        (_, mp) <- readMVar played
+        return $! HMS.lookup hash mp

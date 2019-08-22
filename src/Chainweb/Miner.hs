@@ -27,7 +27,6 @@ module Chainweb.Miner
 , MinerKeys(..)
 , Miner(..)
   -- Combinators
-, minerReward
 , toMinerData
 , fromMinerData
   -- * Optics
@@ -46,26 +45,16 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
 import Data.Aeson hiding (decode)
-import Data.ByteString.Lazy as LBS
-import Data.Csv (decode, HasHeader(NoHeader))
-import Data.Decimal
 import Data.Default
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
 import Data.Text (Text)
-import Data.Vector as V
-import Data.Word (Word64)
 
 -- chainweb types
 
-import Chainweb.BlockHeader
-import Chainweb.Graph
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
 -- Pact types
 
-import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 
 
@@ -146,46 +135,3 @@ toMinerData = MinerData . encodeToByteString
 fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
 {-# INLINABLE fromMinerData #-}
-
--- -------------------------------------------------------------------------- --
--- Miner reward
-
--- | Calculate miner reward. We want this to error hard in the case where
--- block times have finally exceeded the 120-year range
---
-minerReward
-    :: HasChainGraph v
-    => v -> BlockHeight -> IO ParsedDecimal
-minerReward v bh = do
-    rs <- rewards v
-    case rs ^. at (roundBy bh 500000) of
-      Nothing -> error
-          $ "Block Height calculating miner reward is outside of admissible range: "
-          <> sshow bh
-      Just d -> return d
-
--- | Rewards table mapping 3-month periods to their rewards
--- according to the calculated exponential decay over 120 year period
---
-rewards
-    :: HasChainGraph v
-    => v -> IO (HashMap BlockHeight ParsedDecimal)
-rewards v = do
-    rs <- LBS.readFile "rewards/miner_rewards.csv"
-    case decode NoHeader rs of
-      Left _ -> error "rewards: cannot construct miner reward map"
-      Right vs -> return
-        $ HashMap.fromList
-        . V.toList
-        . V.map formatRow
-        $ vs
-  where
-    formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
-    formatRow (!a,!b) =
-      let
-        n :: Decimal
-        !n = fromIntegral $ size $ v ^. chainGraph
-
-        m :: Decimal
-        !m = fromRational $ toRational b
-      in (BlockHeight a, ParsedDecimal $ m / n)

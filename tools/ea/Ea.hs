@@ -23,7 +23,7 @@
 -- > became enamoured of its beauty, and of its history which they saw beginning
 -- > and unfolding as in a vision. Therefore Ilúvatar gave to their vision Being,
 -- > and set it amid the Void, and the Secret Fire was sent to burn at the heart
--- > of the World; and it was called Eä.  -- The Silmarillion - Ainulindalë
+-- > of the World; and it was called Eä.  -- The Silmarillion - Valaquenta
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
@@ -77,10 +77,10 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
-    for_ [Development, Testnet00, Testnet01, Testnet02] $ \v -> do
+    for_ [(Development, "Development"), (Testnet02, "Testnet")] $ \(v, tag) -> do
         let txs = bool txs0 [defCoinContractSig, defCoinContract, defGrants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
-        genPayloadModule v txs
+        genPayloadModule v tag txs
     putStrLn "Done."
   where
     opts = info (pEnv <**> helper)
@@ -93,17 +93,14 @@ defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
 
 defGrants :: FilePath
-defGrants = "pact/genesis/testnet00/grants.yaml"
-
-moduleName :: ChainwebVersion -> Text
-moduleName = T.toTitle . chainwebVersionToText
+defGrants = "pact/genesis/testnet/grants.yaml"
 
 ---------------------
 -- Payload Generation
 ---------------------
 
-genPayloadModule :: ChainwebVersion -> [FilePath] -> IO ()
-genPayloadModule v txFiles =
+genPayloadModule :: ChainwebVersion -> Text -> [FilePath] -> IO ()
+genPayloadModule v tag txFiles =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
         rawTxs <- traverse mkTx txFiles
@@ -112,29 +109,32 @@ genPayloadModule v txFiles =
                 procCmd = verifyCommand cmdBS
             case procCmd of
                 f@ProcFail{} -> fail (show f)
-                ProcSucc c -> return $ fmap (\bs -> PayloadWithText bs (_cmdPayload c)) (SB.toShort <$> cmdBS)
+                ProcSucc c -> fixupPayload cmdBS c
 
         let logger = genericLogger Warn TIO.putStrLn
-
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger (const noSPVSupport) bhdb pdb Nothing Nothing False $
-            execNewGenesisBlock noMiner (V.fromList cwTxs)
+        payloadWO <- initPactService' v cid logger (const noSPVSupport)
+                         bhdb pdb Nothing Nothing False $
+                         execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
-            modl = T.unlines $ startModule v <> [payloadYaml] <> endModule
-            fileName = "src/Chainweb/BlockHeader/Genesis/" <> moduleName v <> "Payload.hs"
+            modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
+            fileName = "src/Chainweb/BlockHeader/Genesis/" <> tag <> "Payload.hs"
 
         TIO.writeFile (T.unpack fileName) modl
   where
-    cid = someChainId Testnet00
+    fixupPayload cmdBS c =
+        return $! fmap (\bs -> PayloadWithText bs (_cmdPayload c))
+                       (SB.toShort <$> cmdBS)
+    cid = someChainId v
 
-startModule :: ChainwebVersion -> [Text]
-startModule v =
+startModule :: Text -> [Text]
+startModule tag =
     [ "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
     , ""
-    , "module Chainweb.BlockHeader.Genesis." <> moduleName v <> "Payload ( payloadBlock ) where"
+    , "module Chainweb.BlockHeader.Genesis." <> tag <> "Payload ( payloadBlock ) where"
     , ""
     , "import Data.Text.Encoding (encodeUtf8)"
     , "import Data.Yaml (decodeThrow)"

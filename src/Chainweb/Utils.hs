@@ -58,12 +58,9 @@ module Chainweb.Utils
 , roundBy
 , unlessM
 , whenM
+, partitionEithersNEL
 , (&)
 , IxedGet(..)
-
--- * Diffs
-, DiffItem(..)
-, resolve
 
 -- * Encoding and Serialization
 , EncodingException(..)
@@ -167,6 +164,8 @@ module Chainweb.Utils
 -- * Strict tuple-2 accessors
 , sfst
 , ssnd
+, scurry
+, suncurry
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -195,11 +194,14 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NEL
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
@@ -208,6 +210,7 @@ import Data.String (IsString(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
+import Data.These (These(..))
 import Data.Tuple.Strict
 import Data.Word (Word64)
 
@@ -341,6 +344,13 @@ roundBy :: Integral a => a -> a -> a
 roundBy n m = ((n `div` m) + 1) * m
 {-# INLINE roundBy #-}
 
+partitionEithersNEL :: NonEmpty (Either a b) -> These (NonEmpty a) (NonEmpty b)
+partitionEithersNEL (h :| es) = case bimap NEL.nonEmpty NEL.nonEmpty $ partitionEithers es of
+    (Nothing, Nothing) -> either (This . pure) (That . pure) h
+    (Just as, Nothing) -> This as
+    (Nothing, Just bs) -> That bs
+    (Just as, Just bs) -> These as bs
+
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 
@@ -359,28 +369,6 @@ class IxedGet a where
     default ixg :: Ixed a => Index a -> Fold a (IxValue a)
     ixg = ix
     {-# INLINE ixg #-}
-
--- -------------------------------------------------------------------------- --
--- * Diffs
-
--- | An difference between to collection of values.
---
-data DiffItem a
-    = LeftD a
-        -- ^ the item @a@ is present only in the left collection.
-    | RightD a
-        -- ^ the item @a@ is present only in the right collection.
-    | BothD a a
-        -- ^ the item is is present only in both collection and has the given
-        -- values.
-    deriving (Show, Eq, Ord, Generic, Hashable, Functor, Foldable, Traversable)
-
--- | Resolve a difference by applying a function to the content of a 'DiffItem'.
---
-resolve :: (a -> b) -> (a -> b) -> (a -> a -> b) -> DiffItem a -> b
-resolve l _ _ (LeftD a) = l a
-resolve _ r _ (RightD a) = r a
-resolve _ _ m (BothD a b) = m a b
 
 -- -------------------------------------------------------------------------- --
 -- * Encodings and Serialization
@@ -1108,8 +1096,26 @@ concurrentWith alloc inner params = do
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
 
+-- | First projections for strict tuples
+--
 sfst :: T2 a b -> a
 sfst (T2 a _) = a
+{-# INLINE sfst #-}
 
+-- | Second projections for strict tuples
+--
 ssnd :: T2 a b -> b
 ssnd (T2 _ b) = b
+{-# INLINE ssnd #-}
+
+-- | Currying for functions of strict tuples
+--
+scurry :: forall a b c. ((T2 a b) -> c) -> a -> b -> c
+scurry k a b = k (T2 a b)
+{-# INLINE scurry #-}
+
+-- | Uncurrying for functions of strict tuples
+--
+suncurry :: forall a b c. (a -> b -> c) -> T2 a b -> c
+suncurry k (T2 a b) = k a b
+{-# INLINE suncurry #-}

@@ -100,9 +100,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.Testnet00Payload
-        , Chainweb.BlockHeader.Genesis.Testnet01Payload
-        , Chainweb.BlockHeader.Genesis.Testnet02Payload
+        , Chainweb.BlockHeader.Genesis.TestnetPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -145,9 +143,9 @@ library
         , Chainweb.MerkleUniverse
         , Chainweb.Miner
         , Chainweb.Miner.Config
+        , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
-        , Chainweb.Miner.POW
-        , Chainweb.Miner.Test
+        , Chainweb.Miner.Miners
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
@@ -227,7 +225,6 @@ library
         , Chainweb.Pact.Backend.SQLite.V2
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
-        , Chainweb.Pact.BloomCache
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
@@ -298,6 +295,7 @@ library
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6
+        , nonempty-containers >= 0.3
         , optparse-applicative >= 0.14
         , pact >= 2.6
         , paths >= 0.2
@@ -310,6 +308,7 @@ library
         , resourcet >= 1.2
         , safeio >= 0.0
         , safe-exceptions >= 0.1
+        , scheduler >= 1.4
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -327,6 +326,7 @@ library
         , swagger2 >= 2.2
         , temporary >= 1.3
         , text >= 1.2
+        , these >= 0.7 && < 1
         , time >= 1.8
         , tls >=1.5
         , token-bucket >= 0.1
@@ -375,6 +375,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
+        Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -434,6 +435,7 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
+        , scheduler >= 1.4
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -519,12 +521,14 @@ executable chainweb-miner
           chainweb
 
         -- external
+        , aeson >= 1.4
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , containers >= 0.5
         , errors >= 2.3
         , optparse-applicative >= 0.14
+        , pretty-simple >= 2.1
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-server >= 0.14
@@ -553,6 +557,7 @@ executable cwtool
         RunNodes
         SlowTests
         TXG
+        TXGRepl
         TXG.Simulate.Contracts.CoinContract
         TXG.Simulate.Contracts.Common
         TXG.Simulate.Contracts.HelloWorld

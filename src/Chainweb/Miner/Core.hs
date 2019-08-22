@@ -27,13 +27,12 @@ import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr, castPtr)
-import Foreign.Storable (peekElemOff, poke, pokeByteOff)
+import Foreign.Storable (peekElemOff, poke)
 
 -- internal modules
 
 import Chainweb.BlockHeader
 import Chainweb.Difficulty (HashTarget, encodeHashTarget)
-import Chainweb.Time (Micros, Time, encodeTimeToWord64, getCurrentTimeIntegral)
 import Chainweb.Utils (int, runGet)
 import Chainweb.Version (ChainwebVersion(..))
 
@@ -47,8 +46,6 @@ usePowHash TimedConsensus{} f = f $ Proxy @SHA512t_256
 usePowHash PowConsensus{} f = f $ Proxy @SHA512t_256
 usePowHash TimedCPM{} f = f $ Proxy @SHA512t_256
 usePowHash Development f = f $ Proxy @SHA512t_256
-usePowHash Testnet00 f = f $ Proxy @SHA512t_256
-usePowHash Testnet01 f = f $ Proxy @SHA512t_256
 usePowHash Testnet02 f = f $ Proxy @SHA512t_256
 
 -- | This Miner makes low-level assumptions about the chainweb protocol. It may
@@ -67,22 +64,14 @@ mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
 
             -- inner mining loop
             --
-            -- We do 100000 hashes before we update the creation time.
-            --
-            let go 100000 !n = do
-                    -- update the block creation time
-                    ct <- getCurrentTimeIntegral
-                    injectTime ct buf
-                    go 0 n
-
-                go !i !n = do
+            let go !i !n = do
                     -- Compute POW hash for the nonce
                     injectNonce n buf
                     hash ctx buf pow
 
                     -- check whether the nonce meets the target
                     fastCheckTarget trgPtr (castPtr pow) >>= \case
-                        True -> return ()
+                        True -> pure ()
                         False -> go (succ i) (succ n)
 
             -- Start inner mining loop
@@ -115,15 +104,10 @@ mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
             hashInternalFinalize ctxPtr (castPtr pow)
     {-# INLINE hash #-}
 
-    -- | `injectTime` and `injectNonce` make low-level assumptions about the
-    -- byte layout of a hashed `BlockHeader`. If that layout changes, these
-    -- functions need to be updated. The assumption allows us to iterate on new
-    -- nonces quickly.
+    -- | `injectNonce` makes low-level assumptions about the byte layout of a
+    -- hashed `BlockHeader`. If that layout changes, this functions need to be
+    -- updated. The assumption allows us to iterate on new nonces quickly.
     --
-    injectTime :: Time Micros -> Ptr Word8 -> IO ()
-    injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
-    {-# INLINE injectTime #-}
-
     injectNonce :: Nonce -> Ptr Word8 -> IO ()
     injectNonce n buf = poke (castPtr buf) $ encodeNonceToWord64 n
     {-# INLINE injectNonce #-}

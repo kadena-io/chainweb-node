@@ -17,6 +17,7 @@ module Chainweb.Test.Pact.PactExec
 ) where
 
 import Data.Aeson
+import Data.CAS.RocksDB (RocksDb)
 import Data.String.Conv (toS)
 import Data.Text (Text, pack)
 import qualified Data.Vector as V
@@ -24,28 +25,28 @@ import qualified Data.Yaml as Y
 
 import GHC.Generics (Generic)
 
-import System.IO.Extra
+import System.IO.Extra (readFile')
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeader.Genesis
+import Chainweb.BlockHash (nullBlockHash)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Miner
-import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.PactService
+import Chainweb.Pact.PactService (execTransactions)
 import Chainweb.Pact.Types
-import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
-import Pact.Types.Command
+import Pact.Types.Command (CommandResult(..), PactResult(..))
 
 testVersion :: ChainwebVersion
-testVersion = Testnet00
+testVersion = Development
 
 tests :: ScheduledTest
 tests = ScheduledTest label $
@@ -63,6 +64,7 @@ tests = ScheduledTest label $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
     ]
   where
+    bhdbIO :: IO RocksDb -> IO BlockHeaderDb
     bhdbIO rocksIO = do
         rdb <- rocksIO
         let genesisHeader = genesisBlockHeader testVersion cid
@@ -70,7 +72,7 @@ tests = ScheduledTest label $
 
     label = "Simple pact execution tests"
     killPdb _ = return ()
-    cid = someChainId Testnet00
+    cid = someChainId testVersion
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes

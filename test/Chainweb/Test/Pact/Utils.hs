@@ -26,6 +26,7 @@ module Chainweb.Test.Pact.Utils
 , mkTestExecTransactions
 , mkTestContTransaction
 , pactTestLogger
+, withMVarResource
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -56,7 +57,9 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 
@@ -67,13 +70,16 @@ import Test.Tasty
 -- internal pact modules
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
+import Pact.Gas
 import Pact.Types.ChainId
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
+import Pact.Types.Gas
 import Pact.Types.Logger
-import Pact.Types.RPC (ExecMsg(..), PactRPC(Exec))
-import Pact.Types.SPV (noSPVSupport)
+import Pact.Types.RPC
+import Pact.Types.Runtime (PactId)
+import Pact.Types.SPV
 import Pact.Types.SQLite
 import Pact.Types.Util (toB16Text)
 
@@ -98,12 +104,6 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-
-import Pact.Gas
-import Pact.Types.Gas
-import Pact.Types.RPC
-import Pact.Types.Runtime (PactId)
-import Pact.Types.SPV
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -146,14 +146,17 @@ mergeObjects = Object . HM.unions . foldr unwrap []
 adminData :: IO (Maybe Value)
 adminData = fmap k testKeyPairs
   where
-    k ks = Just $ object [ "test-admin-keyset" .= fmap formatB16PubKey ks ]
+    k ks = Just $ object
+        [ "test-admin-keyset" .= fmap formatB16PubKey ks
+        ]
 
 -- | Shim for 'PactExec' and 'PactInProcApi' tests
-goldenTestTransactions :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
+goldenTestTransactions
+    :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
-
-    mkTestExecTransactions "sender00" "0" ks "1" 100 0.1 txs
+    let nonce = "1"
+    mkTestExecTransactions "sender00" "0" ks nonce 100 1.0 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -172,17 +175,25 @@ mkTestExecTransactions
       -- ^ starting gas
     -> GasPrice
       -- ^ gas rate
+    -> TTLSeconds
+      -- ^ time in seconds until expiry (from offset)
+    -> TxCreationTime
+      -- ^ time in seconds until creation (from offset)
     -> Vector PactTransaction
       -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkTestExecTransactions sender cid ks nonce gas gasrate txs =
-    traverse go txs
+mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
+    nref <- newIORef (0 :: Int)
+    traverse (go nref) txs
   where
-    go (PactTransaction c d) = do
+    go nref (PactTransaction c d) = do
       let dd = mergeObjects (toList d)
-          pm = PublicMeta cid sender gas gasrate
+          pm = PublicMeta cid sender gas gasrate ttl ct
           msg = Exec (ExecMsg c dd)
 
+      nn <- readIORef nref
+      writeIORef nref $! succ nn
+      let nonce = T.append nonce0 (T.pack $ show nn)
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
         ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
@@ -215,10 +226,14 @@ mkTestContTransaction
       -- ^ rollback?
     -> Maybe ContProof
       -- ^ SPV proof
+    -> TTLSeconds
+      -- ^ time in seconds until expiry (from offset)
+    -> TxCreationTime
+      -- ^ time in seconds until creation (from offset)
     -> Value
     -> IO (Vector ChainwebTransaction)
-mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof d = do
-    let pm = PublicMeta cid sender gas rate
+mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl ct d = do
+    let pm = PublicMeta cid sender gas rate ttl ct
         msg :: PactRPC ContMsg =
           Continuation (ContMsg pid step rollback d proof)
 
@@ -271,10 +286,11 @@ testPactCtx
     -> IO (TestPactCtx cas)
 testPactCtx v cid cdbv bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
+    rs <- readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb v)
-    evalPactServiceM ctx (initialPayloadState v cid mempty)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+    evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False
@@ -294,10 +310,11 @@ testPactCtxSQLite
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
+    rs <- readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb v)
-    evalPactServiceM ctx (initialPayloadState v cid mempty)
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+    evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False
@@ -327,7 +344,7 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
         { _pactNewBlock = \m p ->
             evalPactServiceM ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock mempoolAccess h d
+            evalPactServiceM ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         }
@@ -423,8 +440,12 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       pdb <- pdbIO
       (_,s) <- ios
       (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger gasEnv
+      rs <- readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb v)
-      evalPactServiceM ctx (initialPayloadState v cid mempty)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+      evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
+
+withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
+withMVarResource value = withResource (newMVar value) (const $ return ())

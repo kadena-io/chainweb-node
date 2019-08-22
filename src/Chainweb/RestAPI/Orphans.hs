@@ -64,8 +64,8 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
-import Pact.Types.Gas (GasLimit(..))
 import Pact.Parse (ParsedInteger(..))
+import Pact.Types.Gas (GasLimit(..))
 
 import P2P.Peer
 
@@ -265,8 +265,6 @@ instance ToParamSchema ChainwebVersion where
             , PowConsensus petersonChainGraph
             , TimedCPM petersonChainGraph
             , Development
-            , Testnet00
-            , Testnet01
             , Testnet02
             ])
 

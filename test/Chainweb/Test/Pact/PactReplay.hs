@@ -9,7 +9,6 @@ module Chainweb.Test.Pact.PactReplay where
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Exception
 import Control.Monad (void)
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -59,6 +58,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
+import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 testVersion :: ChainwebVersion
@@ -68,18 +68,20 @@ tests :: ScheduledTest
 tests =
     ScheduledTest label $
     withRocksResource $ \rocksIO ->
-      withPayloadDb $ \pdb ->
-        withBlockHeaderDb rocksIO genblock $ \bhdb ->
-          withTemporaryDir $ \dir ->
-            testGroup
-              label
-              [ withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
-                  testCase "initial-playthrough" $
-                  firstPlayThrough genblock cid pdb bhdb reqQIO
-              , after AllSucceed "initial-playthrough" $
-                withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
-                  testCase "on-restart" $ onRestart cid pdb bhdb reqQIO
-              ]
+    withPayloadDb $ \pdb ->
+    withBlockHeaderDb rocksIO genblock $ \bhdb ->
+    withTemporaryDir $ \dir ->
+    testGroup label
+        [ withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
+            testCase "initial-playthrough" $
+            firstPlayThrough genblock cid pdb bhdb reqQIO
+        , after AllSucceed "initial-playthrough" $
+          withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
+            testCase "on-restart" $ onRestart cid pdb bhdb reqQIO
+        , after AllSucceed "on-restart" $
+          withPact pdb bhdb dupegenMemPoolAccess dir $ \reqQIO ->
+            testCase "reject-dupes" $ testDupes genblock cid pdb bhdb reqQIO
+        ]
   where
     genblock = genesisBlockHeader testVersion cid
     label = "Chainweb.Test.Pact.PactReplay"
@@ -107,12 +109,47 @@ testMemPoolAccess  = MemPoolAccess
   where
     ksData :: Text -> Value
     ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-    getTestBlock _bHeight _bHash bHeader = do
+    getTestBlock validate _bHeight _bHash bHeader = do
         let Nonce nonce = _blockNonce bHeader
             moduleStr = defModule (T.pack $ show nonce)
             d = Just $ ksData (T.pack $ show nonce)
         let txs = V.fromList $ [PactTransaction moduleStr d]
-        goldenTestTransactions txs
+        outtxs <- goldenTestTransactions txs
+        oks <- validate _bHeight _bHash outtxs
+        when (not $ V.and oks) $ do
+            fail $ mconcat [ "tx failed validation! input list: \n"
+                           , show txs
+                           , "\n\nouttxs: "
+                           , show outtxs
+                           , "\n\noks: "
+                           , show oks ]
+        return outtxs
+
+dupegenMemPoolAccess :: MemPoolAccess
+dupegenMemPoolAccess  = MemPoolAccess
+    { mpaGetBlock = getTestBlock
+    , mpaSetLastHeader = \_ -> return ()
+    , mpaProcessFork = \_ -> return ()
+    }
+  where
+    ksData :: Text -> Value
+    ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
+    getTestBlock validate _bHeight _bHash _bHeader = do
+        let nonce = "0"
+            moduleStr = defModule (T.pack nonce)
+            d = Just $ ksData (T.pack nonce)
+        let txs = V.fromList $ [PactTransaction moduleStr d]
+        outtxs <- goldenTestTransactions txs
+        oks <- validate _bHeight _bHash outtxs
+        when (not $ V.and oks) $ do
+            fail $ mconcat [ "tx failed validation! input list: \n"
+                           , show txs
+                           , "\n\nouttxs: "
+                           , show outtxs
+                           , "\n\noks: "
+                           , show oks ]
+        return outtxs
+
 
 firstPlayThrough
     :: BlockHeader
@@ -141,6 +178,39 @@ firstPlayThrough genesisBlock c iopdb iobhdb rr = do
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
+
+testDupes
+  :: BlockHeader
+  -> ChainId
+  -> IO (PayloadDb HashMapCas)
+  -> IO (BlockHeaderDb)
+  -> IO (TQueue RequestMsg)
+  -> Assertion
+testDupes genesisBlock c iopdb iobhdb rr = do
+    (T3 _ newblock payload) <- liftIO $ mineBlock genesisBlock c (Nonce 1) iopdb iobhdb rr
+    expectException newblock payload $ liftIO $
+        mineBlock newblock c (Nonce 2) iopdb iobhdb rr
+  where
+    expectException newblock payload act = do
+        m <- wrap `catch` h
+        maybe (return ()) (\msg -> assertBool msg False) m
+      where
+        wrap = do
+            (T3 _ newblock2 payload2) <- act
+            let msg = concat [ "expected exception on dupe block. new block header:\n"
+                             , sshow newblock2
+                             , "\nnew payload: \n"
+                             , sshow payload2
+                             , "\nprev block: \n"
+                             , sshow newblock
+                             , "\nprev payload: \n"
+                             , sshow payload
+                             ]
+            return $ Just msg
+
+        h :: SomeException -> IO (Maybe String)
+        h _ = return Nothing
+
 
 mineBlock
     :: BlockHeader
@@ -215,7 +285,8 @@ withPact
     -> IO FilePath
     -> (IO (TQueue RequestMsg) -> TestTree)
     -> TestTree
-withPact iopdb iobhdb mempool iodir f = withResource startPact stopPact $ f . fmap snd
+withPact iopdb iobhdb mempool iodir f =
+    withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
@@ -223,9 +294,9 @@ withPact iopdb iobhdb mempool iodir f = withResource startPact stopPact $ f . fm
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-
-        a <- async $ initPactService testVersion cid logger reqQ mempool mv bhdb pdb (Just dir) Nothing False
-
+        a <- async $ initPactService testVersion cid logger reqQ mempool mv
+                                     bhdb pdb (Just dir) Nothing False
+        link a
         return (a, reqQ)
 
     stopPact (a, reqQ) = do

@@ -244,7 +244,7 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
   case r of
     Left e -> jsonErrorResult' cmdEnv requestKey e [] 0 "applyLocal"
-    Right (T2 rr _) -> return rr
+    Right (T2 rr _) -> return $! rr { _crMetaData = Just (toJSON pd') }
 
 
 -- | Present a failure as a pair of json result of Command Error and associated logs

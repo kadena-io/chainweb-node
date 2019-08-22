@@ -127,11 +127,11 @@ withChainResources
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
-    withBlockHeaderDb rdb v cid $ \cdb ->
-      Mempool.withInMemoryMempool mempoolCfg rdb $ \mempool -> do
-        mpc <- MPCon.mkMempoolConsensus reIntroEnabled mempool cdb $ Just payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb payloadDb dbDir nodeid resetDb $
-          \requestQ -> do
+    withBlockHeaderDb rdb v cid $ \cdb -> do
+      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+        mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
+        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb
+                        payloadDb dbDir nodeid resetDb $ \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"
@@ -154,30 +154,24 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
                     return ()
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
 
-            -- replay pact
-            let pact = pes mempool requestQ
-
             -- run inner
             inner $ ChainResources
                 { _chainResPeer = peer
                 , _chainResBlockHeaderDb = cdb
                 , _chainResLogger = logger
                 , _chainResMempool = mempool
-                , _chainResPact = pact
+                , _chainResPact = pes requestQ
                 }
   where
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
     diam = diameter (_chainGraph v)
-    reIntroEnabled = Mempool._inmemEnableReIntro mempoolCfg
-    pes mempool requestQ = case v of
+    pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService mempool requestQ
-        Development -> mkPactExecutionService mempool requestQ
-        Testnet00 -> mkPactExecutionService mempool requestQ
-        Testnet01 -> mkPactExecutionService mempool requestQ
-        Testnet02 -> mkPactExecutionService mempool requestQ
+        TimedCPM{} -> mkPactExecutionService requestQ
+        Development -> mkPactExecutionService requestQ
+        Testnet02 -> mkPactExecutionService requestQ
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

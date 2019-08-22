@@ -32,7 +32,8 @@ import TXG.Simulate.Utils
 data CoinContractRequest
   = CoinCreateAccount Account Guard
   | CoinAccountBalance Account
-  | CoinTransfer SenderName ReceiverName Guard Amount
+  | CoinTransferAndCreate SenderName ReceiverName Guard Amount
+  | CoinTransfer SenderName ReceiverName Amount
 
 newtype Guard = Guard (NonEmpty SomeKeyPair)
 newtype SenderName = SenderName Account
@@ -51,7 +52,7 @@ mkRandomCoinContractRequest kacts = do
         Nothing ->
           error $ errmsg ++ getAccount to
         Just keyset ->
-          CoinTransfer (SenderName from) (ReceiverName to) (Guard keyset) <$> fake
+          CoinTransferAndCreate (SenderName from) (ReceiverName to) (Guard keyset) <$> fake
     _ -> error "mkRandomCoinContractRequest: impossible case"
   where
     errmsg =
@@ -82,7 +83,7 @@ createCoinContractRequest meta request =
             "(coin.account-balance \"%s\")"
             account
       mkExec theCode theData meta (NEL.toList adminKS) Nothing
-    CoinTransfer (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guard) (Amount amount) -> do
+    CoinTransferAndCreate (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guard) (Amount amount) -> do
       adminKS <- testSomeKeyPairs
       let theCode =
             printf
@@ -95,5 +96,19 @@ createCoinContractRequest meta request =
             object
               [ "admin-keyset" .= fmap formatB16PubKey adminKS
               , "receiver-guard" .= fmap formatB16PubKey guard
+              ]
+      mkExec theCode theData meta (NEL.toList adminKS) Nothing
+
+    CoinTransfer (SenderName (Account sn)) (ReceiverName (Account rn)) (Amount amount) -> do
+      adminKS <- testSomeKeyPairs
+      let theCode =
+            printf
+            "(coin.transfer \"%s\" \"%s\" %s)"
+            sn
+            rn
+            (show amount)
+          theData =
+            object
+              [ "admin-keyset" .= fmap formatB16PubKey adminKS
               ]
       mkExec theCode theData meta (NEL.toList adminKS) Nothing
