@@ -24,6 +24,7 @@ module Chainweb.Miner.Miners
     -- * Remote Mining
   , MiningAPI
   , remoteMining
+  , transferableBytes
   ) where
 
 import Data.Bytes.Put (runPutS)
@@ -92,10 +93,12 @@ localPOW v bh = do
     HeaderBytes new <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
     runGet decodeBlockHeaderWithoutHash new
   where
-    T2 tbytes hbytes = toBytes bh
+    T2 tbytes hbytes = transferableBytes bh
 
-toBytes :: BlockHeader -> T2 TargetBytes HeaderBytes
-toBytes bh = T2 t h
+-- | Can be piped to `workBytes` for a form suitable to use with `MiningAPI`.
+--
+transferableBytes :: BlockHeader -> T2 TargetBytes HeaderBytes
+transferableBytes bh = T2 t h
   where
     t = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
     h = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
@@ -135,7 +138,7 @@ submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO BlockHeader
 remoteMining m urls bh = submission >> polling
   where
-    T2 tbytes hbytes = toBytes bh
+    T2 tbytes hbytes = transferableBytes bh
 
     bs :: WorkBytes
     bs = workBytes tbytes hbytes

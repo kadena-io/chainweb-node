@@ -11,7 +11,6 @@ module Chainweb.Test.Miner.Core
   ( tests
   ) where
 
-import Data.Bytes.Put (runPutS)
 import Data.Tuple.Strict (T2(..))
 
 import Test.Tasty
@@ -19,11 +18,11 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), encodeBlockHeaderWithoutHash)
+import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Miner.Core
+import Chainweb.Miner.Miners (transferableBytes)
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 ---
@@ -42,5 +41,4 @@ workBytesIso = unWorkBytes (workBytes tbytes hbytes) @?= T2 tbytes hbytes
     bh :: BlockHeader
     bh = genesisBlockHeader v $ someChainId v
 
-    hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-    tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+    T2 tbytes hbytes = transferableBytes bh
