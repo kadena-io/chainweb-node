@@ -209,14 +209,12 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
       Left e -> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
       Right !er -> do
         logDebugRequestKey logger rk
-          $ "successful coinbase for miner "
-          ++ show mid
-          ++ "of "
+          $ "successful coinbase of "
           ++ (take 18 $ show d)
+          ++ "to "
+          ++ show mid
 
-        let r = PactResult (Right (last $ _erOutput er))
-
-        return $! CommandResult rk (_erTxId er) r
+        return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
 
 

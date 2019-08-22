@@ -70,6 +70,7 @@ import System.LogLevel
 
 ------------------------------------------------------------------------------
 -- external pact modules
+
 import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
@@ -111,7 +112,6 @@ import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), HasChainGraph(..))
 import Data.CAS (casLookupM)
-
 
 
 pactLogLevel :: String -> LogLevel
@@ -726,7 +726,6 @@ runCoinbase (Just parentHash) dbEnv miner = do
     let !pd = _psPublicData psEnv
         !logger = _cpeLogger . _psCheckpointEnv $ psEnv
         !bh = BlockHeight $ P._pdBlockHeight pd
-
 
     reward <- minerReward bh
     cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash

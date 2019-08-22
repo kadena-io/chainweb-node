@@ -135,7 +135,7 @@ instance Exception ChainGraphException
 
 data ChainGraph = ChainGraph
     { _chainGraphGraph :: !(G.DiGraph ChainId)
-    , _chainGraphKnown :: ! KnownGraph
+    , _chainGraphKnown :: !KnownGraph
     , _chainGraphShortestPathCache :: {- lazy -} G.ShortestPathCache ChainId
     , _chainGraphHash :: {- lazy -} Int
     }
