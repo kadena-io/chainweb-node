@@ -171,8 +171,9 @@ remoteMining m urls bh = submission >> polling
             threadDelay 100000
             runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
                 Right new -> terminateWith sch new
-                -- While it looks as if the stale `bh` is being returned here,
-                -- this is only to satisfy type checking. The only `BlockHeader`
-                -- value actually yielded from this entire operation is the
-                -- freshly mined one supplied by `terminateWith` above.
+                -- While it looks as if the stale `hbytes` is being returned
+                -- here, this is only to satisfy type checking. The only
+                -- `HeaderBytes` value actually yielded from this entire
+                -- operation is the freshly mined one supplied by
+                -- `terminateWith` above.
                 _ -> scheduleWork sch (go sch url) >> pure hbytes
