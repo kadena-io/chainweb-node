@@ -1,0 +1,44 @@
+-- |
+-- Module: Chainweb.Test.Miner.Core
+-- Copyright: Copyright © 2019 Kadena LLC.
+-- License: MIT
+-- Maintainer: Colin Woodbury <colin@kadena.io>
+-- Stability: experimental
+--
+-- TODO
+--
+module Chainweb.Test.Miner.Core
+  ( tests
+  ) where
+
+import Data.Tuple.Strict (T2(..))
+
+import Test.Tasty
+import Test.Tasty.HUnit
+
+-- internal modules
+
+import Chainweb.BlockHeader (BlockHeader(..))
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.Graph (petersonChainGraph)
+import Chainweb.Miner.Core
+import Chainweb.Miner.Miners (transferableBytes)
+import Chainweb.Version (ChainwebVersion(..), someChainId)
+
+---
+
+tests :: TestTree
+tests = testGroup "Core Mining Logic"
+    [ testCase "workBytes/unWorkBytes Isomorphism" workBytesIso
+    ]
+
+workBytesIso :: Assertion
+workBytesIso = unWorkBytes (workBytes tbytes hbytes) @?= T2 tbytes hbytes
+  where
+    v :: ChainwebVersion
+    v = Test petersonChainGraph
+
+    bh :: BlockHeader
+    bh = genesisBlockHeader v $ someChainId v
+
+    T2 tbytes hbytes = transferableBytes bh
