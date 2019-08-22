@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -593,11 +594,16 @@ rewindTo mb act = do
   where
     rewindGenesis = restoreCheckpointer Nothing >>= act
     doRewind cp (newH, parentHash) = do
+        ALogFunction lf <- aLogFun
+        liftIO $ lf @T.Text Info $ "doRewind: " <> sshow (newH, parentHash)
         payloadDb <- asks _psPdb
         mbLastBlock <- liftIO $ getLatestBlock cp
+        liftIO $ lf @T.Text Info $ "getLatestBlock: " <> sshow mbLastBlock
         lastHeightAndHash <- maybe failNonGenesisOnEmptyDb return mbLastBlock
         bhDb <- asks _psBlockHeaderDb
-        playFork cp bhDb payloadDb newH parentHash lastHeightAndHash
+        trace lf "Chainweb.Pact.PactService.rewindTo.playFork"
+            (newH, parentHash, lastHeightAndHash) 1
+            $ playFork cp bhDb payloadDb newH parentHash lastHeightAndHash
 
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
