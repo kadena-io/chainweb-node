@@ -315,6 +315,10 @@ validateHashes pwo bHeader =
             " does not match the previously stored hash: " ++ show prevHash
 
 
+-- | This function adds a savepoint to the stack with @beginSavepoint Block@.
+--
+-- It must be followed by either 'save' or 'discard'.
+--
 restoreCheckpointer
     :: PayloadCas cas
     => Maybe (BlockHeight,BlockHash)
@@ -436,6 +440,10 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
     --     throwM $ PactServiceIllegalRewind rewindPoint latest
 
     -- rewind should usually be trivial / no-op
+    --
+    -- FIXME: rewindTo pushes a @Block@ savepoint onto the stack. Where do we
+    -- remove it?
+    --
     rewindTo rewindPoint $ \pdbenv -> do
         logInfo $ "execNewBlock, about to get call processFork: "
                <> " (parent height = " <> sshow pHeight <> ")"
@@ -449,6 +457,7 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
         -- locally run 'execTransactions' with updated blockheight data
         results <- withParentBlockData parentHeader $
           execTransactions (Just pHash) miner newTrans pdbenv
+        liftIO $ discard cp
 
         return $! toPayloadWithOutputs miner results
 
@@ -498,13 +507,16 @@ execLocal cmd = withDiscardedBatch $ do
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
 
-    rewindTo (Just (succ $ _blockHeight bh, _blockHash bh)) $ \pdbst ->
-        case pdbst of
-            PactDbEnv' pactdbenv -> do
-                PactServiceEnv{..} <- ask
-                r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
-                     _psPublicData _psSpvSupport (fmap payloadObj cmd)
-                return $! toHashCommandResult r
+    -- FIXME: rewindTo pushes a @Block@ savepoint onto the stack. Where do we
+    -- remove it?
+    --
+    rewindTo (Just (succ $ _blockHeight bh, _blockHash bh)) $ \(PactDbEnv' pactdbenv) -> do
+        PactServiceEnv{..} <- ask
+        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
+                _psPublicData _psSpvSupport (fmap payloadObj cmd)
+        cp <- view (psCheckpointEnv . cpeCheckpointer)
+        liftIO $ discard cp
+        return $! toHashCommandResult r
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)
@@ -558,6 +570,11 @@ withParentBlockData phe action = action
 aLogFun :: PactServiceM cas ALogFunction
 aLogFun = view psTelemetryLogFunction
 
+-- |
+--
+-- Safepoints:
+-- * pop Block
+--
 playOneBlock
     :: BlockHeader
     -> PayloadData
@@ -583,6 +600,12 @@ playOneBlock currHeader plData pdbenv = do
     isGenesisBlock = isGenesisBlockHeader currHeader
     pBlock = if isGenesisBlock then Nothing else Just bParent
 
+-- |
+--
+-- Savepoints:
+-- * (push Block ; pop Block) <$> newBlocks
+-- * push Block
+--
 rewindTo
     :: forall a cas . PayloadCas cas
     => Maybe (BlockHeight, ParentHash)
@@ -607,6 +630,11 @@ rewindTo mb act = do
 
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
+    -- Savepoints:
+    --
+    -- * (push Block ; pop Block) <$> newBlocks
+    -- * push Block
+    --
     playFork cp bhdb payloadDb newH parentHash (lastBlockHeight, lastHash) =
       flip catches exHandlers $ do
           parentHeader <- liftIO $ lookupM bhdb parentHash
@@ -623,11 +651,16 @@ rewindTo mb act = do
         handleEx e =
               (liftIO $ getBlockParent cp (lastBlockHeight, lastHash)) >>= \case
                 Nothing -> throwM e
-                Just hash -> playFork cp bhdb payloadDb newH parentHash
-                                      (pred lastBlockHeight, hash)
+                Just hash -> do
+                    ALogFunction lf <- aLogFun
+                    liftIO $ lf @T.Text Warn $ "exception during rewind to " <> sshow newH <> " (continuing with parent): " <> sshow e
+                    playFork cp bhdb payloadDb newH parentHash
+                        (pred lastBlockHeight, hash)
         handleTreeDbFailure e@(_ :: TreeDbException BlockHeaderDb) = handleEx e
         handlePayloadFailure e@(_ :: PayloadNotFoundException) = handleEx e
 
+    -- Savepoints: push Block ; pop Block
+    --
     fastForward :: forall c . PayloadCas c
                 => PayloadDb c -> BlockHeader -> PactServiceM c ()
     fastForward payloadDb block = do
@@ -644,7 +677,7 @@ rewindTo mb act = do
 
 -- | Validate a mined block. Execute the transactions in Pact again as
 -- validation. Note: The BlockHeader here is the header of the block being
--- validated
+-- validated.
 execValidateBlock
     :: PayloadCas cas
     => BlockHeader

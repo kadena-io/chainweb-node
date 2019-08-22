@@ -159,6 +159,7 @@ doDiscard :: Db -> IO ()
 doDiscard dbenv = runBlockEnv dbenv $ do
     clearPendingTxState
     rollbackSavepoint Block
+    commitSavepoint Block
 
 doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
@@ -183,7 +184,9 @@ doCommitBatch :: Db -> IO ()
 doCommitBatch db = runBlockEnv db $ commitSavepoint BatchSavepoint
 
 doDiscardBatch :: Db -> IO ()
-doDiscardBatch db = runBlockEnv db $ rollbackSavepoint BatchSavepoint
+doDiscardBatch db = runBlockEnv db $ do
+    rollbackSavepoint BatchSavepoint
+    commitSavepoint BatchSavepoint
 
 doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
