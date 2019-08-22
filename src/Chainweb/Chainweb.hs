@@ -85,6 +85,7 @@ module Chainweb.Chainweb
 
 import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
@@ -482,24 +483,20 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
-
-    -- 1. Start serving Rest API
-    --
-    withAsync (serve $ throttle (_chainwebThrottler cw) . httpLog) $ \server -> do
-        logg Info "started server"
-
-        -- 2. Start Clients
-        --
+    concurrently_
+        -- 1. Start serving Rest API
+        (serve (throttle (_chainwebThrottler cw) . httpLog))
+        -- 2. Start Clients (with a delay of 500ms)
+        (threadDelay 500000 >> clients)
+  where
+    clients = do
         mpClients <- mempoolSyncClients
-        let clients = concat
+        mapConcurrently_ id $ concat
               [ miner
               , cutNetworks mgr (_chainwebCutResources cw)
               , mpClients
               ]
-        mapConcurrently_ id clients
-        wait server
 
-  where
     logg = logFunctionText $ _chainwebLogger cw
 
     -- chains
