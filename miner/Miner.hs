@@ -6,7 +6,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -103,11 +102,10 @@ import qualified System.Random.MWC as MWC
 import Text.Pretty.Simple (pPrintNoColor)
 
 -- internal modules
-import Chainweb.BlockHeader
+import Chainweb.BlockHeader (BlockHeight, Nonce(..))
 import Chainweb.Miner.Core
 import Chainweb.Miner.Miners (MiningAPI)
-import Chainweb.RestAPI.Orphans ()
-import Chainweb.Utils (int, toText)
+import Chainweb.Utils (toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -221,7 +219,7 @@ mining e = do
     miningSuccess cid bh new = atomically $ modifyTVar' (results e) f
       where
         key = T2 cid bh
-        f m = M.insert key new . bool (prune m) m $ M.size m < int cap
+        f m = M.insert key new . bool (prune m) m $ M.size m < fromIntegral cap
 
     -- | Reduce the size of the result cache by half if we've crossed the "cap".
     -- Clears old results out by `BlockHeight`.
@@ -245,7 +243,7 @@ mining e = do
     -- pruning.
     --
     cap :: Natural
-    cap = 256 * (order $ _chainGraph ver)
+    cap = 256 * order (_chainGraph ver)
 
     comp :: Comp
     comp = case cores $ args e of
@@ -257,7 +255,7 @@ mining e = do
     -- found some legal result.
     go :: MWC.GenIO -> TargetBytes -> HeaderBytes -> IO HeaderBytes
     go g tbytes hbytes = fmap head . withScheduler comp $ \sch ->
-        replicateWork (int . cores $ args e) sch $ do
+        replicateWork (fromIntegral . cores $ args e) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
             n <- Nonce <$> MWC.uniform g

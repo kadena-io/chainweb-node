@@ -1,7 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -32,6 +31,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
 import Data.These (these)
+import Data.Tuple.Strict (T2(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Monad.Catch (throwM)
@@ -92,11 +92,13 @@ localPOW v bh = do
     HeaderBytes new <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
     runGet decodeBlockHeaderWithoutHash new
   where
-    hbytes :: HeaderBytes
-    hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
+    T2 tbytes hbytes = toBytes bh
 
-    tbytes :: TargetBytes
-    tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+toBytes :: BlockHeader -> T2 TargetBytes HeaderBytes
+toBytes bh = T2 t h
+  where
+    t = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+    h = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
 
 -- -----------------------------------------------------------------------------
 -- Remote Mining
@@ -133,11 +135,7 @@ submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO BlockHeader
 remoteMining m urls bh = submission >> polling
   where
-    hbytes :: HeaderBytes
-    hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-
-    tbytes :: TargetBytes
-    tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+    T2 tbytes hbytes = toBytes bh
 
     bs :: Bites
     bs = bites tbytes hbytes
