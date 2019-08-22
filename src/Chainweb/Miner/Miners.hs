@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -23,12 +24,16 @@ module Chainweb.Miner.Miners
     -- * Remote Mining
   , MiningAPI
   , remoteMining
+  , transferableBytes
   ) where
 
+import Data.Bytes.Put (runPutS)
+import qualified Data.ByteString as B
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy (Proxy(..))
 import Data.These (these)
+import Data.Tuple.Strict (T2(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Monad.Catch (throwM)
@@ -46,16 +51,16 @@ import qualified System.Random.MWC.Distributions as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), BlockHeight)
-import Chainweb.Difficulty (BlockRate(..), blockRate)
+import Chainweb.BlockHeader
+import Chainweb.Difficulty (BlockRate(..), blockRate, encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
-import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.Miner.Core
 import Chainweb.RestAPI.Orphans ()
 #if !MIN_VERSION_servant_client(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, partitionEithersNEL)
+import Chainweb.Utils (int, partitionEithersNEL, runGet)
 import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
 
 ---
@@ -85,7 +90,19 @@ localTest gen miners bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
 localPOW :: ChainwebVersion -> BlockHeader -> IO BlockHeader
-localPOW v = usePowHash v mine
+localPOW v bh = do
+    HeaderBytes new <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
+    runGet decodeBlockHeaderWithoutHash new
+  where
+    T2 tbytes hbytes = transferableBytes bh
+
+-- | Can be piped to `workBytes` for a form suitable to use with `MiningAPI`.
+--
+transferableBytes :: BlockHeader -> T2 TargetBytes HeaderBytes
+transferableBytes bh = T2 t h
+  where
+    t = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+    h = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
 
 -- -----------------------------------------------------------------------------
 -- Remote Mining
@@ -93,14 +110,24 @@ localPOW v = usePowHash v mine
 -- | Shared between the `remoteMining` function here and the /chainweb-miner/
 -- executable.
 --
+-- /poll/ only supports the most recent block mined on some chain at some
+-- height. "Newness" is taken as a sign of legitimacy. If some forking event
+-- creates another block at the same height, the old one is considered unneeded
+-- and is lost. By then it would have long been associated with a `Cut` and
+-- submitted to the network, so the Mining Client is the last place you'd look
+-- for that old block anyway.
+--
 type MiningAPI =
-    "submit" :> ReqBody '[JSON] BlockHeader :> Post '[JSON] ()
+    "submit" :> Capture "chainid" ChainId
+             :> Capture "blockheight" BlockHeight
+             :> ReqBody '[OctetStream] WorkBytes
+             :> Post '[JSON] ()
     :<|> "poll" :> Capture "chainid" ChainId
                 :> Capture "blockheight" BlockHeight
-                :> Get '[JSON] (Maybe BlockHeader)
+                :> Get '[OctetStream] HeaderBytes
 
-submit :: BlockHeader -> ClientM ()
-poll   :: ChainId -> BlockHeight -> ClientM (Maybe BlockHeader)
+submit :: ChainId -> BlockHeight -> WorkBytes -> ClientM ()
+poll   :: ChainId -> BlockHeight -> ClientM HeaderBytes
 submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 
 -- | Some remote process which is performing the low-level mining for us. May be
@@ -112,6 +139,17 @@ submit :<|> poll = client (Proxy :: Proxy MiningAPI)
 remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO BlockHeader
 remoteMining m urls bh = submission >> polling
   where
+    T2 tbytes hbytes = transferableBytes bh
+
+    bs :: WorkBytes
+    bs = workBytes tbytes hbytes
+
+    cid :: ChainId
+    cid = _blockChainId bh
+
+    bht :: BlockHeight
+    bht = _blockHeight bh
+
     -- TODO Report /all/ miner calls that errored?
     -- | Submit work to each given mining client. Will succeed so long as at
     -- least one call returns back successful.
@@ -121,28 +159,26 @@ remoteMining m urls bh = submission >> polling
         these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
       where
         f :: BaseUrl -> IO (Either ClientError ())
-        f url = runClientM (submit bh) $ ClientEnv m url Nothing
+        f url = runClientM (submit cid bht bs) $ ClientEnv m url Nothing
 
     -- TODO Use different `Comp`?
     polling :: IO BlockHeader
-    polling = fmap head . withScheduler Par' $ \sch ->
-        traverse_ (scheduleWork sch . go sch) urls
+    polling = do
+        rs <- withScheduler Par' $ \sch -> traverse_ (scheduleWork sch . go sch) urls
+        -- This head is safe, since `withScheduler` is guaranteed to return.
+        runGet decodeBlockHeaderWithoutHash . _headerBytes $ head rs
       where
         -- TODO Don't bother scheduling retries for `url`s that fail?
-        go :: Scheduler IO BlockHeader -> BaseUrl -> IO BlockHeader
+        go :: Scheduler IO HeaderBytes -> BaseUrl -> IO HeaderBytes
         go sch url = do
             -- This prevents scheduled retries from slamming the miners.
             threadDelay 100000
             runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
-                Right (Just new) -> terminateWith sch new
-                -- While it looks as if the stale `bh` is being returned here,
-                -- this is only to satisfy type checking. The only `BlockHeader`
-                -- value actually yielded from this entire operation is the
-                -- freshly mined one supplied by `terminateWith` above.
-                _ -> scheduleWork sch (go sch url) >> pure bh
-
-        cid :: ChainId
-        cid = _blockChainId bh
-
-        bht :: BlockHeight
-        bht = _blockHeight bh
+                -- NOTE The failure case for poll is an empty `ByteString`.
+                Right new | B.length (_headerBytes new) > 0 -> terminateWith sch new
+                -- While it looks as if the stale `hbytes` is being returned
+                -- here, this is only to satisfy type checking. The only
+                -- `HeaderBytes` value actually yielded from this entire
+                -- operation is the freshly mined one supplied by
+                -- `terminateWith` above.
+                _ -> scheduleWork sch (go sch url) >> pure hbytes

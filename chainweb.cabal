@@ -71,6 +71,10 @@ common warning-flags
         -Wincomplete-uni-patterns
         -Widentities
 
+        -- This needed because -Werror and missing-home-modules causes
+        -- problems with ghci.
+        -Wno-missing-home-modules
+
 custom-setup
     setup-depends:
           Cabal
@@ -295,7 +299,6 @@ library
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
         , network >= 2.6
-        , nonempty-containers >= 0.3
         , optparse-applicative >= 0.14
         , pact >= 2.6
         , paths >= 0.2
@@ -375,6 +378,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
+        Chainweb.Test.Miner.Core
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
@@ -527,6 +531,7 @@ executable chainweb-miner
         , base-prelude >= 1.3
         , containers >= 0.5
         , errors >= 2.3
+        , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , pretty-simple >= 2.1
         , scheduler >= 1.4.1

@@ -146,10 +146,8 @@ randomEnum = toEnum <$> randomRIO @Int (0, fromEnum $ maxBound @a)
 
 generateTransactions
   :: forall m. (MonadIO m, MonadLog SomeLogMessage m)
-  => TXG m (ChainId, NonEmpty (Command Text))
-generateTransactions = do
-  contractIndex <- liftIO randomEnum
-
+  => Bool -> CmdChoice -> TXG m (ChainId, NonEmpty (Command Text))
+generateTransactions ifCoinOnlyTransfers contractIndex  = do
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- NES.head <$> gets gsChains
   field @"gsChains" %= rotate
@@ -161,7 +159,8 @@ generateTransactions = do
       BatchSize batch <- asks confBatchSize
       cmds <- liftIO . sequenceA . nelReplicate batch $
         case contractIndex of
-          CoinContract -> coinContract cid $ accounts "coin" accs
+          CoinContract ->
+            coinContract ifCoinOnlyTransfers cid $ accounts "coin" accs
           HelloWorld -> generate fake >>= helloRequest
           Payments -> payments cid $ accounts "payment" accs
       generateDelay >>= liftIO . threadDelay
@@ -170,9 +169,9 @@ generateTransactions = do
     accounts :: String -> Map Sim.Account (Map Sim.ContractName a) -> Map Sim.Account a
     accounts s = fromJuste . traverse (M.lookup (Sim.ContractName s))
 
-    coinContract :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
-    coinContract cid coinaccts = do
-      coinContractRequest <- mkRandomCoinContractRequest coinaccts >>= generate
+    coinContract :: Bool -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
+    coinContract transfers cid coinaccts = do
+      coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
       createCoinContractRequest (Sim.makeMeta cid) coinContractRequest
 
     payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
@@ -261,7 +260,7 @@ realTransactions config host tv distribution = do
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  let act = loop generateTransactions
+  let act = loop (liftIO randomEnum >>= generateTransactions False)
       env = set (field @"confKeysets") accountMap cfg
       stt = TXGState gen tv chains
 
@@ -283,6 +282,53 @@ realTransactions config host tv distribution = do
       where
         ps = (Sim.ContractName "payment", pks)
         cs = (Sim.ContractName "coin", cks)
+
+realCoinTransactions
+  :: Args
+  -> HostAddress
+  -> TVar TXCount
+  -> TimingDistribution
+  -> LoggerT SomeLogMessage IO ()
+realCoinTransactions config host tv distribution = do
+  cfg@(TXGConfig _ _ ce v _) <- liftIO $ mkTXGConfig (Just distribution) config host
+
+  let chains = maybe (versionChains $ nodeVersion config) NES.fromList
+               . NEL.nonEmpty
+               $ nodeChainIds config
+
+  accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
+    let !meta = Sim.makeMeta cid
+    (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts meta
+    pollresponse <- liftIO . runExceptT $ do
+      rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ coinAcc) ce
+      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+    case pollresponse of
+      Left e -> logg Error $ toLogMessage (sshow e :: Text)
+      Right _ -> pure ()
+    let accounts = buildGenAccountsKeysets Sim.accountNames coinKS
+    pure (cid, accounts)
+
+  logg Info $ toLogMessage ("Real Transactions: Transactions are being generated" :: Text)
+
+  -- Set up values for running the effect stack.
+  gen <- liftIO createSystemRandom
+  let act = loop (generateTransactions True CoinContract)
+      env = set (field @"confKeysets") accountMap cfg
+      stt = TXGState gen tv chains
+
+  evalStateT (runReaderT (runTXG act) env) stt
+  where
+    buildGenAccountsKeysets
+      :: NonEmpty Sim.Account
+      -> NonEmpty (NonEmpty SomeKeyPair)
+      -> Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPair))
+    buildGenAccountsKeysets accs cks =
+      M.fromList . NEL.toList $ NEL.zipWith go accs cks
+
+    go :: Sim.Account
+       -> NonEmpty SomeKeyPair
+       -> (Sim.Account, Map Sim.ContractName (NonEmpty SomeKeyPair))
+    go name cks = (name, M.singleton (Sim.ContractName "coin") cks)
 
 versionChains :: ChainwebVersion -> NESeq ChainId
 versionChains = NES.fromList . NEL.fromList . HS.toList . graphChainIds . _chainGraph
@@ -383,6 +429,8 @@ work cfg = do
           loadContracts cfg host $ initAdminKeysetContract :| map createLoader cs
         RunStandardContracts distribution ->
           realTransactions cfg host tv distribution
+        RunCoinContract distribution ->
+          realCoinTransactions cfg host tv distribution
         RunSimpleExpressions distribution ->
           simpleExpressions cfg host tv distribution
         PollRequestKeys rk -> liftIO $
