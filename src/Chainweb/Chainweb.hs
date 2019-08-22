@@ -454,7 +454,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
-        mapM_ syncOne $ mergeCutResources $ _cutMap currentCut
+        mapConcurrently_ syncOne $ mergeCutResources $ _cutMap currentCut
       where
         mergeCutResources c =
             let f cid bh = (bh, fromJuste $ HM.lookup cid cs)
