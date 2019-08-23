@@ -358,7 +358,7 @@ nixpkgs.buildEnv {
       cd ${./.}
       ${nixpkgs.git}/bin/git rev-parse --abbrev-ref HEAD > $out/gitref
       ${nixpkgs.git}/bin/git rev-parse HEAD >> $out/gitref
-      ${nixpkgs.git}/bin/git describe --exact-match --tags --abbrev=0 >> $out/gitref
+      ${nixpkgs.git}/bin/git describe --exact-match --tags --abbrev=0 >> $out/gitref 2> /dev/null || true
     '')
   ];
 }
