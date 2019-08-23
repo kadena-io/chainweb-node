@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -129,20 +130,44 @@ app = serve (Proxy :: Proxy API) . server
 type ResultMap = Map (T2 ChainId BlockHeight) HeaderBytes
 
 data ClientArgs = ClientArgs
-    { cores :: Word16
+    { cmd :: Command
     , version :: ChainwebVersion
-    , port :: Int
-    } deriving (Show, Generic, ToJSON)
+    , port :: Int }
+    deriving stock (Show, Generic)
+    deriving anyclass (ToJSON)
+
+data CPUEnv = CPUEnv { cores :: Word16}
+    deriving stock (Show, Generic)
+    deriving anyclass (ToJSON)
+
+data GPUEnv = GPUEnv
+    deriving stock (Show, Generic)
+    deriving anyclass (ToJSON)
+
+data Command = CPU CPUEnv | GPU GPUEnv
+    deriving stock (Show, Generic)
+    deriving anyclass (ToJSON)
 
 data Env = Env
     { work :: TMVar (T3 ChainId BlockHeight WorkBytes)
     , results :: TVar ResultMap
     , gen :: MWC.GenIO
-    , args :: ClientArgs
-    }
+    , args :: ClientArgs }
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCores <*> pVersion <*> pPort
+pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort
+
+pCommand :: Parser Command
+pCommand = hsubparser
+    (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
+    <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
+    )
+
+gpuOpts :: Parser Command
+gpuOpts = pure $ GPU GPUEnv
+
+cpuOpts :: Parser Command
+cpuOpts = CPU . CPUEnv <$> pCores
 
 pCores :: Parser Word16
 pCores = option auto
@@ -173,7 +198,7 @@ pPort = option auto
 main :: IO ()
 main = do
     env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> MWC.createSystemRandom <*> execParser opts
-    miner <- async $ mining env
+    miner <- async $ mining (scheme env) env
     pPrintNoColor $ args env
     W.run (port $ args env) $ app env
     wait miner
@@ -181,6 +206,11 @@ main = do
     opts :: ParserInfo ClientArgs
     opts = info (pClientArgs <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")
+
+scheme :: Env -> (TargetBytes -> HeaderBytes -> IO HeaderBytes)
+scheme env = case cmd $ args env of
+    CPU e -> cpu (version $ args env) e (gen env)
+    GPU _ -> gpu
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
@@ -200,12 +230,12 @@ poll (results -> tm) cid h =
 
 -- | A supervisor thread that listens for new work and supervises mining threads.
 --
-mining :: Env -> IO ()
-mining e = do
+mining :: (TargetBytes -> HeaderBytes -> IO HeaderBytes) -> Env -> IO ()
+mining go e = do
     T3 cid bh bs <- atomically . takeTMVar $ work e
     let T2 tbytes hbytes = unWorkBytes bs
-    race newWork (go (gen e) tbytes hbytes) >>= traverse_ (miningSuccess cid bh)
-    mining e
+    race newWork (go tbytes hbytes) >>= traverse_ (miningSuccess cid bh)
+    mining go e
   where
     -- | Wait for new work to come in from a `submit` call. `readTMVar` has the
     -- effect of "waiting patiently" and will not cook the CPU.
@@ -238,28 +268,25 @@ mining e = do
         . sortBy (compare `on` (\(T2 _ bh, _) -> bh))
         . M.toList
 
-    ver :: ChainwebVersion
-    ver = version $ args e
-
     -- | The maximum number of `BlockHeader`s to keep in the cache before
     -- pruning.
     --
     cap :: Natural
-    cap = 256 * order (_chainGraph ver)
+    cap = 256
 
+cpu :: ChainwebVersion -> CPUEnv -> MWC.GenIO -> TargetBytes -> HeaderBytes -> IO HeaderBytes
+cpu v e g tbytes hbytes = fmap head . withScheduler comp $ \sch ->
+    replicateWork (fromIntegral $ cores e) sch $ do
+        -- TODO Be more clever about the Nonce that's picked to ensure that
+        -- there won't be any overlap?
+        n <- Nonce <$> MWC.uniform g
+        new <- usePowHash v (\p -> mine p n tbytes) hbytes
+        terminateWith sch new
+  where
     comp :: Comp
-    comp = case cores $ args e of
-        1 -> Seq
-        n -> ParN n
+    comp = case cores e of
+             1 -> Seq
+             n -> ParN n
 
-    -- TODO Use new `scheduler` to get safe head.
-    -- | This `head` should be safe, since `withScheduler` can only exit if it
-    -- found some legal result.
-    go :: MWC.GenIO -> TargetBytes -> HeaderBytes -> IO HeaderBytes
-    go g tbytes hbytes = fmap head . withScheduler comp $ \sch ->
-        replicateWork (fromIntegral . cores $ args e) sch $ do
-            -- TODO Be more clever about the Nonce that's picked to ensure that
-            -- there won't be any overlap?
-            n <- Nonce <$> MWC.uniform g
-            new <- usePowHash ver (\p -> mine p n tbytes) hbytes
-            terminateWith sch new
+gpu :: TargetBytes -> HeaderBytes -> IO HeaderBytes
+gpu _ h = pure h
