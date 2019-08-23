@@ -6,7 +6,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -29,7 +28,6 @@ module Chainweb.Pact.PactService
       -- * For Side-tooling
     , execNewGenesisBlock
     , initPactService'
-    , readRewards
     , minerReward
     ) where
 
@@ -47,13 +45,10 @@ import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as SB
-import qualified Data.Csv as CSV
 import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
@@ -62,7 +57,6 @@ import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word (Word64)
 
 import System.Directory
 import System.LogLevel
@@ -91,7 +85,6 @@ import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as TN
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
-import Chainweb.Graph (size)
 import Chainweb.Logger
 import Chainweb.Miner
 import Chainweb.NodeId
@@ -109,7 +102,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), HasChainGraph(..))
+import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
 
 
@@ -419,29 +412,6 @@ readAccountGuard
     -> IO (Maybe (P.Guard (P.Term P.Name)))
 readAccountGuard pdb account
     = fmap ssnd <$> readCoinAccount pdb account
-
--- | Rewards table mapping 3-month periods to their rewards
--- according to the calculated exponential decay over 120 year period
---
-readRewards
-    :: HasChainGraph v
-    => v -> HashMap BlockHeight P.ParsedDecimal
-readRewards v = do
-    case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
-      Left e -> error
-        $ "cannot construct miner reward map: "
-        <> sshow e
-      Right vs -> HM.fromList
-        . V.toList
-        . V.map formatRow
-        $ vs
-  where
-    formatRow :: (Word64, Double) -> (BlockHeight, P.ParsedDecimal)
-    formatRow (!a,!b) =
-      let
-        !n = v ^. chainGraph . to (int . size)
-        !m = fromRational $ toRational b
-      in (BlockHeight a, P.ParsedDecimal $ m / n)
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
