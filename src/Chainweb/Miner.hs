@@ -152,7 +152,7 @@ fromMinerData = decodeStrictOrThrow' . _minerData
 readRewards
     :: HasChainGraph v
     => v -> HashMap BlockHeight ParsedDecimal
-readRewards v = do
+readRewards v =
     case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
       Left e -> error
         $ "cannot construct miner reward map: "
