@@ -211,7 +211,7 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
         logDebugRequestKey logger rk
           $ "successful coinbase of "
           ++ (take 18 $ show d)
-          ++ "to "
+          ++ " to "
           ++ show mid
 
         return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
