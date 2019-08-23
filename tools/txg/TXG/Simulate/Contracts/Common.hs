@@ -97,14 +97,13 @@ instance Fake Account where
   fake = elements $ NEL.toList accountNames
 
 newtype Amount = Amount
-  { getAmount :: Decimal
+  { getAmount :: Double
   } deriving (Eq, Show, Generic)
 
 instance Fake Amount where
   fake =
     Amount <$>
-    (realFracToDecimal <$> fromRange (0, 10) <*>
-     (fromRange (lowerLimit, upperLimit) :: FGen Double))
+    (fromRange (lowerLimit, upperLimit) :: FGen Double)
     where
       lowerLimit = 0
       upperLimit = 1000

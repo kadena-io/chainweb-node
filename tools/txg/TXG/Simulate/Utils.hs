@@ -38,9 +38,9 @@ formatB16PubKey = toB16Text . formatPublicKey
 -- | note this is "sender00"'s key
 someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 someED25519Pair =
-    ( PubBS $ getByteString
+    ( PubBS $ decodeKey
         "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-    , PrivBS $ getByteString
+    , PrivBS $ decodeKey
         "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
     , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
     , ED25519
@@ -48,16 +48,16 @@ someED25519Pair =
 
 -- someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 -- someED25519Pair =
---     ( PubBS $ getByteString
+--     ( PubBS $ decodeKey
 --         "ba54b224d1924dd98403f5c751abdd10de6cd81b0121800bf7bdbdcfaec7388d"
---     , PrivBS $ getByteString
+--     , PrivBS $ decodeKey
 --         "8693e641ae2bbe9ea802c736f42027b03f86afe63cae315e7169c9c496c17332"
 --     , "ba54b224d1924dd98403f5c751abdd10de6cd81b0121800bf7bdbdcfaec7388d"
 --     , ED25519
 --     )
 
-getByteString :: ByteString -> ByteString
-getByteString = fst . B16.decode
+decodeKey :: ByteString -> ByteString
+decodeKey = fst . B16.decode
 
 initAdminKeysetContract :: PublicMeta -> NonEmpty SomeKeyPair -> IO (Command Text)
 initAdminKeysetContract meta adminKS =
