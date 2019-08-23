@@ -561,7 +561,8 @@ executable cwtool
         RunNodes
         SlowTests
         TXG
-        TXGRepl
+        TXG.Repl
+        TXG.ReplInternals
         TXG.Simulate.Contracts.CoinContract
         TXG.Simulate.Contracts.Common
         TXG.Simulate.Contracts.HelloWorld

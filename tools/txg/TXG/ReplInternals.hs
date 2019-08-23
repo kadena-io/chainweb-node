@@ -5,7 +5,7 @@
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
-module TXGRepl where
+module TXG.ReplInternals where
 
 import Control.Lens
 import Control.Monad
@@ -56,6 +56,49 @@ import TXG.Simulate.Utils
 
 -- for ghci
 
+primSend
+    :: ChainwebVersion
+    -> HostAddress
+    -> ChainId
+    -> [Command Text]
+    -> IO (Either ClientError RequestKeys)
+primSend v h cid xs = do
+    cenv <- genClientEnv h
+    runClientM (send v cid (SubmitBatch (NEL.fromList xs))) cenv
+
+primPoll
+    :: ChainwebVersion
+    -> HostAddress
+    -> ChainId
+    -> RequestKeys
+    -> IO (Either ClientError PollResponses)
+primPoll v h cid rkeys = do
+    ce <- genClientEnv h
+    runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+
+primLocal
+    :: ChainwebVersion
+    -> HostAddress
+    -> ChainId
+    -> Command Text
+    -> IO (Either ClientError (CommandResult Hash))
+primLocal v h cid cmd = do
+    ce <- genClientEnv h
+    runClientM (local v cid cmd) ce
+
+primCommand
+    :: String
+    -> Value
+    -> PublicMeta
+    -> [SomeKeyPair]
+    -> Maybe String -> IO (Command Text)
+primCommand = mkExec
+
+easyCmd :: String -> IO (Command Text)
+easyCmd str = primCommand str Null defPubMeta [] Nothing
+
+-- Structured transactions
+
 data Builtin = Hello | Payments
 
 type Keyset = NEL.NonEmpty SomeKeyPair
@@ -82,17 +125,6 @@ data TxContent
     | Define Builtin
     | CallBuiltin CallBuiltIn'
 
-genClientEnv :: HostAddress -> IO ClientEnv
-genClientEnv hostaddress = do
-    mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
-    let timeout = responseTimeoutMicro $ 1000000 * 60 * 4
-    mgr <- newTlsManagerWith $ mgrSettings { managerResponseTimeout = timeout }
-    let url = BaseUrl Https
-              (T.unpack . hostnameToText $ _hostAddressHost hostaddress)
-              (fromIntegral $ _hostAddressPort hostaddress)
-              ""
-    pure $! mkClientEnv mgr url
-
 easyTxToCommand :: TxContent -> IO (Command Text)
 easyTxToCommand txContent = do
     ks <- testSomeKeyPairs
@@ -115,73 +147,12 @@ defChainId = foldr const err $ chainIds defChainwebVersion
   where
     err = error "You shouldn't have a chainweb version with 0 chains"
 
-defHostAddressText :: Text
-defHostAddressText = "us2.testnet.chainweb.com:443"
-
 defPubMeta :: PublicMeta
 defPubMeta = def
     & set pmChainId "0"
     & set pmSender "0"
-    & set pmGasLimit 100
-    & set pmGasPrice 1.0
-
-primSend
-    :: HostAddress
-    -> ChainwebVersion
-    -> ChainId
-    -> [Command Text]
-    -> IO (Either ClientError RequestKeys)
-primSend h v cid xs = do
-    cenv <- genClientEnv h
-    runClientM (send v cid (SubmitBatch (NEL.fromList xs))) cenv
-
-easySend :: [Command Text] -> IO (Either ClientError RequestKeys)
-easySend xs = do
-    hostaddress <- hostAddressFromText defHostAddressText
-    primSend hostaddress defChainwebVersion defChainId xs
-
-easyCmd :: String -> IO (Command Text)
-easyCmd str = primCommand str Null defPubMeta [] Nothing
-
-primCommand
-    :: String
-    -> Value
-    -> PublicMeta
-    -> [SomeKeyPair]
-    -> Maybe String -> IO (Command Text)
-primCommand = mkExec
-
-simplePoll :: RequestKeys -> IO (Either ClientError PollResponses)
-simplePoll rkeys = do
-    h <- hostAddressFromText defHostAddressText
-    primPoll defChainwebVersion defChainId h rkeys
-
-primPoll
-    :: ChainwebVersion
-    -> ChainId
-    -> HostAddress
-    -> RequestKeys
-    -> IO (Either ClientError PollResponses)
-primPoll v cid h rkeys = do
-    ce <- genClientEnv h
-    runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-
-easyLocal
-   :: Command Text
-   -> IO (Either ClientError (CommandResult Hash))
-easyLocal cmd = do
-    hostaddress <- hostAddressFromText defHostAddressText
-    primLocal defChainwebVersion defChainId hostaddress cmd
-
-primLocal
-    :: ChainwebVersion
-    -> ChainId
-    -> HostAddress
-    -> Command Text
-    -> IO (Either ClientError (CommandResult Hash))
-primLocal v cid h cmd = do
-    ce <- genClientEnv h
-    runClientM (local v cid cmd) ce
+    & set pmGasLimit 1000
+    & set pmGasPrice 0.00000000001
 
 api version chainid =
     case someChainwebVersionVal version of
@@ -233,6 +204,13 @@ generateDefaultSimpleCommands batchsize =
         opIndex <- state $ randomR (0, 2 :: Int)
         return $ printf "(%s %u %u)" ["+-*" !! opIndex] a b
 
-sendSimpleBatch :: Int -> IO (Either ClientError RequestKeys)
-sendSimpleBatch batchsize =
-    generateDefaultSimpleCommands batchsize >>= easySend
+genClientEnv :: HostAddress -> IO ClientEnv
+genClientEnv hostaddress = do
+    mgrSettings <- certificateCacheManagerSettings TlsInsecure Nothing
+    let timeout = responseTimeoutMicro $ 1000000 * 60 * 4
+    mgr <- newTlsManagerWith $ mgrSettings { managerResponseTimeout = timeout }
+    let url = BaseUrl Https
+              (T.unpack . hostnameToText $ _hostAddressHost hostaddress)
+              (fromIntegral $ _hostAddressPort hostaddress)
+              ""
+    pure $! mkClientEnv mgr url
