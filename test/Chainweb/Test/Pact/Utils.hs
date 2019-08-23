@@ -294,7 +294,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger False
+    loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
@@ -318,7 +318,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger True
+    loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
