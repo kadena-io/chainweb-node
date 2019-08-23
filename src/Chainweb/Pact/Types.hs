@@ -53,12 +53,12 @@ import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
 import Pact.Types.Runtime (ModuleData)
 import Pact.Types.Server (CommandEnv)
-import Pact.Types.Term (PactId(..), Ref, ModuleName)
+import Pact.Types.Term (ModuleName, PactId(..), Ref)
 
 -- internal chainweb modules
 
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
-import Chainweb.Miner
 import Chainweb.Payload
 import Chainweb.Utils
 
