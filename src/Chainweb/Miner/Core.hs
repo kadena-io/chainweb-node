@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -12,31 +14,64 @@
 -- Stability: experimental
 
 module Chainweb.Miner.Core
-  ( usePowHash
+  ( HeaderBytes(..)
+  , TargetBytes(..)
+  , WorkBytes(..), workBytes, unWorkBytes
+  , usePowHash
   , mine
   ) where
 
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Crypto.Hash.IO
 
+import Data.Bifunctor (bimap)
 import qualified Data.ByteArray as BA
-import Data.Bytes.Put (runPutS)
 import qualified Data.ByteString as B
 import Data.Proxy (Proxy(..))
+import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (peekElemOff, poke)
 
+import Servant.API
+
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.Difficulty (HashTarget, encodeHashTarget)
-import Chainweb.Utils (int, runGet)
+import Chainweb.BlockHeader (Nonce(..))
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
+
+-- | Encoding of @HashTarget + BlockHeader@ to be consumed by a remote Mining
+-- API.
+--
+newtype WorkBytes = WorkBytes { _workBytes :: B.ByteString }
+    deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
+
+-- | The encoded form of a `BlockHeader`.
+--
+newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
+    deriving stock (Eq, Show)
+    deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
+
+-- | The encoded form of a `HashTarget`.
+--
+newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
+    deriving stock (Eq, Show)
+
+-- | Combine `TargetBytes` and `HeaderBytes` in such a way that can be later
+-- undone by `unWorkBytes`.
+--
+workBytes :: TargetBytes -> HeaderBytes -> WorkBytes
+workBytes (TargetBytes t) (HeaderBytes h) = WorkBytes $ t <> h
+
+-- | NOTE: This makes a low-level assumption about the encoded size of
+-- `HashTarget`!
+--
+unWorkBytes :: WorkBytes -> T2 TargetBytes HeaderBytes
+unWorkBytes = uncurry T2 . bimap TargetBytes HeaderBytes . B.splitAt 32 . _workBytes
 
 -- | Select a hashing algorithm.
 --
@@ -56,15 +91,21 @@ usePowHash Testnet02 f = f $ Proxy @SHA512t_256
 --
 -- TODO: Remove the `Proxy`?
 --
-mine :: forall a. HashAlgorithm a => Proxy a -> BlockHeader -> IO BlockHeader
-mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
+mine
+  :: forall a. HashAlgorithm a
+  => Proxy a
+  -> Nonce
+  -> TargetBytes
+  -> HeaderBytes
+  -> IO HeaderBytes
+mine _ nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes $ \trgPtr -> do
     !ctx <- hashMutableInit @a
-    bytes <- BA.copy initialBytes $ \buf ->
+    fmap HeaderBytes . BA.copy hbytes $ \buf ->
         allocaBytes (powSize :: Int) $ \pow -> do
 
             -- inner mining loop
             --
-            let go !i !n = do
+            let go !n = do
                     -- Compute POW hash for the nonce
                     injectNonce n buf
                     hash ctx buf pow
@@ -72,36 +113,24 @@ mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
                     -- check whether the nonce meets the target
                     fastCheckTarget trgPtr (castPtr pow) >>= \case
                         True -> pure ()
-                        False -> go (succ i) (succ n)
+                        False -> go (succ n)
 
             -- Start inner mining loop
-            go (0 :: Int) $ _blockNonce h
-
-    -- On success: deserialize and return the new BlockHeader
-    runGet decodeBlockHeaderWithoutHash bytes
+            go nonce
   where
-    initialBytes :: B.ByteString
-    !initialBytes = runPutS $ encodeBlockHeaderWithoutHash h
-
-    initialTargetBytes :: B.ByteString
-    !initialTargetBytes = runPutS $ encodeHashTarget target
-
     bufSize :: Int
-    !bufSize = B.length initialBytes
-
-    target :: HashTarget
-    !target = _blockTarget h
+    !bufSize = B.length hbytes
 
     powSize :: Int
-    !powSize = int $ hashDigestSize @a undefined
+    !powSize = hashDigestSize @a undefined
 
     --  Compute POW hash
     hash :: MutableContext a -> Ptr Word8 -> Ptr Word8 -> IO ()
     hash ctx buf pow = do
         hashMutableReset ctx
         BA.withByteArray ctx $ \ctxPtr -> do
-            hashInternalUpdate @a ctxPtr buf (int bufSize)
-            hashInternalFinalize ctxPtr (castPtr pow)
+            hashInternalUpdate @a ctxPtr buf $ fromIntegral bufSize
+            hashInternalFinalize ctxPtr $ castPtr pow
     {-# INLINE hash #-}
 
     -- | `injectNonce` makes low-level assumptions about the byte layout of a
@@ -109,7 +138,7 @@ mine _ h = BA.withByteArray initialTargetBytes $ \trgPtr -> do
     -- updated. The assumption allows us to iterate on new nonces quickly.
     --
     injectNonce :: Nonce -> Ptr Word8 -> IO ()
-    injectNonce n buf = poke (castPtr buf) $ encodeNonceToWord64 n
+    injectNonce (Nonce n) buf = poke (castPtr buf) n
     {-# INLINE injectNonce #-}
 
     -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers

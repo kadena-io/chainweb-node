@@ -3,9 +3,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -75,7 +75,7 @@
 
 module Main ( main ) where
 
-import BasePrelude hiding (app, option)
+import BasePrelude hiding (Handler, app, option)
 
 import Control.Concurrent.Async (async, race, wait)
 import Control.Concurrent.STM.TMVar
@@ -87,23 +87,24 @@ import Data.Aeson (ToJSON)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 
 import qualified Network.Wai.Handler.Warp as W
 
 import Options.Applicative
 
 import Servant.API
-import Servant.Server (Application, Server, serve)
+import Servant.Server
+
+import qualified System.Random.MWC as MWC
 
 import Text.Pretty.Simple (pPrintNoColor)
 
 -- internal modules
-import Chainweb.BlockHeader
-import Chainweb.Miner.Core (mine, usePowHash)
+import Chainweb.BlockHeader (BlockHeight, Nonce(..))
+import Chainweb.Miner.Core
 import Chainweb.Miner.Miners (MiningAPI)
-import Chainweb.RestAPI.Orphans ()
-import Chainweb.Utils (int, toText)
+import Chainweb.Utils (toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -114,7 +115,7 @@ type API = "env" :> Get '[JSON] ClientArgs
 
 server :: Env -> Server API
 server e = pure (args e)
-    :<|> liftIO . submit e
+    :<|> (\cid h bs -> liftIO $ submit e cid h bs)
     :<|> (\cid h -> liftIO $ poll e cid h)
 
 app :: Env -> Application
@@ -123,7 +124,7 @@ app = serve (Proxy :: Proxy API) . server
 --------------------------------------------------------------------------------
 -- CLI
 
-type ResultMap = Map (T2 ChainId BlockHeight) BlockHeader
+type ResultMap = Map (T2 ChainId BlockHeight) HeaderBytes
 
 data ClientArgs = ClientArgs
     { cores :: Word16
@@ -132,8 +133,9 @@ data ClientArgs = ClientArgs
     } deriving (Show, Generic, ToJSON)
 
 data Env = Env
-    { work :: TMVar BlockHeader
+    { work :: TMVar (T3 ChainId BlockHeight WorkBytes)
     , results :: TVar ResultMap
+    , gen :: MWC.GenIO
     , args :: ClientArgs
     }
 
@@ -168,7 +170,7 @@ pPort = option auto
 
 main :: IO ()
 main = do
-    env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> execParser opts
+    env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> MWC.createSystemRandom <*> execParser opts
     miner <- async $ mining env
     pPrintNoColor $ args env
     W.run (port $ args env) $ app env
@@ -180,26 +182,27 @@ main = do
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
-submit :: Env -> BlockHeader -> IO ()
-submit (work -> w) bh = atomically $
-    isEmptyTMVar w >>= bool (void $ swapTMVar w bh) (putTMVar w bh)
+submit :: Env -> ChainId -> BlockHeight -> WorkBytes -> IO ()
+submit (work -> w) cid bh bs = atomically $
+    isEmptyTMVar w >>= bool (void $ swapTMVar w t3) (putTMVar w t3)
+  where
+    t3 = T3 cid bh bs
 
 -- | For some `ChainId` and `BlockHeight`, have we mined a result?
 --
-poll :: Env -> ChainId -> BlockHeight -> IO (Maybe BlockHeader)
-poll (results -> tm) cid h = M.lookup (T2 cid h) <$> readTVarIO tm
-
--- | Cease mining until another `submit` call is made.
+-- NOTE: When the lookup fails, the result is an empty `ByteString`!
 --
--- halt :: IO ()
--- halt = undefined
+poll :: Env -> ChainId -> BlockHeight -> IO HeaderBytes
+poll (results -> tm) cid h =
+  fromMaybe (HeaderBytes mempty) . M.lookup (T2 cid h) <$> readTVarIO tm
 
 -- | A supervisor thread that listens for new work and supervises mining threads.
 --
 mining :: Env -> IO ()
 mining e = do
-    bh <- atomically . takeTMVar $ work e
-    race newWork (go bh) >>= traverse_ miningSuccess
+    T3 cid bh bs <- atomically . takeTMVar $ work e
+    let T2 tbytes hbytes = unWorkBytes bs
+    race newWork (go (gen e) tbytes hbytes) >>= traverse_ (miningSuccess cid bh)
     mining e
   where
     -- | Wait for new work to come in from a `submit` call. `readTMVar` has the
@@ -212,36 +215,49 @@ mining e = do
     -- that successful mining. If `newWork` won the race instead, then the `go`
     -- call is automatically cancelled.
     --
-    miningSuccess :: BlockHeader -> IO ()
-    miningSuccess new = atomically $ modifyTVar' (results e) f
+    miningSuccess :: ChainId -> BlockHeight -> HeaderBytes -> IO ()
+    miningSuccess cid bh new = atomically $ modifyTVar' (results e) f
       where
-        key = T2 (_blockChainId new) (_blockHeight new)
-        f m = M.insert key new . bool (prune m) m $ M.size m < int cap
+        key = T2 cid bh
+        f m = M.insert key new . bool (prune m) m $ M.size m < fromIntegral cap
 
     -- | Reduce the size of the result cache by half if we've crossed the "cap".
-    -- Clears old results out by `BlockCreationTime`.
+    -- Clears old results out by `BlockHeight`.
+    --
+    -- NOTE: There is an edge-case here involving hard-forks. Should a hard fork
+    -- occur and reset to a much lower `BlockHeight`, remote mining clients that
+    -- haven't been reset could potentially lose recent work when a `prune`
+    -- occurs.
     --
     prune :: ResultMap -> ResultMap
     prune = M.fromList
         . snd
-        . splitAt (int cap `div` 2)
-        . sortBy (compare `on` (_blockCreationTime . snd))
+        . splitAt (fromIntegral cap `div` 2)
+        . sortBy (compare `on` (\(T2 _ bh, _) -> bh))
         . M.toList
+
+    ver :: ChainwebVersion
+    ver = version $ args e
 
     -- | The maximum number of `BlockHeader`s to keep in the cache before
     -- pruning.
     --
     cap :: Natural
-    cap = 256 * (order . _chainGraph . version $ args e)
+    cap = 256 * order (_chainGraph ver)
 
     comp :: Comp
     comp = case cores $ args e of
         1 -> Seq
         n -> ParN n
 
-    -- This `head` should be safe, since `withScheduler` can only exit if it
+    -- TODO Use new `scheduler` to get safe head.
+    -- | This `head` should be safe, since `withScheduler` can only exit if it
     -- found some legal result.
-    go :: BlockHeader -> IO BlockHeader
-    go bh = fmap head . withScheduler comp $ \sch ->
-        replicateWork (int . cores $ args e) sch $
-            usePowHash (version $ args e) mine bh >>= terminateWith sch
+    go :: MWC.GenIO -> TargetBytes -> HeaderBytes -> IO HeaderBytes
+    go g tbytes hbytes = fmap head . withScheduler comp $ \sch ->
+        replicateWork (fromIntegral . cores $ args e) sch $ do
+            -- TODO Be more clever about the Nonce that's picked to ensure that
+            -- there won't be any overlap?
+            n <- Nonce <$> MWC.uniform g
+            new <- usePowHash ver (\p -> mine p n tbytes) hbytes
+            terminateWith sch new
