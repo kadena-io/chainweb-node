@@ -171,8 +171,9 @@ generateTransactions ifCoinOnlyTransfers contractIndex  = do
 
     coinContract :: Bool -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
     coinContract transfers cid coinaccts = do
+      ks <- testSomeKeyPairs
       coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
-      createCoinContractRequest (Sim.makeMeta cid) coinContractRequest
+      createCoinContractRequest (Sim.makeMeta cid) ks coinContractRequest
 
     payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
     payments cid paymentAccts = do

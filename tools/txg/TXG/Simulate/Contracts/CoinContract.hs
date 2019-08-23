@@ -63,11 +63,12 @@ mkRandomCoinContractRequest transfersPred kacts = do
         "mkRandomCoinContractRequest: something went wrong." ++
         " Cannot find account name"
 
-createCoinContractRequest :: PublicMeta -> CoinContractRequest -> IO (Command Text)
-createCoinContractRequest meta request =
+type Keyset = NEL.NonEmpty SomeKeyPair
+
+createCoinContractRequest :: PublicMeta -> Keyset -> CoinContractRequest -> IO (Command Text)
+createCoinContractRequest meta ks request =
     case request of
       CoinCreateAccount (Account account) (Guard guard) -> do
-        adminKS <- testSomeKeyPairs
         let theCode =
               printf
               "(coin.create-account \"%s\" (read-keyset \"%s\"))"
@@ -75,44 +76,37 @@ createCoinContractRequest meta request =
               ("create-account-guard" :: String)
             theData =
               object
-                [ "admin-keyset" .= fmap formatB16PubKey adminKS
-                , "create-account-guard" .= fmap formatB16PubKey guard
+                [ "create-account-guard" .= fmap formatB16PubKey guard
                 ]
-        mkExec theCode theData meta (NEL.toList adminKS) Nothing
+        mkExec theCode theData meta (NEL.toList ks) Nothing
       CoinAccountBalance (Account account) -> do
-        adminKS <- testSomeKeyPairs
         let theData = Null
             theCode =
               printf
               "(coin.account-balance \"%s\")"
               account
-        mkExec theCode theData meta (NEL.toList adminKS) Nothing
+        mkExec theCode theData meta (NEL.toList ks) Nothing
       CoinTransferAndCreate (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guard) (Amount amount) -> do
-        adminKS <- testSomeKeyPairs
         let theCode =
               printf
-              "(coin.transfer \"%s\" \"%s\" (read-keyset \"%s\") %s)"
+              "(coin.transfer-and-create \"%s\" \"%s\" (read-keyset \"%s\") %f)"
               sn
               rn
               ("receiver-guard" :: String)
-              (show amount)
+              amount
             theData =
               object
-                [ "admin-keyset" .= fmap formatB16PubKey adminKS
-                , "receiver-guard" .= fmap formatB16PubKey guard
+                [ "receiver-guard" .= fmap formatB16PubKey guard
                 ]
-        mkExec theCode theData meta (NEL.toList adminKS) Nothing
+        mkExec theCode theData meta (NEL.toList ks) Nothing
 
       CoinTransfer (SenderName (Account sn)) (ReceiverName (Account rn)) (Amount amount) -> do
-        adminKS <- testSomeKeyPairs
         let theCode =
               printf
-              "(coin.transfer \"%s\" \"%s\" %s)"
+              "(coin.transfer \"%s\" \"%s\" %f)"
               sn
               rn
-              (show amount)
-            theData =
-              object
-                [ "admin-keyset" .= fmap formatB16PubKey adminKS
-                ]
-        mkExec theCode theData meta (NEL.toList adminKS) Nothing
+              -- Super janky, but gets the job done for now
+              amount
+            theData = object []
+        mkExec theCode theData meta (NEL.toList ks) Nothing

@@ -101,10 +101,6 @@ easyCmd str = primCommand str Null defPubMeta [] Nothing
 
 data Builtin = Hello | Payments
 
-type Keyset = NEL.NonEmpty SomeKeyPair
-
-type Guard = Keyset
-
 type Account = String
 
 type SenderName = String
@@ -113,7 +109,7 @@ type ReceiverName = String
 
 type Balance = Decimal
 
-type Amount = Decimal
+type Amount = Double
 
 data CallBuiltIn'
     = CC CoinContractRequest
@@ -135,7 +131,7 @@ txToCommand pubmeta ks = \case
     PactCode str -> easyCmd str
     Define Hello -> helloWorldContractLoader pubmeta ks
     Define Payments -> simplePaymentsContractLoader pubmeta ks
-    CallBuiltin (CC coinReq) -> createCoinContractRequest pubmeta coinReq
+    CallBuiltin (CC coinReq) -> createCoinContractRequest pubmeta ks coinReq
     CallBuiltin (SP spReq mkeyset) -> simplePayReq pubmeta spReq mkeyset
     CallBuiltin (HelloCode helloname) -> helloRequest $ Name helloname
 
@@ -153,6 +149,7 @@ defPubMeta = def
     & set pmSender "0"
     & set pmGasLimit 1000
     & set pmGasPrice 0.00000000001
+    & set pmTTL 3600
 
 api version chainid =
     case someChainwebVersionVal version of
