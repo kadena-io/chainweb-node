@@ -29,7 +29,7 @@ import Numeric.Natural (Natural)
 -- internal modules
 
 import Chainweb.HostAddress (HostAddress)
-import Chainweb.Miner.Pact
+import Chainweb.Miner.Pact (Miner, noMiner)
 import Chainweb.Utils (textOption)
 
 ---

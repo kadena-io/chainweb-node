@@ -52,11 +52,11 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
-import Chainweb.Miner.Pact
+import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Transaction (PayloadWithText(..))
-import Chainweb.Version
+import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.Command hiding (Payload)

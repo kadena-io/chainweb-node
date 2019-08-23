@@ -35,32 +35,32 @@ module Chainweb.Miner.Pact
 
 import GHC.Generics (Generic)
 
-import Control.DeepSeq
+import Control.DeepSeq (NFData)
 import Control.Lens hiding ((.=))
-import Control.Monad.Catch
+import Control.Monad.Catch (MonadThrow)
 
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
-import Data.Default
-import Data.FileEmbed
+import Data.Default (Default(..))
+import Data.FileEmbed (embedFile)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Vector as V
-import Data.Word
+import Data.Word (Word64)
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.Graph
+import Chainweb.BlockHeader (BlockHeight(..))
+import Chainweb.Graph (HasChainGraph(..), size)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
 -- Pact types
 
-import Pact.Parse
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), Name(..))
 
 -- -------------------------------------------------------------------------- --
