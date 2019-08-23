@@ -21,21 +21,22 @@
 --
 -- == Purpose and Expectations ==
 --
--- This tool is a mid-level, push-based, private, multicore CPU miner for
+-- This tool is a low-level, push-based, private, multicore CPU miner for
 -- Chainweb. By this we mean:
 --
---   * mid-level: the miner is aware of what `BlockHeader`s are, but does not
---     necessarily know how to construct them. It has no concept of `Cut`s or
---     the cut network used by Chainweb - it simply attempts `Nonce`s until a
---     suitable hash is found that matches the current `HashTarget`.
+--   * low-level: the miner is aware of what how `BlockHeader`s are encoded into
+--     `ByteString`s, as indicated by an external spec. It does not know how to
+--     construct a full `BlockHeader` type, nor does it need to. It has no
+--     concept of `Cut`s or the cut network used by Chainweb - it simply
+--     attempts `Nonce`s until a suitable hash is found that matches the current
+--     `HashTarget`.
 --
---   * push-based: Work is submitted to the miner in the form of a candidate
---     `BlockHeader`, in which the `Nonce` has been completely guessed. The
---     miner then automatically handles cancelling previous mining attempts,
---     hashing, cycling the `Nonce`, and caching the result. Note that we
---     maintain no "long connections", so work submissions yield an HTTP
---     response immediately, and the results of successful mining must be polled
---     manually.
+--   * push-based: Work is submitted to the miner in the form of an encoded
+--     candidate `BlockHeader`. The miner then automatically handles cancelling
+--     previous mining attempts, hashing, cycling the `Nonce`, and caching the
+--     result. Note that we maintain no "long connections", so work submissions
+--     yield an HTTP response immediately, and the results of successful mining
+--     must be polled manually.
 --
 --   * private: Work can be submitted (and results polled) by anyone. It is
 --     therefore expected that a miner's HTTP interface is not exposed to the
@@ -45,12 +46,12 @@
 --   * multicore: the miner uses 1 CPU core by default, but can use as many as
 --     you indicate. GPU support will be added soon.
 --
--- Since this miner is "mid-level", it is up to the user to submit valid
--- `BlockHeader`s derived from some suitable `Cut` (a full @chainweb-node@
--- handles this automatically).
+-- Since this miner is "low-level", it is up to the user to submit valid encoded
+-- `WorkBytes` - an encoded `HashTarget` + `BlockHeader` combination - derived
+-- from some suitable `Cut` (a full @chainweb-node@ handles this automatically).
 --
 -- When mining has completed for some given work, the process will sit idle. At
--- most, between 128 and 256 recently mined `BlockHeader`s per chain will be
+-- most, between 128 and 256 recently mined `HeaderBytes`s per chain will be
 -- kept in the cache. If the miner process exits, the cache is lost.
 -- __Unpolled results thus cannot be recovered after a miner has been shutdown.__
 --
@@ -58,15 +59,16 @@
 --
 -- === submit/ endpoint ===
 --
--- A POST call, expecting a single `BlockHeader` in its standard JSON format.
--- This will cancel any current mining. If you wish to mine on multiple chains
+-- A POST call, expecting a `WorkBytes` in the @octet-stream@ content type. This
+-- will cancel any current mining. If you wish to mine on multiple chains
 -- simultaneously, you can run multiple miner processes on different ports.
 --
 -- === poll/ endpoint ===
 --
 -- A GET call, given a `ChainId` and `BlockHeight` where we expect there to be a
--- result. /May/ return a single `BlockHeader`, if mining were successful there.
--- Failure indicates one of the following:
+-- result. /May/ return a single `HeaderBytes`, if mining were successful there.
+-- Failure is represented by an empty `ByteString` and indicates one of the
+-- following:
 --
 --   * New work cancelled the previous, thus no result was saved.
 --   * Mining may still succeed before the work stales, but just hasn't yet.
