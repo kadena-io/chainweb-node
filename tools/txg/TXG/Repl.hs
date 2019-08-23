@@ -1,4 +1,6 @@
--- Porcelain for the transaction generator in the REPL
+-- | Porcelain for the transaction generator in the REPL. Many of these
+-- functions are very unsafe because they are designed for maximum convenience
+-- in ghci.  Do not depend on this module from important code!
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -10,7 +12,19 @@
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 module TXG.Repl
-  ( rk
+  (
+  -- * Core functions
+    send
+  , poll
+  , local
+  , cmd
+
+  -- * Specific kinds of transactions
+  , transfer
+  , transferCreate
+
+  -- * Various convenience functions
+  , rk
   , chain
   , chain0
   , host
@@ -21,8 +35,7 @@ module TXG.Repl
   , mkGuardCombined
   , stockKey
   , signedCode
-  , transfer
-  , transferCreate
+
   , module Chainweb.ChainId
   , module Chainweb.Version
   , module Pact.Types.ChainMeta
@@ -71,12 +84,16 @@ instance IsString RequestKey where
     where
       Right h = fromText' (T.pack s)
 
+-- | Easy way to construct a ChainId
 chain :: Int -> ChainId
 chain n = fromJust $ chainIdFromText $ T.pack $ show n
 
+-- | ChainId for the most commonly used chain
 chain0 :: ChainId
 chain0 = fromJust $ chainIdFromText "0"
 
+-- | Decodes a base16-encoded key into a ByteString
+mkKeyBS :: Text -> ByteString
 mkKeyBS = decodeKey . encodeUtf8
 
 mkKey :: Text -> Text -> SomeKeyPair
@@ -84,19 +101,21 @@ mkKey pub priv = skp
   where
     Right skp = importKeyPair defaultScheme (Just $ PubBS $ mkKeyBS pub) (PrivBS $ mkKeyBS priv)
 
--- Pact-web's private key copy/paste feature copies a string that contains the
--- private and public keys concatenated together.  This function makes it easy
--- to make key pairs from those strings.
+-- | Pact-web's private key copy/paste feature copies a string that contains the
+-- private and public keys concatenated together. This function makes it easy to
+-- make key pairs from those strings.
 mkKeyCombined :: Text -> SomeKeyPair
 mkKeyCombined pactWebPriv = mkKey pub priv
   where
     (priv,pub) = T.splitAt (T.length pactWebPriv `div` 2) pactWebPriv
 
+k2g :: SomeKeyPair -> Guard
 k2g skp = Guard (skp :| [])
 
 mkGuard pub priv = k2g $ mkKey pub priv
 mkGuardCombined pactWebPriv = k2g $ mkKeyCombined pactWebPriv
 
+-- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair
 stockKey s = do
   Right (Object o) <- Y.decodeFileEither "pact/genesis/testnet/keys.yaml"
@@ -105,10 +124,16 @@ stockKey s = do
       Just (String priv) = HM.lookup "secret" kp
   return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
 
-signedCode :: SomeKeyPair -> String -> IO [Command Text]
+signedCode
+  :: SomeKeyPair
+  -- ^ Key pair to sign with
+  -> String
+  -- ^ Pact code
+  -> IO [Command Text]
 signedCode k c =
   fmap (:[]) (txToCommand defPubMeta (k :| []) (PactCode c))
 
+-- | Convenience function for constructing a coin transfer transaction
 transfer :: Text -> Text -> Double -> IO [Command Text]
 transfer from to amt = do
   k <- stockKey from
@@ -120,6 +145,7 @@ transfer from to amt = do
       (ReceiverName $ Account $ T.unpack to)
       (Amount amt)
 
+-- | Convenience function for constructing a transfer-and-create transaction
 transferCreate :: Text -> Text -> Guard -> Double -> IO [Command Text]
 transferCreate from to guard amt = do
   k <- stockKey from

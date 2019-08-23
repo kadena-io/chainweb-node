@@ -56,46 +56,48 @@ import TXG.Simulate.Utils
 
 -- for ghci
 
-primSend
+send
     :: ChainwebVersion
     -> HostAddress
     -> ChainId
     -> [Command Text]
     -> IO (Either ClientError RequestKeys)
-primSend v h cid xs = do
+send v h cid xs = do
     cenv <- genClientEnv h
-    runClientM (send v cid (SubmitBatch (NEL.fromList xs))) cenv
+    runClientM (sendClient v cid (SubmitBatch (NEL.fromList xs))) cenv
 
-primPoll
+poll
     :: ChainwebVersion
     -> HostAddress
     -> ChainId
     -> RequestKeys
     -> IO (Either ClientError PollResponses)
-primPoll v h cid rkeys = do
+poll v h cid rkeys = do
     ce <- genClientEnv h
-    runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+    runClientM (pollClient v cid . Poll $ _rkRequestKeys rkeys) ce
 
-primLocal
+local
     :: ChainwebVersion
     -> HostAddress
     -> ChainId
     -> Command Text
     -> IO (Either ClientError (CommandResult Hash))
-primLocal v h cid cmd = do
+local v h cid cmdText = do
     ce <- genClientEnv h
-    runClientM (local v cid cmd) ce
+    runClientM (localClient v cid cmdText) ce
 
-primCommand
+cmd
     :: String
+    -- ^ Code
     -> Value
+    -- ^ Env data
     -> PublicMeta
     -> [SomeKeyPair]
     -> Maybe String -> IO (Command Text)
-primCommand = mkExec
+cmd = mkExec
 
-easyCmd :: String -> IO (Command Text)
-easyCmd str = primCommand str Null defPubMeta [] Nothing
+cmdStr :: String -> IO (Command Text)
+cmdStr str = cmd str Null defPubMeta [] Nothing
 
 -- Structured transactions
 
@@ -128,7 +130,7 @@ easyTxToCommand txContent = do
 
 txToCommand :: PublicMeta -> Keyset -> TxContent -> IO (Command Text)
 txToCommand pubmeta ks = \case
-    PactCode str -> easyCmd str
+    PactCode str -> cmdStr str
     Define Hello -> helloWorldContractLoader pubmeta ks
     Define Payments -> simplePaymentsContractLoader pubmeta ks
     CallBuiltin (CC coinReq) -> createCoinContractRequest pubmeta ks coinReq
@@ -159,41 +161,41 @@ api version chainid =
             client
               (Proxy :: Proxy (PactApi cv cid))
 
-send :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
-send version chainid = go
+sendClient :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
+sendClient version chainid = go
   where
     go :<|> _ :<|> _ :<|> _ = api version chainid
 
-poll
+pollClient
     :: ChainwebVersion
     -> ChainId
     -> Poll
     -> ClientM PollResponses
-poll version chainid = go
+pollClient version chainid = go
   where
     _ :<|> go :<|> _ :<|> _ = api version chainid
 
-listen
+listenClient
     :: ChainwebVersion
     -> ChainId
     -> ListenerRequest
     -> ClientM ListenResponse
-listen version chainid = go
+listenClient version chainid = go
   where
     _ :<|> _ :<|> go :<|> _ = api version chainid
 
-local
+localClient
     :: ChainwebVersion
     -> ChainId
     -> Command Text
     -> ClientM (CommandResult Hash)
-local version chainid = go
+localClient version chainid = go
   where
     _ :<|> _ :<|> _ :<|> go = api version chainid
 
 generateDefaultSimpleCommands :: Int -> IO [Command Text]
 generateDefaultSimpleCommands batchsize =
-    replicateM batchsize $ getStdRandom (runState go) >>= easyCmd
+    replicateM batchsize $ getStdRandom (runState go) >>= cmdStr
   where
     go = do
         a <- state $ randomR (1, 100 :: Integer)
