@@ -44,8 +44,8 @@ import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
-import Chainweb.Miner
 import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
+import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService

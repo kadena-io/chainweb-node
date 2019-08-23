@@ -88,6 +88,7 @@ import Pact.Types.Util (toB16Text)
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
     (initRelationalCheckpointer, initRelationalCheckpointer')
@@ -286,14 +287,14 @@ testPactCtx
     -> IO (TestPactCtx cas)
 testPactCtx v cid cdbv bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
-    rs <- readRewards v
+    let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger False
+    loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
@@ -310,14 +311,14 @@ testPactCtxSQLite
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
-    rs <- readRewards v
+    let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
       <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
-    loggers = pactTestLogger True
+    loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
     gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
@@ -440,7 +441,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       pdb <- pdbIO
       (_,s) <- ios
       (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger gasEnv
-      rs <- readRewards v
+      let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)

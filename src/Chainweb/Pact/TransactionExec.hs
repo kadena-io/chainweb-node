@@ -73,9 +73,9 @@ import Pact.Types.Term (DefName(..), ModuleName(..))
 -- internal Chainweb modules
 
 import Chainweb.BlockHash
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Pact.Types (GasSupply(..), GasId(..), ModuleCache)
+import Chainweb.Pact.Types (GasId(..), GasSupply(..), ModuleCache)
 import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 import Chainweb.Utils (sshow)
 
@@ -207,16 +207,15 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
 
     case cre of
       Left e -> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
-      Right !er -> do
+      Right er -> do
         logDebugRequestKey logger rk
           $ "successful coinbase of "
           ++ (take 18 $ show d)
-          ++ "to "
+          ++ " to "
           ++ show mid
 
         return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
-
 
 applyLocal
     :: Logger

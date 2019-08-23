@@ -23,7 +23,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TQueue
 
 import Chainweb.BlockHeader
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
