@@ -389,8 +389,8 @@ chainwebVersionGraph (Test g) = g
 chainwebVersionGraph (TimedConsensus g) = g
 chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
-chainwebVersionGraph Development = twentyChainGraph
-chainwebVersionGraph Testnet02 = twentyChainGraph
+chainwebVersionGraph Development = petersonChainGraph
+chainwebVersionGraph Testnet02 = petersonChainGraph
 
 instance HasChainGraph ChainwebVersion where
     _chainGraph = chainwebVersionGraph

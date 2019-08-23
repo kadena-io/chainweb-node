@@ -71,7 +71,7 @@ initRelationalCheckpointer'
 initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
-    runBlockEnv db $ initSchema >> vacuumDb
+    runBlockEnv db $ initSchema >> vacuumDb -- TODO: remove?
     return $!
       (PactDbEnv' (PactDbEnv chainwebPactDb db),
        CheckpointEnv
@@ -155,10 +155,19 @@ doSave dbenv hash = runBlockEnv dbenv $ do
         -> BlockHandler SQLiteEnv ()
     createNewTables bh = mapM_ (\tn -> createUserTable (Utf8 tn) bh)
 
+-- | Discards all transactions since the most recent @Block@ savepoint and
+-- removes the savepoint from the transaction stack.
+--
 doDiscard :: Db -> IO ()
 doDiscard dbenv = runBlockEnv dbenv $ do
     clearPendingTxState
     rollbackSavepoint Block
+
+    -- @ROLLBACK TO n@ only rolls back updates up to @n@ but doesn't remove the
+    -- savepoint. In order to also pop the savepoint from the stack we commit it
+    -- (as empty transaction). <https://www.sqlite.org/lang_savepoint.html>
+    --
+    commitSavepoint Block
 
 doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
@@ -182,8 +191,18 @@ doBeginBatch db = runBlockEnv db $ beginSavepoint BatchSavepoint
 doCommitBatch :: Db -> IO ()
 doCommitBatch db = runBlockEnv db $ commitSavepoint BatchSavepoint
 
+-- | Discards all transactions since the most recent @BatchSavepoint@ savepoint
+-- and removes the savepoint from the transaction stack.
+--
 doDiscardBatch :: Db -> IO ()
-doDiscardBatch db = runBlockEnv db $ rollbackSavepoint BatchSavepoint
+doDiscardBatch db = runBlockEnv db $ do
+    rollbackSavepoint BatchSavepoint
+
+    -- @ROLLBACK TO n@ only rolls back updates up to @n@ but doesn't remove the
+    -- savepoint. In order to also pop the savepoint from the stack we commit it
+    -- (as empty transaction). <https://www.sqlite.org/lang_savepoint.html>
+    --
+    commitSavepoint BatchSavepoint
 
 doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
