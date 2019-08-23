@@ -480,7 +480,6 @@ minerReward bh = do
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
--- Precondition: restoreCheckpointer
 -- Postcondition: finalizeCheckpointer discard
 --
 execNewBlock
@@ -538,7 +537,6 @@ withDiscardedBatch act = bracket start end (const act)
 
 -- | only for use in generating genesis blocks in tools
 --
--- Precondition: restoreCheckpointer
 -- Postcondition: finalizeCheckpointer discard
 --
 execNewGenesisBlock
@@ -553,7 +551,6 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $ do
     return $! toPayloadWithOutputs miner results
 
 -- |
--- Precondition: restoreCheckpointer
 -- Postcondition: finalizeCheckpointer discard
 --
 execLocal
