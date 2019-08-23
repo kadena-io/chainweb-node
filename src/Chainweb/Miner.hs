@@ -4,6 +4,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 -- |
 -- Module: Chainweb.Pact.Miner
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -21,6 +23,8 @@ module Chainweb.Miner
   -- Combinators
 , toMinerData
 , fromMinerData
+, readRewards
+, rawMinerRewards
   -- * Optics
 , minerId
 , minerKeys
@@ -36,17 +40,29 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
+
 import Data.Aeson hiding (decode)
+import Data.ByteString (ByteString)
+import qualified Data.Csv as CSV
 import Data.Default
+import Data.FileEmbed
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
+import Data.String.Conv (toS)
 import Data.Text (Text)
+import Data.Vector as V
+import Data.Word
 
 -- chainweb types
 
+import Chainweb.BlockHeader
+import Chainweb.Graph
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
 -- Pact types
 
+import Pact.Parse
 import Pact.Types.Term (KeySet(..), Name(..))
 
 
@@ -125,6 +141,36 @@ toMinerData = MinerData . encodeToByteString
 {-# INLINABLE toMinerData  #-}
 
 -- | Convert from Chainweb 'MinerData' to Pact Miner
+--
 fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
 {-# INLINABLE fromMinerData #-}
+
+-- | Rewards table mapping 3-month periods to their rewards
+-- according to the calculated exponential decay over 120 year period
+--
+readRewards
+    :: HasChainGraph v
+    => v -> HashMap BlockHeight ParsedDecimal
+readRewards v =
+    case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
+      Left e -> error
+        $ "cannot construct miner reward map: "
+        <> sshow e
+      Right vs -> HM.fromList
+        . V.toList
+        . V.map formatRow
+        $ vs
+  where
+    formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
+    formatRow (!a,!b) =
+      let
+        !n = v ^. chainGraph . to (int . size)
+        !m = fromRational $ toRational b
+      in (BlockHeight a, ParsedDecimal $ m / n)
+
+-- | Read in the reward csv via TH for deployment purposes
+--
+rawMinerRewards :: ByteString
+rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
+{-# NOINLINE rawMinerRewards #-}

@@ -23,7 +23,12 @@ extra-source-files:
     README.md
     LICENSE
 
+    -- miner rewards
+
+    rewards/miner_rewards.csv
+
     -- pact test data
+
     pact/coin-contract/coin.repl
     pact/coin-contract/coin.pact
     pact/coin-contract/coin-sig.pact
@@ -282,6 +287,7 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , extra >= 1.6
+        , file-embed >= 0.0
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2
