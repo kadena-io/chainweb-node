@@ -86,7 +86,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Logger
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
