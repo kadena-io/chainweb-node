@@ -63,7 +63,6 @@ import Utils.Logging.Trace
 
 -- chainweb imports
 
-import Chainweb.BlockHeader
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
@@ -171,8 +170,8 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionText l Info $ "logged stats"
             threadDelay 60000000 {- 1 minute -}
 
-node :: Logger logger => StandaloneConfiguration -> Maybe BlockHeight -> logger -> IO ()
-node conf mb logger = do
+node :: Logger logger => StandaloneConfiguration -> Maybe BlockStopState -> logger -> IO ()
+node conf mbs logger = do
     rocksDbDir <- getRocksDbDir
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
@@ -194,8 +193,10 @@ node conf mb logger = do
       Nothing -> getXdgDirectory XdgData
             $ "chainweb-standalone-node/" <> sshow v <> "/" <> nodeText <> "/rocksDb"
       Just d -> return d
-    stopWrapper cw =
-      concurrently_ (stopAtBlockHeight mb (_cutResCutDb $ _chainwebCutResources cw))
+    stopWrapper cw = case mbs of
+        Nothing -> id
+        Just (Height bh) -> concurrently_ (stopAtBlockHeight bh (_cutResCutDb $ _chainwebCutResources cw))
+        Just (Weight bw) -> concurrently_ (stopAtBlockWeight bw (_cutResCutDb $ _chainwebCutResources cw))
 
 -- | Starts server and runs all network clients
 --
@@ -237,7 +238,7 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
-    , _nodeConfigStopCondition = Forever
+    , _nodeConfigStopCondition = TimeLength 2000000
     }
 
 instance ToJSON StandaloneConfiguration where
@@ -267,7 +268,6 @@ pStandaloneConfiguration = id
     <*< nodeConfigResetChainDbs .:: enableDisableFlag
         % long "reset-chain-databases"
         <> help "Reset the chain databases for all chains on startup"
--- TODO: COME BACK TO THIS
 
 withNodeLogger
     :: LogConfig
@@ -362,5 +362,5 @@ main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     withNodeLogger (_nodeConfigLog conf) v $ \logger ->
       case _nodeConfigStopCondition conf of
         Forever -> node conf Nothing logger
-        Height bh -> node conf (Just bh) logger
         TimeLength duration ->  void $ timeout duration $ node conf Nothing logger
+        BlockStopCondition bsc -> node conf (Just bsc) logger

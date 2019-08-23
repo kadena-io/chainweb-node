@@ -138,16 +138,31 @@ mkPactExecutionService' q = emptyPactExecutionService
           Left e -> throwM e
   }
 
-
 data StopState
-  = Height BlockHeight
-  | TimeLength Int
+  = BlockStopCondition BlockStopState
+  | TimeLength Int -- this is in terms of microseconds
   | Forever
   deriving (Eq, Show, Generic, ToJSON, FromJSON)
 
-stopAtBlockHeight :: Maybe BlockHeight -> CutDb cas -> IO ()
-stopAtBlockHeight Nothing _ = forever $ threadDelay 1000000
-stopAtBlockHeight (Just bh) db = forever $ do
+data BlockStopState
+  = Height BlockHeight
+  | Weight BlockWeight
+  deriving (Eq, Show, Generic, ToJSON, FromJSON)
+
+stopAtBlockWeight :: BlockWeight -> CutDb cas -> IO ()
+stopAtBlockWeight bw db = forever $ do
+    cut <- readTVarIO (_cutDbCut db)
+    when (_cutWeight cut >= bw) $
+      throwM $ userError msg
+    threadDelay 1000000
+  where
+    msg =
+      "We have reached or passed "
+      ++ (show bw)
+      ++ ". Stopping chainweb-node!"
+
+stopAtBlockHeight :: BlockHeight -> CutDb cas -> IO ()
+stopAtBlockHeight bh db = forever $ do
     cut <- readTVarIO (_cutDbCut db)
     let p = getAny $ foldMap go $ _cutMap cut
     when p (throwM $ userError msg)
