@@ -198,10 +198,13 @@ pPort = option auto
 main :: IO ()
 main = do
     env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> MWC.createSystemRandom <*> execParser opts
-    miner <- async $ mining (scheme env) env
-    pPrintNoColor $ args env
-    W.run (port $ args env) $ app env
-    wait miner
+    case cmd $ args env of
+        GPU _ -> putStrLn "GPU mining is not yet available."
+        CPU _ -> do
+            miner <- async $ mining (scheme env) env
+            pPrintNoColor $ args env
+            W.run (port $ args env) $ app env
+            wait miner
   where
     opts :: ParserInfo ClientArgs
     opts = info (pClientArgs <**> helper)
