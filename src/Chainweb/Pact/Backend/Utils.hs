@@ -101,6 +101,16 @@ commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 commitSavepoint name =
   callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "];"
 
+-- | @rollbackSavepoint n@ rolls back all database updates since the most recent
+-- savepoint with the name @n@ and restarts the transaction.
+--
+-- /NOTE/ that the savepoint is not removed from the savepoint stack. In order to
+-- also remove the savepoint @rollbackSavepoint n >> commitSavepoint n@ can be
+-- used to release the (empty) transaction.
+--
+-- Cf. <https://www.sqlite.org/lang_savepoint.html> for details about
+-- savepoints.
+--
 rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
 rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
