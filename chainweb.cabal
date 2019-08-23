@@ -150,7 +150,6 @@ library
         , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
-        , Chainweb.Miner.Rewards
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore

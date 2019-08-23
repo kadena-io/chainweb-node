@@ -94,7 +94,6 @@ import Chainweb.CutDB
 import Chainweb.Graph (size)
 import Chainweb.Logger
 import Chainweb.Miner
-import Chainweb.Miner.Rewards
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
@@ -426,10 +425,9 @@ readAccountGuard pdb account
 --
 readRewards
     :: HasChainGraph v
-    => v -> (HashMap BlockHeight P.ParsedDecimal)
+    => v -> HashMap BlockHeight P.ParsedDecimal
 readRewards v = do
     case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
-      -- TODO Not sure what to do here
       Left e -> error
         $ "cannot construct miner reward map: "
         <> sshow e

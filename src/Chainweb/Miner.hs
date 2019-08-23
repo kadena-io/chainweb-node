@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module: Chainweb.Pact.Miner
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -21,6 +22,7 @@ module Chainweb.Miner
   -- Combinators
 , toMinerData
 , fromMinerData
+, rawMinerRewards
   -- * Optics
 , minerId
 , minerKeys
@@ -36,8 +38,11 @@ import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 
+
 import Data.Aeson hiding (decode)
+import Data.ByteString (ByteString)
 import Data.Default
+import Data.FileEmbed
 import Data.Text (Text)
 
 -- chainweb types
@@ -125,6 +130,12 @@ toMinerData = MinerData . encodeToByteString
 {-# INLINABLE toMinerData  #-}
 
 -- | Convert from Chainweb 'MinerData' to Pact Miner
+--
 fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
 {-# INLINABLE fromMinerData #-}
+
+-- | Read in the reward csv via TH for deployment purposes
+--
+rawMinerRewards :: ByteString
+rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
