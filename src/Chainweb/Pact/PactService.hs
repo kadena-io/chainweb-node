@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -322,6 +323,8 @@ validateHashes pwo bHeader =
 
 -- | Restore the checkpointer and prepare the execution of a block.
 --
+-- The use of 'withCheckpointer' is safer and should be preferred where possible.
+--
 -- This function adds @Block@ savepoint to the db transaction stack. It must be
 -- followed by a call to @finalizeCheckpointer (save blockHash)@ or
 -- @finalizeCheckpointer discard@.
@@ -342,6 +345,49 @@ restoreCheckpointer maybeBB = do
     logInfo $ "restoring " <> sshow maybeBB
     liftIO $ restore checkPointer maybeBB
 
+data WithCheckpointerResult a
+    = Discard !a
+    | Save BlockHeader !a
+
+-- | Execute an action in the context of an @Block@ that is provided by the
+-- checkpointer.
+--
+-- Usually, one needs to rewind the checkpointer first to the target. In those
+-- cases the function 'withCheckpointerRewind' should be preferred.
+--
+-- The result of the inner action indicates whether the resulting checkpointer
+-- state should be discarded or saved.
+--
+-- If the inner action throws an exception the checkpointer state is discarded.
+--
+withCheckpointer
+    :: PayloadCas cas
+    => Maybe (BlockHeight, BlockHash)
+    -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
+    -> PactServiceM cas a
+withCheckpointer target act = mask $ \restore -> do
+    cenv <- restoreCheckpointer target
+    try (restore (act cenv)) >>= \case
+        Left e -> discardTx >> throwM @_ @SomeException e
+        Right (Discard !result) -> discardTx >> return result
+        Right (Save header !result) -> saveTx header >> return result
+  where
+    discardTx = finalizeCheckpointer discard
+    saveTx header = do
+        finalizeCheckpointer (flip save $ _blockHash header)
+        psStateValidated .= Just header
+
+-- | Same as 'withCheckpointer' but rewinds the checkpointer state to the
+-- provided target.
+--
+withCheckpointerRewind
+    :: PayloadCas cas
+    => Maybe (BlockHeight, BlockHash)
+    -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
+    -> PactServiceM cas a
+withCheckpointerRewind target act = do
+    rewindTo target
+    withCheckpointer target act
 
 finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
 finalizeCheckpointer finalize = do
@@ -447,8 +493,6 @@ minerReward bh = do
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
--- Postcondition: finalizeCheckpointer discard
---
 execNewBlock
     :: PayloadCas cas
     => MemPoolAccess
@@ -456,26 +500,24 @@ execNewBlock
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
 execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
-    pdbenv <- rewindTo rewindPoint
-    logInfo $ "execNewBlock, about to get call processFork: "
-            <> " (parent height = " <> sshow pHeight <> ")"
-            <> " (parent hash = " <> sshow pHash <> ")"
-    liftIO $ mpaProcessFork mpAccess parentHeader
-    liftIO $ mpaSetLastHeader mpAccess parentHeader
-    cp <- view (psCheckpointEnv . cpeCheckpointer)
-    let validate = validateChainwebTxsPreBlock pdbenv cp
-    newTrans <- liftIO $
-        mpaGetBlock mpAccess validate bHeight pHash parentHeader
-    -- locally run 'execTransactions' with updated blockheight data
-    results <- withParentBlockData parentHeader $
-        execTransactions (Just pHash) miner newTrans pdbenv
-    finalizeCheckpointer discard
-    return $! toPayloadWithOutputs miner results
+    withCheckpointerRewind (Just (bHeight, pHash)) $ \pdbenv -> do
+        logInfo $ "execNewBlock, about to get call processFork: "
+                <> " (parent height = " <> sshow pHeight <> ")"
+                <> " (parent hash = " <> sshow pHash <> ")"
+        liftIO $ mpaProcessFork mpAccess parentHeader
+        liftIO $ mpaSetLastHeader mpAccess parentHeader
+        cp <- view (psCheckpointEnv . cpeCheckpointer)
+        let validate = validateChainwebTxsPreBlock pdbenv cp
+        newTrans <- liftIO $
+            mpaGetBlock mpAccess validate bHeight pHash parentHeader
+        -- locally run 'execTransactions' with updated blockheight data
+        results <- withParentBlockData parentHeader $
+            execTransactions (Just pHash) miner newTrans pdbenv
+        return $! Discard (toPayloadWithOutputs miner results)
   where
     pHeight = _blockHeight parentHeader
     pHash = _blockHash parentHeader
     bHeight = succ pHeight
-    rewindPoint = Just (bHeight, pHash)
 
 
 withBatch :: PactServiceM cas a -> PactServiceM cas a
@@ -504,22 +546,16 @@ withDiscardedBatch act = bracket start end (const act)
 
 -- | only for use in generating genesis blocks in tools
 --
--- Postcondition: finalizeCheckpointer discard
---
 execNewGenesisBlock
     :: PayloadCas cas
     => Miner
     -> Vector ChainwebTransaction
     -> PactServiceM cas PayloadWithOutputs
-execNewGenesisBlock miner newTrans = withDiscardedBatch $ do
-    pdbenv <- restoreCheckpointer Nothing
-    results <- execTransactions Nothing miner newTrans pdbenv
-    finalizeCheckpointer discard
-    return $! toPayloadWithOutputs miner results
+execNewGenesisBlock miner newTrans = withDiscardedBatch $
+    withCheckpointer Nothing $ \pdbenv -> do
+        results <- execTransactions Nothing miner newTrans pdbenv
+        return $! Discard (toPayloadWithOutputs miner results)
 
--- |
--- Postcondition: finalizeCheckpointer discard
---
 execLocal
     :: PayloadCas cas
     => ChainwebTransaction
@@ -528,12 +564,13 @@ execLocal cmd = withDiscardedBatch $ do
     bh <- use psStateValidated >>= \v -> case v of
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
-    (PactDbEnv' pactdbenv) <- rewindTo (Just (succ $ _blockHeight bh, _blockHash bh))
-    PactServiceEnv{..} <- ask
-    r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
-            _psPublicData _psSpvSupport (fmap payloadObj cmd)
-    finalizeCheckpointer discard
-    return $! toHashCommandResult r
+
+    let target = Just (succ $ _blockHeight bh, _blockHash bh)
+    withCheckpointerRewind target $ \(PactDbEnv' pdbenv) -> do
+        PactServiceEnv{..} <- ask
+        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
+                _psPublicData _psSpvSupport (fmap payloadObj cmd)
+        return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)
@@ -586,9 +623,6 @@ withParentBlockData phe action = action
 
 -- | Execute a block.
 --
--- Precondition: restoreCheckpointer
--- Postcondition: finalizeCheckpointer save
---
 playOneBlock
     :: BlockHeader
     -> PayloadData
@@ -598,20 +632,16 @@ playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     !results <- withBlockData currHeader $ execTransactions pBlock miner trans pdbenv
-    finalizeCheckpointer (flip save bHash)
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
   where
-    bHash = _blockHash currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
     pBlock = if isGenesisBlock then Nothing else Just bParent
 
--- | @rewindTo mb act@ rewinds the pact state to @mb@ and runs @act@ on it.
+-- | Rewinds the pact state to @mb@.
 --
 -- If @mb@ is 'Nothing', it rewinds to the genesis block.
---
--- Postcondition: restoreCheckpointer
 --
 rewindTo
     :: forall cas . PayloadCas cas
@@ -621,12 +651,12 @@ rewindTo
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
 
-    -> PactServiceM cas PactDbEnv'
+    -> PactServiceM cas ()
 rewindTo mb = do
     cp <- view (psCheckpointEnv . cpeCheckpointer)
     maybe rewindGenesis (doRewind cp) mb
   where
-    rewindGenesis = restoreCheckpointer Nothing
+    rewindGenesis = return ()
     doRewind cp (newH, parentHash) = do
         payloadDb <- asks _psPdb
         mbLastBlock <- liftIO $ getLatestBlock cp
@@ -644,8 +674,6 @@ rewindTo mb = do
             liftIO $ collectForkBlocks bhdb lastHeader parentHeader
         -- play fork blocks
         V.mapM_ (fastForward payloadDb) newBlocks
-        -- play new block
-        restoreCheckpointer (Just (newH, parentHash))
       where
         findValidParent height hash = liftIO (lookup bhdb hash) >>= \case
             Just x -> return x
@@ -664,9 +692,10 @@ rewindTo mb = do
         let h = _blockHeight block
         let ph = _blockParent block
         let bpHash = _blockPayloadHash block
-        pdbenv <- restoreCheckpointer (Just (h, ph))
-        payload <- liftIO (payloadWithOutputsToPayloadData <$> casLookupM payloadDb bpHash)
-        void $ playOneBlock block payload pdbenv
+        withCheckpointer (Just (h, ph)) $ \pdbenv -> do
+            payload <- liftIO (payloadWithOutputsToPayloadData <$> casLookupM payloadDb bpHash)
+            void $ playOneBlock block payload pdbenv
+            return $! Save block ()
         -- double check output hash here?
 
 -- | Validate a mined block. Execute the transactions in Pact again as
@@ -680,7 +709,9 @@ execValidateBlock
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData =
     -- TODO: are we actually validating the output hash here?
-    withBatch $ rewindTo mb >>= playOneBlock currHeader plData
+    withBatch $ withCheckpointerRewind mb $ \pdbenv -> do
+        !result <- playOneBlock currHeader plData pdbenv
+        return $! Save currHeader result
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
