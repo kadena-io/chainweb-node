@@ -150,11 +150,11 @@ library
         , Chainweb.Mempool.RestAPI.Server
         , Chainweb.MerkleLogHash
         , Chainweb.MerkleUniverse
-        , Chainweb.Miner
         , Chainweb.Miner.Config
         , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
+        , Chainweb.Miner.Pact
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore

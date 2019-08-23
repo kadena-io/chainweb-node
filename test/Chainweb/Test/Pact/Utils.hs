@@ -88,7 +88,7 @@ import Pact.Types.Util (toB16Text)
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
     (initRelationalCheckpointer, initRelationalCheckpointer')

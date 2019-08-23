@@ -7,7 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- |
--- Module: Chainweb.Miner
+-- Module: Chainweb.Miner.Pact
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emily Pillmore <emily@kadena.io>
@@ -15,7 +15,7 @@
 --
 -- The definition of the Pact miner and the Pact miner reward.
 --
-module Chainweb.Miner
+module Chainweb.Miner.Pact
 ( -- * Data
   MinerId(..)
 , MinerKeys(..)
