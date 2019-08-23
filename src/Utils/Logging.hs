@@ -584,9 +584,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
 
 pkgInfoScopes :: [(T.Text, T.Text)]
 pkgInfoScopes =
-    [ ("revision", Pkg.revision)
-    , ("branch", Pkg.branch)
-    , ("compiler", Pkg.compiler)
+    [ ("compiler", Pkg.compiler)
     , ("optimisation", Pkg.optimisation)
     , ("architecture", Pkg.arch)
     , ("package", Pkg.package)

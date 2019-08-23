@@ -21,7 +21,7 @@ overlay = self: super: {
   });
 };
 
-in
+unversioned =
   (import rp { inherit system; nixpkgsOverlays = [ overlay ]; }).project ({ pkgs, ... }:
   let gitignore = pkgs.callPackage (pkgs.fetchFromGitHub {
         owner = "siers";
@@ -31,7 +31,7 @@ in
       }) {};
   in
   {
-    name = "chainweb";
+    name = "chainweb-node";
     overrides = self: super: with pkgs.haskell.lib;
       let # Working on getting this function upstreamed into nixpkgs, but
           # this actually gets things directly from hackage and doesn't
@@ -50,7 +50,7 @@ in
           sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
 
-        chainweb = justStaticExecutables (enableDWARFDebugging (overrideCabal super.chainweb (drv: {
+        chainweb-node = justStaticExecutables (enableDWARFDebugging (overrideCabal super.chainweb-node (drv: {
           doCheck = runTests;
           doHaddock = runTests;
           doCoverage = runCoverage;
@@ -330,8 +330,8 @@ in
 
       };
     packages = {
-      chainweb = gitignore.gitignoreSource
-        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md"] ./.;
+      chainweb-node = gitignore.gitignoreSource
+        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md" "versioned.nix"] ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;
@@ -340,7 +340,25 @@ in
       z3 = pkgs.z3;
     };
     shells = {
-      ghc = ["chainweb"];
+      ghc = ["chainweb-node"];
     };
 
-  })
+  });
+
+nixpkgs = unversioned.reflex.nixpkgs;
+
+in
+
+nixpkgs.buildEnv {
+  name = "chainweb";
+  paths = [
+    unversioned
+    (nixpkgs.runCommand "chainweb-gitref" {} ''
+      mkdir -p $out
+      cd ${./.}
+      ${nixpkgs.git}/bin/git rev-parse --abbrev-ref HEAD > $out/gitref
+      ${nixpkgs.git}/bin/git rev-parse HEAD >> $out/gitref
+      ${nixpkgs.git}/bin/git describe --exact-match --tags --abbrev=0 >> $out/gitref
+    '')
+  ];
+}

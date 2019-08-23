@@ -216,94 +216,11 @@ trim = f . f
   where f = reverse . dropWhile isSpace
 
 -- -------------------------------------------------------------------------- --
--- VCS
-
-getVCS :: IO (Maybe RepoType)
-getVCS = getCurrentDirectory >>= getVcsOfDir
-
-getVcsOfDir :: FilePath -> IO (Maybe RepoType)
-getVcsOfDir d = do
-    canonicDir <- canonicalizePath d
-    doesDirectoryExist (canonicDir </> ".hg") >>= \x0 -> if x0
-    then return (Just Mercurial)
-    else doesDirectoryExist (canonicDir </> ".git") >>= \x1 -> if x1
-        then return $ Just Git
-        else if isDrive canonicDir
-            then return Nothing
-            else getVcsOfDir (takeDirectory canonicDir)
-
--- | Returns tag, revision, and branch name.
---
-hgInfo :: IO (String, String, String)
-hgInfo = do
-    tag <- trim <$> readProcess "hg" ["id", "-r", "max(ancestors(\".\") and tag())", "-t"] ""
-    rev <- trim <$> readProcess "hg" ["id", "-i"] ""
-    branch <- trim <$> readProcess "hg" ["id", "-b"] ""
-    return (tag, rev, branch)
-
--- | Returns tag, revision, and branch name.
---
-gitInfo :: IO (String, String, String)
-gitInfo = do
-    tag <- do
-        (exitCode, out, _err) <- readProcessWithExitCode "git" ["describe", "--exact-match", "--tags", "--abbrev=0"] ""
-        case exitCode of
-            ExitSuccess -> return $ trim out
-            _ -> return ""
-    rev <- trim <$> readProcess "git" ["rev-parse", "--short", "HEAD"] ""
-    branch <- trim <$> readProcess "git" ["rev-parse", "--abbrev-ref", "HEAD"] ""
-    return (tag, rev, branch)
-
--- | Returns tag, revision, and branch name.
---
-gitlabCiVcsInfo :: IO (Maybe (String, String, String))
-gitlabCiVcsInfo = do
-    lookupEnv "CI_COMMIT_SHORT_SHA" >>= \case
-        Nothing -> return Nothing
-        Just _ -> do
-            rev <- fromMaybe "" <$> lookupEnv "CI_COMMIT_SHORT_SHA"
-            branch <- fromMaybe "" <$> lookupEnv "CI_COMMIT_REF_NAME"
-            tag <- fromMaybe "" <$> lookupEnv "CI_COMMIT_TAG"
-            return $ Just (tag, rev, branch)
-
--- | The file format is revision, branch, and tag separate by newline
--- characters.
---
-fileVcsInfo :: IO (Maybe (String, String, String))
-fileVcsInfo = do
-    doesFileExist ".vcs-info" >>= \x -> if x
-    then do
-        (rev : branch : tag : _) <- (<> ["", "", ""]) . lines <$> readFile ".vcs-info"
-        return $ Just (tag, rev, branch)
-    else return Nothing
-
--- | Returns tag, revision, and branch name.
---
-noVcsInfo :: IO (String, String, String)
-noVcsInfo = return ("", "", "")
-
--- | Returns tag, revision, and branch name.
---
-getVcsInfo :: IO (String, String, String)
-getVcsInfo = getVCS >>= \case
-    Just Mercurial -> hgInfo
-    Just Git -> gitInfo
-    _ -> gitlabCiVcsInfo >>= \case
-        Just a -> return a
-        Nothing -> fileVcsInfo >>= \case
-            Just a -> return a
-            Nothing -> noVcsInfo
-
--- -------------------------------------------------------------------------- --
 -- Generate Module
 
 pkgInfoModule :: String -> Maybe String -> PackageDescription -> LocalBuildInfo -> IO B.ByteString
 pkgInfoModule moduleName cName pkgDesc bInfo = do
-    (tag, revision, branch) <- getVcsInfo
-
-    let vcsBranch = if branch == "default" || branch == "master" then "" else branch
-        vcsVersion = intercalate "-" . filter (/= "") $ [tag, revision, vcsBranch]
-        flags = map (unFlagName . fst) . filter snd . unFlagAssignment . configConfigurationsFlags . configFlags $ bInfo
+    let flags = map (unFlagName . fst) . filter snd . unFlagAssignment . configConfigurationsFlags . configFlags $ bInfo
 
     licenseString <- licenseFilesText pkgDesc
 
@@ -319,21 +236,6 @@ pkgInfoModule moduleName cName pkgDesc bInfo = do
             , ""
             , "    name :: IsString a => Maybe a"
             , "    name = " <> maybe "Nothing" (\x -> "Just \"" <> pack x <> "\"") cName
-            , ""
-            , "    tag :: IsString a => a"
-            , "    tag = \"" <> pack tag <> "\""
-            , ""
-            , "    revision :: IsString a => a"
-            , "    revision = \"" <> pack revision <> "\""
-            , ""
-            , "    branch :: IsString a => a"
-            , "    branch = \"" <> pack branch <> "\""
-            , ""
-            , "    branch' :: IsString a => a"
-            , "    branch' = \"" <> pack vcsBranch <> "\""
-            , ""
-            , "    vcsVersion :: IsString a => a"
-            , "    vcsVersion = \"" <> pack vcsVersion <> "\""
             , ""
             , "    compiler :: IsString a => a"
             , "    compiler = \"" <> (pack . display . compilerId . compiler) bInfo <> "\""
@@ -379,8 +281,8 @@ pkgInfoModule moduleName cName pkgDesc bInfo = do
             , ""
             , "    versionString :: (Monoid a, IsString a) => a"
             , "    versionString = case name of"
-            , "        Nothing -> package <> \" (revision \" <> vcsVersion <> \")\""
-            , "        Just n -> n <> \"-\" <> packageVersion <> \" (package \" <> package <> \" revision \" <> vcsVersion <> \")\""
+            , "        Nothing -> package"
+            , "        Just n -> n <> \"-\" <> packageVersion <> \" (package \" <> package <> \")\""
             , ""
             , "    info :: (Monoid a, IsString a) => a"
             , "    info = versionString <> \"\\n\" <> copyright"
