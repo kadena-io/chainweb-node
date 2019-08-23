@@ -168,10 +168,9 @@ readRewards v =
         !n = v ^. chainGraph . to (int . size)
         !m = fromRational $ toRational b
       in (BlockHeight a, ParsedDecimal $ m / n)
-{-# INLINE readRewards #-}
 
 -- | Read in the reward csv via TH for deployment purposes
 --
 rawMinerRewards :: ByteString
 rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
-{-# INLINE rawMinerRewards #-}
+{-# NOINLINE rawMinerRewards #-}
