@@ -18,7 +18,7 @@ import qualified Data.HashMap.Strict as HM
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
