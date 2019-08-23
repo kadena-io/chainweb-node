@@ -150,6 +150,7 @@ library
         , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
+        , Chainweb.Miner.Rewards
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
@@ -282,6 +283,7 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , extra >= 1.6
+        , file-embed >= 0.0
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2

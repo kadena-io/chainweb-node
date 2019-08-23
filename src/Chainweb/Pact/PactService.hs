@@ -46,7 +46,6 @@ import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as SB
 import qualified Data.Csv as CSV
 import Data.Decimal
@@ -95,6 +94,7 @@ import Chainweb.CutDB
 import Chainweb.Graph (size)
 import Chainweb.Logger
 import Chainweb.Miner
+import Chainweb.Miner.Rewards
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
@@ -184,7 +184,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
       checkpointEnv <- initRelationalCheckpointer
                            initBlockState sqlenv logger gasEnv
 
-      rs <- readRewards ver
+      let rs = readRewards ver
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
                                 bhDb rs
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
@@ -426,15 +426,14 @@ readAccountGuard pdb account
 --
 readRewards
     :: HasChainGraph v
-    => v -> IO (HashMap BlockHeight P.ParsedDecimal)
+    => v -> (HashMap BlockHeight P.ParsedDecimal)
 readRewards v = do
-    rs <- LBS.readFile "rewards/miner_rewards.csv"
-    case CSV.decode CSV.NoHeader rs of
-      Left e -> internalError
+    case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
+      -- TODO Not sure what to do here
+      Left e -> error
         $ "cannot construct miner reward map: "
         <> sshow e
-      Right vs -> return
-        $ HM.fromList
+      Right vs -> HM.fromList
         . V.toList
         . V.map formatRow
         $ vs
