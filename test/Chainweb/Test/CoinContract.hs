@@ -32,7 +32,7 @@ import Pact.Types.Runtime
 
 -- internal chainweb modules
 
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.Pact.TransactionExec
 
 

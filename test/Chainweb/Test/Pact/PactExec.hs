@@ -35,7 +35,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash (nullBlockHash)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService (execTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)

@@ -1,5 +1,5 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -13,12 +13,12 @@ module Chainweb.Pact.Service.Types where
 
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
-import Data.Aeson (FromJSON,ToJSON)
-import Data.Text (Text,pack)
+import Data.Aeson (FromJSON, ToJSON)
+import Data.Text (Text, pack)
 import GHC.Generics
 
 import Chainweb.BlockHeader (BlockHeader)
-import Chainweb.Miner
+import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
