@@ -361,4 +361,5 @@ nixpkgs.buildEnv {
       ${nixpkgs.git}/bin/git describe --exact-match --tags --abbrev=0 >> $out/gitref 2> /dev/null || true
     '')
   ];
+  passthru = unversioned;
 }
