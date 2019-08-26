@@ -25,6 +25,10 @@ module Chainweb.Payload.RestAPI
 , PayloadGetApi
 , payloadGetApi
 
+-- * Payload GET API
+, OutputsGetApi
+, outputsGetApi
+
 -- * Payload API
 , PayloadApi
 , payloadApi
@@ -84,9 +88,28 @@ payloadGetApi
 payloadGetApi = Proxy
 
 -- -------------------------------------------------------------------------- --
+-- Outputs GET API
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/payload\/\<BlockPayloadHash\>/outputs@
+
+type OutputsGetApi_
+    = "payload"
+    :> Capture "BlockPayloadHash" BlockPayloadHash
+    :> "outputs"
+    :> Get '[JSON] PayloadWithOutputs
+
+type OutputsGetApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> OutputsGetApi_
+
+outputsGetApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (OutputsGetApi v c)
+outputsGetApi = Proxy
+
+-- -------------------------------------------------------------------------- --
 -- Payload API
 
-type PayloadApi v c = PayloadGetApi v c
+type PayloadApi v c = PayloadGetApi v c :<|> OutputsGetApi v c
 
 payloadApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
