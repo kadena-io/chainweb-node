@@ -601,6 +601,7 @@ executable cwtool
         , errors >= 2.3
         , exceptions >= 0.8
         , fake >= 0.1.1.1
+        , file-embed >= 0.0
         , formatting >= 6.3
         , generic-lens >= 1.1
         , http-client >= 0.5

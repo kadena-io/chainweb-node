@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
@@ -33,9 +34,11 @@ import Control.Monad.Catch
 import Data.Aeson
 import Data.Attoparsec.ByteString.Char8
 import Data.Bifunctor (bimap)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B8
 import Data.Char
 import Data.Decimal
+import Data.FileEmbed
 import Data.List (uncons)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
@@ -103,11 +106,14 @@ createCoinAccounts meta = traverse (createCoinAccount meta) names
 coinAccountNames :: [Account]
 coinAccountNames = (Account . ("sender0" <>) . show) <$> [0 :: Int .. 9]
 
+stockKeyFile :: ByteString
+stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+
 -- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair
 stockKey s = do
-  Right (Object o) <- Y.decodeFileEither "pact/genesis/testnet/keys.yaml"
-  let Just (Object kp) = HM.lookup s o
+  let Right (Object o) = Y.decodeEither' stockKeyFile
+      Just (Object kp) = HM.lookup s o
       Just (String pub) = HM.lookup "public" kp
       Just (String priv) = HM.lookup "secret" kp
       mkKeyBS = decodeKey . encodeUtf8
