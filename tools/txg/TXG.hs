@@ -179,9 +179,18 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
         -> Map Sim.Account (NonEmpty SomeKeyPair)
         -> IO (Maybe Text,  Command Text)
     coinContract transfers (Verbose vb) cid coinaccts = do
-      ks <- testSomeKeyPairs
       coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
       let msg = if vb then Just $ sshow coinContractRequest else Nothing
+      let acclookup sn@(Sim.Account accsn) =
+            case M.lookup sn coinaccts of
+              Just ks -> ks
+              Nothing -> error $ "Couldn't find account: <" ++ accsn ++ ">"
+      let ks =
+            case coinContractRequest of
+              CoinCreateAccount _ (Guard guardd) -> guardd
+              CoinAccountBalance account -> acclookup account
+              CoinTransfer (SenderName sn) _ _ -> acclookup sn
+              CoinTransferAndCreate _ _ (Guard guardd) _ -> guardd
       (msg,) <$> createCoinContractRequest (Sim.makeMeta cid) ks coinContractRequest
 
     payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)

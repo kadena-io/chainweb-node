@@ -148,8 +148,10 @@ pollkeys = do
   _close <- A.skipSpace >> A.char ']'
   pure $ PollRequestKeys bs
 
+
+-- This is brittle!
 parseRequestKey :: A.Parser ByteString
-parseRequestKey = B8.pack <$> A.count 128 (A.satisfy (A.inClass "abcdef0123456789"))
+parseRequestKey = B8.pack <$> A.count 43 A.anyChar
 
 listenkeys :: A.Parser TXCmd
 listenkeys = do
@@ -207,7 +209,7 @@ defaultArgs = Args
   { scriptCommand   = RunSimpleExpressions defaultTimingDist
   , nodeChainIds    = []
   , isChainweb      = True
-  , hostAddresses   = [unsafeHostAddressFromText "127.0.0.1:1789"]
+  , hostAddresses   = []
   , nodeVersion     = v
   , logHandleConfig = U.StdOut
   , batchSize       = BatchSize 1
