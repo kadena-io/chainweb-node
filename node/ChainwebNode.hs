@@ -292,7 +292,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
     -- Base Backend
     baseBackend <- managed
-        $ withBaseHandleBackend "ChainwebApp" mgr (_logConfigBackend logConfig)
+        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logConfig)
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -302,7 +302,7 @@ withNodeLogger logConfig v f = runManaged $ do
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
     counterBackend <- managed $ configureHandler
-        (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
+        (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
     newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
     newBlockBackend <- managed
@@ -355,7 +355,20 @@ mkTelemetryLogger
     -> (Backend (JsonLog a) -> IO b)
     -> IO b
 mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr
+    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+
+-- -------------------------------------------------------------------------- --
+-- Encode Package Info into Log mesage scopes
+
+pkgInfoScopes :: [(T.Text, T.Text)]
+pkgInfoScopes =
+    [ ("revision", revision)
+    , ("branch", branch)
+    , ("compiler", compiler)
+    , ("optimisation", optimisation)
+    , ("architecture", arch)
+    , ("package", package)
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- main

@@ -99,10 +99,8 @@ library
     hs-source-dirs: src
     other-modules:
         Paths_chainweb
-        PkgInfo
     autogen-modules:
         Paths_chainweb
-        PkgInfo
     exposed-modules:
           BackCompat.Test.QuickCheck
         , Chainweb.BlockHash
