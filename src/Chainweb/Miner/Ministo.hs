@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,14 +18,17 @@
 --
 
 module Chainweb.Miner.Ministo
-( mippies
-, coordination
+  ( mippies
+  , coordination
+  , working
+  , publishing
 
--- * Internal
-, mineCut
-) where
+  -- * Internal
+  , mineCut
+  ) where
 
 import Control.Concurrent.Async
+import Control.Concurrent.STM (TVar, modifyTVar', readTVarIO)
 import Control.Lens
 import Control.Monad
 import Control.Monad.STM
@@ -56,6 +60,7 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.Miner.Core (HeaderBytes(..))
 import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -76,6 +81,8 @@ import Utils.Logging.Trace
 
 type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
+type Payloads = HM.HashMap BlockPayloadHash PayloadWithOutputs
+
 newtype PrevBlock = PrevBlock BlockHeader
 
 -- | THREAD: Receives new `Cut` data, and publishes it to remote mining
@@ -83,18 +90,16 @@ newtype PrevBlock = PrevBlock BlockHeader
 --
 working
     :: forall cas. (BlockHeader -> IO ())
+    -> TVar Payloads
     -> NodeId
     -> MinerConfig
     -> CutDb cas
     -> Adjustments
     -> IO ()
-working submit nid conf cdb adj = _cut cdb >>= work
+working submit payloads nid conf cdb adj = _cut cdb >>= work
   where
-    payloadStore :: WebBlockPayloadStore cas
-    payloadStore = view cutDbPayloadStore cdb
-
     pact :: PactExecutionService
-    pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
     blockDb :: ChainId -> Maybe BlockHeaderDb
     blockDb cid = cdb ^? cutDbWebBlockHeaderDb . webBlockHeaderDb . ix cid
@@ -118,7 +123,8 @@ working submit nid conf cdb adj = _cut cdb >>= work
         case getAdjacentParents c p of
             Nothing -> work c
             Just adjParents -> do
-                -- Fetch a Pact Transaction payload.
+                -- Fetch a Pact Transaction payload. This is an expensive call
+                -- that shouldn't be repeated.
                 --
                 payload <- _pactNewBlock pact (_configMinerInfo conf) p
 
@@ -133,24 +139,50 @@ working submit nid conf cdb adj = _cut cdb >>= work
                 -- core Mining logic.
                 --
                 creationTime <- getCurrentTimeIntegral
-                let header = newBlockHeader
+                let !phash = _payloadWithOutputsPayloadHash payload
+                    !header = newBlockHeader
                         (nodeIdFromNodeId nid cid)
                         adjParents
-                        (_payloadWithOutputsPayloadHash payload)
+                        phash
                         (Nonce 0)  -- TODO Confirm that this is okay.
                         target
                         creationTime
                         p
 
                 submit header
-                working submit nid conf cdb adj'
+                atomically $ modifyTVar' payloads (HM.insert phash payload)
+                working submit payloads nid conf cdb adj'
 
 -- | THREAD: Accepts "solved" `BlockHeader` bytes from some external source
 -- (likely a remote mining client), reassociates it with the `Cut` from
 -- which it originated, and publishes it to the `Cut` network.
 --
-publishing :: CutDb cas -> IO ()
-publishing = undefined
+publishing :: TVar Payloads -> CutDb cas -> HeaderBytes -> IO ()
+publishing payloads cdb (HeaderBytes hbytes) = do
+    -- TODO Catch decoding error and send failure code?
+    bh <- runGet decodeBlockHeaderWithoutHash hbytes
+
+    -- Reassociate the new `BlockHeader` with the current `Cut`, if possible.
+    -- Otherwise, return silently.
+    --
+    c <- _cut cdb
+    when (compatibleCut c bh) $ do
+        c' <- monotonicCutExtension c bh
+        let !bph = _blockPayloadHash bh
+        HM.lookup bph <$> readTVarIO payloads >>= \case
+            Nothing -> pure ()  -- TODO Error instead?
+            Just pl -> do
+                -- Publish the new Cut into the CutDb (add to queue).
+                --
+                addCutHashes cdb $ cutToCutHashes Nothing c'
+                    & set cutHashesHeaders (HM.singleton (_blockHash bh) bh)
+                    & set cutHashesPayloads (HM.singleton bph (payloadWithOutputsToPayloadData pl))
+                -- Consume the reassociated Payload.
+                --
+                atomically . modifyTVar' payloads $ HM.delete bph
+  where
+    compatibleCut :: Cut -> BlockHeader -> Bool
+    compatibleCut c bh = undefined
 
 -- | Coordinate the submission and collection of all mining work.
 --
