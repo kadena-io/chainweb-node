@@ -86,7 +86,7 @@ working
     -> CutDb cas
     -> Adjustments
     -> IO ()
-working submit tp nid conf cdb adj = _cut cdb >>= work
+working submit tp nid conf cdb !adj = _cut cdb >>= work
   where
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
@@ -145,7 +145,16 @@ working submit tp nid conf cdb adj = _cut cdb >>= work
                 -- Avoid mining on the same Cut twice.
                 --
                 void $ awaitNewCut cdb c
-                working submit tp nid conf cdb adj'
+                -- TODO How often should pruning occur?
+                working submit tp nid conf cdb $ filterAdjustments header adj'
+
+filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
+filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
+    Nothing -> mempty
+    Just (WindowWidth w) ->
+        let wh = BlockHeight (int w)
+            limit = bool (_blockHeight newBh - wh) 0 (_blockHeight newBh < wh)
+        in HM.filter (\(T2 h _) -> h > limit) as
 
 -- | THREAD: Accepts "solved" `BlockHeader` bytes from some external source
 -- (likely a remote mining client), reassociates it with the `Cut` from
@@ -202,14 +211,6 @@ publishing lf tp cdb (HeaderBytes hbytes) = do
 --
 coordination :: forall cas. PayloadCas cas => CutDb cas -> IO ()
 coordination = undefined
-
-filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
-filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
-    Nothing -> mempty
-    Just (WindowWidth w) ->
-        let wh = BlockHeight (int w)
-            limit = bool (_blockHeight newBh - wh) 0 (_blockHeight newBh < wh)
-        in HM.filter (\(T2 h _) -> h > limit) as
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
