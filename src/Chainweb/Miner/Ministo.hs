@@ -81,6 +81,8 @@ import Utils.Logging.Trace
 
 type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
+type Prev = T2 PayloadWithOutputs PrevBlock
+
 newtype PrevBlock = PrevBlock BlockHeader
 
 -- | THREAD: Receives new `Cut` data, and publishes it to remote mining
@@ -88,7 +90,7 @@ newtype PrevBlock = PrevBlock BlockHeader
 --
 working
     :: forall cas. (BlockHeader -> IO ())
-    -> TVar (Maybe PayloadWithOutputs)
+    -> TVar (Maybe Prev)
     -> NodeId
     -> MinerConfig
     -> CutDb cas
@@ -148,7 +150,7 @@ working submit tp nid conf cdb adj = _cut cdb >>= work
                         p
 
                 submit header
-                atomically . writeTVar tp $ Just payload
+                atomically . writeTVar tp . Just . T2 payload $ PrevBlock p
 
                 -- Avoid mining on the same Cut twice.
                 --
@@ -159,8 +161,8 @@ working submit tp nid conf cdb adj = _cut cdb >>= work
 -- (likely a remote mining client), reassociates it with the `Cut` from
 -- which it originated, and publishes it to the `Cut` network.
 --
-publishing :: TVar (Maybe PayloadWithOutputs) -> CutDb cas -> HeaderBytes -> IO ()
-publishing tp cdb (HeaderBytes hbytes) = do
+publishing :: LogFunction -> TVar (Maybe Prev) -> CutDb cas -> HeaderBytes -> IO ()
+publishing lf tp cdb (HeaderBytes hbytes) = do
     -- TODO Catch decoding error and send failure code?
     bh <- runGet decodeBlockHeaderWithoutHash hbytes
 
@@ -170,7 +172,7 @@ publishing tp cdb (HeaderBytes hbytes) = do
     c <- _cut cdb
     readTVarIO tp >>= \case
         Nothing -> pure ()  -- TODO Throw error?
-        Just pl -> when (compatibleCut c bh && samePayload bh pl) $ do
+        Just (T2 pl p) -> when (compatibleCut c bh && samePayload bh pl) $ do
             -- Publish the new Cut into the CutDb (add to queue).
             --
             c' <- monotonicCutExtension c bh
@@ -179,6 +181,18 @@ publishing tp cdb (HeaderBytes hbytes) = do
                     (HM.singleton (_blockHash bh) bh)
                 & set cutHashesPayloads
                     (HM.singleton (_blockPayloadHash bh) (payloadWithOutputsToPayloadData pl))
+
+            -- Log mining success.
+            --
+            let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+                    _payloadWithOutputsTransactions pl
+                !nmb = NewMinedBlock
+                       (ObjectEncoded bh)
+                       (int . V.length $ _payloadWithOutputsTransactions pl)
+                       (int bytes)
+                       (estimatedHashes p bh)
+
+            lf @(JsonLog NewMinedBlock) Info $ JsonLog nmb
   where
     -- | Even if a `Cut` is not the original `Cut` from which a `BlockHeader`
     -- originated, they might still be compatible. If the highest header in the
