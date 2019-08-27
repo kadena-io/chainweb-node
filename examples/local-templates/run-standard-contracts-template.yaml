@@ -1,4 +1,6 @@
 isChainweb: true
+verbose:
+  verbosity: false
 nodeChainId: 0
 chainwebHostAddress:
   hostname: 127.0.0.1
