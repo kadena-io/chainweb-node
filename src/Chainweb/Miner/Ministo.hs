@@ -149,6 +149,10 @@ working submit tp nid conf cdb adj = _cut cdb >>= work
 
                 submit header
                 atomically . writeTVar tp $ Just payload
+
+                -- Avoid mining on the same Cut twice.
+                --
+                void $ awaitNewCut cdb c
                 working submit tp nid conf cdb adj'
 
 -- | THREAD: Accepts "solved" `BlockHeader` bytes from some external source
@@ -176,8 +180,16 @@ publishing tp cdb (HeaderBytes hbytes) = do
                 & set cutHashesPayloads
                     (HM.singleton (_blockPayloadHash bh) (payloadWithOutputsToPayloadData pl))
   where
+    -- | Even if a `Cut` is not the original `Cut` from which a `BlockHeader`
+    -- originated, they might still be compatible. If the highest header in the
+    -- Cut matches the parent of new header (for the chain that they share),
+    -- then this Cut is still compatible, and we haven't wasted mining effort.
+    --
     compatibleCut :: Cut -> BlockHeader -> Bool
-    compatibleCut c bh = undefined
+    compatibleCut c bh = case HM.lookup (_blockChainId bh) $ _cutMap c of
+        Nothing -> False
+        -- TODO Is height a sufficient check, or should it go by parent hash?
+        Just cb -> int (_blockHeight bh) - int (_blockHeight cb) == (1 :: Integer)
 
     samePayload :: BlockHeader -> PayloadWithOutputs -> Bool
     samePayload bh pl = _blockPayloadHash bh == _payloadWithOutputsPayloadHash pl
@@ -242,8 +254,8 @@ mippies mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
         -- at the same cut for a longer time, we are most likely in catchup
         -- mode.
         --
-        trace lf "Miner.POW.powMiner.awaitCut" (cutIdToTextShort $ _cutId c) 1
-            $ void $ awaitCut cdb c
+        trace lf "Miner.POW.powMiner.awaitNewCut" (cutIdToTextShort $ _cutId c) 1
+            $ void $ awaitNewCut cdb c
 
         -- Since mining has been successful, we prune the
         -- `HashMap` of adjustment values that we've seen.
@@ -265,7 +277,7 @@ mippies mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
         --
         raceMine :: Cut -> IO (T5 PrevBlock BlockHeader PayloadWithOutputs Cut Adjustments)
         raceMine !c = do
-            ecut <- race (awaitCut cdb c) (mineCut @cas mine lf conf nid cdb g c adj)
+            ecut <- race (awaitNewCut cdb c) (mineCut @cas mine lf conf nid cdb g c adj)
             either raceMine pure ecut
 
 filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
@@ -289,8 +301,8 @@ estimatedHashes (PrevBlock p) b = floor $ (d % t) * 1000000
     d = case targetToDifficulty $ _blockTarget b of
         HashDifficulty (PowHashNat w) -> int w
 
-awaitCut :: CutDb cas -> Cut -> IO Cut
-awaitCut cdb c = atomically $ do
+awaitNewCut :: CutDb cas -> Cut -> IO Cut
+awaitNewCut cdb c = atomically $ do
     c' <- _cutStm cdb
     when (c' == c) retry
     return c'
