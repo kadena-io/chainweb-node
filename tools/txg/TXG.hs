@@ -409,7 +409,7 @@ singleTransaction args host (SingleTX c cid)
     datum kps = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
 
     f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
-    f cfg@(TXGConfig _ _ ce v _) cmd = do
+    f cfg@(TXGConfig _ _ ce v _ _) cmd = do
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
 
