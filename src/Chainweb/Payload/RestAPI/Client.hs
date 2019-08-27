@@ -15,6 +15,7 @@
 --
 module Chainweb.Payload.RestAPI.Client
 ( payloadClient
+, outputsClient
 ) where
 
 import Control.Monad.Identity
@@ -33,7 +34,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
--- GET Header Client
+-- GET Payload Client
 
 payloadClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -52,4 +53,26 @@ payloadClient v c k = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ payloadClient_ @v @c k
+
+-- -------------------------------------------------------------------------- --
+-- GET Outputs Client
+
+outputsClient_
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . KnownChainwebVersionSymbol v
+    => KnownChainIdSymbol c
+    => BlockPayloadHash
+    -> ClientM PayloadWithOutputs
+outputsClient_ = client (outputsGetApi @v @c)
+
+outputsClient
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockPayloadHash
+    -> ClientM PayloadWithOutputs
+outputsClient v c k = runIdentity $ do
+    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
+    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
+    return $ outputsClient_ @v @c k
+
 
