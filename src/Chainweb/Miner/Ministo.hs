@@ -28,7 +28,7 @@ module Chainweb.Miner.Ministo
   ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.STM (TVar, modifyTVar', readTVarIO)
+import Control.Concurrent.STM (TVar, readTVarIO, writeTVar)
 import Control.Lens
 import Control.Monad
 import Control.Monad.STM
@@ -81,8 +81,6 @@ import Utils.Logging.Trace
 
 type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
-type Payloads = HM.HashMap BlockPayloadHash PayloadWithOutputs
-
 newtype PrevBlock = PrevBlock BlockHeader
 
 -- | THREAD: Receives new `Cut` data, and publishes it to remote mining
@@ -90,13 +88,13 @@ newtype PrevBlock = PrevBlock BlockHeader
 --
 working
     :: forall cas. (BlockHeader -> IO ())
-    -> TVar Payloads
+    -> TVar (Maybe PayloadWithOutputs)
     -> NodeId
     -> MinerConfig
     -> CutDb cas
     -> Adjustments
     -> IO ()
-working submit payloads nid conf cdb adj = _cut cdb >>= work
+working submit tp nid conf cdb adj = _cut cdb >>= work
   where
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
@@ -150,15 +148,15 @@ working submit payloads nid conf cdb adj = _cut cdb >>= work
                         p
 
                 submit header
-                atomically $ modifyTVar' payloads (HM.insert phash payload)
-                working submit payloads nid conf cdb adj'
+                atomically . writeTVar tp $ Just payload
+                working submit tp nid conf cdb adj'
 
 -- | THREAD: Accepts "solved" `BlockHeader` bytes from some external source
 -- (likely a remote mining client), reassociates it with the `Cut` from
 -- which it originated, and publishes it to the `Cut` network.
 --
-publishing :: TVar Payloads -> CutDb cas -> HeaderBytes -> IO ()
-publishing payloads cdb (HeaderBytes hbytes) = do
+publishing :: TVar (Maybe PayloadWithOutputs) -> CutDb cas -> HeaderBytes -> IO ()
+publishing tp cdb (HeaderBytes hbytes) = do
     -- TODO Catch decoding error and send failure code?
     bh <- runGet decodeBlockHeaderWithoutHash hbytes
 
@@ -166,23 +164,23 @@ publishing payloads cdb (HeaderBytes hbytes) = do
     -- Otherwise, return silently.
     --
     c <- _cut cdb
-    when (compatibleCut c bh) $ do
-        c' <- monotonicCutExtension c bh
-        let !bph = _blockPayloadHash bh
-        HM.lookup bph <$> readTVarIO payloads >>= \case
-            Nothing -> pure ()  -- TODO Error instead?
-            Just pl -> do
-                -- Publish the new Cut into the CutDb (add to queue).
-                --
-                addCutHashes cdb $ cutToCutHashes Nothing c'
-                    & set cutHashesHeaders (HM.singleton (_blockHash bh) bh)
-                    & set cutHashesPayloads (HM.singleton bph (payloadWithOutputsToPayloadData pl))
-                -- Consume the reassociated Payload.
-                --
-                atomically . modifyTVar' payloads $ HM.delete bph
+    readTVarIO tp >>= \case
+        Nothing -> pure ()  -- TODO Throw error?
+        Just pl -> when (compatibleCut c bh && samePayload bh pl) $ do
+            -- Publish the new Cut into the CutDb (add to queue).
+            --
+            c' <- monotonicCutExtension c bh
+            addCutHashes cdb $ cutToCutHashes Nothing c'
+                & set cutHashesHeaders
+                    (HM.singleton (_blockHash bh) bh)
+                & set cutHashesPayloads
+                    (HM.singleton (_blockPayloadHash bh) (payloadWithOutputsToPayloadData pl))
   where
     compatibleCut :: Cut -> BlockHeader -> Bool
     compatibleCut c bh = undefined
+
+    samePayload :: BlockHeader -> PayloadWithOutputs -> Bool
+    samePayload bh pl = _blockPayloadHash bh == _payloadWithOutputsPayloadHash pl
 
 -- | Coordinate the submission and collection of all mining work.
 --
