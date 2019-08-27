@@ -3,6 +3,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
+
 module TXG.Simulate.Contracts.Common
   ( -- * Types
     Account(..)
@@ -10,14 +12,20 @@ module TXG.Simulate.Contracts.Common
   , Balance(..)
   , ContractName(..)
   , makeMeta
+  , makeMetaWithSender
     -- * Accounts
   , accountNames
+  , coinAccountNames
   , createPaymentsAccounts
+  , createCoinAccount
   , createCoinAccounts
     -- * Generation
   , distinctPair
+  , distinctPairSenders
     -- * Parsing
   , parseBytes
+    -- * Utils
+  , stockKey
   ) where
 
 import Control.Monad.Catch
@@ -33,7 +41,11 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Text (Text)
+import Data.Text.Encoding
+import qualified Data.Yaml as Y
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
+
 
 import Fake
 
@@ -43,11 +55,11 @@ import Text.Printf
 
 -- PACT
 
-import Pact.ApiReq (mkExec)
+import Pact.ApiReq (mkExec, ApiKeyPair(..), mkKeyPairs)
 import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..))
-import Pact.Types.Crypto (SomeKeyPair, defaultScheme, genKeyPair)
+import Pact.Types.Crypto
 
 -- CHAINWEB
 
@@ -65,22 +77,41 @@ createPaymentsAccount meta name = do
   where
     theCode = printf "(payments.create-account \"%s\" %s (read-keyset \"%s-keyset\"))" name (show (1000000.1 :: Decimal)) name
 
-
 createCoinAccount :: CM.PublicMeta -> String -> IO (NonEmpty SomeKeyPair, Command Text)
 createCoinAccount meta name = do
-  adminKS <- testSomeKeyPairs
-  nameKeyset <- pure <$> genKeyPair defaultScheme
-  let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
-  res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing
-  pure (nameKeyset, res)
+    adminKS <- testSomeKeyPairs
+    nameKeyset <- NEL.fromList <$> getKeyset
+    let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
+    res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing
+    pure (nameKeyset, res)
   where
     theCode = printf "(coin.create-account \"%s\" (read-keyset \"%s\"))" name name
+    isSenderAccount name'  =
+      elem name' (map getAccount coinAccountNames)
+    getKeyset
+      | isSenderAccount name = do
+          keypair <- stockKey (T.pack name)
+          mkKeyPairs [keypair]
+      | otherwise = pure <$> genKeyPair defaultScheme
 
 createPaymentsAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPair, Command Text))
 createPaymentsAccounts meta = traverse (createPaymentsAccount meta) names
 
 createCoinAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPair, Command Text))
 createCoinAccounts meta = traverse (createCoinAccount meta) names
+
+coinAccountNames :: [Account]
+coinAccountNames = (Account . ("sender0" <>) . show) <$> [0 :: Int .. 9]
+
+-- | Convenient access to predefined testnet sender accounts
+stockKey :: Text -> IO ApiKeyPair
+stockKey s = do
+  Right (Object o) <- Y.decodeFileEither "pact/genesis/testnet/keys.yaml"
+  let Just (Object kp) = HM.lookup s o
+      Just (String pub) = HM.lookup "public" kp
+      Just (String priv) = HM.lookup "secret" kp
+      mkKeyBS = decodeKey . encodeUtf8
+  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
 
 safeCapitalize :: String -> String
 safeCapitalize = fromMaybe [] . fmap (uncurry (:) . bimap toUpper (map toLower)) . uncons
@@ -106,7 +137,7 @@ instance Fake Amount where
     (fromRange (lowerLimit, upperLimit) :: FGen Double)
     where
       lowerLimit = 0
-      upperLimit = 1000
+      upperLimit = 5
 
 newtype Balance = Balance
   { getBalance :: Decimal
@@ -118,9 +149,21 @@ instance Fake Balance where
 distinctPair :: (Fake a, Eq a) => FGen (a,a)
 distinctPair = fake >>= \a -> (,) a <$> suchThat fake (/= a)
 
+distinctPairSenders :: FGen (Account, Account)
+distinctPairSenders = fakeInt 0 9 >>= go
+  where
+    append num = Account $ "sender0" ++ show num
+    go n = do
+      m <- fakeInt 0 9
+      if n == m then go n else return (append n, append m)
+
 -- hardcoded sender (sender00)
 makeMeta :: ChainId -> CM.PublicMeta
-makeMeta cid = CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 100 1.0 100000 0
+makeMeta cid =
+    CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 1000 0.00000000001 3600 0
+
+makeMetaWithSender :: String -> ChainId -> CM.PublicMeta
+makeMetaWithSender sender cid = (makeMeta cid) { CM._pmSender = T.pack sender }
 
 newtype ContractName = ContractName { getContractName :: String }
   deriving (Eq, Ord, Show, Generic)
