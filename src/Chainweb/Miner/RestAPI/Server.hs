@@ -16,19 +16,21 @@ module Chainweb.Miner.RestAPI.Server where
 import Control.Concurrent.STM.TVar (TVar)
 import Control.Monad.IO.Class (liftIO)
 
-import Data.Proxy (Proxy(..))
+-- import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..))
 
 import Servant.Server
 
 -- internal modules
 
+import Chainweb.BlockHeader (decodeBlockHeaderWithoutHash)
 import Chainweb.CutDB (CutDb)
-import Chainweb.Miner.Core (HeaderBytes)
+import Chainweb.Miner.Core (HeaderBytes(..))
 import Chainweb.Miner.Ministo (PrevBlock(..), publishing)
 import Chainweb.Miner.RestAPI (MiningResultApi)
 import Chainweb.Payload (PayloadWithOutputs)
 import Chainweb.RestAPI.Utils (SomeServer(..))
+import Chainweb.Utils (runGet)
 import Chainweb.Version (ChainwebVersion, ChainwebVersionT)
 
 import Data.LogMessage (LogFunction)
@@ -41,7 +43,8 @@ solvedHandler
     -> CutDb cas
     -> HeaderBytes
     -> Handler ()
-solvedHandler lf tp cdb hbytes = liftIO $ publishing lf tp cdb hbytes
+solvedHandler lf tp cdb (HeaderBytes hbytes) = liftIO $
+    runGet decodeBlockHeaderWithoutHash hbytes >>= publishing lf tp cdb
 
 -- TODO Use type-level `CutDbT`?
 miningServer
@@ -59,5 +62,6 @@ someMiningServer
     -> TVar (Maybe (T2 PayloadWithOutputs PrevBlock))
     -> CutDb cas
     -> SomeServer
-someMiningServer v lf tp cdb = undefined
+someMiningServer _ _ _ _ = undefined
+-- someMiningServer v lf tp cdb = undefined
     -- SomeServer (Proxy @(MiningResultApi _)) (miningServer lf tp cdb)

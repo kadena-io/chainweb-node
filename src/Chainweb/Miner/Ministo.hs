@@ -54,7 +54,6 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.Miner.Core (HeaderBytes(..))
 import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
@@ -157,22 +156,19 @@ filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
             limit = bool (_blockHeight newBh - wh) 0 (_blockHeight newBh < wh)
         in HM.filter (\(T2 h _) -> h > limit) as
 
--- | THREAD: Accepts "solved" `BlockHeader` bytes from some external source
--- (likely a remote mining client), reassociates it with the `Cut` from
--- which it originated, and publishes it to the `Cut` network.
+-- | THREAD: Accepts a "solved" `BlockHeader` from some external source (likely
+-- a remote mining client), reassociates it with the `Cut` from which it
+-- originated, and publishes it to the `Cut` network.
 --
-publishing :: LogFunction -> TVar (Maybe Prev) -> CutDb cas -> HeaderBytes -> IO ()
-publishing lf tp cdb (HeaderBytes hbytes) = do
-    -- TODO Catch decoding error and send failure code?
-    bh <- runGet decodeBlockHeaderWithoutHash hbytes
-
+publishing :: LogFunction -> TVar (Maybe Prev) -> CutDb cas -> BlockHeader -> IO ()
+publishing lf tp cdb bh = do
     -- Reassociate the new `BlockHeader` with the current `Cut`, if possible.
     -- Otherwise, return silently.
     --
     c <- _cut cdb
     readTVarIO tp >>= \case
         Nothing -> pure ()  -- TODO Throw error?
-        Just (T2 pl p) -> when (compatibleCut c bh && samePayload bh pl) $ do
+        Just (T2 pl p) -> when (compatibleCut c && samePayload pl) $ do
             -- Publish the new Cut into the CutDb (add to queue).
             --
             c' <- monotonicCutExtension c bh
@@ -199,14 +195,14 @@ publishing lf tp cdb (HeaderBytes hbytes) = do
     -- Cut matches the parent of new header (for the chain that they share),
     -- then this Cut is still compatible, and we haven't wasted mining effort.
     --
-    compatibleCut :: Cut -> BlockHeader -> Bool
-    compatibleCut c bh = case HM.lookup (_blockChainId bh) $ _cutMap c of
+    compatibleCut :: Cut -> Bool
+    compatibleCut c = case HM.lookup (_blockChainId bh) $ _cutMap c of
         Nothing -> False
         -- TODO Is height a sufficient check, or should it go by parent hash?
         Just cb -> int (_blockHeight bh) - int (_blockHeight cb) == (1 :: Integer)
 
-    samePayload :: BlockHeader -> PayloadWithOutputs -> Bool
-    samePayload bh pl = _blockPayloadHash bh == _payloadWithOutputsPayloadHash pl
+    samePayload :: PayloadWithOutputs -> Bool
+    samePayload pl = _blockPayloadHash bh == _payloadWithOutputsPayloadHash pl
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
