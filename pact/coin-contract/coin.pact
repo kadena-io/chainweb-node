@@ -115,6 +115,13 @@
       )
     )
 
+  (defun account-guard:decimal (account:string)
+    (with-read coin-table account
+      { "guard" := guard }
+      guard
+      )
+    )
+
   (defun transfer:string (sender:string receiver:string amount:decimal)
 
     (enforce (not (= sender receiver))
