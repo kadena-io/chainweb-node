@@ -18,7 +18,10 @@
 --
 
 module Chainweb.Miner.Ministo
-  ( coordination
+  ( -- * Types
+    Prev
+  , PrevBlock(..)
+    -- * Functions
   , working
   , publishing
   ) where
@@ -54,7 +57,6 @@ import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Core (HeaderBytes(..))
 import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
 import Chainweb.TreeDB.Difficulty (hashTarget)
@@ -205,11 +207,6 @@ publishing lf tp cdb (HeaderBytes hbytes) = do
 
     samePayload :: BlockHeader -> PayloadWithOutputs -> Bool
     samePayload bh pl = _blockPayloadHash bh == _payloadWithOutputsPayloadHash pl
-
--- | Coordinate the submission and collection of all mining work.
---
-coordination :: forall cas. PayloadCas cas => CutDb cas -> IO ()
-coordination = undefined
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.

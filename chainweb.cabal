@@ -159,6 +159,8 @@ library
         , Chainweb.Miner.Ministo
         , Chainweb.Miner.Pact
         , Chainweb.Miner.RestAPI
+        , Chainweb.Miner.RestAPI.Client
+        , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore

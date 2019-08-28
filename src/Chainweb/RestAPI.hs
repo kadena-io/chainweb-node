@@ -86,6 +86,7 @@ import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI as PactAPI
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
@@ -204,6 +205,8 @@ someChainwebServer v dbs =
         <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)
         <> someP2pServers v (_chainwebServerPeerDbs dbs)
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
+        -- TODO Complete
+        <> maybe mempty (Mining.someMiningServer v undefined undefined) (_chainwebServerCutDb dbs)
 
 chainwebApplication
     :: Show t
@@ -273,4 +276,3 @@ serveChainwebSocketTls settings certChain key sock v dbs m
   where
     tlsSettings = tlsServerChainSettings certChain key
     app = chainwebApplication v dbs
-
