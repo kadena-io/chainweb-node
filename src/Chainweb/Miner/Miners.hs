@@ -36,6 +36,8 @@ import Data.These (these)
 import Data.Tuple.Strict (T2(..))
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TMVar (TMVar, putTMVar)
 import Control.Monad.Catch (throwM)
 import Control.Scheduler
 
@@ -70,8 +72,9 @@ import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
 
 -- | Artificially delay the mining process to simulate Proof-of-Work.
 --
-localTest :: MWC.GenIO -> MinerCount -> BlockHeader -> IO BlockHeader
-localTest gen miners bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
+localTest :: TMVar BlockHeader -> MWC.GenIO -> MinerCount -> BlockHeader -> IO ()
+localTest tmv gen miners bh =
+    MWC.geometric1 t gen >>= threadDelay >> atomically (putTMVar tmv bh)
   where
     v :: ChainwebVersion
     v = _blockChainwebVersion bh
@@ -89,10 +92,11 @@ localTest gen miners bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: ChainwebVersion -> BlockHeader -> IO BlockHeader
-localPOW v bh = do
-    HeaderBytes new <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
-    runGet decodeBlockHeaderWithoutHash new
+localPOW :: TMVar BlockHeader -> ChainwebVersion -> BlockHeader -> IO ()
+localPOW tmv v bh = do
+    HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
+    new <- runGet decodeBlockHeaderWithoutHash newBytes
+    atomically $ putTMVar tmv new
   where
     T2 tbytes hbytes = transferableBytes bh
 

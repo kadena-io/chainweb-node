@@ -81,12 +81,12 @@ newtype PrevBlock = PrevBlock BlockHeader
 working
     :: forall cas. (BlockHeader -> IO ())
     -> TVar (Maybe Prev)
-    -> NodeId
     -> MinerConfig
+    -> NodeId
     -> CutDb cas
     -> Adjustments
     -> IO ()
-working submit tp nid conf cdb !adj = _cut cdb >>= work
+working submit tp conf nid cdb !adj = _cut cdb >>= work
   where
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
@@ -146,7 +146,7 @@ working submit tp nid conf cdb !adj = _cut cdb >>= work
                 --
                 void $ awaitNewCut cdb c
                 -- TODO How often should pruning occur?
-                working submit tp nid conf cdb $ filterAdjustments header adj'
+                working submit tp conf nid cdb $ filterAdjustments header adj'
 
 filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
 filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
