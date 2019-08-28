@@ -395,16 +395,6 @@ checkpointerTest name initdata =
 
           _cpDiscard _cpeCheckpointer
 
-          next "Load zoo contract"
-
-          hash06 <- BlockHash <$> merkleLogHash "0000000000000000000000000000006a"
-
-          blockenv06 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 6, hash05Fork))
-
-          void $ runExec  blockenv06 (Just $ ksData "") $ undefined
-
-          _cpSave _cpeCheckpointer hash06
-
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
