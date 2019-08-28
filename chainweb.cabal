@@ -154,10 +154,11 @@ library
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
         , Chainweb.Miner.Coordinator
-        , Chainweb.Miner.Ministo
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
+        , Chainweb.Miner.Ministo
         , Chainweb.Miner.Pact
+        , Chainweb.Miner.RestAPI
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
