@@ -34,6 +34,7 @@ module TXG.Repl
   , mkGuard
   , mkGuardCombined
   , stockKey
+  , mkKeyset
   , signedCode
 
   , module Chainweb.ChainId
@@ -114,13 +115,13 @@ mkGuard pub priv = k2g $ mkKey pub priv
 mkGuardCombined pactWebPriv = k2g $ mkKeyCombined pactWebPriv
 
 signedCode
-  :: SomeKeyPair
+  :: [SomeKeyPair]
   -- ^ Key pair to sign with
   -> String
   -- ^ Pact code
   -> IO [Command Text]
 signedCode k c =
-  fmap (:[]) (txToCommand defPubMeta (k :| []) (PactCode c))
+  fmap (:[]) (txToCommand defPubMeta (NEL.fromList k) (PactCode c))
 
 -- | Convenience function for constructing a coin transfer transaction
 transfer :: Text -> Text -> Double -> IO [Command Text]
@@ -146,3 +147,9 @@ transferCreate from to guard amt = do
       (ReceiverName $ Account $ T.unpack to)
       guard
       (Amount amt)
+
+mkKeyset :: Text -> [PublicKeyBS] -> Value
+mkKeyset p ks = object
+  [ "pred" .= p
+  , "keys" .= ks
+  ]
