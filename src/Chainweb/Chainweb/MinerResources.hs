@@ -20,7 +20,9 @@ module Chainweb.Chainweb.MinerResources
   , runMiner
   ) where
 
-import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO)
+import Control.Concurrent.Async (race_)
+import Control.Concurrent.STM (TVar, atomically)
+import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, takeTMVar)
 import Control.Concurrent.STM.TVar (newTVarIO)
 
 import Data.List.NonEmpty (NonEmpty)
@@ -40,15 +42,17 @@ import qualified System.Random.MWC as MWC
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.CutDB (CutDb)
 import Chainweb.HostAddress (HostAddress(..), hostnameToText)
-import Chainweb.Logger (Logger)
+import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
+import Chainweb.Miner.Coordinator (Prev, publishing, working)
 import Chainweb.Miner.Miners
-import Chainweb.Miner.Ministo (working)
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..))
 import Chainweb.Version
     (ChainwebVersion(..), MiningProtocol(..), miningProtocol)
+
+import Data.LogMessage (LogFunction)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -87,8 +91,8 @@ runMiner v mr = do
     tmv   <- newEmptyTMVarIO
     inner <- chooseMiner tmv
     tp    <- newTVarIO Nothing
-    -- TODO Run a `listener` thread as well if non-remote.
-    working inner tp conf nid cdb mempty
+    -- TODO Not correct to `race` here.
+    race_ (working inner tp conf nid cdb mempty) (listener tmv tp)
   where
     nid :: NodeId
     nid = _minerResNodeId mr
@@ -99,8 +103,16 @@ runMiner v mr = do
     conf :: MinerConfig
     conf = _minerResConfig mr
 
+    lf :: LogFunction
+    lf = logFunction $ _minerResLogger mr
+
     miners :: MinerCount
     miners = _configTestMiners conf
+
+    listener :: TMVar BlockHeader -> TVar (Maybe Prev) -> IO ()
+    listener tmv tp = do
+        bh <- atomically $ takeTMVar tmv
+        publishing lf tp cdb bh
 
     chooseMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     chooseMiner tmv = case miningProtocol v of

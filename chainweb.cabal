@@ -156,7 +156,6 @@ library
         , Chainweb.Miner.Coordinator
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
-        , Chainweb.Miner.Ministo
         , Chainweb.Miner.Pact
         , Chainweb.Miner.RestAPI
         , Chainweb.Miner.RestAPI.Client

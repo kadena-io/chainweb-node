@@ -25,8 +25,8 @@ import Servant.Server
 
 import Chainweb.BlockHeader (decodeBlockHeaderWithoutHash)
 import Chainweb.CutDB (CutDb)
+import Chainweb.Miner.Coordinator (PrevBlock(..), publishing)
 import Chainweb.Miner.Core (HeaderBytes(..))
-import Chainweb.Miner.Ministo (PrevBlock(..), publishing)
 import Chainweb.Miner.RestAPI (MiningResultApi)
 import Chainweb.Payload (PayloadWithOutputs)
 import Chainweb.RestAPI.Utils (SomeServer(..))
