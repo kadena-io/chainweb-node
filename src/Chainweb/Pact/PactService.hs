@@ -596,7 +596,7 @@ withBlockData
 withBlockData bhe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
     & locally (psPublicData . P.pdBlockTime) (const bt)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
   where
     (BlockHeight !bh) = _blockHeight bhe
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) = _blockCreationTime bhe
@@ -616,7 +616,7 @@ withParentBlockData
     -> PactServiceM cas a
 withParentBlockData phe action = action
     & locally (psPublicData . P.pdBlockHeight) (const bh)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ sshow ph)
+    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
   where
     (BlockHeight !bh) = succ $ _blockHeight phe
     (BlockHash !ph) = _blockHash phe
