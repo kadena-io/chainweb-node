@@ -33,35 +33,45 @@ import TXG.Simulate.Utils
 data CoinContractRequest
   = CoinCreateAccount Account Guard
   | CoinAccountBalance Account
-  | CoinTransferAndCreate SenderName ReceiverName Guard Amount
   | CoinTransfer SenderName ReceiverName Amount
+  | CoinTransferAndCreate SenderName ReceiverName Guard Amount
+  deriving Show
 
 newtype Guard = Guard (NonEmpty SomeKeyPair)
 newtype SenderName = SenderName Account
 newtype ReceiverName = ReceiverName Account
+
+instance Show Guard where
+    show _ = "<guard>"
+
+instance Show SenderName where
+    show (SenderName account) = "sender: " ++ show account
+
+instance Show ReceiverName where
+    show (ReceiverName account) = "sender: " ++ show account
+
 
 mkRandomCoinContractRequest
     :: Bool
     -> M.Map Account (NonEmpty SomeKeyPair)
     -> IO (FGen CoinContractRequest)
 mkRandomCoinContractRequest transfersPred kacts = do
-    request <- bool (randomRIO @Int (0, 1)) (return 0) transfersPred
+    request <- bool (randomRIO @Int (0, 1)) (return 1) transfersPred
     pure $ case request of
       0 -> CoinAccountBalance <$> fake
       1 -> do
-          (from, to) <- distinctPair
+          (from, to) <- distinctPairSenders
           case M.lookup to kacts of
               Nothing -> error $ errmsg ++ getAccount to
-              Just keyset -> CoinTransferAndCreate
+              Just _keyset -> CoinTransfer
                   (SenderName from)
                   (ReceiverName to)
-                  (Guard keyset)
                   <$> fake
       _ -> error "mkRandomCoinContractRequest: impossible case"
     where
       errmsg =
         "mkRandomCoinContractRequest: something went wrong." ++
-        " Cannot find account name"
+        " Cannot find account name: "
 
 type Keyset = NEL.NonEmpty SomeKeyPair
 

@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -36,15 +37,15 @@ import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 
 import Data.Generics.Product.Fields (field)
-import qualified Data.HashSet as HS
 import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NEL
 import Data.LogMessage
 import Data.Map (Map)
-import qualified Data.Map as M
 import Data.Sequence.NonEmpty (NESeq(..))
-import qualified Data.Sequence.NonEmpty as NES
 import Data.Text (Text)
+import qualified Data.HashSet as HS
+import qualified Data.List.NonEmpty as NEL
+import qualified Data.Map as M
+import qualified Data.Sequence.NonEmpty as NES
 import qualified Data.Text as T
 
 import Fake (fake, generate)
@@ -104,7 +105,7 @@ generateDelay = do
 
 generateSimpleTransactions
   :: (MonadIO m, MonadLog SomeLogMessage m)
-  => TXG m (ChainId, NonEmpty (Command Text))
+  => TXG m (ChainId, NonEmpty (Maybe Text), NonEmpty (Command Text))
 generateSimpleTransactions = do
   -- Choose a Chain to send these transactions to, and cycle the state.
   cid <- NES.head <$> gets gsChains
@@ -112,13 +113,13 @@ generateSimpleTransactions = do
   -- Generate a batch of transactions
   stdgen <- liftIO newStdGen
   BatchSize batch <- asks confBatchSize
-  cmds <- liftIO . sequenceA . nelReplicate batch $ f cid stdgen
+  (msgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $ f cid stdgen
   -- Delay, so as not to hammer the network.
   delay <- generateDelay
   liftIO $ threadDelay delay
-  pure (cid, cmds)
+  pure (cid, msgs, cmds)
   where
-    f :: ChainId -> StdGen -> IO (Command Text)
+    f :: ChainId -> StdGen -> IO (Maybe Text, Command Text)
     f cid stdgen = do
       let (operandA, operandB, op) = flip evalState stdgen $ do
             a <- state $ randomR (1, 100 :: Integer)
@@ -132,7 +133,7 @@ generateSimpleTransactions = do
       kps <- testSomeKeyPairs
 
       let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
-      mkExec theCode theData (Sim.makeMeta cid) (NEL.toList kps) Nothing
+      (Nothing,) <$> mkExec theCode theData (Sim.makeMeta cid) (NEL.toList kps) Nothing
 
 -- | O(1). The head value is moved to the end.
 rotate :: NESeq a -> NESeq a
@@ -145,9 +146,12 @@ randomEnum :: forall a. (Enum a, Bounded a) => IO a
 randomEnum = toEnum <$> randomRIO @Int (0, fromEnum $ maxBound @a)
 
 generateTransactions
-  :: forall m. (MonadIO m, MonadLog SomeLogMessage m)
-  => Bool -> CmdChoice -> TXG m (ChainId, NonEmpty (Command Text))
-generateTransactions ifCoinOnlyTransfers contractIndex  = do
+    :: forall m. (MonadIO m, MonadLog SomeLogMessage m)
+    => Bool
+    -> Verbose
+    -> CmdChoice
+    -> TXG m (ChainId, NonEmpty (Maybe Text) , NonEmpty (Command Text))
+generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- NES.head <$> gets gsChains
   field @"gsChains" %= rotate
@@ -157,23 +161,37 @@ generateTransactions ifCoinOnlyTransfers contractIndex  = do
     Nothing -> error $ printf "%s is missing Accounts!" (show cid)
     Just accs -> do
       BatchSize batch <- asks confBatchSize
-      cmds <- liftIO . sequenceA . nelReplicate batch $
+      (mmsgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $
         case contractIndex of
-          CoinContract ->
-            coinContract ifCoinOnlyTransfers cid $ accounts "coin" accs
-          HelloWorld -> generate fake >>= helloRequest
-          Payments -> payments cid $ accounts "payment" accs
+          CoinContract -> coinContract ifCoinOnlyTransfers isVerbose cid $ accounts "coin" accs
+          HelloWorld -> (Nothing,) <$> (generate fake >>= helloRequest)
+          Payments -> (Nothing,) <$> (payments cid $ accounts "payment" accs)
       generateDelay >>= liftIO . threadDelay
-      pure (cid, cmds)
+      pure (cid, mmsgs, cmds)
   where
     accounts :: String -> Map Sim.Account (Map Sim.ContractName a) -> Map Sim.Account a
     accounts s = fromJuste . traverse (M.lookup (Sim.ContractName s))
 
-    coinContract :: Bool -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
-    coinContract transfers cid coinaccts = do
-      ks <- testSomeKeyPairs
+    coinContract
+        :: Bool
+        -> Verbose
+        -> ChainId
+        -> Map Sim.Account (NonEmpty SomeKeyPair)
+        -> IO (Maybe Text,  Command Text)
+    coinContract transfers (Verbose vb) cid coinaccts = do
       coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
-      createCoinContractRequest (Sim.makeMeta cid) ks coinContractRequest
+      let msg = if vb then Just $ sshow coinContractRequest else Nothing
+      let acclookup sn@(Sim.Account accsn) =
+            case M.lookup sn coinaccts of
+              Just ks -> (sn, ks)
+              Nothing -> error $ "Couldn't find account: <" ++ accsn ++ ">"
+      let (Sim.Account sender, ks) =
+            case coinContractRequest of
+              CoinCreateAccount account (Guard guardd) -> (account, guardd)
+              CoinAccountBalance account -> acclookup account
+              CoinTransfer (SenderName sn) _ _ -> acclookup sn
+              CoinTransferAndCreate (SenderName acc) _ (Guard guardd) _ -> (acc, guardd)
+      (msg,) <$> createCoinContractRequest (Sim.makeMetaWithSender sender cid) ks coinContractRequest
 
     payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
     payments cid paymentAccts = do
@@ -193,27 +211,30 @@ sendTransactions
   -> ChainId
   -> NonEmpty (Command Text)
   -> IO (Either ClientError RequestKeys)
-sendTransactions (TXGConfig _ _ cenv v _) cid cmds =
+sendTransactions (TXGConfig _ _ cenv v _ _) cid cmds =
   runClientM (send v cid $ SubmitBatch cmds) cenv
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m)
-  => TXG m (ChainId, NonEmpty (Command Text))
+  => TXG m (ChainId, NonEmpty (Maybe Text), NonEmpty (Command Text))
   -> TXG m ()
 loop f = do
-  (cid, transactions) <- f
+  (cid, msgs, transactions) <- f
   config <- ask
   requestKeys <- liftIO $ sendTransactions config cid transactions
 
   case requestKeys of
     Left servantError ->
       lift . logg Error $ toLogMessage (sshow servantError :: Text)
-    Right _ -> do
+    Right rk -> do
       countTV <- gets gsCounter
       batch <- asks confBatchSize
       liftIO . atomically $ modifyTVar' countTV (+ fromIntegral batch)
       count <- liftIO $ readTVarIO countTV
       lift . logg Info $ toLogMessage ("Transaction count: " <> sshow count :: Text)
+      lift . logg Info $ toLogMessage ("Transaction requestKey: " <> sshow rk :: Text)
+      forM_ (Compose msgs) $ \m ->
+        lift . logg Info $ toLogMessage $ ("Actual transaction: " <> m :: Text)
 
   loop f
 
@@ -221,13 +242,16 @@ type ContractLoader = CM.PublicMeta -> NonEmpty SomeKeyPair -> IO (Command Text)
 
 loadContracts :: Args -> HostAddress -> NonEmpty ContractLoader -> IO ()
 loadContracts config host contractLoaders = do
-  TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
+  TXGConfig _ _ ce v _ (Verbose vb) <- mkTXGConfig Nothing config host
   forM_ (nodeChainIds config) $ \cid -> do
     let !meta = Sim.makeMeta cid
     ts <- testSomeKeyPairs
     contracts <- traverse (\f -> f meta ts) contractLoaders
     pollresponse <- runExceptT $ do
       rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
+      when vb $ do
+            withConsoleLogger Info $ do
+                logg Info $ "sent contracts with request key: " <> sshow rkeys
       ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
     withConsoleLogger Info . logg Info $ sshow pollresponse
 
@@ -238,7 +262,7 @@ realTransactions
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 realTransactions config host tv distribution = do
-  cfg@(TXGConfig _ _ ce v _) <- liftIO $ mkTXGConfig (Just distribution) config host
+  cfg@(TXGConfig _ _ ce v _ _) <- liftIO $ mkTXGConfig (Just distribution) config host
 
   let chains = maybe (versionChains $ nodeVersion config) NES.fromList
                . NEL.nonEmpty
@@ -261,7 +285,7 @@ realTransactions config host tv distribution = do
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  let act = loop (liftIO randomEnum >>= generateTransactions False)
+  let act = loop (liftIO randomEnum >>= generateTransactions False (verbose config))
       env = set (field @"confKeysets") accountMap cfg
       stt = TXGState gen tv chains
 
@@ -291,29 +315,26 @@ realCoinTransactions
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 realCoinTransactions config host tv distribution = do
-  cfg@(TXGConfig _ _ ce v _) <- liftIO $ mkTXGConfig (Just distribution) config host
+  cfg <- liftIO $ mkTXGConfig (Just distribution) config host
 
   let chains = maybe (versionChains $ nodeVersion config) NES.fromList
                . NEL.nonEmpty
                $ nodeChainIds config
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
-    let !meta = Sim.makeMeta cid
-    (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts meta
-    pollresponse <- liftIO . runExceptT $ do
-      rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ coinAcc) ce
-      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
-    case pollresponse of
-      Left e -> logg Error $ toLogMessage (sshow e :: Text)
-      Right _ -> pure ()
-    let accounts = buildGenAccountsKeysets Sim.accountNames coinKS
+    -- let !meta = Sim.makeMetaWithSender cid
+    let f (Sim.Account sender) =
+          Sim.createCoinAccount (Sim.makeMetaWithSender sender cid) sender
+    (coinKS, _coinAcc) <-
+        liftIO $ unzip <$> traverse f Sim.coinAccountNames
+    let accounts = buildGenAccountsKeysets (NEL.fromList Sim.coinAccountNames) (NEL.fromList coinKS)
     pure (cid, accounts)
 
   logg Info $ toLogMessage ("Real Transactions: Transactions are being generated" :: Text)
 
   -- Set up values for running the effect stack.
   gen <- liftIO createSystemRandom
-  let act = loop (generateTransactions True CoinContract)
+  let act = loop (generateTransactions True (verbose config) CoinContract)
       env = set (field @"confKeysets") accountMap cfg
       stt = TXGState gen tv chains
 
@@ -355,7 +376,7 @@ simpleExpressions config host tv distribution = do
 
 pollRequestKeys :: Args -> HostAddress -> RequestKey -> IO ()
 pollRequestKeys config host rkey = do
-  TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
+  TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
   response <- runClientM (poll v cid . Poll $ pure rkey) ce
   case response of
     Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
@@ -370,7 +391,7 @@ pollRequestKeys config host rkey = do
 
 listenerRequestKey :: Args -> HostAddress -> ListenerRequest -> IO ()
 listenerRequestKey config host listenerRequest = do
-  TXGConfig _ _ ce v _ <- mkTXGConfig Nothing config host
+  TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
   runClientM (listen v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print r >> exitSuccess
@@ -397,7 +418,7 @@ singleTransaction args host (SingleTX c cid)
     datum kps = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
 
     f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
-    f cfg@(TXGConfig _ _ ce v _) cmd = do
+    f cfg@(TXGConfig _ _ ce v _ _) cmd = do
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
 

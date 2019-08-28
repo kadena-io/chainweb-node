@@ -34,6 +34,7 @@ module TXG.Repl
   , mkGuard
   , mkGuardCombined
   , stockKey
+  , mkKeyset
   , signedCode
 
   , module Chainweb.ChainId
@@ -44,7 +45,6 @@ module TXG.Repl
 
 import Data.Aeson
 import Data.ByteString (ByteString)
-import qualified Data.HashMap.Strict as HM
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
@@ -52,7 +52,6 @@ import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
-import qualified Data.Yaml as Y
 import Text.Printf
 import Pact.ApiReq
 import Pact.Types.API
@@ -115,23 +114,14 @@ k2g skp = Guard (skp :| [])
 mkGuard pub priv = k2g $ mkKey pub priv
 mkGuardCombined pactWebPriv = k2g $ mkKeyCombined pactWebPriv
 
--- | Convenient access to predefined testnet sender accounts
-stockKey :: Text -> IO ApiKeyPair
-stockKey s = do
-  Right (Object o) <- Y.decodeFileEither "pact/genesis/testnet/keys.yaml"
-  let Just (Object kp) = HM.lookup s o
-      Just (String pub) = HM.lookup "public" kp
-      Just (String priv) = HM.lookup "secret" kp
-  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
-
 signedCode
-  :: SomeKeyPair
+  :: [SomeKeyPair]
   -- ^ Key pair to sign with
   -> String
   -- ^ Pact code
   -> IO [Command Text]
 signedCode k c =
-  fmap (:[]) (txToCommand defPubMeta (k :| []) (PactCode c))
+  fmap (:[]) (txToCommand defPubMeta (NEL.fromList k) (PactCode c))
 
 -- | Convenience function for constructing a coin transfer transaction
 transfer :: Text -> Text -> Double -> IO [Command Text]
@@ -157,3 +147,9 @@ transferCreate from to guard amt = do
       (ReceiverName $ Account $ T.unpack to)
       guard
       (Amount amt)
+
+mkKeyset :: Text -> [PublicKeyBS] -> Value
+mkKeyset p ks = object
+  [ "pred" .= p
+  , "keys" .= ks
+  ]
