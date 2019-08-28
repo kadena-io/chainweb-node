@@ -34,6 +34,7 @@ module TXG.Repl
   , mkGuard
   , mkGuardCombined
   , stockKey
+  , mkKeyset
   , signedCode
 
   , module Chainweb.ChainId
