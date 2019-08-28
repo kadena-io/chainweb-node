@@ -56,35 +56,43 @@ import TXG.Simulate.Utils
 
 -- for ghci
 
+data Network = Network
+  { networkVersion :: ChainwebVersion
+  , networkHost :: HostAddress
+  , networkChainId :: ChainId
+  } deriving (Eq,Ord,Show)
+
 send
-    :: ChainwebVersion
-    -> HostAddress
-    -> ChainId
+    :: Network
     -> [Command Text]
     -> IO (Either ClientError RequestKeys)
-send v h cid xs = do
+send (Network v h cid) xs = do
     cenv <- genClientEnv h
     runClientM (sendClient v cid (SubmitBatch (NEL.fromList xs))) cenv
 
 poll
-    :: ChainwebVersion
-    -> HostAddress
-    -> ChainId
+    :: Network
     -> RequestKeys
     -> IO (Either ClientError PollResponses)
-poll v h cid rkeys = do
+poll (Network v h cid) rkeys = do
     ce <- genClientEnv h
     runClientM (pollClient v cid . Poll $ _rkRequestKeys rkeys) ce
 
 local
-    :: ChainwebVersion
-    -> HostAddress
-    -> ChainId
+    :: Network
     -> Command Text
     -> IO (Either ClientError (CommandResult Hash))
-local v h cid cmdText = do
+local (Network v h cid) cmdText = do
     ce <- genClientEnv h
     runClientM (localClient v cid cmdText) ce
+
+listen
+    :: Network
+    -> RequestKey
+    -> IO (Either ClientError ListenResponse)
+listen (Network v h cid) rk = do
+    ce <- genClientEnv h
+    runClientM (listenClient v cid (ListenerRequest rk)) ce
 
 cmd
     :: String
@@ -94,6 +102,7 @@ cmd
     -> PublicMeta
     -> [SomeKeyPair]
     -> Maybe String
+    -- ^ Transaction nonce.  If Nothing, then getCurrentTime is used.
     -> IO (Command Text)
 cmd = mkExec
 
