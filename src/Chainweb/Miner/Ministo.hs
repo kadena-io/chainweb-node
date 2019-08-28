@@ -23,10 +23,9 @@ module Chainweb.Miner.Ministo
   , publishing
   ) where
 
-import Control.Concurrent.STM (TVar, readTVarIO, writeTVar)
-import Control.Lens
-import Control.Monad
-import Control.Monad.STM
+import Control.Concurrent.STM (TVar, atomically, readTVarIO, retry, writeTVar)
+import Control.Lens (iforM, ix, set, to, view, (^?), (^?!))
+import Control.Monad (void, when)
 
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
@@ -57,7 +56,7 @@ import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time
+import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
 import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
