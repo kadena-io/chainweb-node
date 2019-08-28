@@ -93,7 +93,8 @@ cmd
     -- ^ Env data
     -> PublicMeta
     -> [SomeKeyPair]
-    -> Maybe String -> IO (Command Text)
+    -> Maybe String
+    -> IO (Command Text)
 cmd = mkExec
 
 cmdStr :: String -> IO (Command Text)
@@ -148,7 +149,7 @@ defChainId = foldr const err $ chainIds defChainwebVersion
 defPubMeta :: PublicMeta
 defPubMeta = def
     & set pmChainId "0"
-    & set pmSender "0"
+    & set pmSender "sender00"
     & set pmGasLimit 1000
     & set pmGasPrice 0.00000000001
     & set pmTTL 3600
