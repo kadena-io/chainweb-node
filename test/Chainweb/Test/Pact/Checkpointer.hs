@@ -2,10 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-
-{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 module Chainweb.Test.Pact.Checkpointer (tests) where
 
@@ -17,29 +14,19 @@ import Control.Monad (void)
 import Control.Monad.Reader
 
 import Data.Aeson (Value(..), object, toJSON, (.=))
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Base16 as B16
 import Data.Default (def)
-import Data.FileEmbed
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromJust)
 import Data.Text (Text)
-import Data.Text.Encoding
-import qualified Data.Text.IO as TIO
-import qualified Data.Yaml as Y
 
 import NeatInterpolation (text)
 
-import Pact.ApiReq
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..))
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
-import Pact.Types.Command (Signer, keyPairsToSigners)
-import Pact.Types.Crypto
 import Pact.Types.Exp (Literal(..))
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
@@ -187,14 +174,11 @@ checkpointerTest name initdata =
           let ksData :: Text -> Value
               ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
-              runExec' :: PactDbEnv'-> [Signer] -> PublicData -> Maybe Value -> Text -> IO EvalResult
-              runExec' (PactDbEnv' pactdbenv) signers pubdata eData eCode = do
-                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv pubdata noSPVSupport
+              runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
+              runExec (PactDbEnv' pactdbenv) eData eCode = do
+                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
                   execMsg <- buildExecParsedCode eData eCode
-                  applyExec' cmdenv def execMsg signers (H.toUntypedHash (H.hash "" :: H.PactHash))
-
-              runExec :: PactDbEnv' -> Maybe Value -> Text -> IO EvalResult
-              runExec pdbenv eData eCode = runExec' pdbenv [] def eData eCode
+                  applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
@@ -409,71 +393,6 @@ checkpointerTest name initdata =
           _blockenv04Fork <- restore _cpeCheckpointer (Just (BlockHeight 4, hash13))
 
           discard _cpeCheckpointer
-
-          next "Load zoo contract"
-
-          hash14 <- BlockHash <$> merkleLogHash "0000000000000000000000000000004b"
-
-          akp0 <- stockKey "sender00"
-
-          kp0 <-  mkKeyPairs [akp0]
-
-          zoocode <- TIO.readFile "pact/lottery.pact"
-
-          let zooValue =
-                object
-                    ["zookeeper" .= mkKeyset "keys-all" [fromJust $ _akpPublic akp0]]
-
-              pubdata = def
-                & set (pdPublicMeta . pmSender) "sender00"
-                & set (pdPublicMeta . pmChainId) "0"
-                & set (pdPublicMeta . pmGasLimit) 100
-                & set (pdPublicMeta . pmGasPrice) 0.00000000001
-                & set (pdPublicMeta . pmTTL) 3600
-
-          blockenv06 <- restore _cpeCheckpointer (Just (BlockHeight 4, hash13))
-
-          void $ runExec' blockenv06 (keyPairsToSigners kp0) pubdata (Just zooValue) zoocode
-
-          save _cpeCheckpointer hash14
-
-          next "initialize the game"
-
-          -- (zoo-game.init-game \"thursday\" 1.0)
-
-          next "first bet"
-
-          -- (zoo-game.bet-number \"12\" \"thursday\" \"sender01\" 1.0)
-
-          next "second bet"
-
-          -- (zoo-game.bet-animal [[\"00\" \"01\" \"02\" \"03\"] [\"96\" \"97\" \"98\" \"99\"]] \"thursday\" \"sender01\" 1.0)
-
-          next "end game"
-
-          -- (zoo-game.end-game \"thursday\")
-
-mkKeyset :: Text -> [PublicKeyBS] -> Value
-mkKeyset p ks = object
-  [ "pred" .= p
-  , "keys" .= ks
-  ]
-
-stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
-
--- | Convenient access to predefined testnet sender accounts
-stockKey :: Text -> IO ApiKeyPair
-stockKey s = do
-  let Right (Y.Object o) = Y.decodeEither' stockKeyFile
-      Just (Y.Object kp) = HM.lookup s o
-      Just (String pub) = HM.lookup "public" kp
-      Just (String priv) = HM.lookup "secret" kp
-      mkKeyBS = decodeKey . encodeUtf8
-  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
-
-decodeKey :: ByteString -> ByteString
-decodeKey = fst . B16.decode
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
