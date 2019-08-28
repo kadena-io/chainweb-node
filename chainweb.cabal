@@ -399,6 +399,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.Utils
+        Chainweb.Test.Pact.ZooContractTest
         Chainweb.Test.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
@@ -432,6 +433,7 @@ test-suite chainweb-tests
         , directory >= 1.2
         , exceptions
         , extra >= 1.6
+        , file-embed >= 0.0
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
