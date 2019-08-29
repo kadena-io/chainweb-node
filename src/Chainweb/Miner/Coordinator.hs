@@ -19,7 +19,7 @@
 
 module Chainweb.Miner.Coordinator
   ( -- * Types
-    Prev
+    MiningState(..)
   , PrevBlock(..)
     -- * Functions
   , working
@@ -71,7 +71,15 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 
 type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
-type Prev = T2 PayloadWithOutputs PrevBlock
+-- | Data shared between the mining threads represented by `working` and
+-- `publishing`.
+--
+data MiningState = MiningState
+    { _msPayload :: !PayloadWithOutputs
+      -- ^ The payload associated with the /current/ `BlockHeader` being mined.
+    , _msBlock :: !PrevBlock
+      -- ^ The parent block of the current `BlockHeader` being mined.
+    }
 
 newtype PrevBlock = PrevBlock BlockHeader
 
@@ -80,7 +88,7 @@ newtype PrevBlock = PrevBlock BlockHeader
 --
 working
     :: forall cas. (BlockHeader -> IO ())
-    -> TVar (Maybe Prev)
+    -> TVar (Maybe MiningState)
     -> MinerConfig
     -> NodeId
     -> CutDb cas
@@ -140,7 +148,7 @@ working submit tp conf nid cdb !adj = _cut cdb >>= work
                         p
 
                 submit header
-                atomically . writeTVar tp . Just . T2 payload $ PrevBlock p
+                atomically . writeTVar tp . Just . MiningState payload $ PrevBlock p
 
                 -- Avoid mining on the same Cut twice.
                 --
@@ -160,7 +168,7 @@ filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
 -- a remote mining client), reassociates it with the `Cut` from which it
 -- originated, and publishes it to the `Cut` network.
 --
-publishing :: LogFunction -> TVar (Maybe Prev) -> CutDb cas -> BlockHeader -> IO ()
+publishing :: LogFunction -> TVar (Maybe MiningState) -> CutDb cas -> BlockHeader -> IO ()
 publishing lf tp cdb bh = do
     -- Reassociate the new `BlockHeader` with the current `Cut`, if possible.
     -- Otherwise, return silently.
@@ -168,7 +176,7 @@ publishing lf tp cdb bh = do
     c <- _cut cdb
     readTVarIO tp >>= \case
         Nothing -> pure ()  -- TODO Throw error?
-        Just (T2 pl p) -> when (compatibleCut c && samePayload pl) $ do
+        Just (MiningState pl p) -> when (compatibleCut c && samePayload pl) $ do
             -- Publish the new Cut into the CutDb (add to queue).
             --
             c' <- monotonicCutExtension c bh

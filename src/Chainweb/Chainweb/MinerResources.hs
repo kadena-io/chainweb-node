@@ -44,7 +44,7 @@ import Chainweb.CutDB (CutDb)
 import Chainweb.HostAddress (HostAddress(..), hostnameToText)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
-import Chainweb.Miner.Coordinator (Prev, publishing, working)
+import Chainweb.Miner.Coordinator (MiningState(..), publishing, working)
 import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
@@ -109,10 +109,8 @@ runMiner v mr = do
     miners :: MinerCount
     miners = _configTestMiners conf
 
-    listener :: TMVar BlockHeader -> TVar (Maybe Prev) -> IO ()
-    listener tmv tp = do
-        bh <- atomically $ takeTMVar tmv
-        publishing lf tp cdb bh
+    listener :: TMVar BlockHeader -> TVar (Maybe MiningState) -> IO ()
+    listener tmv tp = atomically (takeTMVar tmv) >>= publishing lf tp cdb
 
     chooseMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     chooseMiner tmv = case miningProtocol v of

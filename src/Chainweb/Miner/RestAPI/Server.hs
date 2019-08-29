@@ -17,7 +17,6 @@ import Control.Concurrent.STM.TVar (TVar)
 import Control.Monad.IO.Class (liftIO)
 
 -- import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T2(..))
 
 import Servant.Server
 
@@ -25,10 +24,9 @@ import Servant.Server
 
 import Chainweb.BlockHeader (decodeBlockHeaderWithoutHash)
 import Chainweb.CutDB (CutDb)
-import Chainweb.Miner.Coordinator (PrevBlock(..), publishing)
+import Chainweb.Miner.Coordinator (MiningState(..), publishing)
 import Chainweb.Miner.Core (HeaderBytes(..))
 import Chainweb.Miner.RestAPI (MiningResultApi)
-import Chainweb.Payload (PayloadWithOutputs)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Utils (runGet)
 import Chainweb.Version (ChainwebVersion, ChainwebVersionT)
@@ -39,7 +37,7 @@ import Data.LogMessage (LogFunction)
 
 solvedHandler
     :: LogFunction
-    -> TVar (Maybe (T2 PayloadWithOutputs PrevBlock))
+    -> TVar (Maybe MiningState)
     -> CutDb cas
     -> HeaderBytes
     -> Handler ()
@@ -50,7 +48,7 @@ solvedHandler lf tp cdb (HeaderBytes hbytes) = liftIO $
 miningServer
     :: forall cas (v :: ChainwebVersionT)
     .  LogFunction
-    -> TVar (Maybe (T2 PayloadWithOutputs PrevBlock))
+    -> TVar (Maybe MiningState)
     -> CutDb cas
     -> Server (MiningResultApi v)
 miningServer lf tp cdb = solvedHandler lf tp cdb
@@ -59,7 +57,7 @@ miningServer lf tp cdb = solvedHandler lf tp cdb
 someMiningServer
     :: ChainwebVersion
     -> LogFunction
-    -> TVar (Maybe (T2 PayloadWithOutputs PrevBlock))
+    -> TVar (Maybe MiningState)
     -> CutDb cas
     -> SomeServer
 someMiningServer _ _ _ _ = undefined
