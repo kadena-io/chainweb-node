@@ -275,10 +275,10 @@ type ParentHash = BlockHash
 
 data Checkpointer = Checkpointer
     {
-      _cpRestore :: Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+      _cpRestore :: !(Maybe (BlockHeight, ParentHash) -> IO PactDbEnv')
       -- ^ prerequisite: (BlockHeight - 1, ParentHash) is a direct ancestor of
       -- the "latest block"
-    , _cpSave :: BlockHash -> IO ()
+    , _cpSave :: !(BlockHash -> IO ())
       -- ^ commits pending modifications to block, with the given blockhash
     , _cpDiscard :: IO ()
       -- ^ discard pending block changes
@@ -287,13 +287,13 @@ data Checkpointer = Checkpointer
     , _cpBeginCheckpointerBatch :: IO ()
     , _cpCommitCheckpointerBatch :: IO ()
     , _cpDiscardCheckpointerBatch :: IO ()
-    , _cpLookupBlockInCheckpointer :: (BlockHeight, BlockHash) -> IO Bool
+    , _cpLookupBlockInCheckpointer :: !((BlockHeight, BlockHash) -> IO Bool)
       -- ^ is the checkpointer aware of the given block?
-    , _cpGetBlockParent :: (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
-    , _cpRegisterProcessedTx :: P.PactHash -> IO ()
+    , _cpGetBlockParent :: !((BlockHeight, BlockHash) -> IO (Maybe BlockHash))
+    , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
 
       -- TODO: this would be nicer as a batch lookup :(
-    , _cpLookupProcessedTx :: P.PactHash -> IO (Maybe (BlockHeight, BlockHash))
+    , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (BlockHeight, BlockHash)))
     }
 
 data CheckpointEnv = CheckpointEnv
