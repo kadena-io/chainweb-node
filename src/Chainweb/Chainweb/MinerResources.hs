@@ -31,7 +31,7 @@ import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Text as T
 
--- import Network.HTTP.Client (defaultManagerSettings, newManager)
+import Network.HTTP.Client (defaultManagerSettings, newManager)
 
 import Servant.Client.Core (BaseUrl(..), Scheme(..))
 
@@ -131,10 +131,9 @@ runMiner v mr = do
     powMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     powMiner tmv = case g $ _configRemoteMiners conf of
         Nothing -> pure $ localPOW tmv v
-        Just _ -> undefined -- TODO
-        -- Just rs -> do
-            -- m <- newManager defaultManagerSettings
-            -- pure $ remoteMining m rs
+        Just rs -> do
+            m <- newManager defaultManagerSettings
+            pure $ remoteMining m rs
 
     g :: Set HostAddress -> Maybe (NonEmpty BaseUrl)
     g = fmap (NEL.map f) . NEL.nonEmpty . S.toList

@@ -9,19 +9,35 @@
 -- Stability: experimental
 --
 --
-module Chainweb.Miner.RestAPI.Client where
+module Chainweb.Miner.RestAPI.Client
+  ( -- * Mining Work Submission
+    submitClient
+    -- * Mining Results
+  , solvedClient
+  ) where
+
+import Data.Proxy (Proxy(..))
 
 import Servant.Client (ClientM, client)
 
 -- internal modules
 
-import Chainweb.Miner.Core (HeaderBytes(..))
-import Chainweb.Miner.RestAPI (miningResultApi)
+import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes(..))
+import Chainweb.Miner.RestAPI (MiningSubmissionApi, miningResultApi)
 import Chainweb.Version
 
 import Data.Singletons
 
 ---
+
+-- -----------------------------------------------------------------------------
+-- Mining Work Submission
+
+submitClient :: WorkBytes -> ClientM ()
+submitClient = client (Proxy @MiningSubmissionApi)
+
+-- -----------------------------------------------------------------------------
+-- Mining Results
 
 solvedClient :: ChainwebVersion -> HeaderBytes -> ClientM ()
 solvedClient (FromSing (SChainwebVersion :: Sing v)) = client (miningResultApi @v)

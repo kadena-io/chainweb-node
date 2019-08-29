@@ -14,7 +14,10 @@
 --
 --
 module Chainweb.Miner.RestAPI
-  ( MiningResultApi_
+  ( -- * Mining Work Submission
+    MiningSubmissionApi
+    -- * Mining Results
+  , MiningResultApi_
   , MiningResultApi
   , miningResultApi
   , someMiningResultApi
@@ -26,13 +29,24 @@ import Servant.API
 
 -- internal modules
 
-import Chainweb.Miner.Core (HeaderBytes)
+import Chainweb.Miner.Core (HeaderBytes, WorkBytes)
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc, SomeApi(..))
 import Chainweb.Version
 
 import Data.Singletons
 
 ---
+
+-- -----------------------------------------------------------------------------
+-- Mining Work Submission
+
+-- | Shared between the `Chainweb.Miner.Miners.remoteMining` function and the
+-- /chainweb-miner/ executable.
+--
+type MiningSubmissionApi = "submit" :> ReqBody '[OctetStream] WorkBytes :> Post '[JSON] ()
+
+-- -----------------------------------------------------------------------------
+-- Mining Results
 
 -- TODO Use `NetworkID` to be consistent with the other subnetworks?
 -- | To yield a solved `Chainweb.BlockHeader.BlockHeader` back to a Chainweb
