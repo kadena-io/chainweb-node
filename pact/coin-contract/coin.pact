@@ -115,7 +115,7 @@
       )
     )
 
-  (defun account-guard:decimal (account:string)
+  (defun account-guard:guard (account:string)
     (with-read coin-table account
       { "guard" := guard }
       guard
