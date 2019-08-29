@@ -407,7 +407,14 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             -- update the cutdb mvar used by pact service with cutdb
             void $! putMVar cdbv mCutDb
 
-            -- synchronize pact dbs with latest cut before we begin mining
+            -- synchronize pact dbs with latest cut before we start the server
+            -- and clients and begin mining.
+            --
+            -- This is a consistency check that validates the blocks in the
+            -- current cut. If it fails in exception is raised. Also, if it
+            -- takes long (why would it?) we want this to happen before we go
+            -- online.
+            --
             logg Info "start synchronizing Pact DBs"
             synchronizePactDb cs mCutDb
             logg Info "finished synchronizing Pact DBs"
