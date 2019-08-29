@@ -87,7 +87,7 @@ import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (newEmptyMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 
@@ -116,6 +116,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
@@ -145,8 +146,10 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.CAS.RocksDB
+import Data.LogMessage (LogFunctionText)
 
 import P2P.Node.Configuration
+import P2P.Node.PeerDB (PeerDb)
 import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
@@ -325,9 +328,8 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 
     -- Here we inject the hard-coded bootstrap peer infos for the configured
     -- chainweb version into the configuration.
-    conf
-        | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
-        | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
+    conf | _p2pConfigIgnoreBootstrapNodes (_configP2p c) = c
+         | otherwise = configP2p . p2pConfigKnownPeers <>~ bootstrapPeerInfos v $ c
 
 -- TODO: The type InMempoolConfig contains parameters that should be
 -- configurable as well as parameters that are determined by the chainweb
@@ -346,7 +348,8 @@ validatingMempoolConfig = Mempool.InMemConfig
 -- Intializes all local chainweb components but doesn't start any networking.
 --
 withChainwebInternal
-    :: Logger logger
+    :: forall logger a
+    .  Logger logger
     => ChainwebConfiguration
     -> logger
     -> PeerResources logger
@@ -368,26 +371,41 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
         cidsList
-
   where
+    prune :: Bool
     prune = _configPruneChainDatabase conf
+
+    cidsList :: [ChainId]
     cidsList = toList cids
+
+    payloadDb :: PayloadDb RocksDbCas
     payloadDb = newPayloadDb rocksDb
+
+    chainLogger :: ChainId -> logger
     chainLogger cid = addLabel ("chain", toText cid) logger
+
+    logg :: LogFunctionText
     logg = logFunctionText logger
 
     -- Initialize global resources
+    global
+        :: HM.HashMap ChainId (ChainResources logger)
+        -> MVar (CutDb RocksDbCas)
+        -> IO a
     global cs cdbv = do
-        let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
-            pact = mkWebPactExecutionService (HM.map _chainResPact cs)
-            cutLogger = setComponent "cut" logger
-            mgr = _peerResManager peer
+        let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
+            !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
+            !cutLogger = setComponent "cut" logger
+            !mgr = _peerResManager peer
+
         logg Info "start initializing cut resources"
+
         withCutResources cutConfig peer cutLogger rocksDb webchain payloadDb mgr pact $ \cuts -> do
             logg Info "finished initializing cut resources"
-            let mLogger = setComponent "miner" logger
-                mConf = _configMiner conf
-                mCutDb = _cutResCutDb cuts
+
+            let !mLogger = setComponent "miner" logger
+                !mConf = _configMiner conf
+                !mCutDb = _cutResCutDb cuts
 
             -- initialize throttler
             throttler <- initThrottler (defaultThrottleSettings $ TimeSpec 4 0)
@@ -438,13 +456,17 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                         , _chainwebConfig = conf
                         }
 
+    withPactData
+        :: HM.HashMap ChainId (ChainResources logger)
+        -> CutResources logger cas
+        -> ([(ChainId, (CutResources logger cas, ChainResources logger))] -> IO b)
+        -> IO b
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
               -- TODO: delete this knob
               logg Info "Transaction index enabled"
               let l = sortBy (compare `on` fst) (HM.toList cs)
               m $ map (\(c, cr) -> (c, (cuts, cr))) l
-
         | otherwise = do
               logg Info "Transaction index disabled"
               m []
@@ -454,19 +476,24 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     cwnid = _configNodeId conf
 
     -- FIXME: make this configurable
+    cutConfig :: CutDbConfig
     cutConfig = (defaultCutDbConfig v)
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
         }
 
+    synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
         mapConcurrently_ syncOne $ mergeCutResources $ _cutMap currentCut
       where
+        mergeCutResources :: HM.HashMap ChainId b -> [(b, ChainResources logger)]
         mergeCutResources c =
             let f cid bh = (bh, fromJuste $ HM.lookup cid cs)
             in map snd $ HM.toList $ HM.mapWithKey f c
+
+        syncOne :: (BlockHeader, ChainResources logger) -> IO ()
         syncOne (bh, cr) = do
             let pact = _chainResPact cr
             let logCr = logFunctionText $ _chainResLogger cr
@@ -478,7 +505,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
-
 
 -- | Starts server and runs all network clients
 --
@@ -496,6 +522,7 @@ runChainweb cw = do
         -- 2. Start Clients (with a delay of 500ms)
         (threadDelay 500000 >> clients)
   where
+    clients :: IO ()
     clients = do
         mpClients <- mempoolSyncClients
         mapConcurrently_ id $ concat
@@ -504,29 +531,46 @@ runChainweb cw = do
               , mpClients
               ]
 
+    logg :: LogFunctionText
     logg = logFunctionText $ _chainwebLogger cw
 
     -- chains
+    chains :: [(ChainId, ChainResources logger)]
     chains = HM.toList (_chainwebChains cw)
+
+    chainVals :: [ChainResources logger]
     chainVals = map snd chains
 
     -- collect server resources
     proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
     proj f = flip map chains $ \(k, ch) -> (k, f ch)
 
+    chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
-    mempoolsToServe = proj _chainResMempool
-    chainP2pToServe = bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
-    memP2pToServe = bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
+    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe = proj _chainResMempool
+
+    chainP2pToServe :: [(NetworkId, PeerDb)]
+    chainP2pToServe =
+        bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+
+    memP2pToServe :: [(NetworkId, PeerDb)]
+    memP2pToServe =
+        bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
+
+    payloadDbsToServe :: [(ChainId, PayloadDb cas)]
     payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+
+    pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw
 
-    serverSettings
-        = setOnException
-            (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
+    serverSettings :: Settings
+    serverSettings = setOnException
+        (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
         $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
 
+    serve :: Middleware -> IO ()
     serve = serveChainwebSocketTls
         serverSettings
         (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
@@ -552,33 +596,40 @@ runChainweb cw = do
 
     -- Cut DB and Miner
 
+    cutDb :: CutDb cas
     cutDb = _cutResCutDb $ _chainwebCutResources cw
+
+    cutPeerDb :: PeerDb
     cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
 
+    miner :: [IO ()]
     miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
 
     -- Configure Clients
 
+    mgr :: HTTP.Manager
     mgr = view chainwebManager cw
 
     -- Mempool
 
+    mempoolP2pConfig :: EnableConfig MempoolP2pConfig
     mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
 
     -- Decide whether to enable the mempool sync clients
+    mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
-      Nothing -> disabled
-      Just c -> case _chainwebVersion cw of
-        Test{} -> disabled
-        TimedConsensus{} -> disabled
-        PowConsensus{} -> disabled
-        TimedCPM{} -> enabled c
-        Development -> enabled c
-        Testnet02 -> enabled c
+        Nothing -> disabled
+        Just c -> case _chainwebVersion cw of
+            Test{} -> disabled
+            TimedConsensus{} -> disabled
+            PowConsensus{} -> disabled
+            TimedCPM{} -> enabled c
+            Development -> enabled c
+            Testnet02 -> enabled c
       where
         disabled = do
-          logg Info "Mempool p2p sync disabled"
-          return []
+            logg Info "Mempool p2p sync disabled"
+            return []
         enabled conf = do
-          logg Info "Mempool p2p sync enabled"
-          return $ map (runMempoolSyncClient mgr conf) chainVals
+            logg Info "Mempool p2p sync enabled"
+            return $ map (runMempoolSyncClient mgr conf) chainVals
