@@ -585,6 +585,7 @@ runChainweb cw = do
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe
             }
+        (_chainwebMiner cw)
 
     -- HTTP Request Logger
 
