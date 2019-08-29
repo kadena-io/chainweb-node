@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -16,7 +17,7 @@ module Chainweb.Miner.RestAPI.Server where
 import Control.Concurrent.STM.TVar (TVar)
 import Control.Monad.IO.Class (liftIO)
 
--- import Data.Proxy (Proxy(..))
+import Data.Proxy (Proxy(..))
 
 import Servant.Server
 
@@ -29,9 +30,10 @@ import Chainweb.Miner.Core (HeaderBytes(..))
 import Chainweb.Miner.RestAPI (MiningResultApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Utils (runGet)
-import Chainweb.Version (ChainwebVersion, ChainwebVersionT)
+import Chainweb.Version
 
 import Data.LogMessage (LogFunction)
+import Data.Singletons
 
 ---
 
@@ -41,8 +43,8 @@ solvedHandler
     -> CutDb cas
     -> HeaderBytes
     -> Handler ()
-solvedHandler lf tp cdb (HeaderBytes hbytes) = liftIO $
-    runGet decodeBlockHeaderWithoutHash hbytes >>= publishing lf tp cdb
+solvedHandler lf tms cdb (HeaderBytes hbytes) = liftIO $
+    runGet decodeBlockHeaderWithoutHash hbytes >>= publishing lf tms cdb
 
 -- TODO Use type-level `CutDbT`?
 miningServer
@@ -51,15 +53,13 @@ miningServer
     -> TVar (Maybe MiningState)
     -> CutDb cas
     -> Server (MiningResultApi v)
-miningServer lf tp cdb = solvedHandler lf tp cdb
+miningServer lf tms cdb = solvedHandler lf tms cdb
 
--- TODO Get help from Lars
 someMiningServer
     :: ChainwebVersion
     -> LogFunction
     -> TVar (Maybe MiningState)
     -> CutDb cas
     -> SomeServer
-someMiningServer _ _ _ _ = undefined
--- someMiningServer v lf tp cdb = undefined
-    -- SomeServer (Proxy @(MiningResultApi _)) (miningServer lf tp cdb)
+someMiningServer (FromSing (SChainwebVersion :: Sing v)) lf tms cdb =
+    SomeServer (Proxy @(MiningResultApi v)) (miningServer lf tms cdb)
