@@ -62,6 +62,7 @@ data MinerResources logger cas = MinerResources
     , _minerResNodeId :: !NodeId
     , _minerResCutDb :: !(CutDb cas)
     , _minerResConfig :: !MinerConfig
+    , _minerResState :: TVar (Maybe MiningState)
     }
 
 withMinerResources
@@ -73,12 +74,15 @@ withMinerResources
     -> IO a
 withMinerResources logger (EnableConfig enabled conf) nid cutDb inner
     | not enabled = inner Nothing
-    | otherwise = inner . Just $ MinerResources
-        { _minerResLogger = logger
-        , _minerResNodeId = nid
-        , _minerResCutDb = cutDb
-        , _minerResConfig = conf
-        }
+    | otherwise = do
+        tms <- newTVarIO Nothing
+        inner . Just $ MinerResources
+            { _minerResLogger = logger
+            , _minerResNodeId = nid
+            , _minerResCutDb = cutDb
+            , _minerResConfig = conf
+            , _minerResState = tms
+            }
 
 runMiner
     :: forall logger cas
@@ -90,9 +94,8 @@ runMiner
 runMiner v mr = do
     tmv   <- newEmptyTMVarIO
     inner <- chooseMiner tmv
-    tp    <- newTVarIO Nothing
     -- TODO Not correct to `race` here.
-    race_ (working inner tp conf nid cdb mempty) (listener tmv tp)
+    race_ (working inner tms conf nid cdb mempty) (listener tmv)
   where
     nid :: NodeId
     nid = _minerResNodeId mr
@@ -106,11 +109,14 @@ runMiner v mr = do
     lf :: LogFunction
     lf = logFunction $ _minerResLogger mr
 
+    tms :: TVar (Maybe MiningState)
+    tms = _minerResState mr
+
     miners :: MinerCount
     miners = _configTestMiners conf
 
-    listener :: TMVar BlockHeader -> TVar (Maybe MiningState) -> IO ()
-    listener tmv tp = atomically (takeTMVar tmv) >>= publishing lf tp cdb
+    listener :: TMVar BlockHeader -> IO ()
+    listener tmv = atomically (takeTMVar tmv) >>= publishing lf tms cdb
 
     chooseMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     chooseMiner tmv = case miningProtocol v of
