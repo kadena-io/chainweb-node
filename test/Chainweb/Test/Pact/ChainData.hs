@@ -92,7 +92,6 @@ tests = testGroupSch label
     , chainDataTest "block-height"
     , chainDataTest "gas-limit"
     , chainDataTest "gas-price"
-    , chainDataTest "gas-fee"
     , chainDataTest "chain-id"
     , chainDataTest "sender"
     ]
