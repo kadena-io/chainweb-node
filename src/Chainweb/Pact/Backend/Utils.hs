@@ -118,6 +118,12 @@ rollbackSavepoint name =
 data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
   deriving (Eq, Ord, Enum,Show)
 
+instance Show SavepointName where
+  show BatchSavepoint = "batch"
+  show Block = "block"
+  show DbTransaction = "db-transaction"
+  show PreBlock = "preblock"
+
 instance AsString SavepointName where
   asString = Data.Text.pack . show
 
