@@ -618,15 +618,23 @@ playOneBlock
 playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
-    bhDb <- asks _psBlockHeaderDb
-    ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
-    !results <- withBlockData ph $ execTransactions pBlock miner trans pdbenv
+    !results <- go miner trans
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
   where
     bParent = _blockParent currHeader
+
     isGenesisBlock = isGenesisBlockHeader currHeader
-    pBlock = if isGenesisBlock then Nothing else Just bParent
+
+    go m txs =
+      if isGenesisBlock
+      then execTransactions Nothing m txs pdbenv
+      else do
+        bhDb <- asks _psBlockHeaderDb
+        ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
+        withBlockData ph $! execTransactions (Just bParent) m txs pdbenv
+
+
 
 -- | Rewinds the pact state to @mb@.
 --
