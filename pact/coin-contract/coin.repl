@@ -9,7 +9,7 @@
 (verify 'coin)
 
 (env-data { "k1" : ["keys1"], "k2": ["keys2"], "k3": ["keys3"] })
-(env-keys ["keys1", "keys2", "keys3"])
+(env-keys ["keys1", "keys2", "keys3", "keys4"])
 (define-keyset 'k1 (read-keyset "k1"))
 (define-keyset 'k2 (read-keyset "k2"))
 (define-keyset 'k3 (read-keyset "k3"))
@@ -72,8 +72,8 @@
 (begin-tx)
 (use coin)
 
-(env-data { "fee" : 0.4, "k1" : ["keys1"], "k2": ["keys2"] })
-(env-keys ["keys1", "keys2"])
+(env-data { "fee" : 0.4, "k1" : ["keys1"], "k2": ["keys2"], "k4": ["keys4"] })
+(env-keys ["keys1", "keys2", "keys4"])
 
 (test-capability (TRANSFER))
 (test-capability (FUND_TX))
@@ -96,6 +96,12 @@
 (expect "k2 now has 1.4 coins after transfer from 'k1" 1.4 (account-balance 'k2))
 (expect-failure "k1 now has insufficient funds and cannot transfer"
                 (transfer 'k1 'k2 1.0))
+
+(transfer-and-create 'k2 'k4 (read-keyset 'k4) 1.0)
+(expect "k2 now has 0.4 coins" 0.4 (account-balance 'k2))
+(expect "k4 now has 1.0 coins" 1.0 (account-balance 'k4))
+(expect "account-info reflects the correct balance and guard information"
+  {"balance": 1.0, "guard": (read-keyset 'k4)} (account-info 'k4))
 
 ; coinbase should fail when 'COINBASE' capability is not in scope
 ; and should magically create tokens for users and reflect correct balance

@@ -102,11 +102,8 @@
     )
 
   (defun create-account:string (account:string guard:guard)
-    @doc "Creates a new account with an account name and a guard.  Usually    \
-    \the guard will be a keyset.  Since pact intentionally doesn't allow      \
-    \keys to be put in code, the guard should be (read-keyset \"keyset-name\")\
-    \where 'keyset-name' is the field name where you put the keyset in the    \
-    \transaction's envData."
+    @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
+    \account."
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
@@ -122,15 +119,15 @@
     )
 
   (defun account-info:object (account:string)
-    @doc "Get the all of an account's info.  This includes the balance and the\
+    @doc "Get all of an account's info.  This includes the balance and the    \
     \guard."
     (read coin-table account)
     )
 
   (defun transfer:string (sender:string receiver:string amount:decimal)
-    @doc "Transfer coins from one account to another.  This function does not \
-    \create a new account.  If the account does not exist, the money will be  \
-    \lost."
+    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
+    \This fails if both accounts do not exist. Create-on-transfer can be      \
+    \done using the transfer-and-create function."
 
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")
@@ -148,9 +145,9 @@
     )
 
   (defun transfer-and-create:string (sender:string receiver:string receiver-guard:guard amount:decimal)
-    @doc "Safely transfer coins from one account to another.  If the receiver \
-    \account does not exist, this function will create it using the supplied  \
-    \guard."
+    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
+    \This fails if the SENDER account does not exist. If the RECEIVER account \
+    \does not exist, it is created and associated with GUARD."
 
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")
