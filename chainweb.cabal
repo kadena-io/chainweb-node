@@ -23,6 +23,10 @@ extra-source-files:
     README.md
     LICENSE
 
+    -- sender information
+
+    pact/genesis/testnet/keys.yaml
+
     -- miner rewards
 
     rewards/miner_rewards.csv
@@ -554,7 +558,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/txg tools/standalone node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/txg tools/standalone tools/txstream node test
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
@@ -580,8 +584,7 @@ executable cwtool
         TXG.Simulate.Contracts.SimplePayments
         TXG.Simulate.Utils
         TXG.Types
-    autogen-modules:
-        PkgInfo
+        TxStream
     build-depends:
         -- internal
           chainweb
@@ -609,6 +612,7 @@ executable cwtool
         , errors >= 2.3
         , exceptions >= 0.8
         , fake >= 0.1.1.1
+        , file-embed >= 0.0
         , formatting >= 6.3
         , generic-lens >= 1.1
         , http-client >= 0.5

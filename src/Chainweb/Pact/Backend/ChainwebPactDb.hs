@@ -693,7 +693,7 @@ dropTablesAtRewind bh db = do
                       [SInt (fromIntegral bh)] [RText]
     tbls <- fmap (HashSet.fromList) . forM toDropTblNames $ \case
         [SText tblname@(Utf8 tbl)] -> do
-            exec_ db $ "DROP TABLE " <> tblname <> ";"
+            exec_ db $ "DROP TABLE [" <> tblname <> "];"
             return tbl
         _ -> internalError rewindmsg
     exec' db

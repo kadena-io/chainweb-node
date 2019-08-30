@@ -1,4 +1,6 @@
 isChainweb: true
+verbose:
+  verbosity: false
 batchSize: 1
 chainwebVersion: timedCPM-peterson
 hostAddresses:
