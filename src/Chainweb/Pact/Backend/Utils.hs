@@ -116,7 +116,7 @@ rollbackSavepoint name =
   callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
 data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
-  deriving (Eq, Ord, Enum,Show)
+  deriving (Eq, Ord, Enum)
 
 instance Show SavepointName where
   show BatchSavepoint = "batch"
