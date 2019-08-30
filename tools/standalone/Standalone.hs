@@ -80,6 +80,7 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Standalone.Chainweb
+import Standalone.Mining
 import Standalone.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -214,7 +215,7 @@ runChainweb' cw = do
 
   where
     logg = logFunctionText $ _chainwebLogger cw
-    miner = maybe go (\m -> runMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
+    miner = maybe go (\m -> runStandaloneMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
         where
           go = do
             logg Warn "No miner configured. Starting consensus without mining."
@@ -238,7 +239,7 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
-    , _nodeConfigStopCondition = BlockStopCondition (Height 5)
+    , _nodeConfigStopCondition = BlockStopCondition (Height 1000)
     }
 
 instance ToJSON StandaloneConfiguration where
