@@ -278,7 +278,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
         -- 1. Validate Parents and Adjacent Parents
         --
-        -- Existence and validitey of parents and adjacent parents is guaranteed
+        -- Existence and validity of parents and adjacent parents is guaranteed
         -- in the dependency resolution code above.
 
         -- 2. Validate BlockHeader
@@ -300,11 +300,11 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         --
         -- Pact validation is done in the context of a particular header. Just
         -- because the payload does already exist in the store doesn't mean that
-        -- validation succeeds in the context of a particluar block header.
+        -- validation succeeds in the context of a particular block header.
         --
-        -- If we reach this point in the code are are certain that the header
-        -- is't yet in the block header database and thus we still must
-        -- validated the payload for this block header.
+        -- If we reach this point in the code we are certain that the header
+        -- isn't yet in the block header database and thus we still must
+        -- validate the payload for this block header.
         --
         logg Debug $ taskMsg k $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
         validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
@@ -337,7 +337,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
     validateAndInsertPayload :: BlockHeader -> PayloadData -> IO ()
     validateAndInsertPayload hdr p = do
-        outs <- trace 
+        outs <- trace
             logfun
             "Chainweb.Sync.WebBlockHeaderStore.getBlockHeaderInternal.pact"
             (_blockHash hdr)
