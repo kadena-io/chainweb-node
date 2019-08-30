@@ -85,7 +85,7 @@ import Control.Concurrent.STM.TMVar
 import Control.Error.Util (note)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
-import Data.Aeson (ToJSON(..))
+import Data.Aeson (ToJSON(..), Value(..))
 import qualified Data.Text as T
 
 import Network.HTTP.Client (Manager, defaultManagerSettings, newManager)
@@ -102,11 +102,13 @@ import qualified System.Random.MWC as MWC
 import Text.Pretty.Simple (pPrintNoColor)
 
 -- internal modules
+
 import Chainweb.BlockHeader (Nonce(..))
+import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.RestAPI (MiningSubmissionApi)
 import Chainweb.Miner.RestAPI.Client (solvedClient)
-import Chainweb.Utils (suncurry, toText)
+import Chainweb.Utils (suncurry, textOption, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -126,10 +128,13 @@ app = serve (Proxy :: Proxy API) . server
 
 -- | Newtype'd so that I can provide a custom `ToJSON` instance.
 --
-newtype URL = URL { _url :: BaseUrl } deriving (Show)
+newtype URL = URL { _url :: BaseUrl }
+
+instance Show URL where
+  show (URL (BaseUrl _ h p _)) = h <> ":" <> show p
 
 instance ToJSON URL where
-    toJSON (URL _) = undefined
+    toJSON u = String . T.pack $ show u
 
 data ClientArgs = ClientArgs
     { cmd :: Command
@@ -139,7 +144,7 @@ data ClientArgs = ClientArgs
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
-data CPUEnv = CPUEnv { cores :: Word16}
+data CPUEnv = CPUEnv { cores :: Word16 }
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
@@ -196,7 +201,13 @@ pPort = option auto
      <> help "Port on which to run the miner (default: 8081)")
 
 pUrl :: Parser URL
-pUrl = undefined
+pUrl = URL . hostAddressToBaseUrl <$> host
+  where
+    host :: Parser HostAddress
+    host = textOption
+        (long "node"
+        <> help "Remote address of Chainweb Node to send mining results to."
+        <> metavar "<HOSTNAME:PORT>")
 
 --------------------------------------------------------------------------------
 -- Work
