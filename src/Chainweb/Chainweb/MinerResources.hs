@@ -32,7 +32,7 @@ import qualified Data.Set as S
 
 import Network.HTTP.Client (defaultManagerSettings, newManager)
 
-import Servant.Client.Core (BaseUrl(..))
+import Servant.Client (BaseUrl(..), Scheme(..))
 
 import qualified System.Random.MWC as MWC
 
@@ -135,4 +135,4 @@ runMiner v mr = do
             pure $ remoteMining m rs
 
     g :: Set HostAddress -> Maybe (NonEmpty BaseUrl)
-    g = fmap (NEL.map hostAddressToBaseUrl) . NEL.nonEmpty . S.toList
+    g = fmap (NEL.map (hostAddressToBaseUrl Http)) . NEL.nonEmpty . S.toList

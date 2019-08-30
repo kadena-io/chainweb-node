@@ -94,7 +94,7 @@ import qualified Network.Wai.Handler.Warp as W
 import Options.Applicative
 
 import Servant.API
-import Servant.Client (BaseUrl(..), ClientEnv(..), runClientM)
+import Servant.Client
 import Servant.Server
 
 import qualified System.Random.MWC as MWC
@@ -131,10 +131,10 @@ app = serve (Proxy :: Proxy API) . server
 newtype URL = URL { _url :: BaseUrl }
 
 instance Show URL where
-  show (URL (BaseUrl _ h p _)) = h <> ":" <> show p
+    show (URL b) = showBaseUrl b
 
 instance ToJSON URL where
-    toJSON u = String . T.pack $ show u
+    toJSON = String . T.pack . show
 
 data ClientArgs = ClientArgs
     { cmd :: Command
@@ -201,7 +201,7 @@ pPort = option auto
      <> help "Port on which to run the miner (default: 8081)")
 
 pUrl :: Parser URL
-pUrl = URL . hostAddressToBaseUrl <$> host
+pUrl = URL . hostAddressToBaseUrl Https <$> host
   where
     host :: Parser HostAddress
     host = textOption

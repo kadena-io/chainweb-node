@@ -498,8 +498,8 @@ instance Arbitrary HostAddress where
 prop_readHostAddressBytes :: HostAddress -> Property
 prop_readHostAddressBytes a = readHostAddressBytes (hostAddressBytes a) === Just a
 
-hostAddressToBaseUrl :: HostAddress -> BaseUrl
-hostAddressToBaseUrl (HostAddress hn p) = BaseUrl Http hn' p' ""
+hostAddressToBaseUrl :: Scheme -> HostAddress -> BaseUrl
+hostAddressToBaseUrl s (HostAddress hn p) = BaseUrl s hn' p' ""
   where
     hn' = T.unpack $ hostnameToText hn
     p'  = fromIntegral p
