@@ -314,8 +314,6 @@ dbAddChecked db e = unlessM (casMember (_chainDbCas db) ek) dbAddCheckedInternal
                 add
       where
 
-    -- TODO: make this atomic (create boilerplate to combine queries for
-    -- different tables)
     add = updateBatch
             [ RocksDbInsert (_chainDbCas db) (casKey rbh) rbh
             , RocksDbInsert (_chainDbRankTable db) (_blockHash e) (_blockHeight e)
