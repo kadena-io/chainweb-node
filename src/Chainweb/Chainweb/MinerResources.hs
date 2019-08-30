@@ -29,11 +29,10 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Set (Set)
 import qualified Data.Set as S
-import qualified Data.Text as T
 
 import Network.HTTP.Client (defaultManagerSettings, newManager)
 
-import Servant.Client.Core (BaseUrl(..), Scheme(..))
+import Servant.Client.Core (BaseUrl(..))
 
 import qualified System.Random.MWC as MWC
 
@@ -41,7 +40,7 @@ import qualified System.Random.MWC as MWC
 
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.CutDB (CutDb)
-import Chainweb.HostAddress (HostAddress(..), hostnameToText)
+import Chainweb.HostAddress
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
 import Chainweb.Miner.Coordinator (MiningState(..), publishing, working)
@@ -136,10 +135,4 @@ runMiner v mr = do
             pure $ remoteMining m rs
 
     g :: Set HostAddress -> Maybe (NonEmpty BaseUrl)
-    g = fmap (NEL.map f) . NEL.nonEmpty . S.toList
-
-    f :: HostAddress -> BaseUrl
-    f (HostAddress hn p) = BaseUrl Http hn' p' ""
-      where
-        hn' = T.unpack $ hostnameToText hn
-        p'  = fromIntegral p
+    g = fmap (NEL.map hostAddressToBaseUrl) . NEL.nonEmpty . S.toList

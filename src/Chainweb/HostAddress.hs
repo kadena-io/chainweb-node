@@ -93,6 +93,7 @@ module Chainweb.HostAddress
 , arbitraryHostAddress
 , pHostAddress
 , pHostAddress'
+, hostAddressToBaseUrl
 
 -- * Arbitrary Values
 , arbitraryPort
@@ -111,23 +112,25 @@ module Chainweb.HostAddress
 
 import Configuration.Utils hiding ((<?>))
 
-import Control.DeepSeq
-import Control.Lens.TH
-import Control.Monad
-import Control.Monad.Catch
+import Control.DeepSeq (NFData)
+import Control.Lens.TH (makeLenses)
+import Control.Monad (guard, replicateM, foldM)
+import Control.Monad.Catch (MonadThrow(..))
 
 import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
-import Data.Hashable
+import Data.Hashable (Hashable(..))
 import qualified Data.List as L
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Word (Word16, Word8)
 
-import GHC.Generics
+import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
+
+import Servant.Client (BaseUrl(..), Scheme(..))
 
 import Test.QuickCheck
 
@@ -494,6 +497,12 @@ instance Arbitrary HostAddress where
 
 prop_readHostAddressBytes :: HostAddress -> Property
 prop_readHostAddressBytes a = readHostAddressBytes (hostAddressBytes a) === Just a
+
+hostAddressToBaseUrl :: HostAddress -> BaseUrl
+hostAddressToBaseUrl (HostAddress hn p) = BaseUrl Http hn' p' ""
+  where
+    hn' = T.unpack $ hostnameToText hn
+    p'  = fromIntegral p
 
 -- -------------------------------------------------------------------------- --
 -- Host Preference Utils
