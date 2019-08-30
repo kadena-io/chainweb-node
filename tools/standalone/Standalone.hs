@@ -238,7 +238,7 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
-    , _nodeConfigStopCondition = TimeLength 2000000
+    , _nodeConfigStopCondition = BlockStopCondition (Height 5)
     }
 
 instance ToJSON StandaloneConfiguration where
@@ -354,7 +354,7 @@ mainInfo :: ProgramInfo StandaloneConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pStandaloneConfiguration
-    (defaultStandaloneConfiguration (TimedCPM twentyChainGraph))
+    (defaultStandaloneConfiguration (TimedCPM petersonChainGraph))
 
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do

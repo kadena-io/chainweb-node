@@ -113,7 +113,7 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg cdbv payloadDb pru
         Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
             -- placing mempool access shim here
             -- putting a default here for now.
-              let mpa = defaultMemPoolAccess cid 1
+              let mpa = onlyCoinTransferMemPoolAccess cid 10
               withPactService' v cid (setComponent "pact" logger)
                     mpa cdbv cdb payloadDb dbDir nodeid resetDb $
                 \requestQ -> do

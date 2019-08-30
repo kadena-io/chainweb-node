@@ -2,7 +2,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
+{-# OPTIONS_GHC -fno-warn-type-defaults #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 module Standalone.Utils where
 
@@ -10,21 +14,30 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
-import Control.Lens
+import Control.Lens hiding ((.=))
 
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as SB
 import Data.Default
+import Data.FileEmbed
 import Data.Foldable
+import Data.Function
 import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import Data.Monoid
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Text.Encoding
 import qualified Data.Vector as Vector
+import qualified Data.Yaml as Y
 
 import GHC.Generics
+
+import System.Random
+
+import Text.Printf
 
 -- pact imports
 
@@ -33,8 +46,9 @@ import qualified Pact.Types.ChainId as PactChain
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
+import Pact.Types.Gas
 import Pact.Types.RPC
-import Pact.Types.Util
+import Pact.Types.Util hiding (unwrap)
 
 -- chainweb imports
 
@@ -45,6 +59,7 @@ import Chainweb.CutDB.Types
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.WebPactExecutionService
 
@@ -72,11 +87,12 @@ getByteString = fst . B16.decode
 formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
--- TODO: This function shall be completed at a later time. I've just left the
--- skeleton here as a reminder to complete at the appropriate time. We'll
--- probably need more input parameters.
-_onlyCoinTransferMemPoolAccess :: ChainId -> Int -> MemPoolAccess
-_onlyCoinTransferMemPoolAccess _cid _blocksize = undefined
+onlyCoinTransferMemPoolAccess :: ChainId -> Int -> MemPoolAccess
+onlyCoinTransferMemPoolAccess cid blocksize = MemPoolAccess
+    { mpaGetBlock = \_ _ _ _ -> getTestBlock (chainIdToText cid) blocksize
+    , mpaSetLastHeader = const $ return ()
+    , mpaProcessFork = const $ return ()
+    }
 
 defaultMemPoolAccess :: ChainId -> Int -> MemPoolAccess
 defaultMemPoolAccess cid blocksize  = MemPoolAccess
@@ -111,16 +127,6 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
                 ProcFail e -> throwM $ userError e
 
           k t bs = PayloadWithText bs (_cmdPayload t)
-
-    -- | Merge a list of JSON Objects together. Note: this will yield an empty
-    -- object in the case that there are no objects in the list of values.
-    --
-    mergeObjects :: [Value] -> Value
-    mergeObjects = Object . HM.unions . foldr unwrap' []
-      where
-        unwrap' (Object o) = (:) o
-        unwrap' _ = id
-
 
 mkPactExecutionService' :: TQueue RequestMsg -> PactExecutionService
 mkPactExecutionService' q = emptyPactExecutionService
@@ -173,3 +179,113 @@ stopAtBlockHeight bh db = forever $ do
       "We have reached or passed "
       ++ (show bh)
       ++ ". Stopping chainweb-node!"
+
+getTestBlock
+    :: Text
+    -- ^ chain id
+    -> Int
+    -- ^ number of transactions in a block
+    -> IO (Vector.Vector ChainwebTransaction)
+getTestBlock cid blocksize = do
+    let gen = do
+          (sendera, senderb) <- distinctSenders
+          signer <- stockKey sendera
+          kpa <- mkKeyPairs [signer]
+          amount <- randomIO @Double
+          let code =
+                T.pack $ genCode (T.unpack sendera) (T.unpack senderb) amount
+              data' = Just $ object []
+          return (head kpa , (sendera, PactTransaction code data'))
+    (signers, pacttxs) <- Vector.unzip <$> Vector.replicateM blocksize gen
+    nonce <- T.pack . show @(Time Int) <$> getCurrentTimeIntegral
+    mkExecTransactions (PactChain.ChainId cid) (toList signers) nonce 10000 0.00000000001 3600 0 pacttxs
+  where
+    genCode :: String -> String -> Double -> String
+    genCode = printf "(coin.transfer  \"%s\" \"%s\" %f)"
+
+data PactTransaction = PactTransaction
+  { _pactCode :: Text
+  , _pactData :: Maybe Value
+  } deriving (Eq, Show)
+
+-- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
+-- signer keys, nonce, gas rate, gas limit, and the transactions
+-- (with data) to execute.
+--
+mkExecTransactions
+    :: PactChain.ChainId
+      -- ^ chain id of execution
+    -> [SomeKeyPair]
+      -- ^ signer keys
+    -> Text
+      -- ^ nonce
+    -> GasLimit
+      -- ^ starting gas
+    -> GasPrice
+      -- ^ gas rate
+    -> TTLSeconds
+      -- ^ time in seconds until expiry (from offset)
+    -> TxCreationTime
+      -- ^ time in seconds until creation (from offset)
+    -> Vector.Vector (Text, PactTransaction)
+      -- ^ the pact transactions with data to run
+    -> IO (Vector.Vector ChainwebTransaction)
+mkExecTransactions cid ks nonce0 gas gasrate ttl ct txs = do
+    nref <- newIORef (0 :: Int)
+    traverse (go nref) txs
+  where
+    go nref (sender, PactTransaction c d) = do
+      let dd = mergeObjects (toList d)
+          pm = PublicMeta cid sender gas gasrate ttl ct
+          msg = Exec (ExecMsg c dd)
+
+      nn <- readIORef nref
+      writeIORef nref $! succ nn
+      let nonce = T.append nonce0 (T.pack $ show nn)
+      cmd <- mkCommand ks pm nonce msg
+      case verifyCommand cmd of
+        ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+        ProcFail e -> throwM $ userError e
+
+    k t bs = PayloadWithText bs (_cmdPayload t)
+
+-- | Merge a list of JSON Objects together. Note: this will yield an empty
+-- object in the case that there are no objects in the list of values.
+--
+mergeObjects :: [Value] -> Value
+mergeObjects = Object . HM.unions . foldr unwrap []
+  where
+    unwrap (Object o) = (:) o
+    unwrap _ = id
+
+distinctSenders :: IO (Text, Text)
+distinctSenders = do
+    a <- randomRIO (0, 9 :: Int)
+    b <- fix $ \f -> do
+        b <- randomRIO (0, 9 :: Int)
+        if b == a then f
+          else return b
+    return $ (append a, append b)
+  where
+    append s = T.pack ("sender0" ++ show s)
+
+mkKeyset :: Text -> [PublicKeyBS] -> Value
+mkKeyset p ks = object
+  [ "pred" .= p
+  , "keys" .= ks
+  ]
+
+stockKeyFile :: ByteString
+stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+
+stockKey :: Text -> IO ApiKeyPair
+stockKey s = do
+    let Right (Y.Object o) = Y.decodeEither' stockKeyFile
+        Just (Y.Object kp) = HM.lookup s o
+        Just (String pub) = HM.lookup "public" kp
+        Just (String priv) = HM.lookup "secret" kp
+        mkKeyBS = decodeKey . encodeUtf8
+    return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
+
+decodeKey :: ByteString -> ByteString
+decodeKey = fst . B16.decode
