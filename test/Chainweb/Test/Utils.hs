@@ -341,7 +341,7 @@ header h = do
         . fromLog
         . newMerkleLog
         $ nonce
-            :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+            :+: t'
             :+: _blockHash h
             :+: target
             :+: testBlockPayload h
@@ -350,11 +350,13 @@ header h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: miner
+            :+: epochStart h t'
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
-    target = _blockTarget h -- no difficulty adjustment
+    target = powTarget h t'
     v = _blockChainwebVersion h
+    t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations

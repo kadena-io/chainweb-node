@@ -115,6 +115,9 @@ instance Arbitrary Nonce where
 instance Arbitrary BlockCreationTime where
     arbitrary = BlockCreationTime <$> arbitrary
 
+instance Arbitrary EpochStartTime where
+    arbitrary = EpochStartTime <$> arbitrary
+
 instance Arbitrary BlockHeader where
     arbitrary = fromLog . newMerkleLog <$> entries
       where
@@ -127,6 +130,7 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) (pure (unsafeChainId 0))
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)
+            $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ fmap MerkleLogBody arbitrary

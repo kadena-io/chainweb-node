@@ -30,14 +30,13 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.STM
 
-import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
 import Data.Reflection (Given, give)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T5(..))
+import Data.Tuple.Strict (T4(..))
 import qualified Data.Vector as V
 
 import Numeric.Natural (Natural)
@@ -49,7 +48,6 @@ import qualified System.Random.MWC as MWC
 
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
@@ -62,7 +60,6 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
-import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -74,8 +71,6 @@ import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Miner
-
-type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
 newtype PrevBlock = PrevBlock BlockHeader
 
@@ -89,7 +84,7 @@ mining
     -> IO ()
 mining mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
     g <- MWC.createSystemRandom
-    give wcdb $ give payloadDb $ go g 1 HM.empty
+    give wcdb $ give payloadDb $ go g 1
   where
     wcdb = view cutDbWebBlockHeaderDb cdb
     payloadDb = view cutDbPayloadCas cdb
@@ -102,14 +97,13 @@ mining mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
         => Given (PayloadDb cas)
         => MWC.GenIO
         -> Int
-        -> Adjustments
         -> IO ()
-    go g !i !adj = do
+    go g !i = do
 
         -- Mine a new Cut.
         --
         c <- _cut cdb
-        T5 p newBh payload c' adj' <- raceMine c
+        T4 p newBh payload c' <- raceMine c
 
         let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                     _payloadWithOutputsTransactions payload
@@ -136,36 +130,15 @@ mining mine lf conf nid cdb = runForever lf "Mining Coordinator" $ do
         trace lf "Miner.POW.powMiner.awaitCut" (cutIdToTextShort $ _cutId c) 1
             $ void $ awaitCut cdb c
 
-        -- Since mining has been successful, we prune the
-        -- `HashMap` of adjustment values that we've seen.
-        --
-        -- Due to this pruning, the `HashMap` should only ever
-        -- contain approximately N entries, where:
-        --
-        -- @
-        -- C := number of chains
-        -- W := number of blocks in the epoch window
-        --
-        -- N = W * C
-        -- @
-        --
-        go g (i + 1) $ filterAdjustments newBh adj'
+        go g (i + 1)
       where
         -- | Attempt to mine on the given `Cut`, until a new one should come in
         -- from the network.
         --
-        raceMine :: Cut -> IO (T5 PrevBlock BlockHeader PayloadWithOutputs Cut Adjustments)
+        raceMine :: Cut -> IO (T4 PrevBlock BlockHeader PayloadWithOutputs Cut)
         raceMine !c = do
-            ecut <- race (awaitCut cdb c) (mineCut @cas mine lf conf nid cdb g c adj)
+            ecut <- race (awaitCut cdb c) (mineCut @cas mine lf conf nid cdb g c)
             either raceMine pure ecut
-
-filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
-filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
-    Nothing -> mempty
-    Just (WindowWidth w) ->
-        let wh = BlockHeight (int w)
-            limit = bool (_blockHeight newBh - wh) 0 (_blockHeight newBh < wh)
-        in HM.filter (\(T2 h _) -> h > limit) as
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
@@ -197,9 +170,8 @@ mineCut
     -> CutDb cas
     -> MWC.GenIO
     -> Cut
-    -> Adjustments
-    -> IO (T5 PrevBlock BlockHeader PayloadWithOutputs Cut Adjustments)
-mineCut mine logfun conf nid cdb g !c !adjustments = do
+    -> IO (T4 PrevBlock BlockHeader PayloadWithOutputs Cut)
+mineCut mine logfun conf nid cdb g !c = do
 
     -- Randomly pick a chain to mine on.
     --
@@ -215,7 +187,7 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
     --
     case getAdjacentParents c p of
 
-        Nothing -> mineCut mine logfun conf nid cdb g c adjustments
+        Nothing -> mineCut mine logfun conf nid cdb g c
             -- spin until a chain is found that isn't blocked
 
         Just adjParents -> do
@@ -224,11 +196,6 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
             --
             payload <- trace logfun "Miner.POW.mineCut._pactNewBlock" (_blockHash p) 1
                 $ _pactNewBlock pact (_configMinerInfo conf) p
-
-            -- get target
-            --
-            let bdb = fromJuste $ blockDb cid
-            T2 target adj' <- getTarget bdb (_blockChainwebVersion p) p adjustments
 
             -- Assemble block without Nonce and Timestamp
             --
@@ -239,7 +206,6 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
                     adjParents
                     (_payloadWithOutputsPayloadHash payload)
                     nonce
-                    target
                     creationTime
                     p
 
@@ -252,41 +218,13 @@ mineCut mine logfun conf nid cdb g !c !adjustments = do
             --
             !c' <- monotonicCutExtension c newHeader
 
-            return $! T5 (PrevBlock p) newHeader payload c' adj'
+            return $! T4 (PrevBlock p) newHeader payload c'
   where
-    wcdb :: WebBlockHeaderDb
-    wcdb = view cutDbWebBlockHeaderDb cdb
-
     payloadStore :: WebBlockPayloadStore cas
     payloadStore = view cutDbPayloadStore cdb
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ _webBlockPayloadStorePact payloadStore
-
-    blockDb :: ChainId -> Maybe BlockHeaderDb
-    blockDb cid = wcdb ^? webBlockHeaderDb . ix cid
-
--- | Obtain a new Proof-of-Work target.
---
-getTarget
-    :: BlockHeaderDb
-    -> ChainwebVersion
-    -> BlockHeader
-    -> Adjustments
-    -> IO (T2 HashTarget Adjustments)
-getTarget blockDb v bh as = case miningProtocol v of
-    Timed -> pure testTarget
-    ProofOfWork -> prodTarget
-  where
-    testTarget :: T2 HashTarget Adjustments
-    testTarget = T2 (_blockTarget bh) mempty
-
-    prodTarget :: IO (T2 HashTarget Adjustments)
-    prodTarget = case HM.lookup (_blockHash bh) as of
-        Just (T2 _ t) -> pure $ T2 t as
-        Nothing -> do
-            t <- hashTarget blockDb bh
-            pure $ T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) as)
 
 -- -------------------------------------------------------------------------- --
 --

@@ -186,7 +186,6 @@ library
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
-        , Chainweb.TreeDB.Difficulty
         , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Validation

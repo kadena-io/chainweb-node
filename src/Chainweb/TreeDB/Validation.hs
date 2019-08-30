@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -18,6 +20,8 @@ module Chainweb.TreeDB.Validation
 , validateEntryDbM
 , validateAdditionsDbM
 ) where
+
+import Control.Monad.Catch
 
 import qualified Data.HashMap.Strict as HM
 
@@ -44,7 +48,9 @@ isValidEntryDb
         -- ^ The block header to be checked
     -> IO Bool
         -- ^ True if validation succeeded
-isValidEntryDb = isValidEntry . lookup
+isValidEntryDb db h = validateBlockParentExists (lookup db) h >>= \case
+    Left _ -> return False
+    Right p -> return $ isValidBlockHeader p h
 
 -- | Validate properties of the block header, producing a list of the validation
 -- failures
@@ -57,7 +63,9 @@ validateEntryDb
         -- ^ The block header to be checked
     -> IO [ValidationFailureType]
         -- ^ A list of ways in which the block header isn't valid
-validateEntryDb = validateEntry . lookup
+validateEntryDb db h = validateBlockParentExists (lookup db) h >>= \case
+    Left e -> return [e]
+    Right p -> return $ validateBlockHeader p h
 
 -- | Validate properties of the block header, throwing an exception detailing
 -- the failures if any.
@@ -65,9 +73,13 @@ validateEntryDb = validateEntry . lookup
 validateEntryDbM
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => db
+        -- ^ the database
     -> BlockHeader
+        -- ^ The block header to be checked
     -> IO ()
-validateEntryDbM = validateEntryM . lookup
+validateEntryDbM db h = validateBlockParentExists (lookup db) h >>= \case
+    Left e -> throwM $ ValidationFailure Nothing h [e]
+    Right p -> validateBlockHeaderM p h
 
 -- | Validate a set of additions that are supposed to be added atomically to
 -- the database.
@@ -75,6 +87,9 @@ validateEntryDbM = validateEntryM . lookup
 validateAdditionsDbM
     :: (TreeDb db, DbEntry db ~ BlockHeader)
     => db
+        -- ^ the database
     -> HM.HashMap BlockHash BlockHeader
+        -- ^ The set of block headers to be checked
     -> IO ()
-validateAdditionsDbM = validateAdditionsM . lookup
+validateAdditionsDbM = validateBlocksM . lookup
+

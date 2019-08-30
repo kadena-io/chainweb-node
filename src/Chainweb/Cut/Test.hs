@@ -81,10 +81,9 @@ import qualified Test.QuickCheck.Monadic as T
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockTarget)
 import Chainweb.ChainId
 import Chainweb.Cut
-import Chainweb.Difficulty (HashTarget, checkTarget)
+import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
 import Chainweb.NodeId
 import Chainweb.Time (Micros(..), Time, getCurrentTimeIntegral, second)
@@ -110,30 +109,28 @@ testMine
     . HasChainId cid
     => Given WebBlockHeaderDb
     => Nonce
-    -> HashTarget
     -> Time Micros
     -> BlockPayloadHash
     -> NodeId
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMine n target t payloadHash nid i c =
-    forM (createNewCut n target t payloadHash nid i c) $ \p@(T2 h _) ->
+testMine n t payloadHash nid i c =
+    forM (createNewCut n t payloadHash nid i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
 
 testMineWithPayloadHash
     :: forall cid
     . HasChainId cid
     => Nonce
-    -> HashTarget
     -> Time Micros
     -> BlockPayloadHash
     -> NodeId
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayloadHash n target t payloadHash nid i c =
-    forM (createNewCut n target t payloadHash nid i c) return
+testMineWithPayloadHash n t payloadHash nid i c =
+    forM (createNewCut n t payloadHash nid i c) return
 
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
@@ -142,16 +139,15 @@ createNewCut
     :: HasCallStack
     => HasChainId cid
     => Nonce
-    -> HashTarget
     -> Time Micros
     -> BlockPayloadHash
     -> NodeId
     -> cid
     -> Cut
     -> Either MineFailure (T2 BlockHeader Cut)
-createNewCut n target t pay nid i c = do
+createNewCut n t pay nid i c = do
     h <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
-    unless (checkTarget target $ _blockPow h) $ Left BadNonce
+    unless (checkTarget (_blockTarget h) $ _blockPow h) $ Left BadNonce
     c' <- first (\e -> error $ "Chainweb.Cut.createNewCut: " <> sshow e)
         $ monotonicCutExtension c h
     return $ T2 h c'
@@ -164,7 +160,7 @@ createNewCut n target t pay nid i c = do
     p = c ^?! ixg cid
 
     newHeader :: BlockHashRecord -> BlockHeader
-    newHeader as = newBlockHeader (nodeIdFromNodeId nid cid) as pay n target t p
+    newHeader as = newBlockHeader (nodeIdFromNodeId nid cid) as pay n t p
 
     -- | Try to get all adjacent hashes dependencies.
     --
@@ -185,18 +181,16 @@ createNewCutWithoutTime
     :: HasCallStack
     => HasChainId cid
     => Nonce
-    -> HashTarget
     -> BlockPayloadHash
     -> NodeId
     -> cid
     -> Cut
     -> Maybe (T2 BlockHeader Cut)
-createNewCutWithoutTime n target pay nid i c
-    = hush $ createNewCut n target (add second t) pay nid i c
+createNewCutWithoutTime n pay nid i c
+    = hush $ createNewCut n (add second t) pay nid i c
   where
     cid = _chainId i
     BlockCreationTime t = _blockCreationTime $ c ^?! ixg cid
-
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Cuts
@@ -223,9 +217,7 @@ arbitraryCut v = T.sized $ \s -> do
         n <- Nonce <$> T.arbitrary
         nid <- T.arbitrary
         let pay = hashPayload v cid "TEST PAYLOAD"
-        return $ createNewCutWithoutTime n target pay nid cid c
-
-    target = genesisBlockTarget
+        return $ createNewCutWithoutTime n pay nid cid c
 
 arbitraryChainGraphChainId :: Given ChainGraph => T.Gen ChainId
 arbitraryChainGraphChainId = T.elements (toList $ graphChainIds given)
@@ -261,9 +253,8 @@ arbitraryWebChainCut initialCut = do
         nid <- T.pick T.arbitrary
         t <- liftIO  getCurrentTimeIntegral
         let pay = hashPayload v cid "TEST PAYLOAD"
-        liftIO $ hush <$> testMine n target t pay nid cid c
+        liftIO $ hush <$> testMine n t pay nid cid c
 
-    target = genesisBlockTarget
     v = Test (_chainGraph @WebBlockHeaderDb given)
 
 arbitraryWebChainCut_
@@ -292,9 +283,8 @@ arbitraryWebChainCut_ initialCut = do
         nid <- TT.liftGen T.arbitrary
         t <- liftIO getCurrentTimeIntegral
         let pay = hashPayload v cid "TEST PAYLOAD"
-        liftIO $ testMine n target t pay nid cid c
+        liftIO $ testMine n t pay nid cid c
 
-    target = genesisBlockTarget
     v = Test $ _chainGraph @WebBlockHeaderDb given
 
 -- -------------------------------------------------------------------------- --
