@@ -115,7 +115,7 @@ runMiner v mr = do
     miners = _configTestMiners conf
 
     listener :: TMVar BlockHeader -> IO ()
-    listener tmv = atomically (takeTMVar tmv) >>= publishing lf tms cdb
+    listener tmv = atomically (takeTMVar tmv) >>= publishing lf tms cdb >> listener tmv
 
     chooseMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     chooseMiner tmv = case miningProtocol v of
