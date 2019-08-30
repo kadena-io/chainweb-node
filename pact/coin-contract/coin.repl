@@ -19,10 +19,12 @@
 ; account balance for k1 does not exist, because account does not exist yet
 (expect-failure "account does not exist yet" (account-balance 'k1))
 
-; create accounts should succeed and initialize with correct amounts
+; create accounts should succeed and initialize with correct amounts and guards
 (create-account 'k1 (read-keyset 'k1))
 (create-account 'k2 (read-keyset 'k2))
 (expect "initial balance at 0.0" 0.0 (account-balance 'k1))
+(expect "account-info reflects the correct balance and guard information"
+  {"balance": 0.0, "guard": (read-keyset 'k2)} (account-info 'k2))
 
 ; debits should fail on empty accounts and succeed on non-empty
 ; credits should succeed. Both should reflect the correct balance
