@@ -569,7 +569,6 @@ executable cwtool
         Ea
         Gexf
         Network.X509.SelfSigned.Test
-        PkgInfo
         RunNodes
         SlowTests
         Standalone
