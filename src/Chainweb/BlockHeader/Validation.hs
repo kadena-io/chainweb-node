@@ -69,6 +69,8 @@ import Chainweb.Utils
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
 
+-- | A data type that describes a failure of validating a block header.
+--
 data ValidationFailure = ValidationFailure
     { _validateFailureParent :: !(Maybe BlockHeader)
     , _validateFailureHeader :: !BlockHeader
@@ -361,29 +363,64 @@ prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
 
-prop_block_target :: BlockHeader -> BlockHeader -> Bool
+prop_block_target
+    :: BlockHeader
+        -- ^ parent header of the checked block header
+    -> BlockHeader
+        -- ^ the block header that is checked
+    -> Bool
 prop_block_target p b = _blockTarget b == powTarget p (_blockCreationTime b)
 
-prop_block_epoch :: BlockHeader -> BlockHeader -> Bool
+prop_block_epoch
+    :: BlockHeader
+        -- ^ parent header of the checked block header
+    -> BlockHeader
+        -- ^ the block header that is checked
+    -> Bool
 prop_block_epoch p b = _blockEpochStart b == epochStart p (_blockCreationTime b)
 
-prop_block_height :: BlockHeader -> BlockHeader -> Bool
+prop_block_height
+    :: BlockHeader
+        -- ^ parent header of the checked block header
+    -> BlockHeader
+        -- ^ the block header that is checked
+    -> Bool
 prop_block_height p b
     | isGenesisBlockHeader b = _blockHeight b == _blockHeight p
     | otherwise = _blockHeight b == _blockHeight p + 1
 
-prop_block_chainwebVersion :: BlockHeader -> BlockHeader -> Bool
+prop_block_chainwebVersion
+    :: BlockHeader
+        -- ^ parent header of the checked block header
+    -> BlockHeader
+        -- ^ the block header that is checked
+    -> Bool
 prop_block_chainwebVersion = (==) `on` _blockChainwebVersion
 
-prop_block_creationTime :: BlockHeader -> BlockHeader -> Bool
+prop_block_creationTime
+    :: BlockHeader
+        -- ^ parent header of the checked block header
+    -> BlockHeader
+        -- ^ the block header that is checked
+    -> Bool
 prop_block_creationTime p b
     | isGenesisBlockHeader b = _blockCreationTime b == _blockCreationTime p
     | otherwise = _blockCreationTime b > _blockCreationTime p
 
-prop_block_weight :: BlockHeader -> BlockHeader -> Bool
+prop_block_weight
+    :: BlockHeader
+        -- ^ parent header of the checked block header
+    -> BlockHeader
+        -- ^ the block header that is checked
+    -> Bool
 prop_block_weight p b
     | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
     | otherwise = _blockWeight b == int (targetToDifficulty (_blockTarget b)) + _blockWeight p
 
-prop_block_chainId :: BlockHeader -> BlockHeader -> Bool
+prop_block_chainId
+    :: BlockHeader
+        -- ^ parent header of the checked block header
+    -> BlockHeader
+        -- ^ the block header that is checked
+    -> Bool
 prop_block_chainId = (==) `on` _blockChainId

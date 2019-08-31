@@ -29,6 +29,3 @@ constraints:
     , these < 1
     , base-unicode-symbols < 0.2.4
 
--- ghc 8.8
--- packages:
---     ../ghc-8.8/hs-memory
