@@ -63,6 +63,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash)
 import Chainweb.ChainId
 import Chainweb.Difficulty
+import Chainweb.Time
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -147,6 +148,15 @@ data ValidationFailureType
 
 instance Exception ValidationFailure
 
+-- | The list of validation failures that are definite and independent of any
+-- external context. A block for which validation fails with one of these
+-- failures must be dicarded.
+--
+-- No node on the chainweb-web network should propgate blocks with these
+-- failures. If a block is received that causes a definite validation failures
+-- is receveived from a chainweb-node, that chainweb-node should be
+-- blacklisted/removed in the peer database.
+--
 definiteValidationFailures :: [ValidationFailureType]
 definiteValidationFailures =
     [ CreatedBeforeParent
@@ -163,10 +173,17 @@ definiteValidationFailures =
     , IncorrectPayloadHash
     ]
 
+-- | Predicate that checks whether a validation failure is definite.
+--
 isDefinite :: [ValidationFailureType] -> Bool
 isDefinite failures
     = not . null $ L.intersect failures definiteValidationFailures
 
+-- | The list of ephemaral validation failures. These failure depend on a local
+-- context and validation may succeed in the future.
+--
+-- In case of 'BlockInTheFuture' validation /will/ eventually succeed.
+--
 ephemeralValidationFailures :: [ValidationFailureType]
 ephemeralValidationFailures =
     [ MissingParent
@@ -174,6 +191,8 @@ ephemeralValidationFailures =
     , BlockInTheFuture
     ]
 
+-- | A predicate that checks whether a validation failure is ephemeral.
+--
 isEphemeral :: [ValidationFailureType] -> Bool
 isEphemeral failures
     = not . null $ L.intersect failures ephemeralValidationFailures
@@ -184,53 +203,76 @@ isEphemeral failures
 -- | Validate properties of the block header, throwing an exception detailing
 -- the failures if any.
 --
+-- * MissingPayload
+-- * MissingParent
+-- * IncorrectPayloadHash
+--
 validateBlockHeaderM
     :: MonadThrow m
-    => BlockHeader
+    => Time Micros
+        -- ^ The current clock time
+    -> BlockHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateBlockHeaderM p e = unless (null $ failures)
+validateBlockHeaderM t p e = unless (null $ failures)
     $ throwM (ValidationFailure (Just p) e failures)
   where
-    failures = validateBlockHeader p e
+    failures = validateBlockHeader t p e
 
 -- | Check whether a BlockHeader satisfies all validaiton properties.
 --
+-- * MissingPayload
+-- * MissingParent
+-- * IncorrectPayloadHash
+--
 isValidBlockHeader
-    :: BlockHeader
+    :: Time Micros
+        -- ^ The current clock time
+    -> BlockHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ The block header to be checked
     -> Bool
-isValidBlockHeader p b = null $ validateBlockHeader p b
+isValidBlockHeader t p b = null $ validateBlockHeader t p b
 
 -- | Validate properties of the block header, producing a list of the validation
--- failures
+-- failures.
+--
+-- This doesn't include checks for
+--
+-- * MissingPayload
+-- * MissingParent
+-- * IncorrectPayloadHash
 --
 validateBlockHeader
-    :: BlockHeader
+    :: Time Micros
+        -- ^ The current clock time
+    -> BlockHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ The block header to be checked
     -> [ValidationFailureType]
         -- ^ A list of ways in which the block header isn't valid
-validateBlockHeader p b = validateIntrinsic b <> validateInductive p b
+validateBlockHeader t p b = validateIntrinsic t b <> validateInductive p b
 
 -- | Validates properties of a block which are checkable from the block header
 -- without observing the remainder of the database.
 --
 validateIntrinsic
-    :: BlockHeader
+    :: Time Micros
+        -- ^ The current clock time
+    -> BlockHeader
         -- ^ block header to be validated
     -> [ValidationFailureType]
         -- ^ A list of ways in which the block header isn't valid
-validateIntrinsic b = concat
+validateIntrinsic t b = concat
     [ [ IncorrectHash | not (prop_block_hash b) ]
     , [ IncorrectPow | not (prop_block_pow b) ]
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
+    , [ BlockInTheFuture | not (prop_block_current t b)]
     ]
 
 -- | Validate properties of a block with respect to a given parent.
@@ -271,12 +313,17 @@ validateBlockParentExists lookupParent h
 
 -- | Validate a set of blocks that may depend on each other.
 --
+-- * MissingPayload
+-- * IncorrectPayloadHash
+--
 validateBlocksM
     :: MonadThrow m
-    => (BlockHash -> m (Maybe BlockHeader))
+    => Time Micros
+        -- ^ The current clock time
+    -> (BlockHash -> m (Maybe BlockHeader))
     -> HM.HashMap BlockHash BlockHeader
     -> m ()
-validateBlocksM lookupParent as
+validateBlocksM t lookupParent as
     = traverse_ go as
   where
     lookupParent' h = case HM.lookup h as of
@@ -285,7 +332,7 @@ validateBlocksM lookupParent as
 
     go h = validateBlockParentExists lookupParent' h >>= \case
         Left e -> throwM $ ValidationFailure Nothing h [e]
-        Right p -> validateBlockHeaderM p h
+        Right p -> validateBlockHeaderM t p h
 
 -- -------------------------------------------------------------------------- --
 -- Intrinsic BlockHeader properties
@@ -307,6 +354,9 @@ prop_block_genesis_parent b
 prop_block_genesis_target :: BlockHeader -> Bool
 prop_block_genesis_target b = isGenesisBlockHeader b
     ==> _blockTarget b == genesisBlockTarget
+
+prop_block_current :: Time Micros -> BlockHeader -> Bool
+prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
