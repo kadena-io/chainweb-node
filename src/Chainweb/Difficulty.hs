@@ -269,7 +269,11 @@ difficultyToTarget (HashDifficulty (PowHashNat difficulty)) =
 --
 difficultyToTargetR :: Rational -> HashTarget
 difficultyToTargetR difficulty =
-    HashTarget . PowHashNat $ maxTargetWord `div` floor difficulty
+    -- `ceiling` is chosen here, to avoid the (hopefully rare) case where the
+    -- `Rational` given is between 0 and 1. `floor` instead would drop that to
+    -- 0, making the `div` crash. At most, this would "spuriously" raise the
+    -- difficulty by at most 0.999... (~1) hash, which is negligible.
+    HashTarget . PowHashNat $ maxTargetWord `div` ceiling difficulty
 {-# INLINE difficultyToTargetR #-}
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
