@@ -318,7 +318,8 @@ validateHashes pwo bHeader =
         then Right pwo
         else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++
-            " does not match the previously stored hash: " ++ show prevHash
+            " does not match the previously stored hash: " ++ show prevHash ++
+            ". Payload with outputs: " ++ show pwo
 
 
 -- | Restore the checkpointer and prepare the execution of a block.
@@ -511,7 +512,7 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
         newTrans <- liftIO $
             mpaGetBlock mpAccess validate bHeight pHash parentHeader
         -- locally run 'execTransactions' with updated blockheight data
-        results <- withParentBlockData parentHeader $
+        results <- withBlockData parentHeader $
             execTransactions (Just pHash) miner newTrans pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
   where
@@ -585,41 +586,28 @@ logError = logg "ERROR"
 logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
--- | Run a pact service action with public blockheader data fed into the
--- reader environment
+-- | Run a pact service action with parent blockheader data fed into the
+-- reader environment.
 --
 withBlockData
     :: forall cas a
     . BlockHeader
+        -- ^ this must be a -parent header- in all cases
     -> PactServiceM cas a
+        -- ^ the action to be run
     -> PactServiceM cas a
-withBlockData bhe action = action
-    & locally (psPublicData . P.pdBlockHeight) (const bh)
-    & locally (psPublicData . P.pdBlockTime) (const bt)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
+withBlockData bhe action = locally psPublicData go action
   where
     (BlockHeight !bh) = _blockHeight bhe
-    (BlockCreationTime (Time (TimeSpan (Micros !bt)))) = _blockCreationTime bhe
     (BlockHash !ph) = _blockParent bhe
+    (BlockCreationTime (Time (TimeSpan (Micros !bt)))) =
+      _blockCreationTime bhe
 
--- | Run a pact service action with public blockheader data fed into the
--- reader environment where the block header is a -parent- header
--- (used in 'execNewBlock')
---
--- note: it does not make sense to run 'execNewBlock' with parent block time
--- in the env
---
-withParentBlockData
-    :: forall cas a
-    . BlockHeader
-    -> PactServiceM cas a
-    -> PactServiceM cas a
-withParentBlockData phe action = action
-    & locally (psPublicData . P.pdBlockHeight) (const bh)
-    & locally (psPublicData . P.pdPrevBlockHash) (const $ toText ph)
-  where
-    (BlockHeight !bh) = succ $ _blockHeight phe
-    (BlockHash !ph) = _blockHash phe
+    go t = t
+      { P._pdBlockHeight = succ bh
+      , P._pdBlockTime = bt
+      , P._pdPrevBlockHash = toText ph
+      }
 
 -- | Execute a block.
 --
@@ -631,13 +619,23 @@ playOneBlock
 playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
-    !results <- withBlockData currHeader $ execTransactions pBlock miner trans pdbenv
+    !results <- go miner trans
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
   where
     bParent = _blockParent currHeader
+
     isGenesisBlock = isGenesisBlockHeader currHeader
-    pBlock = if isGenesisBlock then Nothing else Just bParent
+
+    go m txs =
+      if isGenesisBlock
+      then execTransactions Nothing m txs pdbenv
+      else do
+        bhDb <- asks _psBlockHeaderDb
+        ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
+        withBlockData ph $! execTransactions (Just bParent) m txs pdbenv
+
+
 
 -- | Rewinds the pact state to @mb@.
 --

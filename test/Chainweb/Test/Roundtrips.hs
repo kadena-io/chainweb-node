@@ -108,6 +108,7 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "BlockTransactionsHash"
         $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
 
+    -- TODO Fix this!
     -- The following doesn't hold:
     -- , testProperty "target difficulty"
     --     $ prop_iso difficultyToTarget targetToDifficulty
