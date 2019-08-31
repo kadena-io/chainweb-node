@@ -18,6 +18,10 @@ module Chainweb.BlockHeader.Validation
 -- * Validation Failures
   ValidationFailure(..)
 , ValidationFailureType(..)
+, definiteValidationFailures
+, isDefinite
+, ephemeralValidationFailures
+, isEphemeral
 
 -- * Validation functions
 , validateBlockHeader
@@ -50,6 +54,7 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
+import qualified Data.List as L
 
 -- internal modules
 
@@ -89,6 +94,9 @@ instance Show ValidationFailure where
             IncorrectTarget -> "The given target for the block is incorrect for its history"
             IncorrectGenesisParent -> "The block is a genesis block, but doesn't have its parent set to its own hash"
             IncorrectGenesisTarget -> "The block is a genesis block, but doesn't have the correct difficulty target"
+            BlockInTheFuture -> "The creation time of the block is in the future"
+            IncorrectPayloadHash -> "The payload hash does not match the payload hash that results from payload validation"
+            MissingPayload -> "The payload of the block is missing"
 
 -- | An enumeration of possible validation failures for a block header.
 --
@@ -129,9 +137,46 @@ data ValidationFailureType
     | IncorrectGenesisTarget
         -- ^ The block is a genesis block, but doesn't have the correct
         -- POW target.
+    | BlockInTheFuture
+        -- ^ The creation time of the block is in the future.
+    | IncorrectPayloadHash
+        -- ^ The validation of the payload hash failed.
+    | MissingPayload
+        -- ^ The payload for the block is missing.
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
+
+definiteValidationFailures :: [ValidationFailureType]
+definiteValidationFailures =
+    [ CreatedBeforeParent
+    , VersionMismatch
+    , ChainMismatch
+    , IncorrectHash
+    , IncorrectPow
+    , IncorrectHeight
+    , IncorrectWeight
+    , IncorrectTarget
+    , IncorrectEpoch
+    , IncorrectGenesisParent
+    , IncorrectGenesisTarget
+    , IncorrectPayloadHash
+    ]
+
+isDefinite :: [ValidationFailureType] -> Bool
+isDefinite failures
+    = not . null $ L.intersect failures definiteValidationFailures
+
+ephemeralValidationFailures :: [ValidationFailureType]
+ephemeralValidationFailures =
+    [ MissingParent
+    , MissingPayload
+    , BlockInTheFuture
+    ]
+
+isEphemeral :: [ValidationFailureType] -> Bool
+isEphemeral failures
+    = not . null $ L.intersect failures ephemeralValidationFailures
 
 -- -------------------------------------------------------------------------- --
 -- Validate BlockHeader
