@@ -137,8 +137,6 @@ import Data.LogMessage
 
 import P2P.Node
 
-import qualified PkgInfo as Pkg
-
 import Utils.Logging.Config
 
 -- -------------------------------------------------------------------------- --
@@ -344,15 +342,18 @@ withBaseHandleBackend
     :: forall b
     . T.Text
     -> HTTP.Manager
+    -> [(T.Text, T.Text)]
+        -- Scope that are included only with remote backends. In chainweb-node
+        -- this is used for package info data.
     -> BackendConfig
     -> (BaseBackend -> IO b)
     -> IO b
-withBaseHandleBackend label mgr c inner = case _backendConfigHandle c of
+withBaseHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c of
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
     ElasticSearch f ->
-        withElasticsearchBackend mgr f (T.toLower label) esBackend
+        withElasticsearchBackend mgr f (T.toLower label) pkgScopes esBackend
   where
 
     fdBackend h = case _backendConfigFormat c of
@@ -406,14 +407,17 @@ withJsonHandleBackend
     . ToJSON a
     => T.Text
     -> HTTP.Manager
+    -> [(T.Text, T.Text)]
+        -- Scope that are included only with remote backends. In chainweb-node
+        -- this is used for package info data.
     -> BackendConfig
     -> (Backend a -> IO b)
     -> IO b
-withJsonHandleBackend label mgr c inner = case _backendConfigHandle c of
+withJsonHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c of
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode fdBackend
-    ElasticSearch f -> withElasticsearchBackend mgr f (T.toLower label) inner
+    ElasticSearch f -> withElasticsearchBackend mgr f (T.toLower label) pkgScopes inner
   where
     fdBackend h = case _backendConfigFormat c of
         LogFormatText -> do
@@ -432,14 +436,17 @@ withTextHandleBackend
     :: forall a
     . T.Text
     -> HTTP.Manager
+    -> [(T.Text, T.Text)]
+        -- Scope that are included only with remote backends. In chainweb-node
+        -- this is used for package info data.
     -> BackendConfig
     -> (TextBackend -> IO a)
     -> IO a
-withTextHandleBackend label mgr c inner = case _backendConfigHandle c of
+withTextHandleBackend label mgr pkgScopes c inner = case _backendConfigHandle c of
     StdOut -> fdBackend stdout
     StdErr -> fdBackend stderr
     FileHandle f -> withFile f WriteMode $ \h -> fdBackend h
-    ElasticSearch f -> withElasticsearchBackend mgr f (T.toLower label) $ \b ->
+    ElasticSearch f -> withElasticsearchBackend mgr f (T.toLower label) pkgScopes $ \b ->
         inner (b . fmap logText)
   where
 
@@ -482,9 +489,12 @@ withElasticsearchBackend
     => HTTP.Manager
     -> HostAddress
     -> T.Text
+    -> [(T.Text, T.Text)]
+        -- Scope that are included only with remote backends. In chainweb-node
+        -- this is used for package info data.
     -> (Backend a -> IO b)
     -> IO b
-withElasticsearchBackend mgr esServer ixName inner = do
+withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
     i <- curIxName
     createIndex i
     queue <- newTBQueueIO 2000
@@ -570,7 +580,7 @@ withElasticsearchBackend mgr esServer ixName inner = do
     indexAction i a
         = fromEncoding (indexActionHeader i)
         <> BB.char7 '\n'
-        <> e (JsonLogMessage $ L.logMsgScope <>~ pkgInfoScopes $ a)
+        <> e (JsonLogMessage $ L.logMsgScope <>~ pkgScopes $ a)
         <> BB.char7 '\n'
 
     indexActionHeader :: T.Text -> Encoding
@@ -578,19 +588,6 @@ withElasticsearchBackend mgr esServer ixName inner = do
         $ pair "index" $ pairs
             $ ("_index" .= (i :: T.Text))
             <> ("_type" .= ("_doc" :: T.Text))
-
--- -------------------------------------------------------------------------- --
--- Encode Package Info into Log mesage scopes
-
-pkgInfoScopes :: [(T.Text, T.Text)]
-pkgInfoScopes =
-    [ ("revision", Pkg.revision)
-    , ("branch", Pkg.branch)
-    , ("compiler", Pkg.compiler)
-    , ("optimisation", Pkg.optimisation)
-    , ("architecture", Pkg.arch)
-    , ("package", Pkg.package)
-    ]
 
 -- -------------------------------------------------------------------------- --
 -- Event Source Backend for JSON messages
@@ -676,7 +673,7 @@ withExampleLogger
     -> IO a
 withExampleLogger port loggerConfig backendConfig staticDir f = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
-    withBaseHandleBackend "example-logger" mgr backendConfig $ \baseBackend ->
+    withBaseHandleBackend "example-logger" mgr [] backendConfig $ \baseBackend ->
         withJsonEventSourceAppBackend @(JsonLog P2pSessionInfo) port staticDir $ \sessionsBackend -> do
             let loggerBackend = logHandles
                     [ logHandler sessionsBackend ]
