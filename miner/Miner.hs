@@ -88,7 +88,9 @@ import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Aeson (ToJSON(..), Value(..))
 import qualified Data.Text as T
 
-import Network.HTTP.Client (Manager, defaultManagerSettings, newManager)
+import Network.Connection (TLSSettings(..))
+import Network.HTTP.Client (Manager, newManager)
+import Network.HTTP.Client.TLS (mkManagerSettings)
 import qualified Network.Wai.Handler.Warp as W
 
 import Options.Applicative
@@ -217,7 +219,7 @@ main = do
     env@(Env _ _ _ as) <- Env
         <$> newEmptyTMVarIO
         <*> MWC.createSystemRandom
-        <*> newManager defaultManagerSettings
+        <*> newManager (mkManagerSettings ss Nothing)
         <*> execParser opts
     case cmd as of
         GPU _ -> putStrLn "GPU mining is not yet available."
@@ -227,6 +229,9 @@ main = do
             W.run (port as) $ app env
             wait miner
   where
+    ss :: TLSSettings
+    ss = TLSSettingsSimple True True True
+
     opts :: ParserInfo ClientArgs
     opts = info (pClientArgs <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")

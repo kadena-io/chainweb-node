@@ -147,8 +147,8 @@ working submit tp conf nid cdb !adj = _cut cdb >>= work
                         creationTime
                         p
 
-                submit header
                 atomically . writeTVar tp . Just . MiningState payload $ PrevBlock p
+                submit header
 
                 -- Avoid mining on the same Cut twice.
                 --
