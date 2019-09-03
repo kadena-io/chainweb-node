@@ -229,6 +229,9 @@ main = do
             W.run (port as) $ app env
             wait miner
   where
+    -- | This allows this code to accept the self-signed certificates from
+    -- `chainweb-node`.
+    --
     ss :: TLSSettings
     ss = TLSSettingsSimple True True True
 
