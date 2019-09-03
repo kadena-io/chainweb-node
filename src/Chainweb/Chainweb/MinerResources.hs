@@ -44,8 +44,7 @@ import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..))
-import Chainweb.Version
-    (ChainwebVersion(..), MiningProtocol(..), miningProtocol)
+import Chainweb.Version (ChainwebVersion(..), window)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -95,9 +94,9 @@ runMiner v mr = do
     miners = _configTestMiners conf
 
     chooseMiner :: IO (BlockHeader -> IO BlockHeader)
-    chooseMiner = case miningProtocol v of
-        Timed -> testMiner
-        ProofOfWork -> powMiner
+    chooseMiner = case window v of
+        Nothing -> testMiner -- no difficulty adjustment defined
+        Just _ -> powMiner -- difficulty adjustement defined
 
     testMiner :: IO (BlockHeader -> IO BlockHeader)
     testMiner = do
