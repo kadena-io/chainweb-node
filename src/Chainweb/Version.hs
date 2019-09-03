@@ -183,6 +183,21 @@ data ChainwebVersion
         -- This is primarily used in our @run-nodes@ executable.
         --
 
+    | FastTimedCPM ChainGraph
+        -- ^ Test instance for confirming the combined behaviour of our Consensus
+        -- mechanisms, Pact code processing and validation, and Mempool, where:
+        --
+        -- * the underlying `ChainGraph` is configurable,
+        -- * the genesis block time is the Linux epoch,
+        -- * each `HashTarget` is maxBound,
+        -- * each mining `Nonce` is constant,
+        -- * the creationTime of `BlockHeader`'s is the actual time,
+        -- * POW is not simulated by poison process thread delay, and
+        -- * the Pact Service and Mempool operations are running.
+        --
+        -- This is primarily used in our @standalone@ executable.
+        --
+
     ------------------------
     -- DEVELOPMENT INSTANCES
     ------------------------
@@ -219,6 +234,7 @@ chainwebVersionId v@Test{} = toTestChainwebVersion v
 chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
+chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Development = 0x00000001
 chainwebVersionId Testnet02 = 0x00000004
 {-# INLINABLE chainwebVersionId #-}
@@ -291,6 +307,7 @@ miningProtocol :: ChainwebVersion -> MiningProtocol
 miningProtocol Test{} = Timed
 miningProtocol TimedConsensus{} = Timed
 miningProtocol TimedCPM{} = Timed
+miningProtocol FastTimedCPM{} = Timed
 miningProtocol PowConsensus{} = ProofOfWork
 miningProtocol Development = ProofOfWork
 miningProtocol Testnet02 = ProofOfWork
@@ -306,6 +323,7 @@ chainwebVersions = HM.fromList $
     <> f TimedConsensus "timedConsensus"
     <> f PowConsensus "powConsensus"
     <> f TimedCPM "timedCPM"
+    <> f FastTimedCPM "fastTimedCPM"
     <> [ ("development", Development)
        , ("testnet02", Testnet02)
        ]
@@ -365,6 +383,7 @@ codeToTestVersion 0x80000000 = Test
 codeToTestVersion 0x80000001 = TimedConsensus
 codeToTestVersion 0x80000002 = PowConsensus
 codeToTestVersion 0x80000003 = TimedCPM
+codeToTestVersion 0x80000004 = FastTimedCPM
 codeToTestVersion _ = error "Unknown ChainwebVersion Code"
 
 testVersionToCode :: ChainwebVersion -> Word32
@@ -372,6 +391,7 @@ testVersionToCode Test{} = 0x80000000
 testVersionToCode TimedConsensus{} = 0x80000001
 testVersionToCode PowConsensus{} = 0x80000002
 testVersionToCode TimedCPM{} = 0x80000003
+testVersionToCode FastTimedCPM{} = 0x80000004
 testVersionToCode Development =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet02 =
@@ -389,6 +409,7 @@ chainwebVersionGraph (Test g) = g
 chainwebVersionGraph (TimedConsensus g) = g
 chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
+chainwebVersionGraph (FastTimedCPM g) = g
 chainwebVersionGraph Development = petersonChainGraph
 chainwebVersionGraph Testnet02 = petersonChainGraph
 

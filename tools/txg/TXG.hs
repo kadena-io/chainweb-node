@@ -422,11 +422,17 @@ singleTransaction args host (SingleTX c cid)
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
 
+-- If we want package information in txg logs the following list should be
+-- populated with the respective information from the PkgInfo module.
+--
+pkgInfoScopes:: [(T.Text, T.Text)]
+pkgInfoScopes = []
+
 work :: Args -> IO ()
 work cfg = do
   mgr <- newManager defaultManagerSettings
   tv  <- newTVarIO 0
-  withBaseHandleBackend "transaction-generator" mgr (defconfig ^. U.logConfigBackend)
+  withBaseHandleBackend "transaction-generator" mgr pkgInfoScopes (defconfig ^. U.logConfigBackend)
     $ \baseBackend -> do
       let loggerBackend = logHandles [] baseBackend
       withLogger (U._logConfigLogger defconfig) loggerBackend $ \l ->

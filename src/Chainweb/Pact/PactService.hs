@@ -213,6 +213,7 @@ initialPayloadState Test{} _ = pure ()
 initialPayloadState TimedConsensus{} _ = pure ()
 initialPayloadState PowConsensus{} _ = pure ()
 initialPayloadState v@TimedCPM{} cid = initializeCoinContract v cid TN.payloadBlock
+initialPayloadState v@FastTimedCPM{} cid = initializeCoinContract v cid TN.payloadBlock
 initialPayloadState v@Development cid = initializeCoinContract v cid DN.payloadBlock
 initialPayloadState v@Testnet02 cid = initializeCoinContract v cid TN.payloadBlock
 
@@ -318,7 +319,8 @@ validateHashes pwo bHeader =
         then Right pwo
         else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++
-            " does not match the previously stored hash: " ++ show prevHash
+            " does not match the previously stored hash: " ++ show prevHash ++
+            ". Payload with outputs: " ++ show pwo
 
 
 -- | Restore the checkpointer and prepare the execution of a block.

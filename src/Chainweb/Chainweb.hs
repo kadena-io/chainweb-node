@@ -573,6 +573,7 @@ runChainweb cw = do
         TimedConsensus{} -> disabled
         PowConsensus{} -> disabled
         TimedCPM{} -> enabled c
+        FastTimedCPM{} -> enabled c
         Development -> enabled c
         Testnet02 -> enabled c
       where
