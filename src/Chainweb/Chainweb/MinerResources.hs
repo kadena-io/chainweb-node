@@ -20,7 +20,7 @@ module Chainweb.Chainweb.MinerResources
   , runMiner
   ) where
 
-import Control.Concurrent.Async (race_)
+import Control.Concurrent.Async (concurrently_)
 import Control.Concurrent.STM (TVar, atomically)
 import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, takeTMVar)
 import Control.Concurrent.STM.TVar (newTVarIO)
@@ -47,7 +47,7 @@ import Chainweb.Miner.Coordinator (MiningState(..), publishing, working)
 import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
-import Chainweb.Utils (EnableConfig(..))
+import Chainweb.Utils (EnableConfig(..), runForever)
 import Chainweb.Version
     (ChainwebVersion(..), MiningProtocol(..), miningProtocol)
 
@@ -93,8 +93,7 @@ runMiner
 runMiner v mr = do
     tmv   <- newEmptyTMVarIO
     inner <- chooseMiner tmv
-    -- TODO Not correct to `race` here.
-    race_ (working inner tms conf nid cdb mempty) (listener tmv)
+    concurrently_ (loop $ working inner tms conf nid cdb mempty) (listener tmv)
   where
     nid :: NodeId
     nid = _minerResNodeId mr
@@ -114,6 +113,13 @@ runMiner v mr = do
     miners :: MinerCount
     miners = _configTestMiners conf
 
+    loop :: IO () -> IO ()
+    loop = runForever lf "Chainweb.Miner.Coordinator.working"
+
+    -- | This thread will sit silently forever without burning resources when a
+    -- remote miner is being used, since the `TMVar` will never be written to in
+    -- that case.
+    --
     listener :: TMVar BlockHeader -> IO ()
     listener tmv = atomically (takeTMVar tmv) >>= publishing lf tms cdb >> listener tmv
 
