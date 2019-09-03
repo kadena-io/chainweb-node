@@ -213,6 +213,7 @@ initialPayloadState Test{} _ = pure ()
 initialPayloadState TimedConsensus{} _ = pure ()
 initialPayloadState PowConsensus{} _ = pure ()
 initialPayloadState v@TimedCPM{} cid = initializeCoinContract v cid TN.payloadBlock
+initialPayloadState v@FastTimedCPM{} cid = initializeCoinContract v cid TN.payloadBlock
 initialPayloadState v@Development cid = initializeCoinContract v cid DN.payloadBlock
 initialPayloadState v@Testnet02 cid = initializeCoinContract v cid TN.payloadBlock
 

@@ -83,6 +83,7 @@ genesisTime Test{} = BlockCreationTime epoch
 genesisTime TimedConsensus{} = BlockCreationTime epoch
 genesisTime PowConsensus{} = BlockCreationTime epoch
 genesisTime TimedCPM{} = BlockCreationTime epoch
+genesisTime FastTimedCPM{} = BlockCreationTime epoch
 -- Thursday, 2019 July 17, 11:28 AM
 genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
 -- Tuesday, 2019 February 26, 10:55 AM
@@ -96,6 +97,7 @@ genesisMiner Test{} p = ChainNodeId (_chainId p) 0
 genesisMiner TimedConsensus{} p = ChainNodeId (_chainId p) 0
 genesisMiner PowConsensus{} p = ChainNodeId (_chainId p) 0
 genesisMiner TimedCPM{} p = ChainNodeId (_chainId p) 0
+genesisMiner FastTimedCPM{} p = ChainNodeId (_chainId p) 0
 -- Development Instances
 genesisMiner Development p = ChainNodeId (_chainId p) 0
 -- Production Instances
@@ -114,6 +116,7 @@ genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
 genesisBlockPayload TimedCPM{} _ = TN.payloadBlock
+genesisBlockPayload FastTimedCPM{} _ = TN.payloadBlock
 -- Development Instances
 genesisBlockPayload Development _ = DN.payloadBlock
 -- Production Instances

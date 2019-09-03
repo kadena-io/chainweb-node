@@ -62,6 +62,8 @@ instance Arbitrary ChainwebVersion where
         , PowConsensus petersonChainGraph
         , TimedCPM singletonChainGraph
         , TimedCPM petersonChainGraph
+        , FastTimedCPM singletonChainGraph
+        , FastTimedCPM petersonChainGraph
         , Development
         , Testnet02
         ]

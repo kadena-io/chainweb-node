@@ -324,6 +324,7 @@ blockRate Test{} = Nothing
 blockRate TimedConsensus{} = Just $ BlockRate 4
 blockRate PowConsensus{} = Just $ BlockRate 10
 blockRate TimedCPM{} = Just $ BlockRate 4
+blockRate FastTimedCPM{} = Just $ BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Development = Just $ BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
@@ -344,6 +345,7 @@ window TimedConsensus{} = Nothing
 -- 5 blocks, should take 50 seconds.
 window PowConsensus{} = Just $ WindowWidth 8
 window TimedCPM{} = Nothing
+window FastTimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
@@ -363,6 +365,7 @@ minAdjust Test{} = Nothing
 minAdjust TimedConsensus{} = Nothing
 minAdjust PowConsensus{} = Just $ MinAdjustment 3
 minAdjust TimedCPM{} = Nothing
+minAdjust FastTimedCPM{} = Nothing
 -- See `adjust` for motivation.
 minAdjust Development = Just $ MinAdjustment 3
 minAdjust Testnet02 = Just $ MinAdjustment 3
