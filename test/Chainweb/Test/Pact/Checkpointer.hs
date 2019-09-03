@@ -112,9 +112,9 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
   next "init"
 
-  _blockenv00 <- restore _cpeCheckpointer Nothing
+  _blockenv00 <- _cpRestore _cpeCheckpointer Nothing
 
-  save _cpeCheckpointer hash00
+  _cpSave _cpeCheckpointer hash00
 
   next "next block (blockheight 1, version 0)"
 
@@ -122,19 +122,19 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
   _hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
 
-  blockenv01 <- restore _cpeCheckpointer (Just (bh01, hash00))
+  blockenv01 <- _cpRestore _cpeCheckpointer (Just (bh01, hash00))
   addKeyset blockenv01 "k2" (KeySet [] (Name ">=" (Info Nothing)))
 
-  discard _cpeCheckpointer
+  _cpDiscard _cpeCheckpointer
 
   next "fork on blockheight = 1"
 
   let bh11 = BlockHeight 1
 
   hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
-  blockenv11 <- restore _cpeCheckpointer (Just (bh11, hash00))
+  blockenv11 <- _cpRestore _cpeCheckpointer (Just (bh11, hash00))
   addKeyset blockenv11 "k1" (KeySet [] (Name ">=" (Info Nothing)))
-  save _cpeCheckpointer hash11
+  _cpSave _cpeCheckpointer hash11
 
 addKeyset :: PactDbEnv' -> KeySetName -> KeySet -> IO ()
 addKeyset (PactDbEnv' (PactDbEnv pactdb mvar)) keysetname keyset = _writeRow pactdb Insert KeySets keysetname keyset mvar
@@ -197,30 +197,30 @@ checkpointerTest name initdata =
 
             next "Step 1 : new block workflow (restore -> discard), genesis"
 
-            blockenvGenesis0 <- restore _cpeCheckpointer Nothing
+            blockenvGenesis0 <- _cpRestore _cpeCheckpointer Nothing
 
             void $ runExec blockenvGenesis0 (Just $ ksData "1") $ defModule "1"
             runExec blockenvGenesis0 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
-            discard _cpeCheckpointer
+            _cpDiscard _cpeCheckpointer
 
           -----------------------------------------------------------
           -- s02 : validate block workflow (restore -> save), genesis
           -----------------------------------------------------------
 
             next "Step 2 : validate block workflow (restore -> save), genesis"
-            blockenvGenesis1 <- restore _cpeCheckpointer Nothing
+            blockenvGenesis1 <- _cpRestore _cpeCheckpointer Nothing
             void $ runExec blockenvGenesis1 (Just $ ksData "1") $ defModule "1"
             runExec blockenvGenesis1 Nothing "(m1.readTbl)"
               >>=  \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
-            save _cpeCheckpointer hash00
+            _cpSave _cpeCheckpointer hash00
 
         ------------------------------------------------------------------
         -- s03 : new block 00
         ------------------------------------------------------------------
 
           next "Step 3 : new block 00"
-          blockenv00 <- restore _cpeCheckpointer (Just (BlockHeight 1, hash00))
+          blockenv00 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 1, hash00))
           -- start a pact
           -- test is that exec comes back with proper step
           let pactId = "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g"
@@ -232,7 +232,7 @@ checkpointerTest name initdata =
 
           runExec blockenv00 Nothing "(m1.dopact 'pactA)" >>= ((Just 0 @=?) . pactCheckStep)
 
-          discard _cpeCheckpointer
+          _cpDiscard _cpeCheckpointer
 
         ------------------------------------------------------------------
         -- s04: validate block 1
@@ -241,7 +241,7 @@ checkpointerTest name initdata =
           next "Step 4: validate block 1"
           hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
 
-          blockenv01 <- restore _cpeCheckpointer (Just (BlockHeight 1, hash00))
+          blockenv01 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 1, hash00))
 
           void $ runExec blockenv01 Nothing "(m1.insertTbl 'b 2)"
 
@@ -251,7 +251,7 @@ checkpointerTest name initdata =
           runExec blockenv01 Nothing "(m1.dopact 'pactA)"
             >>= ((Just 0 @=?) . pactCheckStep)
 
-          save _cpeCheckpointer hash01
+          _cpSave _cpeCheckpointer hash01
 
         ------------------------------------------------------------------
         -- s05: validate block 02
@@ -264,7 +264,7 @@ checkpointerTest name initdata =
           next msg
           hash02 <- BlockHash <$> merkleLogHash "0000000000000000000000000000002a"
 
-          blockenv02 <- restore _cpeCheckpointer (Just (BlockHeight 2, hash01))
+          blockenv02 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 2, hash01))
 
           void $ runExec blockenv02 (Just $ ksData "2") $ defModule "2"
 
@@ -274,21 +274,21 @@ checkpointerTest name initdata =
           runCont blockenv02 pactId 1
             >>= ((Just 1 @=?) . pactCheckStep)
 
-          save _cpeCheckpointer hash02
+          _cpSave _cpeCheckpointer hash02
 
         ------------------------------------------------------------------
         -- s06 : new block 03
         ------------------------------------------------------------------
 
           next "Step 6 : new block 03"
-          blockenv03 <- restore _cpeCheckpointer (Just (BlockHeight 3, hash02))
+          blockenv03 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 3, hash02))
 
           void $ runExec blockenv03 Nothing "(m2.insertTbl 'b 2)"
 
           runExec blockenv03 Nothing "(m2.readTbl)"
             >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
-          discard _cpeCheckpointer
+          _cpDiscard _cpeCheckpointer
 
         ------------------------------------------------------------------
         -- s07 : validate block 03
@@ -296,7 +296,7 @@ checkpointerTest name initdata =
           next "Step 7 : validate block 03"
           hash03 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003a"
 
-          blockenv13 <- restore _cpeCheckpointer (Just (BlockHeight 3, hash02))
+          blockenv13 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 3, hash02))
 
           -- insert here would fail if new block 03 had not been discarded
           void $ runExec blockenv13 Nothing "(m2.insertTbl 'b 2)"
@@ -304,7 +304,7 @@ checkpointerTest name initdata =
           runExec blockenv13 Nothing "(m2.readTbl)"
             >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,2]]
 
-          save _cpeCheckpointer hash03
+          _cpSave _cpeCheckpointer hash03
 
       ------------------------------------------------------------------
         -- s08: FORK! block 02, new hash
@@ -317,7 +317,7 @@ checkpointerTest name initdata =
           next msgFork
           hash02Fork <- BlockHash <$> merkleLogHash "0000000000000000000000000000002b"
 
-          blockenv02Fork <- restore _cpeCheckpointer (Just (BlockHeight 2, hash01))
+          blockenv02Fork <- _cpRestore _cpeCheckpointer (Just (BlockHeight 2, hash01))
 
           void $ runExec blockenv02Fork (Just $ ksData "2") $ defModule "2"
 
@@ -327,19 +327,19 @@ checkpointerTest name initdata =
           -- this would fail if not a fork
           runCont blockenv02Fork pactId 1 >>= ((Just 1 @=?) . pactCheckStep)
 
-          save _cpeCheckpointer hash02Fork
+          _cpSave _cpeCheckpointer hash02Fork
 
           let updatemsgA = "step 9: test update row: new block 03"
 
           next updatemsgA
-          blockenv23 <- restore _cpeCheckpointer (Just (BlockHeight 3, hash02Fork))
+          blockenv23 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 3, hash02Fork))
 
           -- updating key previously written at blockheight 1 (the "restore point")
           void $ runExec blockenv23 Nothing "(m1.updateTbl 'b 3)"
 
           runExec blockenv23 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
 
-          discard _cpeCheckpointer
+          _cpDiscard _cpeCheckpointer
 
           let updatemsgB = "step 9: test update row: validate block 03"
 
@@ -347,53 +347,53 @@ checkpointerTest name initdata =
 
           hash13 <- BlockHash <$> merkleLogHash "0000000000000000000000000000003b"
 
-          blockenv33 <- restore _cpeCheckpointer (Just (BlockHeight 3, hash02Fork))
+          blockenv33 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 3, hash02Fork))
 
           -- updating key previously written at blockheight 1 (the "restore point")
           void $ runExec blockenv33 Nothing "(m1.updateTbl 'b 3)"
 
           runExec blockenv33 Nothing "(m1.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,3]]
 
-          save _cpeCheckpointer hash13
+          _cpSave _cpeCheckpointer hash13
 
           next "mini-regression test for dropping user tables (part 1) empty block"
 
           hash04 <- BlockHash <$> merkleLogHash "0000000000000000000000000000004a"
 
-          _blockenv04 <- restore _cpeCheckpointer (Just (BlockHeight 4, hash13))
+          _blockenv04 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 4, hash13))
 
-          save _cpeCheckpointer hash04
+          _cpSave _cpeCheckpointer hash04
 
 
           next "mini-regression test for dropping user tables (part 2) (create module with offending table)"
 
           hash05 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005a"
 
-          blockenv05 <- restore _cpeCheckpointer (Just (BlockHeight 5, hash04))
+          blockenv05 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 5, hash04))
 
           void $ runExec blockenv05 (Just $ ksData "5") $ defModule "5"
 
           runExec blockenv05 Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
-          save _cpeCheckpointer hash05
+          _cpSave _cpeCheckpointer hash05
 
           next "mini-regression test for dropping user tables (part 3) (reload the offending table)"
 
           hash05Fork  <- BlockHash <$> merkleLogHash "0000000000000000000000000000005b"
 
-          blockenv05Fork <- restore _cpeCheckpointer (Just (BlockHeight 5, hash04))
+          blockenv05Fork <- _cpRestore _cpeCheckpointer (Just (BlockHeight 5, hash04))
 
           void $ runExec blockenv05Fork (Just $ ksData "5") $ defModule "5"
 
           runExec blockenv05Fork Nothing "(m5.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
 
-          save _cpeCheckpointer hash05Fork
+          _cpSave _cpeCheckpointer hash05Fork
 
           next "mini-regression test for dropping user tables (part 4) fork on the empty block"
 
-          _blockenv04Fork <- restore _cpeCheckpointer (Just (BlockHeight 4, hash13))
+          _blockenv04Fork <- _cpRestore _cpeCheckpointer (Just (BlockHeight 4, hash13))
 
-          discard _cpeCheckpointer
+          _cpDiscard _cpeCheckpointer
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm

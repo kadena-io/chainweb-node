@@ -77,17 +77,19 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
        CheckpointEnv
         { _cpeCheckpointer =
             Checkpointer
-              (doRestore db)
-              (doSave db)
-              (doDiscard db)
-              (doGetLatest db)
-              (doBeginBatch db)
-              (doCommitBatch db)
-              (doDiscardBatch db)
-              (doLookupBlock db)
-              (doGetBlockParent db)
-              (doRegisterSuccessful db)
-              (doLookupSuccessful db)
+            {
+                _cpRestore = doRestore db
+              , _cpSave = doSave db
+              , _cpDiscard = doDiscard db
+              , _cpGetLatestBlock = doGetLatest db
+              , _cpBeginCheckpointerBatch = doBeginBatch db
+              , _cpCommitCheckpointerBatch = doCommitBatch db
+              , _cpDiscardCheckpointerBatch = doDiscardBatch db
+              , _cpLookupBlockInCheckpointer = doLookupBlock db
+              , _cpGetBlockParent = doGetBlockParent db
+              , _cpRegisterProcessedTx = doRegisterSuccessful db
+              , _cpLookupProcessedTx = doLookupSuccessful db
+              }
         , _cpeLogger = loggr
         , _cpeGasEnv = gasEnv
         })
