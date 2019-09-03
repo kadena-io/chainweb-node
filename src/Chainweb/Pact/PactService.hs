@@ -225,7 +225,7 @@ initializeCoinContract
     -> PactServiceM cas ()
 initializeCoinContract v cid pwo = do
     cp <- view (psCheckpointEnv . cpeCheckpointer)
-    genesisExists <- liftIO $ lookupBlockInCheckpointer cp (0, ghash)
+    genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
     unless genesisExists $ do
         txs <- execValidateBlock genesisHeader inputPayloadData
         bitraverse_ throwM pure $ validateHashes txs genesisHeader
@@ -345,7 +345,7 @@ restoreCheckpointer
 restoreCheckpointer maybeBB = do
     checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
     logInfo $ "restoring " <> sshow maybeBB
-    liftIO $ restore checkPointer maybeBB
+    liftIO $ _cpRestore checkPointer maybeBB
 
 data WithCheckpointerResult a
     = Discard !a
@@ -374,9 +374,9 @@ withCheckpointer target act = mask $ \restore -> do
         Right (Discard !result) -> discardTx >> return result
         Right (Save header !result) -> saveTx header >> return result
   where
-    discardTx = finalizeCheckpointer discard
+    discardTx = finalizeCheckpointer _cpDiscard
     saveTx header = do
-        finalizeCheckpointer (flip save $ _blockHash header)
+        finalizeCheckpointer (flip _cpSave $ _blockHash header)
         psStateValidated .= Just header
 
 -- | Same as 'withCheckpointer' but rewinds the checkpointer state to the
@@ -408,7 +408,7 @@ validateChainwebTxsPreBlock
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
 validateChainwebTxsPreBlock dbEnv cp bh hash txs = do
-    lb <- getLatestBlock cp
+    lb <- _cpGetLatestBlock cp
     when (Just (pred bh, hash) /= lb) $
         fail "internal error: restore point is wrong, refusing to validate."
     V.mapM checkOne txs
@@ -426,7 +426,7 @@ validateChainwebTxsPreBlock dbEnv cp bh hash txs = do
 
     checkOne tx = do
         let pactHash = view P.cmdHash tx
-        mb <- lookupProcessedTx cp pactHash
+        mb <- _cpLookupProcessedTx cp pactHash
         if mb == Nothing
         then checkAccount tx
         else return False
@@ -525,14 +525,14 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
 withBatch :: PactServiceM cas a -> PactServiceM cas a
 withBatch act = mask $ \r -> do
     cp <- view (psCheckpointEnv . cpeCheckpointer)
-    r $ liftIO $ beginCheckpointerBatch cp
+    r $ liftIO $ _cpBeginCheckpointerBatch cp
     v <- r act `catch` hndl cp
-    r $ liftIO $ commitCheckpointerBatch cp
+    r $ liftIO $ _cpCommitCheckpointerBatch cp
     return v
 
   where
     hndl cp (e :: SomeException) = do
-        liftIO $ discardCheckpointerBatch cp
+        liftIO $ _cpDiscardCheckpointerBatch cp
         throwM e
 
 
@@ -541,9 +541,9 @@ withDiscardedBatch act = bracket start end (const act)
   where
     start = do
         cp <- view (psCheckpointEnv . cpeCheckpointer)
-        liftIO (beginCheckpointerBatch cp)
+        liftIO (_cpBeginCheckpointerBatch cp)
         return cp
-    end = liftIO . discardCheckpointerBatch
+    end = liftIO . _cpDiscardCheckpointerBatch
 
 
 -- | only for use in generating genesis blocks in tools
@@ -658,7 +658,7 @@ rewindTo mb = do
     rewindGenesis = return ()
     doRewind cp (newH, parentHash) = do
         payloadDb <- asks _psPdb
-        mbLastBlock <- liftIO $ getLatestBlock cp
+        mbLastBlock <- liftIO $ _cpGetLatestBlock cp
         lastHeightAndHash <- maybe failNonGenesisOnEmptyDb return mbLastBlock
         bhDb <- asks _psBlockHeaderDb
         playFork cp bhDb payloadDb newH parentHash lastHeightAndHash
@@ -680,7 +680,7 @@ rewindTo mb = do
                 logInfo $ "exception during rewind to "
                     <> sshow (newH, parentHash) <> ". Failed to look last hash "
                     <> sshow (height, hash) <> " in block header db. Continuing with parent."
-                liftIO (getBlockParent cp (height, hash)) >>= \case
+                liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
                     Nothing -> throwM $ BlockValidationFailure
                         $ "exception during rewind: missing block parent of last hash " <> sshow (height, hash)
                     Just predHash -> findValidParent (pred height) predHash
@@ -788,7 +788,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
 
     cp <- view (psCheckpointEnv . cpeCheckpointer)
     -- mark the tx as processed at the checkpointer.
-    liftIO $ registerProcessedTx cp pactHash
+    liftIO $ _cpRegisterProcessedTx cp pactHash
     let !res = toHashCommandResult result
     pure $! T2 (res : v) mcache'
 

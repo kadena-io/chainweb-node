@@ -55,17 +55,19 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
         (CheckpointEnv
             { _cpeCheckpointer =
                 Checkpointer
-                    (doRestore genesis inmem)
-                    (doSave inmem)
-                    (doDiscard inmem)
-                    (doGetLatest inmem)
-                    noop        -- in-mem doesn't batch
-                    noop
-                    (doDiscard inmem)
-                    (doLookupBlock inmem)
-                    (doGetBlockParent inmem)
-                    (doRegisterSuccessful inmem)
-                    (doLookupSuccessful inmem)
+                {
+                      _cpRestore = doRestore genesis inmem
+                    , _cpSave = doSave inmem
+                    , _cpDiscard = doDiscard inmem
+                    , _cpGetLatestBlock = doGetLatest inmem
+                    , _cpBeginCheckpointerBatch = noop -- in-mem doesn't batch
+                    , _cpCommitCheckpointerBatch = noop
+                    , _cpDiscardCheckpointerBatch = doDiscard inmem
+                    , _cpLookupBlockInCheckpointer = doLookupBlock inmem
+                    , _cpGetBlockParent = doGetBlockParent inmem
+                    , _cpRegisterProcessedTx = doRegisterSuccessful inmem
+                    , _cpLookupProcessedTx = doLookupSuccessful inmem
+                }
             , _cpeLogger = logger
             , _cpeGasEnv = gasEnv
             })
