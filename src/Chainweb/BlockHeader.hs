@@ -469,7 +469,7 @@ data BlockHeader :: Type where
 
         , _blockEpochStart :: {-# UNPACK #-} !EpochStartTime
             -- ^ The start time of the current difficulty adjustment epoch.
-            -- Epochs devide the sequence of blocks in the chain into continues
+            -- Epochs divide the sequence of blocks in the chain into continuous
             -- ranges of blocks. Each epoch is defined by the minimal block
             -- height of the blocks in the epoch.
 
