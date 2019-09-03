@@ -318,7 +318,8 @@ validateHashes pwo bHeader =
         then Right pwo
         else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++
-            " does not match the previously stored hash: " ++ show prevHash
+            " does not match the previously stored hash: " ++ show prevHash ++
+            ". Payload with outputs: " ++ show pwo
 
 
 -- | Restore the checkpointer and prepare the execution of a block.

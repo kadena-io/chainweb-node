@@ -394,6 +394,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
@@ -433,6 +434,7 @@ test-suite chainweb-tests
         , directory >= 1.2
         , exceptions
         , extra >= 1.6
+        , file-embed >= 0.0
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
