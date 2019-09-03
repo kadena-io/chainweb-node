@@ -318,19 +318,29 @@ encodeEpochStartTime (EpochStartTime t) = encodeTime t
 decodeEpochStartTime :: MonadGet m => m EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
-isEpochStartHeight :: HasChainwebVersion v => v -> BlockHeight -> Bool
-isEpochStartHeight v h = case window (_chainwebVersion v) of
-    Nothing -> False
-    Just (WindowWidth n)
-        | h == 0 -> True
-        | int h < n && int h `mod` 10 == (0 :: Int) -> True
-        | int h `mod` n == 0 -> True
-        | otherwise -> False
-{-# INLINE isEpochStartHeight #-}
+-- | During the first epoch after genesis there are 10 extra difficulty
+-- adjustments. This is to account for rapidly changing total hash power in this
+-- early stages of the network.
+--
+effectiveWindow :: BlockHeader -> Maybe WindowWidth
+effectiveWindow h = WindowWidth <$> case window ver of
+    Nothing -> Nothing
+    Just (WindowWidth w)
+        | int (_blockHeight h) <= w -> Just $ max 1 $ w `div` 10
+        | otherwise -> Just w
+  where
+    ver = _blockChainwebVersion h
+{-# INLINE effectiveWindow #-}
 
-isLastInEpoche :: BlockHeader -> Bool
-isLastInEpoche bh = isEpochStartHeight bh (_blockHeight bh + 1)
-{-# INLINE isLastInEpoche #-}
+-- | Return whether the given 'BlockHeader' is the last header in its epoch.
+--
+isLastInEpoch :: BlockHeader -> Bool
+isLastInEpoch h = case effectiveWindow h of
+    Nothing -> False
+    Just (WindowWidth w)
+        | int (_blockHeight h) `mod` w == 0 -> True
+        | otherwise -> False
+{-# INLINE isLastInEpoch #-}
 
 -- | Compute the POW target for a new BlockHeader
 --
@@ -341,16 +351,15 @@ powTarget
         -- ^ block creation time of new block
     -> HashTarget
         -- ^ POW target of new block
-powTarget p (BlockCreationTime bt) = case window ver of
+powTarget p (BlockCreationTime bt) = case effectiveWindow p of
     Nothing -> maxTarget
-    Just (WindowWidth w)
-        | isLastInEpoche p ->
-            adjust ver (windowSize w) (t .-. _blockEpochStart p) (_blockTarget p)
+    Just w
+        | isLastInEpoch p ->
+            adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
         | otherwise -> _blockTarget p
   where
     t = EpochStartTime bt
     ver = _blockChainwebVersion p
-    windowSize w = WindowWidth $ if int (_blockHeight p) <= w then 10 else w
 {-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader
@@ -363,7 +372,7 @@ epochStart
     -> EpochStartTime
         -- ^ epoch start time of new block
 epochStart p (BlockCreationTime bt)
-    | isLastInEpoche p = EpochStartTime bt
+    | isLastInEpoch p = EpochStartTime bt
     | otherwise = _blockEpochStart p
 {-# INLINE epochStart #-}
 
