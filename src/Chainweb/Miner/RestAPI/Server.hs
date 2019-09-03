@@ -53,7 +53,6 @@ solvedHandler mr (HeaderBytes hbytes) = liftIO $
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
 
--- TODO Use type-level `CutDbT`?
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
     .  Logger l

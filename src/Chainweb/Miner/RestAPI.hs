@@ -48,7 +48,6 @@ type MiningSubmissionApi = "submit" :> ReqBody '[OctetStream] WorkBytes :> Post 
 -- -----------------------------------------------------------------------------
 -- Mining Results
 
--- TODO Use `NetworkID` to be consistent with the other subnetworks?
 -- | To yield a solved `Chainweb.BlockHeader.BlockHeader` back to a Chainweb
 -- Node for it to be reassociated with its `Chainweb.Cut.Cut` and Payload, then
 -- published to the rest of the network.
