@@ -26,6 +26,7 @@ module Chainweb.Miner.Coordinator
   , publishing
   ) where
 
+import Control.Concurrent.Async (race)
 import Control.Concurrent.STM (TVar, atomically, readTVarIO, retry, writeTVar)
 import Control.Lens (iforM, ix, set, to, view, (^?), (^?!))
 import Control.Monad (void, when)
@@ -149,11 +150,15 @@ working submit tp conf nid cdb !adj = _cut cdb >>= work
                         p
 
                 atomically . writeTVar tp . Just . MiningState payload $ PrevBlock p
-                submit header
 
-                -- Avoid mining on the same Cut twice.
+                -- Race the mining work submission with the process of detecting
+                -- a new Cut. This balances the needs of the local and remote
+                -- mining scenarios. Also avoids mining on the same Cut twice.
                 --
-                void $ awaitNewCut cdb c
+                race (awaitNewCut cdb c) (submit header) >>= \case
+                    Left _ -> pure ()
+                    Right _ -> void $ awaitNewCut cdb c
+
                 -- TODO How often should pruning occur?
                 working submit tp conf nid cdb $ filterAdjustments header adj'
 
