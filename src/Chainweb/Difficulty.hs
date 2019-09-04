@@ -269,7 +269,11 @@ difficultyToTarget (HashDifficulty (PowHashNat difficulty)) =
 --
 difficultyToTargetR :: Rational -> HashTarget
 difficultyToTargetR difficulty =
-    HashTarget . PowHashNat $ maxTargetWord `div` floor difficulty
+    -- `ceiling` is chosen here, to avoid the (hopefully rare) case where the
+    -- `Rational` given is between 0 and 1. `floor` instead would drop that to
+    -- 0, making the `div` crash. At most, this would "spuriously" raise the
+    -- difficulty by at most 0.999... (~1) hash, which is negligible.
+    HashTarget . PowHashNat $ maxTargetWord `div` ceiling difficulty
 {-# INLINE difficultyToTargetR #-}
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
@@ -321,6 +325,7 @@ blockRate TimedConsensus{} = Just $ BlockRate 4
 blockRate PowConsensus{} = Just $ BlockRate 10
 blockRate TimedCPM{} = Just $ BlockRate 4
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
+blockRate FastTimedCPM{} = Just $ BlockRate 1
 blockRate Development = Just $ BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet02 = Just $ BlockRate 30
@@ -340,6 +345,7 @@ window TimedConsensus{} = Nothing
 -- 5 blocks, should take 50 seconds.
 window PowConsensus{} = Just $ WindowWidth 8
 window TimedCPM{} = Nothing
+window FastTimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
@@ -359,6 +365,7 @@ minAdjust Test{} = Nothing
 minAdjust TimedConsensus{} = Nothing
 minAdjust PowConsensus{} = Just $ MinAdjustment 3
 minAdjust TimedCPM{} = Nothing
+minAdjust FastTimedCPM{} = Nothing
 -- See `adjust` for motivation.
 minAdjust Development = Just $ MinAdjustment 3
 minAdjust Testnet02 = Just $ MinAdjustment 3

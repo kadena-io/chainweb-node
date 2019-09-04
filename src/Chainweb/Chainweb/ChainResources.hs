@@ -170,6 +170,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
         TimedCPM{} -> mkPactExecutionService requestQ
+        FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
         Testnet02 -> mkPactExecutionService requestQ
 
