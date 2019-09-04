@@ -35,8 +35,8 @@ import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
-import Data.Tuple.Strict (T2(..))
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import Numeric.Natural (Natural)
@@ -177,16 +177,14 @@ publishing lf tp cdb bh = do
     c <- _cut cdb
     readTVarIO tp >>= \case
         Nothing -> pure ()  -- TODO Throw error?
-        Just (MiningState pl p) -> if not (samePayload pl)
-          then do
-            -- TODO: consider makeing this a debug level log
-            lf @T.Text Info $ "Newly mined block for outdated payload"
-          else do
-            -- Publish the new Cut into the CutDb (add to queue).
-            --
-            tryMonotonicCutExtension c bh >>= \case
+        Just (MiningState pl p)
+            | not (samePayload pl) ->
+                lf @T.Text Debug $ "Newly mined block for outdated payload"
+            | otherwise -> tryMonotonicCutExtension c bh >>= \case
                 Nothing -> lf @T.Text Info $ "Newly mined block for outdated cut"
                 Just c' -> do
+                    -- Publish the new Cut into the CutDb (add to queue).
+                    --
                     addCutHashes cdb $ cutToCutHashes Nothing c'
                         & set cutHashesHeaders
                             (HM.singleton (_blockHash bh) bh)
