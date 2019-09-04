@@ -26,7 +26,7 @@ import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception (bracket, mask_, throw)
-import Control.Monad (void, (<$!>))
+import Control.Monad (unless, void, (<$!>))
 
 import Data.Aeson
 import Data.Foldable (foldl', foldlM)
@@ -75,7 +75,8 @@ destroyInMemPool = const $ return ()
 ------------------------------------------------------------------------------
 newInMemMempoolData :: ToJSON t => FromJSON t => IO (InMemoryMempoolData t)
 newInMemMempoolData =
-    InMemoryMempoolData <$!> newIORef PSQ.empty
+    InMemoryMempoolData <$!> newIORef 0
+                        <*> newIORef PSQ.empty
                         <*> newIORef emptyRecentLog
 
 
@@ -182,7 +183,6 @@ markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
     let pref = _inmemPending mdata
     modifyIORef' pref $ \psq -> foldl' (flip PSQ.delete) psq txs
 
-
 ------------------------------------------------------------------------------
 insertInMem :: InMemConfig t    -- ^ in-memory config
             -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
@@ -190,10 +190,19 @@ insertInMem :: InMemConfig t    -- ^ in-memory config
             -> IO ()
 insertInMem cfg lock txs0 = do
     txs <- V.filterM preGossipCheck txs0
-    withMVarMasked lock $ \mdata -> do
+    i <- withMVarMasked lock $ \mdata -> do
         newHashes <- V.mapM (insOne mdata) txs
+        modifyIORef' (_inmemInserted mdata) (+ (length txs))
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
+        readIORef (_inmemInserted mdata)
+
+    unless (i < 5000) $ do
+        withMVarMasked lock $ \mdata -> do
+            modifyIORef' (_inmemPending mdata) $ \ps -> do
+                if (PSQ.size ps > 10000)
+                  then PSQ.fromList $ take 5000 $ PSQ.toList ps
+                  else ps
 
   where
     preGossipCheck tx = do

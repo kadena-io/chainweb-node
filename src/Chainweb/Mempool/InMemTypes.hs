@@ -70,7 +70,8 @@ data InMemoryMempool t = InMemoryMempool {
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
-    _inmemPending :: !(IORef (PSQ t))
+    _inmemInserted :: {-# UNPACK #-} !(IORef Int)
+  , _inmemPending :: !(IORef (PSQ t))
   , _inmemRecentLog :: !(IORef RecentLog)
 }
 
