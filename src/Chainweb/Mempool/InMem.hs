@@ -149,7 +149,8 @@ withInMemoryMempool_ l cfg f = do
             logFunctionText l Debug $ "got stats"
             logFunctionJson l Info stats
             logFunctionText l Debug $ "logged stats"
-            threadDelay 60000000 {- 1 minute -}
+            d <- randomRIO (0.7, 1.3 :: Double)
+            threadDelay (round $ 60000000 {- 1 minute -} * d)
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
@@ -203,6 +204,7 @@ insertInMem cfg lock txs0 = do
                 if (PSQ.size ps > 10000)
                   then PSQ.fromList $ take 5000 $ PSQ.toList ps
                   else ps
+            writeIORef (_inmemInserted mdata) 0
 
   where
     preGossipCheck tx = do
@@ -387,5 +389,5 @@ getRecentTxs maxNumRecent oldHw rlog
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
 getMempoolStats m = do
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
-        <$> (length <$> readIORef (_inmemPending d))
+        <$!> (PSQ.size <$> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$> readIORef (_inmemRecentLog d))
