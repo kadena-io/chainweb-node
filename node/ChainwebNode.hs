@@ -43,7 +43,6 @@ module Main
 import Configuration.Utils hiding (Error)
 import Configuration.Utils.Validation (validateFilePath)
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
@@ -223,7 +222,7 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
                 logFunctionText l Info $ "got stats"
                 logFunctionJson logger Info stats
                 logFunctionText l Info $ "logged stats"
-                threadDelay 60000000 {- 1 minute -}
+                approximateThreadDelay 60000000 {- 1 minute -}
 
 data QueueStats = QueueStats
     { _queueStatsCutQueueSize :: !Natural
@@ -251,7 +250,7 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionText l Info $ "got stats"
             logFunctionJson logger Info stats
             logFunctionText l Info $ "logged stats"
-            threadDelay 60000000 {- 1 minute -}
+            approximateThreadDelay 60000000 {- 1 minute -}
 
 -- -------------------------------------------------------------------------- --
 -- Run Node

@@ -35,7 +35,6 @@ module Chainweb.Chainweb.PeerResources
 
 import Configuration.Utils hiding (Error, Lens', (<.>))
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
@@ -207,7 +206,7 @@ withConnectionManger logger certs key peerDb runInner = do
         }
 
     let logClientConnections = forever $ do
-            threadDelay 60000000 {- 1 minute -}
+            approximateThreadDelay 60000000 {- 1 minute -}
             logFunctionCounter logger Info =<< sequence
                 [ roll connCountRef
                 , roll reqCountRef

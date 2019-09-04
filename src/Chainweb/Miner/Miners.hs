@@ -60,7 +60,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, partitionEithersNEL, runGet)
+import Chainweb.Utils (approximateThreadDelay, int, partitionEithersNEL, runGet)
 import Chainweb.Version (ChainId, ChainwebVersion(..), order, _chainGraph)
 
 ---
@@ -172,7 +172,7 @@ remoteMining m urls bh = submission >> polling
         go :: Scheduler IO HeaderBytes -> BaseUrl -> IO HeaderBytes
         go sch url = do
             -- This prevents scheduled retries from slamming the miners.
-            threadDelay 100000
+            approximateThreadDelay 100000
             runClientM (poll cid bht) (ClientEnv m url Nothing) >>= \case
                 -- NOTE The failure case for poll is an empty `ByteString`.
                 Right new | B.length (_headerBytes new) > 0 -> terminateWith sch new
