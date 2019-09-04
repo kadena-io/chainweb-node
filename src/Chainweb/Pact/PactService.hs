@@ -103,7 +103,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB (collectForkBlocks, lookupM, lookup)
+import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
@@ -415,14 +415,14 @@ validateChainwebTxsPreBlock dbEnv cp bh hash txs = do
   where
     checkAccount tx = do
       let !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
-
-      let !sender = P._pmSender pm
-          (P.GasLimit (P.ParsedInteger !limit)) = P._pmGasLimit pm
-
+      let sender = P._pmSender pm
+          (P.GasLimit (P.ParsedInteger limit)) = P._pmGasLimit pm
+          (P.GasPrice (P.ParsedDecimal price)) = P._pmGasPrice pm
+          limitInCoin = price * fromIntegral limit
       m <- readCoinAccount dbEnv sender
       case m of
         Nothing -> return True
-        Just (T2 b _g) -> return $ b > fromIntegral limit
+        Just (T2 b _g) -> return $! b >= limitInCoin
 
     checkOne tx = do
         let pactHash = view P.cmdHash tx
