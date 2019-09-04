@@ -36,6 +36,7 @@ import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
 import Data.Tuple.Strict (T2(..))
+import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import Numeric.Natural (Natural)
@@ -176,39 +177,34 @@ publishing lf tp cdb bh = do
     c <- _cut cdb
     readTVarIO tp >>= \case
         Nothing -> pure ()  -- TODO Throw error?
-        Just (MiningState pl p) -> when (compatibleCut c && samePayload pl) $ do
+        Just (MiningState pl p) -> if not (samePayload pl)
+          then do
+            -- TODO: consider makeing this a debug level log
+            lf @T.Text Info $ "Newly mined block for outdated payload"
+          else do
             -- Publish the new Cut into the CutDb (add to queue).
             --
-            c' <- monotonicCutExtension c bh
-            addCutHashes cdb $ cutToCutHashes Nothing c'
-                & set cutHashesHeaders
-                    (HM.singleton (_blockHash bh) bh)
-                & set cutHashesPayloads
-                    (HM.singleton (_blockPayloadHash bh) (payloadWithOutputsToPayloadData pl))
+            tryMonotonicCutExtension c bh >>= \case
+                Nothing -> lf @T.Text Info $ "Newly mined block for outdated cut"
+                Just c' -> do
+                    addCutHashes cdb $ cutToCutHashes Nothing c'
+                        & set cutHashesHeaders
+                            (HM.singleton (_blockHash bh) bh)
+                        & set cutHashesPayloads
+                            (HM.singleton (_blockPayloadHash bh) (payloadWithOutputsToPayloadData pl))
 
-            -- Log mining success.
-            --
-            let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
-                    _payloadWithOutputsTransactions pl
-                !nmb = NewMinedBlock
-                       (ObjectEncoded bh)
-                       (int . V.length $ _payloadWithOutputsTransactions pl)
-                       (int bytes)
-                       (estimatedHashes p bh)
+                    -- Log mining success.
+                    --
+                    let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+                            _payloadWithOutputsTransactions pl
+                        !nmb = NewMinedBlock
+                            (ObjectEncoded bh)
+                            (int . V.length $ _payloadWithOutputsTransactions pl)
+                            (int bytes)
+                            (estimatedHashes p bh)
 
-            lf @(JsonLog NewMinedBlock) Info $ JsonLog nmb
+                    lf @(JsonLog NewMinedBlock) Info $ JsonLog nmb
   where
-    -- | Even if a `Cut` is not the original `Cut` from which a `BlockHeader`
-    -- originated, they might still be compatible. If the highest header in the
-    -- Cut matches the parent of new header (for the chain that they share),
-    -- then this Cut is still compatible, and we haven't wasted mining effort.
-    --
-    compatibleCut :: Cut -> Bool
-    compatibleCut c = case HM.lookup (_blockChainId bh) $ _cutMap c of
-        Nothing -> False
-        -- TODO Is height a sufficient check, or should it go by parent hash?
-        Just cb -> int (_blockHeight bh) - int (_blockHeight cb) == (1 :: Integer)
-
     samePayload :: PayloadWithOutputs -> Bool
     samePayload pl = _blockPayloadHash bh == _payloadWithOutputsPayloadHash pl
 
