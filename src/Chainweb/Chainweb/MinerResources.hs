@@ -121,7 +121,8 @@ runMiner v mr = do
     -- that case.
     --
     listener :: TMVar BlockHeader -> IO ()
-    listener tmv = atomically (takeTMVar tmv) >>= publishing lf tms cdb >> listener tmv
+    listener tmv = runForever lf "Chainweb.Miner.listener" $ do
+        atomically (takeTMVar tmv) >>= publishing lf tms cdb
 
     chooseMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     chooseMiner tmv = case miningProtocol v of
