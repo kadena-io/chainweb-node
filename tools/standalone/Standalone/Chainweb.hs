@@ -110,7 +110,7 @@ withChainResourcesStandalone
     -> IO a
 withChainResourcesStandalone v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
     withBlockHeaderDb rdb v cid $ \cdb ->
-        Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+        Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg $ \mempool -> do
             -- placing mempool access shim here
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
