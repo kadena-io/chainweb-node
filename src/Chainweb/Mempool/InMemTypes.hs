@@ -1,4 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
@@ -15,16 +18,21 @@ module Chainweb.Mempool.InMemTypes
   , PSQ
   , RecentItem
   , RecentLog(..)
+  , MempoolStats(..)
   ) where
 
 ------------------------------------------------------------------------------
 import Control.Concurrent.MVar (MVar)
+import Control.DeepSeq
 
+import Data.Aeson
 import Data.HashPSQ (HashPSQ)
 import Data.IORef (IORef)
 import Data.Ord (Down(..))
 import Data.Tuple.Strict
 import qualified Data.Vector as V
+
+import GHC.Generics
 
 import Pact.Types.Gas (GasPrice(..))
 
@@ -72,3 +80,11 @@ data RecentLog = RecentLog {
     _rlNext :: {-# UNPACK #-} !MempoolTxId
   , _rlRecent :: !(V.Vector RecentItem)
   }
+
+------------------------------------------------------------------------------
+data MempoolStats = MempoolStats
+    { _mStatsPendingCount :: {-# UNPACK #-} !Int
+    , _mStatsRecentCount :: {-# UNPACK #-} !Int
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (ToJSON, NFData)
