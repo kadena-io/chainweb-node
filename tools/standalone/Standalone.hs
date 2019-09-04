@@ -80,7 +80,6 @@ import Chainweb.Utils
 import Chainweb.Version
 
 import Standalone.Chainweb
-import Standalone.Mining
 import Standalone.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -108,18 +107,6 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
 
-{-
-runAmberdataBlockMonitor :: Logger logger => logger -> CutDb cas -> IO ()
-runAmberdataBlockMonitor logger db
-    = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
-        runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor l db)
-
--}
-
--- type CutLog = HM.HashMap ChainId (ObjectEncoded BlockHeader)
-
--- This instances are OK, since this is the "Main" module of an application
---
 deriving instance Generic GCDetails
 deriving instance NFData GCDetails
 deriving instance ToJSON GCDetails
@@ -215,7 +202,7 @@ runChainweb' cw = do
 
   where
     logg = logFunctionText $ _chainwebLogger cw
-    miner = maybe go (\m -> runStandaloneMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
+    miner = maybe go (\m -> runMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
         where
           go = do
             logg Warn "No miner configured. Starting consensus without mining."
@@ -239,7 +226,7 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
-    , _nodeConfigStopCondition = BlockStopCondition (Height 1000)
+    , _nodeConfigStopCondition = TimeLength (1000000 * 60 * 10)
     }
 
 instance ToJSON StandaloneConfiguration where
@@ -283,7 +270,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
     -- Base Backend
     baseBackend <- managed
-        $ withBaseHandleBackend "ChainwebApp" mgr (_logConfigBackend logConfig)
+        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logConfig)
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -293,7 +280,7 @@ withNodeLogger logConfig v f = runManaged $ do
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
     counterBackend <- managed $ configureHandler
-        (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
+        (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
     {-newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig-}
     newBlockBackend <- managed
@@ -346,7 +333,20 @@ mkTelemetryLogger
     -> (Backend (JsonLog a) -> IO b)
     -> IO b
 mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr
+    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+
+-- -------------------------------------------------------------------------- --
+-- Encode Package Info into Log mesage scopes
+
+pkgInfoScopes :: [(T.Text, T.Text)]
+pkgInfoScopes =
+    [ ("revision", revision)
+    , ("branch", branch)
+    , ("compiler", compiler)
+    , ("optimisation", optimisation)
+    , ("architecture", arch)
+    , ("package", package)
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- main
@@ -355,7 +355,7 @@ mainInfo :: ProgramInfo StandaloneConfiguration
 mainInfo = programInfo
     "Chainweb Node"
     pStandaloneConfiguration
-    (defaultStandaloneConfiguration (TimedCPM petersonChainGraph))
+    (defaultStandaloneConfiguration (FastTimedCPM petersonChainGraph))
 
 main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do

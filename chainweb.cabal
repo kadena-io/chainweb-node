@@ -573,7 +573,6 @@ executable cwtool
         SlowTests
         Standalone
         Standalone.Chainweb
-        Standalone.Mining
         Standalone.Utils
         TXG
         TXG.Repl
