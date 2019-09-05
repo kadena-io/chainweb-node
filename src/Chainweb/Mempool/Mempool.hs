@@ -91,6 +91,7 @@ import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
 import Data.Bytes.Get
 import Data.Bytes.Put
+import qualified Data.ByteString.Base64.URL as B64
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as SB
@@ -127,8 +128,6 @@ import Chainweb.Time (Micros(..), Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
-    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText,
-    encodeToText, sshow)
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
@@ -143,8 +142,8 @@ instance Functor LookupResult where
 
 instance Foldable LookupResult where
     foldr f seed t = case t of
-                    Missing -> seed
-                    (Pending x) -> f x seed
+                       Missing -> seed
+                       (Pending x) -> f x seed
 
 instance Traversable LookupResult where
     traverse f t = case t of
@@ -160,7 +159,9 @@ type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector
 -- and \"how is @t@ hashed?\". This information is passed to mempool in a
 -- 'TransactionConfig'.
 data TransactionConfig t = TransactionConfig {
-    -- | converting transactions to/from bytestring.
+    -- | converting transactions to/from bytestring. Note: the generated
+    -- bytestring is currently expected to be valid utf8 so that it can be
+    -- safely JSON-encoded by servant (we should revisit this)
     txCodec :: {-# UNPACK #-} !(Codec t)
 
     -- | hash function to use when making transaction hashes.
@@ -531,7 +532,9 @@ mockCodec = Codec mockEncode mockDecode
 
 
 mockEncode :: MockTx -> ByteString
-mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) = runPutS $ do
+mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) =
+  B64.encode $
+  runPutS $ do
     putWord64le $ fromIntegral nonce
     putDecimal price
     putWord64le $ fromIntegral limit
@@ -572,7 +575,9 @@ getDecimal = do
 
 
 mockDecode :: ByteString -> Either String MockTx
-mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta)
+mockDecode s = do
+    s' <- B64.decode s
+    runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
   where
     getPrice = GasPrice . ParsedDecimal <$> getDecimal
     getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le
