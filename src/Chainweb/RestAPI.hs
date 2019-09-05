@@ -54,7 +54,6 @@ module Chainweb.RestAPI
 import Control.Lens
 
 import Data.Aeson.Encode.Pretty
-import Data.Aeson.Types (FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe
 import Data.Proxy
@@ -188,8 +187,6 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 
 someChainwebServer
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
@@ -207,8 +204,6 @@ someChainwebServer v dbs =
 
 chainwebApplication
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
@@ -223,8 +218,6 @@ chainwebCors = cors $ const $ Just $ simpleCorsResourcePolicy
 
 serveChainwebOnPort
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Port
     -> ChainwebVersion
@@ -234,8 +227,6 @@ serveChainwebOnPort p v = run (int p) . chainwebApplication v
 
 serveChainweb
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Settings
     -> ChainwebVersion
@@ -245,8 +236,6 @@ serveChainweb s v = runSettings s . chainwebApplication v
 
 serveChainwebSocket
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Settings
     -> Socket
@@ -257,8 +246,6 @@ serveChainwebSocket s sock v = runSettingsSocket s sock . chainwebApplication v
 
 serveChainwebSocketTls
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Settings
     -> X509CertChainPem

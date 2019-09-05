@@ -137,6 +137,20 @@ data LookupResult t = Missing
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
 
+instance Functor LookupResult where
+    fmap _ Missing = Missing
+    fmap f (Pending x) = Pending $! f x
+
+instance Foldable LookupResult where
+    foldr f seed t = case t of
+                    Missing -> seed
+                    (Pending x) -> f x seed
+
+instance Traversable LookupResult where
+    traverse f t = case t of
+                     Missing -> pure Missing
+                     Pending x -> Pending <$> f x
+
 ------------------------------------------------------------------------------
 type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
 

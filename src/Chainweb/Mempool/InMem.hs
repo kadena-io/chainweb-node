@@ -73,9 +73,7 @@ compareOnGasPrice txcfg a b = compare aa bb
 {-# INLINE compareOnGasPrice #-}
 
 ------------------------------------------------------------------------------
-makeInMemPool :: ToJSON t
-              => FromJSON t
-              => InMemConfig t
+makeInMemPool :: InMemConfig t
               -> IO (InMemoryMempool t)
 makeInMemPool cfg = mask_ $ do
     nonce <- randomIO
@@ -87,7 +85,7 @@ destroyInMemPool = const $ return ()
 
 
 ------------------------------------------------------------------------------
-newInMemMempoolData :: ToJSON t => FromJSON t => IO (InMemoryMempoolData t)
+newInMemMempoolData :: IO (InMemoryMempoolData t)
 newInMemMempoolData =
     InMemoryMempoolData <$!> newIORef 0
                         <*> newIORef mempty
@@ -138,9 +136,7 @@ withInMemoryMempool cfg f = do
           f $! back
     bracket (makeInMemPool cfg) destroyInMemPool action
 
-withInMemoryMempool_ :: ToJSON t
-                     => FromJSON t
-                     => Logger logger
+withInMemoryMempool_ :: Logger logger
                      => logger
                      -> InMemConfig t
                      -> (MempoolBackend t -> IO a)
