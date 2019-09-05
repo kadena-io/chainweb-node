@@ -341,10 +341,12 @@ restoreCheckpointer
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
 
+    -> String
+        -- ^ Putative caller
     -> PactServiceM cas PactDbEnv'
-restoreCheckpointer maybeBB = do
+restoreCheckpointer maybeBB caller = do
     checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
-    logInfo $ "restoring " <> sshow maybeBB
+    logInfo $ "restoring (with caller " <> caller <> ") " <> sshow maybeBB
     liftIO $ _cpRestore checkPointer maybeBB
 
 data WithCheckpointerResult a
@@ -365,10 +367,11 @@ data WithCheckpointerResult a
 withCheckpointer
     :: PayloadCas cas
     => Maybe (BlockHeight, BlockHash)
+    -> String
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
-withCheckpointer target act = mask $ \restore -> do
-    cenv <- restoreCheckpointer target
+withCheckpointer target caller act = mask $ \restore -> do
+    cenv <- restoreCheckpointer target caller
     try (restore (act cenv)) >>= \case
         Left e -> discardTx >> throwM @_ @SomeException e
         Right (Discard !result) -> discardTx >> return result
@@ -385,11 +388,12 @@ withCheckpointer target act = mask $ \restore -> do
 withCheckpointerRewind
     :: PayloadCas cas
     => Maybe (BlockHeight, BlockHash)
+    -> String
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
-withCheckpointerRewind target act = do
+withCheckpointerRewind target caller act = do
     rewindTo target
-    withCheckpointer target act
+    withCheckpointer target caller act
 
 finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
 finalizeCheckpointer finalize = do
@@ -502,7 +506,7 @@ execNewBlock
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
 execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
-    withCheckpointerRewind (Just (bHeight, pHash)) $ \pdbenv -> do
+    withCheckpointerRewind (Just (bHeight, pHash)) "execNewBlock" $ \pdbenv -> do
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
@@ -554,7 +558,7 @@ execNewGenesisBlock
     -> Vector ChainwebTransaction
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
-    withCheckpointer Nothing $ \pdbenv -> do
+    withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
         results <- execTransactions Nothing miner newTrans pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
@@ -568,7 +572,7 @@ execLocal cmd = withDiscardedBatch $ do
         (Just !p) -> return p
 
     let target = Just (succ $ _blockHeight bh, _blockHash bh)
-    withCheckpointerRewind target $ \(PactDbEnv' pdbenv) -> do
+    withCheckpointerRewind target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
@@ -691,7 +695,7 @@ rewindTo mb = do
         let h = _blockHeight block
         let ph = _blockParent block
         let bpHash = _blockPayloadHash block
-        withCheckpointer (Just (h, ph)) $ \pdbenv -> do
+        withCheckpointer (Just (h, ph)) "fastForward" $ \pdbenv -> do
             payload <- liftIO (payloadWithOutputsToPayloadData <$> casLookupM payloadDb bpHash)
             void $ playOneBlock block payload pdbenv
             return $! Save block ()
@@ -708,7 +712,7 @@ execValidateBlock
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData =
     -- TODO: are we actually validating the output hash here?
-    withBatch $ withCheckpointerRewind mb $ \pdbenv -> do
+    withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
         !result <- playOneBlock currHeader plData pdbenv
         return $! Save currHeader result
   where
