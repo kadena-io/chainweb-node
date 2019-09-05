@@ -14,7 +14,6 @@ module Chainweb.Mempool.InMemTypes
   , InMemConfig(..)
   , InMemoryMempool(..)
   , InMemoryMempoolData(..)
-  , Priority
   , PSQ
   , RecentItem
   , RecentLog(..)
@@ -26,28 +25,20 @@ import Control.Concurrent.MVar (MVar)
 import Control.DeepSeq
 
 import Data.Aeson
-import Data.HashPSQ (HashPSQ)
+import Data.ByteString (ByteString)
+import Data.HashMap.Strict (HashMap)
 import Data.IORef (IORef)
-import Data.Ord (Down(..))
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics
-
-import Pact.Types.Gas (GasPrice(..))
 
 -- internal imports
 
 import Chainweb.Mempool.Mempool
 
 ------------------------------------------------------------------------------
--- | Priority for the search queue
-type Priority = (Down GasPrice, GasLimit)
-
-------------------------------------------------------------------------------
--- | Priority search queue -- search by transaction hash in /O(log n)/ like a
--- tree, find-min in /O(1)/ like a heap
-type PSQ t = HashPSQ TransactionHash Priority t
+type PSQ = HashMap TransactionHash ByteString
 
 ------------------------------------------------------------------------------
 _defaultTxQueueLen :: Int
@@ -70,8 +61,8 @@ data InMemoryMempool t = InMemoryMempool {
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
-    _inmemInserted :: {-# UNPACK #-} !(IORef Int)
-  , _inmemPending :: !(IORef (PSQ t))
+    _inmemCountPending :: !(IORef Int)
+  , _inmemPending :: !(IORef PSQ)
   , _inmemRecentLog :: !(IORef RecentLog)
 }
 

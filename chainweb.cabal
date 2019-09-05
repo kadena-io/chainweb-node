@@ -311,7 +311,6 @@ library
         , pact >= 2.6
         , paths >= 0.2
         , pem >=0.2
-        , psqueues >= 0.2.7.0
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
