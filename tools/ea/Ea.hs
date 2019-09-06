@@ -77,8 +77,9 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
-    for_ [(Development, "Development"), (Testnet02, "Testnet")] $ \(v, tag) -> do
-        let txs = bool txs0 [defCoinContractSig, defCoinContract, defGrants] $ null txs0
+    for_ [(Development, "Development", devGrants),
+          (Testnet02, "Testnet", prodGrants)] $ \(v, tag, grants) -> do
+        let txs = bool txs0 [defCoinContractSig, defCoinContract, grants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v tag txs
     putStrLn "Done."
@@ -92,8 +93,11 @@ defCoinContractSig = "pact/coin-contract/load-coin-contract-sig.yaml"
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
 
-defGrants :: FilePath
-defGrants = "pact/genesis/testnet/grants.yaml"
+devGrants :: FilePath
+devGrants = "pact/genesis/testnet/grants.yaml"
+
+prodGrants :: FilePath
+prodGrants = "pact/genesis/prodnet/grants.yaml"
 
 ---------------------
 -- Payload Generation
