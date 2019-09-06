@@ -73,6 +73,7 @@ import Chainweb.Logger
 import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
+import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Time
@@ -294,6 +295,9 @@ withNodeLogger logConfig v f = runManaged $ do
     traceBackend <- managed
         $ mkTelemetryLogger @Trace mgr teleLogConfig
 
+    mempoolStatsBackend <- managed
+        $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
+
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
             [ logHandler monitorBackend
@@ -306,6 +310,8 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler queueStatsBackend
             -- , logHandler reintroBackend
             , logHandler traceBackend
+            , logHandler mempoolStatsBackend
+
             ] baseBackend
 
     liftIO $ f
