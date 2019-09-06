@@ -140,6 +140,10 @@ pConfig = id
     <*< configChainwebVersion .:: option textReader
         % long "chainweb-version"
         <> help "chainweb version identifier"
+    <*< configChainId .:: option textReader
+        % long "chain-id"
+        <> short 'c'
+        <> help "chain id to query"
     <*< configNode %:: pHostAddress Nothing
     <*< configPretty .:: boolOption_
         % long "pretty"
