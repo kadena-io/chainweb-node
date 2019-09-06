@@ -102,6 +102,8 @@
     )
 
   (defun create-account:string (account:string guard:guard)
+    @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
+    \account."
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
@@ -109,13 +111,23 @@
     )
 
   (defun account-balance:decimal (account:string)
+    @doc "Check an account's balance."
     (with-read coin-table account
       { "balance" := balance }
       balance
       )
     )
 
+  (defun account-info:object (account:string)
+    @doc "Get all of an account's info.  This includes the balance and the    \
+    \guard."
+    (read coin-table account)
+    )
+
   (defun transfer:string (sender:string receiver:string amount:decimal)
+    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
+    \This fails if both accounts do not exist. Create-on-transfer can be      \
+    \done using the transfer-and-create function."
 
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")
@@ -133,6 +145,9 @@
     )
 
   (defun transfer-and-create:string (sender:string receiver:string receiver-guard:guard amount:decimal)
+    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
+    \This fails if the SENDER account does not exist. If the RECEIVER account \
+    \does not exist, it is created and associated with GUARD."
 
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")
@@ -146,6 +161,8 @@
     )
 
   (defun coinbase:string (address:string address-guard:guard amount:decimal)
+    @doc "Internal function for the initial creation of coins.  This function \
+    \cannot be used outside of the coin contract."
     (require-capability (COINBASE))
     (with-capability (TRANSFER)
      (credit address address-guard amount))
