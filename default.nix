@@ -185,8 +185,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "62d36047a4585fd6ac03faa80798ff923f8d1ec5";
-          sha256 = "1wchj9smlwg7fnprng2bx0iqlzbpydqglp28hix88p4vxsgmwva7";
+          rev = "31801b112f46f08bb4ca3c488dd947573f21043f";
+          sha256 = "05ixk4v87xxm45sjl400gqrlm4f83q4rbbfmvj23pkdyca06qfzn";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -270,8 +270,17 @@ in
 
         algebraic-graphs = dontCheck super.algebraic-graphs;
 
-        # Needed to get around a requirement on `hspec-discover`.
-        megaparsec = dontCheck super.megaparsec;
+        megaparsec = dontCheck (callHackageDirect {
+          pkg = "megaparsec";
+          ver = "7.0.5";
+          sha256 = "1wizfz8vdplz3sf81vh33sny6p8ynhlpvjxqjpsym7ssb186h0f1";
+        });
+
+        neat-interpolation = dontCheck (callHackageDirect {
+          pkg = "neat-interpolation";
+          ver = "0.3.2.4";
+          sha256 = "0gygd2f0wbqa668dz7k8jfryilmbyzravlz7ysp3d13n8h00irba";
+        });
 
         hedgehog = callHackageDirect {
           pkg = "hedgehog";
