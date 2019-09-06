@@ -338,7 +338,7 @@ isLastInEpoch :: BlockHeader -> Bool
 isLastInEpoch h = case effectiveWindow h of
     Nothing -> False
     Just (WindowWidth w)
-        | int (_blockHeight h) `mod` w == 0 -> True
+        | (int (_blockHeight h) + 1) `mod` w == 0 -> True
         | otherwise -> False
 {-# INLINE isLastInEpoch #-}
 
