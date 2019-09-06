@@ -2,6 +2,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
 #ifndef MIN_VERSION_servant_client
@@ -27,10 +29,11 @@ module Chainweb.Miner.Miners
   ) where
 
 import Data.Bytes.Put (runPutS)
+import qualified Data.HashMap.Strict as HM
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.These (these)
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (atomically)
@@ -50,17 +53,23 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.CutDB (CutDb)
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core
+import Chainweb.Miner.Kato (MiningState(..), newWork, publish)
+import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI.Client (submitClient)
+import Chainweb.NodeId (NodeId)
 import Chainweb.RestAPI.Orphans ()
 #if !MIN_VERSION_servant_client(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, partitionEithersNEL, runGet, suncurry)
+import Chainweb.Utils (int, partitionEithersNEL, runForever, runGet, suncurry)
 import Chainweb.Version
+
+import Data.LogMessage (LogFunction)
 
 ---
 
@@ -94,6 +103,22 @@ localPOW tmv v bh = do
     HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
     new <- runGet decodeBlockHeaderWithoutHash newBytes
     atomically $ putTMVar tmv new
+  where
+    T2 tbytes hbytes = transferableBytes bh
+
+pow :: LogFunction -> ChainwebVersion -> Miner -> NodeId -> CutDb cas -> IO ()
+pow lf v m nid cdb = runForever lf "Chainweb.Miner.Miners.pow" $ work mempty
+  where
+    work (MiningState ms) = do
+        T3 p bh pl <- newWork m nid cdb
+        new <- localPOW' v bh
+        ms' <- publish lf (MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) ms) cdb bh
+        work ms'
+
+localPOW' :: ChainwebVersion -> BlockHeader -> IO BlockHeader
+localPOW' v bh = do
+    HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
+    runGet decodeBlockHeaderWithoutHash newBytes
   where
     T2 tbytes hbytes = transferableBytes bh
 

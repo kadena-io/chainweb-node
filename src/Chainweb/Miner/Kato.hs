@@ -1,6 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -76,6 +78,7 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 --
 newtype MiningState =
     MiningState (HM.HashMap BlockPayloadHash (T2 PrevBlock PayloadWithOutputs))
+    deriving newtype (Semigroup, Monoid)
 
 -- | A `BlockHeader` that's understood to be the parent of some current,
 -- "working" `BlockHeader`.
