@@ -59,8 +59,6 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils
-    (approximateThreadDelay, int, partitionEithersNEL, runGet, suncurry)
 import Chainweb.Utils (int, partitionEithersNEL, runGet, suncurry)
 import Chainweb.Version (ChainwebVersion(..), order, _chainGraph)
 
