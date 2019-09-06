@@ -157,6 +157,9 @@ library
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact
+        , Chainweb.Miner.RestAPI
+        , Chainweb.Miner.RestAPI.Client
+        , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
@@ -538,13 +541,17 @@ executable chainweb-miner
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
+        , connection >= 0.2
         , containers >= 0.5
         , errors >= 2.3
+        , http-client >= 0.5
+        , http-client-tls >= 0.3
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , pretty-simple >= 2.1
         , scheduler >= 1.4.1
         , servant >= 0.14
+        , servant-client >= 0.14
         , servant-server >= 0.14
         , strict-tuple >= 0.1
         , stm >= 2.4

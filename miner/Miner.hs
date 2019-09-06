@@ -82,21 +82,21 @@ import BasePrelude hiding (Handler, app, option)
 
 import Control.Concurrent.Async (async, race, wait)
 import Control.Concurrent.STM.TMVar
-import Control.Concurrent.STM.TVar (modifyTVar')
 import Control.Error.Util (note)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
-import Data.Aeson (ToJSON)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
+import Data.Aeson (ToJSON(..), Value(..))
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T3(..))
 
+import Network.Connection (TLSSettings(..))
+import Network.HTTP.Client (Manager, newManager)
+import Network.HTTP.Client.TLS (mkManagerSettings)
 import qualified Network.Wai.Handler.Warp as W
 
 import Options.Applicative
 
 import Servant.API
+import Servant.Client
 import Servant.Server
 
 import qualified System.Random.MWC as MWC
@@ -104,22 +104,23 @@ import qualified System.Random.MWC as MWC
 import Text.Pretty.Simple (pPrintNoColor)
 
 -- internal modules
-import Chainweb.BlockHeader (BlockHeight, Nonce(..))
+
+import Chainweb.BlockHeader (Nonce(..))
+import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
-import Chainweb.Miner.Miners (MiningAPI)
-import Chainweb.Utils (toText)
+import Chainweb.Miner.RestAPI (MiningSubmissionApi)
+import Chainweb.Miner.RestAPI.Client (solvedClient)
+import Chainweb.Utils (suncurry, textOption, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
 -- Servant
 
 type API = "env" :> Get '[JSON] ClientArgs
-    :<|> MiningAPI
+    :<|> MiningSubmissionApi
 
 server :: Env -> Server API
-server e = pure (args e)
-    :<|> (\cid h bs -> liftIO $ submit e cid h bs)
-    :<|> (\cid h -> liftIO $ poll e cid h)
+server e = pure (args e) :<|> (liftIO . submit e)
 
 app :: Env -> Application
 app = serve (Proxy :: Proxy API) . server
@@ -127,16 +128,25 @@ app = serve (Proxy :: Proxy API) . server
 --------------------------------------------------------------------------------
 -- CLI
 
-type ResultMap = Map (T2 ChainId BlockHeight) HeaderBytes
+-- | Newtype'd so that I can provide a custom `ToJSON` instance.
+--
+newtype URL = URL { _url :: BaseUrl }
+
+instance Show URL where
+    show (URL b) = showBaseUrl b
+
+instance ToJSON URL where
+    toJSON = String . T.pack . show
 
 data ClientArgs = ClientArgs
     { cmd :: Command
     , version :: ChainwebVersion
-    , port :: Int }
+    , port :: Int
+    , coordinator :: URL }
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
-data CPUEnv = CPUEnv { cores :: Word16}
+data CPUEnv = CPUEnv { cores :: Word16 }
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
@@ -149,13 +159,13 @@ data Command = CPU CPUEnv | GPU GPUEnv
     deriving anyclass (ToJSON)
 
 data Env = Env
-    { work :: TMVar (T3 ChainId BlockHeight WorkBytes)
-    , results :: TVar ResultMap
+    { work :: TMVar WorkBytes
     , gen :: MWC.GenIO
+    , mgr :: Manager
     , args :: ClientArgs }
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort
+pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort <*> pUrl
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -192,20 +202,39 @@ pPort = option auto
     (long "port" <> metavar "PORT" <> value 8081
      <> help "Port on which to run the miner (default: 8081)")
 
+pUrl :: Parser URL
+pUrl = URL . hostAddressToBaseUrl Https <$> host
+  where
+    host :: Parser HostAddress
+    host = textOption
+        (long "node"
+        <> help "Remote address of Chainweb Node to send mining results to."
+        <> metavar "<HOSTNAME:PORT>")
+
 --------------------------------------------------------------------------------
 -- Work
 
 main :: IO ()
 main = do
-    env <- Env <$> newEmptyTMVarIO <*> newTVarIO mempty <*> MWC.createSystemRandom <*> execParser opts
-    case cmd $ args env of
+    env@(Env _ _ _ as) <- Env
+        <$> newEmptyTMVarIO
+        <*> MWC.createSystemRandom
+        <*> newManager (mkManagerSettings ss Nothing)
+        <*> execParser opts
+    case cmd as of
         GPU _ -> putStrLn "GPU mining is not yet available."
         CPU _ -> do
             miner <- async $ mining (scheme env) env
-            pPrintNoColor $ args env
-            W.run (port $ args env) $ app env
+            pPrintNoColor as
+            W.run (port as) $ app env
             wait miner
   where
+    -- | This allows this code to accept the self-signed certificates from
+    -- `chainweb-node`.
+    --
+    ss :: TLSSettings
+    ss = TLSSettingsSimple True True True
+
     opts :: ParserInfo ClientArgs
     opts = info (pClientArgs <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")
@@ -217,27 +246,16 @@ scheme env = case cmd $ args env of
 
 -- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
 --
-submit :: Env -> ChainId -> BlockHeight -> WorkBytes -> IO ()
-submit (work -> w) cid bh bs = atomically $
-    isEmptyTMVar w >>= bool (void $ swapTMVar w t3) (putTMVar w t3)
-  where
-    t3 = T3 cid bh bs
-
--- | For some `ChainId` and `BlockHeight`, have we mined a result?
---
--- NOTE: When the lookup fails, the result is an empty `ByteString`!
---
-poll :: Env -> ChainId -> BlockHeight -> IO HeaderBytes
-poll (results -> tm) cid h =
-  fromMaybe (HeaderBytes mempty) . M.lookup (T2 cid h) <$> readTVarIO tm
+submit :: Env -> WorkBytes -> IO ()
+submit (work -> w) bs = atomically $
+    isEmptyTMVar w >>= bool (void $ swapTMVar w bs) (putTMVar w bs)
 
 -- | A supervisor thread that listens for new work and supervises mining threads.
 --
 mining :: (TargetBytes -> HeaderBytes -> IO HeaderBytes) -> Env -> IO ()
 mining go e = do
-    T3 cid bh bs <- atomically . takeTMVar $ work e
-    let T2 tbytes hbytes = unWorkBytes bs
-    race newWork (go tbytes hbytes) >>= traverse_ (miningSuccess cid bh)
+    bs <- atomically . takeTMVar $ work e
+    race newWork (suncurry go $ unWorkBytes bs) >>= traverse_ miningSuccess
     mining go e
   where
     -- | Wait for new work to come in from a `submit` call. `readTMVar` has the
@@ -246,36 +264,16 @@ mining go e = do
     newWork :: IO ()
     newWork = void . atomically . readTMVar $ work e
 
-    -- | If the `go` call won the `race`, this function saves the result of
-    -- that successful mining. If `newWork` won the race instead, then the `go`
-    -- call is automatically cancelled.
+    -- | If the `go` call won the `race`, this function yields the result back
+    -- to some "mining coordinator" (likely a chainweb-node). If `newWork` won
+    -- the race instead, then the `go` call is automatically cancelled.
     --
-    miningSuccess :: ChainId -> BlockHeight -> HeaderBytes -> IO ()
-    miningSuccess cid bh new = atomically $ modifyTVar' (results e) f
+    miningSuccess :: HeaderBytes -> IO ()
+    miningSuccess h = void . runClientM (solvedClient v h) $ ClientEnv m u Nothing
       where
-        key = T2 cid bh
-        f m = M.insert key new . bool (prune m) m $ M.size m < fromIntegral cap
-
-    -- | Reduce the size of the result cache by half if we've crossed the "cap".
-    -- Clears old results out by `BlockHeight`.
-    --
-    -- NOTE: There is an edge-case here involving hard-forks. Should a hard fork
-    -- occur and reset to a much lower `BlockHeight`, remote mining clients that
-    -- haven't been reset could potentially lose recent work when a `prune`
-    -- occurs.
-    --
-    prune :: ResultMap -> ResultMap
-    prune = M.fromList
-        . snd
-        . splitAt (fromIntegral cap `div` 2)
-        . sortBy (compare `on` (\(T2 _ bh, _) -> bh))
-        . M.toList
-
-    -- | The maximum number of `BlockHeader`s to keep in the cache before
-    -- pruning.
-    --
-    cap :: Natural
-    cap = 256
+        v = version $ args e
+        m = mgr e
+        u = _url . coordinator $ args e
 
 cpu :: ChainwebVersion -> CPUEnv -> MWC.GenIO -> TargetBytes -> HeaderBytes -> IO HeaderBytes
 cpu v e g tbytes hbytes = fmap head . withScheduler comp $ \sch ->
