@@ -143,7 +143,7 @@ genesisBlockHeader'
     -> BlockCreationTime
     -> Nonce
     -> BlockHeader
-genesisBlockHeader' v p ct n = fromLog mlog
+genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
   where
     g = _chainGraph v
     cid = _chainId p
@@ -159,6 +159,7 @@ genesisBlockHeader' v p ct n = fromLog mlog
         :+: BlockHeight 0
         :+: v
         :+: genesisMiner v cid
+        :+: EpochStartTime t
         :+: MerkleLogBody (blockHashRecordToVector adjParents)
     adjParents = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
