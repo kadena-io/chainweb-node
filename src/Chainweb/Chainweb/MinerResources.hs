@@ -48,8 +48,7 @@ import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..), runForever)
-import Chainweb.Version
-    (ChainwebVersion(..), MiningProtocol(..), miningProtocol)
+import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (LogFunction)
 
@@ -93,7 +92,7 @@ runMiner
 runMiner v mr = do
     tmv   <- newEmptyTMVarIO
     inner <- chooseMiner tmv
-    concurrently_ (loop $ working inner tms conf nid cdb mempty) (listener tmv)
+    concurrently_ (loop $ working inner tms conf nid cdb) (listener tmv)
   where
     nid :: NodeId
     nid = _minerResNodeId mr
@@ -125,9 +124,9 @@ runMiner v mr = do
         atomically (takeTMVar tmv) >>= publishing lf tms cdb
 
     chooseMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
-    chooseMiner tmv = case miningProtocol v of
-        Timed -> testMiner tmv
-        ProofOfWork -> powMiner tmv
+    chooseMiner = case window v of
+        Nothing -> testMiner -- no difficulty adjustment defined
+        Just _ -> powMiner -- difficulty adjustement defined
 
     testMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     testMiner tmv = do

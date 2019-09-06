@@ -28,16 +28,14 @@ module Chainweb.Miner.Coordinator
 
 import Control.Concurrent.Async (race)
 import Control.Concurrent.STM (TVar, atomically, readTVarIO, retry, writeTVar)
-import Control.Lens (iforM, ix, set, to, view, (^?), (^?!))
+import Control.Lens (iforM, set, to, view, (^?!))
 import Control.Monad (void, when)
 
-import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import Numeric.Natural (Natural)
@@ -48,7 +46,6 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
@@ -60,18 +57,14 @@ import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
-import Chainweb.TreeDB.Difficulty (hashTarget)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
-
-type Adjustments = HM.HashMap BlockHash (T2 BlockHeight HashTarget)
 
 -- | Data shared between the mining threads represented by `working` and
 -- `publishing`.
@@ -94,15 +87,11 @@ working
     -> MinerConfig
     -> NodeId
     -> CutDb cas
-    -> Adjustments
     -> IO ()
-working submit tp conf nid cdb !adj = _cut cdb >>= work
+working submit tp conf nid cdb = _cut cdb >>= work
   where
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
-
-    blockDb :: ChainId -> Maybe BlockHeaderDb
-    blockDb cid = cdb ^? cutDbWebBlockHeaderDb . webBlockHeaderDb . ix cid
 
     work :: Cut -> IO ()
     work c = do
@@ -128,12 +117,6 @@ working submit tp conf nid cdb !adj = _cut cdb >>= work
                 --
                 payload <- _pactNewBlock pact (_configMinerInfo conf) p
 
-                -- Potentially perform Difficulty Adjustment to determine the
-                -- `HashTarget` we are to use in mining.
-                --
-                let bdb = fromJuste $ blockDb cid
-                T2 target adj' <- getTarget bdb (_blockChainwebVersion p) p adj
-
                 -- Assemble a candidate `BlockHeader` without a specific `Nonce`
                 -- value. `Nonce` manipulation is assumed to occur within the
                 -- core Mining logic.
@@ -145,7 +128,6 @@ working submit tp conf nid cdb !adj = _cut cdb >>= work
                         adjParents
                         phash
                         (Nonce 0)  -- TODO Confirm that this is okay.
-                        target
                         creationTime
                         p
 
@@ -160,15 +142,7 @@ working submit tp conf nid cdb !adj = _cut cdb >>= work
                     Right _ -> void $ awaitNewCut cdb c
 
                 -- TODO How often should pruning occur?
-                working submit tp conf nid cdb $ filterAdjustments header adj'
-
-filterAdjustments :: BlockHeader -> Adjustments -> Adjustments
-filterAdjustments newBh as = case window $ _blockChainwebVersion newBh of
-    Nothing -> mempty
-    Just (WindowWidth w) ->
-        let wh = BlockHeight (int w)
-            limit = bool (_blockHeight newBh - wh) 0 (_blockHeight newBh < wh)
-        in HM.filter (\(T2 h _) -> h > limit) as
+                working submit tp conf nid cdb
 
 -- | THREAD: Accepts a "solved" `BlockHeader` from some external source (likely
 -- a remote mining client), reassociates it with the `Cut` from which it
@@ -229,28 +203,6 @@ awaitNewCut cdb c = atomically $ do
     c' <- _cutStm cdb
     when (c' == c) retry
     return c'
-
--- | Obtain a new Proof-of-Work target.
---
-getTarget
-    :: BlockHeaderDb
-    -> ChainwebVersion
-    -> BlockHeader
-    -> Adjustments
-    -> IO (T2 HashTarget Adjustments)
-getTarget blockDb v bh as = case miningProtocol v of
-    Timed -> pure testTarget
-    ProofOfWork -> prodTarget
-  where
-    testTarget :: T2 HashTarget Adjustments
-    testTarget = T2 (_blockTarget bh) mempty
-
-    prodTarget :: IO (T2 HashTarget Adjustments)
-    prodTarget = case HM.lookup (_blockHash bh) as of
-        Just (T2 _ t) -> pure $ T2 t as
-        Nothing -> do
-            t <- hashTarget blockDb bh
-            pure $ T2 t (HM.insert (_blockHash bh) (T2 (_blockHeight bh) t) as)
 
 getAdjacentParents :: Cut -> BlockHeader -> Maybe BlockHashRecord
 getAdjacentParents c p = BlockHashRecord <$> newAdjHashes

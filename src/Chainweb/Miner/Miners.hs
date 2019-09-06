@@ -50,7 +50,7 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.Difficulty (BlockRate(..), blockRate, encodeHashTarget)
+import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core
 import Chainweb.Miner.RestAPI.Client (submitClient)
@@ -60,7 +60,7 @@ import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils (int, partitionEithersNEL, runGet, suncurry)
-import Chainweb.Version (ChainwebVersion(..), order, _chainGraph)
+import Chainweb.Version
 
 ---
 

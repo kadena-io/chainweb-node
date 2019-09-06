@@ -78,7 +78,6 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Difficulty (BlockRate(..), blockRate)
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
