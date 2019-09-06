@@ -27,12 +27,16 @@ module Chainweb.Miner.Kato
   , publish
   ) where
 
-import Control.Concurrent.STM (TVar, atomically, readTVarIO, retry)
+import Control.Concurrent.STM (atomically, retry)
+import Control.Error.Util ((!?), (??))
 import Control.Lens (iforM, set, to, view, (^?!))
 import Control.Monad (when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (runExceptT)
 
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
+import Data.Functor (($>))
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
 import qualified Data.Text as T
@@ -135,38 +139,33 @@ newWork miner nid cdb = _cut cdb >>= work
 -- a remote mining client), attempts to reassociate it with the current best
 -- `Cut`, and publishes the result to the `Cut` network.
 --
-publish :: LogFunction -> TVar MiningState -> CutDb cas -> BlockHeader -> IO ()
-publish lf tms cdb bh = do
-    -- Reassociate the new `BlockHeader` with the current `Cut`, if possible.
-    -- Otherwise, return silently.
-    --
+publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO MiningState
+publish lf m@(MiningState ms) cdb bh = do
     c <- _cut cdb
-    MiningState ms <- readTVarIO tms
     let !phash = _blockPayloadHash bh
-    case HM.lookup phash ms of
-        Nothing -> pure ()  -- Bogus `BlockHeader` given that has no associated Payload.
-        Just (T2 p pl) -> tryMonotonicCutExtension c bh >>= \case
-            Nothing -> lf @T.Text Info $ "Newly mined block for outdated cut"
-            Just c' -> do
-                -- Publish the new Cut into the CutDb (add to queue).
-                --
-                addCutHashes cdb $ cutToCutHashes Nothing c'
-                    & set cutHashesHeaders
-                        (HM.singleton (_blockHash bh) bh)
-                    & set cutHashesPayloads
-                        (HM.singleton phash (payloadWithOutputsToPayloadData pl))
+    res <- runExceptT $ do
+        T2 p pl <- HM.lookup phash ms ?? "BlockHeader given with no associated Payload"
+        c' <- tryMonotonicCutExtension c bh !? "Newly mined block for outdate cut"
+        lift $ do
+            -- Publish the new Cut into the CutDb (add to queue).
+            --
+            addCutHashes cdb $ cutToCutHashes Nothing c'
+                & set cutHashesHeaders (HM.singleton (_blockHash bh) bh)
+                & set cutHashesPayloads (HM.singleton phash (payloadWithOutputsToPayloadData pl))
 
-                -- Log mining success.
-                --
-                let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
+            -- Log mining success.
+            --
+            let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                         _payloadWithOutputsTransactions pl
-                    !nmb = NewMinedBlock
-                           (ObjectEncoded bh)
-                           (int . V.length $ _payloadWithOutputsTransactions pl)
-                           (int bytes)
-                           (estimatedHashes p bh)
 
-                lf @(JsonLog NewMinedBlock) Info $ JsonLog nmb
+            pure . JsonLog $ NewMinedBlock
+                (ObjectEncoded bh)
+                (int . V.length $ _payloadWithOutputsTransactions pl)
+                (int bytes)
+                (estimatedHashes p bh)
+    case res of
+        Left e -> lf @T.Text Info e $> m
+        Right nmb -> lf Info nmb $> MiningState (HM.delete phash ms)
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
