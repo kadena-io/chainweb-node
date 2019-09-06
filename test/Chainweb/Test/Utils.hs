@@ -428,7 +428,7 @@ withChainServer
     -> IO a
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
-    app = chainwebApplication (Test singletonChainGraph) dbs undefined
+    app = chainwebApplication (Test singletonChainGraph) dbs Nothing
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
