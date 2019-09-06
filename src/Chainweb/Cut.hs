@@ -466,6 +466,16 @@ applyJoin m = foldM
     (_joinBase m)
     (_joinQueue m)
 
+-- | Merge two Cuts. If at least one of the input cuts had a valid braiding the
+-- result is guaranteed to have a valid braiding for all blocks included in cut
+-- and their ancestors.
+--
+-- This is because the merge starts with the intersection of both cuts, using
+-- 'branchDiff_' on each chain, and constructs the merge cut using
+-- 'tryMonotonicCutExtension'. If one of the inputs is correctly braided, so is
+-- the intersection. 'tryMonotonicCutExtension' is guaranteed to maintain that
+-- property.
+--
 joinIntoHeavier
     :: WebBlockHeaderDb
     -> Cut
