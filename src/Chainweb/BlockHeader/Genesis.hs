@@ -115,8 +115,8 @@ genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
-genesisBlockPayload TimedCPM{} _ = TN.payloadBlock
-genesisBlockPayload FastTimedCPM{} _ = TN.payloadBlock
+genesisBlockPayload TimedCPM{} _ = DN.payloadBlock
+genesisBlockPayload FastTimedCPM{} _ = DN.payloadBlock
 -- Development Instances
 genesisBlockPayload Development _ = DN.payloadBlock
 -- Production Instances
