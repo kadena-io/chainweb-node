@@ -55,6 +55,7 @@ import Chainweb.Difficulty hiding (properties)
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
+import Chainweb.Miner.Core (HeaderBytes)
 import Chainweb.NodeId (ChainNodeId)
 import Chainweb.Payload
 import Chainweb.SPV
@@ -431,3 +432,6 @@ instance ToSchema ChainwebVersion where
 
 instance ToSchema MerkleLogHash where
   declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
+
+instance ToSchema HeaderBytes where
+  declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty

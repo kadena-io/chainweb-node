@@ -141,6 +141,8 @@ import Text.Printf (printf)
 
 -- internal modules
 
+import Chainweb.Chainweb.MinerResources (MinerResources)
+import Chainweb.Logger (Logger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
@@ -160,6 +162,7 @@ import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Logger (GenericLogger)
 
 import Data.CAS.RocksDB
 
@@ -419,12 +422,13 @@ withChainServer
     => ToJSON t
     => FromJSON t
     => PayloadCas cas
+    => Logger logger
     => ChainwebServerDbs t logger cas
     -> (ClientEnv -> IO a)
     -> IO a
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
-    app = chainwebApplication (Test singletonChainGraph) dbs
+    app = chainwebApplication (Test singletonChainGraph) dbs Nothing
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -544,19 +548,26 @@ withChainwebTestServer tls v appIO envIO test = withResource start stop $ \x ->
         close sock
 
 clientEnvWithChainwebTestServer
-    :: Show t
+    :: forall t cas
+    .  Show t
     => ToJSON t
     => FromJSON t
     => PayloadCas cas
     => Bool
     -> ChainwebVersion
-    -> IO (ChainwebServerDbs t logger cas)
+    -> IO (ChainwebServerDbs t GenericLogger cas)
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-clientEnvWithChainwebTestServer tls v dbsIO
-    = withChainwebTestServer tls v mkApp mkEnv
+clientEnvWithChainwebTestServer tls v dbsIO f =
+    withChainwebTestServer tls v mkApp mkEnv f
   where
-    mkApp = chainwebApplication v <$> dbsIO
+    miningRes :: Maybe (MinerResources GenericLogger cas)
+    miningRes = Nothing
+
+    mkApp :: IO W.Application
+    mkApp = chainwebApplication v <$> dbsIO <*> pure miningRes
+
+    mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do
         mgrSettings <- if
             | tls -> certificateCacheManagerSettings TlsInsecure Nothing
@@ -599,13 +610,14 @@ withPayloadServer
     -> IO [(ChainId, PayloadDb cas)]
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-withPayloadServer tls v cutDbIO payloadDbsIO = clientEnvWithChainwebTestServer tls v $ do
-    payloadDbs <- payloadDbsIO
-    cutDb <- cutDbIO
-    return $ emptyChainwebServerDbs
-        { _chainwebServerPayloadDbs = payloadDbs
-        , _chainwebServerCutDb = Just cutDb
-        }
+withPayloadServer tls v cutDbIO payloadDbsIO =
+    clientEnvWithChainwebTestServer tls v $ do
+        payloadDbs <- payloadDbsIO
+        cutDb <- cutDbIO
+        return $ emptyChainwebServerDbs
+            { _chainwebServerPayloadDbs = payloadDbs
+            , _chainwebServerCutDb = Just cutDb
+            }
 
 withBlockHeaderDbsServer
     :: Show t
@@ -618,8 +630,8 @@ withBlockHeaderDbsServer
     -> IO [(ChainId, MempoolBackend t)]
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer tls v chainDbsIO mempoolsIO
-    = clientEnvWithChainwebTestServer tls v $ do
+withBlockHeaderDbsServer tls v chainDbsIO mempoolsIO =
+    clientEnvWithChainwebTestServer tls v $ do
         chainDbs <- chainDbsIO
         mempools <- mempoolsIO
         return $ emptyChainwebServerDbs
