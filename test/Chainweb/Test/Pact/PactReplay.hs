@@ -233,7 +233,6 @@ mineBlock parentHeader cid nonce iopdb iobhdb r = do
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
               nonce
-              maxTarget
               creationTime
               parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
