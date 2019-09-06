@@ -14,7 +14,7 @@ module Chainweb.Mempool.InMemTypes
   , InMemConfig(..)
   , InMemoryMempool(..)
   , InMemoryMempoolData(..)
-  , PSQ
+  , PendingMap
   , RecentItem
   , RecentLog(..)
   , MempoolStats(..)
@@ -25,7 +25,7 @@ import Control.Concurrent.MVar (MVar)
 import Control.DeepSeq
 
 import Data.Aeson
-import Data.ByteString (ByteString)
+import qualified Data.ByteString.Short as SB
 import Data.HashMap.Strict (HashMap)
 import Data.IORef (IORef)
 import Data.Tuple.Strict
@@ -38,7 +38,7 @@ import GHC.Generics
 import Chainweb.Mempool.Mempool
 
 ------------------------------------------------------------------------------
-type PSQ = HashMap TransactionHash ByteString
+type PendingMap = HashMap TransactionHash SB.ShortByteString
 
 ------------------------------------------------------------------------------
 _defaultTxQueueLen :: Int
@@ -62,7 +62,7 @@ data InMemoryMempool t = InMemoryMempool {
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
     _inmemCountPending :: !(IORef Int)
-  , _inmemPending :: !(IORef PSQ)
+  , _inmemPending :: !(IORef PendingMap)
   , _inmemRecentLog :: !(IORef RecentLog)
 }
 

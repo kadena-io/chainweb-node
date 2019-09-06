@@ -29,6 +29,7 @@ import Control.Exception (bracket, mask_, throw)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
+import qualified Data.ByteString.Short as SB
 import Data.Foldable (foldl', foldlM)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -182,10 +183,11 @@ lookupInMem txcfg lock txs = do
     q <- withMVarMasked lock (readIORef . _inmemPending)
     V.mapM (fmap fromJuste . lookupOne q) txs
   where
-    lookupOne q txHash = return $! (lookupQ q txHash <|>
-                                    pure Missing)
+    lookupOne q txHash = return $! (lookupQ q txHash <|> pure Missing)
     codec = txCodec txcfg
-    fixup bs = either (const Missing) Pending $ codecDecode codec bs
+    fixup !bs = either (const Missing) Pending
+                    $! codecDecode codec
+                    $! SB.fromShort bs
     lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
 
 
@@ -217,7 +219,7 @@ insertInMem cfg lock txs0 = do
         pending <- readIORef (_inmemPending mdata)
         let (!pending', newHashesDL) = V.foldl' insOne (pending, id) txs
         let !newHashes = V.fromList $ newHashesDL []
-        writeIORef (_inmemPending mdata) pending'
+        writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
 
@@ -236,7 +238,7 @@ insertInMem cfg lock txs0 = do
 
     insOne (!pending, !soFar) !tx =
         let !txhash = hasher tx
-            !bytes = encodeTx tx
+            !bytes = SB.toShort $! encodeTx tx
         in (HashMap.insert txhash bytes pending, soFar . (txhash:))
 
 
@@ -256,8 +258,8 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
         (!psq', out) <- go psq size0 []
         let ins !h !t = HashMap.insert (hasher t) t h
         -- put the pending txs back into the map.
-        let !psq'' = HashMap.map encodeTx $ V.foldl' ins psq' out
-        writeIORef (_inmemPending mdata) $! psq''
+        let !psq'' = HashMap.map (SB.toShort . encodeTx) $! V.foldl' ins psq' out
+        writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemCountPending mdata) $! HashMap.size psq''
         return $! out
 
@@ -268,8 +270,9 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
     hasher = txHasher txcfg
     txcfg = _inmemTxCfg cfg
     codec = txCodec txcfg
-    decodeTx tx = either err id $ codecDecode codec tx
+    decodeTx tx0 = either err id $! codecDecode codec tx
       where
+        !tx = SB.fromShort tx0
         err s = error $
                 mconcat [ "Error decoding tx (\""
                         , s
