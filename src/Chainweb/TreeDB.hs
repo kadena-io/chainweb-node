@@ -89,6 +89,7 @@ import Data.Kind
 import qualified Data.List as L
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
+import qualified Data.Text as T
 import Data.These
 import Data.Typeable
 import Data.Vector (Vector)
@@ -117,13 +118,16 @@ data TreeDbException db
     = TreeDbParentMissing (DbEntry db)
     | TreeDbKeyNotFound (DbKey db)
     | TreeDbInvalidRank (DbEntry db)
-    | TreeDbAncestorMissing (DbEntry db)
+    | TreeDbAncestorMissing (DbEntry db) Natural T.Text
 
 instance (Show (DbEntry db), Show (DbKey db)) => Show (TreeDbException db) where
     show (TreeDbParentMissing e) = "TreeDbParentMissing: " ++ show e
     show (TreeDbKeyNotFound e) = "TreeDbKeyNotFound: " ++ show e
     show (TreeDbInvalidRank e) = "TreeDbInvalidRank: " ++ show e
-    show (TreeDbAncestorMissing e) = "TreeDbAncestorMissing: " ++ show e
+    show (TreeDbAncestorMissing e r msg) = "TreeDbAncestorMissing: entry "
+        ++ show e
+        ++ ". Rank " ++ sshow r
+        ++ ". " ++ T.unpack msg
 
 instance
     ( Show (DbEntry db)
@@ -802,7 +806,8 @@ seekAncestor db h r
     fastRoute1 = do
         a <- S.toList_ & entries db Nothing (Just 2) (Just $ int r) (Just $ int r)
         case a of
-            [] -> throwM $ TreeDbAncestorMissing @db h
+            [] -> throwM $ TreeDbAncestorMissing @db h (int r)
+                $ "No entry at this rank in the database"
             [x] -> return $ Just x
             _ -> fastRoute2 1
 
@@ -826,7 +831,8 @@ seekAncestor db h r
 
             -- check that result is unique
             case bs of
-                [] -> throwM $ TreeDbAncestorMissing @db h
+                [] -> throwM $ TreeDbAncestorMissing @db h (int r)
+                    $ "Backward search from rank " <> sshow l <> " results"
                 [x] -> return $ Just x
                 _ -> fastRoute2 (succ i)
         | otherwise = slowRoute
@@ -842,7 +848,8 @@ seekAncestor db h r
             (Just $ int r) (Just $ int r)
             mempty (HS.singleton $ UpperBound $ key h)
         case a of
-            Nothing -> throwM $ TreeDbAncestorMissing @db h
+            Nothing -> throwM $ TreeDbAncestorMissing @db h (int r)
+                $ "branch traversal yields no result"
             x -> return x
 
 -- -------------------------------------------------------------------------- --
