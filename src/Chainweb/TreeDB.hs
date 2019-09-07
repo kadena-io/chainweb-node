@@ -819,7 +819,7 @@ seekAncestor db h r
     -- have narrowed to a single block once we reach the target height.
     --
     fastRoute2 (i :: Int)
-        | 2 * l < hh = do
+        | r + 2 * off < hh = do
             -- get all blocks at height l
             !as <- S.toList_ & entries db Nothing Nothing (Just $ int l) (Just $ int l)
 
@@ -837,7 +837,8 @@ seekAncestor db h r
                 _ -> fastRoute2 (succ i)
         | otherwise = slowRoute
       where
-        l = 2^i
+        l = r + off
+        off = 2^i
 
     -- We find the predecessor of requested height of the block in the given cut
     -- by traversing along the parent relation.
