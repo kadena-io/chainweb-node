@@ -339,7 +339,6 @@ trunk g h = do
 header :: BlockHeader -> Gen BlockHeader
 header h = do
     nonce <- Nonce <$> chooseAny
-    miner <- arbitrary
     return
         . fromLog
         . newMerkleLog
@@ -352,7 +351,6 @@ header h = do
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
-            :+: miner
             :+: epochStart h t'
             :+: MerkleLogBody mempty
    where

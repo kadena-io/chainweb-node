@@ -53,7 +53,6 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -85,10 +84,9 @@ working
     :: forall cas. (BlockHeader -> IO ())
     -> TVar (Maybe MiningState)
     -> MinerConfig
-    -> NodeId
     -> CutDb cas
     -> IO ()
-working submit tp conf nid cdb = _cut cdb >>= work
+working submit tp conf cdb = _cut cdb >>= work
   where
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
@@ -124,7 +122,6 @@ working submit tp conf nid cdb = _cut cdb >>= work
                 creationTime <- getCurrentTimeIntegral
                 let !phash = _payloadWithOutputsPayloadHash payload
                     !header = newBlockHeader
-                        (nodeIdFromNodeId nid cid)
                         adjParents
                         phash
                         (Nonce 0)  -- TODO Confirm that this is okay.
@@ -142,7 +139,7 @@ working submit tp conf nid cdb = _cut cdb >>= work
                     Right _ -> void $ awaitNewCut cdb c
 
                 -- TODO How often should pruning occur?
-                working submit tp conf nid cdb
+                working submit tp conf cdb
 
 -- | THREAD: Accepts a "solved" `BlockHeader` from some external source (likely
 -- a remote mining client), reassociates it with the `Cut` from which it
