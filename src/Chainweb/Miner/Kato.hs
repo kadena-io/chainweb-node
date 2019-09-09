@@ -60,7 +60,6 @@ import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Pact (Miner)
-import Chainweb.NodeId (NodeId, nodeIdFromNodeId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -88,11 +87,10 @@ newtype PrevBlock = PrevBlock BlockHeader
 --
 newWork
     :: Miner
-    -> NodeId
     -> PactExecutionService
     -> Cut
     -> IO (T3 PrevBlock BlockHeader PayloadWithOutputs)
-newWork miner nid pact c = do
+newWork miner pact c = do
     -- Randomly pick a chain to mine on.
     --
     cid <- randomChainId c
@@ -108,7 +106,7 @@ newWork miner nid pact c = do
     -- since we still believe this `Cut` to be good.
     --
     case getAdjacentParents c p of
-        Nothing -> newWork miner nid pact c
+        Nothing -> newWork miner pact c
         Just adjParents -> do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.
@@ -122,7 +120,6 @@ newWork miner nid pact c = do
             creationTime <- getCurrentTimeIntegral
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader
-                    (nodeIdFromNodeId nid cid)
                     adjParents
                     phash
                     (Nonce 0)  -- TODO Confirm that this is okay.

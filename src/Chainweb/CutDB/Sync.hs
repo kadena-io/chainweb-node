@@ -16,7 +16,6 @@ module Chainweb.CutDB.Sync
 ( syncSession
 ) where
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Lens (set)
 import Control.Monad
@@ -84,7 +83,7 @@ syncSession
 syncSession v useOrigin p db logg env pinf = do
     race_
         (S.mapM_ send $ S.map (cutToCutHashes origin) $ cutStream db)
-        (forever $ receive >> threadDelay 2000000 {- 2 seconds -})
+        (forever $ receive >> approximateThreadDelay 2000000 {- 2 seconds -})
             -- Usually we rely on blocks being pushed to us, but every 2
             -- seconds we pull.
 

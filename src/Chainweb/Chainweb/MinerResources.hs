@@ -97,9 +97,6 @@ runMiner v mr = case window v of
     -- undefined
     -- concurrently_ (loop $ working inner tms conf nid cdb) (listener tmv)
   where
-    nid :: NodeId
-    nid = _minerResNodeId mr
-
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
 
@@ -126,11 +123,11 @@ runMiner v mr = case window v of
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        localTest lf v (_configMinerInfo conf) nid cdb gen (_configTestMiners conf)
+        localTest lf v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
 
     powMiner :: IO ()
     powMiner = case g $ _configRemoteMiners conf of
-        Nothing -> localPOW lf v (_configMinerInfo conf) nid cdb
+        Nothing -> localPOW lf v (_configMinerInfo conf) cdb
         Just _ -> undefined
         -- Nothing -> pure $ localPOW tmv v
         -- Just rs -> do

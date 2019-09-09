@@ -44,7 +44,6 @@ import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.NodeId (ChainNodeId(..))
 import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoch)
@@ -88,20 +87,6 @@ genesisTime FastTimedCPM{} = BlockCreationTime epoch
 genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet02 = BlockCreationTime . Time $ TimeSpan 1563388117613832
-
--- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
--- In other words, 0 is a meaningless hard-coding.
-genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
--- Test Instances
-genesisMiner Test{} p = ChainNodeId (_chainId p) 0
-genesisMiner TimedConsensus{} p = ChainNodeId (_chainId p) 0
-genesisMiner PowConsensus{} p = ChainNodeId (_chainId p) 0
-genesisMiner TimedCPM{} p = ChainNodeId (_chainId p) 0
-genesisMiner FastTimedCPM{} p = ChainNodeId (_chainId p) 0
--- Development Instances
-genesisMiner Development p = ChainNodeId (_chainId p) 0
--- Production Instances
-genesisMiner Testnet02 p = ChainNodeId (_chainId p) 0
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -158,7 +143,6 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         :+: BlockWeight 0
         :+: BlockHeight 0
         :+: v
-        :+: genesisMiner v cid
         :+: EpochStartTime t
         :+: MerkleLogBody (blockHashRecordToVector adjParents)
     adjParents = BlockHashRecord $ HM.fromList $

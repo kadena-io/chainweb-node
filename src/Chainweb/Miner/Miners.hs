@@ -61,7 +61,6 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Kato (MiningState(..), awaitNewCut, newWork, publish)
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI.Client (submitClient)
-import Chainweb.NodeId (NodeId)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
 #if !MIN_VERSION_servant_client(0,16,0)
@@ -85,18 +84,17 @@ localTest
     :: LogFunction
     -> ChainwebVersion
     -> Miner
-    -> NodeId
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v m nid cdb gen miners =
+localTest lf v m cdb gen miners =
     runForever lf "Chainweb.Miner.Miners.localTest" $ loop mempty
   where
     loop :: MiningState -> IO a
     loop (MiningState old) = do
         c <- _cut cdb
-        T3 p bh pl <- newWork m nid pact c
+        T3 p bh pl <- newWork m pact c
         let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
         work bh >>= publish lf ms cdb >>= \ms' -> awaitNewCut cdb c >> loop ms'
 
@@ -121,13 +119,13 @@ localTest lf v m nid cdb gen miners =
 -- restarts the work.
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: LogFunction -> ChainwebVersion -> Miner -> NodeId -> CutDb cas -> IO ()
-localPOW lf v m nid cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ loop mempty
+localPOW :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
+localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ loop mempty
   where
     loop :: MiningState -> IO a
     loop (MiningState old) = do
         c <- _cut cdb
-        T3 p bh pl <- newWork m nid pact c
+        T3 p bh pl <- newWork m pact c
         let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
         work bh >>= publish lf ms cdb >>= \ms' -> awaitNewCut cdb c >> loop ms'
 
