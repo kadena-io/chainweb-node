@@ -92,11 +92,8 @@ runMiner
 runMiner v mr = do
     tmv   <- newEmptyTMVarIO
     inner <- chooseMiner tmv
-    concurrently_ (loop $ working inner tms conf nid cdb) (listener tmv)
+    concurrently_ (loop $ working inner tms conf cdb) (listener tmv)
   where
-    nid :: NodeId
-    nid = _minerResNodeId mr
-
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
 

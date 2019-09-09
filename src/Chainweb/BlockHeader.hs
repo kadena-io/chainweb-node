@@ -84,7 +84,6 @@ module Chainweb.BlockHeader
 , blockAdjacentHashes
 , blockCreationTime
 , blockHash
-, blockMiner
 , blockParent
 , blockPayloadHash
 , blockTarget
@@ -158,7 +157,6 @@ import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Time
@@ -461,12 +459,6 @@ data BlockHeader :: Type where
             -- that the Chainweb version of a block equals the Chainweb version
             -- of its parent.
 
-        , _blockMiner :: {-# UNPACK #-} !ChainNodeId
-            -- ^ The public identifier of the miner of the block as self-identified
-            -- by the miner. The value is expected to correspond to the receiver
-            -- of the block reward and any transactional fees, but this is not
-            -- enforced. This information is merely informational.
-
         , _blockEpochStart :: {-# UNPACK #-} !EpochStartTime
             -- ^ The start time of the current difficulty adjustment epoch.
             -- Epochs divide the sequence of blocks in the chain into continuous
@@ -530,7 +522,6 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
         , BlockWeight
         , BlockHeight
         , ChainwebVersion
-        , ChainNodeId
         , EpochStartTime
         ]
     type MerkleLogBody BlockHeader = BlockHash
@@ -548,7 +539,6 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: _blockWeight bh
             :+: _blockHeight bh
             :+: _blockChainwebVersion bh
-            :+: _blockMiner bh
             :+: _blockEpochStart bh
             :+: MerkleLogBody (blockHashRecordToVector $ _blockAdjacentHashes bh)
 
@@ -563,7 +553,6 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockWeight = weight
             , _blockHeight = height
             , _blockChainwebVersion = cwv
-            , _blockMiner = miner
             , _blockEpochStart = es
             , _blockAdjacentHashes = blockHashRecordFromVector cwv cid adjParents
             }
@@ -577,7 +566,6 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: weight
             :+: height
             :+: cwv
-            :+: miner
             :+: es
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
@@ -597,7 +585,6 @@ encodeBlockHeaderWithoutHash b = do
     encodeBlockWeight (_blockWeight b)
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
-    encodeChainNodeId (_blockMiner b)
     encodeEpochStartTime (_blockEpochStart b)
 
 encodeBlockHeader
@@ -655,7 +642,6 @@ decodeBlockHeaderWithoutHash = do
     a7 <- decodeBlockWeight
     a8 <- decodeBlockHeight
     a9 <- decodeChainwebVersion
-    a10 <- decodeChainNodeId
     a11 <- decodeEpochStartTime
     return
         $! fromLog
@@ -669,7 +655,6 @@ decodeBlockHeaderWithoutHash = do
         :+: a7
         :+: a8
         :+: a9
-        :+: a10
         :+: a11
         :+: MerkleLogBody (blockHashRecordToVector a3)
 
@@ -689,7 +674,6 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockWeight
     <*> decodeBlockHeight
     <*> decodeChainwebVersion
-    <*> decodeChainNodeId
     <*> decodeEpochStartTime
     <*> decodeBlockHash
 
@@ -767,7 +751,6 @@ instance ToJSON (ObjectEncoded BlockHeader) where
         , "weight" .= _blockWeight b
         , "height" .= _blockHeight b
         , "chainwebVersion" .= _blockChainwebVersion b
-        , "miner" .= _blockMiner b
         , "epochStart" .= _blockEpochStart b
         , "hash" .= _blockHash b
         ]
@@ -784,7 +767,6 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "weight"
     <*> o .: "height"
     <*> o .: "chainwebVersion"
-    <*> o .: "miner"
     <*> o .: "epochStart"
     <*> o .: "hash"
 
@@ -819,9 +801,7 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
 -- Create new BlockHeader
 
 newBlockHeader
-    :: ChainNodeId
-        -- ^ Miner
-    -> BlockHashRecord
+    :: BlockHashRecord
         -- ^ Adjacent parent hashes
     -> BlockPayloadHash
         -- ^ payload hash
@@ -832,7 +812,7 @@ newBlockHeader
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader miner adj pay nonce t b = fromLog $ newMerkleLog
+newBlockHeader adj pay nonce t b = fromLog $ newMerkleLog
     $ nonce
     :+: BlockCreationTime t
     :+: _blockHash b
@@ -842,7 +822,6 @@ newBlockHeader miner adj pay nonce t b = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: miner
     :+: epochStart b (BlockCreationTime t)
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
@@ -868,17 +847,15 @@ testBlockPayload :: BlockHeader -> BlockPayloadHash
 testBlockPayload b = hashPayload (_blockChainwebVersion b) b "TEST PAYLOAD"
 
 testBlockHeader
-    :: ChainNodeId
-        -- ^ Miner
-    -> BlockHashRecord
+    :: BlockHashRecord
         -- ^ Adjacent parent hashes
     -> Nonce
         -- ^ Randomness to affect the block hash
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader miner adj nonce b
-    = newBlockHeader miner adj (testBlockPayload b) nonce (add second t) b
+testBlockHeader adj nonce b
+    = newBlockHeader adj (testBlockPayload b) nonce (add second t) b
   where
     BlockCreationTime t = _blockCreationTime b
 
@@ -890,7 +867,7 @@ testBlockHeader miner adj nonce b
 testBlockHeaders :: BlockHeader -> [BlockHeader]
 testBlockHeaders = unfoldr (Just . (id &&& id) . f)
   where
-    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) (_blockNonce b) b
+    f b = testBlockHeader (BlockHashRecord mempty) (_blockNonce b) b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
@@ -900,4 +877,4 @@ testBlockHeaders = unfoldr (Just . (id &&& id) . f)
 testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
 testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
   where
-    f b = testBlockHeader (_blockMiner b) (BlockHashRecord mempty) n b
+    f b = testBlockHeader (BlockHashRecord mempty) n b
