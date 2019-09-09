@@ -38,6 +38,7 @@ import Data.Tuple.Strict (T2(..), T3(..))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TMVar (TMVar, putTMVar)
+import Control.Lens (view)
 import Control.Monad.Catch (throwM)
 import Control.Scheduler
 
@@ -53,21 +54,23 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.CutDB (CutDb)
+import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut)
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Core
-import Chainweb.Miner.Kato (MiningState(..), newWork, publish)
+import Chainweb.Miner.Kato (MiningState(..), awaitNewCut, newWork, publish)
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI.Client (submitClient)
 import Chainweb.NodeId (NodeId)
 import Chainweb.RestAPI.Orphans ()
+import Chainweb.Sync.WebBlockHeaderStore
 #if !MIN_VERSION_servant_client(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils (int, partitionEithersNEL, runForever, runGet, suncurry)
 import Chainweb.Version
+import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
 
@@ -92,9 +95,13 @@ localTest lf v m nid cdb gen miners =
   where
     loop :: MiningState -> IO a
     loop (MiningState old) = do
-        T3 p bh pl <- newWork m nid cdb
+        c <- _cut cdb
+        T3 p bh pl <- newWork m nid pact c
         let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
-        work bh >>= publish lf ms cdb >>= loop
+        work bh >>= publish lf ms cdb >>= \ms' -> awaitNewCut cdb c >> loop ms'
+
+    pact :: PactExecutionService
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
     t :: Double
     t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
@@ -119,9 +126,13 @@ localPOW lf v m nid cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ loop 
   where
     loop :: MiningState -> IO a
     loop (MiningState old) = do
-        T3 p bh pl <- newWork m nid cdb
+        c <- _cut cdb
+        T3 p bh pl <- newWork m nid pact c
         let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
-        work bh >>= publish lf ms cdb >>= loop
+        work bh >>= publish lf ms cdb >>= \ms' -> awaitNewCut cdb c >> loop ms'
+
+    pact :: PactExecutionService
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
     work :: BlockHeader -> IO BlockHeader
     work bh = do

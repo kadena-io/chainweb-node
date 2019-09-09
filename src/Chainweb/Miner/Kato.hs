@@ -31,7 +31,7 @@ module Chainweb.Miner.Kato
 
 import Control.Concurrent.STM (atomically, retry)
 import Control.Error.Util ((!?), (??))
-import Control.Lens (iforM, set, to, view, (^?!))
+import Control.Lens (iforM, set, to, (^?!))
 import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
@@ -66,7 +66,6 @@ import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
-import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
@@ -88,55 +87,49 @@ newtype PrevBlock = PrevBlock BlockHeader
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
-    :: forall cas
-    .  Miner
+    :: Miner
     -> NodeId
-    -> CutDb cas
+    -> PactExecutionService
+    -> Cut
     -> IO (T3 PrevBlock BlockHeader PayloadWithOutputs)
-newWork miner nid cdb = _cut cdb >>= work
-  where
-    pact :: PactExecutionService
-    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+newWork miner nid pact c = do
+    -- Randomly pick a chain to mine on.
+    --
+    cid <- randomChainId c
 
-    work :: Cut -> IO (T3 PrevBlock BlockHeader PayloadWithOutputs)
-    work c = do
-        -- Randomly pick a chain to mine on.
-        --
-        cid <- randomChainId c
+    -- The parent block the mine on. Any given chain will always
+    -- contain at least a genesis block, so this otherwise naughty
+    -- `^?!` will always succeed.
+    --
+    let !p = c ^?! ixg cid
 
-        -- The parent block the mine on. Any given chain will always
-        -- contain at least a genesis block, so this otherwise naughty
-        -- `^?!` will always succeed.
-        --
-        let !p = c ^?! ixg cid
+    -- Check if the chain can be mined on by determining if adjacent parents
+    -- also exist. If they don't, we test other chains on this same `Cut`,
+    -- since we still believe this `Cut` to be good.
+    --
+    case getAdjacentParents c p of
+        Nothing -> newWork miner nid pact c
+        Just adjParents -> do
+            -- Fetch a Pact Transaction payload. This is an expensive call
+            -- that shouldn't be repeated.
+            --
+            payload <- _pactNewBlock pact miner p
 
-        -- Check if the chain can be mined on by determining if adjacent parents
-        -- also exist. If they don't, we test other chains on this same `Cut`,
-        -- since we still believe this `Cut` to be good.
-        --
-        case getAdjacentParents c p of
-            Nothing -> work c
-            Just adjParents -> do
-                -- Fetch a Pact Transaction payload. This is an expensive call
-                -- that shouldn't be repeated.
-                --
-                payload <- _pactNewBlock pact miner p
+            -- Assemble a candidate `BlockHeader` without a specific `Nonce`
+            -- value. `Nonce` manipulation is assumed to occur within the
+            -- core Mining logic.
+            --
+            creationTime <- getCurrentTimeIntegral
+            let !phash = _payloadWithOutputsPayloadHash payload
+                !header = newBlockHeader
+                    (nodeIdFromNodeId nid cid)
+                    adjParents
+                    phash
+                    (Nonce 0)  -- TODO Confirm that this is okay.
+                    creationTime
+                    p
 
-                -- Assemble a candidate `BlockHeader` without a specific `Nonce`
-                -- value. `Nonce` manipulation is assumed to occur within the
-                -- core Mining logic.
-                --
-                creationTime <- getCurrentTimeIntegral
-                let !phash = _payloadWithOutputsPayloadHash payload
-                    !header = newBlockHeader
-                        (nodeIdFromNodeId nid cid)
-                        adjParents
-                        phash
-                        (Nonce 0)  -- TODO Confirm that this is okay.
-                        creationTime
-                        p
-
-                pure $ T3 (PrevBlock p) header payload
+            pure $ T3 (PrevBlock p) header payload
 
 -- | THREAD: Accepts a "solved" `BlockHeader` from some external source (likely
 -- a remote mining client), attempts to reassociate it with the current best
