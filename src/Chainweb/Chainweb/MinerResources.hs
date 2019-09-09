@@ -90,7 +90,7 @@ runMiner
     -> MinerResources logger cas
     -> IO ()
 runMiner v mr = case window v of
-    Nothing -> undefined
+    Nothing -> testMiner
     Just _ -> powMiner
     -- tmv   <- newEmptyTMVarIO
     -- inner <- chooseMiner tmv
@@ -112,9 +112,6 @@ runMiner v mr = case window v of
     tms :: TVar (Maybe MiningState)
     tms = _minerResState mr
 
-    miners :: MinerCount
-    miners = _configTestMiners conf
-
     loop :: IO () -> IO ()
     loop = runForever lf "Chainweb.Miner.Coordinator.working"
 
@@ -126,10 +123,10 @@ runMiner v mr = case window v of
     listener tmv = runForever lf "Chainweb.Miner.listener" $ do
         atomically (takeTMVar tmv) >>= publishing lf tms cdb
 
-    testMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
-    testMiner tmv = do
+    testMiner :: IO ()
+    testMiner = do
         gen <- MWC.createSystemRandom
-        pure $ localTest tmv gen miners
+        localTest lf v (_configMinerInfo conf) nid cdb gen (_configTestMiners conf)
 
     powMiner :: IO ()
     powMiner = case g $ _configRemoteMiners conf of

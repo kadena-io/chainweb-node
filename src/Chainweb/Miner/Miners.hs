@@ -73,17 +73,28 @@ import Data.LogMessage (LogFunction)
 
 ---
 
--- -----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Local Mining
 
 -- | Artificially delay the mining process to simulate Proof-of-Work.
 --
-localTest :: TMVar BlockHeader -> MWC.GenIO -> MinerCount -> BlockHeader -> IO ()
-localTest tmv gen miners bh =
-    MWC.geometric1 t gen >>= threadDelay >> atomically (putTMVar tmv bh)
+localTest
+    :: LogFunction
+    -> ChainwebVersion
+    -> Miner
+    -> NodeId
+    -> CutDb cas
+    -> MWC.GenIO
+    -> MinerCount
+    -> IO ()
+localTest lf v m nid cdb gen miners =
+    runForever lf "Chainweb.Miner.Miners.localTest" $ loop mempty
   where
-    v :: ChainwebVersion
-    v = _blockChainwebVersion bh
+    loop :: MiningState -> IO a
+    loop (MiningState old) = do
+        T3 p bh pl <- newWork m nid cdb
+        let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
+        work bh >>= publish lf ms cdb >>= loop
 
     t :: Double
     t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
@@ -96,12 +107,15 @@ localTest tmv gen miners bh =
         Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show v
 
+    work :: BlockHeader -> IO BlockHeader
+    work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
+
 -- TODO `MiningState` is reset when an exception occurs and `runForever`
 -- restarts the work.
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
 localPOW :: LogFunction -> ChainwebVersion -> Miner -> NodeId -> CutDb cas -> IO ()
-localPOW lf v m nid cdb = runForever lf "Chainweb.Miner.Miners.pow" $ loop mempty
+localPOW lf v m nid cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ loop mempty
   where
     loop :: MiningState -> IO a
     loop (MiningState old) = do
@@ -123,7 +137,7 @@ transferableBytes bh = T2 t h
     t = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
     h = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
 
--- -----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Remote Mining
 
 -- | Some remote process which is performing the low-level mining for us. May be
