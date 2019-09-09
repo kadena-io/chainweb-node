@@ -78,7 +78,6 @@ module Chainweb.Mempool.Mempool
   , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
-import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Monad (replicateM, when)
@@ -127,8 +126,8 @@ import Chainweb.Time (Micros(..), Time(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
-    (Codec(..), decodeB64UrlNoPaddingText, encodeB64UrlNoPaddingText,
-    encodeToText, sshow)
+    (Codec(..), approximateThreadDelay, decodeB64UrlNoPaddingText,
+    encodeB64UrlNoPaddingText, encodeToText, sshow)
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
@@ -391,7 +390,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
             , " new remote hashes need to be fetched"
             ]
         traverse_ fetchMissing missingChunks
-        threadDelay us
+        approximateThreadDelay us
         subsequentSync remoteHw'
 
     -- get pending hashes from remote since the given (optional) high water mark

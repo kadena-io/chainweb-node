@@ -21,9 +21,8 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative (pure, (<|>))
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.Concurrent.Async
+import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
 import Control.Exception (bracket, mask_, throw)
 import Control.Monad (unless, void, (<$!>))
@@ -149,8 +148,7 @@ withInMemoryMempool_ l cfg f = do
             logFunctionText l Debug $ "got stats"
             logFunctionJson l Info stats
             logFunctionText l Debug $ "logged stats"
-            d <- randomRIO (0.7, 1.3 :: Double)
-            threadDelay (round $ 60000000 {- 1 minute -} * d)
+            approximateThreadDelay 60000000 {- 1 minute -}
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
