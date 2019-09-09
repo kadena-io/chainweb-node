@@ -94,7 +94,7 @@ nNodes :: Natural
 nNodes = 1
 
 version :: ChainwebVersion
-version = TimedCPM petersonChainGraph
+version = FastTimedCPM petersonChainGraph
 
 cid :: HasCallStack => ChainId
 cid = head . toList $ chainIds version
@@ -114,7 +114,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
         withMVarResource 0 $ \iomvar ->
           withRequestKeys iomvar net $ \rks ->
               testGroup "PactRemoteTests"
-                  [ responseGolden net rks ]
+                [ responseGolden net rks ]
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
@@ -260,7 +260,7 @@ withNodes rdb n f = withResource start
   where
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes rdb Warn version n peerInfoVar
+        a <- withLink $ runTestNodes rdb Warn version n peerInfoVar
         i <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
         return (a, cwEnv)
