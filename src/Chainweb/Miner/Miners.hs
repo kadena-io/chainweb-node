@@ -86,15 +86,14 @@ localTest
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v m cdb gen miners =
-    runForever lf "Chainweb.Miner.Miners.localTest" $ loop mempty
+localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
-    loop :: MiningState -> IO a
-    loop (MiningState old) = do
+    loop :: IO a
+    loop = do
         c <- _cut cdb
         T3 p bh pl <- newWork m pact c
-        let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
-        work bh >>= publish lf ms cdb >>= \ms' -> awaitNewCut cdb c >> loop ms'
+        let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T2 p pl)
+        work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
@@ -113,19 +112,17 @@ localTest lf v m cdb gen miners =
     work :: BlockHeader -> IO BlockHeader
     work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
 
--- TODO `MiningState` is reset when an exception occurs and `runForever`
--- restarts the work.
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
 localPOW :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
-localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" $ loop mempty
+localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
-    loop :: MiningState -> IO a
-    loop (MiningState old) = do
+    loop :: IO a
+    loop = do
         c <- _cut cdb
         T3 p bh pl <- newWork m pact c
-        let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
-        work bh >>= publish lf ms cdb >>= \ms' -> awaitNewCut cdb c >> loop ms'
+        let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T2 p pl)
+        work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb

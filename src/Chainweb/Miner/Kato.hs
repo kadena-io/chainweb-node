@@ -38,7 +38,6 @@ import Control.Monad.Trans.Except (runExceptT)
 
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
-import Data.Functor (($>))
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
 import qualified Data.Text as T
@@ -132,8 +131,8 @@ newWork miner pact c = do
 -- a remote mining client), attempts to reassociate it with the current best
 -- `Cut`, and publishes the result to the `Cut` network.
 --
-publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO MiningState
-publish lf m@(MiningState ms) cdb bh = do
+publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
+publish lf (MiningState ms) cdb bh = do
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
@@ -156,9 +155,7 @@ publish lf m@(MiningState ms) cdb bh = do
                 (int . V.length $ _payloadWithOutputsTransactions pl)
                 (int bytes)
                 (estimatedHashes p bh)
-    case res of
-        Left e -> lf @T.Text Info e $> m
-        Right nmb -> lf Info nmb $> MiningState (HM.delete phash ms)
+    either (lf @T.Text Info) (lf Info) res
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
