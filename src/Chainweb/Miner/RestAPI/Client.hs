@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module: Chainweb.Miner.RestAPI.Client
@@ -10,34 +11,35 @@
 --
 --
 module Chainweb.Miner.RestAPI.Client
-  ( -- * Mining Work Submission
-    submitClient
-    -- * Mining Results
+  ( workClient
   , solvedClient
   ) where
 
-import Data.Proxy (Proxy(..))
-
+import Servant.API
 import Servant.Client (ClientM, client)
 
 -- internal modules
 
 import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes(..))
-import Chainweb.Miner.RestAPI (MiningSubmissionApi, miningResultApi)
+import Chainweb.Miner.Pact (Miner)
+import Chainweb.Miner.RestAPI (miningApi)
 import Chainweb.Version
 
 import Data.Singletons
 
----
-
--- -----------------------------------------------------------------------------
--- Mining Work Submission
-
-submitClient :: WorkBytes -> ClientM ()
-submitClient = client (Proxy @MiningSubmissionApi)
-
 -- -----------------------------------------------------------------------------
 -- Mining Results
 
+workClient :: ChainwebVersion -> Miner -> ClientM WorkBytes
+workClient v m = case clients v of
+  f :<|> _ -> f m
+
 solvedClient :: ChainwebVersion -> HeaderBytes -> ClientM ()
-solvedClient (FromSing (SChainwebVersion :: Sing v)) = client (miningResultApi @v)
+solvedClient v hbytes = case clients v of
+  _ :<|> f -> f hbytes
+
+clients
+    :: ChainwebVersion
+    -> (Miner -> ClientM WorkBytes)
+    :<|> (HeaderBytes -> ClientM ())
+clients (FromSing (SChainwebVersion :: Sing v)) = client (miningApi @v)

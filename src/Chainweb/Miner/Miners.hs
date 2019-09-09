@@ -24,27 +24,17 @@ module Chainweb.Miner.Miners
     localPOW
   , localTest
     -- * Remote Mining
-  , remoteMining
   , transferableBytes
   ) where
 
 import Data.Bytes.Put (runPutS)
 import qualified Data.HashMap.Strict as HM
-import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NEL
-import Data.These (these)
 import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Lens (view)
-import Control.Monad.Catch (throwM)
-import Control.Scheduler
-
-import Network.HTTP.Client (Manager)
 
 import Numeric.Natural (Natural)
-
-import Servant.Client
 
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
@@ -56,17 +46,12 @@ import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut)
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
-    (MiningState(..), awaitNewCut, newWork, publish)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner)
-import Chainweb.Miner.RestAPI.Client (submitClient)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
-#if !MIN_VERSION_servant_client(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, partitionEithersNEL, runForever, runGet, suncurry)
+import Chainweb.Utils (int, runForever, runGet)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -141,24 +126,3 @@ transferableBytes bh = T2 t h
   where
     t = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
     h = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-
---------------------------------------------------------------------------------
--- Remote Mining
-
--- | Some remote process which is performing the low-level mining for us. May be
--- on a different machine, may be on multiple machines, may be arbitrarily
--- multithreaded.
---
--- ASSUMPTION: The contents of the given @NonEmpty BaseUrl@ are unique.
---
-remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO ()
-remoteMining m urls bh = do
-    -- TODO Use different `Comp`?
-    rs <- partitionEithersNEL <$> traverseConcurrently Par' f urls
-    these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
-  where
-    bs :: WorkBytes
-    bs = suncurry workBytes $ transferableBytes bh
-
-    f :: BaseUrl -> IO (Either ClientError ())
-    f url = runClientM (submitClient bs) $ ClientEnv m url Nothing
