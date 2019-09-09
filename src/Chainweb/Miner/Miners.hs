@@ -36,8 +36,6 @@ import Data.These (these)
 import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TMVar (TMVar, putTMVar)
 import Control.Lens (view)
 import Control.Monad.Catch (throwM)
 import Control.Scheduler

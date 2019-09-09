@@ -20,34 +20,21 @@ module Chainweb.Chainweb.MinerResources
   , runMiner
   ) where
 
-import Control.Concurrent.Async (concurrently_)
-import Control.Concurrent.STM (TVar, atomically)
-import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, takeTMVar)
+import Control.Concurrent.STM (TVar)
 import Control.Concurrent.STM.TVar (newTVarIO)
-
-import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NEL
-import Data.Set (Set)
-import qualified Data.Set as S
-
-import Network.HTTP.Client (defaultManagerSettings, newManager)
-
-import Servant.Client (BaseUrl(..), Scheme(..))
 
 import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.CutDB (CutDb)
-import Chainweb.HostAddress
 import Chainweb.Logger (Logger, logFunction)
-import Chainweb.Miner.Config (MinerConfig(..), MinerCount(..))
-import Chainweb.Miner.Coordinator (MiningState(..), publishing, working)
+import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.Miner.Coordinator (MiningState(..))
 import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
-import Chainweb.Utils (EnableConfig(..), runForever)
+import Chainweb.Utils (EnableConfig(..))
 import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (LogFunction)
@@ -92,10 +79,6 @@ runMiner
 runMiner v mr = case window v of
     Nothing -> testMiner
     Just _ -> powMiner
-    -- tmv   <- newEmptyTMVarIO
-    -- inner <- chooseMiner tmv
-    -- undefined
-    -- concurrently_ (loop $ working inner tms conf nid cdb) (listener tmv)
   where
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
@@ -106,33 +89,10 @@ runMiner v mr = case window v of
     lf :: LogFunction
     lf = logFunction $ _minerResLogger mr
 
-    tms :: TVar (Maybe MiningState)
-    tms = _minerResState mr
-
-    loop :: IO () -> IO ()
-    loop = runForever lf "Chainweb.Miner.Coordinator.working"
-
-    -- | This thread will sit silently forever without burning resources when a
-    -- remote miner is being used, since the `TMVar` will never be written to in
-    -- that case.
-    --
-    listener :: TMVar BlockHeader -> IO ()
-    listener tmv = runForever lf "Chainweb.Miner.listener" $ do
-        atomically (takeTMVar tmv) >>= publishing lf tms cdb
-
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
         localTest lf v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = case g $ _configRemoteMiners conf of
-        Nothing -> localPOW lf v (_configMinerInfo conf) cdb
-        Just _ -> undefined
-        -- Nothing -> pure $ localPOW tmv v
-        -- Just rs -> do
-        --     m <- newManager defaultManagerSettings
-        --     pure $ remoteMining m rs
-
-    g :: Set HostAddress -> Maybe (NonEmpty BaseUrl)
-    g = fmap (NEL.map (hostAddressToBaseUrl Http)) . NEL.nonEmpty . S.toList
+    powMiner = localPOW lf v (_configMinerInfo conf) cdb
