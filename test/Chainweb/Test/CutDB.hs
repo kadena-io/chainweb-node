@@ -63,7 +63,6 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -405,7 +404,7 @@ tryMineForChain miner webPact cutDb c cid = do
     outputs <- _webPactNewBlock webPact miner parent
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
-    x <- testMineWithPayloadHash (Nonce 0) t payloadHash (NodeId 0) cid c
+    x <- testMineWithPayloadHash (Nonce 0) t payloadHash cid c
     case x of
         Right (T2 h c') -> do
             validate h outputs

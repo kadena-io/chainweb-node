@@ -56,7 +56,6 @@ import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (HeaderBytes)
-import Chainweb.NodeId (ChainNodeId)
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
@@ -416,7 +415,6 @@ deriving instance ToSchema BlockCreationTime
 deriving instance ToSchema BlockHashRecord
 deriving instance ToSchema BlockHeight
 deriving instance ToSchema BlockWeight
-deriving instance ToSchema ChainNodeId
 deriving instance ToSchema HashDifficulty
 deriving instance ToSchema HashTarget
 deriving instance ToSchema Micros
