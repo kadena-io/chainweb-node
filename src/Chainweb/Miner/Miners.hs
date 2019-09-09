@@ -96,31 +96,24 @@ localTest tmv gen miners bh =
         Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show v
 
+-- TODO `MiningState` is reset when an exception occurs and `runForever`
+-- restarts the work.
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: TMVar BlockHeader -> ChainwebVersion -> BlockHeader -> IO ()
-localPOW tmv v bh = do
-    HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
-    new <- runGet decodeBlockHeaderWithoutHash newBytes
-    atomically $ putTMVar tmv new
+localPOW :: LogFunction -> ChainwebVersion -> Miner -> NodeId -> CutDb cas -> IO ()
+localPOW lf v m nid cdb = runForever lf "Chainweb.Miner.Miners.pow" $ loop mempty
   where
-    T2 tbytes hbytes = transferableBytes bh
-
-pow :: LogFunction -> ChainwebVersion -> Miner -> NodeId -> CutDb cas -> IO ()
-pow lf v m nid cdb = runForever lf "Chainweb.Miner.Miners.pow" $ work mempty
-  where
-    work (MiningState ms) = do
+    loop :: MiningState -> IO a
+    loop (MiningState old) = do
         T3 p bh pl <- newWork m nid cdb
-        new <- localPOW' v bh
-        ms' <- publish lf (MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) ms) cdb bh
-        work ms'
+        let ms = MiningState $ HM.insert (_blockPayloadHash bh) (T2 p pl) old
+        work bh >>= publish lf ms cdb >>= loop
 
-localPOW' :: ChainwebVersion -> BlockHeader -> IO BlockHeader
-localPOW' v bh = do
-    HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
-    runGet decodeBlockHeaderWithoutHash newBytes
-  where
-    T2 tbytes hbytes = transferableBytes bh
+    work :: BlockHeader -> IO BlockHeader
+    work bh = do
+        let T2 tbytes hbytes = transferableBytes bh
+        HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
+        runGet decodeBlockHeaderWithoutHash newBytes
 
 -- | Can be piped to `workBytes` for a form suitable to use with `MiningAPI`.
 --

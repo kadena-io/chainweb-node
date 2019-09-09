@@ -89,10 +89,13 @@ runMiner
     => ChainwebVersion
     -> MinerResources logger cas
     -> IO ()
-runMiner v mr = do
-    tmv   <- newEmptyTMVarIO
-    inner <- chooseMiner tmv
-    concurrently_ (loop $ working inner tms conf nid cdb) (listener tmv)
+runMiner v mr = case window v of
+    Nothing -> undefined
+    Just _ -> powMiner
+    -- tmv   <- newEmptyTMVarIO
+    -- inner <- chooseMiner tmv
+    -- undefined
+    -- concurrently_ (loop $ working inner tms conf nid cdb) (listener tmv)
   where
     nid :: NodeId
     nid = _minerResNodeId mr
@@ -123,22 +126,19 @@ runMiner v mr = do
     listener tmv = runForever lf "Chainweb.Miner.listener" $ do
         atomically (takeTMVar tmv) >>= publishing lf tms cdb
 
-    chooseMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
-    chooseMiner = case window v of
-        Nothing -> testMiner -- no difficulty adjustment defined
-        Just _ -> powMiner -- difficulty adjustement defined
-
     testMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
     testMiner tmv = do
         gen <- MWC.createSystemRandom
         pure $ localTest tmv gen miners
 
-    powMiner :: TMVar BlockHeader -> IO (BlockHeader -> IO ())
-    powMiner tmv = case g $ _configRemoteMiners conf of
-        Nothing -> pure $ localPOW tmv v
-        Just rs -> do
-            m <- newManager defaultManagerSettings
-            pure $ remoteMining m rs
+    powMiner :: IO ()
+    powMiner = case g $ _configRemoteMiners conf of
+        Nothing -> localPOW lf v (_configMinerInfo conf) nid cdb
+        Just _ -> undefined
+        -- Nothing -> pure $ localPOW tmv v
+        -- Just rs -> do
+        --     m <- newManager defaultManagerSettings
+        --     pure $ remoteMining m rs
 
     g :: Set HostAddress -> Maybe (NonEmpty BaseUrl)
     g = fmap (NEL.map (hostAddressToBaseUrl Http)) . NEL.nonEmpty . S.toList
