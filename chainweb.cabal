@@ -154,7 +154,6 @@ library
         , Chainweb.MerkleUniverse
         , Chainweb.Miner.Config
         , Chainweb.Miner.Coordinator
-        , Chainweb.Miner.Kato
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact

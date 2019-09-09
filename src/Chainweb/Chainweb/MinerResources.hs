@@ -30,7 +30,7 @@ import qualified System.Random.MWC as MWC
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.Miner.Kato (MiningState(..))
+import Chainweb.Miner.Coordinator (MiningState(..))
 import Chainweb.Miner.Miners
 import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore

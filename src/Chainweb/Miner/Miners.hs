@@ -55,8 +55,9 @@ import Chainweb.BlockHeader
 import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut)
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
+import Chainweb.Miner.Coordinator
+    (MiningState(..), awaitNewCut, newWork, publish)
 import Chainweb.Miner.Core
-import Chainweb.Miner.Kato (MiningState(..), awaitNewCut, newWork, publish)
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI.Client (submitClient)
 import Chainweb.RestAPI.Orphans ()
