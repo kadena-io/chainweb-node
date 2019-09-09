@@ -23,24 +23,13 @@
 --
 module Chainweb.NodeId
 (
--- * Chain Node Id
-  ChainNodeId(..)
-, chainNodeIdChain
-, chainNodeIdId
-, encodeChainNodeId
-, decodeChainNodeId
-, decodeChainNodeIdChecked
-, chainNodeIdToText
-, chainNodeIdFromText
-
 -- * Chainweb Node Id
-, NodeId(..)
+  NodeId(..)
 , nodeIdId
 , encodeNodeId
 , decodeNodeId
 , nodeIdToText
 , nodeIdFromText
-, nodeIdFromNodeId
 ) where
 
 import Control.DeepSeq
@@ -59,77 +48,9 @@ import GHC.Generics
 
 import Test.QuickCheck
 
--- Internal imports
+-- internal imports
 
-import Chainweb.ChainId
-import Chainweb.Crypto.MerkleLog
-import Chainweb.MerkleUniverse
 import Chainweb.Utils
-
--- -------------------------------------------------------------------------- --
--- Chain NodeId
-
-data ChainNodeId = ChainNodeId
-    { _chainNodeIdChain :: !ChainId
-    , _chainNodeIdId :: !Word64
-    }
-    deriving stock (Show, Read, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
-
-makeLenses ''ChainNodeId
-
-instance HasChainId ChainNodeId where
-    _chainId = _chainNodeIdChain
-    {-# INLINE _chainId #-}
-
-instance ToJSON ChainNodeId where
-    toJSON = toJSON . toText
-    {-# INLINE toJSON #-}
-
-instance FromJSON ChainNodeId where
-    parseJSON = parseJsonFromText "ChainNodeId"
-    {-# INLINE parseJSON #-}
-
-encodeChainNodeId :: MonadPut m => ChainNodeId -> m ()
-encodeChainNodeId (ChainNodeId cid i) = encodeChainId cid >> putWord64le i
-{-# INLINE encodeChainNodeId #-}
-
-decodeChainNodeId :: MonadGet m => m ChainNodeId
-decodeChainNodeId = ChainNodeId <$!> decodeChainId <*> getWord64le
-{-# INLINE decodeChainNodeId #-}
-
-decodeChainNodeIdChecked
-    :: MonadThrow m
-    => MonadGet m
-    => HasChainId p
-    => Expected p
-    -> m ChainNodeId
-decodeChainNodeIdChecked p = ChainNodeId <$!> decodeChainIdChecked p <*> getWord64le
-{-# INLINE decodeChainNodeIdChecked #-}
-
-chainNodeIdToText :: ChainNodeId -> T.Text
-chainNodeIdToText (ChainNodeId c i) = sshow i <> "/" <> chainIdToText c
-{-# INLINE chainNodeIdToText #-}
-
-chainNodeIdFromText :: MonadThrow m => T.Text -> m ChainNodeId
-chainNodeIdFromText t = case T.break (== '/') t of
-    (a, b)
-        | not (T.null b) -> ChainNodeId <$> fromText (T.drop 1 b) <*> treadM a
-        | otherwise -> throwM . TextFormatException
-            $ "Missing '/' in \"" <> a <> "\"."
-
-instance HasTextRepresentation ChainNodeId where
-    toText = chainNodeIdToText
-    {-# INLINE toText #-}
-    fromText = chainNodeIdFromText
-    {-# INLINE fromText #-}
-
-instance IsMerkleLogEntry ChainwebHashTag ChainNodeId where
-    type Tag ChainNodeId = 'ChainNodeIdTag
-    toMerkleNode = encodeMerkleInputNode encodeChainNodeId
-    fromMerkleNode = decodeMerkleInputNode decodeChainNodeId
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb NodeId
@@ -163,7 +84,3 @@ instance HasTextRepresentation NodeId where
     {-# INLINE toText #-}
     fromText = nodeIdFromText
     {-# INLINE fromText #-}
-
-nodeIdFromNodeId :: NodeId -> ChainId -> ChainNodeId
-nodeIdFromNodeId (NodeId i) cid = ChainNodeId cid i
-{-# INLINE nodeIdFromNodeId #-}

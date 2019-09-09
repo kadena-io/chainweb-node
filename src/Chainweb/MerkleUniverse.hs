@@ -45,7 +45,6 @@ data ChainwebHashTag
     | PowHashTag
     | BlockHashTag
     | HashTargetTag
-    | ChainNodeIdTag
     | TransactionTag
     | TransactionOutputTag
     | BlockTransactionsHashTag
@@ -69,7 +68,6 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'PowHashTag = 0x0009
     type MerkleTagVal ChainwebHashTag 'BlockHashTag = 0x0010
     type MerkleTagVal ChainwebHashTag 'HashTargetTag = 0x0011
-    type MerkleTagVal ChainwebHashTag 'ChainNodeIdTag = 0x0012
     type MerkleTagVal ChainwebHashTag 'TransactionTag = 0x0013
     type MerkleTagVal ChainwebHashTag 'TransactionOutputTag = 0x0014
     type MerkleTagVal ChainwebHashTag 'BlockTransactionsHashTag = 0x0015

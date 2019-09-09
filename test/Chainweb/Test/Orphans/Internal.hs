@@ -32,7 +32,6 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
-import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Utils
@@ -67,11 +66,6 @@ instance Arbitrary ChainwebVersion where
         , Development
         , Testnet02
         ]
-
-instance Arbitrary ChainNodeId where
-    arbitrary = ChainNodeId
-      <$> pure (unsafeChainId 0)
-      <*> arbitrary
 
 instance Arbitrary MerkleLogHash where
     arbitrary = unsafeMerkleLogHash . B.pack
