@@ -40,7 +40,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Difficulty
 import Chainweb.HostAddress
-import Chainweb.NodeId hiding (NodeId)
 import Chainweb.Time
 import Chainweb.Utils
 
@@ -149,7 +148,6 @@ block2node b = gexfNode i i t $ Just
     [ ("chain", b ^. blockChainId . to toText)
     , ("height", sshow (b ^. blockHeight . to int :: Int))
     , ("creationTime", b ^. to creationTimeSeconds . to sshow)
-    , ("miner", b ^. blockMiner . chainNodeIdId . to sshow)
     , ("target", sshow (log2 trg))
     , ("weight", sshow (log2 w))
     , ("nonce", sshow n)
