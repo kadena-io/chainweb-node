@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -44,6 +45,8 @@ import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
+import GHC.Generics (Generic)
+
 import Numeric.Natural (Natural)
 
 import System.LogLevel (LogLevel(..))
@@ -75,6 +78,7 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 --
 newtype MiningState =
     MiningState (HM.HashMap BlockPayloadHash (T2 PrevBlock PayloadWithOutputs))
+    deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
 -- | A `BlockHeader` that's understood to be the parent of some current,
