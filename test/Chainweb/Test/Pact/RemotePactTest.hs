@@ -137,7 +137,6 @@ withRequestKeys
 withRequestKeys ioNonce networkIO = withResource mkKeys (\_ -> return ())
   where
     mkKeys = do
-        putStrLn "REQUEST KEYS"
         cwEnv <- _getClientEnv <$> networkIO
         mNonce <- ioNonce
         testSend mNonce testCmds cwEnv
