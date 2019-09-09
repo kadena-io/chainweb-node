@@ -132,7 +132,6 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
             $ fmap MerkleLogBody arbitrary
 
 -- -------------------------------------------------------------------------- --
