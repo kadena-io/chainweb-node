@@ -143,9 +143,9 @@
 
 
   (defun transfer:string (sender:string receiver:string amount:decimal)
-    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
-    \This fails if either SENDER or RECEIVER do not exist.                    \
-    \'create-on-transfer' can be done using the transfer-and-create function."
+    @doc "Transfer AMOUNT between accounts SENDER and RECEIVER on the same    \
+    \chain. This fails if either SENDER or RECEIVER does not exist.           \
+    \Create-on-transfer can be done using the 'transfer-and-create' function."
 
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")
