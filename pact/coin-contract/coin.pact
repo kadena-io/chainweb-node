@@ -124,6 +124,24 @@
     (read coin-table account)
     )
 
+  (defun rotate-account-guard:string (account:string new-guard:guard)
+    @doc "Rotate guard associated with ACCOUNT"
+
+    @model [ (property (not (= account ""))) ]
+
+    (enforce (not (= account ""))
+      "account name must be non-empty")
+
+    (with-read coin-table account
+      { "guard" := old-guard }
+
+      (enforce-guard old-guard)
+
+      (update coin-table account
+        { "guard" : new-guard }
+        )))
+
+
   (defun transfer:string (sender:string receiver:string amount:decimal)
     @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
     \This fails if both accounts do not exist. Create-on-transfer can be      \

@@ -146,3 +146,20 @@
 ; double spends are disallowed by construction
 (expect-failure "cross-chain transfer pact prevents double spends"
                 (continue-pact 1 false (hash "burn-create")))
+
+;; account guard rotation
+(expect
+  "account info for 'k1 uses 'k1 keyset pre-rotation"
+  "Account: 0.6 Guard: KeySet {keys: [keys1],pred: keys-all}"
+  (let ((i (account-info 'k1)))
+    (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])
+    ))
+
+;; account details will now feature rotated guard
+(rotate-account-guard 'k1 (read-keyset 'k2))
+(expect
+  "account info for 'k1 uses 'k2 keyset after rotation"
+  "Account: 0.6 Guard: KeySet {keys: [keys2],pred: keys-all}"
+  (let ((i (account-info 'k1)))
+    (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])
+    ))

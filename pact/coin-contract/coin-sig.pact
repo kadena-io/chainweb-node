@@ -22,8 +22,8 @@
 
   (defun transfer-and-create:string (sender:string receiver:string receiver-guard:guard amount:decimal)
     @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
-    \This fails if the SENDER account does not exist. If the RECEIVER account \
-    \does not exist, it is created and associated with GUARD."
+    \This fails if both accounts do not exist. Create-on-transfer can be      \
+    \done using the transfer-and-create function."
 
     @model [ (property (> amount 0.0))
              (property (not (= sender receiver)))
@@ -31,11 +31,19 @@
     )
 
   (defun account-balance:decimal (account:string)
-    @doc "Check an account's balance")
+    @doc "Check an account's balance"
+    @model [ (property (not (= amount ""))) ]
+    )
 
   (defun account-info:object (account:string)
-    @doc "Get all of an account's info.  This includes the balance and the    \
-    \guard.")
+    @doc "Get all of an account's info. This includes the balance and the     \
+    \guard."
+    @model [ (property (not (= amount ""))) ])
+
+  (defun rotate-account-guard:string (account:string new-guard:guard)
+    @doc "Rotate guard associated with ACCOUNT to new guard NEW-GUARD"
+    @model [ (property (not (= amount ""))) ]
+    )
 
   (defun coinbase:string (address:string address-guard:guard amount:decimal)
     @doc "Mint some number of tokens and allocate them to some address"
