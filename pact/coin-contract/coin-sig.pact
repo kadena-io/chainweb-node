@@ -12,8 +12,8 @@
 
   (defun transfer:string (sender:string receiver:string amount:decimal)
     @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
-    \This fails if neither account exists. Create-on-transfer can be done     \
-    \using the transfer-and-create function."
+    \This fails if either SENDER or RECEIVER do not exist.                    \
+    \'create-on-transfer' can be done using the transfer-and-create function."
 
     @model [ (property (> amount 0.0))
              (property (not (= sender receiver)))
