@@ -156,8 +156,8 @@ data BlockStopState
   | Weight BlockWeight
   deriving (Eq, Show, Generic, ToJSON, FromJSON)
 
-stopAtBlockWeight :: BlockWeight -> CutDb cas -> IO ()
-stopAtBlockWeight bw db = do
+stopAtCutWeight :: BlockWeight -> CutDb cas -> IO ()
+stopAtCutWeight bw db = do
     atomically $ do
         c <- _cutStm db
         unless (_cutWeight c >= bw) retry

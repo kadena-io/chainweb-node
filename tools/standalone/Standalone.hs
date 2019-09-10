@@ -184,7 +184,7 @@ node conf mbs logger = do
     stopWrapper cw = case mbs of
         Nothing -> id
         Just (Height bh) -> concurrently_ (stopAtCutHeight bh (_cutResCutDb $ _chainwebCutResources cw))
-        Just (Weight bw) -> concurrently_ (stopAtBlockWeight bw (_cutResCutDb $ _chainwebCutResources cw))
+        Just (Weight bw) -> concurrently_ (stopAtCutWeight bw (_cutResCutDb $ _chainwebCutResources cw))
 
 -- | Starts server and runs all network clients
 --
@@ -226,7 +226,8 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Just "standalonedbs/"
     , _nodeConfigResetChainDbs = False
-    , _nodeConfigStopCondition = TimeLength (1000000 * 60 * 10)
+    , _nodeConfigStopCondition = BlockStopCondition (Height 2)
+    -- , _nodeConfigStopCondition = TimeLength (1000000 * 60 * 10)
     }
 
 instance ToJSON StandaloneConfiguration where
