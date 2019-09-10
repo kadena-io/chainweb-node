@@ -33,6 +33,7 @@ import Data.Text.Encoding
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
 
+import GHC.Conc (atomically)
 import GHC.Generics
 
 import System.Random
@@ -55,7 +56,7 @@ import Pact.Types.Util hiding (unwrap)
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
-import Chainweb.CutDB.Types
+import Chainweb.CutDB
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.Types
@@ -156,23 +157,23 @@ data BlockStopState
   deriving (Eq, Show, Generic, ToJSON, FromJSON)
 
 stopAtBlockWeight :: BlockWeight -> CutDb cas -> IO ()
-stopAtBlockWeight bw db = forever $ do
-    cut <- readTVarIO (_cutDbCut db)
-    when (_cutWeight cut >= bw) $
-      throwM $ userError msg
-    threadDelay 1000000
+stopAtBlockWeight bw db = do
+    atomically $ do
+        c <- _cutStm db
+        unless (_cutWeight c >= bw) retry
+    throwM $ userError msg
   where
     msg =
       "We have reached or passed "
       ++ (show bw)
       ++ ". Stopping chainweb-node!"
 
-stopAtBlockHeight :: BlockHeight -> CutDb cas -> IO ()
-stopAtBlockHeight bh db = forever $ do
-    cut <- readTVarIO (_cutDbCut db)
-    let p = getAny $ foldMap go $ _cutMap cut
-    when p (throwM $ userError msg)
-    threadDelay 1000000
+stopAtCutHeight :: BlockHeight -> CutDb cas -> IO ()
+stopAtCutHeight bh db = do
+    atomically $ do
+        c <- _cutStm db
+        unless (getAny $ foldMap go $ _cutMap c) retry
+    throwM $ userError msg
   where
     go v = Any $ _blockHeight v >= bh
     msg =

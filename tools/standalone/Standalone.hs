@@ -70,7 +70,6 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
@@ -184,7 +183,7 @@ node conf mbs logger = do
       Just d -> return d
     stopWrapper cw = case mbs of
         Nothing -> id
-        Just (Height bh) -> concurrently_ (stopAtBlockHeight bh (_cutResCutDb $ _chainwebCutResources cw))
+        Just (Height bh) -> concurrently_ (stopAtCutHeight bh (_cutResCutDb $ _chainwebCutResources cw))
         Just (Weight bw) -> concurrently_ (stopAtBlockWeight bw (_cutResCutDb $ _chainwebCutResources cw))
 
 -- | Starts server and runs all network clients
@@ -214,7 +213,7 @@ data StandaloneConfiguration = StandaloneConfiguration
   , _nodeConfigLog :: !LogConfig
   , _nodeConfigDatabaseDirectory :: !(Maybe FilePath)
   , _nodeConfigResetChainDbs :: !Bool
-  , _nodeConfigStopCondition :: StopState
+  , _nodeConfigStopCondition :: !StopState
   }
   deriving (Show, Eq, Generic)
 
@@ -225,7 +224,7 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
-    , _nodeConfigDatabaseDirectory = Nothing
+    , _nodeConfigDatabaseDirectory = Just "standalonedbs/"
     , _nodeConfigResetChainDbs = False
     , _nodeConfigStopCondition = TimeLength (1000000 * 60 * 10)
     }
@@ -276,22 +275,15 @@ withNodeLogger logConfig v f = runManaged $ do
     -- Telemetry Backends
     monitorBackend <- managed
         $ mkTelemetryLogger @CutHashes mgr teleLogConfig
-    {-p2pInfoBackend <- managed
-        $ mkTelemetryLogger @P2pSessionInfo mgr teleLogConfig-}
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    {-newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig-}
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
-    {- requestLogBackend <- managed
-        $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig -}
     queueStatsBackend <- managed
         $ mkTelemetryLogger @QueueStats mgr teleLogConfig
-    {-reintroBackend <- managed
-        $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig-}
     traceBackend <- managed
         $ mkTelemetryLogger @Trace mgr teleLogConfig
 
@@ -301,14 +293,10 @@ withNodeLogger logConfig v f = runManaged $ do
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
             [ logHandler monitorBackend
-            -- , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
-            -- , logHandler newBlockAmberdataBackend
             , logHandler newBlockBackend
-            -- , logHandler requestLogBackend
             , logHandler queueStatsBackend
-            -- , logHandler reintroBackend
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
 
@@ -320,15 +308,6 @@ withNodeLogger logConfig v f = runManaged $ do
         $ logger
   where
     teleLogConfig = _logConfigTelemetryBackend logConfig
-    _amberdataConfig = _logConfigAmberdataBackend logConfig
-
-mkAmberdataLogger
-    :: HTTP.Manager
-    -> Maybe AmberdataConfig
-    -> (Backend (JsonLog AmberdataBlock) -> IO b)
-    -> IO b
-mkAmberdataLogger _ Nothing inner = inner (const $ return ())
-mkAmberdataLogger mgr (Just config) inner = withAmberDataBlocksBackend mgr config inner
 
 mkTelemetryLogger
     :: forall a b
