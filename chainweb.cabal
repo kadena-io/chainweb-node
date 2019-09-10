@@ -112,6 +112,7 @@ library
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
         , Chainweb.BlockHeader.Genesis.TestnetPayload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPMPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI

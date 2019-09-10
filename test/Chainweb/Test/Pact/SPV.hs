@@ -95,7 +95,7 @@ tests = testGroup "Chainweb.Test.Pact.SPV"
     ]
 
 v :: ChainwebVersion
-v = TimedCPM petersonChainGraph
+v = FastTimedCPM petersonChainGraph
 
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
