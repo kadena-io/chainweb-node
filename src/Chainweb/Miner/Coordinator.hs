@@ -122,12 +122,7 @@ newWork miner pact c = do
             --
             creationTime <- getCurrentTimeIntegral
             let !phash = _payloadWithOutputsPayloadHash payload
-                !header = newBlockHeader
-                    adjParents
-                    phash
-                    (Nonce 0)  -- TODO Confirm that this is okay.
-                    creationTime
-                    p
+                !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
 
             pure $ T3 (PrevBlock p) header payload
 
