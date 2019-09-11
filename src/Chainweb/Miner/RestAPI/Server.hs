@@ -31,7 +31,7 @@ import Servant.Server
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
-import Chainweb.Chainweb.MinerResources (MinerResources(..))
+import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Coordinator (MiningState(..), newWork, publish)
@@ -50,41 +50,41 @@ import Data.Singletons
 
 ---
 
-workHandler :: forall l cas. Logger l => MinerResources l cas -> Miner -> IO WorkBytes
+workHandler :: forall l cas. Logger l => MiningCoordination l cas -> Miner -> IO WorkBytes
 workHandler mr m = do
     c <- _cut cdb
     T3 p bh pl <- newWork m pact c
     let !phash = _blockPayloadHash bh
-    atomically . modifyTVar' (_minerResState mr) . over _Unwrapped . HM.insert phash $ T2 p pl
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . HM.insert phash $ T2 p pl
     pure . suncurry workBytes $ transferableBytes bh
   where
     cdb :: CutDb cas
-    cdb = _minerResCutDb mr
+    cdb = _coordCutDb mr
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
 -- TODO Occasionally prune the `MiningState`?
-solvedHandler :: forall l cas. Logger l => MinerResources l cas -> HeaderBytes -> IO ()
+solvedHandler :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> IO ()
 solvedHandler mr (HeaderBytes hbytes) = do
     ms <- readTVarIO tms
     bh <- runGet decodeBlockHeaderWithoutHash hbytes
-    publish lf ms (_minerResCutDb mr) bh
+    publish lf ms (_coordCutDb mr) bh
     atomically . modifyTVar' tms . over _Unwrapped . HM.delete $ _blockPayloadHash bh
   where
     tms :: TVar MiningState
-    tms = _minerResState mr
+    tms = _coordState mr
 
     lf :: LogFunction
-    lf = logFunction $ _minerResLogger mr
+    lf = logFunction $ _coordLogger mr
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
     .  Logger l
-    => MinerResources l cas
+    => MiningCoordination l cas
     -> Server (MiningApi v)
 miningServer mr = liftIO . workHandler mr :<|> liftIO . solvedHandler mr
 
-someMiningServer :: Logger l => ChainwebVersion -> MinerResources l cas -> SomeServer
+someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
 someMiningServer (FromSing (SChainwebVersion :: Sing v)) mr =
     SomeServer (Proxy @(MiningApi v)) $ miningServer mr

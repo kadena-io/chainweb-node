@@ -51,6 +51,7 @@ module Chainweb.Chainweb
 , configNodeId
 , configChainwebVersion
 , configMiner
+, configCoordinator
 , configReintroTxs
 , configP2p
 , configTransactionIndex
@@ -63,6 +64,7 @@ module Chainweb.Chainweb
 , chainwebCutResources
 , chainwebHostAddress
 , chainwebMiner
+, chainwebCoordinator
 , chainwebLogger
 , chainwebSocket
 , chainwebPeer
@@ -179,6 +181,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
+    , _configCoordinator :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
@@ -204,6 +207,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
+    , _configCoordinator = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
@@ -278,6 +282,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebChains :: !(HM.HashMap ChainId (ChainResources logger))
     , _chainwebCutResources :: !(CutResources logger cas)
     , _chainwebMiner :: !(Maybe (MinerResources logger cas))
+    , _chainwebCoordinator :: !(Maybe (MiningCoordination logger cas))
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
@@ -438,21 +443,23 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMinerResources mLogger mConf mCutDb $ \m -> do
-                    logg Info "finished initializing miner resources"
-                    inner Chainweb
-                        { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
-                        , _chainwebChains = cs
-                        , _chainwebCutResources = cuts
-                        , _chainwebMiner = m
-                        , _chainwebLogger = logger
-                        , _chainwebPeer = peer
-                        , _chainwebPayloadDb = payloadDb
-                        , _chainwebManager = mgr
-                        , _chainwebPactData = pactData
-                        , _chainwebThrottler = throttler
-                        , _chainwebConfig = conf
-                        }
+                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
+                    withMinerResources mLogger mConf mCutDb $ \m -> do
+                        logg Info "finished initializing miner resources"
+                        inner Chainweb
+                            { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                            , _chainwebChains = cs
+                            , _chainwebCutResources = cuts
+                            , _chainwebMiner = m
+                            , _chainwebCoordinator = mc
+                            , _chainwebLogger = logger
+                            , _chainwebPeer = peer
+                            , _chainwebPayloadDb = payloadDb
+                            , _chainwebManager = mgr
+                            , _chainwebPactData = pactData
+                            , _chainwebThrottler = throttler
+                            , _chainwebConfig = conf
+                            }
 
     withPactData
         :: HM.HashMap ChainId (ChainResources logger)
@@ -582,7 +589,7 @@ runChainweb cw = do
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe
             }
-        (_chainwebMiner cw)
+        (_chainwebCoordinator cw)
 
     -- HTTP Request Logger
 

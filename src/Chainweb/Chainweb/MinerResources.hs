@@ -60,7 +60,15 @@ withMiningCoordination
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
     -> IO a
-withMiningCoordination = undefined
+withMiningCoordination logger enabled cutDb inner
+    | not enabled = inner Nothing
+    | otherwise = do
+        t <- newTVarIO mempty
+        inner . Just $ MiningCoordination
+            { _coordLogger = logger
+            , _coordCutDb = cutDb
+            , _coordState = t
+            }
 
 -- | For in-process CPU mining by a Chainweb Node.
 --
@@ -68,7 +76,6 @@ data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb cas)
     , _minerResConfig :: !MinerConfig
-    , _minerResState :: TVar MiningState
     }
 
 withMinerResources
@@ -80,12 +87,10 @@ withMinerResources
 withMinerResources logger (EnableConfig enabled conf) cutDb inner
     | not enabled = inner Nothing
     | otherwise = do
-        tms <- newTVarIO mempty
         inner . Just $ MinerResources
             { _minerResLogger = logger
             , _minerResCutDb = cutDb
             , _minerResConfig = conf
-            , _minerResState = tms
             }
 
 runMiner
