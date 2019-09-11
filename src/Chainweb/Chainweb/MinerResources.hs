@@ -15,9 +15,13 @@
 -- TODO
 --
 module Chainweb.Chainweb.MinerResources
-  ( MinerResources(..)
+  ( -- * In-process Mining
+    MinerResources(..)
   , withMinerResources
   , runMiner
+    -- * Remote Work Requests
+  , MiningCoordination(..)
+  , withMiningCoordination
   ) where
 
 import Control.Concurrent.STM (TVar)
@@ -41,6 +45,25 @@ import Data.LogMessage (LogFunction)
 -- -------------------------------------------------------------------------- --
 -- Miner
 
+-- | For coordinating requests for work and mining solutions from remote Mining
+-- Clients.
+--
+data MiningCoordination logger cas = MiningCoordination
+    { _coordLogger :: !logger
+    , _coordCutDb :: !(CutDb cas)
+    , _coordState :: !(TVar MiningState)
+    }
+
+withMiningCoordination
+    :: logger
+    -> Bool
+    -> CutDb cas
+    -> (Maybe (MiningCoordination logger cas) -> IO a)
+    -> IO a
+withMiningCoordination = undefined
+
+-- | For in-process CPU mining by a Chainweb Node.
+--
 data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb cas)
