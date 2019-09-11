@@ -61,7 +61,6 @@ module Chainweb.Chainweb
 , Chainweb(..)
 , chainwebChains
 , chainwebCutResources
-, chainwebNodeId
 , chainwebHostAddress
 , chainwebMiner
 , chainwebLogger
@@ -278,7 +277,6 @@ data Chainweb logger cas = Chainweb
     { _chainwebHostAddress :: !HostAddress
     , _chainwebChains :: !(HM.HashMap ChainId (ChainResources logger))
     , _chainwebCutResources :: !(CutResources logger cas)
-    , _chainwebNodeId :: !NodeId
     , _chainwebMiner :: !(Maybe (MinerResources logger cas))
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
@@ -446,7 +444,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                         { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         , _chainwebChains = cs
                         , _chainwebCutResources = cuts
-                        , _chainwebNodeId = cwnid
                         , _chainwebMiner = m
                         , _chainwebLogger = logger
                         , _chainwebPeer = peer
@@ -474,7 +471,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     v = _configChainwebVersion conf
     cids = chainIds v
-    cwnid = _configNodeId conf
 
     -- FIXME: make this configurable
     cutConfig :: CutDbConfig
