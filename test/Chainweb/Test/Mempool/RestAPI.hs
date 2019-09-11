@@ -16,7 +16,7 @@ import Test.Tasty
 -- internal modules
 
 import Chainweb.ChainId (ChainId)
-import Chainweb.Chainweb.MinerResources (MinerResources)
+import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Graph
 import Chainweb.Logger (GenericLogger)
 import qualified Chainweb.Mempool.InMem as InMem
@@ -93,7 +93,7 @@ newTestServer inMemCfg = mask_ $ do
     mkApp :: MempoolBackend MockTx -> Application
     mkApp mp = chainwebApplication version (serverMempools [(chain, mp)]) mr
       where
-        mr :: Maybe (MinerResources GenericLogger cas)
+        mr :: Maybe (MiningCoordination GenericLogger cas)
         mr = Nothing
 
     mkEnv :: Int -> IO ClientEnv
