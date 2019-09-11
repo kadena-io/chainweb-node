@@ -262,11 +262,15 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     getCreationTime = creationTimeOf . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
-    txmeta t = TransactionMetadata (toMicros ct) (toMicros (ct + ttl))
+    txmeta t =
+      TransactionMetadata
+      (toMicros ct)
+      (toMicros $ min maxUpperBoundary (ct + ttl))
       where
         (TxCreationTime ct) = getCreationTime t
         toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
         (TTLSeconds ttl) = getTimeToLive t
+        maxUpperBoundary = 2 * 24 * 60 * 60 * 1000000
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {
