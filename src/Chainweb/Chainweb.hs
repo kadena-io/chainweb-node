@@ -222,6 +222,7 @@ instance ToJSON ChainwebConfiguration where
         [ "chainwebVersion" .= _configChainwebVersion o
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
+        , "miningCoordination" .= _configCoordinator o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
@@ -236,6 +237,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
+        <*< configCoordinator ..: "miningCoordination" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
@@ -255,7 +257,9 @@ pChainwebConfiguration = id
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pEnableConfig "mining" pMinerConfig
-
+    <*< configCoordinator .:: switch
+        % long "mining-coordination"
+        <> help "whether to enable external requests for mining work"
     <*< configReintroTxs .:: enableDisableFlag
         % long "tx-reintro"
         <> help "whether to enable transaction reintroduction from losing forks"
