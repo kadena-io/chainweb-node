@@ -8,7 +8,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Main
@@ -81,8 +80,8 @@ module Main ( main ) where
 import BasePrelude hiding (Handler, app, option)
 
 import Control.Concurrent.Async (async, race, wait)
-import Control.Concurrent.STM.TMVar
-import Control.Error.Util (note)
+import Control.Error.Util (hush)
+import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
 import Data.Aeson (ToJSON(..), Value(..))
@@ -108,8 +107,8 @@ import Text.Pretty.Simple (pPrintNoColor)
 import Chainweb.BlockHeader (Nonce(..))
 import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
-import Chainweb.Miner.RestAPI (MiningSubmissionApi)
-import Chainweb.Miner.RestAPI.Client (solvedClient)
+import Chainweb.Miner.Pact (Miner, pMiner)
+import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
 import Chainweb.Utils (suncurry, textOption, toText)
 import Chainweb.Version
 
@@ -117,10 +116,9 @@ import Chainweb.Version
 -- Servant
 
 type API = "env" :> Get '[JSON] ClientArgs
-    :<|> MiningSubmissionApi
 
 server :: Env -> Server API
-server e = pure (args e) :<|> (liftIO . submit e)
+server = pure . args
 
 app :: Env -> Application
 app = serve (Proxy :: Proxy API) . server
@@ -130,19 +128,20 @@ app = serve (Proxy :: Proxy API) . server
 
 -- | Newtype'd so that I can provide a custom `ToJSON` instance.
 --
-newtype URL = URL { _url :: BaseUrl }
+newtype NodeURL = NodeURL { _url :: BaseUrl }
 
-instance Show URL where
-    show (URL b) = showBaseUrl b
+instance Show NodeURL where
+    show (NodeURL b) = showBaseUrl b
 
-instance ToJSON URL where
+instance ToJSON NodeURL where
     toJSON = String . T.pack . show
 
 data ClientArgs = ClientArgs
     { cmd :: Command
     , version :: ChainwebVersion
     , port :: Int
-    , coordinator :: URL }
+    , coordinator :: NodeURL
+    , miner :: Miner }
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
@@ -159,13 +158,12 @@ data Command = CPU CPUEnv | GPU GPUEnv
     deriving anyclass (ToJSON)
 
 data Env = Env
-    { work :: TMVar WorkBytes
-    , gen :: MWC.GenIO
+    { gen :: MWC.GenIO
     , mgr :: Manager
     , args :: ClientArgs }
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort <*> pUrl
+pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort <*> pUrl <*> pMiner
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -185,25 +183,20 @@ pCores = option auto
      <> help "Number of CPU cores to use (default: 1)")
 
 pVersion :: Parser ChainwebVersion
-pVersion = option cver
-    (long "version" <> metavar "VERSION"
-     <> value defv
+pVersion = textOption
+    (long "version" <> metavar "VERSION" <> value defv
      <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
   where
     defv :: ChainwebVersion
     defv = Development
-
-    cver :: ReadM ChainwebVersion
-    cver = eitherReader $ \s ->
-        note "Illegal ChainwebVersion" . chainwebVersionFromText $ T.pack s
 
 pPort :: Parser Int
 pPort = option auto
     (long "port" <> metavar "PORT" <> value 8081
      <> help "Port on which to run the miner (default: 8081)")
 
-pUrl :: Parser URL
-pUrl = URL . hostAddressToBaseUrl Https <$> host
+pUrl :: Parser NodeURL
+pUrl = NodeURL . hostAddressToBaseUrl Https <$> host
   where
     host :: Parser HostAddress
     host = textOption
@@ -216,18 +209,19 @@ pUrl = URL . hostAddressToBaseUrl Https <$> host
 
 main :: IO ()
 main = do
-    env@(Env _ _ _ as) <- Env
-        <$> newEmptyTMVarIO
-        <*> MWC.createSystemRandom
+    env@(Env _ _ as) <- Env
+        <$> MWC.createSystemRandom
         <*> newManager (mkManagerSettings ss Nothing)
         <*> execParser opts
-    case cmd as of
-        GPU _ -> putStrLn "GPU mining is not yet available."
-        CPU _ -> do
-            miner <- async $ mining (scheme env) env
-            pPrintNoColor as
-            W.run (port as) $ app env
-            wait miner
+    getWork env >>= \case
+        Nothing -> putStrLn "Failed to connect to the given Chainweb Node." >> exitFailure
+        Just wb -> case cmd as of
+            GPU _ -> putStrLn "GPU mining is not yet available."
+            CPU _ -> do
+                m <- async $ mining (scheme env) env wb
+                pPrintNoColor as
+                W.run (port as) $ app env
+                wait m
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -244,25 +238,34 @@ scheme env = case cmd $ args env of
     CPU e -> cpu (version $ args env) e (gen env)
     GPU _ -> gpu
 
--- | Submit a new `BlockHeader` to mine (i.e. to determine a valid `Nonce`).
+-- | Attempt to get new work while obeying a sane retry policy.
 --
-submit :: Env -> WorkBytes -> IO ()
-submit (work -> w) bs = atomically $
-    isEmptyTMVar w >>= bool (void $ swapTMVar w bs) (putTMVar w bs)
-
--- | A supervisor thread that listens for new work and supervises mining threads.
---
-mining :: (TargetBytes -> HeaderBytes -> IO HeaderBytes) -> Env -> IO ()
-mining go e = do
-    bs <- atomically . takeTMVar $ work e
-    race newWork (suncurry go $ unWorkBytes bs) >>= traverse_ miningSuccess
-    mining go e
+getWork :: Env -> IO (Maybe WorkBytes)
+getWork e = retrying policy (\_ -> pure . isNothing) $ const f
   where
-    -- | Wait for new work to come in from a `submit` call. `readTMVar` has the
-    -- effect of "waiting patiently" and will not cook the CPU.
+    -- | If we wait longer than the average block time and still can't get
+    -- anything, then there's no point in continuing to wait.
     --
+    policy :: RetryPolicy
+    policy = exponentialBackoff 500000 <> limitRetries 7
+
+    f :: IO (Maybe WorkBytes)
+    f = hush <$> runClientM (workClient v . miner $ args e) (ClientEnv m u Nothing)
+
+    v = version $ args e
+    m = mgr e
+    u = _url . coordinator $ args e
+
+-- TODO This should fail loudly if it ever exits.
+-- | A supervisor thread that listens for new work and manages mining threads.
+--
+mining :: (TargetBytes -> HeaderBytes -> IO HeaderBytes) -> Env -> WorkBytes -> IO ()
+mining go e wb = do
+    race newWork (suncurry go $ unWorkBytes wb) >>= traverse_ miningSuccess
+    getWork e >>= traverse_ (mining go e)
+  where
     newWork :: IO ()
-    newWork = void . atomically . readTMVar $ work e
+    newWork = threadDelay (3600 * 1000000)  -- TODO spin for now (an hour).
 
     -- | If the `go` call won the `race`, this function yields the result back
     -- to some "mining coordinator" (likely a chainweb-node). If `newWork` won

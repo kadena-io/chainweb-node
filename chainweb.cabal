@@ -551,6 +551,7 @@ executable chainweb-miner
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , pretty-simple >= 2.1
+        , retry >= 0.7
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-client >= 0.14
