@@ -14,6 +14,8 @@ module Chainweb.Transaction
   , chainwebPayloadDecode
   , gasLimitOf
   , gasPriceOf
+  , timeToLiveOf
+  , creationTimeOf
   ) where
 
 import Control.DeepSeq
@@ -96,3 +98,11 @@ gasLimitOf = _pmGasLimit . _pMeta . _cmdPayload
 gasPriceOf :: forall c. Command (Payload PublicMeta c) -> GasPrice
 gasPriceOf = _pmGasPrice . _pMeta . _cmdPayload
 {-# INLINE gasPriceOf #-}
+
+timeToLiveOf :: forall c . Command (Payload PublicMeta c) -> TTLSeconds
+timeToLiveOf = _pmTTL . _pMeta . _cmdPayload
+{-# INLINE timeToLiveOf #-}
+
+creationTimeOf :: forall c . Command (Payload PublicMeta c) -> TxCreationTime
+creationTimeOf = _pmCreationTime . _pMeta . _cmdPayload
+{-# INLINE creationTimeOf #-}

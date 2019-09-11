@@ -117,12 +117,13 @@ import System.LogLevel
 
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.Command
+import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Time (Micros(..), Time(..))
+import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -252,17 +253,20 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     chainwebTestHashMeta
     getGasPrice
     getGasLimit
-    (const txmeta)
+    txmeta
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj
     getGasLimit = gasLimitOf . fmap payloadObj
+    getTimeToLive = timeToLiveOf . fmap payloadObj
+    getCreationTime = creationTimeOf . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
-
-    -- TODO: plumb through origination + expiry time from pact once it makes it
-    -- into PublicMeta
-    txmeta = TransactionMetadata Time.minTime Time.maxTime
+    txmeta t = TransactionMetadata (toMicros ct) (toMicros (ct + ttl))
+      where
+        (TxCreationTime ct) = getCreationTime t
+        toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+        (TTLSeconds ttl) = getTimeToLive t
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {
