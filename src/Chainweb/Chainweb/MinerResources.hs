@@ -32,7 +32,6 @@ import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator (MiningState(..))
 import Chainweb.Miner.Miners
-import Chainweb.NodeId (NodeId)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Utils (EnableConfig(..))
 import Chainweb.Version (ChainwebVersion(..), window)
@@ -44,7 +43,6 @@ import Data.LogMessage (LogFunction)
 
 data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
-    , _minerResNodeId :: !NodeId
     , _minerResCutDb :: !(CutDb cas)
     , _minerResConfig :: !MinerConfig
     , _minerResState :: TVar MiningState
@@ -53,17 +51,15 @@ data MinerResources logger cas = MinerResources
 withMinerResources
     :: logger
     -> EnableConfig MinerConfig
-    -> NodeId
     -> CutDb cas
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger (EnableConfig enabled conf) nid cutDb inner
+withMinerResources logger (EnableConfig enabled conf) cutDb inner
     | not enabled = inner Nothing
     | otherwise = do
         tms <- newTVarIO mempty
         inner . Just $ MinerResources
             { _minerResLogger = logger
-            , _minerResNodeId = nid
             , _minerResCutDb = cutDb
             , _minerResConfig = conf
             , _minerResState = tms

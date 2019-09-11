@@ -440,7 +440,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
+                withMinerResources mLogger mConf mCutDb $ \m -> do
                     logg Info "finished initializing miner resources"
                     inner Chainweb
                         { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
