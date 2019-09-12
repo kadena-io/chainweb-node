@@ -32,7 +32,6 @@ import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
-import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Utils
@@ -62,14 +61,11 @@ instance Arbitrary ChainwebVersion where
         , PowConsensus petersonChainGraph
         , TimedCPM singletonChainGraph
         , TimedCPM petersonChainGraph
+        , FastTimedCPM singletonChainGraph
+        , FastTimedCPM petersonChainGraph
         , Development
         , Testnet02
         ]
-
-instance Arbitrary ChainNodeId where
-    arbitrary = ChainNodeId
-      <$> pure (unsafeChainId 0)
-      <*> arbitrary
 
 instance Arbitrary MerkleLogHash where
     arbitrary = unsafeMerkleLogHash . B.pack
@@ -112,6 +108,9 @@ instance Arbitrary Nonce where
 
 instance Arbitrary BlockCreationTime where
     arbitrary = BlockCreationTime <$> arbitrary
+
+instance Arbitrary EpochStartTime where
+    arbitrary = EpochStartTime <$> arbitrary
 
 instance Arbitrary BlockHeader where
     arbitrary = fromLog . newMerkleLog <$> entries

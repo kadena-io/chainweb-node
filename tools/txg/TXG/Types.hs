@@ -35,6 +35,7 @@ module TXG.Types
     -- * Misc.
   , TXCount(..)
   , BatchSize(..)
+  , Verbose(..)
   , nelReplicate
   , nelZipWith3
   ) where
@@ -82,6 +83,10 @@ import qualified TXG.Simulate.Contracts.Common as Sim
 import qualified Utils.Logging.Config as U
 
 ---
+
+newtype Verbose = Verbose { verbosity :: Bool }
+  deriving (Eq, Show, Generic, Read)
+  deriving anyclass (FromJSON, ToJSON)
 
 data TimingDistribution = GaussianTD Gaussian | UniformTD Uniform
   deriving (Eq, Show, Generic)
@@ -143,8 +148,10 @@ pollkeys = do
   _close <- A.skipSpace >> A.char ']'
   pure $ PollRequestKeys bs
 
+
+-- This is brittle!
 parseRequestKey :: A.Parser ByteString
-parseRequestKey = B8.pack <$> A.count 128 (A.satisfy (A.inClass "abcdef0123456789"))
+parseRequestKey = B8.pack <$> A.count 43 A.anyChar
 
 listenkeys :: A.Parser TXCmd
 listenkeys = do
@@ -171,6 +178,7 @@ data Args = Args
   , nodeVersion :: !ChainwebVersion
   , logHandleConfig :: !U.HandleConfig
   , batchSize :: !BatchSize
+  , verbose :: !Verbose
   } deriving (Show, Generic)
 
 instance ToJSON Args where
@@ -182,6 +190,7 @@ instance ToJSON Args where
     , "chainwebVersion" .= nodeVersion o
     , "logHandle"       .= logHandleConfig o
     , "batchSize"       .= batchSize o
+    , "verbose"       .= verbose o
     ]
 
 instance FromJSON (Args -> Args) where
@@ -193,16 +202,18 @@ instance FromJSON (Args -> Args) where
     <*< field @"nodeVersion"     ..: "chainwebVersion" % o
     <*< field @"logHandleConfig" ..: "logging"         % o
     <*< field @"batchSize"       ..: "batchSize"       % o
+    <*< field @"verbose"         ..: "verbose"         % o
 
 defaultArgs :: Args
 defaultArgs = Args
   { scriptCommand   = RunSimpleExpressions defaultTimingDist
   , nodeChainIds    = []
   , isChainweb      = True
-  , hostAddresses   = [unsafeHostAddressFromText "127.0.0.1:1789"]
+  , hostAddresses   = []
   , nodeVersion     = v
   , logHandleConfig = U.StdOut
-  , batchSize       = BatchSize 1 }
+  , batchSize       = BatchSize 1
+  , verbose         = Verbose False}
   where
     v :: ChainwebVersion
     v = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
@@ -227,6 +238,10 @@ scriptConfigParser = id
       <> short 'b'
       <> metavar "COUNT"
       <> help "Number of transactions to bundle into a single 'send' call"
+  <*< field @"verbose" .:: option auto
+      % long "verbose"
+      <> metavar "BOOL"
+      <> help "Whether to print out details of each transaction in a 'send' call"
   where
     pChainId = textOption
       % long "node-chain-id"
@@ -262,6 +277,7 @@ data TXGConfig = TXGConfig
   , confClientEnv :: !ClientEnv
   , confVersion :: !ChainwebVersion
   , confBatchSize :: !BatchSize
+  , confVerbose :: !Verbose
   } deriving (Generic)
 
 mkTXGConfig :: Maybe TimingDistribution -> Args -> HostAddress -> IO TXGConfig
@@ -270,6 +286,7 @@ mkTXGConfig mdistribution config host =
   <$> cenv
   <*> pure (nodeVersion config)
   <*> pure (batchSize config)
+  <*> pure (verbose config)
   where
     cenv :: IO ClientEnv
     cenv = do

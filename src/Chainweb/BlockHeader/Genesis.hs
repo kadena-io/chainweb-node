@@ -37,14 +37,14 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as DN
-import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as TN
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMPayload as TN
+import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as PN
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.NodeId (ChainNodeId(..))
 import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoch)
@@ -83,23 +83,11 @@ genesisTime Test{} = BlockCreationTime epoch
 genesisTime TimedConsensus{} = BlockCreationTime epoch
 genesisTime PowConsensus{} = BlockCreationTime epoch
 genesisTime TimedCPM{} = BlockCreationTime epoch
+genesisTime FastTimedCPM{} = BlockCreationTime epoch
 -- Thursday, 2019 July 17, 11:28 AM
 genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet02 = BlockCreationTime . Time $ TimeSpan 1563388117613832
-
--- TODO: Base the `ChainNodeId` off a Pact public key that is significant to Kadena.
--- In other words, 0 is a meaningless hard-coding.
-genesisMiner :: HasChainId p => ChainwebVersion -> p -> ChainNodeId
--- Test Instances
-genesisMiner Test{} p = ChainNodeId (_chainId p) 0
-genesisMiner TimedConsensus{} p = ChainNodeId (_chainId p) 0
-genesisMiner PowConsensus{} p = ChainNodeId (_chainId p) 0
-genesisMiner TimedCPM{} p = ChainNodeId (_chainId p) 0
--- Development Instances
-genesisMiner Development p = ChainNodeId (_chainId p) 0
--- Production Instances
-genesisMiner Testnet02 p = ChainNodeId (_chainId p) 0
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -114,10 +102,11 @@ genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
 genesisBlockPayload TimedCPM{} _ = TN.payloadBlock
+genesisBlockPayload FastTimedCPM{} _ = TN.payloadBlock
 -- Development Instances
 genesisBlockPayload Development _ = DN.payloadBlock
 -- Production Instances
-genesisBlockPayload Testnet02 _ = TN.payloadBlock
+genesisBlockPayload Testnet02 _ = PN.payloadBlock
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
@@ -140,7 +129,7 @@ genesisBlockHeader'
     -> BlockCreationTime
     -> Nonce
     -> BlockHeader
-genesisBlockHeader' v p ct n = fromLog mlog
+genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
   where
     g = _chainGraph v
     cid = _chainId p
@@ -155,7 +144,7 @@ genesisBlockHeader' v p ct n = fromLog mlog
         :+: BlockWeight 0
         :+: BlockHeight 0
         :+: v
-        :+: genesisMiner v cid
+        :+: EpochStartTime t
         :+: MerkleLogBody (blockHashRecordToVector adjParents)
     adjParents = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)

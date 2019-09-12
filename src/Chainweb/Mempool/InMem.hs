@@ -12,6 +12,7 @@ module Chainweb.Mempool.InMem
   (
    -- * Initialization functions
     withInMemoryMempool
+  , withInMemoryMempool_
 
     -- * Low-level create/destroy functions
   , makeInMemPool
@@ -20,10 +21,11 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative (pure, (<|>))
+import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
-import Control.Exception (bracket, mask_)
-import Control.Monad (void, (<$!>))
+import Control.Exception (bracket, mask_, throw)
+import Control.Monad (unless, void, (<$!>))
 
 import Data.Aeson
 import Data.Foldable (foldl', foldlM)
@@ -38,12 +40,14 @@ import Pact.Types.Gas (GasPrice(..))
 
 import Prelude hiding (init, lookup, pred)
 
+import System.LogLevel
 import System.Random
 
 -- internal imports
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Utils
@@ -70,7 +74,8 @@ destroyInMemPool = const $ return ()
 ------------------------------------------------------------------------------
 newInMemMempoolData :: ToJSON t => FromJSON t => IO (InMemoryMempoolData t)
 newInMemMempoolData =
-    InMemoryMempoolData <$!> newIORef PSQ.empty
+    InMemoryMempoolData <$!> newIORef 0
+                        <*> newIORef PSQ.empty
                         <*> newIORef emptyRecentLog
 
 
@@ -118,6 +123,33 @@ withInMemoryMempool cfg f = do
           f $! back
     bracket (makeInMemPool cfg) destroyInMemPool action
 
+withInMemoryMempool_ :: ToJSON t
+                     => FromJSON t
+                     => Logger logger
+                     => logger
+                     -> InMemConfig t
+                     -> (MempoolBackend t -> IO a)
+                     -> IO a
+withInMemoryMempool_ l cfg f = do
+    let action inMem = do
+          r <- race (monitor inMem) $ do
+            back <- toMempoolBackend inMem
+            f $! back
+          case r of
+            Left () -> throw $ InternalInvariantViolation "mempool monitor exited unexpectedly"
+            Right result -> return result
+    bracket (makeInMemPool cfg) destroyInMemPool action
+  where
+    monitor m = do
+        let lf = logFunction l
+        logFunctionText l Info $ "Initialized Mempool Monitor"
+        runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
+            stats <- getMempoolStats m
+            logFunctionText l Debug $ "got stats"
+            logFunctionJson l Info stats
+            logFunctionText l Debug $ "logged stats"
+            approximateThreadDelay 60000000 {- 1 minute -}
+
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
@@ -150,7 +182,6 @@ markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
     let pref = _inmemPending mdata
     modifyIORef' pref $ \psq -> foldl' (flip PSQ.delete) psq txs
 
-
 ------------------------------------------------------------------------------
 insertInMem :: InMemConfig t    -- ^ in-memory config
             -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
@@ -158,10 +189,20 @@ insertInMem :: InMemConfig t    -- ^ in-memory config
             -> IO ()
 insertInMem cfg lock txs0 = do
     txs <- V.filterM preGossipCheck txs0
-    withMVarMasked lock $ \mdata -> do
+    i <- withMVarMasked lock $ \mdata -> do
         newHashes <- V.mapM (insOne mdata) txs
+        modifyIORef' (_inmemInserted mdata) (+ (length txs))
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
+        readIORef (_inmemInserted mdata)
+
+    unless (i < 5000) $ do
+        withMVarMasked lock $ \mdata -> do
+            modifyIORef' (_inmemPending mdata) $ \ps -> do
+                if (PSQ.size ps > 10000)
+                  then PSQ.fromList $ take 5000 $ PSQ.toList ps
+                  else ps
+            writeIORef (_inmemInserted mdata) 0
 
   where
     preGossipCheck tx = do
@@ -342,3 +383,9 @@ getRecentTxs maxNumRecent oldHw rlog
     txs = V.map ssnd $ V.takeWhile pred $ _rlRecent rlog
     pred (T2 x _) = x >= oldHw
 
+------------------------------------------------------------------------------
+getMempoolStats :: InMemoryMempool t -> IO MempoolStats
+getMempoolStats m = do
+    withMVar (_inmemDataLock m) $ \d -> MempoolStats
+        <$!> (PSQ.size <$> readIORef (_inmemPending d))
+        <*> (length . _rlRecent <$> readIORef (_inmemRecentLog d))

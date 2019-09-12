@@ -43,7 +43,6 @@ module Main
 import Configuration.Utils hiding (Error)
 import Configuration.Utils.Validation (validateFilePath)
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
@@ -83,6 +82,7 @@ import Chainweb.Logging.Amberdata
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
+import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
@@ -223,7 +223,7 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
                 logFunctionText l Info $ "got stats"
                 logFunctionJson logger Info stats
                 logFunctionText l Info $ "logged stats"
-                threadDelay 60000000 {- 1 minute -}
+                approximateThreadDelay 60000000 {- 1 minute -}
 
 data QueueStats = QueueStats
     { _queueStatsCutQueueSize :: !Natural
@@ -251,7 +251,7 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionText l Info $ "got stats"
             logFunctionJson logger Info stats
             logFunctionText l Info $ "logged stats"
-            threadDelay 60000000 {- 1 minute -}
+            approximateThreadDelay 60000000 {- 1 minute -}
 
 -- -------------------------------------------------------------------------- --
 -- Run Node
@@ -292,7 +292,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
     -- Base Backend
     baseBackend <- managed
-        $ withBaseHandleBackend "ChainwebApp" mgr (_logConfigBackend logConfig)
+        $ withBaseHandleBackend "ChainwebApp" mgr pkgInfoScopes (_logConfigBackend logConfig)
 
     -- Telemetry Backends
     monitorBackend <- managed
@@ -302,7 +302,7 @@ withNodeLogger logConfig v f = runManaged $ do
     rtsBackend <- managed
         $ mkTelemetryLogger @RTSStats mgr teleLogConfig
     counterBackend <- managed $ configureHandler
-        (withJsonHandleBackend @CounterLog "connectioncounters" mgr)
+        (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
     newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
     newBlockBackend <- managed
@@ -315,6 +315,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @ReintroducedTxsLog mgr teleLogConfig
     traceBackend <- managed
         $ mkTelemetryLogger @Trace mgr teleLogConfig
+    mempoolStatsBackend <- managed
+        $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -328,6 +330,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler queueStatsBackend
             , logHandler reintroBackend
             , logHandler traceBackend
+            , logHandler mempoolStatsBackend
             ] baseBackend
 
     liftIO $ f
@@ -355,7 +358,20 @@ mkTelemetryLogger
     -> (Backend (JsonLog a) -> IO b)
     -> IO b
 mkTelemetryLogger mgr = configureHandler
-    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr
+    $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
+
+-- -------------------------------------------------------------------------- --
+-- Encode Package Info into Log mesage scopes
+
+pkgInfoScopes :: [(T.Text, T.Text)]
+pkgInfoScopes =
+    [ ("revision", revision)
+    , ("branch", branch)
+    , ("compiler", compiler)
+    , ("optimisation", optimisation)
+    , ("architecture", arch)
+    , ("package", package)
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- main

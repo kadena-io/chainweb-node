@@ -30,8 +30,15 @@ module Chainweb.Version
 , chainwebVersionFromText
 , chainwebVersionToText
 , chainwebVersionId
-, MiningProtocol(..)
-, miningProtocol
+
+-- * Properties of Chainweb Version
+-- ** POW
+, BlockRate(..)
+, blockRate
+, WindowWidth(..)
+, window
+, MinAdjustment(..)
+, minAdjust
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -98,6 +105,8 @@ import GHC.Generics (Generic)
 import GHC.Stack
 import GHC.TypeLits
 
+import Numeric.Natural
+
 import System.Random
 
 -- internal modules
@@ -106,6 +115,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
+import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
 
 import Data.Singletons
@@ -183,6 +193,21 @@ data ChainwebVersion
         -- This is primarily used in our @run-nodes@ executable.
         --
 
+    | FastTimedCPM ChainGraph
+        -- ^ Test instance for confirming the combined behaviour of our Consensus
+        -- mechanisms, Pact code processing and validation, and Mempool, where:
+        --
+        -- * the underlying `ChainGraph` is configurable,
+        -- * the genesis block time is the Linux epoch,
+        -- * each `HashTarget` is maxBound,
+        -- * each mining `Nonce` is constant,
+        -- * the creationTime of `BlockHeader`'s is the actual time,
+        -- * POW is not simulated by poison process thread delay, and
+        -- * the Pact Service and Mempool operations are running.
+        --
+        -- This is primarily used in our @standalone@ executable.
+        --
+
     ------------------------
     -- DEVELOPMENT INSTANCES
     ------------------------
@@ -219,6 +244,7 @@ chainwebVersionId v@Test{} = toTestChainwebVersion v
 chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
+chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Development = 0x00000001
 chainwebVersionId Testnet02 = 0x00000004
 {-# INLINABLE chainwebVersionId #-}
@@ -282,19 +308,6 @@ instance HasTextRepresentation ChainwebVersion where
     fromText = chainwebVersionFromText
     {-# INLINE fromText #-}
 
--- | Fundamental mining strategies used by the various values of
--- `ChainwebVersion`.
---
-data MiningProtocol = Timed | ProofOfWork
-
-miningProtocol :: ChainwebVersion -> MiningProtocol
-miningProtocol Test{} = Timed
-miningProtocol TimedConsensus{} = Timed
-miningProtocol TimedCPM{} = Timed
-miningProtocol PowConsensus{} = ProofOfWork
-miningProtocol Development = ProofOfWork
-miningProtocol Testnet02 = ProofOfWork
-
 -- -------------------------------------------------------------------------- --
 -- Value Maps
 
@@ -306,6 +319,7 @@ chainwebVersions = HM.fromList $
     <> f TimedConsensus "timedConsensus"
     <> f PowConsensus "powConsensus"
     <> f TimedCPM "timedCPM"
+    <> f FastTimedCPM "fastTimedCPM"
     <> [ ("development", Development)
        , ("testnet02", Testnet02)
        ]
@@ -365,6 +379,7 @@ codeToTestVersion 0x80000000 = Test
 codeToTestVersion 0x80000001 = TimedConsensus
 codeToTestVersion 0x80000002 = PowConsensus
 codeToTestVersion 0x80000003 = TimedCPM
+codeToTestVersion 0x80000004 = FastTimedCPM
 codeToTestVersion _ = error "Unknown ChainwebVersion Code"
 
 testVersionToCode :: ChainwebVersion -> Word32
@@ -372,6 +387,7 @@ testVersionToCode Test{} = 0x80000000
 testVersionToCode TimedConsensus{} = 0x80000001
 testVersionToCode PowConsensus{} = 0x80000002
 testVersionToCode TimedCPM{} = 0x80000003
+testVersionToCode FastTimedCPM{} = 0x80000004
 testVersionToCode Development =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet02 =
@@ -380,21 +396,6 @@ testVersionToCode Testnet02 =
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromTestChainwebVersionId i =
     uncurry ($) . bimap codeToTestVersion (knownGraph . codeToGraph) $ splitTestCode i
-
--- -------------------------------------------------------------------------- --
--- Basic Properties
-
-chainwebVersionGraph :: ChainwebVersion -> ChainGraph
-chainwebVersionGraph (Test g) = g
-chainwebVersionGraph (TimedConsensus g) = g
-chainwebVersionGraph (PowConsensus g) = g
-chainwebVersionGraph (TimedCPM g) = g
-chainwebVersionGraph Development = petersonChainGraph
-chainwebVersionGraph Testnet02 = petersonChainGraph
-
-instance HasChainGraph ChainwebVersion where
-    _chainGraph = chainwebVersionGraph
-    {-# INLINE _chainGraph #-}
 
 -- -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion
@@ -487,3 +488,87 @@ randomChainId :: HasChainwebVersion v => v -> IO ChainId
 randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
   where
     cs = chainIds v
+
+-- -------------------------------------------------------------------------- --
+-- Properties of Chainweb Versions
+-- -------------------------------------------------------------------------- --
+
+-- -------------------------------------------------------------------------- --
+-- Graph
+
+chainwebVersionGraph :: ChainwebVersion -> ChainGraph
+chainwebVersionGraph (Test g) = g
+chainwebVersionGraph (TimedConsensus g) = g
+chainwebVersionGraph (PowConsensus g) = g
+chainwebVersionGraph (TimedCPM g) = g
+chainwebVersionGraph (FastTimedCPM g) = g
+chainwebVersionGraph Development = petersonChainGraph
+chainwebVersionGraph Testnet02 = petersonChainGraph
+
+instance HasChainGraph ChainwebVersion where
+    _chainGraph = chainwebVersionGraph
+    {-# INLINE _chainGraph #-}
+
+-- -------------------------------------------------------------------------- --
+-- POW Parameters
+
+-- | The gap in SECONDS that we desire between the Creation Time of subsequent
+-- blocks in some chain.
+--
+newtype BlockRate = BlockRate Seconds
+
+-- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
+-- number of seconds we expect to pass while a miner mines on various chains,
+-- eventually succeeding on one.
+--
+blockRate :: ChainwebVersion -> Maybe BlockRate
+blockRate Test{} = Nothing
+blockRate TimedConsensus{} = Just $ BlockRate 4
+blockRate PowConsensus{} = Just $ BlockRate 10
+blockRate TimedCPM{} = Just $ BlockRate 4
+-- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
+blockRate FastTimedCPM{} = Just $ BlockRate 1
+blockRate Development = Just $ BlockRate 30
+-- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
+blockRate Testnet02 = Just $ BlockRate 30
+
+-- | The number of blocks to be mined after a difficulty adjustment, before
+-- considering a further adjustment. Critical for the "epoch-based" adjustment
+-- algorithm seen in `hashTarget`.
+--
+newtype WindowWidth = WindowWidth Natural
+
+-- | The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
+-- that do not expect to perform POW, this should be `Nothing`.
+--
+window :: ChainwebVersion -> Maybe WindowWidth
+window Test{} = Nothing
+window TimedConsensus{} = Nothing
+-- 5 blocks, should take 50 seconds.
+window PowConsensus{} = Just $ WindowWidth 8
+window TimedCPM{} = Nothing
+window FastTimedCPM{} = Nothing
+-- 120 blocks, should take 1 hour given a 30 second BlockRate.
+window Development = Just $ WindowWidth 120
+-- 120 blocks, should take 1 hour given a 30 second BlockRate.
+window Testnet02 = Just $ WindowWidth 120
+
+-- | The minimum factor of change that a single application of `adjust` must
+-- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
+-- this value should be above \(e = 2.71828\cdots\).
+--
+newtype MinAdjustment = MinAdjustment Natural
+
+-- | The Proof-of-Work `MinAdjustment` for each `ChainwebVersion`. For chainwebs
+-- that do not expect to perform POW, this should be `Nothing`.
+--
+minAdjust :: ChainwebVersion -> Maybe MinAdjustment
+minAdjust Test{} = Nothing
+minAdjust TimedConsensus{} = Nothing
+minAdjust PowConsensus{} = Just $ MinAdjustment 3
+minAdjust TimedCPM{} = Nothing
+minAdjust FastTimedCPM{} = Nothing
+-- See `adjust` for motivation.
+minAdjust Development = Just $ MinAdjustment 3
+minAdjust Testnet02 = Just $ MinAdjustment 3
+

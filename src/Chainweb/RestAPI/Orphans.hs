@@ -55,7 +55,7 @@ import Chainweb.Difficulty hiding (properties)
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
-import Chainweb.NodeId (ChainNodeId)
+import Chainweb.Miner.Core (HeaderBytes)
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
@@ -312,6 +312,15 @@ instance ToSchema BlockOutputsHash where
 instance ToSchema Transaction where
     declareNamedSchema _ = return $ NamedSchema (Just "Transaction") $ byteSchema
 
+instance ToSchema TransactionOutput where
+    declareNamedSchema _ = return $ NamedSchema (Just "TransactionOutput") $ byteSchema
+
+instance ToSchema MinerData where
+    declareNamedSchema _ = return $ NamedSchema (Just "MinerData") $ byteSchema
+
+instance ToSchema CoinbaseOutput where
+    declareNamedSchema _ = return $ NamedSchema (Just "CoinbaseOutput") $ byteSchema
+
 instance ToSchema (TransactionProof SHA512t_256) where
     declareNamedSchema _ = return $ NamedSchema (Just "TransactionProof") $ byteSchema
 
@@ -321,6 +330,7 @@ instance ToSchema (TransactionOutputProof SHA512t_256) where
 instance ToSchema PayloadData where
     declareNamedSchema _ = do
         transactionsSchema <- declareSchemaRef (Proxy @[Transaction])
+        minerDataSchema <- declareSchemaRef (Proxy @MinerData)
         payloadHashSchema <- declareSchemaRef (Proxy @BlockPayloadHash)
         transactionsHashSchema <- declareSchemaRef (Proxy @BlockTransactionsHash)
         outputsHashSchema <- declareSchemaRef (Proxy @BlockOutputsHash)
@@ -328,6 +338,27 @@ instance ToSchema PayloadData where
             & type_ .~ SwaggerObject
             & properties .~
                 [ ("transactions", transactionsSchema)
+                , ("minerData", minerDataSchema)
+                , ("payloadHash", payloadHashSchema)
+                , ("transactionsHash", transactionsHashSchema)
+                , ("outputsHash", outputsHashSchema)
+                ]
+            & required .~ [ "limit", "items" ]
+
+instance ToSchema PayloadWithOutputs where
+    declareNamedSchema _ = do
+        transactionsWithOutputSchema <- declareSchemaRef (Proxy @[(Transaction, TransactionOutput)])
+        minerDataSchema <- declareSchemaRef (Proxy @MinerData)
+        coinbaseOutputSchema <- declareSchemaRef (Proxy @CoinbaseOutput)
+        payloadHashSchema <- declareSchemaRef (Proxy @BlockPayloadHash)
+        transactionsHashSchema <- declareSchemaRef (Proxy @BlockTransactionsHash)
+        outputsHashSchema <- declareSchemaRef (Proxy @BlockOutputsHash)
+        return $ NamedSchema (Just "PayloadWithOutputs") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("transactions", transactionsWithOutputSchema)
+                , ("minerData", minerDataSchema)
+                , ("coinbaseOutput", coinbaseOutputSchema)
                 , ("payloadHash", payloadHashSchema)
                 , ("transactionsHash", transactionsHashSchema)
                 , ("outputsHash", outputsHashSchema)
@@ -384,7 +415,6 @@ deriving instance ToSchema BlockCreationTime
 deriving instance ToSchema BlockHashRecord
 deriving instance ToSchema BlockHeight
 deriving instance ToSchema BlockWeight
-deriving instance ToSchema ChainNodeId
 deriving instance ToSchema HashDifficulty
 deriving instance ToSchema HashTarget
 deriving instance ToSchema Micros
@@ -400,3 +430,6 @@ instance ToSchema ChainwebVersion where
 
 instance ToSchema MerkleLogHash where
   declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
+
+instance ToSchema HeaderBytes where
+  declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty

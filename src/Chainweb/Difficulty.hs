@@ -57,16 +57,6 @@ module Chainweb.Difficulty
 , decodeHashDifficultyBe
 
 -- * Difficulty Adjustment
--- ** Fork-specific Settings
--- | Values here represent fixed settings specific to a particular chainweb.
--- __Changing any of these for a live Proof-of-Work chainweb will result in a hard fork.__
-, BlockRate(..)
-, blockRate
-, WindowWidth(..)
-, window
-, MinAdjustment(..)
-, minAdjust
--- ** Adjustment
 , adjust
 
 -- * Test Properties
@@ -106,7 +96,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.PowHash
 import Chainweb.Time (Micros(..), Seconds(..), TimeSpan(..))
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version
 
 import Data.Word.Encoding hiding (properties)
 
@@ -269,7 +259,11 @@ difficultyToTarget (HashDifficulty (PowHashNat difficulty)) =
 --
 difficultyToTargetR :: Rational -> HashTarget
 difficultyToTargetR difficulty =
-    HashTarget . PowHashNat $ maxTargetWord `div` floor difficulty
+    -- `ceiling` is chosen here, to avoid the (hopefully rare) case where the
+    -- `Rational` given is between 0 and 1. `floor` instead would drop that to
+    -- 0, making the `div` crash. At most, this would "spuriously" raise the
+    -- difficulty by at most 0.999... (~1) hash, which is negligible.
+    HashTarget . PowHashNat $ maxTargetWord `div` ceiling difficulty
 {-# INLINE difficultyToTargetR #-}
 
 -- | Given the same `ChainwebVersion`, forms an isomorphism with
@@ -305,63 +299,6 @@ decodeHashTarget = HashTarget <$!> decodePowHashNat
 
 -- -------------------------------------------------------------------------- --
 -- Difficulty Adjustment
-
--- | The gap in SECONDS that we desire between the Creation Time of subsequent
--- blocks in some chain.
---
-newtype BlockRate = BlockRate Seconds
-
--- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
--- number of seconds we expect to pass while a miner mines on various chains,
--- eventually succeeding on one.
---
-blockRate :: ChainwebVersion -> Maybe BlockRate
-blockRate Test{} = Nothing
-blockRate TimedConsensus{} = Just $ BlockRate 4
-blockRate PowConsensus{} = Just $ BlockRate 10
-blockRate TimedCPM{} = Just $ BlockRate 4
--- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Development = Just $ BlockRate 30
--- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Testnet02 = Just $ BlockRate 30
-
--- | The number of blocks to be mined after a difficulty adjustment, before
--- considering a further adjustment. Critical for the "epoch-based" adjustment
--- algorithm seen in `hashTarget`.
---
-newtype WindowWidth = WindowWidth Natural
-
--- | The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
--- that do not expect to perform POW, this should be `Nothing`.
---
-window :: ChainwebVersion -> Maybe WindowWidth
-window Test{} = Nothing
-window TimedConsensus{} = Nothing
--- 5 blocks, should take 50 seconds.
-window PowConsensus{} = Just $ WindowWidth 8
-window TimedCPM{} = Nothing
--- 120 blocks, should take 1 hour given a 30 second BlockRate.
-window Development = Just $ WindowWidth 120
--- 120 blocks, should take 1 hour given a 30 second BlockRate.
-window Testnet02 = Just $ WindowWidth 120
-
--- | The minimum factor of change that a single application of `adjust` must
--- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
--- this value should be above \(e = 2.71828\cdots\).
---
-newtype MinAdjustment = MinAdjustment Natural
-
--- | The Proof-of-Work `MinAdjustment` for each `ChainwebVersion`. For chainwebs
--- that do not expect to perform POW, this should be `Nothing`.
---
-minAdjust :: ChainwebVersion -> Maybe MinAdjustment
-minAdjust Test{} = Nothing
-minAdjust TimedConsensus{} = Nothing
-minAdjust PowConsensus{} = Just $ MinAdjustment 3
-minAdjust TimedCPM{} = Nothing
--- See `adjust` for motivation.
-minAdjust Development = Just $ MinAdjustment 3
-minAdjust Testnet02 = Just $ MinAdjustment 3
 
 -- | A new `HashTarget`, based on the rate of mining success over the previous N
 -- blocks.

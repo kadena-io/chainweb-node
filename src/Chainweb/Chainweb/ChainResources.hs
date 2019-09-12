@@ -128,7 +128,7 @@ withChainResources
     -> IO a
 withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
-      Mempool.withInMemoryMempool mempoolCfg $ \mempool -> do
+      Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdbv cdb
                         payloadDb dbDir nodeid resetDb $ \requestQ -> do
@@ -170,6 +170,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
         TimedCPM{} -> mkPactExecutionService requestQ
+        FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
         Testnet02 -> mkPactExecutionService requestQ
 

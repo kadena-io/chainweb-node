@@ -23,6 +23,10 @@ extra-source-files:
     README.md
     LICENSE
 
+    -- sender information
+
+    pact/genesis/testnet/keys.yaml
+
     -- miner rewards
 
     rewards/miner_rewards.csv
@@ -99,10 +103,8 @@ library
     hs-source-dirs: src
     other-modules:
         Paths_chainweb
-        PkgInfo
     autogen-modules:
         Paths_chainweb
-        PkgInfo
     exposed-modules:
           BackCompat.Test.QuickCheck
         , Chainweb.BlockHash
@@ -110,6 +112,7 @@ library
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
         , Chainweb.BlockHeader.Genesis.TestnetPayload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPMPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -155,6 +158,9 @@ library
         , Chainweb.Miner.Core
         , Chainweb.Miner.Miners
         , Chainweb.Miner.Pact
+        , Chainweb.Miner.RestAPI
+        , Chainweb.Miner.RestAPI.Client
+        , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeId
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
@@ -184,7 +190,6 @@ library
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
-        , Chainweb.TreeDB.Difficulty
         , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Validation
@@ -303,6 +308,7 @@ library
         , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
+        , mwc-probability >= 2.0 && <2.1
         , neat-interpolation >= 0.3.2
         , network >= 2.6
         , optparse-applicative >= 0.14
@@ -389,6 +395,7 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
+        Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
@@ -428,6 +435,7 @@ test-suite chainweb-tests
         , directory >= 1.2
         , exceptions
         , extra >= 1.6
+        , file-embed >= 0.0
         , hashable >= 1.2
         , http-client >= 0.5
         , http-types >= 0.12
@@ -535,13 +543,17 @@ executable chainweb-miner
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
+        , connection >= 0.2
         , containers >= 0.5
         , errors >= 2.3
+        , http-client >= 0.5
+        , http-client-tls >= 0.3
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , pretty-simple >= 2.1
         , scheduler >= 1.4.1
         , servant >= 0.14
+        , servant-client >= 0.14
         , servant-server >= 0.14
         , strict-tuple >= 0.1
         , stm >= 2.4
@@ -554,7 +566,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/txg node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream node test
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
@@ -567,14 +579,19 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
+        Standalone
+        Standalone.Chainweb
+        Standalone.Utils
         TXG
-        TXGRepl
+        TXG.Repl
+        TXG.ReplInternals
         TXG.Simulate.Contracts.CoinContract
         TXG.Simulate.Contracts.Common
         TXG.Simulate.Contracts.HelloWorld
         TXG.Simulate.Contracts.SimplePayments
         TXG.Simulate.Utils
         TXG.Types
+        TxStream
     build-depends:
         -- internal
           chainweb
@@ -589,9 +606,11 @@ executable cwtool
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
+        , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , chainweb-storage >= 0.1
+        , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
         , data-default >= 0.7
@@ -600,6 +619,7 @@ executable cwtool
         , errors >= 2.3
         , exceptions >= 0.8
         , fake >= 0.1.1.1
+        , file-embed >= 0.0
         , formatting >= 6.3
         , generic-lens >= 1.1
         , http-client >= 0.5
@@ -607,6 +627,7 @@ executable cwtool
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
+        , managed >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
@@ -618,6 +639,7 @@ executable cwtool
         , pretty-simple >= 2.1
         , primitive >= 0.6
         , random >= 1.1
+        , reflection >= 2.1
         , resourcet >= 1.2
         , servant >= 0.14.1
         , servant-client >= 0.14
@@ -626,6 +648,7 @@ executable cwtool
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
+        , strict-tuple >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
@@ -637,6 +660,7 @@ executable cwtool
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
+        , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
         , xmlgen >= 0.6

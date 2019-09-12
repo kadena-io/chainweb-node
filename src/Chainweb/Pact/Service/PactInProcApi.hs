@@ -95,16 +95,15 @@ withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid
                  resetDb action =
     mask $ \rst -> do
         reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-        a <- async $
+        a <- withLink $
              PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb
                                 pdb dbDir nodeid resetDb
-        link a
         evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
 
 -- TODO: get from config
 -- TODO: why is this declared both here and in Mempool
 maxBlockSize :: GasLimit
-maxBlockSize = 100000
+maxBlockSize = 1000000
 
 pactMemPoolAccess
     :: Logger logger

@@ -37,8 +37,7 @@ import qualified Data.Text.IO as T
 
 import Prelude hiding (lookup)
 
--- import Servant (ServantErr)
-import Servant.Server
+import Servant
 
 -- internal modules
 
@@ -81,6 +80,21 @@ payloadHandler db k = run >>= \case
             (_blockPayloadTransactionsHash payload)
         return $ payloadData txs payload
 
+-- | Query the 'PayloadWithOutputs' by its 'BlockPayloadHash'
+--
+outputsHandler
+    :: forall cas
+    . PayloadCas cas
+    => PayloadDb cas
+    -> BlockPayloadHash
+    -> Handler PayloadWithOutputs
+outputsHandler db k = liftIO (casLookup db k) >>= \case
+    Nothing -> throwError $ err404Msg $ object
+        [ "reason" .= ("key not found" :: String)
+        , "key" .= (sshow k :: String)
+        ]
+    Just e -> return e
+
 err404Msg :: ToJSON msg  => msg -> ServerError
 err404Msg msg = err404 { errBody = encode msg }
 
@@ -92,7 +106,9 @@ payloadServer
     . PayloadCas cas
     => PayloadDb_ cas v c
     -> Server (PayloadApi v c)
-payloadServer (PayloadDb_ db) = payloadHandler @cas db
+payloadServer (PayloadDb_ db)
+    = payloadHandler @cas db
+    :<|> outputsHandler @cas db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single PayloadDb

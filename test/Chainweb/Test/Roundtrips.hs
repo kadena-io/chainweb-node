@@ -71,8 +71,6 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeChainId encodeChainId
     , testProperty "NodeId"
         $ prop_encodeDecodeRoundtrip decodeNodeId encodeNodeId
-    , testProperty "ChainNodeId"
-        $ prop_encodeDecodeRoundtrip decodeChainNodeId encodeChainNodeId
     , testProperty "MerkleLogHash"
         $ prop_encodeDecodeRoundtrip decodeMerkleLogHash encodeMerkleLogHash
     , testProperty "BlockHash"
@@ -108,6 +106,7 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
     , testProperty "BlockTransactionsHash"
         $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
 
+    -- TODO Fix this!
     -- The following doesn't hold:
     -- , testProperty "target difficulty"
     --     $ prop_iso difficultyToTarget targetToDifficulty
@@ -125,7 +124,6 @@ jsonTestCases f =
     , testProperty "Seconds" $ f @Seconds
     , testProperty "ChainId" $ f @ChainId
     , testProperty "NodeId" $ f @NodeId
-    , testProperty "ChainNodeId" $ f @ChainNodeId
     , testProperty "ChainwebVersion" $ f @ChainwebVersion
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
@@ -204,7 +202,6 @@ showReadTestCases f =
     , testProperty "Text" $ f @T.Text
     , testProperty "ChainId" $ f @ChainId
     , testProperty "NodeId" $ f @NodeId
-    , testProperty "ChainNodeId" $ f @ChainNodeId
     ]
 
 showReadTests :: TestTree
@@ -239,7 +236,6 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion eitherFromText toText
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
     , testProperty "NodeId" $ prop_iso' @_ @NodeId fromText toText
-    , testProperty "ChainNodeId" $ prop_iso' @_ @ChainNodeId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText
     , testProperty "Hostname" $ prop_iso' @_ @Hostname fromText toText

@@ -160,16 +160,21 @@ module Chainweb.Utils
 
 -- * Resource Management
 , concurrentWith
+, withLink
 
 -- * Strict tuple-2 accessors
 , sfst
 , ssnd
 , scurry
 , suncurry
+
+-- * Approximate thread delays
+, approximateThreadDelay
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.TokenBucket
@@ -226,10 +231,13 @@ import qualified Streaming as S (concats, effect, maps)
 import qualified Streaming.Prelude as S
 
 import System.Directory (removeDirectoryRecursive)
+import System.IO.Unsafe (unsafePerformIO)
 import System.LogLevel
 import System.Path (Absolute, Path, fragment, toAbsoluteFilePath, (</>))
 import System.Path.IO (getTemporaryDirectory)
 import System.Random (randomIO)
+import qualified System.Random.MWC as Prob
+import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
 
 import Text.Printf (printf)
@@ -1093,6 +1101,15 @@ concurrentWith alloc inner params = do
         putMVar var b
         readMVar doneVar
 
+-- | Run an async IO action, link it back to the main thread, and return
+-- the async result
+--
+withLink :: forall a. IO a -> IO (Async a)
+withLink act = do
+  a <- async act
+  link a
+  return a
+
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
 
@@ -1119,3 +1136,22 @@ scurry k a b = k (T2 a b)
 suncurry :: forall a b c. (a -> b -> c) -> T2 a b -> c
 suncurry k (T2 a b) = k a b
 {-# INLINE suncurry #-}
+
+-- -------------------------------------------------------------------------- --
+-- Approximate thread delays
+approximately :: Int -> Prob.GenIO -> IO Int
+approximately k gen = max 0 <$!> sample
+  where
+    sample = (round . (/ 256.0) . head) <$!>
+             Prob.samples 1 (Prob.normal mean sdev) gen
+    mean   = fromIntegral $ k * 256
+    sdev   = mean / 6
+
+
+threadDelayRng :: MVar Prob.GenIO
+threadDelayRng = unsafePerformIO (Prob.createSystemRandom >>= newMVar)
+{-# NOINLINE threadDelayRng #-}
+
+approximateThreadDelay :: Int -> IO ()
+approximateThreadDelay d = withMVar threadDelayRng (approximately d)
+                           >>= threadDelay

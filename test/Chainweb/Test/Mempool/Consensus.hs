@@ -302,12 +302,11 @@ postForkTrunk db mapRef h avail count = do
 header' :: BlockHeader -> PropertyM IO BlockHeader
 header' h = do
     nonce <- Nonce <$> pick chooseAny
-    miner <- pick arbitrary
     return
         . fromLog
         . newMerkleLog
         $ nonce
-            :+: BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+            :+: t'
             :+: _blockHash h
             :+: target
             :+: testBlockPayload h
@@ -315,12 +314,13 @@ header' h = do
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
-            :+: miner
+            :+: epochStart h t'
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
-    target = _blockTarget h -- no difficulty adjustment
+    target = powTarget h t'
     v = _blockChainwebVersion h
+    t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 ----------------------------------------------------------------------------------------------------
 --  Info about generated forks
