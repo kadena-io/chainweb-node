@@ -20,7 +20,7 @@ import Control.Lens (over, view)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
-import Data.IORef (IORef, readIORef, writeIORef)
+import Data.IORef (IORef, readIORef, writeIORef, newIORef)
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy (Proxy(..))
@@ -84,8 +84,10 @@ solvedHandler mr (HeaderBytes hbytes) = do
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
-updatesHandler :: CutDb cas -> IORef Cut -> Tagged Handler Application
-updatesHandler cdb cv = Tagged $ \req respond -> eventSourceAppIO go req respond
+updatesHandler :: CutDb cas -> Tagged Handler Application
+updatesHandler cdb = Tagged $ \req respond -> do
+    cv <- _cut cdb >>= newIORef
+    eventSourceAppIO (go cv) req respond
   where
     -- | A completely empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
@@ -94,8 +96,8 @@ updatesHandler cdb cv = Tagged $ \req respond -> eventSourceAppIO go req respond
     f :: Cut -> ServerEvent
     f _ = ServerEvent Nothing Nothing []
 
-    go :: IO ServerEvent
-    go = readIORef cv >>= awaitNewCut cdb >>= \new -> writeIORef cv new >> pure (f new)
+    go :: IORef Cut -> IO ServerEvent
+    go cv = readIORef cv >>= awaitNewCut cdb >>= \new -> writeIORef cv new >> pure (f new)
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
@@ -105,7 +107,7 @@ miningServer
 miningServer mr =
     liftIO . workHandler mr
     :<|> liftIO . solvedHandler mr
-    :<|> updatesHandler (_coordCutDb mr) (_coordCut mr)
+    :<|> updatesHandler (_coordCutDb mr)
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
 someMiningServer (FromSing (SChainwebVersion :: Sing v)) mr =

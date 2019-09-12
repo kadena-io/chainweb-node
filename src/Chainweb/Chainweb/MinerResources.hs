@@ -27,14 +27,11 @@ module Chainweb.Chainweb.MinerResources
 import Control.Concurrent.STM (TVar)
 import Control.Concurrent.STM.TVar (newTVarIO)
 
-import Data.IORef (IORef, newIORef)
-
 import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.Cut (Cut)
-import Chainweb.CutDB (CutDb, _cut)
+import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator (MiningState(..))
@@ -55,7 +52,6 @@ data MiningCoordination logger cas = MiningCoordination
     { _coordLogger :: !logger
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
-    , _coordCut :: IORef Cut
     }
 
 withMiningCoordination
@@ -68,12 +64,10 @@ withMiningCoordination logger enabled cutDb inner
     | not enabled = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
-        c <- _cut cutDb >>= newIORef
         inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
-            , _coordCut = c
             }
 
 -- | For in-process CPU mining by a Chainweb Node.
