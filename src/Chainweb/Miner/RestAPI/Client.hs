@@ -34,12 +34,12 @@ workClient :: ChainwebVersion -> Miner -> ClientM WorkBytes
 workClient v m = case clients v of
   f :<|> _ -> f m
 
-solvedClient :: ChainwebVersion -> HeaderBytes -> ClientM ()
+solvedClient :: ChainwebVersion -> HeaderBytes -> ClientM NoContent
 solvedClient v hbytes = case clients v of
   _ :<|> f -> f hbytes
 
 clients
     :: ChainwebVersion
     -> (Miner -> ClientM WorkBytes)
-    :<|> (HeaderBytes -> ClientM ())
+    :<|> (HeaderBytes -> ClientM NoContent)
 clients (FromSing (SChainwebVersion :: Sing v)) = client (miningApi @v)

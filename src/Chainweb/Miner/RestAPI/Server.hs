@@ -65,12 +65,14 @@ workHandler mr m = do
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
 -- TODO Occasionally prune the `MiningState`?
-solvedHandler :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> IO ()
+solvedHandler
+    :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> IO NoContent
 solvedHandler mr (HeaderBytes hbytes) = do
     ms <- readTVarIO tms
     bh <- runGet decodeBlockHeaderWithoutHash hbytes
     publish lf ms (_coordCutDb mr) bh
     atomically . modifyTVar' tms . over _Unwrapped . HM.delete $ _blockPayloadHash bh
+    pure NoContent
   where
     tms :: TVar MiningState
     tms = _coordState mr
