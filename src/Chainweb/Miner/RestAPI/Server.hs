@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
@@ -20,6 +21,7 @@ import Control.Lens (over, view)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
+import Data.Binary.Builder (fromByteString)
 import Data.IORef (IORef, readIORef, writeIORef, newIORef)
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
@@ -94,7 +96,7 @@ updatesHandler cdb = Tagged $ \req respond -> do
     -- to the caller.
     --
     f :: Cut -> ServerEvent
-    f _ = ServerEvent Nothing Nothing []
+    f _ = ServerEvent (Just $ fromByteString "New Cut") Nothing []
 
     go :: IORef Cut -> IO ServerEvent
     go cv = readIORef cv >>= awaitNewCut cdb >>= \new -> writeIORef cv new >> pure (f new)
