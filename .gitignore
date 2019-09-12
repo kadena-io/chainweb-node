@@ -44,3 +44,4 @@ hlint.hs
 *.graphml
 cache/
 *.dump-hi
+standalonedbs/
