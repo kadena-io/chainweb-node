@@ -47,6 +47,7 @@ import Data.Singletons
 type MiningApi_ =
     "mining" :> "work" :> ReqBody '[JSON] Miner :> Get '[OctetStream] WorkBytes
     :<|> "mining" :> "solved" :> ReqBody '[OctetStream] HeaderBytes :> Post '[JSON] NoContent
+    :<|> "mining" :> "updates" :> Raw
 
 type MiningApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc MiningApi_
 

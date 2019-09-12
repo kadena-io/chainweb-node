@@ -15,8 +15,10 @@ module Chainweb.Miner.RestAPI.Client
   , solvedClient
   ) where
 
+import Network.HTTP.Types (Method)
+
 import Servant.API
-import Servant.Client (ClientM, client)
+import Servant.Client (ClientM, Response, client)
 
 -- internal modules
 
@@ -36,10 +38,11 @@ workClient v m = case clients v of
 
 solvedClient :: ChainwebVersion -> HeaderBytes -> ClientM NoContent
 solvedClient v hbytes = case clients v of
-  _ :<|> f -> f hbytes
+  _ :<|> f :<|> _ -> f hbytes
 
 clients
     :: ChainwebVersion
     -> (Miner -> ClientM WorkBytes)
     :<|> (HeaderBytes -> ClientM NoContent)
+    :<|> (Method -> ClientM Response)
 clients (FromSing (SChainwebVersion :: Sing v)) = client (miningApi @v)
