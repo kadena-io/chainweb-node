@@ -552,31 +552,26 @@ execSpv
     -> PactServiceM cas Base64TxOutputProof
 execSpv cdb bdb pdb bh tid ph =
     rewindTo bh' $ \_ -> do
-      k <- view
-         $ psCheckpointEnv
-         . cpeCheckpointer
-
+      k <- view $ psCheckpointEnv . cpeCheckpointer
       m <- liftIO $ lookupProcessedTx k $ ph
       case m of
         Nothing -> internalError
           $ "Transaction hash not found: "
           <> sshow ph
         Just (!bhe, _) -> do
-          P.ChainId psid <- view
-            $ psPublicData
-            . P.pdPublicMeta
-            . P.pmChainId
-
-          let sid = read $ T.unpack psid
-
           idx <- liftIO $ getTxIdx bdb pdb bhe ph
           case idx of
             Left e -> internalError'
               $ "Transaction index not found: "
               <> sshow e
             Right i -> do
-              _p <- liftIO $
-                 createTransactionOutputProof cdb tid sid bhe i
+              sid <- view
+                 $ psPublicData
+                 . P.pdPublicMeta
+                 . P.pmChainId
+                 . to (read . T.unpack . P._chainId)
+
+              _p <- liftIO $ createTransactionOutputProof cdb tid sid bhe i
               -- let p' = Base64TxOutputProof $ Base64.encode p
               return $ error "TODO: base64-encoded tx output proof"
   where
