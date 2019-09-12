@@ -44,7 +44,7 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 31801b112f46f08bb4ca3c488dd947573f21043f
+    commit: 2730879a233137778646e67ca3346e7267c5f82f
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
   - github: kadena-io/chainweb-storage
