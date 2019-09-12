@@ -15,31 +15,28 @@
 --
 module Chainweb.Miner.RestAPI.Server where
 
-import Control.Monad (void)
-import Control.Concurrent.Chan
 import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO)
 import Control.Lens (over, view)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
+import Data.IORef (IORef, readIORef, writeIORef)
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..), T3(..))
 
-import Network.Wai.EventSource (ServerEvent(..), eventSourceAppChan)
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Servant.API
 import Servant.Server
-
-import qualified Streaming.Prelude as P
 
 -- internal modules
 
 import Chainweb.Cut (Cut)
 import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
-import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, cutStream)
+import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, awaitNewCut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Coordinator (MiningState(..), newWork, publish)
 import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes, workBytes)
@@ -87,11 +84,8 @@ solvedHandler mr (HeaderBytes hbytes) = do
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
-updatesHandler :: CutDb cas -> Tagged Handler Application
-updatesHandler cdb = Tagged $ \req respond -> do
-    chan <- newChan
-    void $ P.mapM_ (writeChan chan . f) $ cutStream cdb
-    eventSourceAppChan chan req respond
+updatesHandler :: CutDb cas -> IORef Cut -> Tagged Handler Application
+updatesHandler cdb cv = Tagged $ \req respond -> eventSourceAppIO go req respond
   where
     -- | A completely empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
@@ -99,6 +93,9 @@ updatesHandler cdb = Tagged $ \req respond -> do
     --
     f :: Cut -> ServerEvent
     f _ = ServerEvent Nothing Nothing []
+
+    go :: IO ServerEvent
+    go = readIORef cv >>= awaitNewCut cdb >>= \new -> writeIORef cv new >> pure (f new)
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
@@ -108,7 +105,7 @@ miningServer
 miningServer mr =
     liftIO . workHandler mr
     :<|> liftIO . solvedHandler mr
-    :<|> updatesHandler (_coordCutDb mr)
+    :<|> updatesHandler (_coordCutDb mr) (_coordCut mr)
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
 someMiningServer (FromSing (SChainwebVersion :: Sing v)) mr =
