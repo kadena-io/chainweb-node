@@ -111,7 +111,7 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
 
     case buyGasResultE of
 
-      Left e1 -> do
+      Left e1 ->
         jsonErrorResult buyGasEnv requestKey e1 [] (Gas 0) mcache
           "tx failure for requestKey when buying gas"
       Right (Left e) ->
@@ -130,6 +130,7 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
         cmdResultE <- catchesPactError $! runPayload payloadEnv st0 cmd buyGasLogs
 
         case cmdResultE of
+
           Left e2 ->
             -- we return the limit here as opposed to the supply (price * limit).
             -- Private chains have no notion of price, and the user knows what price
