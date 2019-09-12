@@ -13,15 +13,23 @@ module Chainweb.Pact.Service.Types where
 
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
+
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text, pack)
+
 import GHC.Generics
+
+-- internal chainweb modules
 
 import Chainweb.BlockHeader (BlockHeader)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+
+-- internal pact modules
+
+import Pact.Types.Hash (PactHash)
 
 data PactException
   = BlockValidationFailure Text
@@ -44,6 +52,7 @@ internalError' = internalError . pack
 data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
+                | SpvMsg SpvReq
                 | CloseMsg
                 deriving (Show)
 
@@ -52,17 +61,30 @@ data NewBlockReq = NewBlockReq
     , _newMiner :: Miner
     , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
-instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
+instance Show NewBlockReq where
+  show (NewBlockReq bh m _) = show (bh, m)
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader
     , _valPayloadData :: PayloadData
     , _valResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
-instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
+instance Show ValidateBlockReq where
+  show (ValidateBlockReq bh pd _) = show (bh, pd)
 
 data LocalReq = LocalReq
     { _localRequest :: ChainwebTransaction
     , _localResultVar :: MVar (Either PactException HashCommandResult)
     }
-instance Show LocalReq where show LocalReq{..} = show (_localRequest)
+instance Show LocalReq where
+  show = show . _localRequest
+
+data SpvReq = SpvReq
+    { _spvTxHash :: PactHash
+       -- ^ Transaction hash of tx to do index lookup
+    , _spvBlockHeader :: BlockHeader
+       -- ^ Most current block header (passed by endpoint)
+    , _spvResultVar :: MVar (Either PactException Base64TxOutputProof)
+    }
+instance Show SpvReq where
+  show = show . _spvTxHash

@@ -249,4 +249,3 @@ chainIdInt (ChainId cid) = int cid
 
 instance Arbitrary ChainId where
     arbitrary = unsafeChainId <$> arbitrary
-

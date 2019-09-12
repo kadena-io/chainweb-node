@@ -41,6 +41,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
+-- import Data.ByteString.Base64.URL as Base64
 import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
@@ -98,6 +99,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.SPV.CreateProof (createTransactionOutputProof)
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (TreeDbException(..), collectForkBlocks, lookupM)
@@ -273,6 +275,13 @@ serviceRequests memPoolAccess reqQ = do
                     liftIO $ putMVar _valResultVar $ toPactInternalError e
                   Right r -> liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
                 go
+            SpvMsg (SpvReq ph bh mv) -> do
+                idx <- try $ execSpv undefined undefined undefined bh undefined ph
+                case idx of
+                  Left (SomeException e) -> do
+                    logError (show e)
+                    liftIO $ putMVar mv $ toPactInternalError e
+                  Right r -> liftIO $ putMVar mv $ Right r
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
 
@@ -524,6 +533,54 @@ execLocal cmd = withDiscardedBatch $ do
                 r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pactdbenv
                      _psPublicData _psSpvSupport (fmap payloadObj cmd)
                 return $! toHashCommandResult r
+
+-- | Rewinding to given blockheader, lookup tx hash in
+-- pact tx index and construct an SPV output proof from the
+-- resulting data.
+--
+execSpv
+    :: PayloadCas cas
+    => CutDb cas
+    -> BlockHeaderDb
+    -> PayloadDb cas
+    -> BlockHeader
+        -- ^ given by most current consensus
+    -> ChainId
+        -- ^ target chain id
+    -> P.PactHash
+        -- ^ hash of tx to lookup index
+    -> PactServiceM cas Base64TxOutputProof
+execSpv cdb bdb pdb bh tid ph =
+    rewindTo bh' $ \_ -> do
+      k <- view
+         $ psCheckpointEnv
+         . cpeCheckpointer
+
+      m <- liftIO $ lookupProcessedTx k $ ph
+      case m of
+        Nothing -> internalError
+          $ "Transaction hash not found: "
+          <> sshow ph
+        Just (!bhe, _) -> do
+          P.ChainId psid <- view
+            $ psPublicData
+            . P.pdPublicMeta
+            . P.pmChainId
+
+          let sid = read $ T.unpack psid
+
+          idx <- liftIO $ getTxIdx bdb pdb bhe ph
+          case idx of
+            Left e -> internalError'
+              $ "Transaction index not found: "
+              <> sshow e
+            Right i -> do
+              _p <- liftIO $
+                 createTransactionOutputProof cdb tid sid bhe i
+              -- let p' = Base64TxOutputProof $ Base64.encode p
+              return $ error "TODO: base64-encoded tx output proof"
+  where
+    !bh' = Just (_blockHeight bh, _blockHash bh)
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)

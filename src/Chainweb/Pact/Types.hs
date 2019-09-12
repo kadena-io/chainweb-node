@@ -22,6 +22,7 @@ module Chainweb.Pact.Types
   , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
+  , Base64TxOutputProof(..)
     -- * types
   , TransactionM
   , ModuleCache
@@ -41,6 +42,7 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 
 import Data.Aeson
+import Data.ByteString
 import Data.HashMap.Strict
 import Data.Vector (Vector)
 
@@ -103,5 +105,7 @@ newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
 newtype GasId = GasId PactId deriving (Eq, Show)
 
 type TransactionM p a = ReaderT (CommandEnv p) IO a
+
+newtype Base64TxOutputProof = Base64TxOutputProof ByteString
 
 makeLenses ''PactDbStatePersist
