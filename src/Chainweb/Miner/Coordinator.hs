@@ -25,15 +25,12 @@ module Chainweb.Miner.Coordinator
     MiningState(..)
   , PrevBlock(..)
     -- * Functions
-  , awaitNewCut
   , newWork
   , publish
   ) where
 
-import Control.Concurrent.STM (atomically, retry)
 import Control.Error.Util ((!?), (??))
 import Control.Lens (iforM, set, to, (^?!))
-import Control.Monad (when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
 
@@ -168,12 +165,6 @@ estimatedHashes (PrevBlock p) b = floor $ (d % t) * 1000000
     d :: Integer
     d = case targetToDifficulty $ _blockTarget b of
         HashDifficulty (PowHashNat w) -> int w
-
-awaitNewCut :: CutDb cas -> Cut -> IO Cut
-awaitNewCut cdb c = atomically $ do
-    c' <- _cutStm cdb
-    when (c' == c) retry
-    return c'
 
 getAdjacentParents :: Cut -> BlockHeader -> Maybe BlockHashRecord
 getAdjacentParents c p = BlockHashRecord <$> newAdjHashes

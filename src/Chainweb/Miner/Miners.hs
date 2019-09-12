@@ -42,7 +42,7 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut)
+import Chainweb.CutDB (CutDb, awaitNewCut, cutDbPayloadStore, _cut)
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator

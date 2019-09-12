@@ -52,6 +52,7 @@ module Chainweb.CutDB
 , _cut
 , _cutStm
 , cutStm
+, awaitNewCut
 , cutStream
 , addCutHashes
 , withCutDb
@@ -250,6 +251,15 @@ _cutStm = readTVar . _cutDbCut
 --
 cutStm :: Getter (CutDb cas) (STM Cut)
 cutStm = to _cutStm
+
+-- | A common idiom to spin while waiting for a guaranteed new `Cut`, different
+-- from the given one.
+--
+awaitNewCut :: CutDb cas -> Cut -> IO Cut
+awaitNewCut cdb c = atomically $ do
+    c' <- _cutStm cdb
+    when (c' == c) retry
+    return c'
 
 member :: CutDb cas -> ChainId -> BlockHash -> IO Bool
 member db cid h = do
