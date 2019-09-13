@@ -48,7 +48,7 @@ internalError' = internalError . pack
 data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
-                | LookupRequestsMsg LookupRequestsReq
+                | LookupPactTxsMsg LookupPactTxsReq
                 | CloseMsg
                 deriving (Show)
 
@@ -74,11 +74,11 @@ data LocalReq = LocalReq
     }
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
 
-data LookupRequestsReq = LookupRequestsReq
+data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !(T2 BlockHeight BlockHash)
     , _lookupKeys :: !(Vector P.PactHash)
     , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
     }
-instance Show LookupRequestsReq where
-    show (LookupRequestsReq (T2 he ha) _ _) =
-        "LookupRequestsReq@" ++ show he ++ ":" ++ show ha
+instance Show LookupPactTxsReq where
+    show (LookupPactTxsReq (T2 he ha) _ _) =
+        "LookupPactTxsReq@" ++ show he ++ ":" ++ show ha

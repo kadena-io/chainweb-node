@@ -278,8 +278,8 @@ serviceRequests memPoolAccess reqQ = do
                         _valResultVar
                         (return . flip validateHashes _valBlockHeader)
                         (execValidateBlock _valBlockHeader _valPayloadData)
-            LookupRequestsMsg (LookupRequestsReq _restorePoint _txHashes _resultVar) -> do
-                tryOne "execLookupRequests" _resultVar $ fail "TODO: unimplemented"
+            LookupPactTxsMsg (LookupPactTxsReq _restorePoint _txHashes _resultVar) -> do
+                tryOne "execLookupPactTxs" _resultVar $ fail "TODO: unimplemented"
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
 

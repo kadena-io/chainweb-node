@@ -22,8 +22,8 @@ data PactExecutionService = PactExecutionService
   , _pactNewBlock :: Miner -> BlockHeader -> IO PayloadWithOutputs
   , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
   , _pactLookup
-        :: T2 BlockHeight BlockHash    -- restore point
-        -> Vector P.PactHash           -- txs to lookup
+        :: BlockHeader          -- restore point
+        -> Vector P.PactHash    -- txs to lookup
         -> IO (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash))))
   }
 
