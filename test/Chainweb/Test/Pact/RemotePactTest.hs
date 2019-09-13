@@ -124,8 +124,6 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
-    putStrLn $ "keys: " ++ show rks
-    putStrLn $ "oof: " ++ show theMap
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
