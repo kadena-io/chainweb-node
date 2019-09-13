@@ -32,13 +32,14 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson
 import qualified Data.ByteString.Short as SB
 import Data.CAS
+import Data.Tuple.Strict
 import Data.HashMap.Strict (HashMap)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Singletons
+import Data.Maybe
 import Data.Text (Text)
 import Data.Text.Encoding
-import Data.Witherable (wither)
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NEL
@@ -56,6 +57,7 @@ import Pact.Types.Command
 import Pact.Types.Hash (Hash)
 import qualified Pact.Types.Hash as H
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
@@ -237,82 +239,43 @@ internalPoll
     -> Cut
     -> NonEmpty RequestKey
     -> IO (HashMap RequestKey (CommandResult Hash))
-internalPoll cutR cid chain cut requestKeys0 =
-    HM.fromList <$> wither lookup requestKeys
-  where
-    _pactEx = view chainResPact chain
-    requestKeys = NEL.toList requestKeys0
-
-    lookup :: RequestKey -> IO (Maybe (RequestKey, CommandResult Hash))
-    lookup key = fmap (key,) <$> lookupRequestKey cid cut cutR chain key
-
-lookupRequestKey
-    :: PayloadCas cas
-    => ChainId
-    -> Cut
-    -> CutResources logger cas
-    -> ChainResources logger
-    -> RequestKey
-    -> IO (Maybe (CommandResult Hash))
-lookupRequestKey cid cut cutResources chain key = do
+internalPoll cutR cid chain cut requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-
-    let leafHeight = _blockHeight chainLeaf
-    let minHeight = boundHeight leafHeight
-
-    -- walk backwards from there. Bound the number of blocks searched
-    runMaybeT $ lookupRequestKeyInBlock cutResources chain key
-                                        minHeight chainLeaf
-
+    results0 <- _pactLookup pactEx chainLeaf requestKeys >>= either throwM return
+    let results = V.map (\(a, b) -> (a, fromJust b)) $
+                  V.filter (isJust . snd) $
+                  V.zip requestKeysV results0
+    (HM.fromList . catMaybes . V.toList) <$> mapM lookup results
   where
-    boundHeight h | h <= maxHeightDelta = 0
-                  | otherwise = h - maxHeightDelta
-    maxHeightDelta = 8192       -- TODO: configurable
-
-
-lookupRequestKeyInBlock
-    :: PayloadCas cas
-    => CutResources logger cas  -- ^ cut resources
-    -> ChainResources logger    -- ^ chain
-    -> RequestKey               -- ^ key to search
-    -> BlockHeight              -- ^ lowest block to search
-    -> BlockHeader              -- ^ search starts here
-    -> MaybeT IO (CommandResult Hash)
-lookupRequestKeyInBlock cutR chain key minHeight = go
-  where
-    keyHash :: H.Hash
-    keyHash = unRequestKey key
-
+    pactEx = view chainResPact chain
+    !requestKeysV = V.fromList $ NEL.toList requestKeys0
+    !requestKeys = V.map (H.fromUntypedHash . unRequestKey) requestKeysV
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
+    bhdb = _chainResBlockHeaderDb chain
 
-    -- TODO: use the transaction index to implement pact tx lookup
-    go !blockHeader = lookupInPayload blockHeader
+    lookup
+        :: (RequestKey, T2 BlockHeight BlockHash)
+        -> IO (Maybe (RequestKey, CommandResult Hash))
+    lookup (key, T2 _ ha) = fmap (key,) <$> lookupRequestKey key ha
 
-    lookupInPayload blockHeader = do
+    -- TODO: group by block for performance (not very important right now)
+    lookupRequestKey key bHash = runMaybeT $ do
+        let keyHash = unRequestKey key
+        let pactHash = H.fromUntypedHash keyHash
+        let matchingHash = (== pactHash) . _cmdHash . fst
+        blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
-
         case find matchingHash txs of
             (Just (_cmd, (TransactionOutput output))) ->
                 MaybeT $ return $! decodeStrict' output
-
-            Nothing -> lookupParent blockHeader
+            Nothing -> mzero
 
     fromTx (!tx, !out) = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
-    matchingHash (cmd, _) = H.toUntypedHash (_cmdHash cmd) == keyHash
-
-    lookupParent blockHeader = do
-        let parentHash = _blockParent blockHeader
-        let bdb = _chainResBlockHeaderDb chain
-        parentHeader <- liftIO $ TreeDB.lookupM bdb parentHash
-        let parentHeight = _blockHeight parentHeader
-        if parentHeight <= minHeight
-          then empty
-          else go parentHeader
 
 
 toPactTx :: Transaction -> Maybe (Command Text)

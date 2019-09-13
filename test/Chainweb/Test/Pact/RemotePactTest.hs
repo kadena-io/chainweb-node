@@ -12,7 +12,8 @@
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
 --
--- Unit test for Pact execution via the Http Pact interface (/send, etc.)(inprocess) API  in Chainweb
+-- Unit test for Pact execution via the Http Pact interface (/send,
+-- etc.) (inprocess) API in Chainweb
 module Chainweb.Test.Pact.RemotePactTest
 ( tests
 , withNodes
@@ -123,6 +124,8 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
+    putStrLn $ "keys: " ++ show rks
+    putStrLn $ "oof: " ++ show theMap
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 

@@ -218,6 +218,8 @@ initialPayloadState v@FastTimedCPM{} cid = initializeCoinContract v cid TN.paylo
 initialPayloadState v@Development cid = initializeCoinContract v cid DN.payloadBlock
 initialPayloadState v@Testnet02 cid = initializeCoinContract v cid PN.payloadBlock
 
+
+
 initializeCoinContract
     :: forall cas. PayloadCas cas
     => ChainwebVersion
@@ -225,7 +227,7 @@ initializeCoinContract
     -> PayloadWithOutputs
     -> PactServiceM cas ()
 initializeCoinContract v cid pwo = do
-    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    cp <- getCheckpointer
     genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
     unless genesisExists $ do
         txs <- execValidateBlock genesisHeader inputPayloadData
@@ -250,7 +252,34 @@ serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
+    go = do
+        logDebug $ "serviceRequests: wait"
+        msg <- liftIO $ getNextRequest reqQ
+        logDebug $ "serviceRequests: " <> sshow msg
+        case msg of
+            CloseMsg -> return ()
+            LocalMsg LocalReq{..} -> do
+                tryOne "execLocal" _localResultVar $ execLocal _localRequest
+                go
+            NewBlockMsg NewBlockReq {..} -> do
+                tryOne "execNewBlock" _newResultVar $
+                    execNewBlock memPoolAccess _newBlockHeader _newMiner
+                go
+            ValidateBlockMsg ValidateBlockReq {..} -> do
+                tryOne' "execValidateBlock"
+                        _valResultVar
+                        (return . flip validateHashes _valBlockHeader)
+                        (execValidateBlock _valBlockHeader _valPayloadData)
+                go
+            LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
+                tryOne "execLookupPactTxs" resultVar $
+                    execLookupPactTxs restorePoint txHashes
+                go
+
+    toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
+
     tryOne which mvar m = tryOne' which mvar (return . Right) m
+
     tryOne' which mvar post m = do
         r <- try m
         case r of
@@ -262,25 +291,6 @@ serviceRequests memPoolAccess reqQ = do
                 liftIO $ putMVar mvar $! toPactInternalError e
             Right r' -> post r' >>= liftIO . putMVar mvar
 
-    go = forever $ do
-        logDebug $ "serviceRequests: wait"
-        msg <- liftIO $ getNextRequest reqQ
-        logDebug $ "serviceRequests: " <> sshow msg
-        case msg of
-            CloseMsg -> return ()
-            LocalMsg LocalReq{..} -> do
-                tryOne "execLocal" _localResultVar $ execLocal _localRequest
-            NewBlockMsg NewBlockReq {..} -> do
-                tryOne "execNewBlock" _newResultVar $
-                    execNewBlock memPoolAccess _newBlockHeader _newMiner
-            ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne' "execValidateBlock"
-                        _valResultVar
-                        (return . flip validateHashes _valBlockHeader)
-                        (execValidateBlock _valBlockHeader _valPayloadData)
-            LookupPactTxsMsg (LookupPactTxsReq _restorePoint _txHashes _resultVar) -> do
-                tryOne "execLookupPactTxs" _resultVar $ fail "TODO: unimplemented"
-    toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
 
 toTransactionBytes :: P.Command ByteString -> Transaction
@@ -348,7 +358,7 @@ restoreCheckpointer
         -- ^ Putative caller
     -> PactServiceM cas PactDbEnv'
 restoreCheckpointer maybeBB caller = do
-    checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
+    checkPointer <- getCheckpointer
     logInfo $ "restoring (with caller " <> caller <> ") " <> sshow maybeBB
     liftIO $ _cpRestore checkPointer maybeBB
 
@@ -374,7 +384,7 @@ withCheckpointer
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
 withCheckpointer target caller act = mask $ \restore -> do
-    cenv <- restoreCheckpointer target caller
+    cenv <- restore $ restoreCheckpointer target caller
     try (restore (act cenv)) >>= \case
         Left e -> discardTx >> throwM @_ @SomeException e
         Right (Discard !result) -> discardTx >> return result
@@ -400,7 +410,7 @@ withCheckpointerRewind target caller act = do
 
 finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
 finalizeCheckpointer finalize = do
-    checkPointer <- view (psCheckpointEnv . cpeCheckpointer)
+    checkPointer <- getCheckpointer
     liftIO $! finalize checkPointer
 
 
@@ -515,7 +525,7 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
                 <> " (parent hash = " <> sshow pHash <> ")"
         liftIO $ mpaProcessFork mpAccess parentHeader
         liftIO $ mpaSetLastHeader mpAccess parentHeader
-        cp <- view (psCheckpointEnv . cpeCheckpointer)
+        cp <- getCheckpointer
         let validate = validateChainwebTxsPreBlock pdbenv cp
         newTrans <- liftIO $
             mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -531,7 +541,7 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
 
 withBatch :: PactServiceM cas a -> PactServiceM cas a
 withBatch act = mask $ \r -> do
-    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    cp <- getCheckpointer
     r $ liftIO $ _cpBeginCheckpointerBatch cp
     v <- r act `catch` hndl cp
     r $ liftIO $ _cpCommitCheckpointerBatch cp
@@ -547,7 +557,7 @@ withDiscardedBatch :: PactServiceM cas a -> PactServiceM cas a
 withDiscardedBatch act = bracket start end (const act)
   where
     start = do
-        cp <- view (psCheckpointEnv . cpeCheckpointer)
+        cp <- getCheckpointer
         liftIO (_cpBeginCheckpointerBatch cp)
         return cp
     end = liftIO . _cpDiscardCheckpointerBatch
@@ -656,10 +666,9 @@ rewindTo
         -- @parentHeader@.
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
-
     -> PactServiceM cas ()
 rewindTo mb = do
-    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    cp <- getCheckpointer
     maybe rewindGenesis (doRewind cp) mb
   where
     rewindGenesis = return ()
@@ -793,7 +802,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
 
-    cp <- view (psCheckpointEnv . cpeCheckpointer)
+    cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp pactHash
     let !res = toHashCommandResult result
@@ -817,3 +826,18 @@ transactionsFromPayload plData = do
     return $! V.fromList theRights
   where
     toCWTransaction bs = codecDecode chainwebPayloadCodec bs
+
+execLookupPactTxs
+    :: PayloadCas cas
+    => T2 BlockHeight BlockHash
+    -> Vector P.PactHash
+    -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
+execLookupPactTxs (T2 leafHeight leafHash) txs =
+    withDiscardedBatch $
+    withCheckpointerRewind (Just (leafHeight + 1, leafHash))
+                           "lookupPactTxs" $ \_pdbenv -> do
+        cp <- getCheckpointer
+        fmap Discard $ liftIO $ V.mapM (_cpLookupProcessedTx cp) txs
+
+getCheckpointer :: PactServiceM cas Checkpointer
+getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
