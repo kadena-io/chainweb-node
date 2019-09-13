@@ -605,7 +605,7 @@ execSpv
         -- ^ hash of tx to lookup index
     -> PactServiceM cas Base64TxOutputProof
 execSpv cdb bdb pdb bh tid ph =
-    rewindTo bh' $ \_ -> do
+    withCheckpointerRewind bh' "execSpv" $ \_ -> do
       cp <- view $ psCheckpointEnv . cpeCheckpointer
       m <- liftIO $ _cpLookupProcessedTx cp $ ph
       case m of
