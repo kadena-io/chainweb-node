@@ -7,6 +7,7 @@ code: |-
   (coin.coinbase "colin" (read-keyset "colin") 500.0)
   (coin.coinbase "doug" (read-keyset "doug") 500.0)
   (coin.coinbase "emily" (read-keyset "emily") 500.0)
+  (coin.coinbase "emmanuel" (read-keyset "emmanuel") 500.0)
   (coin.coinbase "francesco" (read-keyset "francesco") 500.0)
   (coin.coinbase "heekyun" (read-keyset "heekyun") 500.0)
   (coin.coinbase "jeff" (read-keyset "jeff") 500.0)
@@ -27,6 +28,7 @@ data:
   colin: ["db776793be0fcf8e76c75bdb35a36e67f298111dc6145c66693b0133192e2616"]
   doug: ["dea647009295dc015ba6e6359b85bafe09d2ce935a03c3bf83f775442d539025"]
   emily: ["77a4947c43cdb4b4fdef00b10dc8446c0e591b73366861048c195bb6a59bf5b9"]
+  emmanuel: ["a784a52984229ed28b703810cd452565759d88420875a5db257fa8e806ac9de5"]
   francesco: ["4b0f29b9e0a996587e5b5524731c91ecf02ecaa8b7e70e5f8f1881c5f0c18fc1"]
   heekyun: ["0904f5972b2bc263ca3c56b6b9fb88464acbac490c22197c00a778c9b70c20cd"]
   jeff: ["d4d8afbc9a956a6f3a32af61046db98a6a4266709374b03d17d48cacbce16476"]
