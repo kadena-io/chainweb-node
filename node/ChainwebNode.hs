@@ -305,6 +305,8 @@ withNodeLogger logConfig v f = runManaged $ do
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
     newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
+    endpointBackend <- managed
+        $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed
@@ -325,6 +327,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler rtsBackend
             , logHandler counterBackend
             , logHandler newBlockAmberdataBackend
+            , logHandler endpointBackend
             , logHandler newBlockBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend

@@ -55,7 +55,7 @@ import System.LogLevel
 
 import Pact.Types.API
 import Pact.Types.Command
-import Pact.Types.Hash (Hash)
+import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHeader
@@ -72,8 +72,8 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
-import Chainweb.Utils
 import qualified Chainweb.TreeDB as TreeDB
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -140,7 +140,6 @@ somePactServers
 somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
 
-
 sendHandler
     :: Logger logger
     => logger
@@ -148,7 +147,7 @@ sendHandler
     -> SubmitBatch
     -> Handler RequestKeys
 sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
-    liftIO $ logg Info (sshow cmds)
+    liftIO $ logg Info (PactCmdLogSend cmds)
     case traverse validateCommand cmds of
       Right enriched -> do
         liftIO $ mempoolInsert mempool $! V.fromList $ NEL.toList enriched
@@ -156,7 +155,7 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
   where
-    logg = logFunctionText (setComponent "send-handler" logger)
+    logg = logFunctionJson (setComponent "send-handler" logger)
 
 pollHandler
     :: PayloadCas cas
@@ -168,12 +167,12 @@ pollHandler
     -> Poll
     -> Handler PollResponses
 pollHandler logger cutR cid chain (Poll request) = liftIO $ do
-    logg Info (sshow request)
+    logg Info $ PactCmdLogPoll $ fmap (unHash . unRequestKey) request
     -- get current best cut
     cut <- CutDB._cut $ _cutResCutDb cutR
     PollResponses <$> internalPoll cutR cid chain cut request
   where
-    logg = logFunctionText (setComponent "poll-handler" logger)
+    logg = logFunctionJson (setComponent "poll-handler" logger)
 
 listenHandler
     :: PayloadCas cas
@@ -185,10 +184,10 @@ listenHandler
     -> ListenerRequest
     -> Handler ListenResponse
 listenHandler logger cutR cid chain (ListenerRequest key) = do
-    liftIO $ logg Info $ sshow $ ListenerRequest key
+    liftIO $ logg Info $ PactCmdLogListen $ unHash $ unRequestKey $ key
     liftIO (handleTimeout runListen)
   where
-    logg = logFunctionText (setComponent "listen-handler" logger)
+    logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
     runListen timedOut = go Nothing
       where
@@ -243,7 +242,7 @@ localHandler
     -> Command Text
     -> Handler (CommandResult Hash)
 localHandler logger _ _ cr cmd = do
-    liftIO $ logg Info (sshow cmd)
+    liftIO $ logg Info $ PactCmdLogLocal cmd
     cmd' <- case validateCommand cmd of
       (Right !c) -> return c
       Left err ->
@@ -254,7 +253,7 @@ localHandler logger _ _ cr cmd = do
         throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
       (Right !r') -> return r'
   where
-    logg = logFunctionText (setComponent "local-handler" logger)
+    logg = logFunctionJson (setComponent "local-handler" logger)
 
 
 ------------------------------------------------------------------------------
