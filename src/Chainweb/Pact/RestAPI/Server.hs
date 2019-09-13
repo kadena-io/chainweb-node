@@ -1,6 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
@@ -23,6 +25,7 @@ module Chainweb.Pact.RestAPI.Server
 import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
+import Control.DeepSeq
 import Control.Lens ((^.))
 import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
@@ -30,6 +33,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.HashMap.Strict (HashMap)
@@ -44,6 +48,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Vector as V
 import qualified GHC.Event as Ev
+
+import GHC.Generics
 
 import Prelude hiding (init, lookup)
 
@@ -73,7 +79,6 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
 import qualified Chainweb.TreeDB as TreeDB
-import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -139,6 +144,14 @@ somePactServers
     -> SomeServer
 somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
+
+data PactCmdLog
+  = PactCmdLogSend (NonEmpty (Command Text))
+  | PactCmdLogPoll (NonEmpty ByteString)
+  | PactCmdLogListen ByteString
+  | PactCmdLogLocal (Command Text)
+  deriving (Show, Generic, ToJSON, NFData)
+
 
 sendHandler
     :: Logger logger

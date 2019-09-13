@@ -170,8 +170,6 @@ module Chainweb.Utils
 
 -- * Approximate thread delays
 , approximateThreadDelay
--- * Backend Logging
-, PactCmdLog(..)
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -190,46 +188,44 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
+import qualified Data.Aeson.Types as Aeson
+import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
-import Data.ByteString (ByteString)
 import Data.Bytes.Get
 import Data.Bytes.Put
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Base64.URL as B64U
+import qualified Data.ByteString.Lazy as BL
 import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NEL
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
-import Data.Text (Text)
-import Data.These (These(..))
-import Data.Tuple.Strict
-import Data.Word (Word64)
-import GHC.Generics
-import GHC.Stack (HasCallStack)
-import GHC.TypeLits (KnownSymbol, symbolVal)
-import qualified Data.Aeson.Types as Aeson
-import qualified Data.Attoparsec.Text as A
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Base64.URL as B64U
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
+import Data.These (These(..))
+import Data.Tuple.Strict
+import Data.Word (Word64)
+
+import GHC.Generics
+import GHC.Stack (HasCallStack)
+import GHC.TypeLits (KnownSymbol, symbolVal)
 
 import Numeric.Natural
 
 import qualified Options.Applicative as O
-
-import Pact.Types.Command (Command)
 
 import qualified Streaming as S (concats, effect, maps)
 import qualified Streaming.Prelude as S
@@ -1159,10 +1155,3 @@ threadDelayRng = unsafePerformIO (Prob.createSystemRandom >>= newMVar)
 approximateThreadDelay :: Int -> IO ()
 approximateThreadDelay d = withMVar threadDelayRng (approximately d)
                            >>= threadDelay
-
-data PactCmdLog
-  = PactCmdLogSend (NonEmpty (Command Text))
-  | PactCmdLogPoll (NonEmpty ByteString)
-  | PactCmdLogListen ByteString
-  | PactCmdLogLocal (Command Text)
-  deriving (Show, Generic, Aeson.ToJSON, NFData)
