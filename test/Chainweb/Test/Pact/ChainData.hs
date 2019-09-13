@@ -17,21 +17,21 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.Aeson
-import Data.ByteString (ByteString)
 import Data.Bytes.Put (runPutS)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Base16 as B16
 import Data.CAS.HashMap
 import Data.CAS.RocksDB
 import Data.FileEmbed
+import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.Text (Text)
-import Data.Text.Encoding
-import Data.Tuple.Strict (T3(..))
-import Data.Word
-import qualified Data.ByteString.Base16 as B16
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
+import Data.Text.Encoding
 import qualified Data.Text.IO as T
+import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
+import Data.Word
 import qualified Data.Yaml as Y
 
 
@@ -58,7 +58,6 @@ import Chainweb.Difficulty
 import Chainweb.Logger
 import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
@@ -106,7 +105,7 @@ chainDataTest t =
     withTemporaryDir $ \dir ->
     withPact pdb bhdb (testMemPoolAccess t) dir $ \reqQIO ->
         testCase ("chain-data." <> T.unpack t) $
-            run genblock testChainId pdb bhdb reqQIO
+            run genblock pdb bhdb reqQIO
   where
     genblock = genesisBlockHeader testVer testChainId
 
@@ -128,12 +127,11 @@ getTestBlock t = do
 
 run
     :: BlockHeader
-    -> ChainId
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
     -> IO (TQueue RequestMsg)
     -> Assertion
-run genesisBlock c iopdb iobhdb rr = do
+run genesisBlock iopdb iobhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
     void $ mineLine genesisBlock nonceCounter 4
   where
@@ -145,7 +143,7 @@ run genesisBlock c iopdb iobhdb rr = do
               r <- ask
               pblock <- get
               n <- liftIO $ Nonce <$> readIORef ncounter
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock c n iopdb iobhdb r
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
@@ -198,13 +196,12 @@ withBlockHeaderDb iordb b = withResource start stop
 
 mineBlock
     :: BlockHeader
-    -> ChainId
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO (TQueue RequestMsg)
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
-mineBlock parentHeader cid nonce iopdb iobhdb r = do
+mineBlock parentHeader nonce iopdb iobhdb r = do
 
      mv <- r >>= newBlock noMiner parentHeader
      payload <- takeMVar mv >>= \case
@@ -220,11 +217,9 @@ mineBlock parentHeader cid nonce iopdb iobhdb r = do
      -- assemble block without nonce and timestamp
      creationTime <- getCurrentTimeIntegral
      let bh = newBlockHeader
-              (ChainNodeId cid 0)
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
               nonce
-              maxTarget
               creationTime
               parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh

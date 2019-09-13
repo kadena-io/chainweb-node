@@ -63,7 +63,6 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -355,10 +354,10 @@ mine miner pact cutDb c = do
     -- Pick a chain that isn't blocked. With that mining is guaranteed to
     -- succeed if
     --
-    -- * there are no other writers to the cut db,
-    -- * the chainweb is in a consistent state,
-    -- * the pact execution service is synced with the cutdb, and
-    -- * the transaction generator produces valid blocks.
+    -- - there are no other writers to the cut db,
+    -- - the chainweb is in a consistent state,
+    -- - the pact execution service is synced with the cutdb, and
+    -- - the transaction generator produces valid blocks.
     cid <- getRandomUnblockedChain c
 
     tryMineForChain miner pact cutDb c cid >>= \case
@@ -405,7 +404,7 @@ tryMineForChain miner webPact cutDb c cid = do
     outputs <- _webPactNewBlock webPact miner parent
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
-    x <- testMineWithPayloadHash (Nonce 0) target t payloadHash (NodeId 0) cid c
+    x <- testMineWithPayloadHash (Nonce 0) t payloadHash cid c
     case x of
         Right (T2 h c') -> do
             validate h outputs
@@ -414,7 +413,6 @@ tryMineForChain miner webPact cutDb c cid = do
         Left e -> return $ Left e
   where
     parent = c ^?! ixg cid -- parent to mine on
-    target = _blockTarget parent -- No difficulty adjustment
 
     payloadDb = view cutDbPayloadCas cutDb
     webDb = view cutDbWebBlockHeaderDb cutDb

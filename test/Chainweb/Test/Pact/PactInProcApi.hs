@@ -52,6 +52,7 @@ import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
+import Chainweb.Utils (withLink)
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Data.CAS.RocksDB
 
@@ -84,10 +85,9 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
         bhdb <- testBlockHeaderDb rdb genesisHeader
         pdb <- newPayloadDb
 
-        a <- async $ withTempDir $ \dir ->
+        a <- withLink $ withTempDir $ \dir ->
              PS.initPactService testVersion cid logger reqQ mempool mv
                                 bhdb pdb (Just dir) Nothing False
-        link a
         return (a, reqQ)
 
     stopPact (a, reqQ) = do

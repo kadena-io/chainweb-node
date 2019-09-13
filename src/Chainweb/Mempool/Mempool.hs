@@ -78,7 +78,6 @@ module Chainweb.Mempool.Mempool
   , GasLimit(..)
   ) where
 ------------------------------------------------------------------------------
-import Control.Concurrent (threadDelay)
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Monad (replicateM, when)
@@ -406,7 +405,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
             , " new remote hashes need to be fetched"
             ]
         traverse_ fetchMissing missingChunks
-        threadDelay us
+        approximateThreadDelay us
         subsequentSync remoteHw'
 
     -- get pending hashes from remote since the given (optional) high water mark

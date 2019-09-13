@@ -71,8 +71,6 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeChainId encodeChainId
     , testProperty "NodeId"
         $ prop_encodeDecodeRoundtrip decodeNodeId encodeNodeId
-    , testProperty "ChainNodeId"
-        $ prop_encodeDecodeRoundtrip decodeChainNodeId encodeChainNodeId
     , testProperty "MerkleLogHash"
         $ prop_encodeDecodeRoundtrip decodeMerkleLogHash encodeMerkleLogHash
     , testProperty "BlockHash"
@@ -126,7 +124,6 @@ jsonTestCases f =
     , testProperty "Seconds" $ f @Seconds
     , testProperty "ChainId" $ f @ChainId
     , testProperty "NodeId" $ f @NodeId
-    , testProperty "ChainNodeId" $ f @ChainNodeId
     , testProperty "ChainwebVersion" $ f @ChainwebVersion
     , testProperty "Nonce" $ f @Nonce
     , testProperty "HashDifficulty" $ f @HashDifficulty
@@ -205,7 +202,6 @@ showReadTestCases f =
     , testProperty "Text" $ f @T.Text
     , testProperty "ChainId" $ f @ChainId
     , testProperty "NodeId" $ f @NodeId
-    , testProperty "ChainNodeId" $ f @ChainNodeId
     ]
 
 showReadTests :: TestTree
@@ -240,7 +236,6 @@ hasTextRepresentationTests = testGroup "HasTextRepresentation roundtrips"
     , testProperty "ChainwebVersion" $ prop_iso' @_ @ChainwebVersion eitherFromText toText
     , testProperty "ChainId" $ prop_iso' @_ @ChainId fromText toText
     , testProperty "NodeId" $ prop_iso' @_ @NodeId fromText toText
-    , testProperty "ChainNodeId" $ prop_iso' @_ @ChainNodeId fromText toText
     , testProperty "BlockHash" $ prop_iso' @_ @BlockHash fromText toText
     , testProperty "Seconds" $ prop_iso' @_ @Seconds fromText toText
     , testProperty "Hostname" $ prop_iso' @_ @Hostname fromText toText

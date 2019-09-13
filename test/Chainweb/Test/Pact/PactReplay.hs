@@ -41,12 +41,10 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
-import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
 import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
-import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
@@ -75,30 +73,29 @@ tests =
     testGroup label
         [ withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
             testCase "initial-playthrough" $
-            firstPlayThrough genblock cid pdb bhdb reqQIO
+            firstPlayThrough genblock pdb bhdb reqQIO
         , after AllSucceed "initial-playthrough" $
           withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
-            testCase "on-restart" $ onRestart cid pdb bhdb reqQIO
+            testCase "on-restart" $ onRestart pdb bhdb reqQIO
         , after AllSucceed "on-restart" $
           withPact pdb bhdb dupegenMemPoolAccess dir $ \reqQIO ->
-            testCase "reject-dupes" $ testDupes genblock cid pdb bhdb reqQIO
+            testCase "reject-dupes" $ testDupes genblock pdb bhdb reqQIO
         ]
   where
     genblock = genesisBlockHeader testVer cid
     label = "Chainweb.Test.Pact.PactReplay"
     cid = someChainId testVer
 
-onRestart ::
-       ChainId
-    -> IO (PayloadDb HashMapCas)
+onRestart
+    :: IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
     -> IO (TQueue RequestMsg)
     -> Assertion
-onRestart cid pdb bhdb r = do
+onRestart pdb bhdb r = do
     bhdb' <- bhdb
     block <- maxEntry bhdb'
     let nonce = Nonce $ fromIntegral $ _blockHeight block
-    T3 _ b _ <- mineBlock block cid nonce pdb bhdb r
+    T3 _ b _ <- mineBlock block nonce pdb bhdb r
     assertEqual "Invalid BlockHeight" 9 (_blockHeight b)
 
 testMemPoolAccess :: MemPoolAccess
@@ -154,12 +151,11 @@ dupegenMemPoolAccess  = MemPoolAccess
 
 firstPlayThrough
     :: BlockHeader
-    -> ChainId
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
     -> IO (TQueue RequestMsg)
     -> Assertion
-firstPlayThrough genesisBlock c iopdb iobhdb rr = do
+firstPlayThrough genesisBlock iopdb iobhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
     mainlineblocks <- mineLine genesisBlock nonceCounter 7
     let T3 _ startline1 _ = mainlineblocks !! 0
@@ -175,22 +171,21 @@ firstPlayThrough genesisBlock c iopdb iobhdb rr = do
               r <- ask
               pblock <- get
               n <- liftIO $ Nonce <$> readIORef ncounter
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock c n iopdb iobhdb r
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
 
 testDupes
   :: BlockHeader
-  -> ChainId
   -> IO (PayloadDb HashMapCas)
   -> IO (BlockHeaderDb)
   -> IO (TQueue RequestMsg)
   -> Assertion
-testDupes genesisBlock c iopdb iobhdb rr = do
-    (T3 _ newblock payload) <- liftIO $ mineBlock genesisBlock c (Nonce 1) iopdb iobhdb rr
+testDupes genesisBlock iopdb iobhdb rr = do
+    (T3 _ newblock payload) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
     expectException newblock payload $ liftIO $
-        mineBlock newblock c (Nonce 2) iopdb iobhdb rr
+        mineBlock newblock (Nonce 2) iopdb iobhdb rr
   where
     expectException newblock payload act = do
         m <- wrap `catch` h
@@ -215,13 +210,12 @@ testDupes genesisBlock c iopdb iobhdb rr = do
 
 mineBlock
     :: BlockHeader
-    -> ChainId
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO (TQueue RequestMsg)
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
-mineBlock parentHeader cid nonce iopdb iobhdb r = do
+mineBlock parentHeader nonce iopdb iobhdb r = do
 
      mv <- r >>= newBlock noMiner parentHeader
      payload <- assertNotLeft =<< takeMVar mv
@@ -229,11 +223,9 @@ mineBlock parentHeader cid nonce iopdb iobhdb r = do
      -- assemble block without nonce and timestamp
      creationTime <- getCurrentTimeIntegral
      let bh = newBlockHeader
-              (ChainNodeId cid 0)
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
               nonce
-              maxTarget
               creationTime
               parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh

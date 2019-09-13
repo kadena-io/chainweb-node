@@ -51,6 +51,7 @@ import System.LogLevel (LogLevel(..))
 -- internal modules
 
 import Chainweb.BlockHeaderDB
+import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
@@ -77,8 +78,8 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
-    for_ [(Development, "Development"), (Testnet02, "Testnet")] $ \(v, tag) -> do
-        let txs = bool txs0 [defCoinContractSig, defCoinContract, defGrants] $ null txs0
+    for_  graphs $ \(v, tag, grants) -> do
+        let txs = bool txs0 [defCoinContractSig, defCoinContract, grants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v tag txs
     putStrLn "Done."
@@ -86,14 +87,23 @@ main = do
     opts = info (pEnv <**> helper)
         (fullDesc <> header "ea - Generate Pact Payload modules")
 
+    graphs =
+      [ (Development, "Development", devGrants)
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devGrants)
+      , (Testnet02, "Testnet", prodGrants)
+      ]
+
 defCoinContractSig :: FilePath
 defCoinContractSig = "pact/coin-contract/load-coin-contract-sig.yaml"
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
 
-defGrants :: FilePath
-defGrants = "pact/genesis/testnet/grants.yaml"
+devGrants :: FilePath
+devGrants = "pact/genesis/testnet/grants.yaml"
+
+prodGrants :: FilePath
+prodGrants = "pact/genesis/prodnet/grants.yaml"
 
 ---------------------
 -- Payload Generation

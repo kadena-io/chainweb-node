@@ -34,15 +34,15 @@ import Configuration.Utils hiding (Error, Lens)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.DeepSeq
-import Control.Lens.TH
 import Control.Lens (view)
+import Control.Lens.TH
 import Control.Monad
 import Control.Monad.Error.Class (throwError)
 
 import Data.Bool
-import Data.CAS
-import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BB
+import Data.CAS
 import qualified Data.Foldable as HM
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -68,7 +68,6 @@ import Chainweb.BlockHeader
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore.Types
@@ -89,7 +88,6 @@ data AmberdataBlock = AmberdataBlock
   , _amberdataTimestamp :: {-# UNPACK #-} !BlockCreationTime
   , _amberdataParentHash :: {-# UNPACK #-} !BlockHash
   , _amberdataNonce :: {-# UNPACK #-} !Nonce
-  , _amberdataMiner :: {-# UNPACK #-} !ChainNodeId
   , _amberdataSize :: {-# UNPACK #-} !Word  -- ^ Bytes
   , _amberdataNumTransactions :: {-# UNPACK #-} !Word
   , _amberdataMeta :: {-# UNPACK #-} !ChainId
@@ -104,7 +102,6 @@ instance ToJSON AmberdataBlock where
         , "hash" .= _amberdataHash o
         , "timestamp" .= microToMilliSeconds (_amberdataTimestamp o)
         , "parentHash" .= _amberdataParentHash o
-        , "miner" .= _amberdataMiner o
         , "nonce" .= _amberdataNonce o
         , "size" .= _amberdataSize o
         , "numTransactions" .= _amberdataNumTransactions o
@@ -292,7 +289,6 @@ amberdataBlockMonitor cid logger db = do
         , _amberdataTimestamp = _blockCreationTime bh
         , _amberdataParentHash = _blockParent bh
         , _amberdataNonce = _blockNonce bh
-        , _amberdataMiner = _blockMiner bh
         , _amberdataSize = getPayloadSize bpayload
         , _amberdataNumTransactions = getPayloadNumTransaction bpayload
         , _amberdataMeta = _blockChainId bh
@@ -353,7 +349,7 @@ withAmberDataBlocksBackend mgr conf inner = do
 
   where
     (AmberdataConfig esServer (AmberdataApiKey api) (AmberdataBlockchainId bid) _ doDebug) = conf
-    
+
     errorLogFun Error msg = T.hPutStrLn stderr msg
     -- Print debug statements only if debugging is turned on.
     errorLogFun Debug msg = bool (return ()) (T.hPutStrLn stdout msg) doDebug
@@ -414,4 +410,3 @@ withAmberDataBlocksBackend mgr conf inner = do
         = BB.char7 ',' <> e a
     mkList a
          = BB.char7 '[' <> a <> BB.char7 ']'
-

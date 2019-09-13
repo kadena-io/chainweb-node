@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -66,7 +67,7 @@ import GHC.Generics (Generic)
 import Network.Socket
 import Network.Wai (Middleware)
 import Network.Wai.Handler.Warp hiding (Port)
-import Network.Wai.Handler.WarpTLS as WARP (runTLSSocket)
+import Network.Wai.Handler.WarpTLS (TLSSettings, runTLSSocket)
 import Network.Wai.Middleware.Cors
 
 import Servant.API
@@ -80,11 +81,14 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
+import Chainweb.Chainweb.MinerResources (MinerResources)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
+import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI as PactAPI
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
 import Chainweb.Payload.PayloadStore
@@ -188,10 +192,12 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 someChainwebServer
     :: Show t
     => PayloadCas cas
+    => Logger logger
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Maybe (MinerResources logger cas)
     -> SomeServer
-someChainwebServer v dbs =
+someChainwebServer v dbs mr =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
         <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
@@ -201,63 +207,78 @@ someChainwebServer v dbs =
         <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)
         <> someP2pServers v (_chainwebServerPeerDbs dbs)
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
+        <> maybe mempty (Mining.someMiningServer v) mr
 
 chainwebApplication
     :: Show t
     => PayloadCas cas
+    => Logger logger
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Maybe (MinerResources logger cas)
     -> Application
-chainwebApplication v = chainwebCors . someServerApplication . someChainwebServer v
+chainwebApplication v dbs mr =
+    chainwebCors . someServerApplication $ someChainwebServer v dbs mr
 
 -- Simple cors with actualy simpleHeaders which includes content-type.
 chainwebCors :: Middleware
-chainwebCors = cors $ const $ Just $ simpleCorsResourcePolicy
-  { corsRequestHeaders = simpleHeaders
-  }
+chainwebCors = cors . const . Just $ simpleCorsResourcePolicy
+    { corsRequestHeaders = simpleHeaders
+    }
 
 serveChainwebOnPort
     :: Show t
     => PayloadCas cas
+    => Logger logger
     => Port
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Maybe (MinerResources logger cas)
     -> IO ()
-serveChainwebOnPort p v = run (int p) . chainwebApplication v
+serveChainwebOnPort p v dbs mr = run (int p) $ chainwebApplication v dbs mr
 
 serveChainweb
     :: Show t
     => PayloadCas cas
+    => Logger logger
     => Settings
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Maybe (MinerResources logger cas)
     -> IO ()
-serveChainweb s v = runSettings s . chainwebApplication v
+serveChainweb s v dbs mr = runSettings s $ chainwebApplication v dbs mr
 
 serveChainwebSocket
     :: Show t
     => PayloadCas cas
+    => Logger logger
     => Settings
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Maybe (MinerResources logger cas)
     -> IO ()
-serveChainwebSocket s sock v = runSettingsSocket s sock . chainwebApplication v
+serveChainwebSocket s sock v dbs mr =
+    runSettingsSocket s sock $ chainwebApplication v dbs mr
 
 serveChainwebSocketTls
     :: Show t
     => PayloadCas cas
+    => Logger logger
     => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
+    -> Maybe (MinerResources logger cas)
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs m
-    = runTLSSocket tlsSettings settings sock $ m app
+serveChainwebSocketTls settings certChain key sock v dbs mr m =
+    runTLSSocket tlsSettings settings sock $ m app
   where
+    tlsSettings :: TLSSettings
     tlsSettings = tlsServerChainSettings certChain key
-    app = chainwebApplication v dbs
 
+    app :: Application
+    app = chainwebApplication v dbs mr
