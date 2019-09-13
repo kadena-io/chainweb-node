@@ -49,3 +49,5 @@ extra-deps:
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
+  - github: kadena-io/streaming-events
+    commit: 0f67e920b449d594585f99afd47b21c152ee8f5c

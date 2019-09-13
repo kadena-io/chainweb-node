@@ -557,6 +557,7 @@ executable chainweb-miner
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-server >= 0.14
+        , streaming-events >= 1.0
         , strict-tuple >= 0.1
         , stm >= 2.4
         , text >= 1.2
