@@ -833,7 +833,6 @@ execLookupPactTxs
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
 execLookupPactTxs (T2 leafHeight leafHash) txs =
-    withDiscardedBatch $
     withCheckpointerRewind (Just (leafHeight + 1, leafHash))
                            "lookupPactTxs" $ \_pdbenv -> do
         cp <- getCheckpointer
