@@ -49,6 +49,8 @@ import Prelude hiding (init, lookup)
 
 import Servant
 
+import System.LogLevel
+
 -- internal modules
 
 import Pact.Types.API
@@ -62,6 +64,7 @@ import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
+import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.RestAPI.Orphans ()
@@ -69,6 +72,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
+import Chainweb.Utils
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -83,12 +87,14 @@ newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
 data SomePactServerData = forall v c logger cas
     . (KnownChainwebVersionSymbol v,
        KnownChainIdSymbol c,
-       PayloadCas cas)
+       PayloadCas cas,
+       Logger logger)
     => SomePactServerData (PactServerData_ v c logger cas)
 
 
 somePactServerData
     :: PayloadCas cas
+    => Logger logger
     => ChainwebVersion
     -> ChainId
     -> PactServerData logger cas
@@ -106,16 +112,18 @@ pactServer
      . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => PayloadCas cas
+    => Logger logger
     => PactServerData logger cas
     -> Server (PactApi v c)
 pactServer (cut, chain) =
-    sendHandler mempool :<|>
-    pollHandler cut cid chain :<|>
-    listenHandler cut cid chain :<|>
-    localHandler cut cid chain
+    sendHandler logger mempool :<|>
+    pollHandler logger cut cid chain :<|>
+    listenHandler logger cut cid chain :<|>
+    localHandler logger cut cid chain
   where
     cid = FromSing (SChainId :: Sing c)
     mempool = _chainResMempool chain
+    logger = _chainResLogger chain
 
 
 somePactServer :: SomePactServerData -> SomeServer
@@ -125,6 +133,7 @@ somePactServer (SomePactServerData (db :: PactServerData_ v c logger cas))
 
 somePactServers
     :: PayloadCas cas
+    => Logger logger
     => ChainwebVersion
     -> [(ChainId, PactServerData logger cas)]
     -> SomeServer
@@ -132,38 +141,54 @@ somePactServers v =
     mconcat . fmap (somePactServer . uncurry (somePactServerData v))
 
 
-sendHandler :: MempoolBackend ChainwebTransaction -> SubmitBatch -> Handler RequestKeys
-sendHandler mempool (SubmitBatch cmds) =
-    Handler $
+sendHandler
+    :: Logger logger
+    => logger
+    -> MempoolBackend ChainwebTransaction
+    -> SubmitBatch
+    -> Handler RequestKeys
+sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
+    liftIO $ logg Info (sshow cmds)
     case traverse validateCommand cmds of
       Right enriched -> do
         liftIO $ mempoolInsert mempool $! V.fromList $ NEL.toList enriched
         return $! RequestKeys $ NEL.map cmdToRequestKey enriched
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+  where
+    logg = logFunctionText (setComponent "send-handler" logger)
 
 pollHandler
     :: PayloadCas cas
-    => CutResources logger cas
+    => Logger logger
+    => logger
+    -> CutResources logger cas
     -> ChainId
     -> ChainResources logger
     -> Poll
     -> Handler PollResponses
-pollHandler cutR cid chain (Poll request) = liftIO $ do
+pollHandler logger cutR cid chain (Poll request) = liftIO $ do
+    logg Info (sshow request)
     -- get current best cut
     cut <- CutDB._cut $ _cutResCutDb cutR
     PollResponses <$> internalPoll cutR cid chain cut request
+  where
+    logg = logFunctionText (setComponent "poll-handler" logger)
 
 listenHandler
     :: PayloadCas cas
-    => CutResources logger cas
+    => Logger logger
+    => logger
+    -> CutResources logger cas
     -> ChainId
     -> ChainResources logger
     -> ListenerRequest
     -> Handler ListenResponse
-listenHandler cutR cid chain (ListenerRequest key) =
+listenHandler logger cutR cid chain (ListenerRequest key) = do
+    liftIO $ logg Info $ sshow $ ListenerRequest key
     liftIO (handleTimeout runListen)
   where
+    logg = logFunctionText (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
     runListen timedOut = go Nothing
       where
@@ -210,22 +235,26 @@ listenHandler cutR cid chain (ListenerRequest key) =
 
 -- TODO: reimplement local in terms of pact execution service
 localHandler
-    :: CutResources logger cas
+    :: Logger logger
+    => logger
+    -> CutResources logger cas
     -> ChainId
     -> ChainResources logger
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler _ _ cr cmd = do
-  cmd' <- case validateCommand cmd of
-    (Right !c) -> return c
-    Left err ->
-      throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
-  r <- liftIO $ _pactLocal (_chainResPact cr) cmd'
-  case r of
-    Left err ->
-      throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
-    (Right !r') -> return r'
-
+localHandler logger _ _ cr cmd = do
+    liftIO $ logg Info (sshow cmd)
+    cmd' <- case validateCommand cmd of
+      (Right !c) -> return c
+      Left err ->
+        throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+    r <- liftIO $ _pactLocal (_chainResPact cr) cmd'
+    case r of
+      Left err ->
+        throwError $ err400 { errBody = "Execution failed: " <> BSL8.pack (show err) }
+      (Right !r') -> return r'
+  where
+    logg = logFunctionText (setComponent "local-handler" logger)
 
 
 ------------------------------------------------------------------------------
