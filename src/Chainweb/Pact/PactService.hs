@@ -84,8 +84,8 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as DN
-import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as PN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMPayload as TN
+import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as PN
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
@@ -250,34 +250,36 @@ serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
-    go = do
+    tryOne which mvar m = tryOne' which mvar (return . Right) m
+    tryOne' which mvar post m = do
+        r <- try m
+        case r of
+            Left (SomeException e) -> do
+                logError $ mconcat [ "Received exception running pact service ("
+                                   , which
+                                   , "): "
+                                   , show e ]
+                liftIO $ putMVar mvar $! toPactInternalError e
+            Right r' -> post r' >>= liftIO . putMVar mvar
+
+    go = forever $ do
         logDebug $ "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
             CloseMsg -> return ()
             LocalMsg LocalReq{..} -> do
-                r <- try $ execLocal _localRequest
-                case r of
-                  Left (SomeException e) -> liftIO $ putMVar _localResultVar $ toPactInternalError e
-                  Right r' -> liftIO $ putMVar _localResultVar $ Right r'
-                go
+                tryOne "execLocal" _localResultVar $ execLocal _localRequest
             NewBlockMsg NewBlockReq {..} -> do
-                txs <- try $ execNewBlock memPoolAccess _newBlockHeader _newMiner
-                case txs of
-                  Left (SomeException e) -> do
-                    logError (show e)
-                    liftIO $ putMVar _newResultVar $ toPactInternalError e
-                  Right r -> liftIO $ putMVar _newResultVar $ Right r
-                go
+                tryOne "execNewBlock" _newResultVar $
+                    execNewBlock memPoolAccess _newBlockHeader _newMiner
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                txs <- try $ execValidateBlock _valBlockHeader _valPayloadData
-                case txs of
-                  Left (SomeException e) -> do
-                    logError (show e)
-                    liftIO $ putMVar _valResultVar $ toPactInternalError e
-                  Right r -> liftIO $ putMVar _valResultVar $ validateHashes r _valBlockHeader
-                go
+                tryOne' "execValidateBlock"
+                        _valResultVar
+                        (return . flip validateHashes _valBlockHeader)
+                        (execValidateBlock _valBlockHeader _valPayloadData)
+            LookupRequestsMsg (LookupRequestsReq _restorePoint _txHashes _resultVar) -> do
+                tryOne "execLookupRequests" _resultVar $ fail "TODO: unimplemented"
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
 

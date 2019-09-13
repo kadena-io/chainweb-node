@@ -15,6 +15,7 @@ import Control.Concurrent.STM.TQueue
 import Control.Exception (evaluate)
 import Control.Monad.Catch
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Vector as V
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
@@ -38,6 +39,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock = \h pd -> withChainService h $ \p -> _pactValidateBlock p h pd
   , _pactNewBlock = \m h -> withChainService h $ \p -> _pactNewBlock p m h
   , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
+  , _pactLookup = error "TODO"
   }
   where withChainService h act = case HM.lookup (_chainId h) hm of
           Just p -> act p
@@ -60,6 +62,7 @@ mkPactExecutionService q = PactExecutionService
   , _pactLocal = \ct -> do
       mv <- local ct q
       takeMVar mv
+  , _pactLookup = error "TODO"
   }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
@@ -70,4 +73,5 @@ emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
     , _pactNewBlock = \_ _ -> pure emptyPayload
     , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
+    , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     }

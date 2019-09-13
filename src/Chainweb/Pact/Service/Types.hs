@@ -15,9 +15,13 @@ import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text, pack)
+import Data.Tuple.Strict
+import Data.Vector (Vector)
 import GHC.Generics
+import qualified Pact.Types.Hash as P
 
-import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -44,25 +48,37 @@ internalError' = internalError . pack
 data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
+                | LookupRequestsMsg LookupRequestsReq
                 | CloseMsg
                 deriving (Show)
+
+type PactExMVar t = MVar (Either PactException t)
 
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
     , _newMiner :: Miner
-    , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
+    , _newResultVar :: PactExMVar PayloadWithOutputs
     }
 instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader
     , _valPayloadData :: PayloadData
-    , _valResultVar :: MVar (Either PactException PayloadWithOutputs)
+    , _valResultVar :: PactExMVar PayloadWithOutputs
     }
 instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlockHeader, _valPayloadData)
 
 data LocalReq = LocalReq
     { _localRequest :: ChainwebTransaction
-    , _localResultVar :: MVar (Either PactException HashCommandResult)
+    , _localResultVar :: PactExMVar HashCommandResult
     }
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
+
+data LookupRequestsReq = LookupRequestsReq
+    { _lookupRestorePoint :: !(T2 BlockHeight BlockHash)
+    , _lookupKeys :: !(Vector P.PactHash)
+    , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
+    }
+instance Show LookupRequestsReq where
+    show (LookupRequestsReq (T2 he ha) _ _) =
+        "LookupRequestsReq@" ++ show he ++ ":" ++ show ha

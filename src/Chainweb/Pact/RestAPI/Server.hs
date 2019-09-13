@@ -23,7 +23,7 @@ module Chainweb.Pact.RestAPI.Server
 import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
-import Control.Lens ((^.))
+import Control.Lens ((^.), view)
 import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
@@ -237,9 +237,12 @@ internalPoll
     -> Cut
     -> NonEmpty RequestKey
     -> IO (HashMap RequestKey (CommandResult Hash))
-internalPoll cutR cid chain cut requestKeys =
-    HM.fromList <$> wither lookup (NEL.toList requestKeys)
+internalPoll cutR cid chain cut requestKeys0 =
+    HM.fromList <$> wither lookup requestKeys
   where
+    _pactEx = view chainResPact chain
+    requestKeys = NEL.toList requestKeys0
+
     lookup :: RequestKey -> IO (Maybe (RequestKey, CommandResult Hash))
     lookup key = fmap (key,) <$> lookupRequestKey cid cut cutR chain key
 
