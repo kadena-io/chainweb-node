@@ -16,6 +16,7 @@ module Chainweb.Pact.Service.BlockValidation
 ( validateBlock
 , newBlock
 , local
+, spvReq
 ) where
 
 
@@ -29,6 +30,8 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+
+import Pact.Types.Hash
 
 
 newBlock :: Miner -> BlockHeader -> TQueue RequestMsg ->
@@ -56,7 +59,10 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either PactException HashCommandResult))
+local
+    :: ChainwebTransaction
+    -> TQueue RequestMsg
+    -> IO (MVar (Either PactException HashCommandResult))
 local ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
@@ -64,3 +70,20 @@ local ct reqQ = do
           , _localResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
+
+spvReq
+    :: PactHash
+    -> BlockHeader
+    -> TQueue RequestMsg
+    -> IO (MVar (Either PactException Base64TxOutputProof))
+spvReq ph bh tq = do
+    mv <- newEmptyMVar
+
+    let !msg = SpvMsg SpvReq
+          { _spvTxHash = ph
+          , _spvBlockHeader = bh
+          , _spvResultVar = mv
+          }
+
+    addRequest tq msg
+    return mv

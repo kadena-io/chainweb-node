@@ -606,8 +606,8 @@ execSpv
     -> PactServiceM cas Base64TxOutputProof
 execSpv cdb bdb pdb bh tid ph =
     rewindTo bh' $ \_ -> do
-      k <- view $ psCheckpointEnv . cpeCheckpointer
-      m <- liftIO $ lookupProcessedTx k $ ph
+      cp <- view $ psCheckpointEnv . cpeCheckpointer
+      m <- liftIO $ _cpLookupProcessedTx cp $ ph
       case m of
         Nothing -> internalError
           $ "Transaction hash not found: "
