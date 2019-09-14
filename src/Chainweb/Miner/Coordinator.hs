@@ -86,14 +86,16 @@ newtype PrevBlock = PrevBlock BlockHeader
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
-    :: Miner
+    :: Maybe ChainId
+    -> Miner
     -> PactExecutionService
     -> Cut
     -> IO (T3 PrevBlock BlockHeader PayloadWithOutputs)
-newWork miner pact c = do
-    -- Randomly pick a chain to mine on.
+newWork mcid miner pact c = do
+    -- Randomly pick a chain to mine on, unless the caller specified a specific
+    -- one.
     --
-    cid <- randomChainId c
+    cid <- maybe (randomChainId c) pure mcid
 
     -- The parent block the mine on. Any given chain will always
     -- contain at least a genesis block, so this otherwise naughty
@@ -105,8 +107,16 @@ newWork miner pact c = do
     -- also exist. If they don't, we test other chains on this same `Cut`,
     -- since we still believe this `Cut` to be good.
     --
+    -- Note that if the caller did specify a specific chain to mine on, we only
+    -- attempt this once. We assume they'd rather have /some/ work on /some/
+    -- chain rather than no work on their chosen chain. This will also help
+    -- rebalance "selfish" mining, for remote clients who claim that they want
+    -- to focus their hash power on a certain chain.
+    --
+    -- TODO Consider instead some maximum amount of retries?
+    --
     case getAdjacentParents c p of
-        Nothing -> newWork miner pact c
+        Nothing -> newWork Nothing miner pact c
         Just adjParents -> do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.

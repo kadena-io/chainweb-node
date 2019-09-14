@@ -56,10 +56,16 @@ import Data.Singletons
 
 ---
 
-workHandler :: forall l cas. Logger l => MiningCoordination l cas -> Miner -> IO WorkBytes
-workHandler mr m = do
+workHandler
+    :: forall l cas
+    .  Logger l
+    => MiningCoordination l cas
+    -> Maybe ChainId
+    -> Miner
+    -> IO WorkBytes
+workHandler mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork m pact c
+    T3 p bh pl <- newWork mcid m pact c
     let !phash = _blockPayloadHash bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . HM.insert phash $ T2 p pl
     pure . suncurry3 workBytes $ transferableBytes bh
@@ -92,7 +98,7 @@ updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
     cv  <- _cut cdb >>= newIORef
     eventSourceAppIO (go cid cv) req respond
   where
-    -- | A completely empty `ServerEvent` that signals the discovery of a new
+    -- | A nearly empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
     -- to the caller.
     --
@@ -108,7 +114,7 @@ miningServer
     => MiningCoordination l cas
     -> Server (MiningApi v)
 miningServer mr =
-    liftIO . workHandler mr
+    (\mcid m -> liftIO $ workHandler mr mcid m)
     :<|> liftIO . solvedHandler mr
     :<|> updatesHandler (_coordCutDb mr)
 

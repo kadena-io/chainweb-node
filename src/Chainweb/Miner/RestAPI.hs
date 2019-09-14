@@ -45,9 +45,16 @@ import Data.Singletons
 -- Payload, then published to the rest of the network.
 --
 type MiningApi_ =
-    "mining" :> "work" :> ReqBody '[JSON] Miner :> Get '[OctetStream] WorkBytes
-    :<|> "mining" :> "solved" :> ReqBody '[OctetStream] HeaderBytes :> Post '[JSON] NoContent
-    :<|> "mining" :> "updates" :> ReqBody '[OctetStream] ChainBytes :> Raw
+    "mining" :> "work"
+             :> QueryParam "chain" ChainId
+             :> ReqBody '[JSON] Miner
+             :> Get '[OctetStream] WorkBytes
+    :<|> "mining" :> "solved"
+                  :> ReqBody '[OctetStream] HeaderBytes
+                  :> Post '[JSON] NoContent
+    :<|> "mining" :> "updates"
+                  :> ReqBody '[OctetStream] ChainBytes
+                  :> Raw
 
 type MiningApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc MiningApi_
 

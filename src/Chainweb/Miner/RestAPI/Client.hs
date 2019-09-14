@@ -32,9 +32,9 @@ import Data.Singletons
 -- -----------------------------------------------------------------------------
 -- Mining Results
 
-workClient :: ChainwebVersion -> Miner -> ClientM WorkBytes
-workClient v m = case clients v of
-  f :<|> _ -> f m
+workClient :: ChainwebVersion -> Maybe ChainId -> Miner -> ClientM WorkBytes
+workClient v mcid m = case clients v of
+  f :<|> _ -> f mcid m
 
 solvedClient :: ChainwebVersion -> HeaderBytes -> ClientM NoContent
 solvedClient v hbytes = case clients v of
@@ -42,7 +42,7 @@ solvedClient v hbytes = case clients v of
 
 clients
     :: ChainwebVersion
-    -> (Miner -> ClientM WorkBytes)
+    -> (Maybe ChainId -> Miner -> ClientM WorkBytes)
     :<|> (HeaderBytes -> ClientM NoContent)
     :<|> (ChainBytes -> Method -> ClientM Response)
 clients (FromSing (SChainwebVersion :: Sing v)) = client (miningApi @v)
