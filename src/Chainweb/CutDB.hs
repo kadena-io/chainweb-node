@@ -265,8 +265,8 @@ awaitNewCut cdb c = atomically $ do
 -- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
 -- grown.
 --
-awaitNewCutByChainId :: CutDb cas -> Cut -> ChainId -> IO Cut
-awaitNewCutByChainId cdb c cid = atomically $ do
+awaitNewCutByChainId :: CutDb cas -> ChainId -> Cut -> IO Cut
+awaitNewCutByChainId cdb cid c = atomically $ do
     c' <- _cutStm cdb
     let !b0 = HM.lookup cid $ _cutMap c
         !b1 = HM.lookup cid $ _cutMap c'

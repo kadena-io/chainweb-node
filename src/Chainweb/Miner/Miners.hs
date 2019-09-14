@@ -109,7 +109,7 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
         c <- _cut cdb
         T3 p bh pl <- newWork m pact c
         let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T2 p pl)
-        race (awaitNewCutByChainId cdb c $ _chainId bh) (work bh) >>= \case
+        race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
 

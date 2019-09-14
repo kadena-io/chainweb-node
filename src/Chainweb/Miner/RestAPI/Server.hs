@@ -21,6 +21,7 @@ import Control.Lens (over, view)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
+import Data.Functor (($>))
 import Data.Binary.Builder (fromByteString)
 import Data.IORef (IORef, readIORef, writeIORef, newIORef)
 import Data.Generics.Wrapped (_Unwrapped)
@@ -38,7 +39,7 @@ import Servant.Server
 import Chainweb.Cut (Cut)
 import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
-import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, awaitNewCut)
+import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, awaitNewCutByChainId)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Coordinator (MiningState(..), newWork, publish)
 import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes, workBytes)
@@ -86,8 +87,8 @@ solvedHandler mr (HeaderBytes hbytes) = do
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
-updatesHandler :: CutDb cas -> Tagged Handler Application
-updatesHandler cdb = Tagged $ \req respond -> do
+updatesHandler :: CutDb cas -> ChainId -> Tagged Handler Application
+updatesHandler cdb cid = Tagged $ \req respond -> do
     cv <- _cut cdb >>= newIORef
     eventSourceAppIO (go cv) req respond
   where
@@ -99,7 +100,9 @@ updatesHandler cdb = Tagged $ \req respond -> do
     f _ = ServerEvent (Just $ fromByteString "New Cut") Nothing []
 
     go :: IORef Cut -> IO ServerEvent
-    go cv = readIORef cv >>= awaitNewCut cdb >>= \new -> writeIORef cv new >> pure (f new)
+    go cv = do
+        new <- readIORef cv >>= awaitNewCutByChainId cdb cid
+        writeIORef cv new $> f new
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)

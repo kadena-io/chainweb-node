@@ -44,5 +44,5 @@ clients
     :: ChainwebVersion
     -> (Miner -> ClientM WorkBytes)
     :<|> (HeaderBytes -> ClientM NoContent)
-    :<|> (Method -> ClientM Response)
+    :<|> (ChainId -> Method -> ClientM Response)
 clients (FromSing (SChainwebVersion :: Sing v)) = client (miningApi @v)
