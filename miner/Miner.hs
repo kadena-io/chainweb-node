@@ -16,63 +16,45 @@
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
 --
--- The fast "inner loop" of the mining process. Sits idle upon startup until
--- work is submitted.
+-- The fast "inner loop" of the mining process. Asks for work from a Chainweb
+-- Node, and submits results back to it.
 --
 -- == Purpose and Expectations ==
 --
--- This tool is a low-level, push-based, private, multicore CPU miner for
--- Chainweb. By this we mean:
+-- This tool is a low-level, pull-based, independent, focusable, multicore CPU
+-- miner for Chainweb. By this we mean:
 --
---   * low-level: the miner is aware of what how `BlockHeader`s are encoded into
+--   * low-level: The miner is not aware of how `BlockHeader`s are encoded into
 --     `ByteString`s, as indicated by an external spec. It does not know how to
 --     construct a full `BlockHeader` type, nor does it need to. It has no
 --     concept of `Cut`s or the cut network used by Chainweb - it simply
 --     attempts `Nonce`s until a suitable hash is found that matches the current
 --     `HashTarget`.
 --
---   * push-based: Work is submitted to the miner in the form of an encoded
---     candidate `BlockHeader`. The miner then automatically handles cancelling
---     previous mining attempts, hashing, cycling the `Nonce`, and caching the
---     result. Note that we maintain no "long connections", so work submissions
---     yield an HTTP response immediately, and the results of successful mining
---     must be polled manually.
+--   * pull-based: Work is requested from some remote Chainweb Node, as
+--     configured on the command line. The Miner is given an encoded candidate
+--     `BlockHeader`, which it then injects a `Nonce` into, hashes, and checks
+--     for a solution. If/when a solution is found, it is sent back to the
+--     Chainweb Node to be reassociated with its Payload and published as a new
+--     `Cut` to the network.
 --
---   * private: Work can be submitted (and results polled) by anyone. It is
---     therefore expected that a miner's HTTP interface is not exposed to the
---     open internet.
---     __It is the duty of the user (you) to ensure a correct configuration!__
+--   * independent: It is assumed that in general, individuals running Chainweb
+--     Miners and Chainweb Nodes are separate entities. A Miner requests work
+--     from a Node and trusts them to assemble a block. Nodes do not know who is
+--     requesting work, but Miners know who they're requesting work from. In
+--     this way, there is a many-to-one relationship between Mining Clients and
+--     a Node.
 --
---   * multicore: the miner uses 1 CPU core by default, but can use as many as
+--   * focusable: A Miner can be configured to prioritize work belonging to a
+--     specific chain. Note, however, that if a work request for a particular
+--     chain can't be filled by a Node (if say that Chain has progressed too far
+--     relative to its neighbours), then the Node will send back whatever it
+--     could find. This strategy is to balance the needs of Miners who have a
+--     special interest in progressing a specific chain with the needs of the
+--     network which requires even progress across all chains.
+--
+--   * multicore: The miner uses 1 CPU core by default, but can use as many as
 --     you indicate. GPU support will be added soon.
---
--- Since this miner is "low-level", it is up to the user to submit valid encoded
--- `WorkBytes` - an encoded `HashTarget` + `BlockHeader` combination - derived
--- from some suitable `Cut` (a full @chainweb-node@ handles this automatically).
---
--- When mining has completed for some given work, the process will sit idle. At
--- most, between 128 and 256 recently mined `HeaderBytes`s per chain will be
--- kept in the cache. If the miner process exits, the cache is lost.
--- __Unpolled results thus cannot be recovered after a miner has been shutdown.__
---
--- == Usage ==
---
--- === submit/ endpoint ===
---
--- A POST call, expecting a `WorkBytes` in the @octet-stream@ content type. This
--- will cancel any current mining. If you wish to mine on multiple chains
--- simultaneously, you can run multiple miner processes on different ports.
---
--- === poll/ endpoint ===
---
--- A GET call, given a `ChainId` and `BlockHeight` where we expect there to be a
--- result. /May/ return a single `HeaderBytes`, if mining were successful there.
--- Failure is represented by an empty `ByteString` and indicates one of the
--- following:
---
---   * New work cancelled the previous, thus no result was saved.
---   * Mining may still succeed before the work stales, but just hasn't yet.
---   * The given `ChainId` and `BlockHeight` were incorrect.
 --
 
 module Main ( main ) where
@@ -138,7 +120,7 @@ data ClientArgs = ClientArgs
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
-data CPUEnv = CPUEnv { cores :: Word16 }
+newtype CPUEnv = CPUEnv { cores :: Word16 }
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
