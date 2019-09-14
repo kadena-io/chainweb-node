@@ -160,6 +160,7 @@ module Chainweb.Utils
 
 -- * Resource Management
 , concurrentWith
+, withLink
 
 -- * Strict Tuples
 , sfst
@@ -1101,6 +1102,15 @@ concurrentWith alloc inner params = do
     concAlloc doneVar (p, var) = alloc p $ \b -> do
         putMVar var b
         readMVar doneVar
+
+-- | Run an async IO action, link it back to the main thread, and return
+-- the async result
+--
+withLink :: forall a. IO a -> IO (Async a)
+withLink act = do
+  a <- async act
+  link a
+  return a
 
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
