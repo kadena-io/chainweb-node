@@ -85,18 +85,21 @@ import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
 import Data.Aeson (ToJSON(..), Value(..))
+import qualified Data.ByteString.Char8 as B
 import qualified Data.Text as T
+import Data.Text.Encoding (encodeUtf8)
 
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client (Manager, newManager)
+import Network.HTTP.Client
 import Network.HTTP.Client.TLS (mkManagerSettings)
-import qualified Network.Wai.Handler.Warp as W
+import Network.Wai.EventSource (ServerEvent(..))
+import Network.Wai.EventSource.Streaming (withEvents)
 
 import Options.Applicative
 
-import Servant.API
 import Servant.Client
-import Servant.Server
+
+import qualified Streaming.Prelude as SP
 
 import qualified System.Random.MWC as MWC
 
@@ -128,7 +131,6 @@ instance ToJSON NodeURL where
 data ClientArgs = ClientArgs
     { cmd :: Command
     , version :: ChainwebVersion
-    , port :: Int
     , coordinator :: NodeURL
     , miner :: Miner
     , chainid :: Maybe ChainId }
@@ -153,7 +155,7 @@ data Env = Env
     , args :: ClientArgs }
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort <*> pUrl <*> pMiner <*> pChainId
+pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pUrl <*> pMiner <*> pChainId
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -180,16 +182,11 @@ pVersion = textOption
     defv :: ChainwebVersion
     defv = Development
 
-pPort :: Parser Int
-pPort = option auto
-    (long "port" <> metavar "PORT" <> value 8081
-     <> help "Port on which to run the miner (default: 8081)")
-
 pUrl :: Parser NodeURL
-pUrl = NodeURL . hostAddressToBaseUrl Https <$> host
+pUrl = NodeURL . hostAddressToBaseUrl Https <$> hadd
   where
-    host :: Parser HostAddress
-    host = textOption
+    hadd :: Parser HostAddress
+    hadd = textOption
         (long "node" <> metavar "<HOSTNAME:PORT>"
         <> help "Remote address of Chainweb Node to send mining results to.")
 
@@ -254,8 +251,26 @@ mining go e wb = do
     race newWork (suncurry go . rwipe3 $ unWorkBytes wb) >>= traverse_ miningSuccess
     getWork e >>= traverse_ (mining go e)
   where
+    -- TODO Rework to use Servant's streaming? Otherwise I can't use the
+    -- convenient client function here.
     newWork :: IO ()
-    newWork = threadDelay (3600 * 1000000)  -- TODO spin for now (an hour).
+    newWork = withEvents req (mgr e) (void . SP.head_ . SP.filter realEvent)
+      where
+        realEvent :: ServerEvent -> Bool
+        realEvent (ServerEvent _ _ _) = True
+        realEvent _ = False
+
+        a :: ClientArgs
+        a = args e
+
+        req :: Request
+        req = defaultRequest
+            { host = B.pack . baseUrlHost . _url $ coordinator a
+            , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"
+            , port = baseUrlPort . _url $ coordinator a
+            , secure = True
+            , method = "GET"
+            }
 
     -- | If the `go` call won the `race`, this function yields the result back
     -- to some "mining coordinator" (likely a chainweb-node). If `newWork` won

@@ -544,6 +544,7 @@ executable chainweb-miner
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
+        , bytestring >= 0.10
         , connection >= 0.2
         , containers >= 0.5
         , errors >= 2.3
@@ -556,11 +557,12 @@ executable chainweb-miner
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-client >= 0.14
-        , servant-server >= 0.14
+        , streaming >= 0.2
         , streaming-events >= 1.0
         , strict-tuple >= 0.1
         , stm >= 2.4
         , text >= 1.2
+        , wai-extra >= 3.0
         , warp >= 3.2
 
 executable cwtool
