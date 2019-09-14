@@ -32,6 +32,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (race)
 import Control.Lens (view)
 
 import Numeric.Natural (Natural)
@@ -42,7 +43,7 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
-import Chainweb.CutDB (CutDb, awaitNewCut, cutDbPayloadStore, _cut)
+import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
@@ -108,7 +109,9 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
         c <- _cut cdb
         T3 p bh pl <- newWork m pact c
         let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T2 p pl)
-        work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
+        race (awaitNewCutByChainId cdb c $ _chainId bh) (work bh) >>= \case
+            Left _ -> loop
+            Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
