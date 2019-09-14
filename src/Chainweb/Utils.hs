@@ -166,6 +166,7 @@ module Chainweb.Utils
 , ssnd
 , scurry
 , suncurry
+, suncurry3
 
 -- * Approximate thread delays
 , approximateThreadDelay
@@ -1126,6 +1127,10 @@ scurry k a b = k (T2 a b)
 suncurry :: forall a b c. (a -> b -> c) -> T2 a b -> c
 suncurry k (T2 a b) = k a b
 {-# INLINE suncurry #-}
+
+suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
+suncurry3 k (T3 a b c) = k a b c
+{-# INLINE suncurry3 #-}
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays

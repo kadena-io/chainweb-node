@@ -21,7 +21,6 @@ import Control.Lens (over, view)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
-import Data.Functor (($>))
 import Data.Binary.Builder (fromByteString)
 import Data.IORef (IORef, readIORef, writeIORef, newIORef)
 import Data.Generics.Wrapped (_Unwrapped)
@@ -42,13 +41,13 @@ import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, awaitNewCutByChainId)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Coordinator (MiningState(..), newWork, publish)
-import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes, workBytes)
+import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes, workBytes, ChainBytes(..))
 import Chainweb.Miner.Miners (transferableBytes)
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Utils (runGet, suncurry)
+import Chainweb.Utils (runGet, suncurry3)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -63,7 +62,7 @@ workHandler mr m = do
     T3 p bh pl <- newWork m pact c
     let !phash = _blockPayloadHash bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . HM.insert phash $ T2 p pl
-    pure . suncurry workBytes $ transferableBytes bh
+    pure . suncurry3 workBytes $ transferableBytes bh
   where
     cdb :: CutDb cas
     cdb = _coordCutDb mr
@@ -87,22 +86,21 @@ solvedHandler mr (HeaderBytes hbytes) = do
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
-updatesHandler :: CutDb cas -> ChainId -> Tagged Handler Application
-updatesHandler cdb cid = Tagged $ \req respond -> do
-    cv <- _cut cdb >>= newIORef
-    eventSourceAppIO (go cv) req respond
+updatesHandler :: CutDb cas -> ChainBytes -> Tagged Handler Application
+updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
+    cid <- runGet decodeChainId cbytes
+    cv  <- _cut cdb >>= newIORef
+    eventSourceAppIO (go cid cv) req respond
   where
     -- | A completely empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
     -- to the caller.
     --
-    f :: Cut -> ServerEvent
-    f _ = ServerEvent (Just $ fromByteString "New Cut") Nothing []
+    f :: ServerEvent
+    f = ServerEvent (Just $ fromByteString "New Cut") Nothing []
 
-    go :: IORef Cut -> IO ServerEvent
-    go cv = do
-        new <- readIORef cv >>= awaitNewCutByChainId cdb cid
-        writeIORef cv new $> f new
+    go :: ChainId -> IORef Cut -> IO ServerEvent
+    go cid cv = readIORef cv >>= awaitNewCutByChainId cdb cid >>= writeIORef cv >> pure f
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
