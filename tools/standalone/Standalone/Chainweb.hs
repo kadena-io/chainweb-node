@@ -244,25 +244,26 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
 
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
-                    withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
-                        logg Info "finished initializing miner resources"
-                        inner Chainweb
-                                  { _chainwebHostAddress =
-                                      _peerConfigAddr
-                                      $ _p2pConfigPeer
-                                      $ _configP2p conf
-                                  , _chainwebChains = cs
-                                  , _chainwebCutResources = cuts
-                                  , _chainwebNodeId = cwnid
-                                  , _chainwebMiner = m
-                                  , _chainwebLogger = logger
-                                  , _chainwebPeer = peer
-                                  , _chainwebPayloadDb = payloadDb
-                                  , _chainwebManager = mgr
-                                  , _chainwebPactData = pactData
-                                  , _chainwebThrottler = throttler
-                                  , _chainwebConfig = conf
-                                  }
+                    withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
+                        withMinerResources mLogger mConf mCutDb $ \m -> do
+                            logg Info "finished initializing miner resources"
+                            inner Chainweb
+                                      { _chainwebHostAddress =
+                                          _peerConfigAddr
+                                          $ _p2pConfigPeer
+                                          $ _configP2p conf
+                                      , _chainwebChains = cs
+                                      , _chainwebCutResources = cuts
+                                      , _chainwebMiner = m
+                                      , _chainwebCoordinator = mc
+                                      , _chainwebLogger = logger
+                                      , _chainwebPeer = peer
+                                      , _chainwebPayloadDb = payloadDb
+                                      , _chainwebManager = mgr
+                                      , _chainwebPactData = pactData
+                                      , _chainwebThrottler = throttler
+                                      , _chainwebConfig = conf
+                                      }
 
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
@@ -274,7 +275,6 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
             m []
     v = _configChainwebVersion conf
     cids = chainIds v
-    cwnid = _configNodeId conf
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)
