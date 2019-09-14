@@ -161,12 +161,13 @@ module Chainweb.Utils
 -- * Resource Management
 , concurrentWith
 
--- * Strict tuple-2 accessors
+-- * Strict Tuples
 , sfst
 , ssnd
 , scurry
 , suncurry
 , suncurry3
+, rwipe3
 
 -- * Approximate thread delays
 , approximateThreadDelay
@@ -1131,6 +1132,9 @@ suncurry k (T2 a b) = k a b
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c
 {-# INLINE suncurry3 #-}
+
+rwipe3 :: T3 a b c -> T2 b c
+rwipe3 (T3 _ b c) = T2 b c
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays

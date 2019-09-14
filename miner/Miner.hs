@@ -109,7 +109,7 @@ import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-import Chainweb.Utils (suncurry, textOption, toText)
+import Chainweb.Utils (rwipe3, suncurry, textOption, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -250,18 +250,19 @@ getWork e = retrying policy (\_ -> pure . isNothing) $ const f
     policy = exponentialBackoff 500000 <> limitRetries 7
 
     f :: IO (Maybe WorkBytes)
-    f = hush <$> runClientM (workClient v . miner $ args e) (ClientEnv m u Nothing)
+    f = hush <$> runClientM (workClient v Nothing . miner $ args e) (ClientEnv m u Nothing)
 
     v = version $ args e
     m = mgr e
     u = _url . coordinator $ args e
 
--- TODO This should fail loudly if it ever exits.
+-- TODO Get rid of the `env` server, so that if `mining` exits, the miner can
+-- end with `exitFailure`.
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
 mining :: (TargetBytes -> HeaderBytes -> IO HeaderBytes) -> Env -> WorkBytes -> IO ()
 mining go e wb = do
-    race newWork (suncurry go $ unWorkBytes wb) >>= traverse_ miningSuccess
+    race newWork (suncurry go . rwipe3 $ unWorkBytes wb) >>= traverse_ miningSuccess
     getWork e >>= traverse_ (mining go e)
   where
     newWork :: IO ()

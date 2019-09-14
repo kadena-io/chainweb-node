@@ -133,9 +133,9 @@ newWork mcid miner pact c = do
 
             pure $ T3 (PrevBlock p) header payload
 
--- | THREAD: Accepts a "solved" `BlockHeader` from some external source (likely
--- a remote mining client), attempts to reassociate it with the current best
--- `Cut`, and publishes the result to the `Cut` network.
+-- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
+-- mining client), attempts to reassociate it with the current best `Cut`, and
+-- publishes the result to the `Cut` network.
 --
 publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish lf (MiningState ms) cdb bh = do
