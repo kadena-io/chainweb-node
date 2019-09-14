@@ -130,7 +130,8 @@ data ClientArgs = ClientArgs
     , version :: ChainwebVersion
     , port :: Int
     , coordinator :: NodeURL
-    , miner :: Miner }
+    , miner :: Miner
+    , chainid :: Maybe ChainId }
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
@@ -152,7 +153,7 @@ data Env = Env
     , args :: ClientArgs }
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort <*> pUrl <*> pMiner
+pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pPort <*> pUrl <*> pMiner <*> pChainId
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -189,9 +190,13 @@ pUrl = NodeURL . hostAddressToBaseUrl Https <$> host
   where
     host :: Parser HostAddress
     host = textOption
-        (long "node"
-        <> help "Remote address of Chainweb Node to send mining results to."
-        <> metavar "<HOSTNAME:PORT>")
+        (long "node" <> metavar "<HOSTNAME:PORT>"
+        <> help "Remote address of Chainweb Node to send mining results to.")
+
+pChainId :: Parser (Maybe ChainId)
+pChainId = optional $ textOption
+    (long "chain" <> metavar "CHAIN-ID"
+     <> help "Prioritize work requests for a specific chain")
 
 --------------------------------------------------------------------------------
 -- Work
@@ -235,14 +240,13 @@ getWork e = retrying policy (\_ -> pure . isNothing) $ const f
     policy = exponentialBackoff 500000 <> limitRetries 7
 
     f :: IO (Maybe WorkBytes)
-    f = hush <$> runClientM (workClient v Nothing . miner $ args e) (ClientEnv m u Nothing)
+    f = hush <$> runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
 
-    v = version $ args e
+    a = args e
+    v = version a
     m = mgr e
-    u = _url . coordinator $ args e
+    u = _url $ coordinator a
 
--- TODO Get rid of the `env` server, so that if `mining` exits, the miner can
--- end with `exitFailure`.
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
 mining :: (TargetBytes -> HeaderBytes -> IO HeaderBytes) -> Env -> WorkBytes -> IO ()
