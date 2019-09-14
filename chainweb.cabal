@@ -298,6 +298,7 @@ library
         , hourglass >=0.2
         , http-client >= 0.5
         , http-client-tls >=0.3
+        , http-media >= 0.8
         , http-types >= 0.12
         , ixset-typed >= 0.4
         , lens >= 4.16
