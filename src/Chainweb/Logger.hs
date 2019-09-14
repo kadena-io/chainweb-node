@@ -86,6 +86,7 @@ l2l :: LogLevel -> L.LogLevel
 l2l Quiet = L.Quiet
 l2l Error = L.Error
 l2l Warn = L.Warn
+l2l Notice = L.Notice
 l2l Info = L.Info
 l2l Debug = L.Debug
 l2l (Other _) = L.Debug
@@ -95,6 +96,7 @@ l2l' :: L.LogLevel -> LogLevel
 l2l' L.Quiet = Quiet
 l2l' L.Error = Error
 l2l' L.Warn = Warn
+l2l' L.Notice = Notice
 l2l' L.Info = Info
 l2l' L.Debug = Debug
 {-# INLINE l2l' #-}
@@ -139,4 +141,3 @@ instance L.LoggerCtx GenericLogger SomeLogMessage where
 --
 genericLogger :: LogLevel -> (T.Text -> IO ()) -> GenericLogger
 genericLogger level fun = GenericLogger [] level fun
-

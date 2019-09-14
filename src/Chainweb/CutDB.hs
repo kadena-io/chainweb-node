@@ -299,10 +299,10 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg Debug "obtain initial cut"
     cutVar <- newTVarIO =<< initialCut
     c <- readTVarIO cutVar
-    logg Info $ "got initial cut: " <> sshow c
+    logg Notice $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
     cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
-    logg Info "CutDB started"
+    logg Notice "CutDB started"
     return $! CutDb
         { _cutDbCut = cutVar
         , _cutDbQueue = queue

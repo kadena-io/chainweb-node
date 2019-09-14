@@ -188,7 +188,7 @@ runMonitorLoop label logger = runForeverThrottled
 runCutMonitor :: Logger logger => logger -> CutDb cas -> IO ()
 runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runCutMonitor" l $ do
-        logFunctionText l Info $ "Initialized Cut Monitor"
+        logFunctionText l Notice $ "Initialized Cut Monitor"
         S.mapM_ (logFunctionJson l Info)
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
@@ -217,7 +217,7 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
         False -> do
             logFunctionText l Warn "RTS Stats isn't enabled. Run with '+RTS -T' to enable it."
         True -> do
-            logFunctionText l Info $ "Initialized RTS Monitor"
+            logFunctionText l Notice $ "Initialized RTS Monitor"
             runMonitorLoop "Chainweb.Node.runRtsMonitor" l $ do
                 stats <- getRTSStats
                 logFunctionText l Info $ "got stats"
@@ -239,7 +239,7 @@ runQueueMonitor :: Logger logger => logger -> CutDb cas -> IO ()
 runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
   where
     go l = do
-        logFunctionText l Info $ "Initialized Queue Monitor"
+        logFunctionText l Notice $ "Initialized Queue Monitor"
         runMonitorLoop "ChainwebNode.runQueueMonitor" l $ do
             stats <- QueueStats
                 <$> cutDbQueueSize cutDb
@@ -261,7 +261,7 @@ node conf logger = do
     rocksDbDir <- getRocksDbDir
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
-        logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+        logFunctionText logger Notice $ "opened rocksdb in directory " <> sshow rocksDbDir
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)

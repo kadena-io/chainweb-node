@@ -166,15 +166,12 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
     sqlitedir <- getSqliteDir
     when doResetDb $ resetDb sqlitedir
     createDirectoryIfMissing True sqlitedir
-    logFunctionText chainwebLogger Info $
+    let sqlitefile = getSqliteFile sqlitedir
+    logFunctionText chainwebLogger Notice $
         mconcat [ "opened sqlitedb for "
                 , sshow cid
-                , " in directory "
-                , sshow sqlitedir ]
-
-    let sqlitefile = getSqliteFile sqlitedir
-    logFunctionText chainwebLogger Info $
-        "opening sqlitedb named " <> (T.pack sqlitefile)
+                , " from file "
+                , sshow sqlitefile ]
 
     withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
       checkpointEnv <- initRelationalCheckpointer

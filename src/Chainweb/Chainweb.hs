@@ -434,14 +434,14 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             -- takes long (why would it?) we want this to happen before we go
             -- online.
             --
-            logg Info "start synchronizing Pact DBs"
+            logg Notice "start synchronizing Pact DBs"
             synchronizePactDb cs mCutDb
-            logg Info "finished synchronizing Pact DBs"
+            logg Notice "finished synchronizing Pact DBs"
 
             withPactData cs cuts $ \pactData -> do
-                logg Info "start initializing miner resources"
+                logg Notice "start initializing miner resources"
                 withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
-                    logg Info "finished initializing miner resources"
+                    logg Notice "finished initializing miner resources"
                     inner Chainweb
                         { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         , _chainwebChains = cs
@@ -516,7 +516,7 @@ runChainweb
     => Chainweb logger cas
     -> IO ()
 runChainweb cw = do
-    logg Info "start chainweb node"
+    logg Notice "start chainweb node"
     concurrently_
         -- 1. Start serving Rest API
         (serve (throttle (_chainwebThrottler cw) . httpLog))

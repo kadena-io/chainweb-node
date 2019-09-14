@@ -181,6 +181,14 @@ in
         });
         # --- end of `tasty` dependents --- #
 
+        # our own fork
+        loglevel = self.callCabal2nix "loglevel" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "loglevel";
+          rev = "f0c79b865da64c65488ba83c3f0511a27f8067ce";
+          sha256 = "0bzyqmj82kj62aqk44fs35yn23hdsmaf70pfnz91vflixvxmq7yj";
+        }) {};
+
         # pact-3.2.1
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
@@ -201,11 +209,13 @@ in
           sha256 = "0rgh2698h6xc6q462lbmdb637wz2kkbnkgbhv1h7a6p3zv097dg2";
         });
 
-        yet-another-logger = callHackageDirect {
-          pkg = "yet-another-logger";
-          ver = "0.3.1";
-          sha256 = "17i5km3bxlp568q9pbnbp2nvpfgnmccpfnvcci0z1f56cw95679n";
-        };
+        # our own fork
+        yet-another-logger = self.callCabal2nix "yet-another-logger" (pkgs.fetchFromGitHub {
+          owner = "kadena-io";
+          repo = "hs-yet-another-logger";
+          rev = "e8f3b1d696deb5ce904028706c9ae44bcfab92f8";
+          sha256 = "0hspyqq3f900jzi8mnx6yaj03l812rf00lh1dxwcxdrxqf6xv3jw";
+        }) {};
 
         # test suite fails to build with for older versions
         scotty = callHackageDirect {
