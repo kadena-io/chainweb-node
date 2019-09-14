@@ -54,15 +54,18 @@ newtype WorkBytes = WorkBytes { _workBytes :: B.ByteString }
 -- | The encoded form of a `BlockHeader`.
 --
 newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
+    deriving stock (Eq, Show)
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
 
 -- | The encoded form of a `HashTarget`.
 --
 newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
+    deriving stock (Eq, Show)
 
 -- | The encoded form of a `ChainId`.
 --
 newtype ChainBytes = ChainBytes { _chainBytes :: B.ByteString }
+    deriving stock (Eq, Show)
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
 
 -- | Combine `ChainBytes`, `TargetBytes` and `HeaderBytes` in such a way that
