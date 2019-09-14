@@ -79,7 +79,7 @@ module Main ( main ) where
 
 import BasePrelude hiding (Handler, app, option)
 
-import Control.Concurrent.Async (async, race, wait)
+import Control.Concurrent.Async (race)
 import Control.Error.Util (hush)
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
@@ -111,17 +111,6 @@ import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
 import Chainweb.Utils (rwipe3, suncurry, textOption, toText)
 import Chainweb.Version
-
---------------------------------------------------------------------------------
--- Servant
-
-type API = "env" :> Get '[JSON] ClientArgs
-
-server :: Env -> Server API
-server = pure . args
-
-app :: Env -> Application
-app = serve (Proxy :: Proxy API) . server
 
 --------------------------------------------------------------------------------
 -- CLI
@@ -217,11 +206,7 @@ main = do
         Nothing -> putStrLn "Failed to connect to the given Chainweb Node." >> exitFailure
         Just wb -> case cmd as of
             GPU _ -> putStrLn "GPU mining is not yet available."
-            CPU _ -> do
-                m <- async $ mining (scheme env) env wb
-                pPrintNoColor as
-                W.run (port as) $ app env
-                wait m
+            CPU _ -> pPrintNoColor as >> mining (scheme env) env wb >> exitFailure
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
