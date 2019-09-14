@@ -88,6 +88,7 @@ import Data.Aeson (ToJSON(..), Value(..))
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
+import Data.Tuple.Strict (T3(..))
 
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client
@@ -112,7 +113,7 @@ import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-import Chainweb.Utils (rwipe3, suncurry, textOption, toText)
+import Chainweb.Utils (textOption, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -248,21 +249,25 @@ getWork e = retrying policy (\_ -> pure . isNothing) $ const f
 --
 mining :: (TargetBytes -> HeaderBytes -> IO HeaderBytes) -> Env -> WorkBytes -> IO ()
 mining go e wb = do
-    race newWork (suncurry go . rwipe3 $ unWorkBytes wb) >>= traverse_ miningSuccess
+    race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
     getWork e >>= traverse_ (mining go e)
   where
+    T3 cbytes tbytes hbytes = unWorkBytes wb
+
+    a :: ClientArgs
+    a = args e
+
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
-    newWork :: IO ()
-    newWork = withEvents req (mgr e) (void . SP.head_ . SP.filter realEvent)
+    updateSignal :: IO ()
+    updateSignal = withEvents req (mgr e) (void . SP.head_ . SP.filter realEvent)
       where
+        -- TODO Formalize the signal content a bit more?
         realEvent :: ServerEvent -> Bool
         realEvent (ServerEvent _ _ _) = True
         realEvent _ = False
 
-        a :: ClientArgs
-        a = args e
-
+        -- TODO This is an uncomfortable URL hardcoding.
         req :: Request
         req = defaultRequest
             { host = B.pack . baseUrlHost . _url $ coordinator a
@@ -270,11 +275,11 @@ mining go e wb = do
             , port = baseUrlPort . _url $ coordinator a
             , secure = True
             , method = "GET"
-            }
+            , requestBody = RequestBodyBS $ _chainBytes cbytes }
 
     -- | If the `go` call won the `race`, this function yields the result back
-    -- to some "mining coordinator" (likely a chainweb-node). If `newWork` won
-    -- the race instead, then the `go` call is automatically cancelled.
+    -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
+    -- won the race instead, then the `go` call is automatically cancelled.
     --
     miningSuccess :: HeaderBytes -> IO ()
     miningSuccess h = void . runClientM (solvedClient v h) $ ClientEnv m u Nothing
