@@ -1,8 +1,6 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -240,7 +238,7 @@ mining go wb = do
     T3 (ChainBytes cbs) tbytes hbytes = unWorkBytes wb
 
     chain :: IO Utf8Builder
-    chain = fmap (display . chainIdInt @Int) $ runGet decodeChainId cbs
+    chain = display . chainIdInt @Int <$> runGet decodeChainId cbs
 
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
@@ -258,7 +256,7 @@ mining go wb = do
 
         -- TODO Formalize the signal content a bit more?
         realEvent :: ServerEvent -> Bool
-        realEvent (ServerEvent _ _ _) = True
+        realEvent ServerEvent{} = True
         realEvent _ = False
 
         -- TODO This is an uncomfortable URL hardcoding.
@@ -290,7 +288,7 @@ cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
     e <- ask
-    liftIO . fmap head . withScheduler comp $ \sch -> do
+    liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
