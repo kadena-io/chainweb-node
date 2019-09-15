@@ -96,6 +96,7 @@ import Chainweb.Version
 data ClientArgs = ClientArgs
     { cmd :: !Command
     , version :: !ChainwebVersion
+    , ll :: !LogLevel
     , coordinator :: !BaseUrl
     , miner :: !Miner
     , chainid :: !(Maybe ChainId) }
@@ -119,7 +120,7 @@ instance HasLogFunc Env where
     logFuncL = field @"log"
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pUrl <*> pMiner <*> pChainId
+pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> pUrl <*> pMiner <*> pChainId
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -146,13 +147,25 @@ pVersion = textOption
     defv :: ChainwebVersion
     defv = Development
 
+pLog :: Parser LogLevel
+pLog = option (eitherReader l)
+    (long "log-level" <> metavar "debug|info|warn|error" <> value LevelInfo
+    <> help "The minimum level of log messages to display (default: info)")
+  where
+    l :: String -> Either String LogLevel
+    l "debug" = Right LevelDebug
+    l "info" = Right LevelInfo
+    l "warn" = Right LevelWarn
+    l "error" = Right LevelError
+    l _ = Left "Not one of debug|info|warn|error"
+
 pUrl :: Parser BaseUrl
 pUrl = hostAddressToBaseUrl Https <$> hadd
   where
     hadd :: Parser HostAddress
     hadd = textOption
         (long "node" <> metavar "<HOSTNAME:PORT>"
-        <> help "Remote address of Chainweb Node to send mining results to.")
+        <> help "Remote address of Chainweb Node to send mining results to")
 
 pChainId :: Parser (Maybe ChainId)
 pChainId = optional $ textOption
@@ -165,7 +178,7 @@ pChainId = optional $ textOption
 main :: IO ()
 main = do
     cargs <- execParser opts
-    lopts <- setLogUseLoc False <$> logOptionsHandle stderr True
+    lopts <- setLogMinLevel (ll cargs) . setLogUseLoc False <$> logOptionsHandle stderr True
     withLogFunc lopts $ \logFunc -> do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
