@@ -25,16 +25,21 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
 import Control.Exception (bracket, mask_, throw)
-import Control.Monad (unless, void, (<$!>))
+import Control.Monad (void, (<$!>))
 
 import Data.Aeson
+import qualified Data.ByteString.Short as SB
 import Data.Foldable (foldl', foldlM)
-import qualified Data.HashPSQ as PSQ
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
-import Data.Ord (Down(..))
+import Data.Ord
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Data.Vector.Algorithms.Tim as TimSort
 
 import Pact.Types.Gas (GasPrice(..))
 
@@ -53,14 +58,22 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
-toPriority :: GasPrice -> GasLimit -> Priority
-toPriority r s = (Down r, s)
-
+toPriority :: GasPrice -> GasLimit -> T2 (Down GasPrice) GasLimit
+toPriority r s = T2 (Down r) s
+{-# INLINE toPriority #-}
 
 ------------------------------------------------------------------------------
-makeInMemPool :: ToJSON t
-              => FromJSON t
-              => InMemConfig t
+compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
+compareOnGasPrice txcfg a b = compare aa bb
+  where
+    getGL = txGasLimit txcfg
+    getGP = txGasPrice txcfg
+    !aa = toPriority (getGP a) (getGL a)
+    !bb = toPriority (getGP b) (getGL b)
+{-# INLINE compareOnGasPrice #-}
+
+------------------------------------------------------------------------------
+makeInMemPool :: InMemConfig t
               -> IO (InMemoryMempool t)
 makeInMemPool cfg = mask_ $ do
     nonce <- randomIO
@@ -72,10 +85,10 @@ destroyInMemPool = const $ return ()
 
 
 ------------------------------------------------------------------------------
-newInMemMempoolData :: ToJSON t => FromJSON t => IO (InMemoryMempoolData t)
+newInMemMempoolData :: IO (InMemoryMempoolData t)
 newInMemMempoolData =
     InMemoryMempoolData <$!> newIORef 0
-                        <*> newIORef PSQ.empty
+                        <*> newIORef mempty
                         <*> newIORef emptyRecentLog
 
 
@@ -102,7 +115,7 @@ toMempoolBackend mempool = do
 
     InMemConfig tcfg blockSizeLimit _ = cfg
     member = memberInMem lockMVar
-    lookup = lookupInMem lockMVar
+    lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
     markValidated = markValidatedInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
@@ -123,9 +136,7 @@ withInMemoryMempool cfg f = do
           f $! back
     bracket (makeInMemPool cfg) destroyInMemPool action
 
-withInMemoryMempool_ :: ToJSON t
-                     => FromJSON t
-                     => Logger logger
+withInMemoryMempool_ :: Logger logger
                      => logger
                      -> InMemConfig t
                      -> (MempoolBackend t -> IO a)
@@ -159,19 +170,23 @@ memberInMem lock txs = do
     V.mapM (memberOne q) txs
 
   where
-    memberOne q txHash = return $! PSQ.member txHash q
+    memberOne q txHash = return $! HashMap.member txHash q
 
 ------------------------------------------------------------------------------
-lookupInMem :: MVar (InMemoryMempoolData t)
+lookupInMem :: TransactionConfig t
+            -> MVar (InMemoryMempoolData t)
             -> Vector TransactionHash
             -> IO (Vector (LookupResult t))
-lookupInMem lock txs = do
+lookupInMem txcfg lock txs = do
     q <- withMVarMasked lock (readIORef . _inmemPending)
     V.mapM (fmap fromJuste . lookupOne q) txs
   where
-    lookupOne q txHash = return $! (lookupQ q txHash <|>
-                                    pure Missing)
-    lookupQ q txHash = Pending . snd <$> PSQ.lookup txHash q
+    lookupOne q txHash = return $! (lookupQ q txHash <|> pure Missing)
+    codec = txCodec txcfg
+    fixup !bs = either (const Missing) Pending
+                    $! codecDecode codec
+                    $! SB.fromShort bs
+    lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
 
 
 ------------------------------------------------------------------------------
@@ -180,7 +195,10 @@ markValidatedInMem :: MVar (InMemoryMempoolData t)
                    -> IO ()
 markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
     let pref = _inmemPending mdata
-    modifyIORef' pref $ \psq -> foldl' (flip PSQ.delete) psq txs
+    modifyIORef' pref $ \psq -> foldl' (flip HashMap.delete) psq txs
+
+maxNumPending :: Int
+maxNumPending = 100000
 
 ------------------------------------------------------------------------------
 insertInMem :: InMemConfig t    -- ^ in-memory config
@@ -188,21 +206,20 @@ insertInMem :: InMemConfig t    -- ^ in-memory config
             -> Vector t  -- ^ new transactions
             -> IO ()
 insertInMem cfg lock txs0 = do
-    txs <- V.filterM preGossipCheck txs0
-    i <- withMVarMasked lock $ \mdata -> do
-        newHashes <- V.mapM (insOne mdata) txs
-        modifyIORef' (_inmemInserted mdata) (+ (length txs))
+    txs1 <- V.filterM preGossipCheck txs0
+    withMVarMasked lock $ \mdata -> do
+        let countRef = _inmemCountPending mdata
+        cnt <- readIORef countRef
+        let txs = V.take (max 0 (maxNumPending - cnt)) txs1
+        let numTxs = V.length txs
+        let newCnt = cnt + numTxs
+        writeIORef countRef $! newCnt
+        pending <- readIORef (_inmemPending mdata)
+        let (!pending', newHashesDL) = V.foldl' insOne (pending, id) txs
+        let !newHashes = V.fromList $ newHashesDL []
+        writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
-        readIORef (_inmemInserted mdata)
-
-    unless (i < 5000) $ do
-        withMVarMasked lock $ \mdata -> do
-            modifyIORef' (_inmemPending mdata) $ \ps -> do
-                if (PSQ.size ps > 10000)
-                  then PSQ.fromList $ take 5000 $ PSQ.toList ps
-                  else ps
-            writeIORef (_inmemInserted mdata) 0
 
   where
     preGossipCheck tx = do
@@ -210,25 +227,22 @@ insertInMem cfg lock txs0 = do
         return $! sizeOK tx
 
     txcfg = _inmemTxCfg cfg
+    encodeTx = codecEncode (txCodec txcfg)
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     sizeOK tx = getSize tx <= maxSize
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
 
-    getPriority x = let r = txGasPrice txcfg x
-                        s = txGasLimit txcfg x
-                    in toPriority r s
-
-    insOne mdata tx = do
+    insOne (!pending, !soFar) !tx =
         let !txhash = hasher tx
-        modifyIORef' (_inmemPending mdata) $
-           PSQ.insert txhash (getPriority tx) tx
-        return txhash
+            !bytes = SB.toShort $! encodeTx tx
+        in (HashMap.insert txhash bytes pending, soFar . (txhash:))
 
 
 ------------------------------------------------------------------------------
-getBlockInMem :: InMemConfig t
+getBlockInMem :: forall t .
+                 InMemConfig t
               -> MVar (InMemoryMempoolData t)
               -> MempoolPreBlockCheck t
               -> BlockHeight
@@ -237,56 +251,98 @@ getBlockInMem :: InMemConfig t
               -> IO (Vector t)
 getBlockInMem cfg lock txValidate bheight phash size0 = do
     withMVar lock $ \mdata -> do
-        psq <- readIORef $ _inmemPending mdata
-        go mdata psq size0 []
+        !psq0 <- readIORef $ _inmemPending mdata
+        let !psq = HashMap.map decodeTx psq0
+        (!psq', out) <- go psq size0 []
+        let ins !h !t = HashMap.insert (hasher t) t h
+        -- put the pending txs back into the map.
+        let !psq'' = HashMap.map (SB.toShort . encodeTx) $! V.foldl' ins psq' out
+        writeIORef (_inmemPending mdata) $! force psq''
+        writeIORef (_inmemCountPending mdata) $! HashMap.size psq''
+        return $! out
 
   where
     del !psq tx = let h = hasher tx
-                  in PSQ.delete h psq
+                  in HashMap.delete h psq
 
     hasher = txHasher txcfg
     txcfg = _inmemTxCfg cfg
+    codec = txCodec txcfg
+    decodeTx tx0 = either err id $! codecDecode codec tx
+      where
+        !tx = SB.fromShort tx0
+        err s = error $
+                mconcat [ "Error decoding tx (\""
+                        , s
+                        , "\"): tx was: "
+                        , T.unpack (T.decodeUtf8 tx)
+                        ]
+    encodeTx = codecEncode codec
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     sizeOK tx = getSize tx <= maxSize
 
-    validateBatch mdata q = do
+    validateBatch
+        :: HashMap TransactionHash t
+        -> Vector t
+        -> IO (Vector t, HashMap TransactionHash t)
+    validateBatch !psq0 q = do
         oks1 <- txValidate bheight phash q
         let oks2 = V.map sizeOK q
         let oks = V.zipWith (&&) oks1 oks2
-        let (good0, bad0) = V.partition snd $ V.zip q oks
-        let good = V.map fst good0
-        let bad = V.map fst bad0
-        modifyIORef' (_inmemPending mdata) $ \psq ->
-            let !psq' = V.foldl' del psq bad
-            in psq'
-        return good
+        let good = V.map fst $ V.filter snd $ V.zip q oks
+
+        -- remove considered txs -- successful ones will be re-added at the end
+        let !psq' = V.foldl' del psq0 q
+        return (good, psq')
 
     maxInARow :: Int
     maxInARow = 200
 
-    nextBatch !psq !remainingGas = getBatch psq remainingGas [] 0
-    getBatch !psq !sz !soFar !inARow
+    unconsV v = T2 (V.unsafeHead v) (V.unsafeTail v)
+
+    nextBatch
+        :: HashMap TransactionHash t
+        -> GasLimit
+        -> IO [t]
+    nextBatch !psq !remainingGas = do
+        let !pendingTxs0 = V.fromList $ HashMap.elems psq
+        mPendingTxs <- V.unsafeThaw pendingTxs0
+        TimSort.sortBy (compareOnGasPrice txcfg) mPendingTxs
+        !pendingTxs <- V.unsafeFreeze mPendingTxs
+        return $! getBatch pendingTxs remainingGas [] 0
+
+    getBatch
+        :: Vector t
+        -> GasLimit
+        -> [t]
+        -> Int
+        -> [t]
+    getBatch !pendingTxs !sz !soFar !inARow
         -- we'll keep looking for transactions until we hit maxInARow that are
         -- too large
-      | inARow >= maxInARow || sz <= 0 = (psq, soFar)
-      | otherwise =
-            case PSQ.minView psq of
-              Nothing -> (psq, soFar)
-              (Just (_, _, tx, !psq')) ->
-                  let txSz = getSize tx
-                  in if txSz <= sz
-                       then getBatch psq' (sz - txSz) (tx:soFar) 0
-                       else getBatch psq' sz soFar (inARow + 1)
+      | V.null pendingTxs = soFar
+      | inARow >= maxInARow || sz <= 0 = soFar
+      | otherwise = do
+            let (T2 !tx !pendingTxs') = unconsV pendingTxs
+            let txSz = getSize tx
+            if txSz <= sz
+              then do
+                  getBatch pendingTxs' (sz - txSz) (tx:soFar) 0
+              else getBatch pendingTxs' sz soFar (inARow + 1)
 
-    go !mdata !psq !remainingGas !soFar = do
-        let (psq', nb) = nextBatch psq remainingGas
+    go :: HashMap TransactionHash t
+       -> GasLimit
+       -> [Vector t]
+       -> IO (HashMap TransactionHash t, Vector t)
+    go !psq !remainingGas !soFar = do
+        nb <- nextBatch psq remainingGas
         if null nb
-          then return $! V.concat soFar
+          then return (psq, V.concat soFar)
           else do
-            good <- validateBatch mdata (V.fromList nb)
+            (good, psq') <- validateBatch psq $! V.fromList nb
             let newGas = V.foldl' (\s t -> s + getSize t) 0 good
-            go mdata psq' (remainingGas - newGas) (good : soFar)
+            go psq' (remainingGas - newGas) (good : soFar)
 
 
 ------------------------------------------------------------------------------
@@ -303,7 +359,8 @@ getPendingInMem cfg nonce lock since callback = do
 
   where
     sendAll psq = do
-        (dl, sz) <- foldlM go initState psq
+        let keys = HashMap.keys psq
+        (dl, sz) <- foldlM go initState keys
         void $ sendChunk dl sz
 
     sendSome psq rlog (rNonce, oHw) = do
@@ -316,7 +373,7 @@ getPendingInMem cfg nonce lock since callback = do
         case mbTxs of
           Nothing -> sendAll psq
           Just txs -> do
-              let isPending = flip PSQ.member psq
+              let isPending = flip HashMap.member psq
               callback $! V.fromList $ filter isPending txs
 
     readLock = withMVar lock $ \mdata -> do
@@ -325,11 +382,9 @@ getPendingInMem cfg nonce lock since callback = do
         return $! (psq, rlog)
 
     initState = (id, 0)    -- difference list
-    hash = txHasher $ _inmemTxCfg cfg
     maxNumRecent = _inmemMaxRecentItems cfg
 
-    go (dl, !sz) tx = do
-        let txhash = hash tx
+    go (dl, !sz) txhash = do
         let dl' = dl . (txhash:)
         let !sz' = sz + 1
         if sz' >= chunkSize
@@ -346,7 +401,7 @@ getPendingInMem cfg nonce lock since callback = do
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
 clearInMem lock = do
     withMVarMasked lock $ \mdata -> do
-        writeIORef (_inmemPending mdata) PSQ.empty
+        writeIORef (_inmemPending mdata) mempty
         writeIORef (_inmemRecentLog mdata) emptyRecentLog
 
 
@@ -387,5 +442,5 @@ getRecentTxs maxNumRecent oldHw rlog
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
 getMempoolStats m = do
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
-        <$!> (PSQ.size <$> readIORef (_inmemPending d))
+        <$!> (HashMap.size <$> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$> readIORef (_inmemRecentLog d))
