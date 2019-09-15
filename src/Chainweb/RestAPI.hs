@@ -55,7 +55,6 @@ module Chainweb.RestAPI
 import Control.Lens
 
 import Data.Aeson.Encode.Pretty
-import Data.Aeson.Types (FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe
 import Data.Proxy
@@ -82,7 +81,7 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
-import Chainweb.Chainweb.MinerResources (MinerResources)
+import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
@@ -192,13 +191,11 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 
 someChainwebServer
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Logger logger
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
-    -> Maybe (MinerResources logger cas)
+    -> Maybe (MiningCoordination logger cas)
     -> SomeServer
 someChainwebServer v dbs mr =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
@@ -214,13 +211,11 @@ someChainwebServer v dbs mr =
 
 chainwebApplication
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Logger logger
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
-    -> Maybe (MinerResources logger cas)
+    -> Maybe (MiningCoordination logger cas)
     -> Application
 chainwebApplication v dbs mr =
     chainwebCors . someServerApplication $ someChainwebServer v dbs mr
@@ -233,49 +228,41 @@ chainwebCors = cors . const . Just $ simpleCorsResourcePolicy
 
 serveChainwebOnPort
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Logger logger
     => Port
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
-    -> Maybe (MinerResources logger cas)
+    -> Maybe (MiningCoordination logger cas)
     -> IO ()
 serveChainwebOnPort p v dbs mr = run (int p) $ chainwebApplication v dbs mr
 
 serveChainweb
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Logger logger
     => Settings
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
-    -> Maybe (MinerResources logger cas)
+    -> Maybe (MiningCoordination logger cas)
     -> IO ()
 serveChainweb s v dbs mr = runSettings s $ chainwebApplication v dbs mr
 
 serveChainwebSocket
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Logger logger
     => Settings
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
-    -> Maybe (MinerResources logger cas)
+    -> Maybe (MiningCoordination logger cas)
     -> IO ()
 serveChainwebSocket s sock v dbs mr =
     runSettingsSocket s sock $ chainwebApplication v dbs mr
 
 serveChainwebSocketTls
     :: Show t
-    => ToJSON t
-    => FromJSON t
     => PayloadCas cas
     => Logger logger
     => Settings
@@ -284,7 +271,7 @@ serveChainwebSocketTls
     -> Socket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
-    -> Maybe (MinerResources logger cas)
+    -> Maybe (MiningCoordination logger cas)
     -> Middleware
     -> IO ()
 serveChainwebSocketTls settings certChain key sock v dbs mr m =

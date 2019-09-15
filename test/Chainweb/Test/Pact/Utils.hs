@@ -348,6 +348,8 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
             evalPactServiceM ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
+        , _pactLookup = error
+            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
         }
 
 -- | A test PactExecutionService for a chainweb

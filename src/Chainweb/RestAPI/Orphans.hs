@@ -55,7 +55,8 @@ import Chainweb.Difficulty hiding (properties)
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
-import Chainweb.Miner.Core (HeaderBytes)
+import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
+import Chainweb.Miner.Pact (Miner, MinerId, MinerKeys)
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
@@ -65,6 +66,7 @@ import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
 import Pact.Parse (ParsedInteger(..))
+import Pact.Server.API ()
 import Pact.Types.Gas (GasLimit(..))
 
 import P2P.Peer
@@ -417,7 +419,10 @@ deriving instance ToSchema BlockHeight
 deriving instance ToSchema BlockWeight
 deriving instance ToSchema HashDifficulty
 deriving instance ToSchema HashTarget
+deriving instance ToSchema MinerKeys
 deriving instance ToSchema Micros
+deriving instance ToSchema Miner
+deriving instance ToSchema MinerId
 deriving instance ToSchema Nonce
 deriving instance ToSchema PowHashNat
 deriving instance ToSchema Word128
@@ -431,5 +436,12 @@ instance ToSchema ChainwebVersion where
 instance ToSchema MerkleLogHash where
   declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
 
+-- TODO Need more detail for these two!
 instance ToSchema HeaderBytes where
   declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty
+
+instance ToSchema WorkBytes where
+  declareNamedSchema _ = pure $ NamedSchema (Just "WorkBytes") mempty
+
+instance ToSchema ChainBytes where
+  declareNamedSchema _ = pure $ NamedSchema (Just "ChainBytes") mempty
