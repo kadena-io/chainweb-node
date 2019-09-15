@@ -1,1 +1,1 @@
-(import ./. { runTests = false; })
+(import ./. { runTests = true; })
