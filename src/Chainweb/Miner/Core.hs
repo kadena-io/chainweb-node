@@ -16,6 +16,7 @@
 module Chainweb.Miner.Core
   ( HeaderBytes(..)
   , TargetBytes(..)
+  , ChainBytes(..)
   , WorkBytes(..), workBytes, unWorkBytes
   , usePowHash
   , mine
@@ -24,11 +25,11 @@ module Chainweb.Miner.Core
 import Crypto.Hash.Algorithms (SHA512t_256)
 import Crypto.Hash.IO
 
-import Data.Bifunctor (bimap)
+import Data.Bifunctor (second)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T3(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
@@ -44,8 +45,8 @@ import Chainweb.Version (ChainwebVersion(..))
 
 ---
 
--- | Encoding of @HashTarget + BlockHeader@ to be consumed by a remote Mining
--- API.
+-- | Encoding of @ChainId + HashTarget + BlockHeader@ to be consumed by a remote
+-- Mining API.
 --
 newtype WorkBytes = WorkBytes { _workBytes :: B.ByteString }
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
@@ -61,17 +62,25 @@ newtype HeaderBytes = HeaderBytes { _headerBytes :: B.ByteString }
 newtype TargetBytes = TargetBytes { _targetBytes :: B.ByteString }
     deriving stock (Eq, Show)
 
--- | Combine `TargetBytes` and `HeaderBytes` in such a way that can be later
--- undone by `unWorkBytes`.
+-- | The encoded form of a `ChainId`.
 --
-workBytes :: TargetBytes -> HeaderBytes -> WorkBytes
-workBytes (TargetBytes t) (HeaderBytes h) = WorkBytes $ t <> h
+newtype ChainBytes = ChainBytes { _chainBytes :: B.ByteString }
+    deriving stock (Eq, Show)
+    deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
+
+-- | Combine `ChainBytes`, `TargetBytes` and `HeaderBytes` in such a way that
+-- can be later undone by `unWorkBytes`.
+--
+workBytes :: ChainBytes -> TargetBytes -> HeaderBytes -> WorkBytes
+workBytes (ChainBytes c) (TargetBytes t) (HeaderBytes h) = WorkBytes $ c <> t <> h
 
 -- | NOTE: This makes a low-level assumption about the encoded size of
--- `HashTarget`!
+-- `HashTarget` and `ChainId`!
 --
-unWorkBytes :: WorkBytes -> T2 TargetBytes HeaderBytes
-unWorkBytes = uncurry T2 . bimap TargetBytes HeaderBytes . B.splitAt 32 . _workBytes
+unWorkBytes :: WorkBytes -> T3 ChainBytes TargetBytes HeaderBytes
+unWorkBytes (WorkBytes w) = T3 (ChainBytes c) (TargetBytes t) (HeaderBytes h)
+  where
+    (c, (t, h)) = second (B.splitAt 32) $ B.splitAt 4 w
 
 -- | Select a hashing algorithm.
 --
