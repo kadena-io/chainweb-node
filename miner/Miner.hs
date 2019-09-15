@@ -157,7 +157,7 @@ pLog = option (eitherReader l)
     l "info" = Right LevelInfo
     l "warn" = Right LevelWarn
     l "error" = Right LevelError
-    l _ = Left "Not one of debug|info|warn|error"
+    l _ = Left "Must be one of debug|info|warn|error"
 
 pUrl :: Parser BaseUrl
 pUrl = hostAddressToBaseUrl Https <$> hadd
@@ -242,11 +242,16 @@ mining go wb = do
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
     updateSignal :: RIO Env ()
-    updateSignal = do
-        e <- ask
-        liftIO $ withEvents (req $ args e) (mgr e) (void . SP.head_ . SP.filter realEvent)
-        logInfo "Current work was preempted."
+    updateSignal = catchAny f $ \_ -> do
+        logWarn "Couldn't connect to update stream. Trying again..."
+        updateSignal
       where
+        f :: RIO Env ()
+        f = do
+            e <- ask
+            liftIO $ withEvents (req $ args e) (mgr e) (void . SP.head_ . SP.filter realEvent)
+            logInfo "Current work was preempted."
+
         -- TODO Formalize the signal content a bit more?
         realEvent :: ServerEvent -> Bool
         realEvent (ServerEvent _ _ _) = True
