@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -59,48 +60,33 @@
 
 module Main ( main ) where
 
-import BasePrelude hiding (Handler, app, option)
-
-import Control.Concurrent.Async (race)
 import Control.Error.Util (hush)
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
-
 import Data.Aeson (ToJSON(..), Value(..))
-import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Base16 as B16
-import Data.Bytes.Put (runPutS)
-import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8, decodeUtf8)
+import Data.Generics.Product.Fields (field)
 import Data.Tuple.Strict (T3(..))
-
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.Wai.EventSource (ServerEvent(..))
 import Network.Wai.EventSource.Streaming (withEvents)
-
 import Options.Applicative
-
+import RIO
+import RIO.List.Partial (head)
+import qualified RIO.Text as T
 import Servant.Client
-
 import qualified Streaming.Prelude as SP
-
 import qualified System.Random.MWC as MWC
-
-import Text.Pretty.Simple (pPrintNoColor)
 
 -- internal modules
 
-import Chainweb.BlockHash
-import Chainweb.BlockHeader
-import Chainweb.Difficulty
+import Chainweb.BlockHeader (Nonce(..))
 import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-import Chainweb.PowHash
-import Chainweb.Utils (runGet, textOption, toText)
+import Chainweb.Utils (textOption, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -117,11 +103,11 @@ instance ToJSON NodeURL where
     toJSON = String . T.pack . show
 
 data ClientArgs = ClientArgs
-    { cmd :: Command
-    , version :: ChainwebVersion
-    , coordinator :: NodeURL
-    , miner :: Miner
-    , chainid :: Maybe ChainId }
+    { cmd :: !Command
+    , version :: !ChainwebVersion
+    , coordinator :: !NodeURL
+    , miner :: !Miner
+    , chainid :: !(Maybe ChainId) }
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON)
 
@@ -138,9 +124,14 @@ data Command = CPU CPUEnv | GPU GPUEnv
     deriving anyclass (ToJSON)
 
 data Env = Env
-    { gen :: MWC.GenIO
-    , mgr :: Manager
-    , args :: ClientArgs }
+    { gen :: !MWC.GenIO
+    , mgr :: !Manager
+    , log :: !LogFunc
+    , args :: !ClientArgs }
+    deriving stock (Generic)
+
+instance HasLogFunc Env where
+    logFuncL = field @"log"
 
 pClientArgs :: Parser ClientArgs
 pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pUrl <*> pMiner <*> pChainId
@@ -188,15 +179,14 @@ pChainId = optional $ textOption
 
 main :: IO ()
 main = do
-    env@(Env _ _ as) <- Env
-        <$> MWC.createSystemRandom
-        <*> newManager (mkManagerSettings ss Nothing)
-        <*> execParser opts
-    getWork env >>= \case
-        Nothing -> putStrLn "Failed to connect to the given Chainweb Node." >> exitFailure
-        Just wb -> case cmd as of
-            GPU _ -> putStrLn "GPU mining is not yet available."
-            CPU _ -> pPrintNoColor as >> mining (scheme env) env wb >> exitFailure
+    lopts <- setLogUseLoc False <$> logOptionsHandle stderr True
+    withLogFunc lopts $ \logFunc -> do
+        env <- Env
+            <$> MWC.createSystemRandom
+            <*> newManager (mkManagerSettings ss Nothing)
+            <*> pure logFunc
+            <*> execParser opts
+        runRIO env run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -207,6 +197,16 @@ main = do
     opts :: ParserInfo ClientArgs
     opts = info (pClientArgs <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")
+
+run :: RIO Env ()
+run = do
+    env <- ask
+    case cmd $ args env of
+        GPU _ -> logError "GPU mining is not yet available."
+        CPU _ -> liftIO (getWork env) >>= \case
+            Nothing -> logError "Failed to connect to specified Node."
+            Just wb -> liftIO $ mining (scheme env) env wb
+    exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> IO HeaderBytes)
 scheme env = case cmd $ args env of
@@ -257,7 +257,7 @@ mining go e wb = do
         -- TODO This is an uncomfortable URL hardcoding.
         req :: Request
         req = defaultRequest
-            { host = B.pack . baseUrlHost . _url $ coordinator a
+            { host = encodeUtf8 . T.pack . baseUrlHost . _url $ coordinator a
             , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"
             , port = baseUrlPort . _url $ coordinator a
             , secure = True
@@ -270,34 +270,34 @@ mining go e wb = do
     --
     miningSuccess :: HeaderBytes -> IO ()
     miningSuccess h = do
-      bh <- bytesToBlockHeader h
-      putStrLn $ "Success!!!  " <> (show $ _blockNonce bh)
-      putStrLn $ "difficulty = " <> (T.unpack $ showTargetHex $ _blockTarget bh)
-      putStrLn $ "blockHash  = " <> (T.unpack $ hashToHex $ _blockHash bh)
-      putStrLn $ "powHash    = " <> (T.unpack $ powHashToHex $ _blockPow bh)
+      -- bh <- bytesToBlockHeader h
+      -- putStrLn $ "Success!!!  " <> (show $ _blockNonce bh)
+      -- putStrLn $ "difficulty = " <> (T.unpack $ showTargetHex $ _blockTarget bh)
+      -- putStrLn $ "blockHash  = " <> (T.unpack $ hashToHex $ _blockHash bh)
+      -- putStrLn $ "powHash    = " <> (T.unpack $ powHashToHex $ _blockPow bh)
       void . runClientM (solvedClient v h) $ ClientEnv m u Nothing
       where
         v = version $ args e
         m = mgr e
         u = _url . coordinator $ args e
 
-hashToHex :: BlockHash -> T.Text
-hashToHex = decodeUtf8 . B16.encode . runPutS . encodeBlockHash
+-- hashToHex :: BlockHash -> T.Text
+-- hashToHex = decodeUtf8 . B16.encode . runPutS . encodeBlockHash
 
-powHashToHex :: PowHash -> T.Text
-powHashToHex = decodeUtf8 . B16.encode . runPutS . encodePowHash
+-- powHashToHex :: PowHash -> T.Text
+-- powHashToHex = decodeUtf8 . B16.encode . runPutS . encodePowHash
 
-bytesToBlockHeader :: HeaderBytes -> IO BlockHeader
-bytesToBlockHeader (HeaderBytes hbytes) = runGet decodeBlockHeaderWithoutHash hbytes
+-- bytesToBlockHeader :: HeaderBytes -> IO BlockHeader
+-- bytesToBlockHeader (HeaderBytes hbytes) = runGet decodeBlockHeaderWithoutHash hbytes
 
 cpu :: ChainwebVersion -> CPUEnv -> MWC.GenIO -> TargetBytes -> HeaderBytes -> IO HeaderBytes
 cpu v e g tbytes hbytes = fmap head . withScheduler comp $ \sch -> do
-    bh <- bytesToBlockHeader hbytes
-    let BlockHeight height = _blockHeight bh
-    printf "Mining block %d on chain %s with difficulty %s\n"
-      height
-      (T.unpack $ chainIdToText $ _blockChainId bh)
-      (T.unpack $ showTargetHex (_blockTarget bh))
+    -- bh <- bytesToBlockHeader hbytes
+    -- let BlockHeight height = _blockHeight bh
+    -- printf "Mining block %d on chain %s with difficulty %s\n"
+    --   height
+    --   (T.unpack $ chainIdToText $ _blockChainId bh)
+    --   (T.unpack $ showTargetHex (_blockTarget bh))
     replicateWork (fromIntegral $ cores e) sch $ do
         -- TODO Be more clever about the Nonce that's picked to ensure that
         -- there won't be any overlap?
