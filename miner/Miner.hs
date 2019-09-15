@@ -63,7 +63,6 @@ module Main ( main ) where
 import Control.Error.Util (hush)
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
-import Data.Aeson (ToJSON(..), Value(..))
 import Data.Generics.Product.Fields (field)
 import Data.Tuple.Strict (T3(..))
 import Network.Connection (TLSSettings(..))
@@ -92,36 +91,22 @@ import Chainweb.Version
 --------------------------------------------------------------------------------
 -- CLI
 
--- | Newtype'd so that I can provide a custom `ToJSON` instance.
+-- | Result of parsing commandline flags.
 --
-newtype NodeURL = NodeURL { _url :: BaseUrl }
-
-instance Show NodeURL where
-    show (NodeURL b) = showBaseUrl b
-
-instance ToJSON NodeURL where
-    toJSON = String . T.pack . show
-
 data ClientArgs = ClientArgs
     { cmd :: !Command
     , version :: !ChainwebVersion
-    , coordinator :: !NodeURL
+    , coordinator :: !BaseUrl
     , miner :: !Miner
     , chainid :: !(Maybe ChainId) }
-    deriving stock (Show, Generic)
-    deriving anyclass (ToJSON)
+    deriving stock (Generic)
+
+-- | The top-level git-style CLI "command" which determines which mining
+-- paradigm to follow.
+--
+data Command = CPU CPUEnv | GPU
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
-    deriving stock (Show, Generic)
-    deriving anyclass (ToJSON)
-
-data GPUEnv = GPUEnv
-    deriving stock (Show, Generic)
-    deriving anyclass (ToJSON)
-
-data Command = CPU CPUEnv | GPU GPUEnv
-    deriving stock (Show, Generic)
-    deriving anyclass (ToJSON)
 
 data Env = Env
     { gen :: !MWC.GenIO
@@ -143,7 +128,7 @@ pCommand = hsubparser
     )
 
 gpuOpts :: Parser Command
-gpuOpts = pure $ GPU GPUEnv
+gpuOpts = pure GPU
 
 cpuOpts :: Parser Command
 cpuOpts = CPU . CPUEnv <$> pCores
@@ -161,8 +146,8 @@ pVersion = textOption
     defv :: ChainwebVersion
     defv = Development
 
-pUrl :: Parser NodeURL
-pUrl = NodeURL . hostAddressToBaseUrl Https <$> hadd
+pUrl :: Parser BaseUrl
+pUrl = hostAddressToBaseUrl Https <$> hadd
   where
     hadd :: Parser HostAddress
     hadd = textOption
@@ -200,7 +185,7 @@ run :: RIO Env ()
 run = do
     env <- ask
     case cmd $ args env of
-        GPU _ -> logError "GPU mining is not yet available."
+        GPU -> logError "GPU mining is not yet available."
         CPU _ -> liftIO (getWork env) >>= \case
             Nothing -> logError "Failed to connect to specified Node."
             Just wb -> liftIO $ mining (scheme env) env wb
@@ -209,7 +194,7 @@ run = do
 scheme :: Env -> (TargetBytes -> HeaderBytes -> IO HeaderBytes)
 scheme env = case cmd $ args env of
     CPU e -> cpu (version $ args env) e (gen env)
-    GPU _ -> gpu
+    GPU -> gpu
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
@@ -228,7 +213,7 @@ getWork e = retrying policy (\_ -> pure . isNothing) $ const f
     a = args e
     v = version a
     m = mgr e
-    u = _url $ coordinator a
+    u = coordinator a
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
@@ -255,9 +240,9 @@ mining go e wb = do
         -- TODO This is an uncomfortable URL hardcoding.
         req :: Request
         req = defaultRequest
-            { host = encodeUtf8 . T.pack . baseUrlHost . _url $ coordinator a
+            { host = encodeUtf8 . T.pack . baseUrlHost $ coordinator a
             , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"
-            , port = baseUrlPort . _url $ coordinator a
+            , port = baseUrlPort $ coordinator a
             , secure = True
             , method = "GET"
             , requestBody = RequestBodyBS $ _chainBytes cbytes }
@@ -277,7 +262,7 @@ mining go e wb = do
       where
         v = version $ args e
         m = mgr e
-        u = _url . coordinator $ args e
+        u = coordinator $ args e
 
 -- hashToHex :: BlockHash -> T.Text
 -- hashToHex = decodeUtf8 . B16.encode . runPutS . encodeBlockHash
