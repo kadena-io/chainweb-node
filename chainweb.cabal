@@ -324,7 +324,6 @@ library
         , resourcet >= 1.2
         , safeio >= 0.0
         , safe-exceptions >= 0.1
-        , scheduler >= 1.4
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -550,13 +549,11 @@ executable chainweb-miner
         , retry >= 0.7
         , rio >= 0.1.9
         , scheduler >= 1.4.1
-        , servant >= 0.14
         , servant-client >= 0.14
         , streaming >= 0.2
         , streaming-events >= 1.0
         , strict-tuple >= 0.1
         , wai-extra >= 3.0
-        , warp >= 3.2
 
 executable cwtool
     import: warning-flags, debugging-flags
@@ -604,7 +601,6 @@ executable cwtool
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
-        , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , chainweb-storage >= 0.1
@@ -637,7 +633,6 @@ executable cwtool
         , pretty-simple >= 2.1
         , primitive >= 0.6
         , random >= 1.1
-        , reflection >= 2.1
         , resourcet >= 1.2
         , servant >= 0.14.1
         , servant-client >= 0.14
@@ -646,7 +641,6 @@ executable cwtool
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
-        , strict-tuple >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
