@@ -59,7 +59,7 @@ import NeatInterpolation (text)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import Pact.Types.Hash as Pact
@@ -132,10 +132,13 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
         case cmdResultE of
 
           Left e2 ->
-
-            jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas 0) mcache'
+            -- we return the limit here as opposed to the supply (price * limit).
+            -- Private chains have no notion of price, and the user knows what price
+            -- they haggled for this tx, so this is justified.
+            let
+              (GasLimit (ParsedInteger !g)) = gasLimitOf cmd
+            in jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas $ fromIntegral g) mcache'
               "tx failure for request key when running cmd"
-
           Right (T2 cmdResult !mcache'') -> do
 
             logDebugRequestKey logger requestKey "success for requestKey"
