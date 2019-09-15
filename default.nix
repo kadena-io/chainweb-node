@@ -252,6 +252,18 @@ in
             sha256 = "1xaqk1qrcxh5lv92v1hvdsim7v8plrp0b3wyzkhzq9xqhmk24fvj";
         };
 
+        streaming-events = callHackageDirect {
+            pkg = "streaming-events";
+            ver = "1.0.0";
+            sha256 = "1lwb5cdm4wm0avvq926jj1zyzs1g0mpanzw9kmj1r24clizdw6pm";
+        };
+
+        streaming-attoparsec = callHackageDirect {
+            pkg = "streaming-attoparsec";
+            ver = "1.0.0.1";
+            sha256 = "1ff7n3pzx5acwjhq7zarmsdlwpj40srxdbm4bkjjz9kg75d1np8m";
+        };
+
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;

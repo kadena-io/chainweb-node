@@ -11,7 +11,7 @@ module Chainweb.Test.Miner.Core
   ( tests
   ) where
 
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T3(..))
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -33,7 +33,7 @@ tests = testGroup "Core Mining Logic"
     ]
 
 workBytesIso :: Assertion
-workBytesIso = unWorkBytes (workBytes tbytes hbytes) @?= T2 tbytes hbytes
+workBytesIso = unWorkBytes (workBytes cbytes tbytes hbytes) @?= T3 cbytes tbytes hbytes
   where
     v :: ChainwebVersion
     v = Test petersonChainGraph
@@ -41,4 +41,4 @@ workBytesIso = unWorkBytes (workBytes tbytes hbytes) @?= T2 tbytes hbytes
     bh :: BlockHeader
     bh = genesisBlockHeader v $ someChainId v
 
-    T2 tbytes hbytes = transferableBytes bh
+    T3 cbytes tbytes hbytes = transferableBytes bh

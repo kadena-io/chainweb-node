@@ -269,6 +269,7 @@ library
         , base >= 4.11 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
+        , binary >= 0.8
         , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
@@ -293,6 +294,7 @@ library
         , exceptions >= 0.8
         , extra >= 1.6
         , file-embed >= 0.0
+        , generic-lens >= 1.1
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2
@@ -541,6 +543,7 @@ executable chainweb-miner
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
+        , bytestring >= 0.10
         , connection >= 0.2
         , containers >= 0.5
         , errors >= 2.3
@@ -549,13 +552,16 @@ executable chainweb-miner
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , pretty-simple >= 2.1
+        , retry >= 0.7
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-client >= 0.14
-        , servant-server >= 0.14
+        , streaming >= 0.2
+        , streaming-events >= 1.0
         , strict-tuple >= 0.1
         , stm >= 2.4
         , text >= 1.2
+        , wai-extra >= 3.0
         , warp >= 3.2
 
 executable cwtool

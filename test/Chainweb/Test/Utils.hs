@@ -141,7 +141,7 @@ import Text.Printf (printf)
 
 -- internal modules
 
-import Chainweb.Chainweb.MinerResources (MinerResources)
+import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Logger (Logger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
@@ -561,7 +561,7 @@ clientEnvWithChainwebTestServer
 clientEnvWithChainwebTestServer tls v dbsIO f =
     withChainwebTestServer tls v mkApp mkEnv f
   where
-    miningRes :: Maybe (MinerResources GenericLogger cas)
+    miningRes :: Maybe (MiningCoordination GenericLogger cas)
     miningRes = Nothing
 
     mkApp :: IO W.Application

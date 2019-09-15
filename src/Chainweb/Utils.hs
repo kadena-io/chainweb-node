@@ -162,11 +162,13 @@ module Chainweb.Utils
 , concurrentWith
 , withLink
 
--- * Strict tuple-2 accessors
+-- * Strict Tuples
 , sfst
 , ssnd
 , scurry
 , suncurry
+, suncurry3
+, rwipe3
 
 -- * Approximate thread delays
 , approximateThreadDelay
@@ -1136,6 +1138,13 @@ scurry k a b = k (T2 a b)
 suncurry :: forall a b c. (a -> b -> c) -> T2 a b -> c
 suncurry k (T2 a b) = k a b
 {-# INLINE suncurry #-}
+
+suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
+suncurry3 k (T3 a b c) = k a b c
+{-# INLINE suncurry3 #-}
+
+rwipe3 :: T3 a b c -> T2 b c
+rwipe3 (T3 _ b c) = T2 b c
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays
