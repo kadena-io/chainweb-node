@@ -72,6 +72,7 @@ import RIO.List.Partial (head)
 import qualified RIO.Text as T
 import Servant.Client
 import qualified Streaming.Prelude as SP
+import System.Exit (exitFailure)
 import qualified System.Random.MWC as MWC
 
 -- internal modules
@@ -197,7 +198,7 @@ run = do
     case cmd $ args env of
         GPU -> logError "GPU mining is not yet available."
         CPU _ -> getWork >>= traverse_ (mining (scheme env))
-    exitFailure
+    liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
 scheme env = case cmd $ args env of CPU e -> cpu e; GPU -> gpu

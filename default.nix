@@ -264,12 +264,6 @@ in
             sha256 = "1ff7n3pzx5acwjhq7zarmsdlwpj40srxdbm4bkjjz9kg75d1np8m";
         };
 
-        rio = callHackageDirect {
-            pkg = "rio";
-            ver = "0.1.9.2";
-            sha256 = "1g51c4b1nfgs2f7jrpxa48vl1rnbk0hq15y3kh77x2mib2jqcq34";
-        };
-
         ######################################################################
         # Dependencies from pact
         # pact = addBuildDepend super.pact pkgs.z3;
