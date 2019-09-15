@@ -68,8 +68,10 @@ import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 
 import Data.Aeson (ToJSON(..), Value(..))
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Base16 as B16
+import Data.Bytes.Put (runPutS)
 import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import Data.Tuple.Strict (T3(..))
 
 import Network.Connection (TLSSettings(..))
@@ -90,12 +92,15 @@ import Text.Pretty.Simple (pPrintNoColor)
 
 -- internal modules
 
-import Chainweb.BlockHeader (Nonce(..))
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.Difficulty
 import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-import Chainweb.Utils (textOption, toText)
+import Chainweb.PowHash
+import Chainweb.Utils (runGet, textOption, toText)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -264,14 +269,35 @@ mining go e wb = do
     -- won the race instead, then the `go` call is automatically cancelled.
     --
     miningSuccess :: HeaderBytes -> IO ()
-    miningSuccess h = void . runClientM (solvedClient v h) $ ClientEnv m u Nothing
+    miningSuccess h = do
+      bh <- bytesToBlockHeader h
+      putStrLn $ "Success!!!  " <> (show $ _blockNonce bh)
+      putStrLn $ "difficulty = " <> (T.unpack $ showTargetHex $ _blockTarget bh)
+      putStrLn $ "blockHash  = " <> (T.unpack $ hashToHex $ _blockHash bh)
+      putStrLn $ "powHash    = " <> (T.unpack $ powHashToHex $ _blockPow bh)
+      void . runClientM (solvedClient v h) $ ClientEnv m u Nothing
       where
         v = version $ args e
         m = mgr e
         u = _url . coordinator $ args e
 
+hashToHex :: BlockHash -> T.Text
+hashToHex = decodeUtf8 . B16.encode . runPutS . encodeBlockHash
+
+powHashToHex :: PowHash -> T.Text
+powHashToHex = decodeUtf8 . B16.encode . runPutS . encodePowHash
+
+bytesToBlockHeader :: HeaderBytes -> IO BlockHeader
+bytesToBlockHeader (HeaderBytes hbytes) = runGet decodeBlockHeaderWithoutHash hbytes
+
 cpu :: ChainwebVersion -> CPUEnv -> MWC.GenIO -> TargetBytes -> HeaderBytes -> IO HeaderBytes
-cpu v e g tbytes hbytes = fmap head . withScheduler comp $ \sch ->
+cpu v e g tbytes hbytes = fmap head . withScheduler comp $ \sch -> do
+    bh <- bytesToBlockHeader hbytes
+    let BlockHeight height = _blockHeight bh
+    printf "Mining block %d on chain %s with difficulty %s\n"
+      height
+      (T.unpack $ chainIdToText $ _blockChainId bh)
+      (T.unpack $ showTargetHex (_blockTarget bh))
     replicateWork (fromIntegral $ cores e) sch $ do
         -- TODO Be more clever about the Nonce that's picked to ensure that
         -- there won't be any overlap?
