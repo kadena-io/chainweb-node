@@ -4,12 +4,14 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -67,6 +69,11 @@ module Utils.Logging
 , maybeLogHandler
 , logHandles
 
+-- * Filter LogScope Backend
+, LogScopeFilter(..)
+, logScopeFilter
+, logScopeFilterHandle
+
 -- * Base Backends
 , withBaseHandleBackend
 
@@ -105,6 +112,8 @@ import Control.Monad.Trans.Control
 import Data.Aeson.Encoding hiding (int, bool)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
+import Data.Foldable
+import qualified Data.List as List
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -240,6 +249,48 @@ genericLogHandle f b msg = case fromBackendLogMessage msg of
         Nothing -> return mempty
         (Just !msg') -> b msg'
 {-# INLINEABLE genericLogHandle #-}
+
+-- -------------------------------------------------------------------------- --
+-- Filter LogScope Handle
+
+newtype LogScopeFilter = LogScopeFilter { _logScopeFilter :: [(L.LogLabel, L.LogLevel)] }
+    deriving (Show, Eq, Ord, Generic, Semigroup, Monoid)
+
+makeLenses ''LogScopeFilter
+
+instance ToJSON LogScopeFilter where
+    toJSON (LogScopeFilter a) = toJSON $ f <$> a
+      where
+        f ((key, val), lev) = object
+            [ "key" .= key
+            , "value" .= val
+            , "level" .= lev
+            ]
+    {-# INLINE toJSON #-}
+
+instance FromJSON LogScopeFilter where
+    parseJSON = withArray "LogScopeFilter" $ \a -> LogScopeFilter . toList
+        <$> traverse f a
+      where
+        f = withObject "LogScopeFilterEntry" $ \o -> (\x y z -> ((x,y),z))
+            <$> o .: "key"
+            <*> o .: "value"
+            <*> o .: "level"
+    {-# INLINE parseJSON #-}
+
+-- | The log level of the message must exceed the threshold of any matching
+-- label in the filter. The message is discarded if any of the checks fails.
+--
+logScopeFilterHandle :: LogScopeFilter -> LogHandler
+logScopeFilterHandle (LogScopeFilter sf) = maybeLogHandler $ \msg -> do
+    let msgLevel = L._logMsgLevel msg
+        apply l = case l `List.lookup` sf of
+            Just level -> level >= msgLevel
+            Nothing -> True
+    if all apply (L._logMsgScope msg)
+      then return $ Just msg
+      else return Nothing
+{-# INLINEABLE logScopeFilterHandle #-}
 
 -- -------------------------------------------------------------------------- --
 -- Log Handler Stacks
