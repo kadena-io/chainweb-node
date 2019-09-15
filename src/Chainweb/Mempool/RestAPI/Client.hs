@@ -24,7 +24,7 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Monad
 import Control.Monad.Identity
-import Data.Aeson.Types (FromJSON, ToJSON)
+import Data.ByteString (ByteString)
 import Data.Proxy
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
@@ -34,13 +34,14 @@ import Servant.Client
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
+import Chainweb.Utils
 import Chainweb.Version
 
 ------------------------------------------------------------------------------
 
 -- TODO: all of these operations need timeout support.
 toMempool
-    :: (Show t, FromJSON t, ToJSON t, NFData t)
+    :: (Show t, NFData t)
     => ChainwebVersion
     -> ChainId
     -> TransactionConfig t
@@ -63,8 +64,8 @@ toMempool version chain txcfg blocksizeLimit env =
     go m = runClientM m env >>= either throwIO return
 
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
-    lookup v = V.fromList <$> go (lookupClient version chain (V.toList v))
-    insert v = void $ go (insertClient version chain (V.toList v))
+    lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
+    insert v = void $ go (insertClient txcfg version chain (V.toList v))
 
     -- TODO: should we permit remote getBlock?
     -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
@@ -83,14 +84,15 @@ toMempool version chain txcfg blocksizeLimit env =
 
 
 insertClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, ToJSON t)
-    => [t]
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
+    => [ByteString]
     -> ClientM NoContent
 insertClient_ = client (mempoolInsertApi @v @c)
 
-insertClient :: ToJSON t => ChainwebVersion -> ChainId -> [t] -> ClientM NoContent
-insertClient v c k = runIdentity $ do
+insertClient :: TransactionConfig t -> ChainwebVersion -> ChainId -> [t] -> ClientM NoContent
+insertClient txcfg v c k0 = runIdentity $ do
+    let k = map (codecEncode $ txCodec txcfg) k0
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ insertClient_ @v @c k
@@ -117,22 +119,24 @@ memberClient v c txs = runIdentity $ do
 
 ------------------------------------------------------------------------------
 lookupClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c, FromJSON t)
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
     => [TransactionHash]
-    -> ClientM [LookupResult t]
+    -> ClientM [LookupResult ByteString]
 lookupClient_ = client (mempoolLookupApi @v @c)
 
 lookupClient
-  :: FromJSON t
-  => ChainwebVersion
+  :: TransactionConfig t
+  -> ChainwebVersion
   -> ChainId
   -> [TransactionHash]
   -> ClientM [LookupResult t]
-lookupClient v c txs = runIdentity $ do
+lookupClient txcfg v c txs = do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ lookupClient_ @v @c txs
+    let decode = either fail return . codecDecode (txCodec txcfg)
+    cs <- lookupClient_ @v @c txs
+    mapM (traverse decode) cs
 
 
 ------------------------------------------------------------------------------
