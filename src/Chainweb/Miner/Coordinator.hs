@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -30,16 +31,18 @@ module Chainweb.Miner.Coordinator
   ) where
 
 import Control.Error.Util ((!?), (??))
-import Control.Lens (iforM, set, to, (^?!))
+import Control.Lens (iforM, set, to, (^.), (^?!))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
 
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
+import Data.Generics.Product.Positions (position)
+import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -74,7 +77,7 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 -- `publish`.
 --
 newtype MiningState =
-    MiningState (HM.HashMap BlockPayloadHash (T2 PrevBlock PayloadWithOutputs))
+    MiningState (HM.HashMap BlockPayloadHash (T3 Miner PrevBlock PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -142,7 +145,7 @@ publish lf (MiningState ms) cdb bh = do
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
-        T2 p pl <- HM.lookup phash ms ?? "BlockHeader given with no associated Payload"
+        T3 m p pl <- HM.lookup phash ms ?? "BlockHeader given with no associated Payload"
         c' <- tryMonotonicCutExtension c bh !? "Newly mined block for outdate cut"
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
@@ -161,6 +164,7 @@ publish lf (MiningState ms) cdb bh = do
                 (int . V.length $ _payloadWithOutputsTransactions pl)
                 (int bytes)
                 (estimatedHashes p bh)
+                (m ^. position @1 . _Unwrapped)
     either (lf @T.Text Info) (lf Info) res
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
