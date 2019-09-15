@@ -185,8 +185,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "31801b112f46f08bb4ca3c488dd947573f21043f";
-          sha256 = "05ixk4v87xxm45sjl400gqrlm4f83q4rbbfmvj23pkdyca06qfzn";
+          rev = "2730879a233137778646e67ca3346e7267c5f82f";
+          sha256 = "1akgrmf4yfdsxmpj45kva99d29pr1vgx83dyxn14l3kcrspzpqnn";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -250,6 +250,18 @@ in
             pkg = "warp-tls";
             ver = "3.2.7";
             sha256 = "1xaqk1qrcxh5lv92v1hvdsim7v8plrp0b3wyzkhzq9xqhmk24fvj";
+        };
+
+        streaming-events = callHackageDirect {
+            pkg = "streaming-events";
+            ver = "1.0.0";
+            sha256 = "1lwb5cdm4wm0avvq926jj1zyzs1g0mpanzw9kmj1r24clizdw6pm";
+        };
+
+        streaming-attoparsec = callHackageDirect {
+            pkg = "streaming-attoparsec";
+            ver = "1.0.0.1";
+            sha256 = "1ff7n3pzx5acwjhq7zarmsdlwpj40srxdbm4bkjjz9kg75d1np8m";
         };
 
         ######################################################################
