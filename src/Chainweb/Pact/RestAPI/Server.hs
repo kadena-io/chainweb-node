@@ -14,6 +14,7 @@
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData
 , PactServerData_
+, PactCmdLog(..)
 , SomePactServerData(..)
 , somePactServerData
 , pactServer
@@ -33,7 +34,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.HashMap.Strict (HashMap)
@@ -147,8 +147,8 @@ somePactServers v =
 
 data PactCmdLog
   = PactCmdLogSend (NonEmpty (Command Text))
-  | PactCmdLogPoll (NonEmpty ByteString)
-  | PactCmdLogListen ByteString
+  | PactCmdLogPoll (NonEmpty Text)
+  | PactCmdLogListen Text
   | PactCmdLogLocal (Command Text)
   deriving (Show, Generic, ToJSON, NFData)
 
@@ -180,7 +180,7 @@ pollHandler
     -> Poll
     -> Handler PollResponses
 pollHandler logger cutR cid chain (Poll request) = liftIO $ do
-    logg Info $ PactCmdLogPoll $ fmap (unHash . unRequestKey) request
+    logg Info $ PactCmdLogPoll $ fmap requestKeyToB16Text request
     -- get current best cut
     cut <- CutDB._cut $ _cutResCutDb cutR
     PollResponses <$> internalPoll cutR cid chain cut request
@@ -197,7 +197,7 @@ listenHandler
     -> ListenerRequest
     -> Handler ListenResponse
 listenHandler logger cutR cid chain (ListenerRequest key) = do
-    liftIO $ logg Info $ PactCmdLogListen $ unHash $ unRequestKey $ key
+    liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text $ key
     liftIO (handleTimeout runListen)
   where
     logg = logFunctionJson (setComponent "listen-handler" logger)
