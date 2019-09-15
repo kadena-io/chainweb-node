@@ -12,7 +12,8 @@
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
 --
--- Unit test for Pact execution via the Http Pact interface (/send, etc.)(inprocess) API  in Chainweb
+-- Unit test for Pact execution via the Http Pact interface (/send,
+-- etc.) (inprocess) API in Chainweb
 module Chainweb.Test.Pact.RemotePactTest
 ( tests
 , withNodes

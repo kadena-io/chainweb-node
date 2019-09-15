@@ -491,6 +491,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
         return $ newPayloadWithOutputs fakeMiner coinbase payload
 
   , _pactLocal = \_t -> error "Unimplemented"
+  , _pactLookup = error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
