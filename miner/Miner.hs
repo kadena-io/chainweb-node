@@ -85,7 +85,7 @@ import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-import Chainweb.Utils (textOption, toText)
+import Chainweb.Utils (textOption, toText, runGet)
 import Chainweb.Version
 
 --------------------------------------------------------------------------------
@@ -237,7 +237,10 @@ mining go wb = do
     race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
     getWork >>= traverse_ (mining go)
   where
-    T3 cbytes tbytes hbytes = unWorkBytes wb
+    T3 (ChainBytes cbs) tbytes hbytes = unWorkBytes wb
+
+    chain :: IO Utf8Builder
+    chain = fmap (display . chainIdInt @Int) $ runGet decodeChainId cbs
 
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
@@ -250,7 +253,8 @@ mining go wb = do
         f = do
             e <- ask
             liftIO $ withEvents (req $ args e) (mgr e) (void . SP.head_ . SP.filter realEvent)
-            logInfo "Current work was preempted."
+            cid <- liftIO chain
+            logInfo $ cid <> ": Current work was preempted."
 
         -- TODO Formalize the signal content a bit more?
         realEvent :: ServerEvent -> Bool
@@ -265,7 +269,7 @@ mining go wb = do
             , port = baseUrlPort $ coordinator a
             , secure = True
             , method = "GET"
-            , requestBody = RequestBodyBS $ _chainBytes cbytes }
+            , requestBody = RequestBodyBS cbs }
 
     -- | If the `go` call won the `race`, this function yields the result back
     -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
@@ -277,7 +281,8 @@ mining go wb = do
       let !v = version $ args e
           !m = mgr e
           !u = coordinator $ args e
-      logInfo "SUCCESS!"
+      cid <- liftIO chain
+      logInfo $ cid <> ": Mining Success!"
       r <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
       when (isLeft r) $ logWarn "Failed to submit new BlockHeader!"
 
