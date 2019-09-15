@@ -179,14 +179,12 @@ pChainId = optional $ textOption
 
 main :: IO ()
 main = do
+    cargs <- execParser opts
     lopts <- setLogUseLoc False <$> logOptionsHandle stderr True
     withLogFunc lopts $ \logFunc -> do
-        env <- Env
-            <$> MWC.createSystemRandom
-            <*> newManager (mkManagerSettings ss Nothing)
-            <*> pure logFunc
-            <*> execParser opts
-        runRIO env run
+        g <- MWC.createSystemRandom
+        m <- newManager (mkManagerSettings ss Nothing)
+        runRIO (Env g m logFunc cargs) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
