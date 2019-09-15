@@ -257,7 +257,7 @@ pChainwebConfiguration = id
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
     <*< configMiner %:: pEnableConfig "mining" pMinerConfig
-    <*< configCoordinator .:: switch
+    <*< configCoordinator .:: boolOption_
         % long "mining-coordination"
         <> help "whether to enable external requests for mining work"
     <*< configReintroTxs .:: enableDisableFlag
