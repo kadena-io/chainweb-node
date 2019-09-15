@@ -31,6 +31,8 @@ module Chainweb.Miner.Pact
   -- * Defaults
 , noMiner
 , defaultMiner
+  -- * CLI Utils
+, pMiner
 ) where
 
 import GHC.Generics (Generic)
@@ -46,10 +48,13 @@ import Data.Default (Default(..))
 import Data.FileEmbed (embedFile)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import Data.String (IsString)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Vector as V
 import Data.Word (Word64)
+
+import Options.Applicative
 
 -- internal modules
 
@@ -57,8 +62,6 @@ import Chainweb.BlockHeader (BlockHeight(..))
 import Chainweb.Graph (HasChainGraph(..), size)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
-
--- Pact types
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), Name(..))
@@ -70,7 +73,7 @@ import Pact.Types.Term (KeySet(..), Name(..))
 -- addresses.
 newtype MinerId = MinerId Text
     deriving stock (Eq, Ord, Generic)
-    deriving newtype (Show, ToJSON, FromJSON, NFData)
+    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData)
 
 -- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
 -- from user keysets.
@@ -83,7 +86,8 @@ newtype MinerKeys = MinerKeys KeySet
 -- type).
 --
 data Miner = Miner !MinerId !MinerKeys
-    deriving (Eq, Ord, Show, Generic, NFData)
+    deriving stock (Eq, Ord, Show, Generic)
+    deriving anyclass (NFData)
 
 instance ToJSON Miner where
     toJSON (Miner (MinerId m) (MinerKeys ks)) = object
@@ -169,3 +173,16 @@ readRewards v =
 rawMinerRewards :: ByteString
 rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
 {-# NOINLINE rawMinerRewards #-}
+
+--------------------------------------------------------------------------------
+-- CLI Utils
+
+pMiner :: Parser Miner
+pMiner = Miner
+    <$> strOption (long "miner-account" <> help "Coin Contract account name of Miner")
+    <*> (MinerKeys <$> pks)
+  where
+    pks :: Parser KeySet
+    pks = KeySet
+        <$> some (strOption (long "miner-key" <> help "Public key of the account to send rewards"))
+        <*> pure (Name "keys-all" def)

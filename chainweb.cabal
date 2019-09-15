@@ -269,6 +269,7 @@ library
         , base >= 4.11 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
+        , binary >= 0.8
         , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
@@ -293,6 +294,7 @@ library
         , exceptions >= 0.8
         , extra >= 1.6
         , file-embed >= 0.0
+        , generic-lens >= 1.1
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2
@@ -315,7 +317,6 @@ library
         , pact >= 2.6
         , paths >= 0.2
         , pem >=0.2
-        , psqueues >= 0.2.7.0
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -357,7 +358,6 @@ library
         , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
-        , witherable >= 0.2
         , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
@@ -543,6 +543,9 @@ executable chainweb-miner
         , async >= 2.2
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
+        , base16-bytestring >= 0.1
+        , bytes >= 0.15
+        , bytestring >= 0.10
         , connection >= 0.2
         , containers >= 0.5
         , errors >= 2.3
@@ -551,13 +554,16 @@ executable chainweb-miner
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , pretty-simple >= 2.1
+        , retry >= 0.7
         , scheduler >= 1.4.1
         , servant >= 0.14
         , servant-client >= 0.14
-        , servant-server >= 0.14
+        , streaming >= 0.2
+        , streaming-events >= 1.0
         , strict-tuple >= 0.1
         , stm >= 2.4
         , text >= 1.2
+        , wai-extra >= 3.0
         , warp >= 3.2
 
 executable cwtool
@@ -566,7 +572,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/txg tools/txstream node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream node test
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
@@ -579,6 +585,9 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
+        Standalone
+        Standalone.Chainweb
+        Standalone.Utils
         TXG
         TXG.Repl
         TXG.ReplInternals
@@ -603,9 +612,11 @@ executable cwtool
         , base >= 4.11 && < 5
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
+        , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
         , chainweb-storage >= 0.1
+        , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
         , data-default >= 0.7
@@ -622,6 +633,7 @@ executable cwtool
         , http-types >= 0.12
         , lens >= 4.16
         , loglevel >= 0.1
+        , managed >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
@@ -633,6 +645,7 @@ executable cwtool
         , pretty-simple >= 2.1
         , primitive >= 0.6
         , random >= 1.1
+        , reflection >= 2.1
         , resourcet >= 1.2
         , servant >= 0.14.1
         , servant-client >= 0.14
@@ -641,6 +654,7 @@ executable cwtool
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
+        , strict-tuple >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
@@ -652,6 +666,7 @@ executable cwtool
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
+        , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
         , xmlgen >= 0.6

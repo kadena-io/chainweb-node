@@ -16,7 +16,7 @@ module Chainweb.Mempool.RestAPI.Server
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
-import Data.Aeson.Types (FromJSON, ToJSON)
+import Data.ByteString (ByteString)
 import qualified Data.DList as D
 import Data.IORef
 import qualified Data.Vector as V
@@ -32,11 +32,15 @@ import Chainweb.Utils
 import Chainweb.Version
 
 ------------------------------------------------------------------------------
-insertHandler :: Show t => MempoolBackend t -> [t] -> Handler NoContent
-insertHandler mempool txs = handleErrs (NoContent <$ liftIO ins)
+insertHandler :: Show t => MempoolBackend t -> [ByteString] -> Handler NoContent
+insertHandler mempool txsBS = handleErrs (NoContent <$ begin)
   where
-    txV = V.fromList txs
-    ins = mempoolInsert mempool txV
+    txcfg = mempoolTxConfig mempool
+    decode = either fail return . codecDecode (txCodec txcfg)
+    begin = do
+        txs <- mapM decode txsBS
+        let txV = V.fromList txs
+        liftIO $ mempoolInsert mempool txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
@@ -46,12 +50,17 @@ memberHandler mempool txs = handleErrs (liftIO mem)
     mem = V.toList <$> mempoolMember mempool txV
 
 
-lookupHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [LookupResult t]
+lookupHandler
+    :: Show t
+    => MempoolBackend t
+    -> [TransactionHash]
+    -> Handler [LookupResult ByteString]
 lookupHandler mempool txs = handleErrs (liftIO look)
   where
     txV = V.fromList txs
-    look = V.toList <$> mempoolLookup mempool txV
-
+    txcfg = mempoolTxConfig mempool
+    encode = codecEncode (txCodec txcfg)
+    look = V.toList . V.map (fmap encode) <$> mempoolLookup mempool txV
 
 getPendingHandler
     :: Show t
@@ -90,35 +99,32 @@ handleErrs = (`catch` \(e :: SomeException) ->
                  throwError $ err400 { errBody = sshow e })
 
 someMempoolServer
-    :: (Show t, ToJSON t, FromJSON t)
+    :: (Show t)
     => SomeMempool t
     -> SomeServer
 someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
-  = SomeServer (Proxy @(MempoolApi v c t)) (mempoolServer mempool)
+  = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer mempool)
 
 
 someMempoolServers
-    :: (Show t, ToJSON t, FromJSON t)
+    :: (Show t)
     => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
 someMempoolServers v = mconcat
     . fmap (someMempoolServer . uncurry (someMempoolVal v))
 
 
-mempoolServer :: Show t => Mempool_ v c t -> Server (MempoolApi v c t)
+mempoolServer :: Show t => Mempool_ v c t -> Server (MempoolApi v c)
 mempoolServer (Mempool_ mempool) =
     insertHandler mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool
     :<|> getPendingHandler mempool
 
-
 mempoolApp
     :: forall v c t
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => FromJSON t
-    => ToJSON t
     => Show t
     => Mempool_ v c t
     -> Application
-mempoolApp mempool = serve (Proxy @(MempoolApi v c t)) (mempoolServer mempool)
+mempoolApp mempool = serve (Proxy @(MempoolApi v c)) (mempoolServer mempool)
