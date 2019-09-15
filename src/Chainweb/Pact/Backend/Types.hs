@@ -104,6 +104,7 @@ import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
+import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Database.SQLite3.Direct as SQ3
@@ -293,7 +294,7 @@ data Checkpointer = Checkpointer
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
 
       -- TODO: this would be nicer as a batch lookup :(
-    , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (BlockHeight, BlockHash)))
+    , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
     }
 
 data CheckpointEnv = CheckpointEnv
