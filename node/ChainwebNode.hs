@@ -323,7 +323,8 @@ withNodeLogger logConfig v f = runManaged $ do
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
-            [ logHandler monitorBackend
+            [ logFilterHandle (_logConfigFilter logConfig)
+            , logHandler monitorBackend
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
@@ -391,3 +392,4 @@ main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     withNodeLogger (_nodeConfigLog conf) v $ node conf
+
