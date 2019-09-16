@@ -129,15 +129,19 @@ pactServer
     => PactServerData logger cas
     -> Server (PactServiceApi v c)
 pactServer (cut, chain) =
-    (sendHandler logger mempool :<|>
-    pollHandler logger cut cid chain :<|>
-    listenHandler logger cut cid chain :<|>
-    localHandler logger cut cid chain) :<|>
-    spvHandler logger cut cid chain
+    pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
+
+    pactApiHandlers
+      = sendHandler logger mempool
+      :<|> pollHandler logger cut cid chain
+      :<|> listenHandler logger cut cid chain
+      :<|> localHandler logger cut cid chain
+
+    pactSpvHandler = spvHandler logger cut cid chain
 
 
 somePactServer :: SomePactServerData -> SomeServer
