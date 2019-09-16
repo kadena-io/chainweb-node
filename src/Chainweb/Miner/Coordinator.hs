@@ -146,7 +146,7 @@ publish lf (MiningState ms) cdb bh = do
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
         T3 m p pl <- HM.lookup phash ms ?? "BlockHeader given with no associated Payload"
-        c' <- tryMonotonicCutExtension c bh !? "Newly mined block for outdate cut"
+        c' <- tryMonotonicCutExtension c bh !? "Newly mined block for outdated cut"
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
             --
