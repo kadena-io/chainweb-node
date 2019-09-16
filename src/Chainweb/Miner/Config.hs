@@ -59,7 +59,7 @@ instance FromJSON (MinerConfig -> MinerConfig) where
         <$< (configTestMiners . minerCount) ..: "testMiners" % o
         <*< configMinerInfo ..: "minerInfo" % o
 
--- TODO Test if setting `Miner` in config is respected!
+-- TODO Options for parsing `Miner` on the command line.
 pMinerConfig :: MParser MinerConfig
 pMinerConfig = id
     <$< (configTestMiners . minerCount) .:: option auto
