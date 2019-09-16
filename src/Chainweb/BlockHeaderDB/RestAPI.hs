@@ -227,7 +227,7 @@ type BranchHeadersApi_
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JsonBlockHeaderObject, JSON] BlockHeaderPage
+    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
@@ -283,7 +283,7 @@ type HeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JsonBlockHeaderObject, JSON] BlockHeaderPage
+    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
@@ -306,7 +306,7 @@ headersApi = Proxy
 type HeaderApi_
     = "header"
     :> Capture "BlockHash" BlockHash
-    :> Get '[JsonBlockHeaderObject, JSON, OctetStream] BlockHeader
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
@@ -323,7 +323,7 @@ headerApi = Proxy
 -- -------------------------------------------------------------------------- --
 type HeaderPutApi_
     = "header"
-    :> ReqBody '[JsonBlockHeaderObject, JSON, OctetStream] BlockHeader
+    :> ReqBody '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
     :> PutNoContent '[JSON] NoContent
 
 -- | @PUT \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
