@@ -82,7 +82,7 @@ data LogConfig = LogConfig
     , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
     , _logConfigAmberdataBackend :: !(EnableConfig AmberdataConfig)
     , _logConfigClusterId :: !(Maybe ClusterId)
-    , _logConfigFilter :: !LogScopeFilter
+    , _logConfigFilter :: !LogFilter
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -151,18 +151,26 @@ pLogConfig_ prefix = id
         | T.null prefix = Nothing
         | otherwise = Just (T.unpack prefix)
 
-pFilter_ :: Maybe String -> MParser LogScopeFilter
-pFilter_ prefix = logScopeFilter %:: pLeftMonoidalUpdate pFilterEntry
+pFilter_ :: Maybe String -> MParser LogFilter
+pFilter_ prefix = id
+    <$< pLeftMonoidalUpdate pFilterRule
+    <*< pLeftMonoidalUpdate pFilterDefault
   where
-    pFilterEntry = option (eitherReader readEntry)
-        % prefixLong prefix "log-filter"
-        <> help "Add a log filter entry. Log messages with matching scope are discarded if they don't meet the log level threshold."
+    pFilterRule = option (eitherReader readEntry)
+        % prefixLong prefix "log-filter-rule"
+        <> help "A log filter rule. Log messages with matching scope are discarded if they don't meet the log level threshold."
         <> metavar "KEY:VALUE:LOGLEVEL"
 
     readEntry s = case T.splitOn ":" (T.pack s) of
         [a,b,c] -> first T.unpack $ do
             validateNonEmpty "KEY" a
             l <- readLogLevel c
-            return [ ((a,b),l) ]
+            -- return $ set logFilterRules [ ((a,b),l) ] mempty
+            return $ LogFilter [((a,b),l)] Debug
         _ -> Left $ "expecting KEY:VALUE:LOGLEVEL, but got " <> s
+
+    pFilterDefault = LogFilter [] <$> option (eitherReader readLogLevel)
+        % prefixLong prefix "log-filter-default"
+        <> help "default log filter level, which is applied to all messages that don't match any other filter rule"
+        <> metavar "LOGLEVEL"
 

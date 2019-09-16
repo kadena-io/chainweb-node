@@ -323,7 +323,7 @@ withNodeLogger logConfig v f = runManaged $ do
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
-            [ logScopeFilterHandle (_logConfigFilter logConfig)
+            [ logFilterHandle (_logConfigFilter logConfig)
             , logHandler monitorBackend
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
