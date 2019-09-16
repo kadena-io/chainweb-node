@@ -572,7 +572,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
@@ -619,6 +619,7 @@ executable cwtool
         , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
+        , cryptonite >= 0.25
         , data-default >= 0.7
         , deepseq >= 1.4
         , directory >= 1.3
@@ -631,6 +632,7 @@ executable cwtool
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-types >= 0.12
+        , io-streams >= 1.5
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
@@ -643,6 +645,7 @@ executable cwtool
         , pact >= 2.6
         , paths >= 0.2
         , pretty-simple >= 2.1
+        , process >= 1.5
         , primitive >= 0.6
         , random >= 1.1
         , reflection >= 2.1
