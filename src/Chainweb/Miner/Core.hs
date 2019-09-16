@@ -20,6 +20,7 @@ module Chainweb.Miner.Core
   , WorkBytes(..), workBytes, unWorkBytes
   , usePowHash
   , mine
+  , fastCheckTarget
   ) where
 
 import Crypto.Hash.Algorithms (SHA512t_256)
@@ -151,28 +152,28 @@ mine _ nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes
     injectNonce (Nonce n) buf = poke (castPtr buf) n
     {-# INLINE injectNonce #-}
 
-    -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
-    -- in little endian encoding.
-    --
-    fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
-    fastCheckTarget !trgPtr !powPtr =
-        fastCheckTargetN 3 trgPtr powPtr >>= \case
+-- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
+-- in little endian encoding.
+--
+fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
+fastCheckTarget !trgPtr !powPtr =
+    fastCheckTargetN 3 trgPtr powPtr >>= \case
+        LT -> return False
+        GT -> return True
+        EQ -> fastCheckTargetN 2 trgPtr powPtr >>= \case
             LT -> return False
             GT -> return True
-            EQ -> fastCheckTargetN 2 trgPtr powPtr >>= \case
+            EQ -> fastCheckTargetN 1 trgPtr powPtr >>= \case
                 LT -> return False
                 GT -> return True
-                EQ -> fastCheckTargetN 1 trgPtr powPtr >>= \case
+                EQ -> fastCheckTargetN 0 trgPtr powPtr >>= \case
                     LT -> return False
                     GT -> return True
-                    EQ -> fastCheckTargetN 0 trgPtr powPtr >>= \case
-                        LT -> return False
-                        GT -> return True
-                        EQ -> return True
-    {-# INLINE fastCheckTarget #-}
+                    EQ -> return True
+{-# INLINE fastCheckTarget #-}
 
-    fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
-    fastCheckTargetN n trgPtr powPtr = compare
-        <$> peekElemOff trgPtr n
-        <*> peekElemOff powPtr n
-    {-# INLINE fastCheckTargetN #-}
+fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
+fastCheckTargetN n trgPtr powPtr = compare
+    <$> peekElemOff trgPtr n
+    <*> peekElemOff powPtr n
+{-# INLINE fastCheckTargetN #-}

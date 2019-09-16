@@ -16,9 +16,7 @@ import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as SB
 import qualified Data.ByteString.Unsafe as B
-import Data.Word (Word64)
 import Foreign.Ptr
-import Foreign.Storable
 import Options.Applicative
 import System.Clock
 import System.Exit
@@ -28,6 +26,7 @@ import qualified System.Random.MWC as MWC
 
 import Chainweb.PowHash
 import Chainweb.Version
+import Chainweb.Miner.Core (fastCheckTarget)
 
 
 pMiner :: Parser FilePath
@@ -94,32 +93,6 @@ checkMinerOutput nonceB targetHex blockBytes0 = do
     !blockBytes = nonceB <> B.drop 4 blockBytes0
     hashBytes = SB.fromShort $ powHashBytes $ powHash Testnet02 blockBytes
     targetBytes = fst $ B16.decode targetHex
-
--- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
--- in little endian encoding.
---
-fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
-fastCheckTarget !trgPtr !powPtr =
-    fastCheckTargetN 3 trgPtr powPtr >>= \case
-        LT -> return False
-        GT -> return True
-        EQ -> fastCheckTargetN 2 trgPtr powPtr >>= \case
-            LT -> return False
-            GT -> return True
-            EQ -> fastCheckTargetN 1 trgPtr powPtr >>= \case
-                LT -> return False
-                GT -> return True
-                EQ -> fastCheckTargetN 0 trgPtr powPtr >>= \case
-                    LT -> return False
-                    GT -> return True
-                    EQ -> return True
-{-# INLINE fastCheckTarget #-}
-
-fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
-fastCheckTargetN n trgPtr powPtr = compare
-    <$> peekElemOff trgPtr n
-    <*> peekElemOff powPtr n
-{-# INLINE fastCheckTargetN #-}
 
 makeBlock :: IO ByteString
 makeBlock = MWC.withSystemRandom $ \gen -> do
