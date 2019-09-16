@@ -619,7 +619,6 @@ executable cwtool
         , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
-        , cryptonite >= 0.25
         , data-default >= 0.7
         , deepseq >= 1.4
         , directory >= 1.3
