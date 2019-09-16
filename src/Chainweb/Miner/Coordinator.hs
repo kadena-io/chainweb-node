@@ -146,7 +146,8 @@ publish lf (MiningState ms) cdb bh = do
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
         T3 m p pl <- HM.lookup phash ms ?? "BlockHeader given with no associated Payload"
-        c' <- tryMonotonicCutExtension c bh !? "Newly mined block for outdated cut"
+        let !miner = m ^. position @1 . _Unwrapped
+        c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
             --
@@ -164,7 +165,7 @@ publish lf (MiningState ms) cdb bh = do
                 (int . V.length $ _payloadWithOutputsTransactions pl)
                 (int bytes)
                 (estimatedHashes p bh)
-                (m ^. position @1 . _Unwrapped)
+                miner
     either (lf @T.Text Info) (lf Info) res
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
