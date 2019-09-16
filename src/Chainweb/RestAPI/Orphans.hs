@@ -57,6 +57,7 @@ import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner, MinerId, MinerKeys)
+import Chainweb.Pact.Service.Types (TransactionOutputProofB64(..))
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
@@ -67,6 +68,8 @@ import Chainweb.Version
 
 import Pact.Parse (ParsedInteger(..))
 import Pact.Server.API ()
+import Pact.Types.Command (RequestKey(..))
+import Pact.Types.Hash (Hash(..))
 import Pact.Types.Gas (GasLimit(..))
 
 import P2P.Peer
@@ -75,10 +78,10 @@ import P2P.Peer
 -- HttpApiData
 
 instance ToHttpApiData GasLimit where
-  toUrlPiece (GasLimit (ParsedInteger g)) = toUrlPiece g
+    toUrlPiece (GasLimit (ParsedInteger g)) = toUrlPiece g
 
 instance FromHttpApiData GasLimit where
-  parseUrlPiece p = GasLimit . ParsedInteger <$> parseUrlPiece p
+    parseUrlPiece p = GasLimit . ParsedInteger <$> parseUrlPiece p
 
 instance ToHttpApiData PeerId where
     toUrlPiece = toText
@@ -183,6 +186,12 @@ instance
     type MkLink (sym :> sub) a = MkLink sub a
     toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
 
+instance FromHttpApiData RequestKey where
+    parseUrlPiece = Right . RequestKey . Hash . T.encodeUtf8
+
+instance ToHttpApiData RequestKey where
+    toUrlPiece (RequestKey h) = sshow h
+
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
 
@@ -255,6 +264,11 @@ instance ToParamSchema ChainId where
     toParamSchema _ = mempty
         & type_ .~ SwaggerInteger
         & format ?~ "word32"
+
+instance ToParamSchema RequestKey where
+    toParamSchema _ = mempty
+        & type_ .~ SwaggerString
+        & format ?~ "byte"
 
 -- FIXME: Invention of new `ChainwebVersion` values will not warn of pattern
 -- match issues here!
@@ -431,17 +445,20 @@ deriving instance ToSchema a => ToSchema (Time a)
 deriving instance ToSchema a => ToSchema (TimeSpan a)
 
 instance ToSchema ChainwebVersion where
-  declareNamedSchema _ = pure $ NamedSchema (Just "ChainwebVersion") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "ChainwebVersion") mempty
 
 instance ToSchema MerkleLogHash where
-  declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
 
 -- TODO Need more detail for these two!
 instance ToSchema HeaderBytes where
-  declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty
 
 instance ToSchema WorkBytes where
-  declareNamedSchema _ = pure $ NamedSchema (Just "WorkBytes") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "WorkBytes") mempty
 
 instance ToSchema ChainBytes where
-  declareNamedSchema _ = pure $ NamedSchema (Just "ChainBytes") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "ChainBytes") mempty
+
+instance ToSchema TransactionOutputProofB64 where
+    declareNamedSchema _ = pure $ NamedSchema (Just "TransactionOutputProofB64") mempty

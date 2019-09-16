@@ -143,7 +143,7 @@ someChainwebApi v cs = someSwaggerApi
     <> someBlockHeaderDbApis v chains
     <> somePayloadApis v chains
     <> someP2pApis v cs
-    <> PactAPI.somePactApis v chains
+    <> PactAPI.somePactServiceApis v chains
   where
     chains = selectChainIds cs
 

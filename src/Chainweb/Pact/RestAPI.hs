@@ -5,16 +5,51 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Chainweb.Pact.RestAPI where
+-- |
+-- Module: Chainweb.SPV.RestAPI
+-- Copyright: Copyright © 2019 Kadena LLC.
+-- License: MIT
+-- Maintainer: Emily Pillmore <emily@kadena.io>, Mark Nichols <mark@kadena.io>
+-- Stability: experimental
+--
+-- This module defines the API for the main Pact service
+-- and its spv continuation proof endpoints.
+--
+module Chainweb.Pact.RestAPI
+(
+-- * Pact V1 Api
+  PactApi
+, pactApi
 
-------------------------------------------------------------------------------
-import Control.Monad.Identity
-import Pact.Server.API as API
+-- * Pact Spv Api
+, PactSpvApi
+, pactSpvApi
+
+-- * Pact Service Api
+, PactServiceApi
+, pactServiceApi
+
+-- * Some Spv Api
+, somePactServiceApi
+, somePactServiceApis
+) where
+
+
 import Servant
-------------------------------------------------------------------------------
+
+-- internal chainweb modules
+
 import Chainweb.ChainId
+import Chainweb.Pact.Service.Types
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
+
+import Data.Singletons
+
+-- internal pact modules
+
+import Pact.Server.API as API
+import Pact.Types.Command (RequestKey)
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
@@ -29,11 +64,42 @@ pactApi
     . Proxy (PactApi v c)
 pactApi = Proxy
 
-somePactApi :: ChainwebVersion -> ChainId -> SomeApi
-somePactApi v c = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c') <- return $ someChainIdVal c
-    return $ SomeApi (pactApi @v' @c')
+-- -------------------------------------------------------------------------- --
+-- GET Pact Spv Transaction Proof
 
-somePactApis :: ChainwebVersion -> [ChainId] -> SomeApi
-somePactApis v cs = mconcat $ map (somePactApi v) cs
+type PactSpvApi_
+    = "pact"
+    :> "spv"
+    :> Capture "chainId" ChainId
+    :> Capture "txHash" RequestKey
+    :> Get '[PlainText] TransactionOutputProofB64
+
+type PactSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> PactSpvApi_
+
+pactSpvApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactSpvApi v c)
+pactSpvApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- PactService Api
+
+type PactServiceApi v c
+   = PactApi v c
+  :<|> PactSpvApi v c
+
+pactServiceApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) . Proxy (PactServiceApi v c)
+pactServiceApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- Some Cut Api
+
+somePactServiceApi :: ChainwebVersion -> ChainId -> SomeApi
+somePactServiceApi
+    (FromSing (SChainwebVersion :: Sing v))
+    (FromSing (SChainId :: Sing c))
+    = SomeApi $ pactServiceApi @v @c
+
+somePactServiceApis :: ChainwebVersion -> [ChainId] -> SomeApi
+somePactServiceApis v = mconcat . fmap (somePactServiceApi v)
