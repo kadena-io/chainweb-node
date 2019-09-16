@@ -448,11 +448,12 @@ instance ToSchema ChainBytes where
 instance ToSchema Miner where
     declareNamedSchema _ = do
         textSchema <- declareSchemaRef (Proxy @T.Text)
+        listSchema <- declareSchemaRef (Proxy @[T.Text])
         pure $ NamedSchema (Just "Miner") $ mempty
             & type_ .~ SwaggerObject
             & properties .~
-                [ ("m", textSchema)
-                , ("ks", textSchema)
-                , ("kp", textSchema)
+                [ ("account", textSchema)
+                , ("public-keys", listSchema)
+                , ("predicate", textSchema)
                 ]
-            & required .~ [ "m", "ks", "kp" ]
+            & required .~ [ "account", "public-keys", "predicate" ]
