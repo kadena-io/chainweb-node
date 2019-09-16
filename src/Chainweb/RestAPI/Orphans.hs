@@ -279,8 +279,11 @@ instance ToSchema Swagger where
 
 instance ToSchema PeerInfo
 
--- TODO This?
-instance ToSchema ChainId
+instance ToSchema ChainId where
+    declareNamedSchema _ = pure . NamedSchema (Just "ChainId") $ mempty
+        & description ?~ "Unique identifier for a Chainweb Chain"
+        & type_ .~ SwaggerInteger
+        & example ?~ toJSON (someChainId Testnet02)
 
 instance ToSchema PeerId where
     declareNamedSchema _ = declareNamedSchema (Proxy @V4.UUID)
