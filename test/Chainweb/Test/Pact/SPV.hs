@@ -255,14 +255,22 @@ chainToMPA f cid = MemPoolAccess
 -- transaction generators
 
 type TransactionGenerator
-    = Chainweb.ChainId -> BlockHeight -> BlockHash -> BlockHeader -> IO (Vector ChainwebTransaction)
+    = Chainweb.ChainId
+    -> BlockHeight
+    -> BlockHash
+    -> BlockHeader
+    -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
     = MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
-    = MVar (CutDb RocksDbCas) -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> BlockHeight -> IO TransactionGenerator
-
+    = MVar (CutDb RocksDbCas)
+    -> MVar PactId
+    -> Chainweb.ChainId
+    -> Chainweb.ChainId
+    -> BlockHeight
+    -> IO TransactionGenerator
 
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --

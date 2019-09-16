@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -143,14 +144,14 @@ testReq6 = TestRequest
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-execTest :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestRequest -> ScheduledTest
+execTest
+    :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a)
+    -> TestRequest
+    -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData
-    trans <- goldenTestTransactions
-      $ V.fromList
-      $ fmap (k d) cmdStrs
-
+    trans <- goldenTestTransactions . V.fromList $ fmap (k d) cmdStrs
     results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
@@ -164,17 +165,14 @@ getPactCode (Code str) = return (pack str)
 getPactCode (File filePath) = pack <$> readFile' (testPactFilesDir ++ filePath)
 
 checkSuccessOnly :: HashCommandResult -> Assertion
-checkSuccessOnly CommandResult{..} = case _crResult of
+checkSuccessOnly cr = case _crResult cr of
   PactResult (Right _) -> return ()
   r -> assertFailure $ "Failure status returned: " ++ show r
 
 checkSuccessOnly' :: String -> IO TestResponse -> ScheduledTest
-checkSuccessOnly' msg f = testCaseSch msg $ do
-        f' <- f
-        case f' of
-          (TestResponse res@(_:_) _) ->
-            checkSuccessOnly (snd $ last res)
-          (TestResponse res _) -> fail (show res) -- TODO
+checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
+    TestResponse res@(_:_) _ -> checkSuccessOnly (snd $ last res)
+    TestResponse res _ -> fail (show res) -- TODO
 
 -- | A test runner for golden tests.
 --
