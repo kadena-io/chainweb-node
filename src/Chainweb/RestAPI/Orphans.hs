@@ -279,6 +279,7 @@ instance ToSchema Swagger where
 
 instance ToSchema PeerInfo
 
+-- TODO This?
 instance ToSchema ChainId
 
 instance ToSchema PeerId where
@@ -368,7 +369,7 @@ instance ToSchema PayloadWithOutputs where
             & required .~ [ "limit", "items" ]
 
 instance ToSchema BlockHeader where
-    declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema
+    declareNamedSchema _ = return $ NamedSchema (Just "BlockHeader") byteSchema
 
 instance ToSchema CutHashes where
     declareNamedSchema _ = do
@@ -421,7 +422,6 @@ deriving instance ToSchema HashDifficulty
 deriving instance ToSchema HashTarget
 deriving instance ToSchema MinerKeys
 deriving instance ToSchema Micros
-deriving instance ToSchema Miner
 deriving instance ToSchema MinerId
 deriving instance ToSchema Nonce
 deriving instance ToSchema PowHashNat
@@ -431,17 +431,28 @@ deriving instance ToSchema a => ToSchema (Time a)
 deriving instance ToSchema a => ToSchema (TimeSpan a)
 
 instance ToSchema ChainwebVersion where
-  declareNamedSchema _ = pure $ NamedSchema (Just "ChainwebVersion") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "ChainwebVersion") mempty
 
 instance ToSchema MerkleLogHash where
-  declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
 
--- TODO Need more detail for these two!
 instance ToSchema HeaderBytes where
-  declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty
 
 instance ToSchema WorkBytes where
-  declareNamedSchema _ = pure $ NamedSchema (Just "WorkBytes") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "WorkBytes") mempty
 
 instance ToSchema ChainBytes where
-  declareNamedSchema _ = pure $ NamedSchema (Just "ChainBytes") mempty
+    declareNamedSchema _ = pure $ NamedSchema (Just "ChainBytes") mempty
+
+instance ToSchema Miner where
+    declareNamedSchema _ = do
+        textSchema <- declareSchemaRef (Proxy @T.Text)
+        pure $ NamedSchema (Just "Miner") $ mempty
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("m", textSchema)
+                , ("ks", textSchema)
+                , ("kp", textSchema)
+                ]
+            & required .~ [ "m", "ks", "kp" ]
