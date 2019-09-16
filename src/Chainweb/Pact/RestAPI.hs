@@ -86,8 +86,8 @@ pactSpvApi = Proxy
 -- PactService Api
 
 type PactServiceApi v c
-   = PactApi v c
-  :<|> PactSpvApi v c
+    = PactApi v c
+    :<|> PactSpvApi v c
 
 pactServiceApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) . Proxy (PactServiceApi v c)
 pactServiceApi = Proxy
