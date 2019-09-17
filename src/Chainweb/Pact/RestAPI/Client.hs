@@ -9,7 +9,7 @@
 -- Module: Chainweb.Pact.RestAPI.Client
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
--- Maintainer: Emily Pillmore <emily@kadena.io>, Mark Nichols <mark@kadena.io>
+-- Maintainer: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
 -- This module defines the client API for the main Pact service

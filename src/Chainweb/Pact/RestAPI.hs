@@ -29,7 +29,7 @@ module Chainweb.Pact.RestAPI
 , PactServiceApi
 , pactServiceApi
 
--- * Some Spv Api
+-- * Some Pact Service Api
 , somePactServiceApi
 , somePactServiceApis
 ) where
