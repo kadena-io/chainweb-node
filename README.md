@@ -258,17 +258,9 @@ The production components are:
     (command-line and RPC) for directly interacting with the Chainweb or for
     implementing applications such as miners and transaction management tools.
 
+*   `chainweb-miner`: A stand-alone Mining Client.
+
 *   `chainweb-tests`: A test suite for the Chainweb library and chainweb-node.
-
-In addition, the following example executables are included to demonstrate
-the use of individual sub-components:
-
-*   `single-chain-example`: A simple end-to-end scenario for mining
-    and synchronizing nodes for a single chain.
-
-*   `blockheaderdb-example`: Example for how to use the BlockHeaderDB API of Chainweb.
-
-*   `p2p-example`: A simple p2p network implementation.
 
 ## Architecture Overview
 
