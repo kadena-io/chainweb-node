@@ -122,11 +122,11 @@ pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> pUrl <*> pMiner 
 pCommand :: Parser Command
 pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
-    <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
+    -- <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
     )
 
-gpuOpts :: Parser Command
-gpuOpts = pure GPU
+-- gpuOpts :: Parser Command
+-- gpuOpts = pure GPU
 
 cpuOpts :: Parser Command
 cpuOpts = CPU . CPUEnv <$> pCores
