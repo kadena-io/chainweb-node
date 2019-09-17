@@ -5,6 +5,7 @@ import Control.Concurrent.STM
 import Control.Exception
 
 import qualified Data.Pool as Pool
+import qualified Data.Vector as V
 
 import qualified Network.HTTP.Client as HTTP
 import Network.Wai (Application)
@@ -25,7 +26,7 @@ import qualified Chainweb.Mempool.InMemTypes as InMem
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MClient
 import Chainweb.RestAPI
-import Chainweb.Test.Mempool (MempoolWithFunc(..))
+import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils (withTestAppServer)
 import Chainweb.Utils (Codec(..))
@@ -37,38 +38,39 @@ import Network.X509.SelfSigned
 
 ------------------------------------------------------------------------------
 tests :: TestTree
-tests = withResource (newPool cfg) Pool.destroyAllResources $
+tests = withResource newPool Pool.destroyAllResources $
         \poolIO -> testGroup "Chainweb.Mempool.RestAPI"
             $ Chainweb.Test.Mempool.remoteTests
             $ MempoolWithFunc
             $ withRemoteMempool poolIO
-  where
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta
-    cfg = InMemConfig txcfg mockBlockGasLimit 2048
-    hashmeta = chainwebTestHashMeta
-    hasher = chainwebTestHasher . codecEncode mockCodec
 
 data TestServer = TestServer
     { _tsRemoteMempool :: !(MempoolBackend MockTx)
     , _tsLocalMempool :: !(MempoolBackend MockTx)
+    , _tsInsertCheck :: InsertCheck
     , _tsServerThread :: !ThreadId
     }
 
-newTestServer :: InMemConfig MockTx -> IO TestServer
-newTestServer inMemCfg = mask_ $ do
+newTestServer :: IO TestServer
+newTestServer = mask_ $ do
+    checkMv <- newMVar $ V.mapM (const $ return True)
+    let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMvFunc checkMv)
+    let blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
-    tid <- forkIOWithUnmask $ server inmemMv envMv
+    tid <- forkIOWithUnmask $ server inMemCfg inmemMv envMv
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
     let remoteMp0 = MClient.toMempool version chain txcfg blocksizeLimit env
     -- allow remoteMp to call the local mempool's getBlock (for testing)
     let remoteMp = remoteMp0 { mempoolGetBlock = \a b c -> mempoolGetBlock inmem a b c }
-    return $! TestServer remoteMp inmem tid
+    return $! TestServer remoteMp inmem checkMv tid
   where
-    server :: MVar (MempoolBackend MockTx) -> MVar ClientEnv -> (IO b -> IO a) -> IO a
-    server inmemMv envMv restore =
+    checkMvFunc mv xs = do
+        f <- readMVar mv
+        f xs
+
+    server inMemCfg inmemMv envMv restore =
         InMem.withInMemoryMempool inMemCfg $ \inmem -> do
             putMVar inmemMv inmem
             restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
@@ -77,12 +79,6 @@ newTestServer inMemCfg = mask_ $ do
 
     version :: ChainwebVersion
     version = Test singletonChainGraph
-
-    blocksizeLimit :: GasLimit
-    blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
-
-    txcfg :: TransactionConfig MockTx
-    txcfg = InMem._inmemTxCfg inMemCfg
 
     host :: String
     host = "127.0.0.1"
@@ -103,10 +99,10 @@ newTestServer inMemCfg = mask_ $ do
         return $! mkClientEnv mgr $ BaseUrl Https host port ""
 
 destroyTestServer :: TestServer -> IO ()
-destroyTestServer (TestServer _ _ tid) = killThread tid
+destroyTestServer = killThread . _tsServerThread
 
-newPool :: InMemConfig MockTx -> IO (Pool.Pool TestServer)
-newPool cfg = Pool.createPool (newTestServer cfg) destroyTestServer 1 10 20
+newPool :: IO (Pool.Pool TestServer)
+newPool = Pool.createPool newTestServer destroyTestServer 1 10 20
 
 ------------------------------------------------------------------------------
 
@@ -118,9 +114,18 @@ serverMempools mempools = emptyChainwebServerDbs
     }
 
 withRemoteMempool
-    :: IO (Pool.Pool TestServer) -> (MempoolBackend MockTx -> IO a) -> IO a
+    :: IO (Pool.Pool TestServer)
+    -> (InsertCheck -> MempoolBackend MockTx -> IO a)
+    -> IO a
 withRemoteMempool poolIO userFunc = do
     pool <- poolIO
     Pool.withResource pool $ \ts -> do
         mempoolClear $ _tsLocalMempool ts
-        userFunc $ _tsRemoteMempool ts
+        userFunc (_tsInsertCheck ts) (_tsRemoteMempool ts)
+
+txcfg :: TransactionConfig MockTx
+txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
+                          mockGasLimit mockMeta
+  where
+    hashmeta = chainwebTestHashMeta
+    hasher = chainwebTestHasher . codecEncode mockCodec

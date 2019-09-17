@@ -45,6 +45,8 @@ data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
+    -- Here True means 'OK to insert'
+  , _inmemPreInsertCheck :: !(V.Vector t -> IO (V.Vector Bool))
 }
 
 ------------------------------------------------------------------------------

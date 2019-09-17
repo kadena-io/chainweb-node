@@ -113,7 +113,7 @@ toMempoolBackend mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg blockSizeLimit _ = cfg
+    InMemConfig tcfg blockSizeLimit _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
@@ -203,10 +203,11 @@ maxNumPending = 10000
 ------------------------------------------------------------------------------
 insertInMem :: InMemConfig t    -- ^ in-memory config
             -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+            -> InsertType
             -> Vector t  -- ^ new transactions
             -> IO ()
-insertInMem cfg lock txs0 = do
-    txs1 <- V.filterM preGossipCheck txs0
+insertInMem cfg lock runCheck txs0 = do
+    txs1 <- preInsertFilter txs0
     withMVarMasked lock $ \mdata -> do
         let countRef = _inmemCountPending mdata
         cnt <- readIORef countRef
@@ -222,9 +223,16 @@ insertInMem cfg lock txs0 = do
             recordRecentTransactions maxRecent newHashes
 
   where
-    preGossipCheck tx = do
-        -- TODO: other well-formedness checks go here (e.g. ttl check)
-        return $! sizeOK tx
+    preInsertFilter = if runCheck == CheckedInsert
+                        then preInsertFilterReal
+                        else return
+    preInsertFilterReal txs = do
+        let chk = _inmemPreInsertCheck cfg
+        let out1 = V.map sizeOK txs
+        out2 <- chk txs
+        let oks = V.zipWith (&&) out1 out2
+        -- keep the good txs only
+        return $! V.map fst $ V.filter snd $ V.zip txs oks
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)

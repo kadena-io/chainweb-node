@@ -3,6 +3,8 @@ module Chainweb.Test.Mempool.InMem
   ) where
 
 ------------------------------------------------------------------------------
+import Control.Concurrent.MVar
+import qualified Data.Vector as V
 import Test.Tasty
 ------------------------------------------------------------------------------
 import qualified Chainweb.Mempool.InMem as InMem
@@ -16,12 +18,19 @@ import Chainweb.Utils (Codec(..))
 tests :: TestTree
 tests = testGroup "Chainweb.Mempool.InMem"
             $ Chainweb.Test.Mempool.tests
-            $ MempoolWithFunc
-            $ InMem.withInMemoryMempool cfg
+            $ MempoolWithFunc wf
   where
+    wf f = do
+        mv <- newMVar (\v -> V.mapM (const $ return True) v)
+        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMv mv)
+        InMem.withInMemoryMempool cfg $ f mv
+
+    checkMv mv xs = do
+        f <- readMVar mv
+        f xs
+
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
                               mockMeta
-    cfg = InMemConfig txcfg mockBlockGasLimit 2048
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
 
