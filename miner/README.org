@@ -66,7 +66,7 @@ note of the /Public Key/.
 ** Mining with chainweb-node
 
 This assumes you have obtained a ~chainweb-node~ binary, the full setup
-instructions forwhich will not be repeated here.
+instructions for which will not be repeated here.
 
 *** Basics
 
@@ -137,7 +137,7 @@ results.
 *** Basics
 
 #+begin_src bash
-  chainweb-miner cpu --cores=4 --node=<truted-node>:443 --miner-account=<you> --miner-key=<your-public-key>
+  chainweb-miner cpu --cores=4 --node=<trusted-node>:443 --miner-account=<you> --miner-key=<your-public-key>
 #+end_src
 
 Things to note:
@@ -180,7 +180,7 @@ Your coins are likely gone.
 |----------------------+------------------------+-------------------------|
 | Your Account         | Hurray!                | Work rejected by Node.  |
 |----------------------+------------------------+-------------------------|
-| Not Your Account     | Work rejected by Node. | Work rejeceted by Node. |
+| Not Your Account     | Work rejected by Node. | Work rejected by Node.  |
 |----------------------+------------------------+-------------------------|
 | Non-existant Account | You own a new account! | *Coins locked forever.* |
 

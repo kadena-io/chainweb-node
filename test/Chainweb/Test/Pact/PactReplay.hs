@@ -71,14 +71,14 @@ tests =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     testGroup label
-        [ withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
+        [ withPact Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
             testCase "initial-playthrough" $
             firstPlayThrough genblock pdb bhdb reqQIO
         , after AllSucceed "initial-playthrough" $
-          withPact pdb bhdb testMemPoolAccess dir $ \reqQIO ->
+          withPact Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
             testCase "on-restart" $ onRestart pdb bhdb reqQIO
         , after AllSucceed "on-restart" $
-          withPact pdb bhdb dupegenMemPoolAccess dir $ \reqQIO ->
+          withPact Quiet pdb bhdb dupegenMemPoolAccess dir $ \reqQIO ->
             testCase "reject-dupes" $ testDupes genblock pdb bhdb reqQIO
         ]
   where
@@ -275,13 +275,14 @@ withBlockHeaderDb iordb b = withResource start stop
     stop = closeBlockHeaderDb
 
 withPact
-    :: IO (PayloadDb HashMapCas)
+    :: LogLevel
+    -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO FilePath
     -> (IO (TQueue RequestMsg) -> TestTree)
     -> TestTree
-withPact iopdb iobhdb mempool iodir f =
+withPact logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
@@ -299,7 +300,7 @@ withPact iopdb iobhdb mempool iodir f =
         sendCloseMsg reqQ
         cancel a
 
-    logger = genericLogger Warn T.putStrLn
+    logger = genericLogger logLevel T.putStrLn
     cid = someChainId testVer
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a

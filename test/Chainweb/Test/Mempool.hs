@@ -8,6 +8,7 @@ module Chainweb.Test.Mempool
   ( tests
   , remoteTests
   , MempoolWithFunc(..)
+  , InsertCheck
   , mempoolTestCase
   , mempoolProperty
   , lookupIsPending
@@ -15,6 +16,8 @@ module Chainweb.Test.Mempool
   ) where
 
 import Control.Applicative
+import Control.Concurrent.MVar
+import Control.Exception (bracket)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
@@ -25,6 +28,7 @@ import Data.IORef
 import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
+import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
@@ -53,6 +57,7 @@ remoteTests withMempool = map ($ withMempool) [
       mempoolTestCase "nil case (startup/destroy)" testStartup
     , mempoolProperty "overlarge transactions are rejected" genTwoSets
                       propOverlarge
+    , mempoolProperty "pre-insert checks" genTwoSets propPreInsert
     , mempoolProperty "insert + lookup + getBlock" genNonEmpty propTrivial
     , mempoolProperty "getPending" genNonEmpty propGetPending
     , mempoolProperty "getPending high water marks" hwgen propHighWater
@@ -101,10 +106,14 @@ instance Arbitrary MockTx where
     where
       emptyMeta = TransactionMetadata Time.minTime Time.maxTime
 
-data MempoolWithFunc = MempoolWithFunc (forall a . (MempoolBackend MockTx -> IO a) -> IO a)
+type InsertCheck = MVar (Vector MockTx -> IO (Vector Bool))
+data MempoolWithFunc =
+    MempoolWithFunc (forall a
+                     . ((InsertCheck -> MempoolBackend MockTx -> IO a)
+                       -> IO a))
 
 mempoolTestCase :: TestName
-                -> (MempoolBackend MockTx -> IO ())
+                -> (InsertCheck -> MempoolBackend MockTx -> IO ())
                 -> MempoolWithFunc
                 -> TestTree
 mempoolTestCase name test (MempoolWithFunc withMempool) =
@@ -113,11 +122,12 @@ mempoolTestCase name test (MempoolWithFunc withMempool) =
     tout m = timeout 60000000 m >>= maybe (fail "timeout") return
 
 
-mempoolProperty :: TestName
-                -> PropertyM IO a
-                -> (a -> MempoolBackend MockTx -> IO (Either String ()))
-                -> MempoolWithFunc
-                -> TestTree
+mempoolProperty
+    :: TestName
+    -> PropertyM IO a
+    -> (a -> InsertCheck -> MempoolBackend MockTx -> IO (Either String ()))
+    -> MempoolWithFunc
+    -> TestTree
 mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name go
   where
     go = monadicIO (gen >>= run . tout . withMempool . test
@@ -125,26 +135,56 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
 
     tout m = timeout 60000000 m >>= maybe (fail "timeout") return
 
-testStartup :: MempoolBackend MockTx -> IO ()
-testStartup = const $ return ()
+testStartup :: InsertCheck -> MempoolBackend MockTx -> IO ()
+testStartup = const $ const $ return ()
 
 
-propOverlarge :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propOverlarge (txs, overlarge0) mempool = runExceptT $ do
+propOverlarge
+    :: ([MockTx], [MockTx])
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propOverlarge (txs, overlarge0) _ mempool = runExceptT $ do
     liftIO $ insert $ txs ++ overlarge
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup overlarge) >>= V.mapM_ lookupIsMissing
   where
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool $ V.fromList v
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
 
+propPreInsert
+    :: ([MockTx], [MockTx])
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propPreInsert (txs, badTxs) gossipMV mempool =
+   bracket (readMVar gossipMV)
+           (\old -> modifyMVar_ gossipMV (const $ return old))
+           (const go)
 
-propTrivial :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
-propTrivial txs mempool = runExceptT $ do
+  where
+    go = runExceptT $ do
+        liftIO $ modifyMVar_ gossipMV $ const $ return checkNotBad
+        liftIO $ insert $ txs ++ badTxs
+        liftIO (lookup txs) >>= V.mapM_ lookupIsPending
+        liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
+    txcfg = mempoolTxConfig mempool
+    hash = txHasher txcfg
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    lookup = mempoolLookup mempool . V.fromList . map hash
+    checkNotBad xs = return $! V.map (not . (`elem` badTxs)) xs
+
+
+propTrivial
+    :: [MockTx]
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propTrivial txs _ mempool = runExceptT $ do
     liftIO $ insert txs
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     block <- liftIO getBlock
@@ -157,7 +197,7 @@ propTrivial txs mempool = runExceptT $ do
                   in V.and ffs
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool $ V.fromList v
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     getBlock = mempoolGetBlock mempool noopMempoolPreBlockCheck 0 nullBlockHash
@@ -165,8 +205,12 @@ propTrivial txs mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x)
 
 
-propGetPending :: [MockTx] -> MempoolBackend MockTx -> IO (Either String ())
-propGetPending txs0 mempool = runExceptT $ do
+propGetPending
+    :: [MockTx]
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propGetPending txs0 _ mempool = runExceptT $ do
     liftIO $ insert txs
     pendingOps <- liftIO $ newIORef []
     void $ liftIO $ getPending Nothing $ \v -> modifyIORef' pendingOps (v:)
@@ -186,10 +230,14 @@ propGetPending txs0 mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert v = mempoolInsert mempool $ V.fromList v
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
 
-propHighWater :: ([MockTx], [MockTx]) -> MempoolBackend MockTx -> IO (Either String ())
-propHighWater (txs0, txs1) mempool = runExceptT $ do
+propHighWater
+    :: ([MockTx], [MockTx])
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     liftIO $ insert txs0
     hw <- liftIO $ getPending Nothing $ const (return ())
     liftIO $ insert txs1
@@ -212,7 +260,7 @@ propHighWater (txs0, txs1) mempool = runExceptT $ do
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert txs = mempoolInsert mempool $ V.fromList txs
+    insert txs = mempoolInsert mempool CheckedInsert $ V.fromList txs
 
 
 uniq :: Eq a => [a] -> [a]
