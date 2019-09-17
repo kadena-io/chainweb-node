@@ -24,20 +24,29 @@ module Chainweb.Chainweb.MinerResources
   , withMiningCoordination
   ) where
 
-import Control.Concurrent.STM (TVar)
-import Control.Concurrent.STM.TVar (newTVarIO)
+import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashMap.Strict as HM
+import Data.Tuple.Strict (T3(..))
+
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar', newTVarIO)
+import Control.Lens (over)
 
 import qualified System.Random.MWC as MWC
 
 -- internal modules
 
+import Chainweb.BlockHeader (_blockCreationTime, BlockCreationTime(..))
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.Miner.Coordinator (MiningState(..))
+import Chainweb.Miner.Coordinator (MiningState(..), PrevBlock(..))
 import Chainweb.Miner.Miners
 import Chainweb.Payload.PayloadStore
-import Chainweb.Utils (EnableConfig(..))
+import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
+import Chainweb.Utils (EnableConfig(..), int, runForever)
 import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (LogFunction)
@@ -55,7 +64,8 @@ data MiningCoordination logger cas = MiningCoordination
     }
 
 withMiningCoordination
-    :: logger
+    :: Logger logger
+    => logger
     -> Bool
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
@@ -64,11 +74,20 @@ withMiningCoordination logger enabled cutDb inner
     | not enabled = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
-        inner . Just $ MiningCoordination
+        fmap snd . concurrently (prune t) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
-            , _coordState = t
-            }
+            , _coordState = t }
+  where
+    prune :: TVar MiningState -> IO ()
+    prune t = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
+        let !d = 600000000  -- 10 minutes
+        threadDelay d
+        ago <- over (_Unwrapped . _Unwrapped) (subtract (int d)) <$> getCurrentTimeIntegral
+        atomically . modifyTVar' t $ over _Unwrapped (HM.filter (f ago))
+
+    f :: Time Micros -> T3 a PrevBlock b -> Bool
+    f ago (T3 _ (PrevBlock p) _) = _blockCreationTime p > BlockCreationTime ago
 
 -- | For in-process CPU mining by a Chainweb Node.
 --
