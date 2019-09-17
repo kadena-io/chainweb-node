@@ -89,16 +89,19 @@ import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
+import Control.Monad.Catch (throwM)
 
+import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sortBy)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
 
@@ -110,6 +113,7 @@ import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
 
+import qualified Pact.Types.Hash as P
 import Prelude hiding (log)
 
 import System.Clock
@@ -344,14 +348,30 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
 
-validatingMempoolConfig :: Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig = Mempool.InMemConfig
-    Mempool.chainwebTransactionConfig
+validatingMempoolConfig
+    :: ChainId
+    -> MVar (CutDb cas)
+    -> MVar PactExecutionService
+    -> Mempool.InMemConfig ChainwebTransaction
+validatingMempoolConfig cid cutmv mv = Mempool.InMemConfig
+    txcfg
     blockGasLimit
     maxRecentLog
+    preInsertCheck
   where
+    txcfg = Mempool.chainwebTransactionConfig
     blockGasLimit = 100000
     maxRecentLog = 2048
+    hasher = Mempool.txHasher txcfg
+    preInsertCheck txs = do
+        cdb <- readMVar cutmv
+        curCut <- _cut cdb
+        bh <- lookupCutM cid curCut
+        let hashes = V.map toPactHash $ V.map hasher txs
+        pex <- readMVar mv
+        mbs <- _pactLookup pex bh hashes >>= either throwM return
+        return $! V.map (== Nothing) mbs
+    toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -372,8 +392,10 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     cdbv <- newEmptyMVar
     concurrentWith
         -- initialize chains concurrently
-        (\cid -> withChainResources v cid rocksDb peer (chainLogger cid)
-                     validatingMempoolConfig cdbv payloadDb prune dbDir nodeid
+        (\cid -> do
+            let mcfg = validatingMempoolConfig cid cdbv
+            withChainResources v cid rocksDb peer (chainLogger cid)
+                     mcfg cdbv payloadDb prune dbDir nodeid
                      resetDb)
 
         -- initialize global resources after all chain resources are initialized

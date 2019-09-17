@@ -32,7 +32,7 @@ module Chainweb.Chainweb.ChainResources
 
 import Chainweb.Time
 
-import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.MVar
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch
@@ -114,7 +114,7 @@ withChainResources
     -> RocksDb
     -> PeerResources logger
     -> logger
-    -> Mempool.InMemConfig ChainwebTransaction
+    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
     -> MVar (CutDb cas)
     -> PayloadDb cas
     -> Bool
@@ -126,8 +126,10 @@ withChainResources
         -- ^ reset database directory
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
+withChainResources v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir nodeid resetDb inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
+      pexMv <- newEmptyMVar
+      let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdbv cdb
@@ -153,6 +155,8 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
                     --     $ casDelete payloadDb (_blockPayloadHash h)
                     return ()
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
+            let pex = pes requestQ
+            putMVar (pexMv) pex
 
             -- run inner
             inner $ ChainResources
@@ -160,7 +164,7 @@ withChainResources v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir n
                 , _chainResBlockHeaderDb = cdb
                 , _chainResLogger = logger
                 , _chainResMempool = mempool
-                , _chainResPact = pes requestQ
+                , _chainResPact = pex
                 }
   where
     logg = logFunctionText (setComponent "pact-tx-replay" logger)

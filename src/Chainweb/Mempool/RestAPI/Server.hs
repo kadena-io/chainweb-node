@@ -40,7 +40,7 @@ insertHandler mempool txsBS = handleErrs (NoContent <$ begin)
     begin = do
         txs <- mapM decode txsBS
         let txV = V.fromList txs
-        liftIO $ mempoolInsert mempool txV
+        liftIO $ mempoolInsert mempool True txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
