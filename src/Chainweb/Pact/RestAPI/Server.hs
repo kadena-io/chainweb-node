@@ -75,7 +75,7 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..))
+import Chainweb.Mempool.Mempool (MempoolBackend(..), InsertType(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -177,7 +177,8 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     case traverse validateCommand cmds of
       Right enriched -> do
-        liftIO $ mempoolInsert mempool $! V.fromList $ NEL.toList enriched
+        liftIO $ mempoolInsert mempool CheckedInsert
+               $! V.fromList $ NEL.toList enriched
         return $! RequestKeys $ NEL.map cmdToRequestKey enriched
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }

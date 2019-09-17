@@ -64,6 +64,7 @@ module Chainweb.Mempool.Mempool
   , MockTx(..)
   , ServerNonce
   , HighwaterMark
+  , InsertType(..)
 
   , chainwebTransactionConfig
   , mockCodec
@@ -183,6 +184,8 @@ data TransactionConfig t = TransactionConfig {
 type MempoolTxId = Int64
 type ServerNonce = Int
 type HighwaterMark = (ServerNonce, MempoolTxId)
+data InsertType = CheckedInsert | UncheckedInsert
+  deriving (Show, Eq)
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -199,7 +202,9 @@ data MempoolBackend t = MempoolBackend {
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
     -- | Insert the given transactions into the mempool.
-  , mempoolInsert :: Vector t -> IO ()
+  , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
+                  -> Vector t
+                  -> IO ()
 
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
@@ -252,12 +257,11 @@ noopMempool = do
                               noopMeta
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
-    noopInsert = const $ return ()
+    noopInsert = const $ const $ return ()
     noopMV = const $ return ()
     noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
-
 
 
 ------------------------------------------------------------------------------
@@ -364,7 +368,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     fetchMissing chunk = do
         res <- mempoolLookup remoteMempool chunk
         let !newTxs = V.map fromPending $ V.filter isPending res
-        mempoolInsert localMempool newTxs
+        mempoolInsert localMempool CheckedInsert newTxs
 
     deb :: Text -> IO ()
     deb = log0 Debug
@@ -436,7 +440,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        when (not $ V.null v) $ mempoolInsert remoteMempool v
+        when (not $ V.null v) $ mempoolInsert remoteMempool CheckedInsert v
 
 
 syncMempools
