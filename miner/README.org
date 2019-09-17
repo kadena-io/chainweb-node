@@ -14,8 +14,7 @@
     - [[#chain-focusing][Chain Focusing]]
     - [[#log-suppression][Log Suppression]]
   - [[#troubleshooting][Troubleshooting]]
-    - [[#i-mined-using-the-wrong-account-name][I mined using the wrong account name!]]
-    - [[#i-mined-using-the-wrong-public-key][I mined using the wrong public key!]]
+    - [[#i-mined-using-the-wrong-account-name-andor-public-key][I mined using the wrong account name and/or public key!]]
     - [[#chainweb-miner-says-that-i-mined-but-i-didnt-receive-the-reward][chainweb-miner says that I mined, but I didn't receive the reward.]]
     - [[#i-specify---chain-but-am-getting-work-for-other-chains-why][I specify ~--chain=...~ but am getting work for other chains. Why?]]
     - [[#why-am-i-being-preempted-so-much][Why am I being "preempted" so much?]]
@@ -23,7 +22,6 @@
   - [[#work-requests][Work Requests]]
   - [[#solution-submission][Solution Submission]]
   - [[#update-subscription][Update Subscription]]
-  - [[#binary-formats][Binary Formats]]
 
 * What is Mining?
 
@@ -187,16 +185,17 @@ You may only be interested in warning or error messages. If so, use the
 
 ** Troubleshooting
 
-*** I mined using the wrong account name!
+*** I mined using the wrong account name and/or public key!
 
-If the incorrect account was previously unclaimed, then you now own that one
-too. Otherwise, you've just mined on someone else's behalf, and have lost your
-coins.
+Your coins are likely gone.
 
-*** I mined using the wrong public key!
-
-If you already owed the account, you will still be rewarded. Otherwise, you have
-locked your coins into a new account that nobody can access.
+|                      | Your Key               | Not Your Key            |
+|----------------------+------------------------+-------------------------|
+| Your Account         | Hurray!                | Work rejected by Node.  |
+|----------------------+------------------------+-------------------------|
+| Not Your Account     | Work rejected by Node. | Work rejeceted by Node. |
+|----------------------+------------------------+-------------------------|
+| Non-existant Account | You own a new account! | *Coins locked forever.* |
 
 *** chainweb-miner says that I mined, but I didn't receive the reward.
 
@@ -251,10 +250,89 @@ probably don't hold much of the overall network hash power.
 
 * Remote API Details
 
+A ~chainweb-miner~ communicates with a ~chainweb-node~ via the following
+endpoints.
+
 ** Work Requests
+
+#+begin_quote
+Intent: I want a new BlockHeader to mine on.
+#+end_quote
+
+#+begin_example
+  GET /chainweb/0.0/testnet/mining/work?chain=...
+#+end_example
+
+Clients can optionally specify a Chain to "focus" on.
+
+Request Body (JSON):
+
+#+begin_src js
+  {
+      "account": "miner",
+      "predicate": "keys-all",
+      "public-keys": [
+          "f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"
+      ]
+  }
+#+end_src
+
+Response (Octet Stream):
+
+#+begin_example
+  Work Bytes - 338 bytes
+
+  ChainBytes(4) + TargetBytes(32) + HeaderBytes(302)
+
+  The minimum information required to perform Proof-of-Work. No knowledge of
+  Chainweb internals is necessary.
+#+end_example
+
+| Piece       | Description                                 |
+|-------------+---------------------------------------------|
+| ChainBytes  | The final chain selection made by the Node. |
+| TargetBytes | Encoded form of the current Hash Target.    |
+| HeaderBytes | Encoded form of the Block Header.           |
 
 ** Solution Submission
 
+#+begin_quote
+Intent: I solved a block - here it is.
+#+end_quote
+
+#+begin_example
+  POST /chainweb/0.0/testnet/mining/solved
+#+end_example
+
+Request Body (Octet Stream):
+
+#+begin_example
+  Header Bytes - 302 bytes
+
+  The original work received, updated internally with the Nonce that satisfies the
+  Proof-of-Work.
+#+end_example
+
 ** Update Subscription
 
-** Binary Formats
+#+begin_quote
+Intent: I am currently mining. Is the work I'm doing still worth it?
+#+end_quote
+
+Request Body (Octet Stream):
+
+#+begin_example
+  Chain Bytes - 4 bytes
+
+  The first 4 bytes received from a call to /mining/work. This tells the Node to
+  only inform the Miner of a new Cut when the specific chain in question has
+  updated.
+#+end_example
+
+Response (Server-Sent Event):
+
+#+begin_example
+  A stream of Server-Sent Events with a single line:
+
+  event:New Cut
+#+end_example
