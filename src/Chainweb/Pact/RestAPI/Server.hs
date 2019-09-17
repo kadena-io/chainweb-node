@@ -290,18 +290,19 @@ spvHandler
       )
     => l
     -> CutResources l cas
-        -- ^ cut resources contain the cut, payload, and block db
+        -- ^ cut resources contain the cut, payload, and
+        -- block db
     -> ChainId
         -- ^ the chain id of the source chain id used in the
         -- execution of a cross-chain-transfer.
     -> ChainResources l
         -- ^ chain resources contain a pact service
     -> ChainId
-       -- ^ the chain id of the target chain id used in the
-       -- 'target-chain' field of a cross-chain-transfer.f
+        -- ^ the chain id of the target chain id used in the
+        -- 'target-chain' field of a cross-chain-transfer.f
     -> RequestKey
-       -- ^ the request key of of the cross-chain transfer tx
-       -- request.
+        -- ^ the request key of of the cross-chain transfer tx
+        -- request.
     -> Handler TransactionOutputProofB64
 spvHandler l cutR cid chainR tid (RequestKey h) = do
     liftIO $! logg (sshow ph)
