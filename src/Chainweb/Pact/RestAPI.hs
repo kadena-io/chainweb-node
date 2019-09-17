@@ -49,7 +49,6 @@ import Data.Singletons
 -- internal pact modules
 
 import Pact.Server.API as API
-import Pact.Types.Command (RequestKey)
 
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/chain/<ChainId>/pact/@
@@ -70,9 +69,8 @@ pactApi = Proxy
 type PactSpvApi_
     = "pact"
     :> "spv"
-    :> Capture "chainId" ChainId
-    :> Capture "txHash" RequestKey
-    :> Get '[PlainText] TransactionOutputProofB64
+    :> ReqBody '[JSON] SpvRequest
+    :> Post '[JSON] TransactionOutputProofB64
 
 type PactSpvApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> PactSpvApi_

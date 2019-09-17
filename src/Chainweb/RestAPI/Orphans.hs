@@ -57,7 +57,7 @@ import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner, MinerId, MinerKeys)
-import Chainweb.Pact.Service.Types (TransactionOutputProofB64(..))
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
@@ -68,8 +68,6 @@ import Chainweb.Version
 
 import Pact.Parse (ParsedInteger(..))
 import Pact.Server.API ()
-import Pact.Types.Command (RequestKey(..))
-import Pact.Types.Hash (Hash(..))
 import Pact.Types.Gas (GasLimit(..))
 
 import P2P.Peer
@@ -186,12 +184,6 @@ instance
     type MkLink (sym :> sub) a = MkLink sub a
     toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
 
-instance FromHttpApiData RequestKey where
-    parseUrlPiece = bimap sshow (RequestKey . Hash) . decodeB64UrlNoPaddingText
-
-instance ToHttpApiData RequestKey where
-    toUrlPiece (RequestKey (Hash h)) = encodeB64UrlNoPaddingText h
-
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema
 
@@ -264,11 +256,6 @@ instance ToParamSchema ChainId where
     toParamSchema _ = mempty
         & type_ .~ SwaggerInteger
         & format ?~ "word32"
-
-instance ToParamSchema RequestKey where
-    toParamSchema _ = mempty
-        & type_ .~ SwaggerString
-        & format ?~ "byte"
 
 -- FIXME: Invention of new `ChainwebVersion` values will not warn of pattern
 -- match issues here!
@@ -443,6 +430,7 @@ deriving instance ToSchema Word128
 deriving instance ToSchema Word256
 deriving instance ToSchema a => ToSchema (Time a)
 deriving instance ToSchema a => ToSchema (TimeSpan a)
+deriving instance ToSchema SpvRequest
 
 instance ToSchema ChainwebVersion where
     declareNamedSchema _ = pure $ NamedSchema (Just "ChainwebVersion") mempty

@@ -83,12 +83,13 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
+import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.Service.Types
 #if ! MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Test.P2P.Peer.BootstrapConfig
-import Chainweb.Pact.RestAPI
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Utils
@@ -165,30 +166,35 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
       Left e -> assertFailure $ "output proof failed: " <> sshow e
       Right _ -> return ()
   where
-    go (RequestKeys t) = NEL.head t
+    go (RequestKeys t) tid = SpvRequest (NEL.head t) tid
 
     mkTxBatch = do
       ks <- liftIO testKeyPairs
       let pm = CM.PublicMeta (CM.ChainId "0") "sender00" 1000 0.01 100000 0
-      cmd <- liftIO $ mkExec txcode txdata pm ks (Just "0")
+
+      tid <- mkChainId version (1::Int)
+      cmd <- liftIO $ mkExec txcode (txdata tid) pm ks (Just "0")
       return $ SubmitBatch (pure cmd)
 
     txcode = show $
       [text|
          (coin.cross-chain-transfer
            'sender00
-           1
-           'sender01
+           (read-msg 'target-chain)
+           'sender00
            (read-keyset 'sender00-keyset)
            1.0)
          |]
 
-    txdata =
+    txdata tid =
       -- sender00 keyset
       let ks = KeySet
             [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
             (Name "keys-all" def)
-      in A.object [ "sender01-keyset" A..= ks ]
+      in A.object
+        [ "sender01-keyset" A..= ks
+        , "target-chain" A..= chainIdToText tid
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- Utils

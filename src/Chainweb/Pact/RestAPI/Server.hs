@@ -297,14 +297,13 @@ spvHandler
         -- execution of a cross-chain-transfer.
     -> ChainResources l
         -- ^ chain resources contain a pact service
-    -> ChainId
-        -- ^ the chain id of the target chain id used in the
-        -- 'target-chain' field of a cross-chain-transfer.f
-    -> RequestKey
-        -- ^ the request key of of the cross-chain transfer tx
-        -- request.
+    -> SpvRequest
+        -- ^ Contains the chain id of the target chain id used in the
+        -- 'target-chain' field of a cross-chain-transfer.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
     -> Handler TransactionOutputProofB64
-spvHandler l cutR cid chainR tid (RequestKey h) = do
+spvHandler l cutR cid chainR (SpvRequest rk tid) = do
     liftIO $! logg (sshow ph)
 
     cut <- liftIO $! CutDB._cut cdb
@@ -332,7 +331,7 @@ spvHandler l cutR cid chainR tid (RequestKey h) = do
       . PactCmdLogSpv
 
     pe = _chainResPact chainR
-    ph = H.fromUntypedHash h
+    ph = H.fromUntypedHash $ unRequestKey rk
     cdb = _cutResCutDb cutR
     bdb = _chainResBlockHeaderDb chainR
     pdb = view CutDB.cutDbPayloadCas cdb
