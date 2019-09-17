@@ -1,6 +1,6 @@
 - output: 6ZNgNbqNQJZ6_WuupgiEFebDJ5Qu3iQBhyQiQJ10G7w
   cmd: coinbase
-- output: r36xeIA32swfzX4pR4I-QVBq__C3k_UZ2nDsofQS0cw
+- output: KIuCwCj-ZvG8kqhQNt-Qksu6EFUrQP_7e9tD92zKIAg
   cmd:
     tag: Code
     contents: (create-table test1.accounts)

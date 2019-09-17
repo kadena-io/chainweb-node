@@ -67,7 +67,6 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import qualified Pact.Gas as P
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
@@ -76,6 +75,7 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
+import Pact.Gas.Table (tableGasModel, defaultGasConfig)
 
 ------------------------------------------------------------------------------
 -- internal modules
@@ -178,16 +178,16 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
     withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
       checkpointEnv <- initRelationalCheckpointer
-                           initBlockState sqlenv logger gasEnv
+                           initBlockState sqlenv logger
 
       let !rs = readRewards ver
+          gasModel = tableGasModel defaultGasConfig
       let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
-                                bhDb rs
+                                bhDb rs gasModel
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
-    gasEnv = P.GasEnv 0 0.0 (P.constGasModel 1)
 
     resetDb sqlitedir = do
       exist <- doesDirectoryExist sqlitedir
@@ -791,7 +791,6 @@ applyPactCmd
 applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
-        !gasModel = P._geGasModel . _cpeGasEnv . _psCheckpointEnv $ psEnv
         !pd       = _psPublicData psEnv
         !spv      = _psSpvSupport psEnv
         pactHash  = view P.cmdHash cmdIn
@@ -800,7 +799,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
     let !cmd = payloadObj <$> cmdIn
     T2 !result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner gasModel pd spv cmd mcache
+        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.

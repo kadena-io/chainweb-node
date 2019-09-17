@@ -1,6 +1,6 @@
 - output: 0xNYuAgVxfy9HMk7Ol-F7g9ERzVoS8bbVjIbmuMPGKU
   cmd: coinbase
-- output: O4BF_LYJlaULnUQWyHtPSXiN2sFtoY3Lk3rz6OFwO6E
+- output: GLOktFql3lhwpR2G4GgPqKjAPZ6Dq6a0Nv7-SUNaxZc
   cmd:
     tag: Code
     contents: (test1.create-global-accounts)
