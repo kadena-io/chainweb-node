@@ -31,7 +31,7 @@ process of mathematically "solving" a block. Unless solved, a block cannot be
 included in the chain. Without mining, a blockchain cannot progress and
 transactions will never finalize.
 
-Economically, mining is the principle way to obtain currency on a Chainweb
+Economically, mining is the principal way to obtain currency on a Chainweb
 network. Since Chainweb uses Proof-of-Work, computational effort is rewarded
 with coins associated with each block you solve. The more computational power
 you have, the more likely you are to be successful at mining.
@@ -100,12 +100,12 @@ chainweb-node --config-file=config.yaml
 #+end_src
 
 By default, in-process mining is turned on. This means that while your Node is
-particiating in the overall network, it will also be mining in the background.
+participating in the overall network, it will also be mining in the background.
 
 *Note:* If your designated account did not previously exist, it will be created
 the first time you successfully mine on the same chain as the mined block. If
-you specify an account name that you do not own, you are *mining on that
-person's behalf*.
+you specify an account name that you do not own, *your rewards will likely be
+lost!*
 
 *** Disabling the In-Process Miner
 
@@ -145,7 +145,7 @@ Things to note:
 - You can dedicate as many cores to parallel mining as you want with ~--cores~.
 - You can only communicate with one Node at a time.
 - As stated above, your declared account must be owned by you, or your rewards
-  will go to someone else.
+  will likely be lost.
 
 *** Chain Focusing
 
@@ -189,7 +189,7 @@ Your coins are likely gone.
 This?
 
 #+begin_example
-  2019-09-16 16:58:37.289252: [info] 6: Mining Success!
+  2019-09-16 16:58:37.289252: [info] Chain 6: Mining Success!
 #+end_example
 
 And yet your balance on Chain 6 remains unchanged?
@@ -211,7 +211,7 @@ It is fundamental to the design of Chainweb that chains cannot progress much
 further than their neighbour chains. It may be that by asking for ~--chain=9~,
 the Node couldn't find work to do! In this case, it falls back to picking a
 random chain. This balances the needs of the Miner, who may want a specific
-Chain to progress efficiently, with the needs of the network, who requires all
+Chain to progress efficiently, with the needs of the network, which requires all
 chains to grow evenly.
 
 *** Why am I being "preempted" so much?
@@ -219,17 +219,17 @@ chains to grow evenly.
 This?
 
 #+begin_example
-  2019-09-16 17:30:11.791641: [info] 7: Current work was preempted.
-  2019-09-16 17:30:15.759249: [info] 8: Current work was preempted.
-  2019-09-16 17:30:27.340109: [info] 9: Current work was preempted.
-  2019-09-16 17:30:57.343577: [info] 6: Current work was preempted.
-  2019-09-16 17:31:04.998382: [info] 9: Current work was preempted.
-  2019-09-16 17:31:14.649440: [info] 1: Current work was preempted.
-  2019-09-16 17:31:25.503355: [info] 4: Current work was preempted.
-  2019-09-16 17:31:45.471371: [info] 9: Current work was preempted.
-  2019-09-16 17:31:56.940698: [info] 2: Current work was preempted.
-  2019-09-16 17:32:16.807348: [info] 9: Current work was preempted.
-  2019-09-16 17:32:21.721842: [info] 8: Current work was preempted.
+  2019-09-16 17:30:11.791641: [info] Chain 7: Current work was preempted.
+  2019-09-16 17:30:15.759249: [info] Chain 8: Current work was preempted.
+  2019-09-16 17:30:27.340109: [info] Chain 9: Current work was preempted.
+  2019-09-16 17:30:57.343577: [info] Chain 6: Current work was preempted.
+  2019-09-16 17:31:04.998382: [info] Chain 9: Current work was preempted.
+  2019-09-16 17:31:14.649440: [info] Chain 1: Current work was preempted.
+  2019-09-16 17:31:25.503355: [info] Chain 4: Current work was preempted.
+  2019-09-16 17:31:45.471371: [info] Chain 9: Current work was preempted.
+  2019-09-16 17:31:56.940698: [info] Chain 2: Current work was preempted.
+  2019-09-16 17:32:16.807348: [info] Chain 9: Current work was preempted.
+  2019-09-16 17:32:21.721842: [info] Chain 8: Current work was preempted.
 #+end_example
 
 This is normal. This means that other miners are beating you, and that you
@@ -305,6 +305,10 @@ Request Body (Octet Stream):
 #+begin_quote
 Intent: I am currently mining. Is the work I'm doing still worth it?
 #+end_quote
+
+#+begin_example
+  GET /chainweb/0.0/testnet/mining/updates
+#+end_example
 
 Request Body (Octet Stream):
 

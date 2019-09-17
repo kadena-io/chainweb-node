@@ -69,6 +69,7 @@ import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
 import RIO
 import RIO.List.Partial (head)
+import qualified RIO.ByteString as B
 import qualified RIO.Text as T
 import Servant.Client
 import qualified Streaming.Prelude as SP
@@ -77,7 +78,7 @@ import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (Nonce(..))
+import Chainweb.BlockHeader (Nonce(..), decodeBlockHeight, _height)
 import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
@@ -142,7 +143,7 @@ pVersion = textOption
      <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
   where
     defv :: ChainwebVersion
-    defv = Development
+    defv = Testnet02
 
 pLog :: Parser LogLevel
 pLog = option (eitherReader l)
@@ -234,10 +235,13 @@ mining go wb = do
     race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
     getWork >>= traverse_ (mining go)
   where
-    T3 (ChainBytes cbs) tbytes hbytes = unWorkBytes wb
+    T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
 
     chain :: IO Utf8Builder
     chain = ("Chain " <>) . display . chainIdInt @Int <$> runGet decodeChainId cbs
+
+    height :: IO Utf8Builder
+    height = display . _height <$> runGet decodeBlockHeight (B.take 8 $ B.drop 258 hbs)
 
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
@@ -279,7 +283,8 @@ mining go wb = do
           !m = mgr e
           !u = coordinator $ args e
       cid <- liftIO chain
-      logInfo $ cid <> ": Mining Success!"
+      hgh <- liftIO height
+      logInfo $ cid <> ": Mined block at Height " <> hgh <> "."
       r <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
       when (isLeft r) $ logWarn "Failed to submit new BlockHeader!"
 

@@ -198,7 +198,7 @@ markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
     modifyIORef' pref $ \psq -> foldl' (flip HashMap.delete) psq txs
 
 maxNumPending :: Int
-maxNumPending = 100000
+maxNumPending = 10000
 
 ------------------------------------------------------------------------------
 insertInMem :: InMemConfig t    -- ^ in-memory config
