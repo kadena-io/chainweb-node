@@ -21,7 +21,6 @@ import System.Random
 
 -- pact imports
 
-import Pact.Gas
 import Pact.Interpreter (PactDbEnv(..), mkPactDbEnv)
 import Pact.PersistPactDb (DbEnv(..), initDbEnv, pactdb)
 import Pact.Types.Exp
@@ -105,7 +104,7 @@ cpWithBench torun =
         !sqliteEnv <- openSQLiteConnection f chainwebPragmas
         let nolog = newLogger neverLog ""
         !cenv <-
-          initRelationalCheckpointer initBlockState sqliteEnv nolog freeGasEnv
+          initRelationalCheckpointer initBlockState sqliteEnv nolog
         return $ NoopNFData (sqliteEnv, cenv, deleter)
 
     teardown (NoopNFData (sqliteEnv, _cenv, deleter)) = do

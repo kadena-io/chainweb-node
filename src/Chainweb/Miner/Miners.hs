@@ -29,7 +29,7 @@ module Chainweb.Miner.Miners
 
 import Data.Bytes.Put (runPutS)
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
@@ -78,8 +78,8 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Nothing m pact c
-        let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T2 p pl)
+        T3 p bh pl <- newWork Anything m pact c
+        let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T3 m p pl)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
@@ -107,8 +107,8 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Nothing m pact c
-        let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T2 p pl)
+        T3 p bh pl <- newWork Anything m pact c
+        let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T3 m p pl)
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
