@@ -5,7 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-
+{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
