@@ -37,7 +37,7 @@ with coins associated with each block you solve. The more computational power
 you have, the more likely you are to be successful at mining.
 
 Unlike blockchains that have a single chain, Chainweb has many. Everyone who
-choses to mine can spread their effort across multiple chains, advancing each
+chooses to mine can spread their effort across multiple chains, advancing each
 chain equally, thereby reducing competition and wasted effort.
 
 * Chainweb Mining via Official Kadena Software
@@ -48,7 +48,7 @@ other Node components. *This has the advantage of low-latency for getting new
 work* since all databases are available on the same machine.
 
 The second way is to use ~chainweb-miner~, our dedicated Mining Client. Work
-requests are sent to known Nodes, who construct blocks for the client. Once
+requests are sent to known Nodes, which construct blocks for the client. Once
 solved, the client returns the block to the Node for submission to the wider
 network. This client boasts *much higher mining performance* and a *much simpler
 setup*, since a ~chainweb-miner~ has no database connections and thus no storage
@@ -100,12 +100,12 @@ chainweb-node --config-file=config.yaml
 #+end_src
 
 By default, in-process mining is turned on. This means that while your Node is
-servicing the overall network with Transaction, Peer, and Cut data, it will also
-be passively mining.
+particiating in the overall network, it will also be mining in the background.
 
 *Note:* If your designated account did not previously exist, it will be created
-the first time you successfully mine. If you specify an account name that you do
-not own, you are *mining on that person's behalf*.
+the first time you successfully mine on the same chain as the mined block. If
+you specify an account name that you do not own, you are *mining on that
+person's behalf*.
 
 *** Disabling the In-Process Miner
 
@@ -117,7 +117,7 @@ If you want to run a Node without in-process mining:
 
 *** Accepting External Work Requests
 
-By default, a Node does *not* service external requests for new mining work, say
+By default, a Node does *not* accept external requests for new mining work, say
 from a ~chainweb-miner~ or other third-party client. To turn this on:
 
 #+begin_src bash
@@ -146,19 +146,6 @@ Things to note:
 - You can only communicate with one Node at a time.
 - As stated above, your declared account must be owned by you, or your rewards
   will go to someone else.
-
-As mining progresses, you will see the following:
-
-#+begin_example
-  2019-09-16 16:57:22.311371: [info] Starting Miner.
-  2019-09-16 16:57:58.349747: [info] 8: Current work was preempted.
-  2019-09-16 16:58:25.702572: [info] 9: Current work was preempted.
-  2019-09-16 16:58:37.289252: [info] 6: Mining Success!
-  2019-09-16 16:58:48.749402: [info] 4: Current work was preempted.
-#+end_example
-
-The number next to the message represents the chain you were working on at that
-time.
 
 *** Chain Focusing
 
