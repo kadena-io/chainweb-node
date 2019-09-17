@@ -1,10 +1,17 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI
@@ -38,8 +45,15 @@
 --
 module Chainweb.BlockHeaderDB.RestAPI
 (
+-- * API types
+  BlockHashPage
+, BlockHeaderPage
+
+-- * Encodings
+, JsonBlockHeaderObject
+
 -- * BlockHeaderDb with typelevel ChainId and ChainwebVersion parameters
-  BlockHeaderDb_(..)
+, BlockHeaderDb_(..)
 , SomeBlockHeaderDb(..)
 , someBlockHeaderDbVal
 
@@ -64,19 +78,24 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headersApi
 , HashesApi
 , hashesApi
-, ChildHashesApi
-, childHashesApi
-, ChildHeadersApi
-, childHeadersApi
 ) where
 
 import Control.Monad.Identity
 
+import Data.Aeson
+import Data.Bifunctor
+import Data.Bytes.Get
+import Data.Bytes.Put
+import qualified Data.ByteString.Lazy as BL
 import Data.Proxy
+
+import Network.HTTP.Media ((//), (/:))
 
 import Servant.API
 
 -- internal modules
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
@@ -84,6 +103,61 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
+
+-- -------------------------------------------------------------------------- --
+-- API types
+
+-- | A page of BlockHashes
+--
+type BlockHashPage = Page (NextItem BlockHash) BlockHash
+
+-- | A page of BlockHeaders
+--
+type BlockHeaderPage = Page (NextItem BlockHash) BlockHeader
+
+-- -------------------------------------------------------------------------- --
+-- Encodings
+
+-- | Orphan instance to encode BlockHeaders as OctetStream
+--
+instance MimeUnrender OctetStream BlockHeader where
+    mimeUnrender _ = runGetS decodeBlockHeader . BL.toStrict
+    {-# INLINE mimeUnrender #-}
+
+-- | Orphan instance to encode BlockHeaders as OctetStream
+--
+instance MimeRender OctetStream BlockHeader where
+    mimeRender _ = runPutL . encodeBlockHeader
+    {-# INLINE mimeRender #-}
+
+-- | The default JSON instance of BlockHeader is an unpadded base64Url encoding of
+-- the block header bytes. There a newtype wrapper that provides an alternative
+-- encoding with as an JSON object.
+--
+-- The mime type @application/json;blockheader-encoding=object@ is used in
+-- the HTTP @accept@ header and HTTP @content-type header@ to indicate that
+-- block headers are encoded as JSON objects
+--
+data JsonBlockHeaderObject
+
+instance Accept JsonBlockHeaderObject where
+    contentType _ = "application" // "json" /: ("blockheader-encoding", "object")
+
+instance MimeUnrender JsonBlockHeaderObject BlockHeader where
+    mimeUnrender _ = second _objectEncoded . eitherDecode
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender JsonBlockHeaderObject BlockHeader where
+    mimeRender _ = encode . ObjectEncoded
+    {-# INLINE mimeRender #-}
+
+instance MimeUnrender JsonBlockHeaderObject BlockHeaderPage where
+    mimeUnrender _ = second (fmap _objectEncoded) . eitherDecode
+    {-# INLINE mimeUnrender #-}
+
+instance MimeRender JsonBlockHeaderObject BlockHeaderPage where
+    mimeRender _ = encode . fmap ObjectEncoded
+    {-# INLINE mimeRender #-}
 
 -- -------------------------------------------------------------------------- --
 -- Type indexed BlockHeaderDb
@@ -115,11 +189,11 @@ type MaxHeightParam = QueryParam "maxheight" MaxRank
 -- -------------------------------------------------------------------------- --
 type BranchHashesApi_
     = "hash" :> "branch"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> PageParams (NextItem BlockHash)
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+    :> Post '[JSON] BlockHashPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/branch@
 --
@@ -149,11 +223,11 @@ branchHashesApi = Proxy
 -- -------------------------------------------------------------------------- --
 type BranchHeadersApi_
     = "header" :> "branch"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> PageParams (NextItem BlockHash)
     :> MinHeightParam
     :> MaxHeightParam
     :> ReqBody '[JSON] (BranchBounds BlockHeaderDb)
-    :> Post '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+    :> Post '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/branch@
 --
@@ -183,9 +257,9 @@ branchHeadersApi = Proxy
 -- -------------------------------------------------------------------------- --
 type HashesApi_
     = "hash"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
+    :> Get '[JSON] BlockHashPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash@
 --
@@ -207,9 +281,9 @@ hashesApi = Proxy
 -- -------------------------------------------------------------------------- --
 type HeadersApi_
     = "header"
-    :> PageParams (NextItem (DbKey BlockHeaderDb))
+    :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
+    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
@@ -231,8 +305,8 @@ headersApi = Proxy
 -- -------------------------------------------------------------------------- --
 type HeaderApi_
     = "header"
-    :> Capture "BlockHash" (DbKey BlockHeaderDb)
-    :> Get '[JSON] (DbEntry BlockHeaderDb)
+    :> Capture "BlockHash" BlockHash
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
@@ -247,45 +321,9 @@ headerApi
 headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type ChildHashesApi_
-    = "hash" :> "children"
-    :> Capture "BlockHash" (DbKey BlockHeaderDb)
-    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbKey BlockHeaderDb))
-
--- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/hash\/children\/\<BlockHash\>@
---
--- Returns the hashes of the immediate children nodes of some given parent.
---
-type ChildHashesApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> ChildHashesApi_
-
-childHashesApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (ChildHashesApi v c)
-childHashesApi = Proxy
-
--- -------------------------------------------------------------------------- --
-type ChildHeadersApi_
-    = "header" :> "children"
-    :> Capture "BlockHash" (DbKey BlockHeaderDb)
-    :> Get '[JSON] (Page (NextItem (DbKey BlockHeaderDb)) (DbEntry BlockHeaderDb))
-
--- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/children\/\<BlockHash\>@
---
--- Returns the immediate children nodes of some given parent.
---
-type ChildHeadersApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> ChildHeadersApi_
-
-childHeadersApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (ChildHeadersApi v c)
-childHeadersApi = Proxy
-
--- -------------------------------------------------------------------------- --
 type HeaderPutApi_
     = "header"
-    :> ReqBody '[JSON] (DbEntry BlockHeaderDb)
+    :> ReqBody '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
     :> PutNoContent '[JSON] NoContent
 
 -- | @PUT \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
