@@ -159,7 +159,7 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
       void $ liftIO $ step "pollApiClient: poll until key is found"
       void $ liftIO $ pollWithRetry (testCmdsChainId sid) cenv rks
 
-      liftIO $ sleep 3
+      liftIO $ sleep 6
 
       void $ liftIO $ step "spvApiClient: submit request key"
       pactSpvApiClient version sid (go rks tid)
@@ -172,7 +172,7 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
 
     mkTxBatch = do
       ks <- liftIO testKeyPairs
-      let pm = CM.PublicMeta (CM.ChainId "0") "sender00" 1000 0.01 100000 0
+      let pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100000 0.01 100000 0
 
       tid <- mkChainId version (1::Int)
       cmd <- liftIO $ mkExec txcode (txdata tid) pm ks (Just "0")
@@ -182,7 +182,7 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
       [text|
          (coin.cross-chain-transfer
            'sender00
-           (read-msg 'target-chain)
+           (read-msg 'target-chain-id)
            'sender00
            (read-keyset 'sender00-keyset)
            1.0)
@@ -195,7 +195,7 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
             (Name "keys-all" def)
       in A.object
         [ "sender01-keyset" A..= ks
-        , "target-chain" A..= chainIdToText tid
+        , "target-chain-id" A..= chainIdToText tid
         ]
 
 -- -------------------------------------------------------------------------- --
