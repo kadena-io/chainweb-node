@@ -40,6 +40,7 @@ import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
 import qualified Data.Text as T
 import Data.Tuple.Strict (T3(..))
@@ -77,7 +78,7 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 -- `publish`.
 --
 newtype MiningState =
-    MiningState (HM.HashMap BlockPayloadHash (T3 Miner PrevBlock PayloadWithOutputs))
+    MiningState (M.Map BlockPayloadHash (T3 Miner PrevBlock PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -158,7 +159,7 @@ publish lf (MiningState ms) cdb bh = do
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
-        T3 m p pl <- HM.lookup phash ms ?? "BlockHeader given with no associated Payload"
+        T3 m p pl <- M.lookup phash ms ?? "BlockHeader given with no associated Payload"
         let !miner = m ^. minerId . _Unwrapped
         c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
         lift $ do

@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Miner.RestAPI.Server
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -23,9 +22,9 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
-import Data.IORef (IORef, readIORef, writeIORef, newIORef)
 import Data.Generics.Wrapped (_Unwrapped)
-import qualified Data.HashMap.Strict as HM
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T3(..))
 
@@ -36,13 +35,15 @@ import Servant.Server
 
 -- internal modules
 
-import Chainweb.Cut (Cut)
 import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
-import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, awaitNewCutByChainId)
+import Chainweb.Cut (Cut)
+import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
-import Chainweb.Miner.Coordinator (MiningState(..), newWork, publish, ChainChoice(..))
-import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes, workBytes, ChainBytes(..))
+import Chainweb.Miner.Coordinator
+    (ChainChoice(..), MiningState(..), newWork, publish)
+import Chainweb.Miner.Core
+    (ChainBytes(..), HeaderBytes(..), WorkBytes, workBytes)
 import Chainweb.Miner.Miners (transferableBytes)
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI (MiningApi)
@@ -68,7 +69,7 @@ workHandler mr mcid m = do
     c <- _cut cdb
     T3 p bh pl <- newWork (maybe Anything Suggestion mcid) m pact c
     let !phash = _blockPayloadHash bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . HM.insert phash $ T3 m p pl
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert phash $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     cdb :: CutDb cas
@@ -84,7 +85,7 @@ solvedHandler mr (HeaderBytes hbytes) = do
     ms <- readTVarIO tms
     bh <- runGet decodeBlockHeaderWithoutHash hbytes
     publish lf ms (_coordCutDb mr) bh
-    atomically . modifyTVar' tms . over _Unwrapped . HM.delete $ _blockPayloadHash bh
+    atomically . modifyTVar' tms . over _Unwrapped . M.delete $ _blockPayloadHash bh
     pure NoContent
   where
     tms :: TVar MiningState
