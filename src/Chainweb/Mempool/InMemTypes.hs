@@ -10,8 +10,7 @@
 
 -- | A mock in-memory mempool backend that does not persist to disk.
 module Chainweb.Mempool.InMemTypes
-  ( _defaultTxQueueLen
-  , InMemConfig(..)
+  ( InMemConfig(..)
   , InMemoryMempool(..)
   , InMemoryMempoolData(..)
   , PendingMap
@@ -39,10 +38,6 @@ import Chainweb.Mempool.Mempool
 
 ------------------------------------------------------------------------------
 type PendingMap = HashMap TransactionHash SB.ShortByteString
-
-------------------------------------------------------------------------------
-_defaultTxQueueLen :: Int
-_defaultTxQueueLen = 64
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
