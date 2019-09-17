@@ -116,7 +116,7 @@ testCmds :: PactTestApiCmds
 testCmds = apiCmds version cid
 
 testCmdsChainId :: ChainId -> PactTestApiCmds
-testCmdsChainId cid = apiCmds version cid
+testCmdsChainId cid_ = apiCmds version cid_
 
 -- -------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
@@ -159,8 +159,10 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
       void $ liftIO $ step "pollApiClient: poll until key is found"
       void $ liftIO $ pollWithRetry (testCmdsChainId sid) cenv rks
 
+      liftIO $ sleep 3
+
       void $ liftIO $ step "spvApiClient: submit request key"
-      pactSpvApiClient version sid tid (go rks)
+      pactSpvApiClient version sid (go rks tid)
 
     case r of
       Left e -> assertFailure $ "output proof failed: " <> sshow e
