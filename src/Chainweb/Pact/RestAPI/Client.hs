@@ -30,10 +30,6 @@ import Chainweb.Version
 
 import Data.Singletons
 
--- internal pact modules
-
-import Pact.Types.Command (RequestKey)
-
 
 -- -------------------------------------------------------------------------- --
 -- Pact Spv Transaction Output Proof Client
@@ -42,12 +38,11 @@ pactSpvApiClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => ChainId
-        -- ^ the chain id of the target chain id used in the
+    => SpvRequest
+        -- ^ Contains the chain id of the target chain id used in the
         -- 'target-chain' field of a cross-chain-transfer.
-    -> RequestKey
-        -- ^ the request key of of the cross-chain transfer tx
-        -- request.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
     -> ClientM TransactionOutputProofB64
 pactSpvApiClient_ = client (pactSpvApi @v @c)
 
@@ -56,12 +51,11 @@ pactSpvApiClient
     -> ChainId
         -- ^ the chain id of the source chain id used in the
         -- execution of a cross-chain-transfer.
-    -> ChainId
-        -- ^ the chain id of the target chain id used in the
+    -> SpvRequest
+        -- ^ Contains the chain id of the target chain id used in the
         -- 'target-chain' field of a cross-chain-transfer.
-    -> RequestKey
-        -- ^ the request key of of the cross-chain transfer tx
-        -- request.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
     -> ClientM TransactionOutputProofB64
 pactSpvApiClient
     (FromSing (SChainwebVersion :: Sing v))
