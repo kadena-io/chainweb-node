@@ -67,7 +67,7 @@ import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.Wai.EventSource (ServerEvent(..))
 import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
-import RIO hiding (exitFailure)
+import RIO
 import RIO.List.Partial (head)
 import qualified RIO.ByteString as B
 import qualified RIO.Text as T
