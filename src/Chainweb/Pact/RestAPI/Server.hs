@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData
@@ -27,13 +28,14 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens ((^.), view)
+import Control.Lens ((^.), (^?!), _head, view)
 import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
-import Data.Aeson
+import Data.Aeson as Aeson
+import qualified Data.ByteString.Base64.URL.Lazy as Base64
 import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Tuple.Strict
@@ -75,12 +77,16 @@ import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolBackend(..), InsertType(..))
 import Chainweb.Pact.RestAPI
-import Chainweb.RestAPI.Orphans ()
-import Chainweb.RestAPI.Utils
+import Chainweb.Pact.Service.Types
+import Chainweb.Pact.SPV
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Utils
+import Chainweb.SPV.CreateProof
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
 import qualified Chainweb.TreeDB as TreeDB
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -121,21 +127,26 @@ pactServer
     => PayloadCas cas
     => Logger logger
     => PactServerData logger cas
-    -> Server (PactApi v c)
+    -> Server (PactServiceApi v c)
 pactServer (cut, chain) =
-    sendHandler logger mempool :<|>
-    pollHandler logger cut cid chain :<|>
-    listenHandler logger cut cid chain :<|>
-    localHandler logger cut cid chain
+    pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
 
+    pactApiHandlers
+      = sendHandler logger mempool
+      :<|> pollHandler logger cut cid chain
+      :<|> listenHandler logger cut cid chain
+      :<|> localHandler logger cut cid chain
+
+    pactSpvHandler = spvHandler logger cut cid chain
+
 
 somePactServer :: SomePactServerData -> SomeServer
 somePactServer (SomePactServerData (db :: PactServerData_ v c logger cas))
-    = SomeServer (Proxy @(PactApi v c)) (pactServer @v @c $ _unPactServerData db)
+    = SomeServer (Proxy @(PactServiceApi v c)) (pactServer @v @c $ _unPactServerData db)
 
 
 somePactServers
@@ -152,6 +163,7 @@ data PactCmdLog
   | PactCmdLogPoll (NonEmpty Text)
   | PactCmdLogListen Text
   | PactCmdLogLocal (Command Text)
+  | PactCmdLogSpv Text
   deriving (Show, Generic, ToJSON, NFData)
 
 
@@ -272,7 +284,65 @@ localHandler logger _ _ cr cmd = do
     logg = logFunctionJson (setComponent "local-handler" logger)
 
 
+spvHandler
+    :: forall cas l
+    . ( Logger l
+      , PayloadCas cas
+      )
+    => l
+    -> CutResources l cas
+        -- ^ cut resources contain the cut, payload, and
+        -- block db
+    -> ChainId
+        -- ^ the chain id of the source chain id used in the
+        -- execution of a cross-chain-transfer.
+    -> ChainResources l
+        -- ^ chain resources contain a pact service
+    -> SpvRequest
+        -- ^ Contains the chain id of the target chain id used in the
+        -- 'target-chain' field of a cross-chain-transfer.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
+    -> Handler TransactionOutputProofB64
+spvHandler l cutR cid chainR (SpvRequest rk tid) = do
+    liftIO $! logg (sshow ph)
+
+    cut <- liftIO $! CutDB._cut cdb
+    bh <- liftIO $! lookupCutM cid cut
+
+    T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
+      Left e -> throwError $ err400
+        { errBody = "Transaction hash lookup failed: " <> sshow e }
+      Right v -> case v ^?! _head of
+        Nothing -> throwError $ err400
+          { errBody = "Transaction hash not found: " <> sshow ph }
+        Just t -> return t
+
+    idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
+      Left e -> throwError $ err400
+        { errBody = "Index lookup for hash failed: " <> sshow e }
+      Right !i -> return i
+
+    p <- liftIO $! createTransactionOutputProof cdb tid cid bhe idx
+    return $! b64 p
+
+  where
+    logg
+      = logFunctionJson (setComponent "spv-handler" l) Info
+      . PactCmdLogSpv
+
+    pe = _chainResPact chainR
+    ph = H.fromUntypedHash $ unRequestKey rk
+    cdb = _cutResCutDb cutR
+    bdb = _chainResBlockHeaderDb chainR
+    pdb = view CutDB.cutDbPayloadCas cdb
+    b64 = TransactionOutputProofB64
+      . sshow
+      . Base64.encode
+      . Aeson.encode
+
 ------------------------------------------------------------------------------
+
 internalPoll
     :: PayloadCas cas
     => CutResources logger cas

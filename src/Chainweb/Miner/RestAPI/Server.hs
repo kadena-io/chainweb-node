@@ -6,7 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-
+{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Miner.RestAPI.Server
 -- Copyright: Copyright © 2019 Kadena LLC.

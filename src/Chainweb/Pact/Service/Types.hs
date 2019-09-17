@@ -1,5 +1,9 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -13,19 +17,29 @@ module Chainweb.Pact.Service.Types where
 
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
-import Data.Aeson (FromJSON, ToJSON)
+
+import Data.Aeson
 import Data.Text (Text, pack)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
+
 import GHC.Generics
-import qualified Pact.Types.Hash as P
+
+-- internal pact modules
+
+import Pact.Types.Command
+import Pact.Types.Hash
+
+-- internal chainweb modules
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+
 
 data PactException
   = BlockValidationFailure Text
@@ -76,9 +90,30 @@ instance Show LocalReq where show LocalReq{..} = show (_localRequest)
 
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !(T2 BlockHeight BlockHash)
-    , _lookupKeys :: !(Vector P.PactHash)
+    , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
     }
 instance Show LookupPactTxsReq where
     show (LookupPactTxsReq (T2 he ha) _ _) =
         "LookupPactTxsReq@" ++ show he ++ ":" ++ show ha
+
+data SpvRequest = SpvRequest
+    { _spvRequestKey :: RequestKey
+    , _spvTargetChain :: ChainId
+    }
+    deriving stock (Eq, Show, Generic)
+
+instance ToJSON SpvRequest where
+  toJSON (SpvRequest k tid) = object
+    [ "requestKey" .= k
+    , "targetChain" .= tid
+    ]
+
+instance FromJSON SpvRequest where
+  parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
+    <$> o .: "requestKey"
+    <*> o .: "targetChain"
+
+newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
+    deriving stock (Eq, Show, Generic)
+    deriving newtype (ToJSON, FromJSON)

@@ -57,6 +57,7 @@ import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner, defaultMiner)
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.SPV
 import Chainweb.Time (Micros, Time, TimeSpan)
@@ -75,10 +76,10 @@ import P2P.Peer
 -- HttpApiData
 
 instance ToHttpApiData GasLimit where
-  toUrlPiece (GasLimit (ParsedInteger g)) = toUrlPiece g
+    toUrlPiece (GasLimit (ParsedInteger g)) = toUrlPiece g
 
 instance FromHttpApiData GasLimit where
-  parseUrlPiece p = GasLimit . ParsedInteger <$> parseUrlPiece p
+    parseUrlPiece p = GasLimit . ParsedInteger <$> parseUrlPiece p
 
 instance ToHttpApiData PeerId where
     toUrlPiece = toText
@@ -430,6 +431,8 @@ deriving instance ToSchema Word128
 deriving instance ToSchema Word256
 deriving instance ToSchema a => ToSchema (Time a)
 deriving instance ToSchema a => ToSchema (TimeSpan a)
+deriving instance ToSchema SpvRequest
+deriving instance ToSchema TransactionOutputProofB64
 
 instance ToSchema ChainwebVersion where
     declareNamedSchema _ = pure . NamedSchema (Just "ChainwebVersion") $ mempty
