@@ -18,6 +18,8 @@ module Chainweb.Miner.RestAPI.Server where
 
 import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO)
 import Control.Lens (over, view)
+import Control.Monad (when)
+import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
@@ -59,13 +61,24 @@ import Data.Singletons
 ---
 
 workHandler
+    :: Logger l
+    => MiningCoordination l cas
+    -> Maybe ChainId
+    -> Miner
+    -> Handler WorkBytes
+workHandler mr mcid m = do
+    MiningState ms <- liftIO . readTVarIO $ _coordState mr
+    when (M.size ms > _coordLimit mr) $ throwM err503 { errBody = "Too many work requests" }
+    liftIO $ workHandler' mr mcid m
+
+workHandler'
     :: forall l cas
     .  Logger l
     => MiningCoordination l cas
     -> Maybe ChainId
     -> Miner
     -> IO WorkBytes
-workHandler mr mcid m = do
+workHandler' mr mcid m = do
     c <- _cut cdb
     T3 p bh pl <- newWork (maybe Anything Suggestion mcid) m pact c
     let !phash = _blockPayloadHash bh
@@ -116,7 +129,7 @@ miningServer
     => MiningCoordination l cas
     -> Server (MiningApi v)
 miningServer mr =
-    (\mcid m -> liftIO $ workHandler mr mcid m)
+    workHandler mr
     :<|> liftIO . solvedHandler mr
     :<|> updatesHandler (_coordCutDb mr)
 
