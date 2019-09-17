@@ -70,9 +70,9 @@ propSync
     -> IO (Either String ())
 propSync (txs, missing, later) _ localMempool' =
     withInMemoryMempool testInMemCfg $ \remoteMempool -> do
-        mempoolInsert localMempool' True txsV
-        mempoolInsert remoteMempool True txsV
-        mempoolInsert remoteMempool True missingV
+        mempoolInsert localMempool' CheckedInsert txsV
+        mempoolInsert remoteMempool CheckedInsert txsV
+        mempoolInsert remoteMempool CheckedInsert missingV
 
         syncThMv <- newEmptyMVar
         syncFinished <- newEmptyMVar
@@ -103,7 +103,7 @@ propSync (txs, missing, later) _ localMempool' =
             -- We should now be subscribed and waiting for V.length laterV
             -- more transactions before getting killed. Transactions
             -- inserted into remote should get synced to us.
-            mempoolInsert remoteMempool True laterV
+            mempoolInsert remoteMempool CheckedInsert laterV
             Async.wait syncTh
 
         maybe (fail "timeout") return m

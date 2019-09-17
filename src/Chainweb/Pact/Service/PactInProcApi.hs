@@ -146,7 +146,7 @@ pactProcessFork mpc theLogger bHeader = do
                            <> " transactions to reintroduce"
     -- No need to run pre-insert check here -- we know these are ok, and
     -- calling the pre-check would block here (it calls back into pact service)
-    mempoolInsert (mpcMempool mpc) False reintroTxs
+    mempoolInsert (mpcMempool mpc) UncheckedInsert reintroTxs
     mempoolMarkValidated (mpcMempool mpc) $ fmap hasher validatedTxs
 
   where

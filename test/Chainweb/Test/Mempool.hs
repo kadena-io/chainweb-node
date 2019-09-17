@@ -151,7 +151,7 @@ propOverlarge (txs, overlarge0) _ mempool = runExceptT $ do
   where
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool True $ V.fromList v
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
@@ -174,7 +174,7 @@ propPreInsert (txs, badTxs) gossipMV mempool =
         liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool True $ V.fromList v
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
     checkNotBad xs = return $! V.map (not . (`elem` badTxs)) xs
 
@@ -197,7 +197,7 @@ propTrivial txs _ mempool = runExceptT $ do
                   in V.and ffs
     txcfg = mempoolTxConfig mempool
     hash = txHasher txcfg
-    insert v = mempoolInsert mempool True $ V.fromList v
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     getBlock = mempoolGetBlock mempool noopMempoolPreBlockCheck 0 nullBlockHash
@@ -230,7 +230,7 @@ propGetPending txs0 _ mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert v = mempoolInsert mempool True $ V.fromList v
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
 
 propHighWater
     :: ([MockTx], [MockTx])
@@ -260,7 +260,7 @@ propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert txs = mempoolInsert mempool True $ V.fromList txs
+    insert txs = mempoolInsert mempool CheckedInsert $ V.fromList txs
 
 
 uniq :: Eq a => [a] -> [a]

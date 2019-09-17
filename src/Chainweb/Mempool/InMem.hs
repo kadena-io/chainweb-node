@@ -203,7 +203,7 @@ maxNumPending = 100000
 ------------------------------------------------------------------------------
 insertInMem :: InMemConfig t    -- ^ in-memory config
             -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
-            -> Bool
+            -> InsertType
             -> Vector t  -- ^ new transactions
             -> IO ()
 insertInMem cfg lock runCheck txs0 = do
@@ -223,7 +223,9 @@ insertInMem cfg lock runCheck txs0 = do
             recordRecentTransactions maxRecent newHashes
 
   where
-    preInsertFilter = if runCheck then preInsertFilterReal else return
+    preInsertFilter = if runCheck == CheckedInsert
+                        then preInsertFilterReal
+                        else return
     preInsertFilterReal txs = do
         let chk = _inmemPreInsertCheck cfg
         let out1 = V.map sizeOK txs

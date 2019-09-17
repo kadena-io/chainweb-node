@@ -64,6 +64,7 @@ module Chainweb.Mempool.Mempool
   , MockTx(..)
   , ServerNonce
   , HighwaterMark
+  , InsertType(..)
 
   , chainwebTransactionConfig
   , mockCodec
@@ -183,6 +184,8 @@ data TransactionConfig t = TransactionConfig {
 type MempoolTxId = Int64
 type ServerNonce = Int
 type HighwaterMark = (ServerNonce, MempoolTxId)
+data InsertType = CheckedInsert | UncheckedInsert
+  deriving (Show, Eq)
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -199,7 +202,7 @@ data MempoolBackend t = MempoolBackend {
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
     -- | Insert the given transactions into the mempool.
-  , mempoolInsert :: Bool      -- run pre-gossip check? Ignored at remote pools.
+  , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
                   -> Vector t
                   -> IO ()
 
@@ -365,7 +368,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     fetchMissing chunk = do
         res <- mempoolLookup remoteMempool chunk
         let !newTxs = V.map fromPending $ V.filter isPending res
-        mempoolInsert localMempool True newTxs
+        mempoolInsert localMempool CheckedInsert newTxs
 
     deb :: Text -> IO ()
     deb = log0 Debug
@@ -437,7 +440,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        when (not $ V.null v) $ mempoolInsert remoteMempool False v
+        when (not $ V.null v) $ mempoolInsert remoteMempool CheckedInsert v
 
 
 syncMempools
