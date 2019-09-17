@@ -56,7 +56,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
-import Chainweb.Miner.Pact (Miner, MinerId, MinerKeys)
+import Chainweb.Miner.Pact (Miner, defaultMiner)
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.SPV
@@ -280,7 +280,11 @@ instance ToSchema Swagger where
 
 instance ToSchema PeerInfo
 
-instance ToSchema ChainId
+instance ToSchema ChainId where
+    declareNamedSchema _ = pure . NamedSchema (Just "ChainId") $ mempty
+        & description ?~ "Unique identifier for a Chainweb Chain"
+        & type_ .~ SwaggerInteger
+        & example ?~ toJSON (someChainId Testnet02)
 
 instance ToSchema PeerId where
     declareNamedSchema _ = declareNamedSchema (Proxy @V4.UUID)
@@ -369,7 +373,7 @@ instance ToSchema PayloadWithOutputs where
             & required .~ [ "limit", "items" ]
 
 instance ToSchema BlockHeader where
-    declareNamedSchema _ = return $ NamedSchema (Just "Entry") byteSchema
+    declareNamedSchema _ = return $ NamedSchema (Just "BlockHeader") byteSchema
 
 instance ToSchema CutHashes where
     declareNamedSchema _ = do
@@ -420,10 +424,7 @@ deriving instance ToSchema BlockHeight
 deriving instance ToSchema BlockWeight
 deriving instance ToSchema HashDifficulty
 deriving instance ToSchema HashTarget
-deriving instance ToSchema MinerKeys
 deriving instance ToSchema Micros
-deriving instance ToSchema Miner
-deriving instance ToSchema MinerId
 deriving instance ToSchema Nonce
 deriving instance ToSchema PowHashNat
 deriving instance ToSchema Word128
@@ -431,22 +432,49 @@ deriving instance ToSchema Word256
 deriving instance ToSchema a => ToSchema (Time a)
 deriving instance ToSchema a => ToSchema (TimeSpan a)
 deriving instance ToSchema SpvRequest
+deriving instance ToSchema TransactionOutputProofB64
 
 instance ToSchema ChainwebVersion where
-    declareNamedSchema _ = pure $ NamedSchema (Just "ChainwebVersion") mempty
+    declareNamedSchema _ = pure . NamedSchema (Just "ChainwebVersion") $ mempty
+        & description ?~ "Unique identifier for a Chainweb network"
+        & type_ .~ SwaggerString
+        & example ?~ toJSON Testnet02
 
 instance ToSchema MerkleLogHash where
     declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
 
--- TODO Need more detail for these two!
 instance ToSchema HeaderBytes where
-    declareNamedSchema _ = pure $ NamedSchema (Just "HeaderBytes") mempty
+    declareNamedSchema _ = pure . NamedSchema (Just "HeaderBytes") $ binarySchema
+        & description ?~ "An encoded BlockHeader"
+        & minLength ?~ 302
+        & maxLength ?~ 302
 
+-- | See the docs for `WorkBytes` for justification of the byte length.
+--
 instance ToSchema WorkBytes where
-    declareNamedSchema _ = pure $ NamedSchema (Just "WorkBytes") mempty
+    declareNamedSchema _ = pure . NamedSchema (Just "WorkBytes") $ binarySchema
+        & description ?~ "The minimum information required to perform Proof-of-Work"
+        & pattern ?~ "ChainBytes(4) + TargetBytes(32) + HeaderBytes(302)"
+        & minLength ?~ (4 + 32 + 302)
+        & maxLength ?~ (4 + 32 + 302)
 
 instance ToSchema ChainBytes where
-    declareNamedSchema _ = pure $ NamedSchema (Just "ChainBytes") mempty
+    declareNamedSchema _ = pure . NamedSchema (Just "ChainBytes") $ binarySchema
+        & description ?~ "An encoded ChainId"
+        & minLength ?~ 4
+        & maxLength ?~ 4
 
-instance ToSchema TransactionOutputProofB64 where
-    declareNamedSchema _ = pure $ NamedSchema (Just "TransactionOutputProofB64") mempty
+instance ToSchema Miner where
+    declareNamedSchema _ = do
+        textSchema <- declareSchemaRef (Proxy @T.Text)
+        listSchema <- declareSchemaRef (Proxy @[T.Text])
+        pure . NamedSchema (Just "Miner") $ mempty
+            & title ?~ "Miner Identity"
+            & description ?~ "Information required to reward Miners for mining work"
+            & type_ .~ SwaggerObject
+            & properties .~
+                [ ("account", textSchema)
+                , ("public-keys", listSchema)
+                , ("predicate", textSchema) ]
+            & required .~ [ "account", "public-keys", "predicate" ]
+            & example ?~ toJSON defaultMiner

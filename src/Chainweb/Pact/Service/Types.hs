@@ -115,5 +115,5 @@ instance FromJSON SpvRequest where
     <*> o .: "targetChain"
 
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
-    deriving stock (Eq, Show)
+    deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
