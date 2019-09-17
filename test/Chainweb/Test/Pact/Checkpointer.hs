@@ -152,7 +152,7 @@ runSQLite runTest = runTest . make
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
       let loggers = pactTestLogger False
-      initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") freeGasEnv
+      initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer")
 
 runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
 runTwice step action = do
@@ -166,7 +166,7 @@ checkpointerTest name initdata =
       case initdata of
         OnDisk -> withResource initializeSQLite freeSQLiteResource (runSQLite runTest)
         InMem -> let loggers = pactTestLogger False
-          in withResource (initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer") freeGasEnv) (const $ return ()) runTest
+          in withResource (initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer")) (const $ return ()) runTest
   where
     runTest :: IO CheckpointEnv -> TestTree
     runTest c = testCaseSteps name $ \next -> do
@@ -176,7 +176,7 @@ checkpointerTest name initdata =
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
+                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport
                   execMsg <- buildExecParsedCode eData eCode
                   applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
 
@@ -184,7 +184,7 @@ checkpointerTest name initdata =
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger _cpeGasEnv def noSPVSupport
+                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport
                   applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis

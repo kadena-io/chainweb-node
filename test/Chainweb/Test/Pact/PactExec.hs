@@ -71,7 +71,7 @@ tests = ScheduledTest label $
         let genesisHeader = genesisBlockHeader testVersion cid
         testBlockHeaderDb rdb genesisHeader
 
-    label = "Simple pact execution tests"
+    label = "Chainweb.Test.Pact.PactExec"
     killPdb _ = return ()
     cid = someChainId testVersion
 

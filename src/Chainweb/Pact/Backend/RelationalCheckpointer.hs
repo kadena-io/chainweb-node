@@ -39,7 +39,6 @@ import Prelude hiding (log)
 -- pact
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Types.Gas (GasEnv(..))
 import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Logger (Logger(..))
 import Pact.Types.SQLite
@@ -57,19 +56,17 @@ initRelationalCheckpointer
     :: BlockState
     -> SQLiteEnv
     -> Logger
-    -> GasEnv
     -> IO CheckpointEnv
-initRelationalCheckpointer bstate sqlenv loggr gasEnv =
-    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr gasEnv
+initRelationalCheckpointer bstate sqlenv loggr =
+    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr
 
 -- for testing
 initRelationalCheckpointer'
     :: BlockState
     -> SQLiteEnv
     -> Logger
-    -> GasEnv
     -> IO (PactDbEnv', CheckpointEnv)
-initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
+initRelationalCheckpointer' bstate sqlenv loggr = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db $ initSchema >> vacuumDb -- TODO: remove?
@@ -92,7 +89,6 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               , _cpLookupProcessedTx = doLookupSuccessful db
               }
         , _cpeLogger = loggr
-        , _cpeGasEnv = gasEnv
         })
 
 type Db = MVar (BlockEnv SQLiteEnv)
