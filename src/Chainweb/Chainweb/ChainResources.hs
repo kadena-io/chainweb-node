@@ -156,7 +156,7 @@ withChainResources v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir 
                     return ()
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
             let pex = pes requestQ
-            putMVar (pexMv) pex
+            putMVar pexMv pex
 
             -- run inner
             inner $ ChainResources

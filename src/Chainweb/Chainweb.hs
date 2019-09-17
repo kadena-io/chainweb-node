@@ -76,6 +76,7 @@ module Chainweb.Chainweb
 -- ** Mempool integration
 , ChainwebTransaction
 , Mempool.chainwebTransactionConfig
+, validatingMempoolConfig
 
 , withChainweb
 , runChainweb
