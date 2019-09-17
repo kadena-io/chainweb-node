@@ -121,7 +121,7 @@ cabal new-install
 ## Running a chainweb node
 
 This section assumes you've installed the `chainweb-node` binary somewhere
-sensible, or otherwise have a simple way to refer to it. Please note that by default, the in-process mining is turned on; for instructions on how to turn it off, please refer to the [mining instructions]https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org
+sensible, or otherwise have a simple way to refer to it. Please note that by default, the in-process mining is turned on; for instructions on how to turn it off, please refer to the [mining instructions](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
 
 To run a node:
 
