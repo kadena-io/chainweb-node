@@ -237,7 +237,7 @@ mining go wb = do
     T3 (ChainBytes cbs) tbytes hbytes = unWorkBytes wb
 
     chain :: IO Utf8Builder
-    chain = display . chainIdInt @Int <$> runGet decodeChainId cbs
+    chain = ("Chain " <>) . display . chainIdInt @Int <$> runGet decodeChainId cbs
 
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
