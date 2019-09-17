@@ -16,24 +16,16 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 
-import Data.Aeson
 import Data.Bytes.Put (runPutS)
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Base16 as B16
 import Data.CAS.HashMap
 import Data.CAS.RocksDB
-import Data.FileEmbed
-import qualified Data.HashMap.Strict as HM
 import Data.IORef
-import Data.Text (Text)
+import Data.List (foldl')
 import qualified Data.Text as T
-import Data.Text.Encoding
 import qualified Data.Text.IO as T
 import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
-import qualified Data.Yaml as Y
-
 
 import System.Directory
 import System.IO.Extra
@@ -45,7 +37,8 @@ import Test.Tasty.HUnit
 -- pact imports
 
 import Pact.ApiReq
-import Pact.Types.Crypto
+import Pact.Parse
+import Pact.Types.ChainMeta
 
 -- chainweb imports
 
@@ -56,6 +49,7 @@ import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
+import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -87,23 +81,24 @@ testChainId = someChainId testVer
 --
 tests :: ScheduledTest
 tests = testGroupSch label
-    [ chainDataTest "block-time"
-    , chainDataTest "block-height"
-    , chainDataTest "gas-limit"
-    , chainDataTest "gas-price"
-    , chainDataTest "chain-id"
-    , chainDataTest "sender"
+    [ withTime $ chainDataTest "block-time"
+    , withTime $ chainDataTest "block-height"
+    , withTime $ chainDataTest "gas-limit"
+    , withTime $ chainDataTest "gas-price"
+    , withTime $ chainDataTest "chain-id"
+    , withTime $ chainDataTest "sender"
     ]
   where
     label = "Chainweb.Test.Pact.ChainData"
 
-chainDataTest :: T.Text -> TestTree
-chainDataTest t =
+chainDataTest :: T.Text -> IO (Time Integer) -> TestTree
+chainDataTest t time =
     withRocksResource $ \rocksIO ->
     withPayloadDb $ \pdb ->
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
-    withPact pdb bhdb (testMemPoolAccess t) dir $ \reqQIO ->
+    -- tx origination times need to come before block origination times.
+    withPact pdb bhdb (testMemPoolAccess t time) dir $ \reqQIO ->
         testCase ("chain-data." <> T.unpack t) $
             run genblock pdb bhdb reqQIO
   where
@@ -112,13 +107,31 @@ chainDataTest t =
 -- -------------------------------------------------------------------------- --
 -- Test Blocks
 
-getTestBlock :: T.Text -> IO (V.Vector ChainwebTransaction)
-getTestBlock t = do
+getTestBlock
+    :: T.Text
+    -> Time Integer
+    -> MempoolPreBlockCheck ChainwebTransaction
+    -> BlockHeight
+    -> BlockHash
+    -> IO (V.Vector ChainwebTransaction)
+getTestBlock t txOrigTime _validate _bh _hash = do
     akp0 <- stockKey "sender00"
     kp0 <- mkKeyPairs [akp0]
-    nonce <- (<> t) . T.pack . show @(Time Int) <$> getCurrentTimeIntegral
-    mkTestExecTransactions "sender00" "0" kp0 nonce 10000 0.00000000001 3600 0 tx
+    let nonce = (<> t) . T.pack . show @(Time Integer) $ txOrigTime
+    txs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10000 0.00000000001 3600 (toTxCreationTime txOrigTime) tx
+    oks <- _validate _bh _hash txs
+    when (not $ V.and oks) $ do
+        fail $ mconcat [ "tx failed validation! input list: \n"
+                       , show tx
+                       , "\n\nouttxs: "
+                       , show txs
+                       , "\n\noks: "
+                       , show oks ]
+    return txs
   where
+    toTxCreationTime :: Time Integer -> TxCreationTime
+    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+      Seconds s -> TxCreationTime $ ParsedInteger s
     code = "(at \"" <> t <> "\" (chain-data))"
     tx = V.singleton $ PactTransaction code Nothing
 
@@ -203,7 +216,9 @@ mineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
-     mv <- r >>= newBlock noMiner parentHeader
+     -- assemble block without nonce and timestamp
+     creationTime <- getCurrentTimeIntegral
+     mv <- r >>= newBlock noMiner parentHeader (BlockCreationTime creationTime)
      payload <- takeMVar mv >>= \case
         Right x -> return x
         Left e -> throwM $ TestException
@@ -214,8 +229,6 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
             , _exMessage = "failure during newBlock"
             }
 
-     -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
      let bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
@@ -275,31 +288,17 @@ data TestException = TestException
 
 instance Exception TestException
 
-testMemPoolAccess :: T.Text -> MemPoolAccess
-testMemPoolAccess t = MemPoolAccess
-    { mpaGetBlock = \_ _ _ _ -> getTestBlock t
+testMemPoolAccess :: T.Text -> IO (Time Integer) -> MemPoolAccess
+testMemPoolAccess t iotime = MemPoolAccess
+    { mpaGetBlock = \validate bh hash _parentHeader -> do
+        time <- meinhack bh <$> iotime
+        getTestBlock t time validate bh hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
-
-mkKeyset :: Text -> [PublicKeyBS] -> Value
-mkKeyset p ks = object
-  [ "pred" .= p
-  , "keys" .= ks
-  ]
-
-stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
-
--- | Convenient access to predefined testnet sender accounts
-stockKey :: Text -> IO ApiKeyPair
-stockKey s = do
-  let Right (Y.Object o) = Y.decodeEither' stockKeyFile
-      Just (Y.Object kp) = HM.lookup s o
-      Just (String pub) = HM.lookup "public" kp
-      Just (String priv) = HM.lookup "secret" kp
-      mkKeyBS = decodeKey . encodeUtf8
-  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
-
-decodeKey :: ByteString -> ByteString
-decodeKey = fst . B16.decode
+  where
+    -- tx origination times needed to be unique to ensure that the corresponding
+    -- tx hashes are also unique.
+    meinhack :: BlockHeight -> Time Integer -> Time Integer
+    meinhack b tt =
+      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)

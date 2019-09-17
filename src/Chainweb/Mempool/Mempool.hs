@@ -117,7 +117,7 @@ import System.LogLevel
 
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.Command
-import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
+import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..),PublicMeta)
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
@@ -163,6 +163,9 @@ data TransactionConfig t = TransactionConfig {
 
     -- | getter for transaction metadata (creation and expiry timestamps)
   , txMetadata :: t -> TransactionMetadata
+
+    -- | pre-gossip check
+  , txPreGossipCheck :: t -> Bool
   }
 
 ------------------------------------------------------------------------------
@@ -234,8 +237,10 @@ noopMempool = do
     noopGasPrice = const 0
     noopSize = const 1
     noopMeta = const $ TransactionMetadata Time.minTime Time.maxTime
+    noopEnforceTTL = const True
     txcfg = TransactionConfig noopCodec noopHasher noopHashMeta noopGasPrice noopSize
                               noopMeta
+                              noopEnforceTTL
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ return ()
@@ -254,23 +259,30 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     getGasPrice
     getGasLimit
     txmeta
+    preGossipCheck
 
   where
-    getGasPrice = gasPriceOf . fmap payloadObj
-    getGasLimit = gasLimitOf . fmap payloadObj
-    getTimeToLive = timeToLiveOf . fmap payloadObj
-    getCreationTime = creationTimeOf . fmap payloadObj
+    getGasPrice = gasPriceOf . fmap _payloadObj
+    getGasLimit = gasLimitOf . fmap _payloadObj
+    getTimeToLive = timeToLiveOf . fmap _payloadObj
+    getCreationTime = creationTimeOf . fmap _payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
     txmeta t =
-      TransactionMetadata
-      (toMicros ct)
-      (toMicros $ min maxUpperBoundary (ct + ttl))
+        TransactionMetadata
+        (toMicros ct)
+        (toMicros $ min maxDuration (ct + ttl))
       where
         (TxCreationTime ct) = getCreationTime t
         toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
         (TTLSeconds ttl) = getTimeToLive t
-        maxUpperBoundary = 2 * 24 * 60 * 60 * 1000000
+        maxDuration = 2 * 24 * 60 * 60
+    -- TODO: The return type of this function should probably be something more
+    -- informative.
+    preGossipCheck t =
+      case verifyCommand @PublicMeta (SB.fromShort . _payloadBytes <$> t) of
+        ProcSucc _ -> True
+        ProcFail _ -> False
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {

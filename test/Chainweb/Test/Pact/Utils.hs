@@ -3,7 +3,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
 -- Module: Chainweb.Test.PactInProcApi
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -27,6 +30,9 @@ module Chainweb.Test.Pact.Utils
 , mkTestContTransaction
 , pactTestLogger
 , withMVarResource
+, withTime
+, mkKeyset
+, stockKey
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -54,14 +60,17 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Short as SB
 import Data.Default (def)
+import Data.FileEmbed
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.Text (Text)
+import Data.Text.Encoding
 import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
+import qualified Data.Yaml as Y
 
 import System.IO.Extra
 
@@ -99,6 +108,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
@@ -342,8 +352,7 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid cutDB bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p ->
-            evalPactServiceM ctx $ execNewBlock mempoolAccess p m
+        { _pactNewBlock = \m p t -> evalPactServiceM ctx $ execNewBlock mempoolAccess p m t
         , _pactValidateBlock = \h d ->
             evalPactServiceM ctx $ execValidateBlock h d
         , _pactLocal = error
@@ -450,3 +459,28 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
 withMVarResource value = withResource (newMVar value) (const $ return ())
+
+withTime :: (IO (Time Integer) -> TestTree) -> TestTree
+withTime = withResource getCurrentTimeIntegral (const (return ()))
+
+mkKeyset :: Text -> [PublicKeyBS] -> Value
+mkKeyset p ks = object
+  [ "pred" .= p
+  , "keys" .= ks
+  ]
+
+stockKeyFile :: ByteString
+stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+
+-- | Convenient access to predefined testnet sender accounts
+stockKey :: Text -> IO ApiKeyPair
+stockKey s = do
+  let Right (Y.Object o) = Y.decodeEither' stockKeyFile
+      Just (Y.Object kp) = HM.lookup s o
+      Just (String pub) = HM.lookup "public" kp
+      Just (String priv) = HM.lookup "secret" kp
+      mkKeyBS = decodeKey . encodeUtf8
+  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
+
+decodeKey :: ByteString -> ByteString
+decodeKey = fst . B16.decode

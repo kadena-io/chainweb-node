@@ -20,8 +20,8 @@ tests = testGroup "Chainweb.Mempool.InMem"
             $ InMem.withInMemoryMempool cfg
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
-                              mockMeta
+                              mockMeta preGossipCheck
     cfg = InMemConfig txcfg mockBlockGasLimit 2048
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
-
+    preGossipCheck = const True

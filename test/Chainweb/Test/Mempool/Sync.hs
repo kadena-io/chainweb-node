@@ -48,9 +48,10 @@ testInMemCfg :: InMemConfig MockTx
 testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta
+                              mockGasLimit mockMeta preGossipCheck
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
+    preGossipCheck = const True
 
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)

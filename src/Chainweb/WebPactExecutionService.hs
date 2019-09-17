@@ -25,7 +25,7 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.WebPactExecutionService.Types
 
-_webPactNewBlock :: WebPactExecutionService -> Miner -> BlockHeader -> IO PayloadWithOutputs
+_webPactNewBlock :: WebPactExecutionService -> Miner -> BlockHeader -> BlockCreationTime -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
 
@@ -36,7 +36,7 @@ _webPactValidateBlock = _pactValidateBlock . _webPactExecutionService
 mkWebPactExecutionService :: HM.HashMap ChainId PactExecutionService -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock = \h pd -> withChainService h $ \p -> _pactValidateBlock p h pd
-  , _pactNewBlock = \m h -> withChainService h $ \p -> _pactNewBlock p m h
+  , _pactNewBlock = \m h ct -> withChainService h $ \p -> _pactNewBlock p m h ct
   , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
   }
   where withChainService h act = case HM.lookup (_chainId h) hm of
@@ -53,8 +53,8 @@ mkPactExecutionService q = PactExecutionService
       case r of
         (Right !pdo) -> return pdo
         Left e -> throwM e
-  , _pactNewBlock = \m h -> do
-      mv <- newBlock m h q
+  , _pactNewBlock = \m h ct -> do
+      mv <- newBlock m h ct q
       r <- takeMVar mv
       either throwM evaluate r
   , _pactLocal = \ct -> do
@@ -68,6 +68,6 @@ mkPactExecutionService q = PactExecutionService
 emptyPactExecutionService :: PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
-    , _pactNewBlock = \_ _ -> pure emptyPayload
+    , _pactNewBlock = \_ _ _ -> pure emptyPayload
     , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
     }

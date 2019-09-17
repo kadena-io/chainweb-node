@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -15,6 +16,8 @@
 module Chainweb.Test.Pact.PactExec
 ( tests
 ) where
+
+import Control.Lens ((.~))
 
 import Data.Aeson
 import Data.CAS.RocksDB (RocksDb)
@@ -35,18 +38,23 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash (nullBlockHash)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService (execTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Time
+import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
-import Pact.Types.Command (CommandResult(..), PactResult(..))
+import Pact.Parse
+import Pact.Types.ChainMeta
+import Pact.Types.Command (Command(..), pMeta, CommandResult(..), PactResult(..))
 
 testVersion :: ChainwebVersion
-testVersion = Development
+testVersion = FastTimedCPM petersonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest label $
@@ -147,9 +155,11 @@ execTest :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestReque
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData
-    trans <- goldenTestTransactions
+    trans' <- goldenTestTransactions
       $ V.fromList
       $ fmap (k d) cmdStrs
+
+    trans <- traverse setTime trans'
 
     results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
     let outputs = V.toList $ snd <$> _transactionPairs results
@@ -158,6 +168,16 @@ execTest runPact request = _trEval request $ do
         (_transactionCoinbase results)
   where
     k d c = PactTransaction c d
+    toTxCreationTime :: Time Integer -> TxCreationTime
+    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+      Seconds s -> TxCreationTime $ ParsedInteger s
+    setTime :: Command PayloadWithText -> IO (Command PayloadWithText)
+    setTime cwtx =
+      fmap
+      (\time ->
+         ((payloadObj . pMeta . pmCreationTime) .~ (toTxCreationTime time))
+         <$> cwtx)
+      getCurrentTimeIntegral
 
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)

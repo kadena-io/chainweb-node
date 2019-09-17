@@ -401,7 +401,8 @@ tryMineForChain
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
 tryMineForChain miner webPact cutDb c cid = do
-    outputs <- _webPactNewBlock webPact miner parent
+    creationTime <- getCurrentTimeIntegral
+    outputs <- _webPactNewBlock webPact miner parent (BlockCreationTime creationTime)
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
     x <- testMineWithPayloadHash (Nonce 0) t payloadHash cid c
@@ -486,7 +487,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
               $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
-  , _pactNewBlock = \_ _ -> do
+  , _pactNewBlock = \_ _ _ -> do
         payload <- generate $ V.fromList . getNonEmpty <$> arbitrary
         return $ newPayloadWithOutputs fakeMiner coinbase payload
 

@@ -50,6 +50,7 @@ import Chainweb.BlockHeader
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
+import Chainweb.Time
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
@@ -207,7 +208,7 @@ insertInMem cfg lock txs0 = do
   where
     preGossipCheck tx = do
         -- TODO: other well-formedness checks go here (e.g. ttl check)
-        return $! sizeOK tx
+        return $! sizeOK tx && preGossipCheck' tx && ttlCheck tx
 
     txcfg = _inmemTxCfg cfg
     getSize = txGasLimit txcfg
@@ -215,6 +216,11 @@ insertInMem cfg lock txs0 = do
     sizeOK tx = getSize tx <= maxSize
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
+    ttlCheck tx =
+      case txMetadata txcfg tx of
+        TransactionMetadata (Time (TimeSpan creationTime)) (Time (TimeSpan expiryTime)) ->
+          creationTime >= 0 && expiryTime >= 0 && creationTime < expiryTime
+    preGossipCheck' = txPreGossipCheck txcfg
 
     getPriority x = let r = txGasPrice txcfg x
                         s = txGasLimit txcfg x

@@ -17,7 +17,7 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text, pack)
 import GHC.Generics
 
-import Chainweb.BlockHeader (BlockHeader)
+import Chainweb.BlockHeader (BlockHeader, BlockCreationTime)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -50,6 +50,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
     , _newMiner :: Miner
+    , _newCreationTime :: BlockCreationTime
     , _newResultVar :: MVar (Either PactException PayloadWithOutputs)
     }
 instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)

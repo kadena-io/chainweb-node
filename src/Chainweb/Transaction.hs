@@ -5,11 +5,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
   , PayloadWithText(..)
+  , payloadBytes
+  , payloadObj
   , chainwebPayloadCodec
   , chainwebPayloadDecode
   , gasLimitOf
@@ -19,6 +22,7 @@ module Chainweb.Transaction
   ) where
 
 import Control.DeepSeq
+import Control.Lens
 
 import qualified Data.ByteString.Char8 as B
 import Data.Hashable
@@ -45,8 +49,8 @@ import Chainweb.Utils (Codec(..))
 -- the Text that generated it, to make gossiping easier.
 --
 data PayloadWithText = PayloadWithText
-    { payloadBytes :: !SB.ShortByteString
-    , payloadObj :: !(Payload PublicMeta ParsedCode)
+    { _payloadBytes :: !SB.ShortByteString
+    , _payloadObj :: !(Payload PublicMeta ParsedCode)
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
@@ -81,7 +85,7 @@ instance Hashable (HashableTrans PayloadWithText) where
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
 chainwebPayloadCodec = Codec
-    (force . SB.fromShort . payloadBytes . _cmdPayload)
+    (force . SB.fromShort . _payloadBytes . _cmdPayload)
     (force . chainwebPayloadDecode)
 
 chainwebPayloadDecode :: ByteString -> Either String (Command PayloadWithText)
@@ -106,3 +110,5 @@ timeToLiveOf = _pmTTL . _pMeta . _cmdPayload
 creationTimeOf :: forall c . Command (Payload PublicMeta c) -> TxCreationTime
 creationTimeOf = _pmCreationTime . _pMeta . _cmdPayload
 {-# INLINE creationTimeOf #-}
+
+makeLenses ''PayloadWithText

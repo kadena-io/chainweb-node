@@ -110,16 +110,18 @@ working submit tp conf cdb = _cut cdb >>= work
         case getAdjacentParents c p of
             Nothing -> work c
             Just adjParents -> do
-                -- Fetch a Pact Transaction payload. This is an expensive call
-                -- that shouldn't be repeated.
-                --
-                payload <- _pactNewBlock pact (_configMinerInfo conf) p
 
                 -- Assemble a candidate `BlockHeader` without a specific `Nonce`
                 -- value. `Nonce` manipulation is assumed to occur within the
                 -- core Mining logic.
                 --
                 creationTime <- getCurrentTimeIntegral
+
+                -- Fetch a Pact Transaction payload. This is an expensive call
+                -- that shouldn't be repeated.
+                --
+                payload <- _pactNewBlock pact (_configMinerInfo conf) p (BlockCreationTime creationTime)
+
                 let !phash = _payloadWithOutputsPayloadHash payload
                     !header = newBlockHeader
                         adjParents

@@ -44,10 +44,11 @@ tests = withResource (newPool cfg) Pool.destroyAllResources $
             $ withRemoteMempool poolIO
   where
     txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta
+                              mockGasLimit mockMeta preGossipCheck
     cfg = InMemConfig txcfg mockBlockGasLimit 2048
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
+    preGossipCheck = const True
 
 data TestServer = TestServer
     { _tsRemoteMempool :: !(MempoolBackend MockTx)

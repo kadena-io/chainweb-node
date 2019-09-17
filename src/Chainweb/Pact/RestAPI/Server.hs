@@ -61,17 +61,17 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
-import qualified Chainweb.CutDB as CutDB
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Pact.RestAPI
-import Chainweb.RestAPI.Orphans ()
-import Chainweb.RestAPI.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Utils
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
-import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
+import qualified Chainweb.CutDB as CutDB
+import qualified Chainweb.TreeDB as TreeDB
 
 ------------------------------------------------------------------------------
 type PactServerData logger cas =
