@@ -242,7 +242,6 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
     case verifyCommand cmd of
       ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
       ProcFail e -> throwM $ userError e
-
   where
     k t bs = PayloadWithText bs (_cmdPayload t)
 

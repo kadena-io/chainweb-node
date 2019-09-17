@@ -101,7 +101,7 @@ data Page k a = Page
         -- ^ A cursor for querying the next page, if there is any. The value
         -- is given the next parameter of the respective query interface.
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Show, Eq, Ord, Generic, Functor, Foldable)
 
 makeLenses ''Page
 
