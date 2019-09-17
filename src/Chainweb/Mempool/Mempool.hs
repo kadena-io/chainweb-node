@@ -313,7 +313,7 @@ syncMempools'
 syncMempools' log0 us localMempool remoteMempool = sync
 
   where
-    maxCnt = 10000
+    maxCnt = 5000
         -- don't pull more than this many new transactions from a single peer in
         -- a session.
 
