@@ -84,6 +84,12 @@ in
           sha256 = "1ryp2l9xh9s7cj7qcmk7jbswk1rbfh3lyw96pl2gkvpri9nyqhra";
         };
 
+        http-media = callHackageDirect {
+          pkg = "http-media";
+          ver = "0.8.0.0";
+          sha256 = "080xkljq1iq0i8wagg8kbzbp523p2awa98wpn9i4ph1dq8y8346y";
+        };
+
         # --- massiv --- #
         massiv = callHackageDirect {
           pkg = "massiv";
@@ -303,11 +309,11 @@ in
         # hlint = self.callHackage "hlint" "2.0.14" {};
         # hoogle = self.callHackage "hoogle" "5.0.15" {};
 
-        swagger2 = dontCheck (callHackageDirect {
+        swagger2 = doJailbreak (dontCheck (callHackageDirect {
           pkg = "swagger2";
           ver = "2.3.1.1";
           sha256 = "0rhxqdiymh462ya9h76qnv73v8hparwz8ibqqr1d06vg4zm7s86p";
-        });
+        }));
 
         base-compat-batteries = dontCheck (callHackageDirect {
           pkg = "base-compat-batteries";
@@ -333,6 +339,12 @@ in
           sha256 = "1isa8p9dnahkljwj0kz10119dwiycf11jvzdc934lnjv1spxkc9k";
         });
 
+        servant = dontCheck (doJailbreak super.servant);
+        servant-client = dontCheck (doJailbreak super.servant-client);
+        servant-client-core = dontCheck (doJailbreak super.servant-client-core);
+        servant-server = dontCheck (doJailbreak super.servant-server);
+        servant-swagger = dontCheck (doJailbreak super.servant-swagger);
+
         chainweb-storage = pkgs.haskell.lib.dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "chainweb-storage";
@@ -352,7 +364,8 @@ in
       };
     packages = {
       chainweb = gitignore.gitignoreSource
-        [".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md"] ./.;
+        [ ".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md"
+          ".vcs-info" ] ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;

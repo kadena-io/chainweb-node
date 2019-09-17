@@ -21,6 +21,7 @@ module Chainweb.Logging.Miner
 import Control.DeepSeq
 
 import Data.Aeson
+import Data.Text (Text)
 
 import GHC.Generics
 
@@ -34,7 +35,7 @@ data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
     , _minedBlockTrans :: {-# UNPACK #-} !Word
     , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
-    , _minedHashAttempts :: !Natural }
+    , _minedHashAttempts :: !Natural
+    , _minedBlockMiner :: Text }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
-
