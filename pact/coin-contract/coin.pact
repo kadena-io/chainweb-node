@@ -1,11 +1,15 @@
 (module coin GOVERNANCE
 
-  "'coin' represents the Kadena Coin Contract. This contract provides both the \
+  @doc "'coin' represents the Kadena Coin Contract. This contract provides both the \
   \buy/redeem gas support in the form of 'fund-tx', as well as transfer,       \
   \credit, debit, coinbase, account creation and query, as well as SPV burn    \
   \create. To access the coin contract, you may use its fully-qualified name,  \
   \or issue the '(use coin)' command in the body of a module declaration."
 
+  @model [
+    (defproperty conserves-mass
+      (= (column-delta coin-table 'balance) 0.0))
+  ]
 
   (implements coin-sig)
 
@@ -47,6 +51,17 @@
   (defcap GOVERNANCE ()
     (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
 
+  (defconst MINIMUM_PRECISION 12
+    "Minimum allowed precision for coin transactions")
+
+  (defun enforce-unit (amount:decimal)
+    @doc "Enforce minimum precision allowed for coin transactions"
+    (enforce
+      (= (floor amount MINIMUM_PRECISION)
+         amount)
+      (format "Amount violates minimum precision: {}" [amount]))
+  )
+
   ; --------------------------------------------------------------------------
   ; Coin Contract
 
@@ -57,7 +72,7 @@
     \the transaction, and the price is the spot price of gas at that time.    \
     \The gas buy will be executed prior to executing SENDER's code."
 
-    @model [(property (> total 0.0))]
+    (enforce-unit total)
 
     (enforce (> total 0.0)
       "gas supply must be a positive quantity")
@@ -75,16 +90,19 @@
 
     @model [(property (> total 0.0))]
 
+    (enforce-unit total)
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
       (let* ((fee (read-decimal "fee"))
              (refund (- total fee)))
 
+        (enforce-unit fee)
+
         (enforce (>= fee 0.0)
           "fee must be a non-negative quantity")
 
         (enforce (>= refund 0.0)
-          "refun must be a non-negative quantity")
+          "refund must be a non-negative quantity")
 
         ; directly update instead of credit
         (if (> refund 0.0)
@@ -147,11 +165,23 @@
     \chain. This fails if either SENDER or RECEIVER does not exist.           \
     \Create-on-transfer can be done using the 'transfer-and-create' function."
 
+    @model [
+      (property conserves-mass)
+      (property (> amount 0.0))
+      (property (not (= sender "")))
+      (property (not (= receiver "")))
+    ]
+
     (enforce (not (= sender receiver))
       "sender cannot be the receiver of a transfer")
 
+    (enforce (!= "" sender) "empty sender")
+    (enforce (!= "" receiver) "empty sender")
+
     (enforce (> amount 0.0)
       "transfer amount must be positive")
+
+    (enforce-unit amount)
 
     (with-capability (TRANSFER)
       (debit sender amount)
@@ -172,11 +202,23 @@
     \This fails if the SENDER account does not exist. If the RECEIVER account \
     \does not exist, it is created and associated with GUARD."
 
-    (enforce (not (= sender receiver))
+    @model [
+      ;(property conserves-mass) ;; fails on missing row, FV problem
+      (property (> amount 0.0))
+      (property (not (= sender "")))
+      (property (not (= receiver "")))
+    ]
+
+    (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
+
+    (enforce (!= "" sender) "empty sender")
+    (enforce (!= "" receiver) "empty sender")
 
     (enforce (> amount 0.0)
       "transfer amount must be positive")
+
+    (enforce-unit amount)
 
     (with-capability (TRANSFER)
       (debit sender amount)
@@ -187,11 +229,12 @@
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
     (require-capability (COINBASE))
+    (enforce-unit amount)
     (with-capability (TRANSFER)
-     (credit address address-guard amount))
+      (credit address address-guard amount))
     )
 
-  (defpact fund-tx (sender miner miner-guard total)
+  (defpact fund-tx (sender:string miner:string miner-guard:guard total:decimal)
     @doc "'fund-tx' is a special pact to fund a transaction in two steps,     \
     \with the actual transaction transpiring in the middle:                   \
     \                                                                         \
@@ -200,6 +243,10 @@
     \  2) A settlement phase, resuming TX_MAX_CHARGE, and allocating to the   \
     \     coinbase account for used gas and fee, and sender account for bal-  \
     \     ance (unused gas, if any)."
+    @model [
+      (property (> total 0.0))
+      ;(property conserves-mass) not supported yet
+    ]
 
     (step (buy-gas sender total))
     (step (redeem-gas miner miner-guard sender total))
@@ -207,8 +254,6 @@
 
   (defun debit:string (account:string amount:decimal)
     @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
-
-    @model [ (property (> amount 0.0)) ]
 
     (enforce (> amount 0.0)
       "debit amount must be positive")
@@ -227,10 +272,6 @@
 
   (defun credit:string (account:string guard:guard amount:decimal)
     @doc "Credit AMOUNT to ACCOUNT balance recording DATE and DATA"
-
-    @model [ (property (> amount 0.0))
-             (property (not (= account "")))
-           ]
 
     (enforce (> amount 0.0)
       "credit amount must be positive")
@@ -277,11 +318,15 @@
 
     (step
       (with-capability (TRANSFER)
+
+        (enforce (!= "" create-chain-id) "empty create-chain-id")
         (enforce (not (= (at 'chain-id (chain-data)) create-chain-id))
           "cannot run cross-chain transfers to the same chain")
 
         (enforce (> quantity 0.0)
           "transfer quantity must be positive")
+
+        (enforce-unit quantity)
 
         (debit delete-account quantity)
         (let
