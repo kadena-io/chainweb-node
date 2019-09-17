@@ -78,7 +78,7 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Nothing m pact c
+        T3 p bh pl <- newWork Anything m pact c
         let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T3 m p pl)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
@@ -107,7 +107,7 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Nothing m pact c
+        T3 p bh pl <- newWork Anything m pact c
         let ms = MiningState $ HM.singleton (_blockPayloadHash bh) (T3 m p pl)
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop

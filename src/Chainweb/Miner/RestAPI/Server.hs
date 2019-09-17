@@ -40,7 +40,7 @@ import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, awaitNewCutByChainId)
 import Chainweb.Logger (Logger, logFunction)
-import Chainweb.Miner.Coordinator (MiningState(..), newWork, publish)
+import Chainweb.Miner.Coordinator (MiningState(..), newWork, publish, ChainChoice(..))
 import Chainweb.Miner.Core (HeaderBytes(..), WorkBytes, workBytes, ChainBytes(..))
 import Chainweb.Miner.Miners (transferableBytes)
 import Chainweb.Miner.Pact (Miner)
@@ -65,7 +65,7 @@ workHandler
     -> IO WorkBytes
 workHandler mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork mcid m pact c
+    T3 p bh pl <- newWork (maybe Anything Suggestion mcid) m pact c
     let !phash = _blockPayloadHash bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . HM.insert phash $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh

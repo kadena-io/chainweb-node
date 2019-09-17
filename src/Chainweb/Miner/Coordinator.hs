@@ -23,10 +23,13 @@ module Chainweb.Miner.Coordinator
   ( -- * Types
     MiningState(..)
   , PrevBlock(..)
+  , ChainChoice(..)
     -- * Functions
   , newWork
   , publish
   ) where
+
+import Data.Bool (bool)
 
 import Control.Error.Util ((!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
@@ -83,19 +86,21 @@ newtype MiningState =
 --
 newtype PrevBlock = PrevBlock BlockHeader
 
+data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
+
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
-    :: Maybe ChainId
+    :: ChainChoice
     -> Miner
     -> PactExecutionService
     -> Cut
     -> IO (T3 PrevBlock BlockHeader PayloadWithOutputs)
-newWork mcid miner pact c = do
+newWork choice miner pact c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
-    cid <- maybe (randomChainId c) pure mcid
+    cid <- chainChoice c choice
 
     -- The parent block the mine on. Any given chain will always
     -- contain at least a genesis block, so this otherwise naughty
@@ -116,7 +121,7 @@ newWork mcid miner pact c = do
     -- TODO Consider instead some maximum amount of retries?
     --
     case getAdjacentParents c p of
-        Nothing -> newWork Nothing miner pact c
+        Nothing -> newWork (TriedLast cid) miner pact c
         Just adjParents -> do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.
@@ -132,6 +137,17 @@ newWork mcid miner pact c = do
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
 
             pure $ T3 (PrevBlock p) header payload
+
+chainChoice :: Cut -> ChainChoice -> IO ChainId
+chainChoice c choice = case choice of
+    Anything -> randomChainId c
+    Suggestion cid -> pure cid
+    TriedLast cid -> loop cid
+  where
+    loop :: ChainId -> IO ChainId
+    loop cid = do
+      new <- randomChainId c
+      bool (pure new) (loop cid) $ new == cid
 
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and
