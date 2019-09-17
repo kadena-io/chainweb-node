@@ -2,10 +2,14 @@
 
 Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
 
-With our recent release of Chainweb Testnet v3, we now have a public network to which anyone can connect, plus the ability to mine (either by using the chainweb-miner or by running a node).  As before, we provide a binary for Linux and Mac users can follow the instructions to build from source and then run a Chainweb node.
+With our recent release of Chainweb Testnet v3, we now have a public network to
+which anyone can connect, plus the ability to mine (either by using the
+chainweb-miner or by running a node). As before, we provide a binary for Linux
+and Mac users can follow the instructions to build from source and then run a
+Chainweb node.
 
-Below are the addresses of the Bootstrap nodes of the public Chainweb Testnet network:
-(insert addresses of the nodes)
+Below are the addresses of the Bootstrap nodes of the public Chainweb Testnet
+network: (insert addresses of the nodes)
 
 ## Table of Contents
 
@@ -121,7 +125,9 @@ cabal new-install
 ## Running a chainweb node
 
 This section assumes you've installed the `chainweb-node` binary somewhere
-sensible, or otherwise have a simple way to refer to it. Please note that by default, the in-process mining is turned on; for instructions on how to turn it off, please refer to the [mining instructions](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
+sensible, or otherwise have a simple way to refer to it. Please note that by
+default, the in-process mining is turned on; for instructions on how to turn it
+off, please refer to the [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
 
 (Below command might need updating)
 To run a node:
@@ -219,7 +225,8 @@ chainweb-node --config-file=chainweb-node.config
 ```
 
 ## Mine for a Chainweb Network
-Detailed mining instructions can be found in the [mining readme](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
+
+Detailed mining instructions can be found in our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
 
 ## Component Structure
 
