@@ -114,6 +114,9 @@ cid = head . toList $ chainIds version
 testCmds :: PactTestApiCmds
 testCmds = apiCmds version cid
 
+testCmdsChainId :: ChainId -> PactTestApiCmds
+testCmdsChainId cid = apiCmds version cid
+
 -- -------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
 
@@ -145,16 +148,17 @@ spvRequests :: IO ChainwebNetwork -> TestTree
 spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
+    sid <- mkChainId version (0 :: Int)
+    tid <- mkChainId version (1 :: Int)
     r <- flip runClientM cenv $ do
+
       void $ liftIO $ step "sendApiClient: submit batch"
-      rks <- sendApiCmd testCmds batch
+      rks <- sendApiCmd (testCmdsChainId sid) batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ pollWithRetry testCmds cenv rks
+      void $ liftIO $ pollWithRetry (testCmdsChainId sid) cenv rks
 
       void $ liftIO $ step "spvApiClient: submit request key"
-      sid <- liftIO $ mkChainId version (0 :: Int)
-      tid <- liftIO $ mkChainId version (1 :: Int)
       pactSpvApiClient version sid tid (go rks)
 
     case r of
