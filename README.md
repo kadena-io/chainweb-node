@@ -2,7 +2,10 @@
 
 Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
 
-With our recent release of Chainweb Testnet v3, we now have a public network that that anyone can connect to, plus the ability to mine (either by using the chainweb-miner or by running a node).  As before, we provide a binary for Linux and Mac users can follow the instructions to build from source and then run a Chainweb node.
+With our recent release of Chainweb Testnet v3, we now have a public network to which anyone can connect, plus the ability to mine (either by using the chainweb-miner or by running a node).  As before, we provide a binary for Linux and Mac users can follow the instructions to build from source and then run a Chainweb node.
+
+Below are the addresses of the Bootstrap nodes of the public Chainweb Testnet network:
+(insert addresses of the nodes)
 
 ## Table of Contents
 
@@ -10,7 +13,7 @@ With our recent release of Chainweb Testnet v3, we now have a public network tha
 - [Download and Build Instructions for Mac Users](#mac-users)
 - [Run a Chainweb node](#running-a-chainweb-node)
 - [Configure a Chainweb node](#configuring-a-chainweb-node)
-- [Mining Instructions](#mining-instructions)
+- [Mine for a Chainweb Network](#mine-for-a-chainweb-network)
 - [Component Structure Details](#component-structure)
 - [Architecture Overview](#architecture-overview)
 
@@ -180,11 +183,6 @@ Upon startup, a `chainweb-node` tries to connect to the P2P network. Each
 `chainweb-node` knows about a hard-coded set of bootstrap nodes. For the *Test*
 node, this is a single node with host-name `localhost`, and port `1789`.
 
-### A Word on Testnet Bootstrap Nodes
-
-For our second iteration of Testnet (v3), the addresses of the Bootstrap nodes running
-across the web are published below and everyone can participate in the global network.
-(Insert addresses of the ndoes)
 
 ## Configuring a chainweb node
 
@@ -219,7 +217,7 @@ configuration can be loaded with
 chainweb-node --config-file=chainweb-node.config
 ```
 
-## Mining Instructions
+## Mine for a Chainweb Network
 Detailed mining instructions can be found in the [mining readme](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
 
 ## Component Structure
