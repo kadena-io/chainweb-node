@@ -187,10 +187,10 @@ instance
     toLink toA _ = toLink toA (Proxy @(ChainIdSymbol sym :> sub))
 
 instance FromHttpApiData RequestKey where
-    parseUrlPiece = Right . RequestKey . Hash . T.encodeUtf8
+    parseUrlPiece = bimap sshow (RequestKey . Hash) . decodeB64UrlNoPaddingText
 
 instance ToHttpApiData RequestKey where
-    toUrlPiece (RequestKey h) = sshow h
+    toUrlPiece (RequestKey (Hash h)) = encodeB64UrlNoPaddingText h
 
 -- -------------------------------------------------------------------------- --
 -- Swagger ParamSchema

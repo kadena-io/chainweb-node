@@ -301,7 +301,7 @@ spvHandler l cutR cid chainR tid (RequestKey h) = do
     cut <- liftIO $! CutDB._cut cdb
     bh <- liftIO $! lookupCutM cid cut
 
-    T2 bhe _bha <- liftIO (_pactLookup pactex bh (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
       Left e -> throwError $ err400
         { errBody = "Transaction hash lookup failed: " <> sshow e }
       Right v -> case v ^?! _head of
@@ -322,8 +322,8 @@ spvHandler l cutR cid chainR tid (RequestKey h) = do
       = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    pactex = _chainResPact chainR
-    ph  = H.fromUntypedHash h
+    pe = _chainResPact chainR
+    ph = H.fromUntypedHash h
     cdb = _cutResCutDb cutR
     bdb = _chainResBlockHeaderDb chainR
     pdb = view CutDB.cutDbPayloadCas cdb
