@@ -46,7 +46,7 @@ import Chainweb.Miner.Coordinator (MiningState(..), PrevBlock(..))
 import Chainweb.Miner.Miners
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (EnableConfig(..), int)
+import Chainweb.Utils (EnableConfig(..), int, runForever)
 import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (LogFunction)
@@ -64,7 +64,8 @@ data MiningCoordination logger cas = MiningCoordination
     }
 
 withMiningCoordination
-    :: logger
+    :: Logger logger
+    => logger
     -> Bool
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
@@ -78,13 +79,12 @@ withMiningCoordination logger enabled cutDb inner
             , _coordCutDb = cutDb
             , _coordState = t }
   where
-    prune :: TVar MiningState -> IO a
-    prune t = do
+    prune :: TVar MiningState -> IO ()
+    prune t = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
         let !d = 600000000  -- 10 minutes
         threadDelay d
         ago <- over (_Unwrapped . _Unwrapped) (subtract (int d)) <$> getCurrentTimeIntegral
         atomically . modifyTVar' t $ over _Unwrapped (HM.filter (f ago))
-        prune t
 
     f :: Time Micros -> T3 a PrevBlock b -> Bool
     f ago (T3 _ (PrevBlock p) _) = _blockCreationTime p > BlockCreationTime ago
