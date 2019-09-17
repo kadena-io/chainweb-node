@@ -50,7 +50,7 @@ other Node components. *This has the advantage of low-latency for getting new
 work* since all databases are available on the same machine.
 
 The second way is to use ~chainweb-miner~, our dedicated Mining Client. Work
-requests are sent to known Nodes, who contruct blocks for the client. Once
+requests are sent to known Nodes, who construct blocks for the client. Once
 solved, the client returns the block to the Node for submission to the wider
 network. This client boasts *much higher mining performance* and a *much simpler
 setup*, since a ~chainweb-miner~ has no database connections and thus no storage
@@ -101,7 +101,7 @@ correctly!) we're ready to mine:
 chainweb-node --config-file=config.yaml
 #+end_src
 
-By default, in-process mining is turned on. This means that as your Node is
+By default, in-process mining is turned on. This means that while your Node is
 servicing the overall network with Transaction, Peer, and Cut data, it will also
 be passively mining.
 
@@ -111,7 +111,7 @@ not own, you are *mining on that person's behalf*.
 
 *** Disabling the In-Process Miner
 
-If you want to run a Node without in-process mining, you can do:
+If you want to run a Node without in-process mining:
 
 #+begin_src bash
   chainweb-node --disable-mining ...  # other flags
@@ -126,9 +126,10 @@ from a ~chainweb-miner~ or other third-party client. To turn this on:
   chainweb-node --mining-coordination ... # other flags
 #+end_src
 
-This will open several endpoints which clients can call, which are described in
+This will open several endpoints that clients can call, which are described in
 detail below. *Note:* Keep this option off if you aren't willing to have
-anonymous clients connect to you for semi-expensive work generation calls.
+anonymous clients connect to you for work generation calls. You won't be
+rewarded for assembling blocks for them!
 
 ** Mining with chainweb-miner
 
@@ -157,6 +158,9 @@ As mining progresses, you will see the following:
   2019-09-16 16:58:37.289252: [info] 6: Mining Success!
   2019-09-16 16:58:48.749402: [info] 4: Current work was preempted.
 #+end_example
+
+The number next to the message represents the chain you were working on at that
+time.
 
 *** Chain Focusing
 
