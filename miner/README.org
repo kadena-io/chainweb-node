@@ -16,7 +16,7 @@
   - [[#troubleshooting][Troubleshooting]]
     - [[#i-mined-using-the-wrong-account-name][I mined using the wrong account name!]]
     - [[#i-mined-using-the-wrong-public-key][I mined using the wrong public key!]]
-    - [[#chainweb-miner-says-that-i-mined-but-i-never-received-the-reward][chainweb-miner says that I mined, but I never received the reward.]]
+    - [[#chainweb-miner-says-that-i-mined-but-i-didnt-receive-the-reward][chainweb-miner says that I mined, but I didn't receive the reward.]]
     - [[#i-specify---chain-but-am-getting-work-for-other-chains-why][I specify ~--chain=...~ but am getting work for other chains. Why?]]
     - [[#why-am-i-being-preempted-so-much][Why am I being "preempted" so much?]]
 - [[#remote-api-details][Remote API Details]]
@@ -189,13 +189,65 @@ You may only be interested in warning or error messages. If so, use the
 
 *** I mined using the wrong account name!
 
+If the incorrect account was previously unclaimed, then you now own that one
+too. Otherwise, you've just mined on someone else's behalf, and have lost your
+coins.
+
 *** I mined using the wrong public key!
 
-*** chainweb-miner says that I mined, but I never received the reward.
+If you already owed the account, you will still be rewarded. Otherwise, you have
+locked your coins into a new account that nobody can access.
+
+*** chainweb-miner says that I mined, but I didn't receive the reward.
+
+This?
+
+#+begin_example
+  2019-09-16 16:58:37.289252: [info] 6: Mining Success!
+#+end_example
+
+And yet your balance on Chain 6 remains unchanged?
+
+Mining is a big race. Even if you succeeded on Chain 6, by the time your block
+returned to the Node, the Node may have already registed a faster block.
+
+#+begin_quote
+But if it knew about a better block on my chain, why didn't it preempt me?
+#+end_quote
+
+Race conditions. There's a small time window between the Node processing the
+faster block, telling you about it, and you submitting your own block. Consider
+it bad luck.
 
 *** I specify ~--chain=...~ but am getting work for other chains. Why?
 
+It is fundamental to the design of Chainweb that chains cannot progress much
+further than their neighbour chains. It may be that by asking for ~--chain=9~,
+the Node couldn't find work to do! In this case, it falls back to picking a
+random chain. This balances the needs of the Miner, who may want a specific
+Chain to progress efficiently, with the needs of the network, who requires all
+chains to grow evenly.
+
 *** Why am I being "preempted" so much?
+
+This?
+
+#+begin_example
+  2019-09-16 17:30:11.791641: [info] 7: Current work was preempted.
+  2019-09-16 17:30:15.759249: [info] 8: Current work was preempted.
+  2019-09-16 17:30:27.340109: [info] 9: Current work was preempted.
+  2019-09-16 17:30:57.343577: [info] 6: Current work was preempted.
+  2019-09-16 17:31:04.998382: [info] 9: Current work was preempted.
+  2019-09-16 17:31:14.649440: [info] 1: Current work was preempted.
+  2019-09-16 17:31:25.503355: [info] 4: Current work was preempted.
+  2019-09-16 17:31:45.471371: [info] 9: Current work was preempted.
+  2019-09-16 17:31:56.940698: [info] 2: Current work was preempted.
+  2019-09-16 17:32:16.807348: [info] 9: Current work was preempted.
+  2019-09-16 17:32:21.721842: [info] 8: Current work was preempted.
+#+end_example
+
+This is normal. This means that other miners are beating you, and that you
+probably don't hold much of the overall network hash power.
 
 * Remote API Details
 
