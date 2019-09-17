@@ -142,7 +142,7 @@ pVersion = textOption
      <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
   where
     defv :: ChainwebVersion
-    defv = Development
+    defv = Testnet02
 
 pLog :: Parser LogLevel
 pLog = option (eitherReader l)
