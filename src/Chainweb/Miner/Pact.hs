@@ -44,6 +44,7 @@ import Control.Monad.Catch (MonadThrow)
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
+import Data.Decimal (roundTo)
 import Data.Default (Default(..))
 import Data.FileEmbed (embedFile)
 import Data.HashMap.Strict (HashMap)
@@ -165,7 +166,7 @@ readRewards v =
       let
         !n = v ^. chainGraph . to (int . size)
         !m = fromRational $ toRational b
-      in (BlockHeight a, ParsedDecimal $ m / n)
+      in (BlockHeight a, ParsedDecimal $ roundTo 8 (m / n))
 
 -- | Read in the reward csv via TH for deployment purposes.
 --
