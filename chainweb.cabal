@@ -549,7 +549,7 @@ executable chainweb-miner
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , retry >= 0.7
-        , rio >= 0.1.5
+        , rio >= 0.1.5 && < 0.1.9
         , scheduler >= 1.4.1
         , servant-client >= 0.14
         , streaming >= 0.2
