@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- |
--- Module: Chainweb.SPV.RestAPI
+-- Module: Chainweb.Pact.RestAPI
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emily Pillmore <emily@kadena.io>, Mark Nichols <mark@kadena.io>

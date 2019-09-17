@@ -83,7 +83,7 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.RestAPI.Client
 #if ! MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
@@ -143,36 +143,33 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
 
 spvRequests :: IO ChainwebNetwork -> TestTree
 spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
-    clienv <- fmap _getClientEnv nio
+    cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
-    r <- flip runClientM clienv $ do
+    r <- flip runClientM cenv $ do
       void $ liftIO $ step "sendApiClient: submit batch"
       rks <- sendApiCmd testCmds batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ pollWithRetry testCmds clienv rks
-
-      sid <- liftIO $ mkChainId version (0 :: Int)
-      tid <- liftIO $ mkChainId version (1 :: Int)
+      void $ liftIO $ pollWithRetry testCmds cenv rks
 
       void $ liftIO $ step "spvApiClient: submit request key"
-      spvApiClient version sid tid (rk rks)
+      sid <- liftIO $ mkChainId version (0 :: Int)
+      tid <- liftIO $ mkChainId version (1 :: Int)
+      pactSpvApiClient version sid tid (go rks)
 
-    void $ step "spvApiClient: evaluate successful proof"
     case r of
       Left e -> assertFailure $ "output proof failed: " <> sshow e
       Right _ -> return ()
   where
-    rk (RequestKeys t) = NEL.head t
+    go (RequestKeys t) = NEL.head t
 
     mkTxBatch = do
       ks <- liftIO testKeyPairs
       let pm = CM.PublicMeta (CM.ChainId "0") "sender00" 1000 0.01 100000 0
+      cmd <- liftIO $ mkExec txcode txdata pm ks (Just "0")
+      return $ SubmitBatch (pure cmd)
 
-      cmd <- liftIO $ mkExec tx1Code tx1Data pm ks (Just "0")
-      return $ SubmitBatch (return cmd)
-
-    tx1Code = show $
+    txcode = show $
       [text|
          (coin.cross-chain-transfer
            'sender00
@@ -182,11 +179,11 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
            1.0)
          |]
 
-    tx1Data =
+    txdata =
+      -- sender00 keyset
       let ks = KeySet
             [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
             (Name "keys-all" def)
-
       in A.object [ "sender01-keyset" A..= ks ]
 
 -- -------------------------------------------------------------------------- --
@@ -306,31 +303,6 @@ data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
     , pollApiCmd :: Poll -> ClientM PollResponses }
 
-
--- -------------------------------------------------------------------------- --
--- Pact Spv Client api
-
-spvApiClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => ChainId
-    -> RequestKey
-    -> ClientM TransactionOutputProofB64
-spvApiClient_ = client (pactSpvApi @v @c)
-
-spvApiClient
-    :: ChainwebVersion
-    -> ChainId
-      -- ^ source chain id
-    -> ChainId
-      -- ^ target chain id
-    -> RequestKey
-    -> ClientM TransactionOutputProofB64
-spvApiClient v c c' k = runIdentity $ do
-    SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
-    SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    return $ spvApiClient_ @v @c c' k
 
 --------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
