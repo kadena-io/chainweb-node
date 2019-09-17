@@ -37,7 +37,6 @@ import Control.Monad.Trans.Except (runExceptT)
 
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
-import Data.Generics.Product.Positions (position)
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import Data.Ratio ((%))
@@ -61,7 +60,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Pact (Miner)
+import Chainweb.Miner.Pact (Miner, minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -146,7 +145,7 @@ publish lf (MiningState ms) cdb bh = do
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
         T3 m p pl <- HM.lookup phash ms ?? "BlockHeader given with no associated Payload"
-        let !miner = m ^. position @1 . _Unwrapped
+        let !miner = m ^. minerId . _Unwrapped
         c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
