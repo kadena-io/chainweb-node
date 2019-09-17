@@ -35,10 +35,12 @@ module Chainweb.Logging.Config
 ) where
 
 import Configuration.Utils
+import Configuration.Utils.Validation
 
 import Control.DeepSeq
 import Control.Lens.TH
 
+import Data.Bifunctor
 import Data.String
 import qualified Data.Text as T
 
@@ -52,6 +54,7 @@ import Chainweb.Logging.Amberdata
 import Chainweb.Utils
 
 import Utils.Logging.Config
+import Utils.Logging
 
 -- -------------------------------------------------------------------------- --
 -- Logging System Configuration
@@ -79,6 +82,7 @@ data LogConfig = LogConfig
     , _logConfigTelemetryBackend :: !(EnableConfig BackendConfig)
     , _logConfigAmberdataBackend :: !(EnableConfig AmberdataConfig)
     , _logConfigClusterId :: !(Maybe ClusterId)
+    , _logConfigFilter :: !LogFilter
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -92,6 +96,7 @@ defaultLogConfig = LogConfig
       -- Amberdata logging disabled by default
     , _logConfigAmberdataBackend = EnableConfig False defaultAmberdataConfig
     , _logConfigClusterId = Nothing
+    , _logConfigFilter = mempty
     }
 
 validateLogConfig :: ConfigValidation LogConfig []
@@ -108,6 +113,7 @@ instance ToJSON LogConfig where
         , "telemetryBackend" .= _logConfigTelemetryBackend o
         , "clusterId" .= _logConfigClusterId o
         , "amberdataBackend" .= _logConfigAmberdataBackend o
+        , "filter" .= _logConfigFilter o
         ]
 
 instance FromJSON (LogConfig -> LogConfig) where
@@ -117,6 +123,7 @@ instance FromJSON (LogConfig -> LogConfig) where
         <*< logConfigTelemetryBackend %.: "telemetryBackend" % o
         <*< logConfigClusterId ..: "clusterId" % o
         <*< logConfigAmberdataBackend %.: "amberdataBackend" % o
+        <*< logConfigFilter . fromLeftMonoidalUpdate %.: "filter" % o
 
 pLogConfig :: MParser LogConfig
 pLogConfig = pLogConfig_ ""
@@ -134,7 +141,36 @@ pLogConfig_ prefix = id
     <*< logConfigTelemetryBackend %::
         pEnableConfig "telemetry-logger" (pBackendConfig_ $ "telemetry-" <> prefix)
     <*< logConfigClusterId .:: fmap Just % textOption
-        % long "cluster-id"
+        % prefixLong maybePrefix "cluster-id"
         <> help "a label that is added to all log messages from this node"
     <*< logConfigAmberdataBackend %::
         pEnableConfig "amberdata-logger" pAmberdataConfig
+    <*< logConfigFilter %:: pFilter_ maybePrefix
+  where
+    maybePrefix
+        | T.null prefix = Nothing
+        | otherwise = Just (T.unpack prefix)
+
+pFilter_ :: Maybe String -> MParser LogFilter
+pFilter_ prefix = id
+    <$< pLeftMonoidalUpdate pFilterRule
+    <*< pLeftMonoidalUpdate pFilterDefault
+  where
+    pFilterRule = option (eitherReader readEntry)
+        % prefixLong prefix "log-filter-rule"
+        <> help "A log filter rule. Log messages with matching scope are discarded if they don't meet the log level threshold."
+        <> metavar "KEY:VALUE:LOGLEVEL"
+
+    readEntry s = case T.splitOn ":" (T.pack s) of
+        [a,b,c] -> first T.unpack $ do
+            validateNonEmpty "KEY" a
+            l <- readLogLevel c
+            -- return $ set logFilterRules [ ((a,b),l) ] mempty
+            return $ LogFilter [((a,b),l)] Debug
+        _ -> Left $ "expecting KEY:VALUE:LOGLEVEL, but got " <> s
+
+    pFilterDefault = LogFilter [] <$> option (eitherReader readLogLevel)
+        % prefixLong prefix "log-filter-default"
+        <> help "default log filter level, which is applied to all messages that don't match any other filter rule"
+        <> metavar "LOGLEVEL"
+

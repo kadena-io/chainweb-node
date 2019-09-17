@@ -27,7 +27,7 @@ import Data.IORef (IORef, readIORef, writeIORef, newIORef)
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T3(..))
 
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
@@ -68,7 +68,7 @@ workHandler mr mcid m = do
     c <- _cut cdb
     T3 p bh pl <- newWork mcid m pact c
     let !phash = _blockPayloadHash bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . HM.insert phash $ T2 p pl
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . HM.insert phash $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     cdb :: CutDb cas
