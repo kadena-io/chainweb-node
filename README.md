@@ -2,7 +2,7 @@
 
 Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
 
-With our recent release of Chainweb Testnet V2, we now offer a Linux binary.  For Mac users, please follow the instructions to build from source and then run a Chainweb node.
+With our recent release of Chainweb Testnet v3, we now have a public network that that anyone can connect to, plus the ability to mine (either by using the chainweb-miner or by running a node).  As before, we provide a binary for Linux and Mac users can follow the instructions to build from source and then run a Chainweb node.
 
 ## Table of Contents
 
@@ -10,12 +10,13 @@ With our recent release of Chainweb Testnet V2, we now offer a Linux binary.  Fo
 - [Download and Build Instructions for Mac Users](#mac-users)
 - [Run a Chainweb node](#running-a-chainweb-node)
 - [Configure a Chainweb node](#configuring-a-chainweb-node)
+- [Mining Instructions](#mining-instructions)
 - [Component Structure Details](#component-structure)
 - [Architecture Overview](#architecture-overview)
 
 ## Linux Users
 Download the binary: [chainweb-node-testnet-v2-ubuntu-18.04
-168](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v2/chainweb-node-testnet-v2-ubuntu-18.04)
+168](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v2/chainweb-node-testnet-v2-ubuntu-18.04) (need new link)
 
 You will need to install rocksdb with the following command:
 
@@ -117,7 +118,7 @@ cabal new-install
 ## Running a chainweb node
 
 This section assumes you've installed the `chainweb-node` binary somewhere
-sensible, or otherwise have a simple way to refer to it.
+sensible, or otherwise have a simple way to refer to it. Please note that by default, the in-process mining is turned on; for instructions on how to turn it off, please refer to the (mining instructions) https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org
 
 To run a node:
 
@@ -158,6 +159,7 @@ See `run-nodes --help` for a complete list of its options.
 
 A chainweb-node has two identifiers:
 
+(below sections needs updating)
 *   The node-id is a permanent identifier that is used for the `miner`
     field in the header of newly mined blocks.
     * In its current form, it is a placeholder for an identity, e.g. a public
@@ -180,10 +182,9 @@ node, this is a single node with host-name `localhost`, and port `1789`.
 
 ### A Word on Testnet Bootstrap Nodes
 
-For our first iteration of Testnet, while we do have Bootstrap nodes running
-across the web, we haven't revealed these to the public. This is for our own
-testing purposes. Eventually these nodes will be revealed and everyone will be
-able to participate in the global network.
+For our second iteration of Testnet (v3), the addresses of the Bootstrap nodes running
+across the web are published below and everyone can participate in the global network.
+(Insert addresses of the ndoes)
 
 ## Configuring a chainweb node
 
@@ -217,6 +218,9 @@ configuration can be loaded with
 ```bash
 chainweb-node --config-file=chainweb-node.config
 ```
+
+## Mining Instructions
+Detailed mining instructions can be found in the [mining readme](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
 
 ## Component Structure
 
