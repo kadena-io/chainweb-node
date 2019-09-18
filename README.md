@@ -39,7 +39,7 @@ network:
 
 ## Linux Users
 
-Download the binaries: 
+Download the binaries:
  - Chainweb-node Testnet binary: [chainweb-node-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v3/chainweb-node-testnet-v3-ubuntu-18.04)
  - Chainweb miner Testnet binary: [chainweb-miner-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v3/chainweb-miner-testnet-v3-ubuntu-18.04)
 
@@ -191,7 +191,7 @@ Let's update it to include one of Kadena's public Bootstraps:
 ```yaml
 peers:
   - address:
-      hostname: TODO
+      hostname: us1.testnet.chainweb.com
       port: 443
     id: null
 ```
