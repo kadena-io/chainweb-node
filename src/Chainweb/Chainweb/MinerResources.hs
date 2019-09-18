@@ -78,11 +78,11 @@ withMiningCoordination logger enabled cutDb inner
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
-            , _coordLimit = 10000 }
+            , _coordLimit = 2500 }
   where
     prune :: TVar MiningState -> IO ()
     prune t = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
-        let !d = 600000000  -- 10 minutes
+        let !d = 300000000  -- 5 minutes
         threadDelay d
         ago <- over (_Unwrapped . _Unwrapped) (subtract (int d)) <$> getCurrentTimeIntegral
         atomically . modifyTVar' t $ over _Unwrapped (M.filter (f ago))
