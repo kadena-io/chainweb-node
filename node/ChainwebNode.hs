@@ -83,6 +83,7 @@ import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
+import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
@@ -310,6 +311,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
+    miningStatsBackend <- managed
+        $ mkTelemetryLogger @MiningStats mgr teleLogConfig
     requestLogBackend <- managed
         $ mkTelemetryLogger @RequestResponseLog mgr teleLogConfig
     queueStatsBackend <- managed
@@ -331,6 +334,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler newBlockAmberdataBackend
             , logHandler endpointBackend
             , logHandler newBlockBackend
+            , logHandler miningStatsBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend
             , logHandler reintroBackend
@@ -392,4 +396,3 @@ main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     withNodeLogger (_nodeConfigLog conf) v $ node conf
-

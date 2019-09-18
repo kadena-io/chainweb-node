@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -22,15 +23,18 @@
 module Chainweb.Miner.Coordinator
   ( -- * Types
     MiningState(..)
-  , PrevBlock(..)
+  , MiningStats(..)
+  , PrevTime(..)
   , ChainChoice(..)
     -- * Functions
   , newWork
   , publish
   ) where
 
+import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 
+import Control.DeepSeq (NFData)
 import Control.Error.Util ((!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
 import Control.Monad.Trans.Class (lift)
@@ -78,14 +82,23 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 -- `publish`.
 --
 newtype MiningState =
-    MiningState (M.Map BlockPayloadHash (T3 Miner PrevBlock PayloadWithOutputs))
+    MiningState (M.Map BlockPayloadHash (T3 Miner PrevTime PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
--- | A `BlockHeader` that's understood to be the parent of some current,
--- "working" `BlockHeader`.
+-- | For logging during `MiningState` manipulation.
 --
-newtype PrevBlock = PrevBlock BlockHeader
+data MiningStats = MiningStats
+    { _statsCacheSize :: Int
+    , _states503s :: Int
+    , _statsAvgTxs :: Int }
+    deriving stock (Generic)
+    deriving anyclass (ToJSON, NFData)
+
+-- | The `BlockCreationTime` of the parent of some current, "working"
+-- `BlockHeader`.
+--
+newtype PrevTime = PrevTime BlockCreationTime
 
 data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 
@@ -96,7 +109,7 @@ newWork
     -> Miner
     -> PactExecutionService
     -> Cut
-    -> IO (T3 PrevBlock BlockHeader PayloadWithOutputs)
+    -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
 newWork choice miner pact c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
@@ -137,7 +150,7 @@ newWork choice miner pact c = do
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
 
-            pure $ T3 (PrevBlock p) header payload
+            pure $ T3 (PrevTime $ _blockCreationTime p) header payload
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
@@ -185,11 +198,11 @@ publish lf (MiningState ms) cdb bh = do
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
 --
-estimatedHashes :: PrevBlock -> BlockHeader -> Natural
-estimatedHashes (PrevBlock p) b = floor $ (d % t) * 1000000
+estimatedHashes :: PrevTime -> BlockHeader -> Natural
+estimatedHashes (PrevTime p) b = floor $ (d % t) * 1000000
   where
     t :: Integer
-    t = case timeBetween b p of Micros t' -> int t'
+    t = case timeBetween (_blockCreationTime b) p of Micros t' -> int t'
 
     d :: Integer
     d = case targetToDifficulty $ _blockTarget b of
