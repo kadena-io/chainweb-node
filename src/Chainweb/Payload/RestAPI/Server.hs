@@ -67,7 +67,7 @@ payloadHandler
 payloadHandler db k = run >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just e -> return e
   where
@@ -91,7 +91,7 @@ outputsHandler
 outputsHandler db k = liftIO (casLookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just e -> return e
 
