@@ -2,20 +2,46 @@
 
 Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
 
-With our recent release of Chainweb Testnet V2, we now offer a Linux binary.  For Mac users, please follow the instructions to build from source and then run a Chainweb node.
+With our recent release of Chainweb Testnet v3, we now have a public network to
+which anyone can connect, plus the ability to mine (either by using the new
+`chainweb-miner` or by running a node). As before, we provide a binary for Linux
+users, and Mac users can follow the instructions to build from source and then
+run their Chainweb node.
 
 ## Table of Contents
 
-- [Download Instructions for Linux Users](#linux-users)
-- [Download and Build Instructions for Mac Users](#mac-users)
-- [Run a Chainweb node](#running-a-chainweb-node)
-- [Configure a Chainweb node](#configuring-a-chainweb-node)
-- [Component Structure Details](#component-structure)
-- [Architecture Overview](#architecture-overview)
+- [Chainweb Bootstrap Nodes](#chainweb-bootstrap-nodes)
+- Installing Chainweb
+  - [Instructions for Linux Users](#linux-users)
+  - [Instructions for Mac Users](#mac-users)
+- Running Chainweb
+  - [Running a Chainweb Node](#running-a-chainweb-node)
+  - [Configuring a Chainweb Node](#configuring-a-chainweb-node)
+    - [Specifying Bootstrap Nodes](#specifying-bootstrap-nodes)
+    - [Specifying your Public Identity](#specifying-your-public-identity)
+    - [Specifying your Mining Identity](#specifying-your-mining-identity)
+    - [Specifying a Log Level](#specifying-a-log-level)
+  - [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
+- Design
+  - [Component Structure Details](#component-structure)
+  - [Architecture Overview](#architecture-overview)
+
+## Chainweb Bootstrap Nodes
+
+Below are the addresses of the Bootstrap nodes of the public Chainweb Testnet
+network:
+ - us1.testnet.chainweb.com
+ - us2.testnet.chainweb.com
+ - eu1.testnet.chainweb.com
+ - eu2.testnet.chainweb.com
+ - ap1.testnet.chainweb.com
+ - ap2.testnet.chainweb.com
 
 ## Linux Users
-Download the binary: [chainweb-node-testnet-v2-ubuntu-18.04
-168](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v2/chainweb-node-testnet-v2-ubuntu-18.04)
+
+Download the binaries: 
+ - Chainweb-node Testnet binary: [chainweb-node-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v3/chainweb-node-testnet-v3-ubuntu-18.04)
+ - Chainweb miner Testnet binary: [chainweb-miner-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v3/chainweb-miner-testnet-v3-ubuntu-18.04)
 
 You will need to install rocksdb with the following command:
 
@@ -37,7 +63,7 @@ several ways.
 - Homebrew: `brew install git`
 - [Installer](https://git-scm.com/downloads)
 
-To get the code, you can either use the [Chainweb-node Testnet v2 zip](https://github.com/kadena-io/chainweb-node/archive/testnet-v2.zip) or the [Chainweb-node Testnet v2 tar](https://github.com/kadena-io/chainweb-node/archive/testnet-v2.tar.gz)
+To get the code, you can either use the [Source code (zip)](https://github.com/kadena-io/chainweb-node/archive/testnet-v3.zip) or the [Source code (tar.gz)](https://github.com/kadena-io/chainweb-node/archive/testnet-v3.tar.gz)
 
 
 You have the code, now let's pick a build tool.
@@ -112,111 +138,121 @@ To install a runnable binary to `~/.cabal/bin/`:
 cabal new-install
 ```
 
+## Running a Chainweb Node
 
+**This section assumes you've installed the `chainweb-node` binary** somewhere
+sensible, or otherwise have a simple way to refer to it. Please note that by
+default, the in-process mining is turned on; for instructions on how to turn it
+off, please refer to the [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
 
-## Running a chainweb node
-
-This section assumes you've installed the `chainweb-node` binary somewhere
-sensible, or otherwise have a simple way to refer to it.
-
-To run a node:
-
-```bash
-chainweb-node --node-id=0 --config-file=./tools/run-nodes/test-bootstrap-node.config
-```
-
-This will run a local "bootstrap" node on your machine. Its runtime options - as
-well as a hard-coded SSL certificate - are found in
-`./tools/run-nodes/test-bootstrap-node.config`. Further nodes can be ran with a simple:
+Chainweb has many configuration options. Although there are command-line flags
+for all of them, in practice we use a config file:
 
 ```bash
-chainweb-node --node-id=NID
+chainweb-node --print-config > config.yaml
 ```
 
-`--interface=127.0.0.1` can be used to restrict availability of a node to the
-loopback network. The default `--port` value is 0, which causes the node to
-request a free port from the operating system.
-
-Alternatively, we provide an additional script - `run-nodes` - for starting a
-network of `chainweb-node`s and collecting the logs from each:
+Then, to run a node:
 
 ```bash
-# Create directory for log files.
-mkdir -p tmp/run-nodes-logs
-
-# By default, run 10 nodes locally.
-run-nodes --exe=path/to/chainweb-node -- --telemetry-log-handle=file:./tmp/run-nodes-logs
-
-# Stop all nodes with Ctrl-C
+chainweb-node --config-file=config.yaml
 ```
 
-Any option after `--` will be passed as-is to each `chainweb-node` instance.
+This will run a local Node on your machine, and you will see a flurry of
+activity. However, your Node won't be connected to the wider network yet. For
+that, we must configure Chainweb and change some defaults.
 
-See `run-nodes --help` for a complete list of its options.
+## Configuring a Chainweb Node
 
-### Details
-
-A chainweb-node has two identifiers:
-
-*   The node-id is a permanent identifier that is used for the `miner`
-    field in the header of newly mined blocks.
-    * In its current form, it is a placeholder for an identity, e.g. a public
-      key, that in the future will be provided by the Pact layer.
-    * If such an identity doesn't exist or isn't needed, the node-id may be
-      removed completely or kept only for debugging purposes.
-    * The user must provide each node with a unique node-id on startup.
-
-*   The peer-id is used to identify the node in the peer-to-peer network.
-    * It is a fingerprint of an ephemeral X509 certificate that, if not provided
-      in the configuration, is created automatically and can be dropped and
-      recreated at any time.
-    * Since the peer-id is used in caches and for reputation management, nodes
-      are incentivised to persist and reuse peer-ids.
-    * When no peer-id is provided, a node generates a new peer-id on startup.
-
-Upon startup, a `chainweb-node` tries to connect to the P2P network. Each
-`chainweb-node` knows about a hard-coded set of bootstrap nodes. For the *Test*
-node, this is a single node with host-name `localhost`, and port `1789`.
-
-### A Word on Testnet Bootstrap Nodes
-
-For our first iteration of Testnet, while we do have Bootstrap nodes running
-across the web, we haven't revealed these to the public. This is for our own
-testing purposes. Eventually these nodes will be revealed and everyone will be
-able to participate in the global network.
-
-## Configuring a chainweb node
-
-Alternative or additional bootstrap nodes can be specified at startup, either on
-the command line or through a configuration file:
-
-```bash
-chainweb-node ... --known-peer-info=<some-ip-address>:<some-port>
-```
-
-All available command line options are shown by running:
+All available command-line options are shown by running:
 
 ```bash
 chainweb-node --help
 ```
 
-The configuration of a chainweb-node can be printed by appending
-`--print-config` to the command line. Without any additional command line
-arguments, `chainweb-node --print-config` shows the default configuration.
+But we recommend working with a configuration file. The following instructions
+assume that you have generated such a file, as shown above.
 
-Custom configurations can be created by generating a configuration file
-with the default configuration:
+### Specifying Bootstrap Nodes
 
-```bash
-chainweb-node --print-config > chainweb-node.config
+To connect to the wider network, we must communiciate with some initial Peer. We
+call such a peer a *Bootstrap Node*. We define these in the `peers` list:
+
+```yaml
+chainweb:
+  ... # other settings
+  p2p:
+    ... # other settings
+    peers: []
 ```
 
-After editing the configuration file `chainweb-node.config` the custom
-configuration can be loaded with
+Let's update it to include one of Kadena's public Bootstraps:
 
-```bash
-chainweb-node --config-file=chainweb-node.config
+```yaml
+peers:
+  - address:
+      hostname: TODO
+      port: 443
+    id: null
 ```
+
+Since `peers` is a list, you can specify as many as you like, including other
+powerful Nodes that you manage.
+
+### Specifying your Public Identity
+
+You need to inform other Nodes how to talk back to you. This is also the
+information that they send along to their neighbours as part of the Peer
+Network:
+
+```yaml
+chainweb:
+  p2p:
+    peer:
+      ... # other settings
+      hostaddress:
+        hostname: localhost
+        port: 0
+```
+
+`localhost` is no good.
+
+```yaml
+hostaddress:
+  hostname: <your-public-ip-here>
+  port: 443
+```
+
+Keep in mind that you may have to perform Port Forwarding if your machine is
+behind a router.
+
+### Specifying your Mining Identity
+
+See our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
+for details. Without a properly defined Mining Identity, your mining effort will
+be wasted.
+
+Don't want to mine? Use either `--disable-mining` on the command-line, or set:
+
+```yaml
+chainweb:
+  miner:
+    enable: false
+```
+
+### Specifying a Logging Level
+
+Chainweb runs on `Info` by default. If you'd prefer something quieter, like `Warn`, set:
+
+```yaml
+logging:
+  logger:
+    log_level: warn
+```
+
+## Mine for a Chainweb Network
+
+Detailed mining instructions can be found in our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
 
 ## Component Structure
 
@@ -230,17 +266,9 @@ The production components are:
     (command-line and RPC) for directly interacting with the Chainweb or for
     implementing applications such as miners and transaction management tools.
 
+*   `chainweb-miner`: A stand-alone Mining Client.
+
 *   `chainweb-tests`: A test suite for the Chainweb library and chainweb-node.
-
-In addition, the following example executables are included to demonstrate
-the use of individual sub-components:
-
-*   `single-chain-example`: A simple end-to-end scenario for mining
-    and synchronizing nodes for a single chain.
-
-*   `blockheaderdb-example`: Example for how to use the BlockHeaderDB API of Chainweb.
-
-*   `p2p-example`: A simple p2p network implementation.
 
 ## Architecture Overview
 
