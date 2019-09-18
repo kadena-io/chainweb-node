@@ -48,7 +48,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS
