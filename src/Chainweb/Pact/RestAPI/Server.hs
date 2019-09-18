@@ -62,10 +62,11 @@ import System.LogLevel
 
 -- internal modules
 
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
-import qualified Pact.Types.Hash as H
+import qualified Pact.Types.Hash as Pact
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -299,12 +300,12 @@ spvHandler
     -> ChainResources l
         -- ^ chain resources contain a pact service
     -> SpvRequest
-        -- ^ Contains the chain id of the target chain id used in the
+        -- ^ Contains the (pact) chain id of the target chain id used in the
         -- 'target-chain' field of a cross-chain-transfer.
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> Handler TransactionOutputProofB64
-spvHandler l cutR cid chainR (SpvRequest rk tid) = do
+spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     liftIO $! logg (sshow ph)
 
     cut <- liftIO $! CutDB._cut cdb
@@ -323,6 +324,7 @@ spvHandler l cutR cid chainR (SpvRequest rk tid) = do
         { errBody = "Index lookup for hash failed: " <> sshow e }
       Right !i -> return i
 
+    tid <- chainIdFromText ptid
     p <- liftIO $! createTransactionOutputProof cdb tid cid bhe idx
     return $! b64 p
 
@@ -332,7 +334,7 @@ spvHandler l cutR cid chainR (SpvRequest rk tid) = do
       . PactCmdLogSpv
 
     pe = _chainResPact chainR
-    ph = H.fromUntypedHash $ unRequestKey rk
+    ph = Pact.fromUntypedHash $ unRequestKey rk
     cdb = _cutResCutDb cutR
     bdb = _chainResBlockHeaderDb chainR
     pdb = view CutDB.cutDbPayloadCas cdb
@@ -362,7 +364,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
   where
     pactEx = view chainResPact chain
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
-    !requestKeys = V.map (H.fromUntypedHash . unRequestKey) requestKeysV
+    !requestKeys = V.map (Pact.fromUntypedHash . unRequestKey) requestKeysV
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
     bhdb = _chainResBlockHeaderDb chain
 
@@ -374,7 +376,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
     -- TODO: group by block for performance (not very important right now)
     lookupRequestKey key bHash = runMaybeT $ do
         let keyHash = unRequestKey key
-        let pactHash = H.fromUntypedHash keyHash
+        let pactHash = Pact.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
