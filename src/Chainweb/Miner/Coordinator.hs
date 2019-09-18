@@ -89,7 +89,8 @@ newtype MiningState =
 -- | For logging during `MiningState` manipulation.
 --
 data MiningStats = MiningStats
-    { _statsCacheSize :: Int }
+    { _statsCacheSize :: Int
+    , _states503s :: Int }
     deriving stock (Generic)
     deriving anyclass (ToJSON, NFData)
 

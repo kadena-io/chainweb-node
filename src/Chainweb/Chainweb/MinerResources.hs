@@ -1,10 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -27,6 +27,7 @@ module Chainweb.Chainweb.MinerResources
   ) where
 
 import Data.Generics.Wrapped (_Unwrapped)
+import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict (T3(..))
 
@@ -45,7 +46,8 @@ import Chainweb.BlockHeader (BlockCreationTime(..), _blockCreationTime)
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.Miner.Coordinator (MiningState(..), PrevBlock(..), MiningStats(..))
+import Chainweb.Miner.Coordinator
+    (MiningState(..), MiningStats(..), PrevBlock(..))
 import Chainweb.Miner.Miners
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
@@ -64,7 +66,8 @@ data MiningCoordination logger cas = MiningCoordination
     { _coordLogger :: !logger
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
-    , _coordLimit :: !Int }
+    , _coordLimit :: !Int
+    , _coord503s :: IORef Int }
 
 withMiningCoordination
     :: Logger logger
@@ -77,21 +80,25 @@ withMiningCoordination logger enabled cutDb inner
     | not enabled = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
-        fmap snd . concurrently (prune t) $ inner . Just $ MiningCoordination
+        c <- newIORef 0
+        fmap snd . concurrently (prune t c) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
-            , _coordLimit = 2500 }
+            , _coordLimit = 2500
+            , _coord503s = c }
   where
-    prune :: TVar MiningState -> IO ()
-    prune t = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
+    prune :: TVar MiningState -> IORef Int -> IO ()
+    prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
         let !d = 300000000  -- 5 minutes
         threadDelay d
         ago <- over (_Unwrapped . _Unwrapped) (subtract (int d)) <$> getCurrentTimeIntegral
         MiningState ms <- atomically $ do
             modifyTVar' t . over _Unwrapped $ M.filter (f ago)
             readTVar t
-        logFunction logger Info . JsonLog $ MiningStats (M.size ms)
+        count <- readIORef c
+        atomicWriteIORef c 0
+        logFunction logger Info . JsonLog $ MiningStats (M.size ms) count
 
     f :: Time Micros -> T3 a PrevBlock b -> Bool
     f ago (T3 _ (PrevBlock p) _) = _blockCreationTime p > BlockCreationTime ago
