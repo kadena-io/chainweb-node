@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+
 -- |
 -- Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -85,6 +87,9 @@ import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
+#if !MIN_VERSION_servant_client(0,16,0)
+import Chainweb.RestAPI.Utils
+#endif
 import Chainweb.Utils (textOption, toText, runGet)
 import Chainweb.Version
 
@@ -222,19 +227,23 @@ getWork = do
     policy :: RetryPolicy
     policy = exponentialBackoff 500000 <> limitRetries 7
 
-    warn :: Either ServantError WorkBytes -> RIO Env Bool
+    warn :: Either ClientError WorkBytes -> RIO Env Bool
     warn (Right _) = pure False
     warn (Left se) = bad se $> True
 
-    bad :: ServantError -> RIO Env ()
+    bad :: ClientError -> RIO Env ()
     bad (ConnectionError _) = logWarn "Could not connect to the Node."
+#if !MIN_VERSION_servant_client(0,16,0)
     bad (FailureResponse r) = logWarn $ c <> " from Node: " <> m
+#else
+    bad (FailureResponse _ r) = logWarn $ c <> " from Node: " <> m
+#endif
       where
         c = display . statusCode $ responseStatusCode r
         m = displayBytesUtf8 . BL.toStrict $ responseBody r
     bad _ = logError "Something truly bad has happened."
 
-    f :: Env -> IO (Either ServantError WorkBytes)
+    f :: Env -> IO (Either ClientError WorkBytes)
     f e = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
       where
         a = args e
