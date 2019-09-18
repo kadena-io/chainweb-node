@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -31,9 +32,10 @@ import Data.Tuple.Strict (T3(..))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently)
 import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', newTVarIO)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar', newTVarIO, readTVar)
 import Control.Lens (over)
 
+import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 
 -- internal modules
@@ -42,14 +44,14 @@ import Chainweb.BlockHeader (_blockCreationTime, BlockCreationTime(..))
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
-import Chainweb.Miner.Coordinator (MiningState(..), PrevBlock(..))
+import Chainweb.Miner.Coordinator (MiningState(..), PrevBlock(..), MiningStats(..))
 import Chainweb.Miner.Miners
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
 import Chainweb.Utils (EnableConfig(..), int, runForever)
 import Chainweb.Version (ChainwebVersion(..), window)
 
-import Data.LogMessage (LogFunction)
+import Data.LogMessage (JsonLog(..), LogFunction)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -85,7 +87,10 @@ withMiningCoordination logger enabled cutDb inner
         let !d = 300000000  -- 5 minutes
         threadDelay d
         ago <- over (_Unwrapped . _Unwrapped) (subtract (int d)) <$> getCurrentTimeIntegral
-        atomically . modifyTVar' t $ over _Unwrapped (M.filter (f ago))
+        MiningState ms <- atomically $ do
+            modifyTVar' t . over _Unwrapped $ M.filter (f ago)
+            readTVar t
+        logFunction logger Info . JsonLog $ MiningStats (M.size ms)
 
     f :: Time Micros -> T3 a PrevBlock b -> Bool
     f ago (T3 _ (PrevBlock p) _) = _blockCreationTime p > BlockCreationTime ago

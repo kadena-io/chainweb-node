@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -22,6 +23,7 @@
 module Chainweb.Miner.Coordinator
   ( -- * Types
     MiningState(..)
+  , MiningStats(..)
   , PrevBlock(..)
   , ChainChoice(..)
     -- * Functions
@@ -29,8 +31,10 @@ module Chainweb.Miner.Coordinator
   , publish
   ) where
 
+import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 
+import Control.DeepSeq (NFData)
 import Control.Error.Util ((!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
 import Control.Monad.Trans.Class (lift)
@@ -81,6 +85,13 @@ newtype MiningState =
     MiningState (M.Map BlockPayloadHash (T3 Miner PrevBlock PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
+
+-- | For logging during `MiningState` manipulation.
+--
+data MiningStats = MiningStats
+    { _statsCacheSize :: Int }
+    deriving stock (Generic)
+    deriving anyclass (ToJSON, NFData)
 
 -- | A `BlockHeader` that's understood to be the parent of some current,
 -- "working" `BlockHeader`.
