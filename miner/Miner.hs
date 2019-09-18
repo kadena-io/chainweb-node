@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -5,7 +6,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Main
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -62,14 +62,16 @@ import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
 import Data.Tuple.Strict (T3(..))
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client
+import Network.HTTP.Client hiding (responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
+import Network.HTTP.Types.Status (Status(..))
 import Network.Wai.EventSource (ServerEvent(..))
 import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
 import RIO
 import RIO.List.Partial (head)
 import qualified RIO.ByteString as B
+import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Text as T
 import Servant.Client
 import qualified Streaming.Prelude as SP
@@ -210,9 +212,9 @@ getWork :: RIO Env (Maybe WorkBytes)
 getWork = do
     logDebug "Attempting to fetch new work from the remote Node"
     e <- ask
-    m <- retrying policy (\_ -> pure . isNothing) $ const (liftIO $ f e)
-    when (isNothing m) $ logError "Failed to fetch work! Is the Node down?"
-    pure m
+    m <- retrying policy (const warn) $ const (liftIO $ f e)
+    when (isLeft m) $ logError "Failed to fetch work!"
+    pure $ hush m
   where
     -- | If we wait longer than the average block time and still can't get
     -- anything, then there's no point in continuing to wait.
@@ -220,8 +222,20 @@ getWork = do
     policy :: RetryPolicy
     policy = exponentialBackoff 500000 <> limitRetries 7
 
-    f :: Env -> IO (Maybe WorkBytes)
-    f e = hush <$> runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
+    warn :: Either ServantError WorkBytes -> RIO Env Bool
+    warn (Right _) = pure False
+    warn (Left se) = bad se $> True
+
+    bad :: ServantError -> RIO Env ()
+    bad (ConnectionError _) = logWarn "Could not connect to the Node."
+    bad (FailureResponse r) = logWarn $ c <> " from Node: " <> m
+      where
+        c = display . statusCode $ responseStatusCode r
+        m = displayBytesUtf8 . BL.toStrict $ responseBody r
+    bad _ = logError "Something truly bad has happened."
+
+    f :: Env -> IO (Either ServantError WorkBytes)
+    f e = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
       where
         a = args e
         v = version a
