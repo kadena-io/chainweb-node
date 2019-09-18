@@ -546,6 +546,7 @@ executable chainweb-miner
         , generic-lens >= 1.2
         , http-client >= 0.5
         , http-client-tls >= 0.3
+        , http-types >= 0.12
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , retry >= 0.7
