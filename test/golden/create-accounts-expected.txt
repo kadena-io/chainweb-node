@@ -1,4 +1,4 @@
-- output: 0xNYuAgVxfy9HMk7Ol-F7g9ERzVoS8bbVjIbmuMPGKU
+- output: yea7qoR2kcCpYQcVQt9MiqlF3e07JL_OWz5EfTZiDsU
   cmd: coinbase
 - output: GLOktFql3lhwpR2G4GgPqKjAPZ6Dq6a0Nv7-SUNaxZc
   cmd:
