@@ -63,13 +63,14 @@ checkKey
     :: MonadError ServerError m
     => MonadIO m
     => TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> DbKey db
     -> m (DbKey db)
 checkKey !db !k = liftIO (lookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just _ -> pure k
 
@@ -90,6 +91,7 @@ err404Msg msg = ServantErr
 checkBounds
     :: MonadError ServerError m
     => MonadIO m
+    => ToJSON (DbKey db)
     => TreeDb db
     => db
     -> BranchBounds db
@@ -112,6 +114,7 @@ defaultEntryLimit = 360
 --
 branchHashesHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -136,6 +139,7 @@ branchHashesHandler db limit next minr maxr bounds = do
 --
 branchHeadersHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -160,6 +164,7 @@ branchHeadersHandler db limit next minr maxr bounds = do
 --
 hashesHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -181,6 +186,7 @@ hashesHandler db limit next minr maxr = do
 --
 headersHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -199,11 +205,16 @@ headersHandler db limit next minr maxr = do
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
-headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
+headerHandler
+    :: ToJSON (DbKey db)
+    => TreeDb db
+    => db
+    -> DbKey db
+    -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just e -> pure e
 
