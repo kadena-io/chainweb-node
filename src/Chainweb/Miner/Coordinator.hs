@@ -90,7 +90,8 @@ newtype MiningState =
 --
 data MiningStats = MiningStats
     { _statsCacheSize :: Int
-    , _states503s :: Int }
+    , _states503s :: Int
+    , _statsAvgTxs :: Int }
     deriving stock (Generic)
     deriving anyclass (ToJSON, NFData)
 

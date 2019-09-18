@@ -30,6 +30,7 @@ import Data.Generics.Wrapped (_Unwrapped)
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict (T3(..))
+import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently)
@@ -49,6 +50,7 @@ import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator
     (MiningState(..), MiningStats(..), PrevTime(..))
 import Chainweb.Miner.Miners
+import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
 import Chainweb.Utils (EnableConfig(..), int, runForever)
@@ -93,15 +95,25 @@ withMiningCoordination logger enabled cutDb inner
         let !d = 300000000  -- 5 minutes
         threadDelay d
         ago <- over (_Unwrapped . _Unwrapped) (subtract (int d)) <$> getCurrentTimeIntegral
-        MiningState ms <- atomically $ do
+        m@(MiningState ms) <- atomically $ do
+            ms <- readTVar t
             modifyTVar' t . over _Unwrapped $ M.filter (f ago)
-            readTVar t
+            pure ms
         count <- readIORef c
         atomicWriteIORef c 0
-        logFunction logger Info . JsonLog $ MiningStats (M.size ms) count
+        logFunction logger Info . JsonLog $ MiningStats (M.size ms) count (avgTxs m)
 
     f :: Time Micros -> T3 a PrevTime b -> Bool
     f ago (T3 _ (PrevTime p) _) = p > BlockCreationTime ago
+
+    avgTxs :: MiningState -> Int
+    avgTxs (MiningState ms) = summed `div` M.size ms
+      where
+        summed :: Int
+        summed = M.foldl' (\acc (T3 _ _ ps) -> acc + g ps) 0 ms
+
+        g :: PayloadWithOutputs -> Int
+        g = V.length . _payloadWithOutputsTransactions
 
 -- | For in-process CPU mining by a Chainweb Node.
 --
