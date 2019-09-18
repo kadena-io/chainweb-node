@@ -48,7 +48,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS
@@ -67,7 +66,7 @@ payloadHandler
 payloadHandler db k = run >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just e -> return e
   where
@@ -91,7 +90,7 @@ outputsHandler
 outputsHandler db k = liftIO (casLookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just e -> return e
 

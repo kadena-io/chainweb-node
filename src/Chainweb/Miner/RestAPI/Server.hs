@@ -25,7 +25,7 @@ import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Generics.Wrapped (_Unwrapped)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T3(..))
@@ -68,7 +68,9 @@ workHandler
     -> Handler WorkBytes
 workHandler mr mcid m = do
     MiningState ms <- liftIO . readTVarIO $ _coordState mr
-    when (M.size ms > _coordLimit mr) $ throwM err503 { errBody = "Too many work requests" }
+    when (M.size ms > _coordLimit mr) $ do
+        liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
+        throwM err503 { errBody = "Too many work requests" }
     liftIO $ workHandler' mr mcid m
 
 workHandler'
