@@ -146,32 +146,6 @@ testMemPoolAccess iot  = MemPoolAccess
         toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
-{-
-    getTestBlock tt _validate _bHeight _bHash bHeader = do
-        let Nonce nonce = _blockNonce bHeader
-            moduleStr = defModule (T.pack $ show nonce)
-            d = Just $ ksData (T.pack $ show nonce)
-        let txs = V.singleton $ PactTransaction moduleStr d
-        outtxs' <- goldenTestTransactions txs
-        let f = set (payloadObj . pMeta . pmCreationTime)
-        let outtxs = flip V.map outtxs' $ \tx -> case timeSpanToSeconds tt of
-              Seconds s  ->
-                fmap (f (TxCreationTime $ ParsedInteger s)) tx
-        oks <- _validate _bHeight _bHash outtxs
-        -- let oks = True <$ outtxs
-        when (not $ V.and oks) $ do
-            fail $ mconcat [ "tx failed validation! input list: \n"
-                           , show txs
-                           , "\n\nouttxs: "
-                           , show outtxs
-                           , "\n\noks: "
-                           , show oks ]
-        V.forM_ outtxs $ \tx -> do
-          putStrLn "in testmempoolaccess"
-          print $ _pMeta $ _payloadObj $ _cmdPayload tx
-        return outtxs
--}
-
 dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 dupegenMemPoolAccess iot  = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header -> do
