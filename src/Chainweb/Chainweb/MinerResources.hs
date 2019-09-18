@@ -42,12 +42,12 @@ import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockCreationTime(..), _blockCreationTime)
+import Chainweb.BlockHeader (BlockCreationTime(..))
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator
-    (MiningState(..), MiningStats(..), PrevBlock(..))
+    (MiningState(..), MiningStats(..), PrevTime(..))
 import Chainweb.Miner.Miners
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
@@ -100,8 +100,8 @@ withMiningCoordination logger enabled cutDb inner
         atomicWriteIORef c 0
         logFunction logger Info . JsonLog $ MiningStats (M.size ms) count
 
-    f :: Time Micros -> T3 a PrevBlock b -> Bool
-    f ago (T3 _ (PrevBlock p) _) = _blockCreationTime p > BlockCreationTime ago
+    f :: Time Micros -> T3 a PrevTime b -> Bool
+    f ago (T3 _ (PrevTime p) _) = p > BlockCreationTime ago
 
 -- | For in-process CPU mining by a Chainweb Node.
 --

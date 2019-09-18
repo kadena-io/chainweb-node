@@ -23,7 +23,6 @@
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.BlockHeader
@@ -722,11 +721,11 @@ blockPow = to _blockPow
 
 -- | The number of microseconds between the creation time of two `BlockHeader`s.
 --
-timeBetween :: BlockHeader -> BlockHeader -> Micros
+timeBetween :: BlockCreationTime -> BlockCreationTime -> Micros
 timeBetween after before = f after - f before
   where
-    f :: BlockHeader -> Micros
-    f (_blockCreationTime -> BlockCreationTime (Time (TimeSpan ts))) = ts
+    f :: BlockCreationTime -> Micros
+    f (BlockCreationTime (Time (TimeSpan ts))) = ts
 
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding
