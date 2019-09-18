@@ -68,7 +68,7 @@ module Chainweb.Time
 , secondsToText
 , secondsFromText
 
--- * Micros(..)
+-- * Micros
 , Micros(..)
 , microsToTimeSpan
 , timeSpanToMicros

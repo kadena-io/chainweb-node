@@ -65,7 +65,7 @@ toMempool version chain txcfg blocksizeLimit env =
 
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
-    insert v = void $ go (insertClient txcfg version chain (V.toList v))
+    insert _ v = void $ go (insertClient txcfg version chain (V.toList v))
 
     -- TODO: should we permit remote getBlock?
     -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
