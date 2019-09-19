@@ -775,7 +775,7 @@ applyPactCmds
     -> Miner
     -> PactServiceM cas (Vector HashCommandResult)
 applyPactCmds isGenesis env cmds miner =
-    V.fromList . sfst <$> V.foldM f mempty cmds
+    V.fromList . reverse . sfst <$> V.foldM f mempty cmds
   where
     f  (T2 v mcache) cmd = applyPactCmd isGenesis env cmd miner mcache v
 
