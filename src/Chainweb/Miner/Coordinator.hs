@@ -151,7 +151,7 @@ newWork choice miner pact c = do
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
 
-            pure $ T3 (PrevBlock p) header payload
+            pure $ T3 (PrevTime $ _blockCreationTime p) header payload
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
