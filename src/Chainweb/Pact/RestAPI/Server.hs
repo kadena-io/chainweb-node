@@ -313,7 +313,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
 
     T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
       Left e -> throwError $ err400
-        { errBody = "Transaction hash lookup failed: " <> sshow e }
+        { errBody = "Internal error: transaction hash lookup failed: " <> sshow e }
       Right v -> case v ^?! _head of
         Nothing -> throwError $ err400
           { errBody = "Transaction hash not found: " <> sshow ph }
@@ -321,11 +321,16 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
 
     idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
       Left e -> throwError $ err400
-        { errBody = "Index lookup for hash failed: " <> sshow e }
-      Right !i -> return i
+        { errBody = "Internal error: Index lookup for hash failed: " <> sshow e }
+      Right i -> return i
 
     tid <- chainIdFromText ptid
-    p <- liftIO $! createTransactionOutputProof cdb tid cid bhe idx
+    p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
+      Left (e :: SomeException) -> throwError $ err400
+        { errBody = "Internal error: SPV proof creation failed: " <> sshow e }
+      Right q -> return q
+
+
     return $! b64 p
 
   where
