@@ -67,6 +67,7 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
+import Pact.Gas.Table (defaultGasConfig, tableGasModel)
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
@@ -75,7 +76,6 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
-import Pact.Gas.Table (tableGasModel, defaultGasConfig)
 
 ------------------------------------------------------------------------------
 -- internal modules

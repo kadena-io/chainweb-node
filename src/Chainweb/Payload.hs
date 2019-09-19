@@ -103,6 +103,7 @@ import qualified Data.Vector as V
 import Data.Void
 
 import GHC.Generics
+import GHC.Stack
 
 -- internal modules
 
@@ -774,18 +775,29 @@ instance IsCasValue PayloadWithOutputs where
     {-# INLINE casKey #-}
 
 payloadWithOutputs
-    :: PayloadData
+    :: HasCallStack
+    => PayloadData
     -> CoinbaseOutput
     -> V.Vector TransactionOutput
     -> PayloadWithOutputs
-payloadWithOutputs d co outputs = PayloadWithOutputs
-    { _payloadWithOutputsTransactions = V.zip (_payloadDataTransactions d) outputs
-    , _payloadWithOutputsMiner = _payloadDataMiner d
-    , _payloadWithOutputsCoinbase = co
-    , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
-    , _payloadWithOutputsTransactionsHash = _payloadDataTransactionsHash d
-    , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
-    }
+payloadWithOutputs d co outputs =
+  if V.length (_payloadDataTransactions d) /= V.length outputs
+    then let msg = concat [
+               "PAYLOAD ERROR: MISMATCHED # OF TRANSACTIONS AND OUTPUTS: \n",
+               "PayloadData=",
+               show d,
+               "\nTransactionOutputs=",
+               show outputs
+               ]
+         in error msg
+    else PayloadWithOutputs
+           { _payloadWithOutputsTransactions = V.zip (_payloadDataTransactions d) outputs
+           , _payloadWithOutputsMiner = _payloadDataMiner d
+           , _payloadWithOutputsCoinbase = co
+           , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
+           , _payloadWithOutputsTransactionsHash = _payloadDataTransactionsHash d
+           , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
+           }
 
 newPayloadWithOutputs
     :: MinerData
