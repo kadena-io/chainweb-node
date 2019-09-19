@@ -767,7 +767,9 @@ runCoinbase (Just parentHash) dbEnv miner = do
     cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
     return $! toHashCommandResult cr
 
--- | Apply multiple Pact commands, incrementing the transaction Id for each
+-- | Apply multiple Pact commands, incrementing the transaction Id for each.
+-- The output vector is in the same order as the input (i.e. you can zip it
+-- with the inputs.)
 applyPactCmds
     :: Bool
     -> P.PactDbEnv p
