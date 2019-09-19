@@ -777,9 +777,9 @@ applyPactCmds
     -> Miner
     -> PactServiceM cas (Vector HashCommandResult)
 applyPactCmds isGenesis env cmds miner =
-    V.fromList . reverse . sfst <$> V.foldM f mempty cmds
+    V.fromList . ($ []) . sfst <$> V.foldM f (T2 id mempty) cmds
   where
-    f  (T2 v mcache) cmd = applyPactCmd isGenesis env cmd miner mcache v
+    f  (T2 dl mcache) cmd = applyPactCmd isGenesis env cmd miner mcache dl
 
 -- | Apply a single Pact command
 applyPactCmd
@@ -788,9 +788,9 @@ applyPactCmd
     -> ChainwebTransaction
     -> Miner
     -> ModuleCache
-    -> [HashCommandResult]
-    -> PactServiceM cas (T2 [HashCommandResult] ModuleCache)
-applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
+    -> ([HashCommandResult] -> [HashCommandResult])  -- ^ difference list
+    -> PactServiceM cas (T2 ([HashCommandResult] -> [HashCommandResult]) ModuleCache)
+applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         !pd       = _psPublicData psEnv
@@ -807,7 +807,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache v = do
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp pactHash
     let !res = toHashCommandResult result
-    pure $! T2 (res : v) mcache'
+    pure $! T2 (dl . (res :)) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) f
