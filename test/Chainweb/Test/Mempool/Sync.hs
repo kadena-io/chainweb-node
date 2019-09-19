@@ -64,6 +64,9 @@ txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (V.mapM $ const $ return True)
 
+testInMemCfg :: InMemConfig MockTx
+testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (V.mapM $ const $ return True)
+
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
     -> InsertCheck
