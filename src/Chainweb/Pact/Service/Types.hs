@@ -99,8 +99,8 @@ instance Show LookupPactTxsReq where
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey
-    , _spvTargetChain :: Pact.ChainId
-    } deriving stock (Eq, Show, Generic)
+    , _spvTargetChainId :: Pact.ChainId
+    } deriving (Eq, Show, Generic)
 
 instance ToJSON SpvRequest where
   toJSON (SpvRequest k tid) = object
