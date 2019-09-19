@@ -58,7 +58,6 @@ import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 
@@ -155,8 +154,7 @@ goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
-    let nonce = "1"
-    mkTestExecTransactions "sender00" "0" ks nonce 10000 0.01 1000000 0 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -190,13 +188,14 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
           pm = PublicMeta cid sender gas gasrate ttl ct
           msg = Exec (ExecMsg c dd)
 
-      let nonce = T.append nonce0 $ sshow n
+      let nonce = nonce0 <> sshow n
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
         ProcSucc t ->
           let
             r = fmap (k t) $ SB.toShort <$> cmd
-          in return $ (succ n, Vector.cons r acc)
+            -- order matters for these tests
+          in return $ (succ n, Vector.snoc acc r)
         ProcFail e -> throwM $ userError e
 
     k t bs = PayloadWithText bs (_cmdPayload t)
