@@ -137,6 +137,18 @@ simpleClientSession envIO cid =
             (Expected gbh0)
             (Actual gen0)
 
+        void $ liftIO $ step "headerClient: get genesis block header pretty"
+        gen01 <- headerClientJsonPretty version cid (key gbh0)
+        assertExpectation "header client returned wrong entry"
+            (Expected gbh0)
+            (Actual gen01)
+
+        void $ liftIO $ step "headerClient: get genesis block header binary"
+        gen02 <- headerClientJsonBinary version cid (key gbh0)
+        assertExpectation "header client returned wrong entry"
+            (Expected gbh0)
+            (Actual gen02)
+
         void $ liftIO $ step "headersClient: get genesis block header"
         bhs1 <- headersClient version cid Nothing Nothing Nothing Nothing
         gen1 <- case _pageItems bhs1 of

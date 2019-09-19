@@ -83,6 +83,7 @@ import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
+import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
@@ -305,6 +306,8 @@ withNodeLogger logConfig v f = runManaged $ do
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
     newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
+    endpointBackend <- managed
+        $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
     requestLogBackend <- managed
@@ -320,11 +323,13 @@ withNodeLogger logConfig v f = runManaged $ do
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
-            [ logHandler monitorBackend
+            [ logFilterHandle (_logConfigFilter logConfig)
+            , logHandler monitorBackend
             , logHandler p2pInfoBackend
             , logHandler rtsBackend
             , logHandler counterBackend
             , logHandler newBlockAmberdataBackend
+            , logHandler endpointBackend
             , logHandler newBlockBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend
@@ -387,3 +392,4 @@ main :: IO ()
 main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     withNodeLogger (_nodeConfigLog conf) v $ node conf
+

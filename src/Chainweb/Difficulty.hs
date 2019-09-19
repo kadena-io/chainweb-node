@@ -40,6 +40,7 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
+, showTargetHex
 , showTargetBits
 , checkTarget
 , maxTarget
@@ -224,6 +225,11 @@ newtype HashTarget = HashTarget PowHashNat
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
+
+-- | A visualization of a `HashTarget` as binary.
+--
+showTargetHex :: HashTarget -> T.Text
+showTargetHex (HashTarget (PowHashNat n)) = T.pack . printf "%064x" $ (int n :: Integer)
 
 -- | A visualization of a `HashTarget` as binary.
 --

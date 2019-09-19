@@ -174,7 +174,7 @@ import Text.Read (readEither)
 -- -------------------------------------------------------------------------- --
 -- | BlockHeight
 --
-newtype BlockHeight = BlockHeight Word64
+newtype BlockHeight = BlockHeight { _height :: Word64 }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype

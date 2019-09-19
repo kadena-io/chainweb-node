@@ -21,13 +21,13 @@ import qualified Data.HashMap.Strict as HMS
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import Data.Text (pack)
+import Data.Tuple.Strict
 
 import Pact.Interpreter
 import Pact.Persist.Pure
 import Pact.PersistPactDb
 import Pact.Types.Hash (PactHash)
 import Pact.Types.Logger
-import Pact.Types.Runtime hiding (hash)
 
 -- internal modules
 import Chainweb.BlockHash
@@ -44,8 +44,8 @@ data Store = Store
   , _playedTxs :: MVar (HashSet PactHash, HashMap PactHash (BlockHeight, BlockHash))
   }
 
-initInMemoryCheckpointEnv :: Loggers -> Logger -> GasEnv -> IO CheckpointEnv
-initInMemoryCheckpointEnv loggers logger gasEnv = do
+initInMemoryCheckpointEnv :: Loggers -> Logger -> IO CheckpointEnv
+initInMemoryCheckpointEnv loggers logger = do
     pdenv@(PactDbEnv _ env) <- mkPureEnv loggers
     initSchema pdenv
     genesis <- readMVar env
@@ -69,7 +69,6 @@ initInMemoryCheckpointEnv loggers logger gasEnv = do
                     , _cpLookupProcessedTx = doLookupSuccessful inmem
                 }
             , _cpeLogger = logger
-            , _cpeGasEnv = gasEnv
             })
   where
     noop = return ()
@@ -147,9 +146,11 @@ doRegisterSuccessful lock hash =
         let out = (pset', mp)
         return $! out
 
-doLookupSuccessful :: MVar Store -> PactHash -> IO (Maybe (BlockHeight, BlockHash))
+doLookupSuccessful :: MVar Store -> PactHash -> IO (Maybe (T2 BlockHeight BlockHash))
 doLookupSuccessful lock hash =
     withMVar lock $
     \(Store _ _ _ played) -> do
         (_, mp) <- readMVar played
-        return $! HMS.lookup hash mp
+        return $! fmap toS $! HMS.lookup hash mp
+  where
+    toS (a,b) = T2 a b

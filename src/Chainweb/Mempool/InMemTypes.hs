@@ -10,12 +10,10 @@
 
 -- | A mock in-memory mempool backend that does not persist to disk.
 module Chainweb.Mempool.InMemTypes
-  ( _defaultTxQueueLen
-  , InMemConfig(..)
+  ( InMemConfig(..)
   , InMemoryMempool(..)
   , InMemoryMempoolData(..)
-  , Priority
-  , PSQ
+  , PendingMap
   , RecentItem
   , RecentLog(..)
   , MempoolStats(..)
@@ -26,32 +24,20 @@ import Control.Concurrent.MVar (MVar)
 import Control.DeepSeq
 
 import Data.Aeson
-import Data.HashPSQ (HashPSQ)
+import qualified Data.ByteString.Short as SB
+import Data.HashMap.Strict (HashMap)
 import Data.IORef (IORef)
-import Data.Ord (Down(..))
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics
-
-import Pact.Types.Gas (GasPrice(..))
 
 -- internal imports
 
 import Chainweb.Mempool.Mempool
 
 ------------------------------------------------------------------------------
--- | Priority for the search queue
-type Priority = (Down GasPrice, GasLimit)
-
-------------------------------------------------------------------------------
--- | Priority search queue -- search by transaction hash in /O(log n)/ like a
--- tree, find-min in /O(1)/ like a heap
-type PSQ t = HashPSQ TransactionHash Priority t
-
-------------------------------------------------------------------------------
-_defaultTxQueueLen :: Int
-_defaultTxQueueLen = 64
+type PendingMap = HashMap TransactionHash SB.ShortByteString
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
@@ -59,6 +45,8 @@ data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
+    -- Here True means 'OK to insert'
+  , _inmemPreInsertCheck :: !(V.Vector t -> IO (V.Vector Bool))
 }
 
 ------------------------------------------------------------------------------
@@ -70,8 +58,8 @@ data InMemoryMempool t = InMemoryMempool {
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
-    _inmemInserted :: {-# UNPACK #-} !(IORef Int)
-  , _inmemPending :: !(IORef (PSQ t))
+    _inmemCountPending :: !(IORef Int)
+  , _inmemPending :: !(IORef PendingMap)
   , _inmemRecentLog :: !(IORef RecentLog)
 }
 

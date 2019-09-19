@@ -64,6 +64,7 @@ module Chainweb.Mempool.Mempool
   , MockTx(..)
   , ServerNonce
   , HighwaterMark
+  , InsertType(..)
 
   , chainwebTransactionConfig
   , mockCodec
@@ -90,6 +91,7 @@ import Data.Bits (bit, shiftL, shiftR, (.&.))
 import Data.ByteArray (convert)
 import Data.Bytes.Get
 import Data.Bytes.Put
+import qualified Data.ByteString.Base64.URL as B64
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Short as SB
@@ -127,8 +129,6 @@ import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
-    (Codec(..), approximateThreadDelay, decodeB64UrlNoPaddingText,
-    encodeB64UrlNoPaddingText, encodeToText, sshow)
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------
@@ -136,6 +136,20 @@ data LookupResult t = Missing
                     | Pending t
   deriving (Show, Generic)
   deriving anyclass (ToJSON, FromJSON, NFData) -- TODO: a handwritten instance
+
+instance Functor LookupResult where
+    fmap _ Missing = Missing
+    fmap f (Pending x) = Pending $! f x
+
+instance Foldable LookupResult where
+    foldr f seed t = case t of
+                       Missing -> seed
+                       (Pending x) -> f x seed
+
+instance Traversable LookupResult where
+    traverse f t = case t of
+                     Missing -> pure Missing
+                     Pending x -> Pending <$> f x
 
 ------------------------------------------------------------------------------
 type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector Bool)
@@ -146,7 +160,9 @@ type MempoolPreBlockCheck t = BlockHeight -> BlockHash -> Vector t -> IO (Vector
 -- and \"how is @t@ hashed?\". This information is passed to mempool in a
 -- 'TransactionConfig'.
 data TransactionConfig t = TransactionConfig {
-    -- | converting transactions to/from bytestring.
+    -- | converting transactions to/from bytestring. Note: the generated
+    -- bytestring is currently expected to be valid utf8 so that it can be
+    -- safely JSON-encoded by servant (we should revisit this)
     txCodec :: {-# UNPACK #-} !(Codec t)
 
     -- | hash function to use when making transaction hashes.
@@ -172,6 +188,8 @@ data TransactionConfig t = TransactionConfig {
 type MempoolTxId = Int64
 type ServerNonce = Int
 type HighwaterMark = (ServerNonce, MempoolTxId)
+data InsertType = CheckedInsert | UncheckedInsert
+  deriving (Show, Eq)
 
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
@@ -188,7 +206,9 @@ data MempoolBackend t = MempoolBackend {
   , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
 
     -- | Insert the given transactions into the mempool.
-  , mempoolInsert :: Vector t -> IO ()
+  , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
+                  -> Vector t
+                  -> IO ()
 
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
@@ -243,12 +263,11 @@ noopMempool = do
                               noopEnforceTTL
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
-    noopInsert = const $ return ()
+    noopInsert = const $ const $ return ()
     noopMV = const $ return ()
     noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
-
 
 
 ------------------------------------------------------------------------------
@@ -271,12 +290,12 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     txmeta t =
         TransactionMetadata
         (toMicros ct)
-        (toMicros $ min maxDuration (ct + ttl))
+        (toMicros $ ct + min maxDuration ttl)
       where
         (TxCreationTime ct) = getCreationTime t
         toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
         (TTLSeconds ttl) = getTimeToLive t
-        maxDuration = 2 * 24 * 60 * 60
+        maxDuration = 2 * 24 * 60 * 60 + 1
     -- TODO: The return type of this function should probably be something more
     -- informative.
     preGossipCheck t =
@@ -318,7 +337,7 @@ syncMempools'
 syncMempools' log0 us localMempool remoteMempool = sync
 
   where
-    maxCnt = 10000
+    maxCnt = 5000
         -- don't pull more than this many new transactions from a single peer in
         -- a session.
 
@@ -369,7 +388,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     fetchMissing chunk = do
         res <- mempoolLookup remoteMempool chunk
         let !newTxs = V.map fromPending $ V.filter isPending res
-        mempoolInsert localMempool newTxs
+        mempoolInsert localMempool CheckedInsert newTxs
 
     deb :: Text -> IO ()
     deb = log0 Debug
@@ -441,7 +460,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        when (not $ V.null v) $ mempoolInsert remoteMempool v
+        when (not $ V.null v) $ mempoolInsert remoteMempool CheckedInsert v
 
 
 syncMempools
@@ -536,7 +555,9 @@ mockCodec = Codec mockEncode mockDecode
 
 
 mockEncode :: MockTx -> ByteString
-mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) = runPutS $ do
+mockEncode (MockTx nonce (GasPrice (ParsedDecimal price)) limit meta) =
+  B64.encode $
+  runPutS $ do
     putWord64le $ fromIntegral nonce
     putDecimal price
     putWord64le $ fromIntegral limit
@@ -577,7 +598,9 @@ getDecimal = do
 
 
 mockDecode :: ByteString -> Either String MockTx
-mockDecode = runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta)
+mockDecode s = do
+    s' <- B64.decode s
+    runGetS (MockTx <$> getI64 <*> getPrice <*> getGL <*> getMeta) s'
   where
     getPrice = GasPrice . ParsedDecimal <$> getDecimal
     getGL = GasLimit . ParsedInteger . fromIntegral <$> getWord64le

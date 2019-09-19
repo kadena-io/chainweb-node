@@ -23,7 +23,6 @@ module Chainweb.Test.CutDB
 , withTestCutDbWithoutPact
 , withTestPayloadResource
 , awaitCut
-, awaitNewCut
 , awaitBlockHeight
 , extendAwait
 , randomTransaction
@@ -211,15 +210,6 @@ extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
             (Expected prev)
             (Actual cur)
         return cur
-
--- | Wait for the cutdb to produce at least one new cut, that is different from
--- the given cut.
---
-awaitNewCut
-    :: CutDb cas
-    -> Cut
-    -> IO Cut
-awaitNewCut cdb = awaitCut cdb . (/=)
 
 -- | Wait for the cutdb to synchronize on a given blockheight for a given chain
 -- id
@@ -492,6 +482,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
         return $ newPayloadWithOutputs fakeMiner coinbase payload
 
   , _pactLocal = \_t -> error "Unimplemented"
+  , _pactLookup = error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

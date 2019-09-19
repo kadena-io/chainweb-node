@@ -25,7 +25,6 @@ module Chainweb.Pact.Backend.Types
     ( CheckpointEnv(..)
     , cpeCheckpointer
     , cpeLogger
-    , cpeGasEnv
     , Checkpointer(..)
     , Env'(..)
     , EnvPersist'(..)
@@ -87,6 +86,7 @@ module Chainweb.Pact.Backend.Types
     , psPdb
     , psBlockHeaderDb
     , psMinerRewards
+    , psGasModel
     ) where
 
 import Control.Exception
@@ -104,6 +104,7 @@ import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
+import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Database.SQLite3.Direct as SQ3
@@ -120,8 +121,9 @@ import Pact.Types.ChainMeta (PublicData(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
-    (ExecutionMode(..), GasEnv(..), PactDb(..), TableName(..), TxId(..),
+    (ExecutionMode(..), PactDb(..), TableName(..), TxId(..),
     TxLog(..))
+import Pact.Types.Gas (GasModel)
 import Pact.Types.SPV
 
 -- internal modules
@@ -293,13 +295,12 @@ data Checkpointer = Checkpointer
     , _cpRegisterProcessedTx :: !(P.PactHash -> IO ())
 
       -- TODO: this would be nicer as a batch lookup :(
-    , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (BlockHeight, BlockHash)))
+    , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
     }
 
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: !Checkpointer
     , _cpeLogger :: !Logger
-    , _cpeGasEnv :: !GasEnv
     }
 
 makeLenses ''CheckpointEnv
@@ -315,6 +316,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
     , _psMinerRewards :: HashMap BlockHeight ParsedDecimal
+    , _psGasModel :: GasModel
     }
 
 data PactServiceState = PactServiceState

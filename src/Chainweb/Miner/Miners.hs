@@ -2,6 +2,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
 #ifndef MIN_VERSION_servant_client
@@ -22,27 +24,18 @@ module Chainweb.Miner.Miners
     localPOW
   , localTest
     -- * Remote Mining
-  , remoteMining
   , transferableBytes
   ) where
 
 import Data.Bytes.Put (runPutS)
-import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NEL
-import Data.These (these)
-import Data.Tuple.Strict (T2(..))
+import qualified Data.Map.Strict as M
+import Data.Tuple.Strict (T3(..))
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TMVar (TMVar, putTMVar)
-import Control.Monad.Catch (throwM)
-import Control.Scheduler
-
-import Network.HTTP.Client (Manager)
+import Control.Concurrent.Async (race)
+import Control.Lens (view)
 
 import Numeric.Natural (Natural)
-
-import Servant.Client
 
 import qualified System.Random.MWC as MWC
 import qualified System.Random.MWC.Distributions as MWC
@@ -50,31 +43,47 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Miner.Config (MinerCount(..))
+import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.RestAPI.Client (submitClient)
+import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Orphans ()
-#if !MIN_VERSION_servant_client(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, partitionEithersNEL, runGet, suncurry)
+import Chainweb.Utils (int, runForever, runGet)
 import Chainweb.Version
+import Chainweb.WebPactExecutionService
+
+import Data.LogMessage (LogFunction)
 
 ---
 
--- -----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Local Mining
 
 -- | Artificially delay the mining process to simulate Proof-of-Work.
 --
-localTest :: TMVar BlockHeader -> MWC.GenIO -> MinerCount -> BlockHeader -> IO ()
-localTest tmv gen miners bh =
-    MWC.geometric1 t gen >>= threadDelay >> atomically (putTMVar tmv bh)
+localTest
+    :: LogFunction
+    -> ChainwebVersion
+    -> Miner
+    -> CutDb cas
+    -> MWC.GenIO
+    -> MinerCount
+    -> IO ()
+localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
-    v :: ChainwebVersion
-    v = _blockChainwebVersion bh
+    loop :: IO a
+    loop = do
+        c <- _cut cdb
+        T3 p bh pl <- newWork Anything m pact c
+        let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
+        work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
+
+    pact :: PactExecutionService
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
     t :: Double
     t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
@@ -87,41 +96,38 @@ localTest tmv gen miners bh =
         Just (BlockRate (Seconds n)) -> int n
         Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show v
 
+    work :: BlockHeader -> IO BlockHeader
+    work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
+
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: TMVar BlockHeader -> ChainwebVersion -> BlockHeader -> IO ()
-localPOW tmv v bh = do
-    HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
-    new <- runGet decodeBlockHeaderWithoutHash newBytes
-    atomically $ putTMVar tmv new
+localPOW :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
+localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
-    T2 tbytes hbytes = transferableBytes bh
+    loop :: IO a
+    loop = do
+        c <- _cut cdb
+        T3 p bh pl <- newWork Anything m pact c
+        let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
+        race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
+            Left _ -> loop
+            Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
 
--- | Can be piped to `workBytes` for a form suitable to use with `MiningAPI`.
+    pact :: PactExecutionService
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+
+    work :: BlockHeader -> IO BlockHeader
+    work bh = do
+        let T3 _ tbytes hbytes = transferableBytes bh
+        HeaderBytes newBytes <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
+        runGet decodeBlockHeaderWithoutHash newBytes
+
+-- | Can be piped to `workBytes` for a form suitable to use with
+-- `Chainweb.Miner.RestAPI.MiningApi_`.
 --
-transferableBytes :: BlockHeader -> T2 TargetBytes HeaderBytes
-transferableBytes bh = T2 t h
+transferableBytes :: BlockHeader -> T3 ChainBytes TargetBytes HeaderBytes
+transferableBytes bh = T3 c t h
   where
     t = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
     h = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-
--- -----------------------------------------------------------------------------
--- Remote Mining
-
--- | Some remote process which is performing the low-level mining for us. May be
--- on a different machine, may be on multiple machines, may be arbitrarily
--- multithreaded.
---
--- ASSUMPTION: The contents of the given @NonEmpty BaseUrl@ are unique.
---
-remoteMining :: Manager -> NonEmpty BaseUrl -> BlockHeader -> IO ()
-remoteMining m urls bh = do
-    -- TODO Use different `Comp`?
-    rs <- partitionEithersNEL <$> traverseConcurrently Par' f urls
-    these (throwM . NEL.head) (\_ -> pure ()) (\_ _ -> pure ()) rs
-  where
-    bs :: WorkBytes
-    bs = suncurry workBytes $ transferableBytes bh
-
-    f :: BaseUrl -> IO (Either ClientError ())
-    f url = runClientM (submitClient bs) $ ClientEnv m url Nothing
+    c = ChainBytes  . runPutS . encodeChainId $ _chainId bh

@@ -33,6 +33,7 @@ module Chainweb.Test.Pact.Utils
 , withTime
 , mkKeyset
 , stockKey
+, toTxCreationTime
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -80,6 +81,7 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
+import Pact.Parse
 import Pact.Types.ChainId
 import Pact.Types.ChainMeta
 import Pact.Types.Command
@@ -167,7 +169,7 @@ goldenTestTransactions
 goldenTestTransactions txs = do
     ks <- testKeyPairs
     let nonce = "1"
-    mkTestExecTransactions "sender00" "0" ks nonce 100 1.0 1000000 0 txs
+    mkTestExecTransactions "sender00" "0" ks nonce 10000 0.01 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -252,7 +254,6 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
     case verifyCommand cmd of
       ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
       ProcFail e -> throwM $ userError e
-
   where
     k t bs = PayloadWithText bs (_cmdPayload t)
 
@@ -296,17 +297,16 @@ testPactCtx
     -> PayloadDb cas
     -> IO (TestPactCtx cas)
 testPactCtx v cid cdbv bhdb pdb = do
-    cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
+    cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-    gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
@@ -320,17 +320,16 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
-    cpe <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
+    cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
-    gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
@@ -357,6 +356,8 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
             evalPactServiceM ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
+        , _pactLookup = error
+            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
         }
 
 -- | A test PactExecutionService for a chainweb
@@ -442,18 +443,17 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
     start ios cdbv = do
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
-          gasEnv = GasEnv 0 0 (constGasModel 0)
           spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios
-      (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger gasEnv
+      (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
       let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
@@ -484,3 +484,7 @@ stockKey s = do
 
 decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
+
+toTxCreationTime :: Time Integer -> TxCreationTime
+toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+          Seconds s -> TxCreationTime $ ParsedInteger s

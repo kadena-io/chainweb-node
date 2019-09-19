@@ -4,7 +4,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE QuasiQuotes #-}
 -- |
 -- Module: Chainweb.Test.RemotePactTest
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -12,7 +17,8 @@
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
 --
--- Unit test for Pact execution via the Http Pact interface (/send, etc.)(inprocess) API  in Chainweb
+-- Unit test for Pact execution via the Http Pact interface (/send,
+-- etc.) (inprocess) API in Chainweb
 module Chainweb.Test.Pact.RemotePactTest
 ( tests
 , withNodes
@@ -25,8 +31,10 @@ import Control.Concurrent.MVar.Strict
 import Control.Exception
 import Control.Lens
 import Control.Monad
+import Control.Monad.IO.Class
 
 import qualified Data.Aeson as A
+import Data.Default (def)
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.Int
@@ -37,6 +45,8 @@ import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
+
+import NeatInterpolation
 
 import Network.Connection as HTTP
 import Network.HTTP.Client.TLS as HTTP
@@ -61,6 +71,7 @@ import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
+import Pact.Types.Term
 
 -- internal modules
 
@@ -73,12 +84,15 @@ import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.Service.Types
 #if ! MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -102,6 +116,9 @@ cid = head . toList $ chainIds version
 testCmds :: PactTestApiCmds
 testCmds = apiCmds version cid
 
+testCmdsChainId :: ChainId -> PactTestApiCmds
+testCmdsChainId cid_ = apiCmds version cid_
+
 -- -------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
 
@@ -113,8 +130,10 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
           withRequestKeys iomvar net $ \rks ->
-              testGroup "PactRemoteTests"
-                [ responseGolden net rks ]
+            responseGolden net rks
+
+    , withTime $ \iot -> withNodes rdb nNodes $ \net ->
+        spvRequests iot net
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
@@ -125,6 +144,63 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     (PollResponses theMap) <- testPoll testCmds cwEnv rks
     let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
+
+
+spvRequests :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+spvRequests iot nio = testCaseSteps "spv client tests"$ \step -> do
+    cenv <- fmap _getClientEnv nio
+    batch <- mkTxBatch
+    sid <- mkChainId version (0 :: Int)
+    tid <- mkChainId version (1 :: Int)
+    r <- flip runClientM cenv $ do
+
+      void $ liftIO $ step "sendApiClient: submit batch"
+      rks <- sendApiCmd (testCmdsChainId sid) batch
+
+      void $ liftIO $ step "pollApiClient: poll until key is found"
+      void $ liftIO $ pollWithRetry (testCmdsChainId sid) cenv rks
+
+      liftIO $ sleep 6
+
+      void $ liftIO $ step "spvApiClient: submit request key"
+      pactSpvApiClient version sid (go rks tid)
+
+    case r of
+      Left e -> assertFailure $ "output proof failed: " <> sshow e
+      Right _ -> return ()
+  where
+    go (RequestKeys t) tid = SpvRequest (NEL.head t) tid
+
+    mkTxBatch = do
+      ks <- liftIO testKeyPairs
+      t <- toTxCreationTime <$> iot
+
+      let ttl = 2 * 24 * 60 * 60
+          pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100000 0.01 ttl t
+
+      tid <- mkChainId version (1::Int)
+      cmd <- liftIO $ mkExec txcode (txdata tid) pm ks (Just "0")
+      return $ SubmitBatch (pure cmd)
+
+    txcode = show $
+      [text|
+         (coin.cross-chain-transfer
+           'sender00
+           (read-msg 'target-chain-id)
+           'sender00
+           (read-keyset 'sender00-keyset)
+           1.0)
+         |]
+
+    txdata tid =
+      -- sender00 keyset
+      let ks = KeySet
+            [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
+            (Name "keys-all" def)
+      in A.object
+        [ "sender01-keyset" A..= ks
+        , "target-chain-id" A..= chainIdToText tid
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -219,7 +295,7 @@ testBatch mnonce = do
         pure $ (succ nn, SubmitBatch (pure c))
   where
     pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.01 1000000 0
+    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 1000 0.1 1000000 0
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
@@ -242,6 +318,7 @@ apiCmds cwVersion theChainId =
 data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
     , pollApiCmd :: Poll -> ClientM PollResponses }
+
 
 --------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test

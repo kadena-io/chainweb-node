@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -16,8 +17,6 @@
 module Chainweb.Test.Pact.PactExec
 ( tests
 ) where
-
-import Control.Lens ((.~))
 
 import Data.Aeson
 import Data.CAS.RocksDB (RocksDb)
@@ -45,13 +44,9 @@ import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Time
-import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
-import Pact.Parse
-import Pact.Types.ChainMeta
-import Pact.Types.Command (Command(..), pMeta, CommandResult(..), PactResult(..))
+import Pact.Types.Command (CommandResult(..), PactResult(..))
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -78,7 +73,7 @@ tests = ScheduledTest label $
         let genesisHeader = genesisBlockHeader testVersion cid
         testBlockHeaderDb rdb genesisHeader
 
-    label = "Simple pact execution tests"
+    label = "Chainweb.Test.Pact.PactExec"
     killPdb _ = return ()
     cid = someChainId testVersion
 
@@ -151,16 +146,14 @@ testReq6 = TestRequest
 -- -------------------------------------------------------------------------- --
 -- Utils
 
-execTest :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestRequest -> ScheduledTest
+execTest
+    :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a)
+    -> TestRequest
+    -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData
-    trans' <- goldenTestTransactions
-      $ V.fromList
-      $ fmap (k d) cmdStrs
-
-    trans <- traverse setTime trans'
-
+    trans <- goldenTestTransactions . V.fromList $ fmap (k d) cmdStrs
     results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
@@ -168,33 +161,20 @@ execTest runPact request = _trEval request $ do
         (_transactionCoinbase results)
   where
     k d c = PactTransaction c d
-    toTxCreationTime :: Time Integer -> TxCreationTime
-    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-      Seconds s -> TxCreationTime $ ParsedInteger s
-    setTime :: Command PayloadWithText -> IO (Command PayloadWithText)
-    setTime cwtx =
-      fmap
-      (\time ->
-         ((payloadObj . pMeta . pmCreationTime) .~ (toTxCreationTime time))
-         <$> cwtx)
-      getCurrentTimeIntegral
 
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)
 getPactCode (File filePath) = pack <$> readFile' (testPactFilesDir ++ filePath)
 
 checkSuccessOnly :: HashCommandResult -> Assertion
-checkSuccessOnly CommandResult{..} = case _crResult of
+checkSuccessOnly cr = case _crResult cr of
   PactResult (Right _) -> return ()
   r -> assertFailure $ "Failure status returned: " ++ show r
 
 checkSuccessOnly' :: String -> IO TestResponse -> ScheduledTest
-checkSuccessOnly' msg f = testCaseSch msg $ do
-        f' <- f
-        case f' of
-          (TestResponse res@(_:_) _) ->
-            checkSuccessOnly (snd $ last res)
-          (TestResponse res _) -> fail (show res) -- TODO
+checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
+    TestResponse res@(_:_) _ -> checkSuccessOnly (snd $ last res)
+    TestResponse res _ -> fail (show res) -- TODO
 
 -- | A test runner for golden tests.
 --

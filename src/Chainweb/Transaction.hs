@@ -14,7 +14,6 @@ module Chainweb.Transaction
   , payloadBytes
   , payloadObj
   , chainwebPayloadCodec
-  , chainwebPayloadDecode
   , gasLimitOf
   , gasPriceOf
   , timeToLiveOf
@@ -28,12 +27,10 @@ import qualified Data.ByteString.Char8 as B
 import Data.Hashable
 
 import qualified Data.Aeson as Aeson
-import Data.Aeson.Types (FromJSON(..), ToJSON(..))
 import Data.Bytes.Get
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Short as SB
 import Data.Text (Text)
-import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
@@ -43,7 +40,7 @@ import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import Pact.Types.Hash
 
-import Chainweb.Utils (Codec(..))
+import Chainweb.Utils
 
 -- | A product type representing a `Payload PublicMeta ParsedCode` coupled with
 -- the Text that generated it, to make gossiping easier.
@@ -55,6 +52,7 @@ data PayloadWithText = PayloadWithText
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
 
+{-
 instance ToJSON PayloadWithText where
     toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 $ SB.fromShort bs)
     toEncoding (PayloadWithText bs _) = toEncoding (T.decodeUtf8 $ SB.fromShort bs)
@@ -67,6 +65,7 @@ instance FromJSON PayloadWithText where
       where
         parsePact :: Text -> Either String ParsedCode
         parsePact code = ParsedCode code <$> parseExprs code
+-}
 
 type ChainwebTransaction = Command PayloadWithText
 
@@ -84,14 +83,22 @@ instance Hashable (HashableTrans PayloadWithText) where
 
 -- | A codec for (Command PayloadWithText) transactions.
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
-chainwebPayloadCodec = Codec
-    (force . SB.fromShort . _payloadBytes . _cmdPayload)
-    (force . chainwebPayloadDecode)
+chainwebPayloadCodec = Codec enc dec
+  where
+    enc c = encodeToByteString $ fmap (SB.fromShort . _payloadBytes) c
+    dec bs = case Aeson.decodeStrict' bs of
+               Just cmd -> traverse decodePayload cmd
+               Nothing -> Left "decode PayloadWithText failed"
 
-chainwebPayloadDecode :: ByteString -> Either String (Command PayloadWithText)
-chainwebPayloadDecode bs = case Aeson.decodeStrict' bs of
-    Just cmd -> Right $ force cmd
-    Nothing -> Left "decoding PayloadWithText failed"
+decodePayload :: ByteString -> Either String PayloadWithText
+decodePayload bs = case Aeson.decodeStrict' bs of
+    Just payload -> do
+        p <- traverse parsePact payload
+        return $! PayloadWithText (SB.toShort bs) p
+    Nothing -> Left "decoding Payload failed"
+
+parsePact :: Text -> Either String ParsedCode
+parsePact code = ParsedCode code <$> parseExprs code
 
 -- | Get the gas limit/supply of a public chain command payload
 gasLimitOf :: forall c. Command (Payload PublicMeta c) -> GasLimit

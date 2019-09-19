@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Pact.PactReplay where
--- import Debug.Trace
+
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
@@ -40,8 +40,6 @@ import Test.Tasty.HUnit
 -- pact imports
 
 import Pact.ApiReq
-import Pact.Parse
-import Pact.Types.ChainMeta
 
 -- chainweb imports
 
@@ -79,14 +77,14 @@ tests =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     testGroup label
-        [ withTime $ \iot -> withPact pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
+        [ withTime $ \iot -> withPact Warn pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
             testCase "initial-playthrough" $
             firstPlayThrough genblock pdb bhdb reqQIO
         , after AllSucceed "initial-playthrough" $
-          withTime $ \iot -> withPact pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
+          withTime $ \iot -> withPact Warn pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
             testCase "on-restart" $ onRestart pdb bhdb reqQIO
         , after AllSucceed "on-restart" $
-          withTime $ \iot -> withPact pdb bhdb (dupegenMemPoolAccess iot) dir $ \reqQIO ->
+          withTime $ \iot -> withPact Quiet pdb bhdb (dupegenMemPoolAccess iot) dir $ \reqQIO ->
             testCase "reject-dupes" $ testDupes genblock pdb bhdb reqQIO
         ]
   where
@@ -142,9 +140,6 @@ testMemPoolAccess iot  = MemPoolAccess
         ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
         tx nonce = V.singleton $ PactTransaction (code nonce) (Just $ ksData (T.pack $ show nonce))
         code nonce = defModule (T.pack $ show nonce)
-        toTxCreationTime :: Time Integer -> TxCreationTime
-        toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
 
 dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 dupegenMemPoolAccess iot  = MemPoolAccess
@@ -181,9 +176,6 @@ dupegenMemPoolAccess iot  = MemPoolAccess
         ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
         tx nonce = V.singleton $ PactTransaction (code nonce) (Just $ ksData nonce)
         code nonce = defModule nonce
-        toTxCreationTime :: Time Integer -> TxCreationTime
-        toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-            Seconds s -> TxCreationTime $ ParsedInteger s
 
 firstPlayThrough
     :: BlockHeader
@@ -312,13 +304,14 @@ withBlockHeaderDb iordb b = withResource start stop
     stop = closeBlockHeaderDb
 
 withPact
-    :: IO (PayloadDb HashMapCas)
+    :: LogLevel
+    -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO FilePath
     -> (IO (TQueue RequestMsg) -> TestTree)
     -> TestTree
-withPact iopdb iobhdb mempool iodir f =
+withPact logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
@@ -336,7 +329,7 @@ withPact iopdb iobhdb mempool iodir f =
         sendCloseMsg reqQ
         cancel a
 
-    logger = genericLogger Warn T.putStrLn
+    logger = genericLogger logLevel T.putStrLn
     cid = someChainId testVer
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a

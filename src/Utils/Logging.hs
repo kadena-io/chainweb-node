@@ -4,12 +4,14 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -67,6 +69,12 @@ module Utils.Logging
 , maybeLogHandler
 , logHandles
 
+-- * Filter LogScope Backend
+, LogFilter(..)
+, logFilterRules
+, logFilterDefault
+, logFilterHandle
+
 -- * Base Backends
 , withBaseHandleBackend
 
@@ -105,6 +113,8 @@ import Control.Monad.Trans.Control
 import Data.Aeson.Encoding hiding (int, bool)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy.Char8 as BL8
+import qualified Data.List as List
+import Data.Semigroup
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -240,6 +250,95 @@ genericLogHandle f b msg = case fromBackendLogMessage msg of
         Nothing -> return mempty
         (Just !msg') -> b msg'
 {-# INLINEABLE genericLogHandle #-}
+
+-- -------------------------------------------------------------------------- --
+-- Filter LogScope Handle
+
+-- | A filter for log messages.
+--
+-- Tese are the rules for processing a log message:
+--
+-- * If a log label of a message matches the key and value of a rule, the
+-- message is discarded if the log level of the message is larger than the log
+-- level of the rule.
+--
+-- * If, after applying all rules, no rule matched any label of the log message,
+-- the message is discarded if the log level of the message is larger than the
+-- default level of the filter.
+--
+-- These semantics seem to be useful under certain circumstances. At least, the
+-- order of the rules doesn't matter.
+--
+-- When a filter is specified more than once in a configuration, filters are
+-- merged by concatenating the lists of rules and by taking the minimum log
+-- level.
+--
+-- The default log filter has no rules and log level debug as default level.
+--
+data LogFilter = LogFilter
+    { _logFilterRules :: ![(L.LogLabel, L.LogLevel)]
+    , _logFilterDefault :: !L.LogLevel
+    }
+    deriving (Show, Eq, Ord, Generic)
+
+makeLenses ''LogFilter
+
+instance Semigroup LogFilter where
+    a <> b = LogFilter
+        { _logFilterRules = _logFilterRules a <> _logFilterRules b
+        , _logFilterDefault = min (_logFilterDefault a) (_logFilterDefault b)
+        }
+    {-# INLINE (<>) #-}
+
+instance Monoid LogFilter where
+    mempty = LogFilter
+        { _logFilterRules = mempty
+        , _logFilterDefault = maxBound
+        }
+    {-# INLINE mempty #-}
+
+instance ToJSON LogFilter where
+    toJSON a = object
+        [ "rules" .= (f <$> _logFilterRules a)
+        , "default" .=  _logFilterDefault a
+        ]
+      where
+        f ((key, val), lev) = object
+            [ "key" .= key
+            , "value" .= val
+            , "level" .= lev
+            ]
+    {-# INLINE toJSON #-}
+
+instance FromJSON LogFilter where
+    parseJSON = withObject "LogFilter" $ \o -> LogFilter
+        <$> (o .: "rules" >>= traverse f)
+        <*> o .: "default"
+      where
+        f = withObject "LogRule" $ \o -> (\x y z -> ((x,y),z))
+            <$> o .: "key"
+            <*> o .: "value"
+            <*> o .: "level"
+    {-# INLINE parseJSON #-}
+
+-- | A handle that applies a log filter.
+--
+-- The filter is applied after log messages have been emitted according to the
+-- log level of the respective logger.
+--
+logFilterHandle :: LogFilter -> LogHandler
+logFilterHandle sf = maybeLogHandler $ \msg -> do
+    let msgLevel = L._logMsgLevel msg
+        apply l = case l `List.lookup` _logFilterRules sf of
+            Just level -> Just (All $ level >= msgLevel)
+            Nothing -> Nothing
+    case mconcat $ apply <$> L._logMsgScope msg of
+        Nothing
+            | _logFilterDefault sf >= msgLevel -> return (Just msg)
+            | otherwise -> return Nothing
+        Just (All True) -> return (Just msg)
+        Just (All False) -> return Nothing
+{-# INLINEABLE logFilterHandle #-}
 
 -- -------------------------------------------------------------------------- --
 -- Log Handler Stacks

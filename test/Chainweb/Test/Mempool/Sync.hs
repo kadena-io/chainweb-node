@@ -24,7 +24,7 @@ import Chainweb.Mempool.InMem
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
-    (MempoolWithFunc(..), lookupIsPending, mempoolProperty)
+    (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
 
@@ -32,9 +32,18 @@ import Chainweb.Utils (Codec(..))
 tests :: TestTree
 tests = testGroup "Chainweb.Mempool.sync" [
             mempoolProperty "Mempool.syncMempools" gen propSync
-                $ MempoolWithFunc $ withInMemoryMempool testInMemCfg
+                $ MempoolWithFunc wf
          ]
   where
+    wf f = do
+        mv <- newMVar (V.mapM (const $ return True))
+        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMv mv)
+        withInMemoryMempool cfg $ f mv
+
+    checkMv mv xs = do
+        f <- readMVar mv
+        f xs
+
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
       (xs, ys, zs) <- pick arbitrary
@@ -44,24 +53,27 @@ tests = testGroup "Chainweb.Mempool.sync" [
       pre (not (Set.null xss || Set.null yss || Set.null zss) && length ys < 10000 && length zs < 10000)
       return (xss, yss, zss)
 
-testInMemCfg :: InMemConfig MockTx
-testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048
+txcfg :: TransactionConfig MockTx
+txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
+                          mockGasLimit mockMeta preGossipCheck
   where
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                              mockGasLimit mockMeta preGossipCheck
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
     preGossipCheck = const True
 
+testInMemCfg :: InMemConfig MockTx
+testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (V.mapM $ const $ return True)
+
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
+    -> InsertCheck
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propSync (txs, missing, later) localMempool' =
+propSync (txs, missing, later) _ localMempool' =
     withInMemoryMempool testInMemCfg $ \remoteMempool -> do
-        mempoolInsert localMempool' txsV
-        mempoolInsert remoteMempool txsV
-        mempoolInsert remoteMempool missingV
+        mempoolInsert localMempool' CheckedInsert txsV
+        mempoolInsert remoteMempool CheckedInsert txsV
+        mempoolInsert remoteMempool CheckedInsert missingV
 
         syncThMv <- newEmptyMVar
         syncFinished <- newEmptyMVar
@@ -92,7 +104,7 @@ propSync (txs, missing, later) localMempool' =
             -- We should now be subscribed and waiting for V.length laterV
             -- more transactions before getting killed. Transactions
             -- inserted into remote should get synced to us.
-            mempoolInsert remoteMempool laterV
+            mempoolInsert remoteMempool CheckedInsert laterV
             Async.wait syncTh
 
         maybe (fail "timeout") return m
@@ -123,8 +135,8 @@ timebomb k act mp = do
     ref <- newIORef k
     return $! mp { mempoolInsert = ins ref }
   where
-    ins ref v = do
-        mempoolInsert mp v
+    ins ref t v = do
+        mempoolInsert mp t v
         c <- atomicModifyIORef' ref (\x -> let !x' = x - V.length v
                                            in (x', x'))
         when (c == 0) $ void act     -- so that the bomb only triggers once

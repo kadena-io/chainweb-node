@@ -12,7 +12,7 @@
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
 --
--- Unit test for Pact execution via (inprocess) API  in Chainweb
+-- Unit test for Pact execution via (inprocess) API in Chainweb
 --
 module Chainweb.Test.Pact.PactInProcApi
 ( tests

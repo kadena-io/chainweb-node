@@ -55,7 +55,6 @@ import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 import qualified Chainweb.Mempool.InMem as Mempool
 import qualified Chainweb.Mempool.InMemTypes as Mempool
-import qualified Chainweb.Mempool.Mempool as Mempool
 
 import Standalone.Utils
 
@@ -96,7 +95,7 @@ withChainResourcesStandalone
     -> RocksDb
     -> PeerResources logger
     -> logger
-    -> Mempool.InMemConfig ChainwebTransaction
+    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
     -> MVar (CutDb cas)
     -> PayloadDb cas
     -> Bool
@@ -108,8 +107,10 @@ withChainResourcesStandalone
       -- ^ reset database directory
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResourcesStandalone v cid rdb peer logger mempoolCfg cdbv payloadDb prune dbDir nodeid resetDb inner =
-    withBlockHeaderDb rdb v cid $ \cdb ->
+withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir nodeid resetDb inner =
+    withBlockHeaderDb rdb v cid $ \cdb -> do
+        pexMv <- newEmptyMVar
+        let mempoolCfg = mempoolCfg0 pexMv
         Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg $ \mempool -> do
             -- placing mempool access shim here
             -- putting a default here for now.
@@ -144,6 +145,7 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg cdbv payloadDb pru
 
                       -- replay pact
                       let pact = pes requestQ
+                      putMVar pexMv pact
 
                       -- run inner
                       inner ChainResources
@@ -167,15 +169,6 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg cdbv payloadDb pru
         -- Testnet01 -> mkPactExecutionService' requestQ
         Testnet02 -> mkPactExecutionService' requestQ
 
-validatingMempoolConfig :: Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig = Mempool.InMemConfig
-    Mempool.chainwebTransactionConfig
-    blockGasLimit
-    maxRecentLog
-  where
-    blockGasLimit = 100000
-    maxRecentLog = 2048
-
 withChainwebInternalStandalone
     :: Logger logger
     => ChainwebConfiguration
@@ -192,8 +185,10 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     cdbv <- newEmptyMVar
     concurrentWith
       -- initialize chains concurrently
-      (\cid -> withChainResourcesStandalone v cid rocksDb peer (chainLogger cid)
-                validatingMempoolConfig cdbv payloadDb prune dbDir nodeid resetDb)
+      (\cid -> do
+          let mcfg = validatingMempoolConfig cid cdbv
+          withChainResourcesStandalone v cid rocksDb peer (chainLogger cid)
+                mcfg cdbv payloadDb prune dbDir nodeid resetDb)
 
       -- initialize global resources after all chain resources are
       -- initialized
@@ -244,25 +239,26 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
 
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
-                    withMinerResources mLogger mConf cwnid mCutDb $ \m -> do
-                        logg Info "finished initializing miner resources"
-                        inner Chainweb
-                                  { _chainwebHostAddress =
-                                      _peerConfigAddr
-                                      $ _p2pConfigPeer
-                                      $ _configP2p conf
-                                  , _chainwebChains = cs
-                                  , _chainwebCutResources = cuts
-                                  , _chainwebNodeId = cwnid
-                                  , _chainwebMiner = m
-                                  , _chainwebLogger = logger
-                                  , _chainwebPeer = peer
-                                  , _chainwebPayloadDb = payloadDb
-                                  , _chainwebManager = mgr
-                                  , _chainwebPactData = pactData
-                                  , _chainwebThrottler = throttler
-                                  , _chainwebConfig = conf
-                                  }
+                    withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
+                        withMinerResources mLogger mConf mCutDb $ \m -> do
+                            logg Info "finished initializing miner resources"
+                            inner Chainweb
+                                      { _chainwebHostAddress =
+                                          _peerConfigAddr
+                                          $ _p2pConfigPeer
+                                          $ _configP2p conf
+                                      , _chainwebChains = cs
+                                      , _chainwebCutResources = cuts
+                                      , _chainwebMiner = m
+                                      , _chainwebCoordinator = mc
+                                      , _chainwebLogger = logger
+                                      , _chainwebPeer = peer
+                                      , _chainwebPayloadDb = payloadDb
+                                      , _chainwebManager = mgr
+                                      , _chainwebPactData = pactData
+                                      , _chainwebThrottler = throttler
+                                      , _chainwebConfig = conf
+                                      }
 
     withPactData cs cuts m
         | _enableConfigEnabled (_configTransactionIndex conf) = do
@@ -274,7 +270,6 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
             m []
     v = _configChainwebVersion conf
     cids = chainIds v
-    cwnid = _configNodeId conf
 
     -- FIXME: make this configurable
     cutConfig = (defaultCutDbConfig v)

@@ -11,6 +11,7 @@ extra-deps:
   - loglevel-0.1.0.0
   - merkle-log-0.1.0.0
   - paths-0.2.0.0
+  - streaming-events-1.0.0
   - strict-tuple-0.1.2
   - wai-middleware-throttle-0.3.0.1
   - yet-another-logger-0.3.1
@@ -44,7 +45,7 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 31801b112f46f08bb4ca3c488dd947573f21043f
+    commit: 8e063ab69a786310f1232c8073b7f0ab09248927
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
   - github: kadena-io/chainweb-storage

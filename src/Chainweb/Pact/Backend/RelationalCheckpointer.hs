@@ -28,6 +28,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import Data.Serialize hiding (get)
 import qualified Data.Text as T
+import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
@@ -38,7 +39,6 @@ import Prelude hiding (log)
 -- pact
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Types.Gas (GasEnv(..))
 import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Logger (Logger(..))
 import Pact.Types.SQLite
@@ -56,19 +56,17 @@ initRelationalCheckpointer
     :: BlockState
     -> SQLiteEnv
     -> Logger
-    -> GasEnv
     -> IO CheckpointEnv
-initRelationalCheckpointer bstate sqlenv loggr gasEnv =
-    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr gasEnv
+initRelationalCheckpointer bstate sqlenv loggr =
+    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr
 
 -- for testing
 initRelationalCheckpointer'
     :: BlockState
     -> SQLiteEnv
     -> Logger
-    -> GasEnv
     -> IO (PactDbEnv', CheckpointEnv)
-initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
+initRelationalCheckpointer' bstate sqlenv loggr = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db $ initSchema >> vacuumDb -- TODO: remove?
@@ -91,7 +89,6 @@ initRelationalCheckpointer' bstate sqlenv loggr gasEnv = do
               , _cpLookupProcessedTx = doLookupSuccessful db
               }
         , _cpeLogger = loggr
-        , _cpeGasEnv = gasEnv
         })
 
 type Db = MVar (BlockEnv SQLiteEnv)
@@ -236,7 +233,7 @@ doRegisterSuccessful dbenv (TypedHash hash) =
     runBlockEnv dbenv (indexPactTransaction hash)
 
 
-doLookupSuccessful :: Db -> PactHash -> IO (Maybe (BlockHeight, BlockHash))
+doLookupSuccessful :: Db -> PactHash -> IO (Maybe (T2 BlockHeight BlockHash))
 doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
     r <- callDb "doLookupSuccessful" $ \db ->
          qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
@@ -249,5 +246,5 @@ doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
             \USING (blockheight) WHERE txhash = ?;"
     go [SInt h, SBlob blob] = do
         !hsh <- either fail return $ Data.Serialize.decode blob
-        return $! (fromIntegral h, hsh)
+        return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"

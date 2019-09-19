@@ -37,8 +37,6 @@ import Test.Tasty.HUnit
 -- pact imports
 
 import Pact.ApiReq
-import Pact.Parse
-import Pact.Types.ChainMeta
 
 -- chainweb imports
 
@@ -129,9 +127,6 @@ getTestBlock t txOrigTime _validate _bh _hash = do
                        , show oks ]
     return txs
   where
-    toTxCreationTime :: Time Integer -> TxCreationTime
-    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-      Seconds s -> TxCreationTime $ ParsedInteger s
     code = "(at \"" <> t <> "\" (chain-data))"
     tx = V.singleton $ PactTransaction code Nothing
 

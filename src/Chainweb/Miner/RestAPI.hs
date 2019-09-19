@@ -14,13 +14,11 @@
 --
 --
 module Chainweb.Miner.RestAPI
-  ( -- * Mining Work Submission
-    MiningSubmissionApi
-    -- * Mining Results
-  , MiningResultApi_
-  , MiningResultApi
-  , miningResultApi
-  , someMiningResultApi
+  ( -- * Mining API
+    MiningApi_
+  , MiningApi
+  , miningApi
+  , someMiningApi
   ) where
 
 import Data.Proxy (Proxy(..))
@@ -29,36 +27,39 @@ import Servant.API
 
 -- internal modules
 
-import Chainweb.Miner.Core (HeaderBytes, WorkBytes)
+import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
+import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc, SomeApi(..))
 import Chainweb.Version
 
 import Data.Singletons
 
----
-
 -- -----------------------------------------------------------------------------
--- Mining Work Submission
+-- Mining API
 
--- | Shared between the `Chainweb.Miner.Miners.remoteMining` function and the
--- /chainweb-miner/ executable.
+-- | /work/: To have a new `BlockHeader` assembled to mine upon. `Miner`
+-- information is required in order to properly distribute mining rewards.
 --
-type MiningSubmissionApi = "submit" :> ReqBody '[OctetStream] WorkBytes :> Post '[JSON] ()
+-- /solved/: To yield a solved `Chainweb.BlockHeader.BlockHeader` back to a
+-- Chainweb Node for it to be reassociated with its `Chainweb.Cut.Cut` and
+-- Payload, then published to the rest of the network.
+--
+type MiningApi_ =
+    "mining" :> "work"
+             :> QueryParam "chain" ChainId
+             :> ReqBody '[JSON] Miner
+             :> Get '[OctetStream] WorkBytes
+    :<|> "mining" :> "solved"
+                  :> ReqBody '[OctetStream] HeaderBytes
+                  :> Post '[JSON] NoContent
+    :<|> "mining" :> "updates"
+                  :> ReqBody '[OctetStream] ChainBytes
+                  :> Raw
 
--- -----------------------------------------------------------------------------
--- Mining Results
+type MiningApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc MiningApi_
 
--- | To yield a solved `Chainweb.BlockHeader.BlockHeader` back to a Chainweb
--- Node for it to be reassociated with its `Chainweb.Cut.Cut` and Payload, then
--- published to the rest of the network.
-type MiningResultApi_ =
-    "mining" :> "solved" :> ReqBody '[OctetStream] HeaderBytes :> Post '[JSON] ()
+miningApi :: forall (v :: ChainwebVersionT). Proxy (MiningApi v)
+miningApi = Proxy
 
-type MiningResultApi (v :: ChainwebVersionT)
-    = 'ChainwebEndpoint v :> Reassoc MiningResultApi_
-
-miningResultApi :: forall (v :: ChainwebVersionT). Proxy (MiningResultApi v)
-miningResultApi = Proxy
-
-someMiningResultApi :: ChainwebVersion -> SomeApi
-someMiningResultApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ miningResultApi @v
+someMiningApi :: ChainwebVersion -> SomeApi
+someMiningApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ miningApi @v

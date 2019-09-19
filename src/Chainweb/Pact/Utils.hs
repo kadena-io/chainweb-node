@@ -64,19 +64,13 @@ maxTTL = ParsedInteger $ 2 * 24 * 60 * 60 * 1000000
 
 timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
 timingsCheck (BlockCreationTime blockOriginationTime) tx =
-  -- trace ("block-o-time: " ++ show blockOriginationTime ++ " tx-o-time: " ++ show txOriginationTime ++ " ttl " ++ show ttl) $
-  and $
-  -- zipWith
-  -- (\x y -> trace (show x ++ ": " ++ show y) y)
-  -- [1 :: Integer ..]
-  [check1,check2,check3,check4,check5,check6]
+    ttl > 0
+    && blockOriginationTime >= (toMicrosFromSeconds 0)
+    && txOriginationTime >= 0
+    && toMicrosFromSeconds txOriginationTime < blockOriginationTime
+    && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
+    && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
     toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
     (TxCreationTime txOriginationTime) = creationTimeOf tx
-    check1  = ttl > 0
-    check2  = blockOriginationTime >= (toMicrosFromSeconds 0)
-    check3  = txOriginationTime >= 0
-    check4  = toMicrosFromSeconds txOriginationTime < blockOriginationTime
-    check5  = toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
-    check6  = ttl <= maxTTL

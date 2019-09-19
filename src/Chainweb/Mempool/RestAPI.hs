@@ -39,6 +39,7 @@ module Chainweb.Mempool.RestAPI
 
 ------------------------------------------------------------------------------
 import Data.Aeson
+import Data.ByteString (ByteString)
 import GHC.Generics
 import Servant
 
@@ -85,42 +86,42 @@ instance FromJSON PendingTransactions where
 
 ------------------------------------------------------------------------------
 -- servant sub-api
-mempoolApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *) .
-              Proxy (MempoolApi v c t)
+mempoolApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) .
+              Proxy (MempoolApi v c)
 mempoolApi = Proxy
 
-type MempoolApi v c t = MempoolInsertApi v c t :<|>
-                        MempoolMemberApi v c t :<|>
-                        MempoolLookupApi v c t :<|>
-                        MempoolGetPendingApi v c t
+type MempoolApi v c = MempoolInsertApi v c :<|>
+                        MempoolMemberApi v c :<|>
+                        MempoolLookupApi v c :<|>
+                        MempoolGetPendingApi v c
 
-type MempoolInsertApi v c t =
+type MempoolInsertApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "insert" :>
-    ReqBody '[JSON] [t] :> Put '[JSON] NoContent
-type MempoolMemberApi v c t =
+    ReqBody '[JSON] [ByteString] :> Put '[JSON] NoContent
+type MempoolMemberApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "member" :>
     ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [Bool]
-type MempoolLookupApi v c t =
+type MempoolLookupApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "lookup" :>
-    ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult t]
-type MempoolGetPendingApi v c t =
+    ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult ByteString]
+type MempoolGetPendingApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getPending" :>
     QueryParam "nonce" ServerNonce :>
     QueryParam "since" MempoolTxId :>
     Post '[JSON] PendingTransactions
 
-mempoolInsertApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                 . Proxy (MempoolInsertApi v c t)
+mempoolInsertApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+                 . Proxy (MempoolInsertApi v c)
 mempoolInsertApi = Proxy
 
-mempoolMemberApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                 . Proxy (MempoolMemberApi v c t)
+mempoolMemberApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+                 . Proxy (MempoolMemberApi v c)
 mempoolMemberApi = Proxy
 
-mempoolLookupApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                 . Proxy (MempoolLookupApi v c t)
+mempoolLookupApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+                 . Proxy (MempoolLookupApi v c)
 mempoolLookupApi = Proxy
 
-mempoolGetPendingApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *)
-                     . Proxy (MempoolGetPendingApi v c t)
+mempoolGetPendingApi :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+                     . Proxy (MempoolGetPendingApi v c)
 mempoolGetPendingApi = Proxy
