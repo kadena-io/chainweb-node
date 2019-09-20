@@ -278,7 +278,7 @@ mining go wb = do
             e <- ask
             liftIO $ withEvents (req $ args e) (mgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
-            logInfo $ cid <> ": Current work was preempted."
+            logDebug $ cid <> ": Current work was preempted."
 
         -- TODO Formalize the signal content a bit more?
         realEvent :: ServerEvent -> Bool
