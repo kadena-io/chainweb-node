@@ -30,7 +30,6 @@ import Chainweb.Version
 
 import Data.Singletons
 
-
 -- -------------------------------------------------------------------------- --
 -- Pact Spv Transaction Output Proof Client
 
