@@ -351,9 +351,9 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
       = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    errOf = BSL8.fromStrict
+    spvErrOf = BSL8.fromStrict
       . encodeUtf8
-
+      . _spvExceptionMsg
 
 ------------------------------------------------------------------------------
 
