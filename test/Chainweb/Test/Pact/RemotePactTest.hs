@@ -104,6 +104,15 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
+#define DEBUG_TEST 0
+
+debug :: String -> IO ()
+#if DEBUG_TEST
+debug = putStrLn
+#else
+debug = const $ return ()
+#endif
+
 nNodes :: Natural
 nNodes = 1
 
@@ -241,13 +250,13 @@ sendWithRetry cmds env sb = go maxSendRetries
         case result of
             Left _ ->
                 if retries == 0 then do
-                    putStrLn $ "send failing after " ++ show maxSendRetries ++ " retries"
+                    debug $ "send failing after " ++ show maxSendRetries ++ " retries"
                     return result
                 else do
                     sleep 1
                     go (retries - 1)
             Right _ -> do
-                putStrLn $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
+                debug $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                 return result
 
 maxPollRetries :: Int
@@ -267,7 +276,7 @@ pollWithRetry cmds env rks = do
           let retry failure = do
                 if retries == 0
                   then do
-                    putStrLn $ "poll failing after " ++ show maxSendRetries
+                    debug $ "poll failing after " ++ show maxSendRetries
                                ++ " retries"
                     fail failure
                   else sleep 1 >> go (retries - 1)
@@ -279,13 +288,13 @@ pollWithRetry cmds env rks = do
                   ok <- checkResults (toList rkks) mp
                   if ok
                     then do
-                        putStrLn $ concat
+                        debug $ concat
                             [ "poll succeeded after "
                             , show (maxSendRetries - retries)
                             , " retries" ]
                         return $ PollResponses mp
                     else do
-                        putStrLn "poll check failed, continuing"
+                        debug "poll check failed, continuing"
                         let msg = concat [ "poll check failure. keys: "
                                          , show rks
                                          , "\nresult map was: "
