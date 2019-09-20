@@ -395,8 +395,11 @@ internalPoll cutR cid chain cut requestKeys0 = do
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) ->
-                MaybeT $ return $! decodeStrict' output
+            (Just (_cmd, (TransactionOutput output))) -> do
+                out <- MaybeT $ return $! decodeStrict' output
+                when (_crReqKey out /= key) $
+                    fail "internal error: Transaction output doesn't match its hash!"
+                return out
             Nothing -> mzero
 
     fromTx (!tx, !out) = do
