@@ -774,6 +774,11 @@ instance IsCasValue PayloadWithOutputs where
     casKey = _payloadWithOutputsPayloadHash
     {-# INLINE casKey #-}
 
+-- | Smart constructor for 'PayloadWithOutputs'.
+--
+-- Precondition: the vector of transaction output has the same length (and is
+-- in the same order, i.e. the two vectors will be zipped) as the list of input
+-- transactions inside the 'PayloadData'.
 payloadWithOutputs
     :: HasCallStack
     => PayloadData
@@ -783,6 +788,7 @@ payloadWithOutputs
 payloadWithOutputs d co outputs =
   if V.length (_payloadDataTransactions d) /= V.length outputs
     then let msg = concat [
+               "Internal code invariant violation: ",
                "PAYLOAD ERROR: MISMATCHED # OF TRANSACTIONS AND OUTPUTS: \n",
                "PayloadData=",
                show d,
