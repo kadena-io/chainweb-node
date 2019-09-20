@@ -84,6 +84,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
 import qualified Chainweb.TreeDB as TreeDB
@@ -326,18 +327,16 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
 
     tid <- chainIdFromText ptid
     p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
-      Left (e :: SomeException) -> throwError $ err400
-        { errBody = "Internal error: SPV proof creation failed: " <> sshow e }
+      Left e@SpvExceptionTargetNotReachable{} -> throwError $ err400
+        { errBody = "SPV target not reachable: " <> spvErrOf e }
+      Left e@SpvExceptionVerificationFailed{} -> throwError $ err400
+        { errBody = "SPV verification failed: " <> spvErrOf e }
+      Left e -> throwError $ err400
+        { errBody = "Internal error: SPV verification failed: " <> spvErrOf e }
       Right q -> return q
 
-
     return $! b64 p
-
   where
-    logg
-      = logFunctionJson (setComponent "spv-handler" l) Info
-      . PactCmdLogSpv
-
     pe = _chainResPact chainR
     ph = Pact.fromUntypedHash $ unRequestKey rk
     cdb = _cutResCutDb cutR
@@ -347,6 +346,14 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
       . sshow
       . Base64.encode
       . Aeson.encode
+
+    logg
+      = logFunctionJson (setComponent "spv-handler" l) Info
+      . PactCmdLogSpv
+
+    errOf = BSL8.fromStrict
+      . encodeUtf8
+
 
 ------------------------------------------------------------------------------
 
