@@ -810,10 +810,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     pure $! T2 (dl . (res :)) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
-toHashCommandResult = over (P.crLogs . _Just) f
-  where
-    f !x = let !out = P.pactHash $ encodeToByteString x
-           in out
+toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do

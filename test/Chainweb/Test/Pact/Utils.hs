@@ -57,9 +57,7 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import Data.IORef
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 
@@ -156,8 +154,7 @@ goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
-    let nonce = "1"
-    mkTestExecTransactions "sender00" "0" ks nonce 10000 0.01 1000000 0 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -184,20 +181,21 @@ mkTestExecTransactions
       -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
 mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
-    nref <- newIORef (0 :: Int)
-    traverse (go nref) txs
+    fmap snd $ foldM go (0 :: Int, mempty) txs
   where
-    go nref (PactTransaction c d) = do
+    go (!n,acc) (PactTransaction c d) = do
       let dd = mergeObjects (toList d)
           pm = PublicMeta cid sender gas gasrate ttl ct
           msg = Exec (ExecMsg c dd)
 
-      nn <- readIORef nref
-      writeIORef nref $! succ nn
-      let nonce = T.append nonce0 (T.pack $ show nn)
+      let nonce = nonce0 <> sshow n
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
-        ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+        ProcSucc t ->
+          let
+            r = fmap (k t) $ SB.toShort <$> cmd
+            -- order matters for these tests
+          in return $ (succ n, Vector.snoc acc r)
         ProcFail e -> throwM $ userError e
 
     k t bs = PayloadWithText bs (_cmdPayload t)
