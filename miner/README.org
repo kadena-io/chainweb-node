@@ -189,7 +189,7 @@ Your coins are likely gone.
 This?
 
 #+begin_example
-  2019-09-16 16:58:37.289252: [info] Chain 6: Mining Success!
+  2019-09-16 16:58:37.289252: [info] Chain 6: Mined block at Height 12440.
 #+end_example
 
 And yet your balance on Chain 6 remains unchanged?
@@ -219,17 +219,17 @@ chains to grow evenly.
 This?
 
 #+begin_example
-  2019-09-16 17:30:11.791641: [info] Chain 7: Current work was preempted.
-  2019-09-16 17:30:15.759249: [info] Chain 8: Current work was preempted.
-  2019-09-16 17:30:27.340109: [info] Chain 9: Current work was preempted.
-  2019-09-16 17:30:57.343577: [info] Chain 6: Current work was preempted.
-  2019-09-16 17:31:04.998382: [info] Chain 9: Current work was preempted.
-  2019-09-16 17:31:14.649440: [info] Chain 1: Current work was preempted.
-  2019-09-16 17:31:25.503355: [info] Chain 4: Current work was preempted.
-  2019-09-16 17:31:45.471371: [info] Chain 9: Current work was preempted.
-  2019-09-16 17:31:56.940698: [info] Chain 2: Current work was preempted.
-  2019-09-16 17:32:16.807348: [info] Chain 9: Current work was preempted.
-  2019-09-16 17:32:21.721842: [info] Chain 8: Current work was preempted.
+  2019-09-16 17:30:11.791641: [debug] Chain 7: Current work was preempted.
+  2019-09-16 17:30:15.759249: [debug] Chain 8: Current work was preempted.
+  2019-09-16 17:30:27.340109: [debug] Chain 9: Current work was preempted.
+  2019-09-16 17:30:57.343577: [debug] Chain 6: Current work was preempted.
+  2019-09-16 17:31:04.998382: [debug] Chain 9: Current work was preempted.
+  2019-09-16 17:31:14.649440: [debug] Chain 1: Current work was preempted.
+  2019-09-16 17:31:25.503355: [debug] Chain 4: Current work was preempted.
+  2019-09-16 17:31:45.471371: [debug] Chain 9: Current work was preempted.
+  2019-09-16 17:31:56.940698: [debug] Chain 2: Current work was preempted.
+  2019-09-16 17:32:16.807348: [debug] Chain 9: Current work was preempted.
+  2019-09-16 17:32:21.721842: [debug] Chain 8: Current work was preempted.
 #+end_example
 
 This is normal. This means that other miners are beating you, and that you
