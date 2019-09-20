@@ -106,7 +106,7 @@ withMiningCoordination logger enabled cutDb inner
     f ago (T3 _ (PrevTime p) _) = p > BlockCreationTime ago
 
     avgTxs :: MiningState -> Int
-    avgTxs (MiningState ms) = summed `div` M.size ms
+    avgTxs (MiningState ms) = summed `div` max 1 (M.size ms)
       where
         summed :: Int
         summed = M.foldl' (\acc (T3 _ _ ps) -> acc + g ps) 0 ms
