@@ -19,6 +19,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.ByteString (ByteString)
 import Data.Text (Text, pack)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
@@ -27,6 +28,7 @@ import GHC.Generics
 
 -- internal pact modules
 
+import Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash
 
@@ -34,7 +36,6 @@ import Pact.Types.Hash
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -99,21 +100,20 @@ instance Show LookupPactTxsReq where
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey
-    , _spvTargetChain :: ChainId
-    }
-    deriving stock (Eq, Show, Generic)
+    , _spvTargetChainId :: Pact.ChainId
+    } deriving (Eq, Show, Generic)
 
 instance ToJSON SpvRequest where
   toJSON (SpvRequest k tid) = object
     [ "requestKey" .= k
-    , "targetChain" .= tid
+    , "targetChainId" .= tid
     ]
 
 instance FromJSON SpvRequest where
   parseJSON = withObject "SpvRequest" $ \o -> SpvRequest
     <$> o .: "requestKey"
-    <*> o .: "targetChain"
+    <*> o .: "targetChainId"
 
-newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
+newtype TransactionOutputProofB64 = TransactionOutputProofB64 ByteString
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)

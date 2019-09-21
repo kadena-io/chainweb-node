@@ -35,6 +35,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL.Lazy as Base64
 import qualified Data.ByteString.Short as SB
 import Data.CAS
@@ -62,10 +63,11 @@ import System.LogLevel
 
 -- internal modules
 
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
-import qualified Pact.Types.Hash as H
+import qualified Pact.Types.Hash as Pact
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -83,6 +85,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
 import qualified Chainweb.TreeDB as TreeDB
@@ -299,12 +302,12 @@ spvHandler
     -> ChainResources l
         -- ^ chain resources contain a pact service
     -> SpvRequest
-        -- ^ Contains the chain id of the target chain id used in the
+        -- ^ Contains the (pact) chain id of the target chain id used in the
         -- 'target-chain' field of a cross-chain-transfer.
         -- Also contains the request key of of the cross-chain transfer
         -- tx request.
     -> Handler TransactionOutputProofB64
-spvHandler l cutR cid chainR (SpvRequest rk tid) = do
+spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     liftIO $! logg (sshow ph)
 
     cut <- liftIO $! CutDB._cut cdb
@@ -312,7 +315,7 @@ spvHandler l cutR cid chainR (SpvRequest rk tid) = do
 
     T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
       Left e -> throwError $ err400
-        { errBody = "Transaction hash lookup failed: " <> sshow e }
+        { errBody = "Internal error: transaction hash lookup failed: " <> sshow e }
       Right v -> case v ^?! _head of
         Nothing -> throwError $ err400
           { errBody = "Transaction hash not found: " <> sshow ph }
@@ -320,26 +323,38 @@ spvHandler l cutR cid chainR (SpvRequest rk tid) = do
 
     idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
       Left e -> throwError $ err400
-        { errBody = "Index lookup for hash failed: " <> sshow e }
-      Right !i -> return i
+        { errBody = "Internal error: Index lookup for hash failed: " <> sshow e }
+      Right i -> return i
 
-    p <- liftIO $! createTransactionOutputProof cdb tid cid bhe idx
+    tid <- chainIdFromText ptid
+    p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
+      Left e@SpvExceptionTargetNotReachable{} -> throwError $ err400
+        { errBody = "SPV target not reachable: " <> spvErrOf e }
+      Left e@SpvExceptionVerificationFailed{} -> throwError $ err400
+        { errBody = "SPV verification failed: " <> spvErrOf e }
+      Left e -> throwError $ err400
+        { errBody = "Internal error: SPV verification failed: " <> spvErrOf e }
+      Right q -> return q
+
     return $! b64 p
-
   where
-    logg
-      = logFunctionJson (setComponent "spv-handler" l) Info
-      . PactCmdLogSpv
-
     pe = _chainResPact chainR
-    ph = H.fromUntypedHash $ unRequestKey rk
+    ph = Pact.fromUntypedHash $ unRequestKey rk
     cdb = _cutResCutDb cutR
     bdb = _chainResBlockHeaderDb chainR
     pdb = view CutDB.cutDbPayloadCas cdb
     b64 = TransactionOutputProofB64
-      . sshow
+      . LBS.toStrict
       . Base64.encode
       . Aeson.encode
+
+    logg
+      = logFunctionJson (setComponent "spv-handler" l) Info
+      . PactCmdLogSpv
+
+    spvErrOf = BSL8.fromStrict
+      . encodeUtf8
+      . _spvExceptionMsg
 
 ------------------------------------------------------------------------------
 
@@ -362,7 +377,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
   where
     pactEx = view chainResPact chain
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
-    !requestKeys = V.map (H.fromUntypedHash . unRequestKey) requestKeysV
+    !requestKeys = V.map (Pact.fromUntypedHash . unRequestKey) requestKeysV
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
     bhdb = _chainResBlockHeaderDb chain
 
@@ -374,15 +389,18 @@ internalPoll cutR cid chain cut requestKeys0 = do
     -- TODO: group by block for performance (not very important right now)
     lookupRequestKey key bHash = runMaybeT $ do
         let keyHash = unRequestKey key
-        let pactHash = H.fromUntypedHash keyHash
+        let pactHash = Pact.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) ->
-                MaybeT $ return $! decodeStrict' output
+            (Just (_cmd, (TransactionOutput output))) -> do
+                out <- MaybeT $ return $! decodeStrict' output
+                when (_crReqKey out /= key) $
+                    fail "internal error: Transaction output doesn't match its hash!"
+                return out
             Nothing -> mzero
 
     fromTx (!tx, !out) = do
