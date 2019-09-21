@@ -133,7 +133,8 @@ generateSimpleTransactions = do
       kps <- testSomeKeyPairs
 
       let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
-      (Nothing,) <$> mkExec theCode theData (Sim.makeMeta cid) (NEL.toList kps) Nothing
+      meta <- Sim.makeMeta cid
+      (Nothing,) <$> mkExec theCode theData meta (NEL.toList kps) Nothing
 
 -- | O(1). The head value is moved to the end.
 rotate :: NESeq a -> NESeq a
@@ -191,7 +192,8 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
               CoinAccountBalance account -> acclookup account
               CoinTransfer (SenderName sn) _ _ -> acclookup sn
               CoinTransferAndCreate (SenderName acc) _ (Guard guardd) _ -> (acc, guardd)
-      (msg,) <$> createCoinContractRequest (Sim.makeMetaWithSender sender cid) ks coinContractRequest
+      meta <- Sim.makeMetaWithSender sender cid
+      (msg,) <$> createCoinContractRequest meta ks coinContractRequest
 
     payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
     payments cid paymentAccts = do
@@ -200,10 +202,12 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
         SPRequestPay fromAccount _ _ -> case M.lookup fromAccount paymentAccts of
           Nothing ->
             error "This account does not have an associated keyset!"
-          Just keyset ->
-            simplePayReq (Sim.makeMeta cid) paymentsRequest $ Just keyset
-        SPRequestGetBalance _account ->
-          simplePayReq (Sim.makeMeta cid) paymentsRequest Nothing
+          Just keyset -> do
+            meta <- Sim.makeMeta cid
+            simplePayReq meta paymentsRequest $ Just keyset
+        SPRequestGetBalance _account -> do
+          meta <- Sim.makeMeta cid
+          simplePayReq meta paymentsRequest Nothing
         _ -> error "SimplePayments.CreateAccount code generation not supported"
 
 sendTransactions
@@ -244,7 +248,7 @@ loadContracts :: Args -> HostAddress -> NonEmpty ContractLoader -> IO ()
 loadContracts config host contractLoaders = do
   TXGConfig _ _ ce v _ (Verbose vb) <- mkTXGConfig Nothing config host
   forM_ (nodeChainIds config) $ \cid -> do
-    let !meta = Sim.makeMeta cid
+    !meta <- Sim.makeMeta cid
     ts <- testSomeKeyPairs
     contracts <- traverse (\f -> f meta ts) contractLoaders
     pollresponse <- runExceptT $ do
@@ -269,7 +273,7 @@ realTransactions config host tv distribution = do
                $ nodeChainIds config
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
-    let !meta = Sim.makeMeta cid
+    !meta <- liftIO $ Sim.makeMeta cid
     (paymentKS, paymentAcc) <- liftIO $ NEL.unzip <$> Sim.createPaymentsAccounts meta
     (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts meta
     pollresponse <- liftIO . runExceptT $ do
@@ -322,9 +326,9 @@ realCoinTransactions config host tv distribution = do
                $ nodeChainIds config
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
-    -- let !meta = Sim.makeMetaWithSender cid
-    let f (Sim.Account sender) =
-          Sim.createCoinAccount (Sim.makeMetaWithSender sender cid) sender
+    let f (Sim.Account sender) = do
+          meta <- liftIO $ Sim.makeMetaWithSender sender cid
+          Sim.createCoinAccount meta sender
     (coinKS, _coinAcc) <-
         liftIO $ unzip <$> traverse f Sim.coinAccountNames
     let accounts = buildGenAccountsKeysets (NEL.fromList Sim.coinAccountNames) (NEL.fromList coinKS)
@@ -409,7 +413,8 @@ singleTransaction args host (SingleTX c cid)
   | otherwise = do
       cfg <- mkTXGConfig Nothing args host
       kps <- testSomeKeyPairs
-      cmd <- mkExec (T.unpack c) (datum kps) (Sim.makeMeta cid) (NEL.toList kps) Nothing
+      meta <- Sim.makeMeta cid
+      cmd <- mkExec (T.unpack c) (datum kps) meta (NEL.toList kps) Nothing
       runExceptT (f cfg cmd) >>= \case
         Left e -> print e >> exitWith (ExitFailure 1)
         Right res -> pPrintNoColor res
