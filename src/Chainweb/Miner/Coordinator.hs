@@ -141,7 +141,6 @@ newWork choice miner pact c = do
             -- that shouldn't be repeated.
             --
             creationTime <- getCurrentTimeIntegral
-
             payload <- _pactNewBlock pact miner p (BlockCreationTime creationTime)
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`

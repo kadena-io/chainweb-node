@@ -364,14 +364,21 @@ validatingMempoolConfig cid cutmv mv = Mempool.InMemConfig
     blockGasLimit = 100000
     maxRecentLog = 2048
     hasher = Mempool.txHasher txcfg
-    preInsertCheck txs = do
+    preInsertCheck (Mempool.Validators validators) txs = do
         cdb <- readMVar cutmv
         curCut <- _cut cdb
         bh <- lookupCutM cid curCut
         let hashes = V.map toPactHash $ V.map hasher txs
         pex <- readMVar mv
         mbs <- _pactLookup pex bh hashes >>= either throwM return
-        return $! V.map (== Nothing) mbs
+        let oks = V.map (== Nothing) mbs
+        return $! composeValidators txs oks validators
+      where
+        composeValidators xs ys zs =
+            foldl'
+            (\b validator -> b `seq` V.zipWith (&&) b (validator <$!> xs))
+            ys
+            zs
     toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
 -- Intializes all local chainweb components but doesn't start any networking.

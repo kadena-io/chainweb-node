@@ -36,13 +36,13 @@ tests = testGroup "Chainweb.Mempool.sync" [
          ]
   where
     wf f = do
-        mv <- newMVar (V.mapM (const $ return True))
+        mv <- newMVar (\_ -> V.mapM (const $ return True))
         let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMv mv)
         withInMemoryMempool cfg $ f mv
 
-    checkMv mv xs = do
+    checkMv mv vs xs = do
         f <- readMVar mv
-        f xs
+        f vs xs
 
     gen :: PropertyM IO (Set MockTx, Set MockTx, Set MockTx)
     gen = do
@@ -55,14 +55,13 @@ tests = testGroup "Chainweb.Mempool.sync" [
 
 txcfg :: TransactionConfig MockTx
 txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
-                          mockGasLimit mockMeta preGossipCheck
+                          mockGasLimit mockMeta
   where
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
-    preGossipCheck = const True
 
 testInMemCfg :: InMemConfig MockTx
-testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (V.mapM $ const $ return True)
+testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (\_ -> V.mapM $ const $ return True)
 
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)

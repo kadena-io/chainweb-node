@@ -27,7 +27,6 @@ import Control.Monad (when)
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
--- import Data.List (foldl')
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V

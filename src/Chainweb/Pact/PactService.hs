@@ -31,7 +31,7 @@ module Chainweb.Pact.PactService
     , initPactService'
     , minerReward
     ) where
-
+import Debug.Trace
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -264,7 +264,8 @@ serviceRequests memPoolAccess reqQ = do
                 go
             NewBlockMsg NewBlockReq {..} -> do
                 tryOne "execNewBlock" _newResultVar $
-                    execNewBlock memPoolAccess _newBlockHeader _newMiner _newCreationTime
+                    execNewBlock memPoolAccess _newBlockHeader _newMiner
+                        _newCreationTime
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne' "execValidateBlock"
@@ -426,13 +427,13 @@ validateChainwebTxsPreBlock
     -> BlockHash
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxsPreBlock dbEnv cp (BlockCreationTime blockOriginationTime) bh hash txs = do
+validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
     lb <- _cpGetLatestBlock cp
     when (Just (pred bh, hash) /= lb) $
         fail "internal error: restore point is wrong, refusing to validate."
     V.mapM checkOne txs
   where
-    checkAccount tx = do
+    checkAccount validators tx = do
       let !pm = P._pMeta $ _payloadObj $ P._cmdPayload tx
       let sender = P._pmSender pm
           (P.GasLimit (P.ParsedInteger limit)) = P._pmGasLimit pm
@@ -441,17 +442,19 @@ validateChainwebTxsPreBlock dbEnv cp (BlockCreationTime blockOriginationTime) bh
       m <- readCoinAccount dbEnv sender
       case m of
         Nothing -> return True
-        Just (T2 b _g) -> return $! b >= limitInCoin
+        Just (T2 b _g) -> do
+          let validations = and $ map ($ tx) validators
+          return $! b >= limitInCoin && validations
 
     checkOne tx = do
         let pactHash = view P.cmdHash tx
         mb <- _cpLookupProcessedTx cp pactHash
         if mb == Nothing
         -- prop_tx_ttl_newblock_validate
-        then (&&) <$> checkAccount tx <*> return (k tx)
+        then checkAccount [k] tx
         else return False
       where
-        k tx' = timingsCheck (BlockCreationTime blockOriginationTime) (_payloadObj <$> tx')
+        k tx' = timingsCheck blockOriginationTime (_payloadObj <$> tx')
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
 -- associated with account name
@@ -645,15 +648,35 @@ playOneBlock currHeader plData pdbenv = do
     trans <- liftIO $ transactionsFromPayload plData
 
     -- prop_tx_ttl_validateblock_validate
-    let validTrans = if isGenesisBlock then trans
-          else V.filter k trans
+    case validateTxs trans of
+      [] -> return ()
+      badtxs -> throwM $ TransactionValidationException badtxs
 
-    !results <- go miner validTrans
+    !results <- go miner trans
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
   where
 
     k = timingsCheck (_blockCreationTime currHeader) . fmap _payloadObj
+
+    validationErr hash = mconcat
+      ["At "
+      , sshow (_blockHeight currHeader)
+      , " and "
+      , sshow (_blockHash currHeader)
+      , " this transaction (its hash): "
+      , sshow hash
+      , " failed to validate"
+      ]
+
+    validateTxs = foldr validate []
+      where
+        validate tx b =
+          trace (show $ "blockheight: " ++ " " ++ (show $ _blockHeight $ currHeader)) $
+          trace (show $ P._pMeta $ _payloadObj $ P._cmdPayload $ tx) $
+          if k tx then b
+          else let hash = P._cmdHash tx
+               in ((hash, validationErr hash) : b)
 
     bParent = _blockParent currHeader
 

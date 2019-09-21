@@ -17,6 +17,7 @@ module Chainweb.Mempool.InMemTypes
   , RecentItem
   , RecentLog(..)
   , MempoolStats(..)
+  , Validators(..)
   ) where
 
 ------------------------------------------------------------------------------
@@ -46,8 +47,10 @@ data InMemConfig t = InMemConfig {
   , _inmemTxBlockSizeLimit :: !GasLimit
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
     -- Here True means 'OK to insert'
-  , _inmemPreInsertCheck :: !(V.Vector t -> IO (V.Vector Bool))
+  , _inmemPreInsertCheck :: !(Validators t -> V.Vector t -> IO (V.Vector Bool))
 }
+
+data Validators t = forall f. Foldable f => Validators (f (t -> Bool))
 
 ------------------------------------------------------------------------------
 data InMemoryMempool t = InMemoryMempool {
