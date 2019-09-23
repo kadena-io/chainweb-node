@@ -15,7 +15,8 @@
 -- This module defines the client API for the main Pact service
 -- and its spv continuation proof endpoints.
 module Chainweb.Pact.RestAPI.Client
-( pactSpvApiClient
+( pactSpvApiClient_
+, pactSpvApiClient
 , pactPollApiClient_
 , pactPollApiClient
 , pactListenApiClient_
