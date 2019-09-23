@@ -21,8 +21,10 @@ import Control.Exception (bracket)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
+import GHC.Stack
 import Data.Decimal (Decimal)
 import Data.Function (on)
+import qualified Data.HashSet as HashSet
 import Data.Int (Int64)
 import Data.IORef
 import Data.List (sort, sortBy)
@@ -85,10 +87,11 @@ genTwoSets = do
     ord = compare `on` onFees
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
 
--- TODO: remove "remoteTests" here and fold in the test funcs, since there is
--- no longer a distinction
 tests :: MempoolWithFunc -> [TestTree]
-tests withMempool = remoteTests withMempool
+tests withMempool = remoteTests withMempool ++
+                    map ($ withMempool) [
+      mempoolProperty "getblock badlist" genTwoSets propBadlist
+    ]
 
 arbitraryDecimal :: Gen Decimal
 arbitraryDecimal = do
@@ -156,15 +159,46 @@ propOverlarge (txs, overlarge0) _ mempool = runExceptT $ do
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
 
+propBadlist
+    :: ([MockTx], [MockTx])
+    -> InsertCheck
+    -> MempoolBackend MockTx
+    -> IO (Either String ())
+propBadlist (txs, badTxs) _ mempool = runExceptT $ do
+    liftIO $ insert $ txs ++ badTxs
+    liftIO (lookup txs) >>= V.mapM_ lookupIsPending
+
+    -- we will accept the bad txs initially
+    liftIO (lookup badTxs) >>= V.mapM_ lookupIsPending
+
+    -- once we call mempoolGetBlock, the bad txs should be badlisted
+    liftIO $ void $ mempoolGetBlock mempool preblockCheck 1 nullBlockHash 10000000
+    liftIO (lookup txs) >>= V.mapM_ lookupIsPending
+    liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
+    liftIO $ insert badTxs
+    liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
+
+  where
+    badHashes = HashSet.fromList $ map hash badTxs
+
+    preblockCheck _ _ ts =
+      let hashes = V.map hash ts
+      in return $! V.map (not . flip HashSet.member badHashes) hashes
+
+    txcfg = mempoolTxConfig mempool
+    hash = txHasher txcfg
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    lookup = mempoolLookup mempool . V.fromList . map hash
+
 propPreInsert
     :: ([MockTx], [MockTx])
     -> InsertCheck
     -> MempoolBackend MockTx
     -> IO (Either String ())
 propPreInsert (txs, badTxs) gossipMV mempool =
-   bracket (readMVar gossipMV)
-           (\old -> modifyMVar_ gossipMV (const $ return old))
-           (const go)
+    bracket (readMVar gossipMV)
+            (\old -> modifyMVar_ gossipMV (const $ return old))
+            (const go)
 
   where
     go = runExceptT $ do
@@ -270,10 +304,10 @@ uniq (x:ys@(y:rest)) | x == y    = uniq (x:rest)
                      | otherwise = x : uniq ys
 
 
-lookupIsPending :: Monad m => LookupResult t -> m ()
+lookupIsPending :: HasCallStack => MonadIO m => LookupResult t -> m ()
 lookupIsPending (Pending _) = return ()
-lookupIsPending _ = fail "lookup failure: expected pending"
+lookupIsPending _ = liftIO $ fail "lookup failure: expected pending"
 
-lookupIsMissing :: Monad m => LookupResult t -> m ()
+lookupIsMissing :: HasCallStack => MonadIO m => LookupResult t -> m ()
 lookupIsMissing Missing = return ()
-lookupIsMissing _ = fail "lookup failure: expected missing"
+lookupIsMissing _ = liftIO $ fail "lookup failure: expected missing"
