@@ -242,7 +242,7 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "tx-counter") 
     toUpdate (Left bh) = BlockUpdate
         <$> pure bh -- _blockUpdateBlockHeader
         <*> pure True -- _blockUpdateOrphaned
-        <*> ((1 -) <$> txCount bh) -- _blockUpdateTxCount
+        <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
 runAmberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
 runAmberdataBlockMonitor cid logger db
