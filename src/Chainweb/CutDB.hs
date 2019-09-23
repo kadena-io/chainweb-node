@@ -95,6 +95,7 @@ import Data.Ord
 import Data.Reflection hiding (int)
 import qualified Data.Text as T
 import Data.These
+import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
@@ -509,17 +510,17 @@ cutStreamToHeaderStream
     => CutDb cas
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of BlockHeader) m r
-cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(p, n) ->
+cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
     S.foldrT
         (\(cid, a, b) x -> void $ S.mergeOn uniqueBlockNumber x (branch cid a b))
         (S.each $ zipCuts p n)
   where
-    go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (Cut, Cut)) m r
+    go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
     go c st = lift (S.next st) >>= \case
         Left r -> return r
         Right (x, t) -> case c of
             Nothing -> go (Just x) t
-            Just a -> S.yield (a, x) >> go (Just x) t
+            Just a -> S.yield (T2 a x) >> go (Just x) t
 
     branch :: ChainId -> BlockHeader -> BlockHeader -> S.Stream (Of BlockHeader) m ()
     branch cid p n = hoist liftIO $ getBranch
@@ -536,17 +537,17 @@ cutStreamToHeaderDiffStream
     => CutDb cas
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
-cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(p, n) ->
+cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
     S.foldrT
         (\(cid, a, b) x -> void $ S.mergeOn toOrd x (branch cid a b))
         (S.each $ zipCuts p n)
   where
-    cutUpdates :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (Cut, Cut)) m r
+    cutUpdates :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
     cutUpdates c st = lift (S.next st) >>= \case
         Left r -> return r
         Right (x, t) -> case c of
             Nothing -> cutUpdates (Just x) t
-            Just a -> S.yield (a, x) >> cutUpdates (Just x) t
+            Just a -> S.yield (T2 a x) >> cutUpdates (Just x) t
 
     branch :: ChainId -> BlockHeader -> BlockHeader -> S.Stream (Of (Either BlockHeader BlockHeader)) m ()
     branch cid p n = hoist liftIO
