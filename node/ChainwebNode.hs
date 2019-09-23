@@ -199,7 +199,7 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
             $ cutStream db
 
 data BlockUpdate = BlockUpdate
-    { _blockUpdateBlockHeader :: !BlockHeader
+    { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader)
     , _blockUpdateOrphaned :: !Bool
     , _blockUpdateTxCount :: !Int
     }
@@ -236,11 +236,11 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "tx-counter") 
 
     toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
     toUpdate (Right bh) = BlockUpdate
-        <$> pure bh -- _blockUpdateBlockHeader
+        <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
         <*> pure False -- _blockUpdateOrphaned
         <*> txCount bh -- _blockUpdateTxCount
     toUpdate (Left bh) = BlockUpdate
-        <$> pure bh -- _blockUpdateBlockHeader
+        <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
