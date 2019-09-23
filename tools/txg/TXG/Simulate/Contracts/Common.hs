@@ -3,6 +3,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
@@ -137,13 +138,13 @@ instance Fake Account where
   fake = elements $ NEL.toList accountNames
 
 newtype Amount = Amount
-  { getAmount :: Double
+  { getAmount :: Decimal
   } deriving (Eq, Show, Generic)
 
 instance Fake Amount where
   fake =
-    Amount <$>
-    (fromRange (lowerLimit, upperLimit) :: FGen Double)
+    (Amount . realFracToDecimal 12) <$>
+    (fromRange @Double (lowerLimit, upperLimit))
     where
       lowerLimit = 0
       upperLimit = 5
