@@ -51,14 +51,15 @@ import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
 import Data.Bool
+import Data.CAS
 import Data.CAS.RocksDB
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import Data.Typeable
 
 import GHC.Generics hiding (from)
 import GHC.Stats
 
-import qualified Data.HashSet as HS
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
 
@@ -72,6 +73,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Counter
@@ -85,6 +87,7 @@ import Chainweb.Mempool.Consensus (ReintroducedTxsLog)
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
@@ -195,6 +198,52 @@ runCutMonitor logger db = L.withLoggerLabel ("component", "cut-monitor") logger 
             $ S.map (cutToCutHashes Nothing)
             $ cutStream db
 
+data BlockUpdate = BlockUpdate
+    { _blockUpdateBlockHeader :: !(ObjectEncoded BlockHeader)
+    , _blockUpdateOrphaned :: !Bool
+    , _blockUpdateTxCount :: !Int
+    }
+    deriving (Show, Eq, Ord, Generic, NFData)
+
+instance ToJSON BlockUpdate where
+    toEncoding o = pairs
+        $ "header" .= _blockUpdateBlockHeader o
+        <> "orphaned" .= _blockUpdateOrphaned o
+        <> "txCount" .= _blockUpdateTxCount o
+    toJSON o = object
+        [ "header" .= _blockUpdateBlockHeader o
+        , "orphaned" .= _blockUpdateOrphaned o
+        , "txCount" .= _blockUpdateTxCount o
+        ]
+
+    {-# INLINE toEncoding #-}
+    {-# INLINE toJSON #-}
+
+runBlockUpdateMonitor :: PayloadCas cas => Logger logger => logger -> CutDb cas -> IO ()
+runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "tx-counter") logger $ \l ->
+    runMonitorLoop "ChainwebNode.txCounter" l $ do
+        logFunctionText l Info $ "Initialized tx counter"
+        blockDiffStream db
+            & S.mapM toUpdate
+            & S.mapM_ (logFunctionJson l Info)
+  where
+    payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+
+    txCount :: BlockHeader -> IO Int
+    txCount bh = do
+        x <- casLookupM payloadCas (_blockPayloadHash bh)
+        return $ length $ _payloadWithOutputsTransactions x
+
+    toUpdate :: Either BlockHeader BlockHeader -> IO BlockUpdate
+    toUpdate (Right bh) = BlockUpdate
+        <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
+        <*> pure False -- _blockUpdateOrphaned
+        <*> txCount bh -- _blockUpdateTxCount
+    toUpdate (Left bh) = BlockUpdate
+        <$> pure (ObjectEncoded bh) -- _blockUpdateBlockHeader
+        <*> pure True -- _blockUpdateOrphaned
+        <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
+
 runAmberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
 runAmberdataBlockMonitor cid logger db
     = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
@@ -255,6 +304,8 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionText l Info $ "logged stats"
             approximateThreadDelay 60000000 {- 1 minute -}
 
+
+
 -- -------------------------------------------------------------------------- --
 -- Run Node
 
@@ -270,6 +321,7 @@ node conf logger = do
             , runAmberdataBlockMonitor (amberdataChainId conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runRtsMonitor (_chainwebLogger cw)
+            , runBlockUpdateMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             ]
   where
     cwConf = _nodeConfigChainweb conf
@@ -323,6 +375,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @Trace mgr teleLogConfig
     mempoolStatsBackend <- managed
         $ mkTelemetryLogger @MempoolStats mgr teleLogConfig
+    blockUpdateBackend <- managed
+        $ mkTelemetryLogger @BlockUpdate mgr teleLogConfig
 
     logger <- managed
         $ L.withLogger (_logConfigLogger logConfig) $ logHandles
@@ -340,6 +394,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler reintroBackend
             , logHandler traceBackend
             , logHandler mempoolStatsBackend
+            , logHandler blockUpdateBackend
             ] baseBackend
 
     liftIO $ f
