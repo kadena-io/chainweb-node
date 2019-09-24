@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI.Server
@@ -55,19 +56,23 @@ import qualified Streaming.Prelude as SP
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader, ObjectEncoded(..))
+import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..))
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
-import Chainweb.CutDB (CutDb, blockDiffStream)
+import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadStore)
+import Chainweb.Payload (PayloadWithOutputs(..))
+import Chainweb.Payload.PayloadStore.Types (PayloadCas, PayloadDb)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStoreCas)
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
+import Data.CAS (casLookupM)
 import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
@@ -294,20 +299,31 @@ someBlockHeaderDbServers v = mconcat
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someHeaderStreamServer :: ChainwebVersion -> CutDb cas -> SomeServer
+someHeaderStreamServer :: PayloadCas cas => ChainwebVersion -> CutDb cas -> SomeServer
 someHeaderStreamServer (FromSing (SChainwebVersion :: Sing v)) cdb =
     SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
 
 headerStreamServer
-    :: forall cas (v :: ChainwebVersionT). CutDb cas -> Server (HeaderStreamApi v)
+    :: forall cas (v :: ChainwebVersionT)
+    .  PayloadCas cas
+    => CutDb cas
+    -> Server (HeaderStreamApi v)
 headerStreamServer cdb = headerStreamHandler cdb
 
-headerStreamHandler :: CutDb cas -> Tagged Handler Application
+headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler Application
 headerStreamHandler db = Tagged $ \req respond -> do
     chan <- newChan
-    void . SP.mapM_ (writeChan chan . f) . SP.concat $ blockDiffStream db
+    void . SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db
     eventSourceAppChan chan req respond
   where
-    f :: BlockHeader -> ServerEvent
-    f bh = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
-        [ fromLazyByteString . encode . toJSON $ ObjectEncoded bh ]
+    cas :: PayloadDb cas
+    cas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+
+    g :: BlockHeader -> IO HeaderUpdate
+    g bh = do
+        x <- casLookupM cas $ _blockPayloadHash bh
+        pure $ HeaderUpdate (ObjectEncoded bh) (length $ _payloadWithOutputsTransactions x)
+
+    f :: HeaderUpdate -> ServerEvent
+    f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
+        [ fromLazyByteString . encode $ toJSON hu ]

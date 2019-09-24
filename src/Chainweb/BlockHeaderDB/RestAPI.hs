@@ -67,6 +67,7 @@ module Chainweb.BlockHeaderDB.RestAPI
 
 -- * BlockHeader Event Stream
 , HeaderStream(..)
+, HeaderUpdate(..)
 , HeaderStreamApi
 , headerStreamApi
 , someHeaderStreamApi
@@ -381,6 +382,13 @@ someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)
 -- BlockHeader Event Stream
 
 newtype HeaderStream = HeaderStream Bool
+
+data HeaderUpdate = HeaderUpdate
+    { _huHeader :: !(ObjectEncoded BlockHeader)
+    , _huTxCount :: !Int }
+
+instance ToJSON HeaderUpdate where
+    toJSON o = object [ "header" .= _huHeader o, "txCount" .= _huTxCount o ]
 
 type HeaderStreamApi_ = "header" :> "updates" :> Raw
 
