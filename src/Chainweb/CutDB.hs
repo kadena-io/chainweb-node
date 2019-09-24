@@ -560,8 +560,9 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
         That a -> S.each [Right a]
         These a b -> S.each [Left a, Right b]
 
-    toOrd (Right a) = uniqueBlockNumber a
-    toOrd (Left a) = 0 - uniqueBlockNumber a
+    toOrd :: Either BlockHeader BlockHeader -> Int
+    toOrd (Right a) = int $ uniqueBlockNumber a
+    toOrd (Left a) = 0 - int (uniqueBlockNumber a)
 
 -- | Assign each block a unique number that respects the order of blocks in a
 -- chain:
