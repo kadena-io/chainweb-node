@@ -23,10 +23,6 @@ module Chainweb.CutDB.RestAPI
 , CutApi
 , cutApi
 
--- * BlockHeader Event Stream
-, HeaderStreamApi
-, headerStreamApi
-
 -- * Some Cut API
 , someCutApi
 ) where
@@ -83,7 +79,6 @@ cutPutApi = Proxy
 type CutApi v
     = CutGetApi v
     :<|> CutPutApi v
-    :<|> HeaderStreamApi v
 
 cutApi :: forall (v :: ChainwebVersionT) . Proxy (CutApi v)
 cutApi = Proxy
@@ -93,15 +88,3 @@ cutApi = Proxy
 
 someCutApi :: ChainwebVersion -> SomeApi
 someCutApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ cutApi @v
-
--- -------------------------------------------------------------------------- --
--- BlockHeader Event Stream
-
-type HeaderStreamApi_ = "header" :> "updates" :> Raw
-
--- | A stream of all new `BlockHeader`s that are accepted into the true `Cut`.
---
-type HeaderStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> HeaderStreamApi_
-
-headerStreamApi :: forall (v :: ChainwebVersionT). Proxy (HeaderStreamApi v)
-headerStreamApi = Proxy

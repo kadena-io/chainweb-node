@@ -65,6 +65,11 @@ module Chainweb.BlockHeaderDB.RestAPI
 , someBlockHeaderDbApi
 , someBlockHeaderDbApis
 
+-- * BlockHeader Event Stream
+, HeaderStreamApi
+, headerStreamApi
+, someHeaderStreamApi
+
 -- * Sub APIs
 , BranchHashesApi
 , branchHashesApi
@@ -103,6 +108,8 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
+
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- API types
@@ -368,3 +375,18 @@ someBlockHeaderDbApi v c = runIdentity $ do
 
 someBlockHeaderDbApis :: ChainwebVersion -> [ChainId] -> SomeApi
 someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader Event Stream
+
+type HeaderStreamApi_ = "header" :> "updates" :> Raw
+
+-- | A stream of all new `BlockHeader`s that are accepted into the true `Cut`.
+--
+type HeaderStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> HeaderStreamApi_
+
+headerStreamApi :: forall (v :: ChainwebVersionT). Proxy (HeaderStreamApi v)
+headerStreamApi = Proxy
+
+someHeaderStreamApi :: ChainwebVersion -> SomeApi
+someHeaderStreamApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v

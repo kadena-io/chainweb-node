@@ -2,6 +2,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -24,9 +25,13 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 -- * Single Chain Server
 , blockHeaderDbApp
 , blockHeaderDbApiLayout
+
+-- * Header Stream Server
+, someHeaderStreamServer
 ) where
 
 import Control.Applicative
+import Control.Concurrent.Chan (newChan, writeChan)
 import Control.Lens hiding (children, (.=))
 import Control.Monad
 import qualified Control.Monad.Catch as E (Handler(..), catches)
@@ -34,27 +39,36 @@ import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
 import Data.Aeson
+import Data.Binary.Builder (fromByteString, fromLazyByteString)
 import Data.Foldable
 import Data.Proxy
 import qualified Data.Text.IO as T
+
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppChan)
 
 import Prelude hiding (lookup)
 
 import Servant.API
 import Servant.Server
 
+import qualified Streaming.Prelude as SP
+
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeader, ObjectEncoded(..))
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
+import Chainweb.CutDB (CutDb, blockDiffStream)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
+
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -276,3 +290,24 @@ someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
 someBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
 someBlockHeaderDbServers v = mconcat
     . fmap (someBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader Event Stream
+
+someHeaderStreamServer :: ChainwebVersion -> CutDb cas -> SomeServer
+someHeaderStreamServer (FromSing (SChainwebVersion :: Sing v)) cdb =
+    SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
+
+headerStreamServer
+    :: forall cas (v :: ChainwebVersionT). CutDb cas -> Server (HeaderStreamApi v)
+headerStreamServer cdb = headerStreamHandler cdb
+
+headerStreamHandler :: CutDb cas -> Tagged Handler Application
+headerStreamHandler db = Tagged $ \req respond -> do
+    chan <- newChan
+    void . SP.mapM_ (writeChan chan . f) . SP.concat $ blockDiffStream db
+    eventSourceAppChan chan req respond
+  where
+    f :: BlockHeader -> ServerEvent
+    f bh = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
+        [ fromLazyByteString . encode . toJSON $ ObjectEncoded bh ]
