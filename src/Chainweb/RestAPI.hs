@@ -146,6 +146,7 @@ someChainwebApi v cs = someSwaggerApi
     <> someP2pApis v cs
     <> PactAPI.somePactServiceApis v chains
     <> someMiningApi v
+    <> someHeaderStreamApi v
   where
     chains = selectChainIds cs
 
@@ -210,6 +211,7 @@ someChainwebServer v dbs mr =
         <> someP2pServers v (_chainwebServerPeerDbs dbs)
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
         <> maybe mempty (Mining.someMiningServer v) mr
+        <> maybe mempty (someHeaderStreamServer v) (_chainwebServerCutDb dbs)
 
 chainwebApplication
     :: Show t
