@@ -213,8 +213,7 @@ someChainwebServer v dbs mr (HeaderStream hs) =
         <> someP2pServers v (_chainwebServerPeerDbs dbs)
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
         <> maybe mempty (Mining.someMiningServer v) mr
-        <> maybe mempty (someHeaderStreamServer v)
-               (bool Nothing (Just ()) hs >> _chainwebServerCutDb dbs)
+        <> maybe mempty (someHeaderStreamServer v) (bool Nothing (_chainwebServerCutDb dbs) hs)
 
 chainwebApplication
     :: Show t
