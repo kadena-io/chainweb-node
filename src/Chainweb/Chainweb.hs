@@ -52,7 +52,7 @@ module Chainweb.Chainweb
 , configChainwebVersion
 , configMiner
 , configCoordinator
-, configBlockStream
+, configHeaderStream
 , configReintroTxs
 , configP2p
 , configTransactionIndex
@@ -190,7 +190,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
     , _configCoordinator :: !Bool
-    , _configBlockStream :: !Bool
+    , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
@@ -217,7 +217,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
     , _configCoordinator = False
-    , _configBlockStream = False
+    , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
@@ -233,7 +233,7 @@ instance ToJSON ChainwebConfiguration where
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
         , "miningCoordination" .= _configCoordinator o
-        , "blockStream" .= _configBlockStream o
+        , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
@@ -249,7 +249,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
         <*< configCoordinator ..: "miningCoordination" % o
-        <*< configBlockStream ..: "blockStream" % o
+        <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
@@ -272,8 +272,8 @@ pChainwebConfiguration = id
     <*< configCoordinator .:: boolOption_
         % long "mining-coordination"
         <> help "whether to enable external requests for mining work"
-    <*< configBlockStream .:: boolOption_
-        % long "block-stream"
+    <*< configHeaderStream .:: boolOption_
+        % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
     <*< configReintroTxs .:: enableDisableFlag
         % long "tx-reintro"
@@ -490,7 +490,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebCutResources = cuts
                             , _chainwebMiner = m
                             , _chainwebCoordinator = mc
-                            , _chainwebHeaderStream = HeaderStream $ _configBlockStream conf
+                            , _chainwebHeaderStream = HeaderStream $ _configHeaderStream conf
                             , _chainwebLogger = logger
                             , _chainwebPeer = peer
                             , _chainwebPayloadDb = payloadDb

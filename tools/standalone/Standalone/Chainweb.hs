@@ -253,7 +253,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebMiner = m
                                       , _chainwebCoordinator = mc
                                       , _chainwebHeaderStream =
-                                          HeaderStream $ _configBlockStream conf
+                                          HeaderStream $ _configHeaderStream conf
                                       , _chainwebLogger = logger
                                       , _chainwebPeer = peer
                                       , _chainwebPayloadDb = payloadDb
