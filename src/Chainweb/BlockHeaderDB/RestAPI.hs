@@ -66,6 +66,7 @@ module Chainweb.BlockHeaderDB.RestAPI
 , someBlockHeaderDbApis
 
 -- * BlockHeader Event Stream
+, HeaderStream(..)
 , HeaderStreamApi
 , headerStreamApi
 , someHeaderStreamApi
@@ -378,6 +379,8 @@ someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
+
+newtype HeaderStream = HeaderStream Bool
 
 type HeaderStreamApi_ = "header" :> "updates" :> Raw
 

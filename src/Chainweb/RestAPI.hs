@@ -55,6 +55,7 @@ module Chainweb.RestAPI
 import Control.Lens
 
 import Data.Aeson.Encode.Pretty
+import Data.Bool (bool)
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe
 import Data.Proxy
@@ -199,8 +200,9 @@ someChainwebServer
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
     -> SomeServer
-someChainwebServer v dbs mr =
+someChainwebServer v dbs mr (HeaderStream hs) =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
         <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
@@ -211,7 +213,8 @@ someChainwebServer v dbs mr =
         <> someP2pServers v (_chainwebServerPeerDbs dbs)
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
         <> maybe mempty (Mining.someMiningServer v) mr
-        <> maybe mempty (someHeaderStreamServer v) (_chainwebServerCutDb dbs)
+        <> maybe mempty (someHeaderStreamServer v)
+               (bool Nothing (Just ()) hs >> _chainwebServerCutDb dbs)
 
 chainwebApplication
     :: Show t
@@ -220,9 +223,10 @@ chainwebApplication
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
     -> Application
-chainwebApplication v dbs mr =
-    chainwebCors . someServerApplication $ someChainwebServer v dbs mr
+chainwebApplication v dbs mr hs =
+    chainwebCors . someServerApplication $ someChainwebServer v dbs mr hs
 
 -- Simple cors with actualy simpleHeaders which includes content-type.
 chainwebCors :: Middleware
@@ -238,8 +242,9 @@ serveChainwebOnPort
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
     -> IO ()
-serveChainwebOnPort p v dbs mr = run (int p) $ chainwebApplication v dbs mr
+serveChainwebOnPort p v dbs mr hs = run (int p) $ chainwebApplication v dbs mr hs
 
 serveChainweb
     :: Show t
@@ -249,8 +254,9 @@ serveChainweb
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
     -> IO ()
-serveChainweb s v dbs mr = runSettings s $ chainwebApplication v dbs mr
+serveChainweb s v dbs mr hs = runSettings s $ chainwebApplication v dbs mr hs
 
 serveChainwebSocket
     :: Show t
@@ -261,9 +267,10 @@ serveChainwebSocket
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
     -> IO ()
-serveChainwebSocket s sock v dbs mr =
-    runSettingsSocket s sock $ chainwebApplication v dbs mr
+serveChainwebSocket s sock v dbs mr hs =
+    runSettingsSocket s sock $ chainwebApplication v dbs mr hs
 
 serveChainwebSocketTls
     :: Show t
@@ -276,13 +283,14 @@ serveChainwebSocketTls
     -> ChainwebVersion
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
+    -> HeaderStream
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs mr m =
+serveChainwebSocketTls settings certChain key sock v dbs mr hs m =
     runTLSSocket tlsSettings settings sock $ m app
   where
     tlsSettings :: TLSSettings
     tlsSettings = tlsServerChainSettings certChain key
 
     app :: Application
-    app = chainwebApplication v dbs mr
+    app = chainwebApplication v dbs mr hs

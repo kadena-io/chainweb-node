@@ -126,6 +126,7 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
@@ -294,8 +295,6 @@ pChainwebConfiguration = id
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
-
-newtype HeaderStream = HeaderStream Bool
 
 data Chainweb logger cas = Chainweb
     { _chainwebHostAddress :: !HostAddress
@@ -630,6 +629,7 @@ runChainweb cw = do
             , _chainwebServerPactDbs = pactDbsToServe
             }
         (_chainwebCoordinator cw)
+        (_chainwebHeaderStream cw)
 
     -- HTTP Request Logger
 
