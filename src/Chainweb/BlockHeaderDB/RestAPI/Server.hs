@@ -32,6 +32,7 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Applicative
+import Control.Concurrent.Async (concurrently)
 import Control.Concurrent.Chan (newChan, writeChan)
 import Control.Lens hiding (children, (.=))
 import Control.Monad
@@ -313,8 +314,9 @@ headerStreamServer cdb = headerStreamHandler cdb
 headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler Application
 headerStreamHandler db = Tagged $ \req respond -> do
     chan <- newChan
-    void . SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db
-    eventSourceAppChan chan req respond
+    snd <$> concurrently
+        (void . SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db)
+        (eventSourceAppChan chan req respond)
   where
     cas :: PayloadDb cas
     cas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
