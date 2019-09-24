@@ -220,8 +220,8 @@ instance ToJSON BlockUpdate where
     {-# INLINE toJSON #-}
 
 runBlockUpdateMonitor :: PayloadCas cas => Logger logger => logger -> CutDb cas -> IO ()
-runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "tx-counter") logger $ \l ->
-    runMonitorLoop "ChainwebNode.txCounter" l $ do
+runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
+    runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
         logFunctionText l Info $ "Initialized tx counter"
         blockDiffStream db
             & S.mapM toUpdate
