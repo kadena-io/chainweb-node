@@ -74,9 +74,7 @@ cutServer
     :: forall cas (v :: ChainwebVersionT)
     . CutDbT cas v
     -> Server (CutApi v)
-cutServer (CutDbT db) =
-    cutGetHandler db
-    :<|> cutPutHandler db
+cutServer (CutDbT db) = cutGetHandler db :<|> cutPutHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server
