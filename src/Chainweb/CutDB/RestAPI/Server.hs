@@ -31,19 +31,26 @@ module Chainweb.CutDB.RestAPI.Server
 , serveCutOnPort
 ) where
 
+import Control.Concurrent.Chan (newChan, writeChan)
 import Control.Lens (view)
 import Control.Monad.Except
 
+import Data.Aeson (encode, toJSON)
+import Data.Binary.Builder (fromByteString, fromLazyByteString)
 import Data.Proxy
 import Data.Semigroup
 
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppChan)
 import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
 import Servant.Server
 
+import qualified Streaming.Prelude as SP
+
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..))
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -67,6 +74,16 @@ cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
 cutPutHandler :: CutDb cas -> CutHashes -> Handler NoContent
 cutPutHandler db c = NoContent <$ liftIO (addCutHashes db c)
 
+headerStreamHandler :: CutDb cas -> Tagged Handler Application
+headerStreamHandler db = Tagged $ \req respond -> do
+    chan <- newChan
+    void . SP.mapM_ (writeChan chan . f) . SP.concat $ blockDiffStream db
+    eventSourceAppChan chan req respond
+  where
+    f :: BlockHeader -> ServerEvent
+    f bh = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
+        [ fromLazyByteString . encode . toJSON $ ObjectEncoded bh ]
+
 -- -------------------------------------------------------------------------- --
 -- Cut API Server
 
@@ -74,7 +91,10 @@ cutServer
     :: forall cas (v :: ChainwebVersionT)
     . CutDbT cas v
     -> Server (CutApi v)
-cutServer (CutDbT db) = cutGetHandler db :<|> cutPutHandler db
+cutServer (CutDbT db) =
+    cutGetHandler db
+    :<|> cutPutHandler db
+    :<|> headerStreamHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Some Cut Server

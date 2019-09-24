@@ -359,6 +359,7 @@ blockHeaderDbApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Multi Chain API
 
+-- TODO Just use @case@ statements.
 someBlockHeaderDbApi :: ChainwebVersion -> ChainId -> SomeApi
 someBlockHeaderDbApi v c = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
