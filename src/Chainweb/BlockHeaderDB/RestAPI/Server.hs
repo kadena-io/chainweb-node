@@ -315,7 +315,7 @@ headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler
 headerStreamHandler db = Tagged $ \req respond -> do
     chan <- newChan
     snd <$> concurrently
-        (void . SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db)
+        (SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db)
         (eventSourceAppChan chan req respond)
   where
     cas :: PayloadDb cas
