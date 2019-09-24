@@ -3,6 +3,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
@@ -29,6 +30,7 @@ module TXG.Simulate.Contracts.Common
   , stockKey
   ) where
 
+import Control.Lens hiding ((.=), elements, uncons)
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -59,6 +61,7 @@ import Text.Printf
 -- PACT
 
 import Pact.ApiReq (mkExec, ApiKeyPair(..), mkKeyPairs)
+import Pact.Parse
 import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..))
@@ -67,6 +70,7 @@ import Pact.Types.Crypto
 -- CHAINWEB
 
 import Chainweb.ChainId
+import Chainweb.Time
 import Chainweb.Utils
 import TXG.Simulate.Utils
 
@@ -134,13 +138,13 @@ instance Fake Account where
   fake = elements $ NEL.toList accountNames
 
 newtype Amount = Amount
-  { getAmount :: Double
+  { getAmount :: Decimal
   } deriving (Eq, Show, Generic)
 
 instance Fake Amount where
   fake =
-    Amount <$>
-    (fromRange (lowerLimit, upperLimit) :: FGen Double)
+    (Amount . realFracToDecimal 12) <$>
+    (fromRange @Double (lowerLimit, upperLimit))
     where
       lowerLimit = 0
       upperLimit = 5
@@ -164,12 +168,22 @@ distinctPairSenders = fakeInt 0 9 >>= go
       if n == m then go n else return (append n, append m)
 
 -- hardcoded sender (sender00)
-makeMeta :: ChainId -> CM.PublicMeta
-makeMeta cid =
-    CM.PublicMeta (CM.ChainId $ toText cid) "sender00" 1000 0.00000000001 3600 0
+makeMeta :: ChainId -> IO CM.PublicMeta
+makeMeta cid = do
+    t <- toTxCreationTime <$> getCurrentTimeIntegral
+    return $ CM.PublicMeta
+        {
+          CM._pmChainId = CM.ChainId $ toText cid
+        , CM._pmSender = "sender00"
+        , CM._pmGasLimit = 1000
+        , CM._pmGasPrice = 0.001
+        , CM._pmTTL = 3600
+        , CM._pmCreationTime = t
+        }
 
-makeMetaWithSender :: String -> ChainId -> CM.PublicMeta
-makeMetaWithSender sender cid = (makeMeta cid) { CM._pmSender = T.pack sender }
+makeMetaWithSender :: String -> ChainId -> IO CM.PublicMeta
+makeMetaWithSender sender cid =
+    set CM.pmSender (T.pack sender) <$> makeMeta cid
 
 newtype ContractName = ContractName { getContractName :: String }
   deriving (Eq, Ord, Show, Generic)
@@ -184,3 +198,7 @@ parseBytes name parser b = either (throwM . TextFormatException . msg) pure $ pa
   where
     msg e = "Failed to parse " <> sshow b <> " as " <> name <> ": "
         <> T.pack e
+
+toTxCreationTime :: Time Integer -> CM.TxCreationTime
+toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+    Seconds s  -> CM.TxCreationTime $ ParsedInteger s

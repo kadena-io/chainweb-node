@@ -57,9 +57,7 @@ import Data.Default (def)
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
-import Data.IORef
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 
@@ -156,8 +154,7 @@ goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
-    let nonce = "1"
-    mkTestExecTransactions "sender00" "0" ks nonce 100 1.0 1000000 0 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -184,20 +181,21 @@ mkTestExecTransactions
       -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
 mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
-    nref <- newIORef (0 :: Int)
-    traverse (go nref) txs
+    fmap snd $ foldM go (0 :: Int, mempty) txs
   where
-    go nref (PactTransaction c d) = do
+    go (!n,acc) (PactTransaction c d) = do
       let dd = mergeObjects (toList d)
           pm = PublicMeta cid sender gas gasrate ttl ct
           msg = Exec (ExecMsg c dd)
 
-      nn <- readIORef nref
-      writeIORef nref $! succ nn
-      let nonce = T.append nonce0 (T.pack $ show nn)
+      let nonce = nonce0 <> sshow n
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
-        ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+        ProcSucc t ->
+          let
+            r = fmap (k t) $ SB.toShort <$> cmd
+            -- order matters for these tests
+          in return $ (succ n, Vector.snoc acc r)
         ProcFail e -> throwM $ userError e
 
     k t bs = PayloadWithText bs (_cmdPayload t)
@@ -242,7 +240,6 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
     case verifyCommand cmd of
       ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
       ProcFail e -> throwM $ userError e
-
   where
     k t bs = PayloadWithText bs (_cmdPayload t)
 
@@ -286,17 +283,16 @@ testPactCtx
     -> PayloadDb cas
     -> IO (TestPactCtx cas)
 testPactCtx v cid cdbv bhdb pdb = do
-    cpe <- initInMemoryCheckpointEnv loggers logger gasEnv
+    cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-    gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
@@ -310,17 +306,16 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
-    cpe <- initRelationalCheckpointer initBlockState sqlenv logger gasEnv
+    cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
-    gasEnv = GasEnv 0 0 (constGasModel 0)
     spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
@@ -435,18 +430,17 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
     start ios cdbv = do
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
-          gasEnv = GasEnv 0 0 (constGasModel 0)
           spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios
-      (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger gasEnv
+      (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
       let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 

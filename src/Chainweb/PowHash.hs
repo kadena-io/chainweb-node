@@ -136,13 +136,13 @@ randomPowHash = PowHash . SB.toShort <$> liftIO (BR.random powHashBytesCount)
 -- Cryptographic Hash
 
 powHash :: ChainwebVersion -> B.ByteString -> PowHash
-powHash Test{} = cryptoHash @SHA512t_256
-powHash TimedConsensus{} = cryptoHash @SHA512t_256
-powHash PowConsensus{} = cryptoHash @SHA512t_256
-powHash TimedCPM{} = cryptoHash @SHA512t_256
-powHash FastTimedCPM{} = cryptoHash @SHA512t_256
-powHash Development = cryptoHash @SHA512t_256
-powHash Testnet02 = cryptoHash @SHA512t_256
+powHash Test{} = cryptoHash @Blake2s_256
+powHash TimedConsensus{} = cryptoHash @Blake2s_256
+powHash PowConsensus{} = cryptoHash @Blake2s_256
+powHash TimedCPM{} = cryptoHash @Blake2s_256
+powHash FastTimedCPM{} = cryptoHash @Blake2s_256
+powHash Development = cryptoHash @Blake2s_256
+powHash Testnet02 = cryptoHash @Blake2s_256
 
 cryptoHash :: forall a . HashAlgorithm a => B.ByteString -> PowHash
 cryptoHash = PowHash . SB.toShort . BA.convert . C.hash @_ @a

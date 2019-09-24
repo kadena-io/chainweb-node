@@ -88,6 +88,7 @@ import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
+import Chainweb.Miner.RestAPI (someMiningApi)
 import qualified Chainweb.Miner.RestAPI.Server as Mining
 import qualified Chainweb.Pact.RestAPI as PactAPI
 import qualified Chainweb.Pact.RestAPI.Server as PactAPI
@@ -143,7 +144,8 @@ someChainwebApi v cs = someSwaggerApi
     <> someBlockHeaderDbApis v chains
     <> somePayloadApis v chains
     <> someP2pApis v cs
-    <> PactAPI.somePactApis v chains
+    <> PactAPI.somePactServiceApis v chains
+    <> someMiningApi v
   where
     chains = selectChainIds cs
 

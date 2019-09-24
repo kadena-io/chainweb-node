@@ -71,6 +71,7 @@ import Chainweb.Utils
 -- | TODO: consider parameterizing this value on the ChainwebVersion.
 -- (e.g. for Test we may want to use just '()' or 'Int')
 --
+
 type MerkleLogHashBytesCount = 32
 
 merkleLogHashBytesCount :: Natural
@@ -154,4 +155,3 @@ instance FromJSONKey MerkleLogHash where
     fromJSONKey = FromJSONKeyTextParser
         $ either fail return . eitherFromText
     {-# INLINE fromJSONKey #-}
-

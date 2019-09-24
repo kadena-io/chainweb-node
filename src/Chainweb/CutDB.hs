@@ -61,7 +61,9 @@ module Chainweb.CutDB
 , stopCutDb
 , cutDbQueueSize
 , blockStream
+, blockDiffStream
 , cutStreamToHeaderStream
+, cutStreamToHeaderDiffStream
 
 -- * Some CutDb
 , CutDbT(..)
@@ -92,6 +94,8 @@ import Data.Monoid
 import Data.Ord
 import Data.Reflection hiding (int)
 import qualified Data.Text as T
+import Data.These
+import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (to)
@@ -506,17 +510,17 @@ cutStreamToHeaderStream
     => CutDb cas
     -> S.Stream (Of Cut) m r
     -> S.Stream (Of BlockHeader) m r
-cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(p, n) ->
+cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(T2 p n) ->
     S.foldrT
-        (\(cid, a, b) x -> void $ S.mergeOn uniqueNumber x (branch cid a b))
+        (\(cid, a, b) x -> void $ S.mergeOn uniqueBlockNumber x (branch cid a b))
         (S.each $ zipCuts p n)
   where
-    go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (Cut, Cut)) m r
+    go :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
     go c st = lift (S.next st) >>= \case
         Left r -> return r
         Right (x, t) -> case c of
             Nothing -> go (Just x) t
-            Just a -> S.yield (a, x) >> go (Just x) t
+            Just a -> S.yield (T2 a x) >> go (Just x) t
 
     branch :: ChainId -> BlockHeader -> BlockHeader -> S.Stream (Of BlockHeader) m ()
     branch cid p n = hoist liftIO $ getBranch
@@ -524,12 +528,56 @@ cutStreamToHeaderStream db s = S.for (go Nothing s) $ \(p, n) ->
         (HS.singleton $ LowerBound $ _blockHash p)
         (HS.singleton $ UpperBound $ _blockHash n)
 
-    o = order $ _chainGraph db
+-- | Given a stream of cuts, produce a stream of all blocks included in those
+-- cuts. Blocks of the same chain are sorted by block height.
+--
+cutStreamToHeaderDiffStream
+    :: forall m cas r
+    . MonadIO m
+    => CutDb cas
+    -> S.Stream (Of Cut) m r
+    -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
+cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
+    S.foldrT
+        (\(cid, a, b) x -> void $ S.mergeOn toOrd x (branch cid a b))
+        (S.each $ zipCuts p n)
+  where
+    cutUpdates :: Maybe Cut -> S.Stream (Of Cut) m r -> S.Stream (Of (T2 Cut Cut)) m r
+    cutUpdates c st = lift (S.next st) >>= \case
+        Left r -> return r
+        Right (x, t) -> case c of
+            Nothing -> cutUpdates (Just x) t
+            Just a -> S.yield (T2 a x) >> cutUpdates (Just x) t
 
-    uniqueNumber bh = chainIdInt (_chainId bh) + (int $ _blockHeight bh) * o
+    branch :: ChainId -> BlockHeader -> BlockHeader -> S.Stream (Of (Either BlockHeader BlockHeader)) m ()
+    branch cid p n = hoist liftIO
+        $ branchDiff_ (db ^?! cutDbBlockHeaderDb cid) p n
+        & these2Either
+        & void
+
+    these2Either = flip S.for $ \case
+        This a -> S.each [Left a]
+        That a -> S.each [Right a]
+        These a b -> S.each [Left a, Right b]
+
+    toOrd :: Either BlockHeader BlockHeader -> Int
+    toOrd (Right a) = int $ uniqueBlockNumber a
+    toOrd (Left a) = 0 - int (uniqueBlockNumber a)
+
+-- | Assign each block a unique number that respects the order of blocks in a
+-- chain:
+--
+-- @chainId + blockHeight * graphOrder@
+--
+uniqueBlockNumber :: BlockHeader -> Natural
+uniqueBlockNumber bh
+    = chainIdInt (_chainId bh) + (int $ _blockHeight bh) * (order $ _chainGraph bh)
 
 blockStream :: MonadIO m => CutDb cas -> S.Stream (Of BlockHeader) m r
 blockStream db = cutStreamToHeaderStream db $ cutStream db
+
+blockDiffStream :: MonadIO m => CutDb cas -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
+blockDiffStream db = cutStreamToHeaderDiffStream db $ cutStream db
 
 cutHashesToBlockHeaderMap
     :: PayloadCas cas
