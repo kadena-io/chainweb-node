@@ -272,7 +272,7 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
         now <- getCurrentTimeIntegral
         !badmap <- pruneBadMap now <$!> readIORef (_inmemBadMap mdata)
         let !psq = HashMap.map decodeTx psq0
-        (T3 !psq' !badmap' out) <- go psq badmap size0 []
+        T3 psq' badmap' out <- go psq badmap size0 []
 
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
@@ -372,7 +372,7 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
         if null nb
           then return $! T3 psq badmap (V.concat soFar)
           else do
-            (T3 good psq' badmap') <- validateBatch psq badmap $! V.fromList nb
+            T3 good psq' badmap' <- validateBatch psq badmap $! V.fromList nb
             let newGas = V.foldl' (\s t -> s + getSize t) 0 good
             go psq' badmap' (remainingGas - newGas) (good : soFar)
 
