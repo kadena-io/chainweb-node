@@ -81,6 +81,7 @@ defModule idx = [text| ;;
     (insert tbl a { 'col: i }))
 
   (defun updateTbl (a i)
+    (update tbl a { 'col: 0})
     (update tbl a { 'col: i}))
 
   (defun readTbl ()
@@ -414,20 +415,40 @@ checkpointerTest name initdata =
 
           _cpSave _cpeCheckpointer hash15
 
-          next "2nd mini-regression test for debugging updates (part 3) insert value then update twice"
-
+          next "2nd mini-regression test for debugging updates (part 3) step 1 of insert value then update twice"
 
           hash06 <- BlockHash <$> merkleLogHash "0000000000000000000000000000006a"
 
           blockEnv07 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 6, hash15))
 
           void $ runExec blockEnv07 Nothing "(m6.insertTbl 'b 2)"
-          void $ runExec blockEnv07 Nothing "(m6.updateTbl 'b 3)"
-          void $ runExec blockEnv07 Nothing "(m6.updateTbl 'b 4)"
-
-          runExec blockEnv06 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
 
           _cpSave _cpeCheckpointer hash06
+
+          next "2nd mini-regression test for debugging updates (part 4) step 2 of insert value then update twice"
+
+          hash07 <- BlockHash <$> merkleLogHash "0000000000000000000000000000007a"
+
+          blockEnv08 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 7, hash06))
+
+          -- void $ runExec blockEnv08 Nothing "(m6.updateTbl 'b 3)"
+
+          void $ runExec blockEnv08 Nothing "(m6.updateTbl 'b 4)"
+
+          _cpSave _cpeCheckpointer hash07
+
+          next "2nd mini-regression test for debugging updates (part 5) step 3 of insert value then update twice"
+
+          hash08 <- BlockHash <$> merkleLogHash "0000000000000000000000000000008a"
+
+          blockEnv09 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 8, hash07))
+
+          void $ runExec blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'a [\"col\"])))) (enforce (= written 1) \"key a\"))"
+          void $ runExec blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'b [\"col\"])))) (enforce (= written 4) \"key b\"))"
+
+          -- runExec blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
+
+          _cpSave _cpeCheckpointer hash08
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
