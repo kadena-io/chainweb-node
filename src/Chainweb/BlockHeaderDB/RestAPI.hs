@@ -65,6 +65,13 @@ module Chainweb.BlockHeaderDB.RestAPI
 , someBlockHeaderDbApi
 , someBlockHeaderDbApis
 
+-- * BlockHeader Event Stream
+, HeaderStream(..)
+, HeaderUpdate(..)
+, HeaderStreamApi
+, headerStreamApi
+, someHeaderStreamApi
+
 -- * Sub APIs
 , BranchHashesApi
 , branchHashesApi
@@ -103,6 +110,8 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
+
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- API types
@@ -359,6 +368,7 @@ blockHeaderDbApi = Proxy
 -- -------------------------------------------------------------------------- --
 -- Multi Chain API
 
+-- TODO Just use @case@ statements.
 someBlockHeaderDbApi :: ChainwebVersion -> ChainId -> SomeApi
 someBlockHeaderDbApi v c = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v') <- return $ someChainwebVersionVal v
@@ -367,3 +377,27 @@ someBlockHeaderDbApi v c = runIdentity $ do
 
 someBlockHeaderDbApis :: ChainwebVersion -> [ChainId] -> SomeApi
 someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader Event Stream
+
+newtype HeaderStream = HeaderStream Bool
+
+data HeaderUpdate = HeaderUpdate
+    { _huHeader :: !(ObjectEncoded BlockHeader)
+    , _huTxCount :: !Int }
+
+instance ToJSON HeaderUpdate where
+    toJSON o = object [ "header" .= _huHeader o, "txCount" .= _huTxCount o ]
+
+type HeaderStreamApi_ = "header" :> "updates" :> Raw
+
+-- | A stream of all new `BlockHeader`s that are accepted into the true `Cut`.
+--
+type HeaderStreamApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> HeaderStreamApi_
+
+headerStreamApi :: forall (v :: ChainwebVersionT). Proxy (HeaderStreamApi v)
+headerStreamApi = Proxy
+
+someHeaderStreamApi :: ChainwebVersion -> SomeApi
+someHeaderStreamApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v
