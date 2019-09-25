@@ -364,7 +364,6 @@ checkpointerTest name initdata =
 
           _cpSave _cpeCheckpointer hash04
 
-
           next "mini-regression test for dropping user tables (part 2) (create module with offending table)"
 
           hash05 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005a"
@@ -394,6 +393,41 @@ checkpointerTest name initdata =
           _blockenv04Fork <- _cpRestore _cpeCheckpointer (Just (BlockHeight 4, hash13))
 
           _cpDiscard _cpeCheckpointer
+
+          next "2nd mini-regression test for debugging updates (part 1) empty block"
+
+          hash14 <- BlockHash <$> merkleLogHash "0000000000000000000000000000004b"
+
+          _blockenv04 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 4, hash13))
+
+          _cpSave _cpeCheckpointer hash14
+
+          next "2nd mini-regression test for debugging updates (part 2) create module & table"
+
+          hash15 <- BlockHash <$> merkleLogHash "0000000000000000000000000000005c"
+
+          blockEnv06 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 5, hash14))
+
+          void $ runExec blockEnv06 (Just $ ksData "6") $ defModule "6"
+
+          runExec blockEnv06 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1]]
+
+          _cpSave _cpeCheckpointer hash15
+
+          next "2nd mini-regression test for debugging updates (part 3) insert value then update twice"
+
+
+          hash06 <- BlockHash <$> merkleLogHash "0000000000000000000000000000006a"
+
+          blockEnv07 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 6, hash15))
+
+          void $ runExec blockEnv07 Nothing "(m6.insertTbl 'b 2)"
+          void $ runExec blockEnv07 Nothing "(m6.updateTbl 'b 3)"
+          void $ runExec blockEnv07 Nothing "(m6.updateTbl 'b 4)"
+
+          runExec blockEnv06 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
+
+          _cpSave _cpeCheckpointer hash06
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
