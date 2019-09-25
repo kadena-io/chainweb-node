@@ -537,9 +537,11 @@ execNewBlock mpAccess parentHeader miner creationTime = withDiscardedBatch $ do
         let validate = validateChainwebTxsPreBlock pdbenv cp creationTime
         newTrans <- liftIO $
             mpaGetBlock mpAccess validate bHeight pHash parentHeader
+
         -- locally run 'execTransactions' with updated blockheight data
         results <- withBlockData parentHeader $
             execTransactions (Just pHash) miner newTrans pdbenv
+
         return $! Discard (toPayloadWithOutputs miner results)
   where
     pHeight = _blockHeight parentHeader

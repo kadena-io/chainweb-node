@@ -69,7 +69,7 @@ testVersion = Development
 tests :: ScheduledTest
 tests = ScheduledTest label $ withRocksResource $ \rocksIO ->
         testGroup label
-    [ withTime $ \t -> withPact rocksIO (testMemPoolAccess t) $ \reqQIO ->
+    [ withPact rocksIO testMemPoolAccess $ \reqQIO ->
         newBlockTest "new-block-0" reqQIO
     , withPact rocksIO testEmptyMemPool $ \reqQIO ->
         newBlockTest "empty-block-tests" reqQIO
@@ -108,8 +108,8 @@ newBlockTest :: String -> IO (TQueue RequestMsg) -> TestTree
 newBlockTest label reqIO = golden label $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
-    creationTime <- getCurrentTimeIntegral
-    respVar <- newBlock noMiner genesisHeader (BlockCreationTime creationTime) reqQ
+    let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
+    respVar <- newBlock noMiner genesisHeader (BlockCreationTime blockTime) reqQ
     goldenBytes "new-block" =<< takeMVar respVar
   where
     cid = someChainId testVersion
@@ -132,8 +132,8 @@ _getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
   where
     gbh0 = genesisBlockHeader testVersion cid
 
-testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess iot = MemPoolAccess
+testMemPoolAccess :: MemPoolAccess
+testMemPoolAccess = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header ->
         getTestBlock validate bh hash
     , mpaSetLastHeader = \_ -> return ()
@@ -157,11 +157,11 @@ testMemPoolAccess iot = MemPoolAccess
               , PactTransaction "(at 'sender (chain-data))" d
               ]
         let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
+            g = modifyPayloadWithText . set (pMeta . pmTTL)
         outtxs' <- goldenTestTransactions txs
-        (Time t) <- iot
-        let outtxs = flip V.map outtxs' $ \tx -> case timeSpanToSeconds t of
-              Seconds s ->
-                fmap (f (TxCreationTime $ ParsedInteger s)) tx
+        let outtxs = flip V.map outtxs' $ \tx ->
+                let ttl = TTLSeconds $ ParsedInteger 1000000
+                in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger 1000000))) tx
         oks <- validate bHeight bHash outtxs
         when (not $ V.and oks) $ do
             fail $ mconcat [ "tx failed validation! input list: \n"

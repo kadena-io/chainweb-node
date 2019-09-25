@@ -139,8 +139,9 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
-          withRequestKeys iomvar net $ \rks ->
-            responseGolden net rks
+          withTime $ \iot ->
+            withRequestKeys iot iomvar net $ \rks ->
+                responseGolden net rks
 
     , withTime $ \iot -> withNodes rdb nNodes $ \net ->
         spvRequests iot net
@@ -216,20 +217,21 @@ spvRequests iot nio = testCaseSteps "spv client tests"$ \step -> do
 -- Utils
 
 withRequestKeys
-    :: IO (MVar Int)
+    :: IO (Time Integer)
+    -> IO (MVar Int)
     -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
     -> TestTree
-withRequestKeys ioNonce networkIO = withResource mkKeys (\_ -> return ())
+withRequestKeys iot ioNonce networkIO = withResource mkKeys (\_ -> return ())
   where
     mkKeys = do
         cwEnv <- _getClientEnv <$> networkIO
         mNonce <- ioNonce
-        testSend mNonce testCmds cwEnv
+        testSend iot mNonce testCmds cwEnv
 
-testSend :: MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
-testSend mNonce cmds env = do
-    sb <- testBatch mNonce
+testSend :: IO (Time Integer) -> MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
+testSend iot mNonce cmds env = do
+    sb <- testBatch iot mNonce
     result <- sendWithRetry cmds env sb
     case result of
         Left e -> assertFailure (show e)
@@ -317,16 +319,19 @@ pollWithRetry cmds env rks = do
                                                 else return False
                                  Nothing -> return False
 
-testBatch :: MVar Int -> IO SubmitBatch
-testBatch mnonce = do
+testBatch :: IO (Time Integer) -> MVar Int -> IO SubmitBatch
+testBatch iot mnonce = do
     modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
+        t <- toTxCreationTime <$> iot
         kps <- testKeyPairs
-        c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
+        c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just nonce)
         pure $ (succ nn, SubmitBatch (pure c))
   where
-    pm :: Pact.PublicMeta
-    pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 1000 0.1 1000000 0
+    pm :: Pact.TxCreationTime -> Pact.PublicMeta
+    pm t = Pact.PublicMeta (Pact.ChainId "0") "sender00" 1000 0.1 ttl t
+        where
+          ttl = 2 * 24 * 60 * 60
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
