@@ -334,6 +334,9 @@ instance ToSchema (TransactionProof SHA512t_256) where
 instance ToSchema (TransactionOutputProof SHA512t_256) where
     declareNamedSchema _ = return $ NamedSchema (Just "TransactionOutputProof") $ byteSchema
 
+instance ToSchema TransactionOutputProofB64 where
+    declareNamedSchema _ = return $ NamedSchema (Just "TransactionOutputProofB64") byteSchema
+
 instance ToSchema PayloadData where
     declareNamedSchema _ = do
         transactionsSchema <- declareSchemaRef (Proxy @[Transaction])
@@ -432,7 +435,6 @@ deriving instance ToSchema Word256
 deriving instance ToSchema a => ToSchema (Time a)
 deriving instance ToSchema a => ToSchema (TimeSpan a)
 deriving instance ToSchema SpvRequest
-deriving instance ToSchema TransactionOutputProofB64
 
 instance ToSchema ChainwebVersion where
     declareNamedSchema _ = pure . NamedSchema (Just "ChainwebVersion") $ mempty

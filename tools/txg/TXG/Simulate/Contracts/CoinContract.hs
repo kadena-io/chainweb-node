@@ -103,7 +103,7 @@ createCoinContractRequest meta ks request =
               sn
               rn
               ("receiver-guard" :: String)
-              amount
+              (fromRational @Double $ toRational amount)
             theData =
               object
                 [ "receiver-guard" .= fmap formatB16PubKey guard
@@ -117,6 +117,6 @@ createCoinContractRequest meta ks request =
               sn
               rn
               -- Super janky, but gets the job done for now
-              amount
+              (fromRational @Double $ toRational amount)
             theData = object []
         mkExec theCode theData meta (NEL.toList ks) Nothing
