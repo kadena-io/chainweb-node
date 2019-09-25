@@ -36,6 +36,7 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
@@ -251,6 +252,8 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebCutResources = cuts
                                       , _chainwebMiner = m
                                       , _chainwebCoordinator = mc
+                                      , _chainwebHeaderStream =
+                                          HeaderStream $ _configHeaderStream conf
                                       , _chainwebLogger = logger
                                       , _chainwebPeer = peer
                                       , _chainwebPayloadDb = payloadDb
