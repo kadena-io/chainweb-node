@@ -37,7 +37,7 @@ import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Short as SB
+-- import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -57,9 +57,10 @@ import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
+-- import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
-import Chainweb.Transaction (PayloadWithText(..),payloadObj)
+import Chainweb.Transaction (mkPayloadWithText)
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.ApiReq (mkApiReq)
@@ -124,7 +125,10 @@ genPayloadModule v tag txFiles =
                 procCmd = verifyCommand cmdBS
             case procCmd of
                 f@ProcFail{} -> fail (show f)
-                ProcSucc c -> fixupPayload cmdBS c
+                ProcSucc c -> do
+                  t <- toTxCreationTime <$> getCurrentTimeIntegral
+                  return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+                  -- fixupPayload cmdBS c
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
@@ -138,23 +142,24 @@ genPayloadModule v tag txFiles =
 
         TIO.writeFile (T.unpack fileName) modl
   where
-    fixupPayload cmdBS c = do
+    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
+    setTTL = set (cmdPayload . pMeta . pmTTL)
+    setTTL = set (cmdPayload . pMeta . pmTTL)
+    toTxCreationTime :: Time Integer -> TxCreationTime
+    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+      Seconds s -> TxCreationTime $ ParsedInteger s
+
+{-    fixupPayload _cmdBS c = do
         t <- toTxCreationTime <$> getCurrentTimeIntegral
-        let cmd = fmap (\bs -> PayloadWithText bs (_cmdPayload c))
-                       (SB.toShort <$> cmdBS)
+        let cmd = fmap (\bs -> PayloadWithText (SB.toShort $ BL.toStrict $ encode $ fmap _pcCode $ bs) (_cmdPayload c))  c
         return $!
           cmd
           & setTxTime t
-          -- TODO: This should change later. I've set to 1000 years
+          -- TODO: This should change later. I've set it to 1000 years.
           & setTTL (TTLSeconds $ 2 * 24 * 60 * 60)
 
       where
-        setTxTime = set (cmdPayload . payloadObj . pMeta . pmCreationTime)
-        setTTL = set (cmdPayload . payloadObj . pMeta . pmTTL)
-        toTxCreationTime :: Time Integer -> TxCreationTime
-        toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
-
+-}
     cid = someChainId v
 
 startModule :: Text -> [Text]

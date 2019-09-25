@@ -81,6 +81,7 @@ module Chainweb.Mempool.Mempool
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
 import Control.Exception
+import Control.Lens
 import Control.Monad (replicateM, when)
 
 import Crypto.Hash (hash)
@@ -275,10 +276,10 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     txmeta
 
   where
-    getGasPrice = gasPriceOf . fmap _payloadObj
-    getGasLimit = gasLimitOf . fmap _payloadObj
-    getTimeToLive = timeToLiveOf . fmap _payloadObj
-    getCreationTime = creationTimeOf . fmap _payloadObj
+    getGasPrice = gasPriceOf . fmap (view payloadObj)
+    getGasLimit = gasLimitOf . fmap (view payloadObj)
+    getTimeToLive = timeToLiveOf . fmap (view payloadObj)
+    getCreationTime = creationTimeOf . fmap (view payloadObj)
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
     txmeta t =

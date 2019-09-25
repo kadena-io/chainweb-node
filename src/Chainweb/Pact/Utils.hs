@@ -18,7 +18,7 @@ module Chainweb.Pact.Utils
     , maxTTL
     , timingsCheck
     ) where
-import Debug.Trace
+-- import Debug.Trace
 import Data.Aeson
 
 import Control.Concurrent.MVar
@@ -64,7 +64,7 @@ maxTTL = ParsedInteger $ 2 * 24 * 60 * 60 * 1000000
 
 timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
 timingsCheck (BlockCreationTime blockOriginationTime) tx =
-    trace ("block: " ++ show blockOriginationTime ++ " ttl: " ++ show ttl ++ " tx: " ++ show txOriginationTime) $
+    -- trace ("block: " ++ show blockOriginationTime ++ " ttl: " ++ show ttl ++ " tx: " ++ show txOriginationTime) $
     ttl > 0
     && blockOriginationTime >= (toMicrosFromSeconds 0)
     && txOriginationTime >= 0

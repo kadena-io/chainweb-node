@@ -10,7 +10,7 @@
 module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
-  , PayloadWithText(..)
+  , PayloadWithText
   , payloadBytes
   , payloadObj
   , chainwebPayloadCodec
@@ -18,6 +18,7 @@ module Chainweb.Transaction
   , gasPriceOf
   , timeToLiveOf
   , creationTimeOf
+  , mkPayloadWithText
   ) where
 
 import Control.DeepSeq
@@ -30,6 +31,7 @@ import qualified Data.Aeson as Aeson
 import Data.Bytes.Get
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Short as SB
+import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
 
 import GHC.Generics (Generic)
@@ -51,6 +53,13 @@ data PayloadWithText = PayloadWithText
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
+
+mkPayloadWithText :: Payload PublicMeta ParsedCode -> PayloadWithText
+mkPayloadWithText p = PayloadWithText {
+    _payloadBytes =
+    SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
+    , _payloadObj = p
+    }
 
 {-
 instance ToJSON PayloadWithText where

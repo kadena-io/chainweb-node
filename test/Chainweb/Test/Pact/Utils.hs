@@ -59,7 +59,7 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Short as SB
+-- import qualified Data.ByteString.Short as SB
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
@@ -206,12 +206,13 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
       case verifyCommand cmd of
         ProcSucc t ->
           let
-            r = fmap (k t) $ SB.toShort <$> cmd
+            -- r = fmap (k t) $ SB.toShort <$> cmd
+            r = mkPayloadWithText <$> t
             -- order matters for these tests
           in return $ (succ n, Vector.snoc acc r)
         ProcFail e -> throwM $ userError e
 
-    k t bs = PayloadWithText bs (_cmdPayload t)
+    -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 -- | Make pact 'ContMsg' transactions, specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, cont step, pact id, rollback,
@@ -251,10 +252,11 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
 
     cmd <- mkCommand ks pm nonce msg
     case verifyCommand cmd of
-      ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
+      -- ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
+      ProcSucc t -> return $ Vector.singleton $ mkPayloadWithText <$> t
       ProcFail e -> throwM $ userError e
   where
-    k t bs = PayloadWithText bs (_cmdPayload t)
+    -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def

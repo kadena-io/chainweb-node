@@ -19,7 +19,7 @@ import Control.Lens hiding ((.=))
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Short as SB
+-- import qualified Data.ByteString.Short as SB
 import Data.Default
 import Data.FileEmbed
 import Data.Foldable
@@ -121,10 +121,11 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
               ks <- testKeyPairs
               cmd <- mkCommand ks pm nonce msg
               case verifyCommand cmd of
-                ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+                ProcSucc t -> return $ mkPayloadWithText <$> t
+                -- fmap (k t) (SB.toShort <$> cmd)
                 ProcFail e -> throwM $ userError e
 
-          k t bs = PayloadWithText bs (_cmdPayload t)
+          -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 data StopState
   = BlockStopCondition BlockStopState
@@ -226,10 +227,10 @@ mkExecTransactions cid ks nonce0 gas gasrate ttl ct txs = do
       let nonce = T.append nonce0 (T.pack $ show nn)
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
-        ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+        ProcSucc t -> return $! mkPayloadWithText <$> t
         ProcFail e -> throwM $ userError e
 
-    k t bs = PayloadWithText bs (_cmdPayload t)
+    -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 -- | Merge a list of JSON Objects together. Note: this will yield an empty
 -- object in the case that there are no objects in the list of values.
