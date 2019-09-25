@@ -126,9 +126,8 @@ genPayloadModule v tag txFiles =
             case procCmd of
                 f@ProcFail{} -> fail (show f)
                 ProcSucc c -> do
-                  t <- toTxCreationTime <$> getCurrentTimeIntegral
+                  let t = toTxCreationTime (Time (TimeSpan 0))
                   return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
-                  -- fixupPayload cmdBS c
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
@@ -144,22 +143,9 @@ genPayloadModule v tag txFiles =
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
-    setTTL = set (cmdPayload . pMeta . pmTTL)
     toTxCreationTime :: Time Integer -> TxCreationTime
     toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
       Seconds s -> TxCreationTime $ ParsedInteger s
-
-{-    fixupPayload _cmdBS c = do
-        t <- toTxCreationTime <$> getCurrentTimeIntegral
-        let cmd = fmap (\bs -> PayloadWithText (SB.toShort $ BL.toStrict $ encode $ fmap _pcCode $ bs) (_cmdPayload c))  c
-        return $!
-          cmd
-          & setTxTime t
-          -- TODO: This should change later. I've set it to 1000 years.
-          & setTTL (TTLSeconds $ 2 * 24 * 60 * 60)
-
-      where
--}
     cid = someChainId v
 
 startModule :: Text -> [Text]

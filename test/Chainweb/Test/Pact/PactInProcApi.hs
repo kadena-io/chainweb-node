@@ -133,7 +133,7 @@ _getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
     gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess iot  = MemPoolAccess
+testMemPoolAccess iot = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header ->
         getTestBlock validate bh hash
     , mpaSetLastHeader = \_ -> return ()
@@ -156,11 +156,11 @@ testMemPoolAccess iot  = MemPoolAccess
               , PactTransaction "(at 'chain-id (chain-data))" d
               , PactTransaction "(at 'sender (chain-data))" d
               ]
-        let f = set (payloadObj . pMeta . pmCreationTime)
+        let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
         outtxs' <- goldenTestTransactions txs
         (Time t) <- iot
         let outtxs = flip V.map outtxs' $ \tx -> case timeSpanToSeconds t of
-              Seconds s  ->
+              Seconds s ->
                 fmap (f (TxCreationTime $ ParsedInteger s)) tx
         oks <- validate bHeight bHash outtxs
         when (not $ V.and oks) $ do

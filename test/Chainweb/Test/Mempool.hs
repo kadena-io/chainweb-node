@@ -46,7 +46,6 @@ import Pact.Types.Gas (GasPrice(..))
 
 import Chainweb.BlockHash
 import Chainweb.Mempool.Mempool
-import Chainweb.Mempool.InMemTypes (Validators)
 import qualified Chainweb.Time as Time
 
 ------------------------------------------------------------------------------
@@ -108,7 +107,7 @@ instance Arbitrary MockTx where
       emptyMeta = TransactionMetadata zero Time.maxTime
       zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
-type InsertCheck = MVar (Validators MockTx -> Vector MockTx -> IO (Vector Bool))
+type InsertCheck = MVar (Vector MockTx -> IO (Vector Bool))
 data MempoolWithFunc =
     MempoolWithFunc (forall a
                      . ((InsertCheck -> MempoolBackend MockTx -> IO a)
@@ -178,7 +177,7 @@ propPreInsert (txs, badTxs) gossipMV mempool =
     hash = txHasher txcfg
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
-    checkNotBad _ xs = return $! V.map (not . (`elem` badTxs)) xs
+    checkNotBad xs = return $! V.map (not . (`elem` badTxs)) xs
 
 
 propTrivial

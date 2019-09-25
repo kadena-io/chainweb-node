@@ -54,7 +54,7 @@ data TestServer = TestServer
 
 newTestServer :: IO TestServer
 newTestServer = mask_ $ do
-    checkMv <- newMVar $ \_ -> V.mapM (const $ return True)
+    checkMv <- newMVar $ V.mapM (const $ return True)
     let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMvFunc checkMv)
     let blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     inmemMv <- newEmptyMVar
@@ -67,9 +67,9 @@ newTestServer = mask_ $ do
     let remoteMp = remoteMp0 { mempoolGetBlock = \a b c -> mempoolGetBlock inmem a b c }
     return $! TestServer remoteMp inmem checkMv tid
   where
-    checkMvFunc mv vs xs = do
+    checkMvFunc mv xs = do
         f <- readMVar mv
-        f vs xs
+        f xs
 
     server inMemCfg inmemMv envMv restore =
         InMem.withInMemoryMempool inMemCfg $ \inmem -> do

@@ -19,19 +19,18 @@ module Chainweb.Transaction
   , timeToLiveOf
   , creationTimeOf
   , mkPayloadWithText
+  , modifyPayloadWithText
   ) where
 
 import Control.DeepSeq
-import Control.Lens
-
-import qualified Data.ByteString.Char8 as B
-import Data.Hashable
 
 import qualified Data.Aeson as Aeson
 import Data.Bytes.Get
 import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Short as SB
+import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Short as SB
+import Data.Hashable
 import Data.Text (Text)
 
 import GHC.Generics (Generic)
@@ -61,20 +60,14 @@ mkPayloadWithText p = PayloadWithText {
     , _payloadObj = p
     }
 
-{-
-instance ToJSON PayloadWithText where
-    toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 $ SB.fromShort bs)
-    toEncoding (PayloadWithText bs _) = toEncoding (T.decodeUtf8 $ SB.fromShort bs)
-
-instance FromJSON PayloadWithText where
-    parseJSON = Aeson.withText "PayloadWithText" $ \text -> let bs = T.encodeUtf8 text in
-        case traverse parsePact =<< Aeson.eitherDecodeStrict' bs of
-          Left err -> fail err
-          (Right !payload) -> pure $! PayloadWithText (SB.toShort bs) (force payload)
-      where
-        parsePact :: Text -> Either String ParsedCode
-        parsePact code = ParsedCode code <$> parseExprs code
--}
+modifyPayloadWithText
+    :: (Payload PublicMeta ParsedCode -> Payload PublicMeta ParsedCode)
+    -> PayloadWithText
+    -> PayloadWithText
+modifyPayloadWithText f pwt = mkPayloadWithText newPayload
+  where
+    oldPayload = payloadObj pwt
+    newPayload = f oldPayload
 
 type ChainwebTransaction = Command PayloadWithText
 
@@ -127,4 +120,9 @@ creationTimeOf :: forall c . Command (Payload PublicMeta c) -> TxCreationTime
 creationTimeOf = _pmCreationTime . _pMeta . _cmdPayload
 {-# INLINE creationTimeOf #-}
 
-makeLenses ''PayloadWithText
+
+payloadBytes :: PayloadWithText -> SB.ShortByteString
+payloadBytes = _payloadBytes
+
+payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
+payloadObj = _payloadObj

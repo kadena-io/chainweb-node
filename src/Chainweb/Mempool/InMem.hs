@@ -228,16 +228,16 @@ insertInMem cfg lock runCheck txs0 = do
     preInsertFilter = if runCheck == CheckedInsert
                         then preInsertFilterReal
                         else return
+
     preInsertFilterReal txs = do
-
         now <- getCurrentTimeIntegral
-        let chk = _inmemPreInsertCheck cfg (Validators [sizeOK , ttlCheck now])
+        let txs1 = prevalidate [sizeOK, ttlCheck now] txs
+        oks <- _inmemPreInsertCheck cfg txs1
+        return $! V.map fst $ V.filter snd $ V.zip txs1 oks
 
-        oks <- chk txs
-
-        -- keep the good txs only
-        return $! V.map fst $ V.filter snd $ V.zip txs oks
-
+    prevalidate validations = V.map fst .
+                              V.filter snd .
+                              V.map (\tx -> (tx, all ($ tx) validations))
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)
     getSize = txGasLimit txcfg
@@ -248,7 +248,7 @@ insertInMem cfg lock runCheck txs0 = do
     ttlCheck (Time (TimeSpan now)) tx =
       case txMetadata txcfg tx of
         TransactionMetadata (Time (TimeSpan creationTime)) (Time (TimeSpan expiryTime)) ->
-            creationTime < now && expiryTime <= now && creationTime < expiryTime
+            creationTime < now && now < expiryTime && creationTime < expiryTime
 
     insOne (!pending, !soFar) !tx =
         let !txhash = hasher tx

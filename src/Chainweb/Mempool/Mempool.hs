@@ -119,8 +119,8 @@ import System.LogLevel
 -- internal modules
 
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
-import Pact.Types.Command
 import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
+import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
@@ -276,10 +276,10 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     txmeta
 
   where
-    getGasPrice = gasPriceOf . fmap (view payloadObj)
-    getGasLimit = gasLimitOf . fmap (view payloadObj)
-    getTimeToLive = timeToLiveOf . fmap (view payloadObj)
-    getCreationTime = creationTimeOf . fmap (view payloadObj)
+    getGasPrice = gasPriceOf . fmap payloadObj
+    getGasLimit = gasLimitOf . fmap payloadObj
+    getTimeToLive = timeToLiveOf . fmap payloadObj
+    getCreationTime = creationTimeOf . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
     txmeta t =
