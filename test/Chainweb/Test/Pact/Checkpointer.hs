@@ -81,6 +81,9 @@ defModule idx = [text| ;;
     (insert tbl a { 'col: i }))
 
   (defun updateTbl (a i)
+    (update tbl a { 'col: i}))
+
+  (defun weirdUpdateTbl (a i)
     (update tbl a { 'col: 0})
     (update tbl a { 'col: i}))
 
@@ -431,9 +434,8 @@ checkpointerTest name initdata =
 
           blockEnv08 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 7, hash06))
 
-          -- void $ runExec blockEnv08 Nothing "(m6.updateTbl 'b 3)"
 
-          void $ runExec blockEnv08 Nothing "(m6.updateTbl 'b 4)"
+          void $ runExec blockEnv08 Nothing "(m6.weirdUpdateTbl 'b 4)"
 
           _cpSave _cpeCheckpointer hash07
 
@@ -443,10 +445,12 @@ checkpointerTest name initdata =
 
           blockEnv09 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 8, hash07))
 
-          void $ runExec blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'a [\"col\"])))) (enforce (= written 1) \"key a\"))"
-          void $ runExec blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'b [\"col\"])))) (enforce (= written 4) \"key b\"))"
+          -- FOR DEBUGGING/INSPECTING VALUES AT SPECIFIC KEYS
+          -- void $ runExec blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'a [\"col\"])))) (enforce (= written 1) \"key a\"))"
+          -- void $ runExec blockEnv09 Nothing "(let ((written (at 'col (read m6.tbl 'b [\"col\"])))) (enforce (= written 4) \"key b\"))"
+          -- FOR DEBUGGING/INSPECTING VALUES AT SPECIFIC KEYS
 
-          -- runExec blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
+          runExec blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
 
           _cpSave _cpeCheckpointer hash08
 
