@@ -23,7 +23,6 @@
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.BlockHeader
@@ -174,7 +173,7 @@ import Text.Read (readEither)
 -- -------------------------------------------------------------------------- --
 -- | BlockHeight
 --
-newtype BlockHeight = BlockHeight Word64
+newtype BlockHeight = BlockHeight { _height :: Word64 }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype
@@ -722,11 +721,11 @@ blockPow = to _blockPow
 
 -- | The number of microseconds between the creation time of two `BlockHeader`s.
 --
-timeBetween :: BlockHeader -> BlockHeader -> Micros
+timeBetween :: BlockCreationTime -> BlockCreationTime -> Micros
 timeBetween after before = f after - f before
   where
-    f :: BlockHeader -> Micros
-    f (_blockCreationTime -> BlockCreationTime (Time (TimeSpan ts))) = ts
+    f :: BlockCreationTime -> Micros
+    f (BlockCreationTime (Time (TimeSpan ts))) = ts
 
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding

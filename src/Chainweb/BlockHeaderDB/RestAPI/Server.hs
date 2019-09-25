@@ -2,10 +2,12 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI.Server
@@ -24,9 +26,14 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 -- * Single Chain Server
 , blockHeaderDbApp
 , blockHeaderDbApiLayout
+
+-- * Header Stream Server
+, someHeaderStreamServer
 ) where
 
 import Control.Applicative
+import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.Chan (newChan, writeChan)
 import Control.Lens hiding (children, (.=))
 import Control.Monad
 import qualified Control.Monad.Catch as E (Handler(..), catches)
@@ -34,27 +41,40 @@ import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
 import Data.Aeson
+import Data.Binary.Builder (fromByteString, fromLazyByteString)
 import Data.Foldable
 import Data.Proxy
 import qualified Data.Text.IO as T
+
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppChan)
 
 import Prelude hiding (lookup)
 
 import Servant.API
 import Servant.Server
 
+import qualified Streaming.Prelude as SP
+
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..))
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
+import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadStore)
+import Chainweb.Payload (PayloadWithOutputs(..))
+import Chainweb.Payload.PayloadStore.Types (PayloadCas, PayloadDb)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStoreCas)
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
+
+import Data.CAS (casLookupM)
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -63,13 +83,14 @@ checkKey
     :: MonadError ServerError m
     => MonadIO m
     => TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> DbKey db
     -> m (DbKey db)
 checkKey !db !k = liftIO (lookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just _ -> pure k
 
@@ -90,6 +111,7 @@ err404Msg msg = ServantErr
 checkBounds
     :: MonadError ServerError m
     => MonadIO m
+    => ToJSON (DbKey db)
     => TreeDb db
     => db
     -> BranchBounds db
@@ -112,6 +134,7 @@ defaultEntryLimit = 360
 --
 branchHashesHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -136,6 +159,7 @@ branchHashesHandler db limit next minr maxr bounds = do
 --
 branchHeadersHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -160,6 +184,7 @@ branchHeadersHandler db limit next minr maxr bounds = do
 --
 hashesHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -181,6 +206,7 @@ hashesHandler db limit next minr maxr = do
 --
 headersHandler
     :: TreeDb db
+    => ToJSON (DbKey db)
     => db
     -> Maybe Limit
     -> Maybe (NextItem (DbKey db))
@@ -199,11 +225,16 @@ headersHandler db limit next minr maxr = do
 --
 -- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
 --
-headerHandler :: TreeDb db => db -> DbKey db -> Handler (DbEntry db)
+headerHandler
+    :: ToJSON (DbKey db)
+    => TreeDb db
+    => db
+    -> DbKey db
+    -> Handler (DbEntry db)
 headerHandler db k = liftIO (lookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
-        , "key" .= (sshow k :: String)
+        , "key" .= k
         ]
     Just e -> pure e
 
@@ -265,3 +296,36 @@ someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
 someBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
 someBlockHeaderDbServers v = mconcat
     . fmap (someBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader Event Stream
+
+someHeaderStreamServer :: PayloadCas cas => ChainwebVersion -> CutDb cas -> SomeServer
+someHeaderStreamServer (FromSing (SChainwebVersion :: Sing v)) cdb =
+    SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
+
+headerStreamServer
+    :: forall cas (v :: ChainwebVersionT)
+    .  PayloadCas cas
+    => CutDb cas
+    -> Server (HeaderStreamApi v)
+headerStreamServer cdb = headerStreamHandler cdb
+
+headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler Application
+headerStreamHandler db = Tagged $ \req respond -> do
+    chan <- newChan
+    snd <$> concurrently
+        (SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db)
+        (eventSourceAppChan chan req respond)
+  where
+    cas :: PayloadDb cas
+    cas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+
+    g :: BlockHeader -> IO HeaderUpdate
+    g bh = do
+        x <- casLookupM cas $ _blockPayloadHash bh
+        pure $ HeaderUpdate (ObjectEncoded bh) (length $ _payloadWithOutputsTransactions x)
+
+    f :: HeaderUpdate -> ServerEvent
+    f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
+        [ fromLazyByteString . encode $ toJSON hu ]

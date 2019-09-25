@@ -103,6 +103,7 @@ import qualified Data.Vector as V
 import Data.Void
 
 import GHC.Generics
+import GHC.Stack
 
 -- internal modules
 
@@ -773,19 +774,36 @@ instance IsCasValue PayloadWithOutputs where
     casKey = _payloadWithOutputsPayloadHash
     {-# INLINE casKey #-}
 
+-- | Smart constructor for 'PayloadWithOutputs'.
+--
+-- Precondition: the vector of transaction output has the same length (and is
+-- in the same order, i.e. the two vectors will be zipped) as the list of input
+-- transactions inside the 'PayloadData'.
 payloadWithOutputs
-    :: PayloadData
+    :: HasCallStack
+    => PayloadData
     -> CoinbaseOutput
     -> V.Vector TransactionOutput
     -> PayloadWithOutputs
-payloadWithOutputs d co outputs = PayloadWithOutputs
-    { _payloadWithOutputsTransactions = V.zip (_payloadDataTransactions d) outputs
-    , _payloadWithOutputsMiner = _payloadDataMiner d
-    , _payloadWithOutputsCoinbase = co
-    , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
-    , _payloadWithOutputsTransactionsHash = _payloadDataTransactionsHash d
-    , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
-    }
+payloadWithOutputs d co outputs =
+  if V.length (_payloadDataTransactions d) /= V.length outputs
+    then let msg = concat [
+               "Internal code invariant violation: ",
+               "PAYLOAD ERROR: MISMATCHED # OF TRANSACTIONS AND OUTPUTS: \n",
+               "PayloadData=",
+               show d,
+               "\nTransactionOutputs=",
+               show outputs
+               ]
+         in error msg
+    else PayloadWithOutputs
+           { _payloadWithOutputsTransactions = V.zip (_payloadDataTransactions d) outputs
+           , _payloadWithOutputsMiner = _payloadDataMiner d
+           , _payloadWithOutputsCoinbase = co
+           , _payloadWithOutputsPayloadHash = _payloadDataPayloadHash d
+           , _payloadWithOutputsTransactionsHash = _payloadDataTransactionsHash d
+           , _payloadWithOutputsOutputsHash = _payloadDataOutputsHash d
+           }
 
 newPayloadWithOutputs
     :: MinerData

@@ -163,3 +163,55 @@
   (let ((i (account-info 'k1)))
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])
     ))
+
+;; cover enforce-unit
+(module T G (defcap G () true)
+  (defconst UNIT_BAD 0.0000000000001)
+  (defconst UNIT_GOOD 0.000000000001)
+)
+(expect "valid unit" true
+  (enforce-unit 1.234))
+(expect-failure "invalid precision"
+  (enforce-unit 1.1234567890123))
+(expect-failure "too small"
+  (enforce-unit UNIT_BAD))
+(expect "min value ok" true
+  (enforce-unit UNIT_GOOD))
+;;transfer
+(expect "min transfer ok" "Write succeeded"
+  (transfer 'k1 'k2 UNIT_GOOD))
+(expect-failure "bad transfer fails"
+  (transfer 'k1 'k2 UNIT_BAD))
+;;transfer-and-create
+(expect "min transfer-and-create ok" "Write succeeded"
+  (transfer-and-create 'k1 'k2 (read-keyset 'k2) UNIT_GOOD))
+(expect-failure "bad transfer-and-create fails"
+  (transfer-and-create 'k1 'k2 (read-keyset 'k2) UNIT_BAD))
+;;cross-chain-transfer (step 0 only covered)
+(pact-state true)
+(expect "min cross-chain-transfer step 1 succeeds" "success"
+  (let ((s "success"))
+    (cross-chain-transfer 'k1 "chain" 'k2 (read-keyset 'k2) UNIT_GOOD)
+    s))
+(pact-state true)
+(expect-failure "bad cross-chain-transfer fails"
+  (cross-chain-transfer 'k1 "chain" 'k2 (read-keyset 'k2) UNIT_BAD))
+;;coinbase
+(test-capability (COINBASE))
+(expect "min coinbase succeeds" "Write succeeded"
+  (coinbase 'k2 (read-keyset 'k2) UNIT_GOOD))
+(expect-failure "bad coinbase fails"
+  (coinbase 'k2 (read-keyset 'k2) UNIT_BAD))
+;;buy-gas
+(test-capability (FUND_TX))
+(expect "min buy-gas succeeds" "Write succeeded"
+  (buy-gas 'k1 UNIT_GOOD))
+(expect-failure "bad buy-gas fails"
+  (buy-gas 'k1 UNIT_BAD))
+;;redeem-gas
+(env-data { "fee" : UNIT_GOOD, "k2": ["keys2"]})
+(expect "min redeem-gas succeeds" "Write succeeded"
+  (redeem-gas 'k2 (read-keyset 'k2) 'k1 UNIT_GOOD))
+(env-data { "fee" : UNIT_BAD, "k2": ["keys2"]})
+(expect-failure "bad redeem-gas fails"
+  (redeem-gas 'k2 (read-keyset 'k2) 'k1 UNIT_BAD))

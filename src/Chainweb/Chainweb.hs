@@ -52,6 +52,7 @@ module Chainweb.Chainweb
 , configChainwebVersion
 , configMiner
 , configCoordinator
+, configHeaderStream
 , configReintroTxs
 , configP2p
 , configTransactionIndex
@@ -65,6 +66,7 @@ module Chainweb.Chainweb
 , chainwebHostAddress
 , chainwebMiner
 , chainwebCoordinator
+, chainwebHeaderStream
 , chainwebLogger
 , chainwebSocket
 , chainwebPeer
@@ -76,6 +78,7 @@ module Chainweb.Chainweb
 -- ** Mempool integration
 , ChainwebTransaction
 , Mempool.chainwebTransactionConfig
+, validatingMempoolConfig
 
 , withChainweb
 , runChainweb
@@ -89,16 +92,19 @@ import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
+import Control.Monad.Catch (throwM)
 
+import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sortBy)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
 
@@ -110,6 +116,7 @@ import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
 
+import qualified Pact.Types.Hash as P
 import Prelude hiding (log)
 
 import System.Clock
@@ -119,6 +126,7 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
@@ -182,6 +190,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
     , _configCoordinator :: !Bool
+    , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
@@ -208,6 +217,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
     , _configCoordinator = False
+    , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
@@ -223,6 +233,7 @@ instance ToJSON ChainwebConfiguration where
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
         , "miningCoordination" .= _configCoordinator o
+        , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
@@ -238,6 +249,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
         <*< configCoordinator ..: "miningCoordination" % o
+        <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
@@ -260,6 +272,9 @@ pChainwebConfiguration = id
     <*< configCoordinator .:: boolOption_
         % long "mining-coordination"
         <> help "whether to enable external requests for mining work"
+    <*< configHeaderStream .:: boolOption_
+        % long "header-stream"
+        <> help "whether to enable an endpoint for streaming block updates"
     <*< configReintroTxs .:: enableDisableFlag
         % long "tx-reintro"
         <> help "whether to enable transaction reintroduction from losing forks"
@@ -287,6 +302,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebCutResources :: !(CutResources logger cas)
     , _chainwebMiner :: !(Maybe (MinerResources logger cas))
     , _chainwebCoordinator :: !(Maybe (MiningCoordination logger cas))
+    , _chainwebHeaderStream :: !HeaderStream
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
@@ -344,14 +360,30 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 -- version or the chainweb protocol. These should be separated in to two
 -- different types.
 
-validatingMempoolConfig :: Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig = Mempool.InMemConfig
-    Mempool.chainwebTransactionConfig
+validatingMempoolConfig
+    :: ChainId
+    -> MVar (CutDb cas)
+    -> MVar PactExecutionService
+    -> Mempool.InMemConfig ChainwebTransaction
+validatingMempoolConfig cid cutmv mv = Mempool.InMemConfig
+    txcfg
     blockGasLimit
     maxRecentLog
+    preInsertCheck
   where
+    txcfg = Mempool.chainwebTransactionConfig
     blockGasLimit = 100000
     maxRecentLog = 2048
+    hasher = Mempool.txHasher txcfg
+    preInsertCheck txs = do
+        cdb <- readMVar cutmv
+        curCut <- _cut cdb
+        bh <- lookupCutM cid curCut
+        let hashes = V.map toPactHash $ V.map hasher txs
+        pex <- readMVar mv
+        mbs <- _pactLookup pex bh hashes >>= either throwM return
+        return $! V.map (== Nothing) mbs
+    toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -372,8 +404,10 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     cdbv <- newEmptyMVar
     concurrentWith
         -- initialize chains concurrently
-        (\cid -> withChainResources v cid rocksDb peer (chainLogger cid)
-                     validatingMempoolConfig cdbv payloadDb prune dbDir nodeid
+        (\cid -> do
+            let mcfg = validatingMempoolConfig cid cdbv
+            withChainResources v cid rocksDb peer (chainLogger cid)
+                     mcfg cdbv payloadDb prune dbDir nodeid
                      resetDb)
 
         -- initialize global resources after all chain resources are initialized
@@ -456,6 +490,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebCutResources = cuts
                             , _chainwebMiner = m
                             , _chainwebCoordinator = mc
+                            , _chainwebHeaderStream = HeaderStream $ _configHeaderStream conf
                             , _chainwebLogger = logger
                             , _chainwebPeer = peer
                             , _chainwebPayloadDb = payloadDb
@@ -594,6 +629,7 @@ runChainweb cw = do
             , _chainwebServerPactDbs = pactDbsToServe
             }
         (_chainwebCoordinator cw)
+        (_chainwebHeaderStream cw)
 
     -- HTTP Request Logger
 

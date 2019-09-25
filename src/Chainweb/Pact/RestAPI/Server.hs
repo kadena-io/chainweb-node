@@ -10,6 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData
@@ -27,13 +28,15 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens ((^.), view)
+import Control.Lens ((^.), (^?!), _head, view)
 import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
-import Data.Aeson
+import Data.Aeson as Aeson
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Base64.URL.Lazy as Base64
 import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Tuple.Strict
@@ -60,10 +63,11 @@ import System.LogLevel
 
 -- internal modules
 
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.API
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
-import qualified Pact.Types.Hash as H
+import qualified Pact.Types.Hash as Pact
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -73,14 +77,19 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..))
+import Chainweb.Mempool.Mempool (MempoolBackend(..), InsertType(..))
 import Chainweb.Pact.RestAPI
-import Chainweb.RestAPI.Orphans ()
-import Chainweb.RestAPI.Utils
+import Chainweb.Pact.Service.Types
+import Chainweb.Pact.SPV
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Utils
+import Chainweb.SPV (SpvException(..))
+import Chainweb.SPV.CreateProof
 import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
 import qualified Chainweb.TreeDB as TreeDB
+import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -121,21 +130,26 @@ pactServer
     => PayloadCas cas
     => Logger logger
     => PactServerData logger cas
-    -> Server (PactApi v c)
+    -> Server (PactServiceApi v c)
 pactServer (cut, chain) =
-    sendHandler logger mempool :<|>
-    pollHandler logger cut cid chain :<|>
-    listenHandler logger cut cid chain :<|>
-    localHandler logger cut cid chain
+    pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
 
+    pactApiHandlers
+      = sendHandler logger mempool
+      :<|> pollHandler logger cut cid chain
+      :<|> listenHandler logger cut cid chain
+      :<|> localHandler logger cut cid chain
+
+    pactSpvHandler = spvHandler logger cut cid chain
+
 
 somePactServer :: SomePactServerData -> SomeServer
 somePactServer (SomePactServerData (db :: PactServerData_ v c logger cas))
-    = SomeServer (Proxy @(PactApi v c)) (pactServer @v @c $ _unPactServerData db)
+    = SomeServer (Proxy @(PactServiceApi v c)) (pactServer @v @c $ _unPactServerData db)
 
 
 somePactServers
@@ -152,6 +166,7 @@ data PactCmdLog
   | PactCmdLogPoll (NonEmpty Text)
   | PactCmdLogListen Text
   | PactCmdLogLocal (Command Text)
+  | PactCmdLogSpv Text
   deriving (Show, Generic, ToJSON, NFData)
 
 
@@ -165,7 +180,8 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     case traverse validateCommand cmds of
       Right enriched -> do
-        liftIO $ mempoolInsert mempool $! V.fromList $ NEL.toList enriched
+        liftIO $ mempoolInsert mempool CheckedInsert
+               $! V.fromList $ NEL.toList enriched
         return $! RequestKeys $ NEL.map cmdToRequestKey enriched
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
@@ -271,7 +287,77 @@ localHandler logger _ _ cr cmd = do
     logg = logFunctionJson (setComponent "local-handler" logger)
 
 
+spvHandler
+    :: forall cas l
+    . ( Logger l
+      , PayloadCas cas
+      )
+    => l
+    -> CutResources l cas
+        -- ^ cut resources contain the cut, payload, and
+        -- block db
+    -> ChainId
+        -- ^ the chain id of the source chain id used in the
+        -- execution of a cross-chain-transfer.
+    -> ChainResources l
+        -- ^ chain resources contain a pact service
+    -> SpvRequest
+        -- ^ Contains the (pact) chain id of the target chain id used in the
+        -- 'target-chain' field of a cross-chain-transfer.
+        -- Also contains the request key of of the cross-chain transfer
+        -- tx request.
+    -> Handler TransactionOutputProofB64
+spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
+    liftIO $! logg (sshow ph)
+
+    cut <- liftIO $! CutDB._cut cdb
+    bh <- liftIO $! lookupCutM cid cut
+
+    T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
+      Left e -> throwError $ err400
+        { errBody = "Internal error: transaction hash lookup failed: " <> sshow e }
+      Right v -> case v ^?! _head of
+        Nothing -> throwError $ err400
+          { errBody = "Transaction hash not found: " <> sshow ph }
+        Just t -> return t
+
+    idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
+      Left e -> throwError $ err400
+        { errBody = "Internal error: Index lookup for hash failed: " <> sshow e }
+      Right i -> return i
+
+    tid <- chainIdFromText ptid
+    p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
+      Left e@SpvExceptionTargetNotReachable{} -> throwError $ err400
+        { errBody = "SPV target not reachable: " <> spvErrOf e }
+      Left e@SpvExceptionVerificationFailed{} -> throwError $ err400
+        { errBody = "SPV verification failed: " <> spvErrOf e }
+      Left e -> throwError $ err400
+        { errBody = "Internal error: SPV verification failed: " <> spvErrOf e }
+      Right q -> return q
+
+    return $! b64 p
+  where
+    pe = _chainResPact chainR
+    ph = Pact.fromUntypedHash $ unRequestKey rk
+    cdb = _cutResCutDb cutR
+    bdb = _chainResBlockHeaderDb chainR
+    pdb = view CutDB.cutDbPayloadCas cdb
+    b64 = TransactionOutputProofB64
+      . LBS.toStrict
+      . Base64.encode
+      . Aeson.encode
+
+    logg
+      = logFunctionJson (setComponent "spv-handler" l) Info
+      . PactCmdLogSpv
+
+    spvErrOf = BSL8.fromStrict
+      . encodeUtf8
+      . _spvExceptionMsg
+
 ------------------------------------------------------------------------------
+
 internalPoll
     :: PayloadCas cas
     => CutResources logger cas
@@ -291,7 +377,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
   where
     pactEx = view chainResPact chain
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
-    !requestKeys = V.map (H.fromUntypedHash . unRequestKey) requestKeysV
+    !requestKeys = V.map (Pact.fromUntypedHash . unRequestKey) requestKeysV
     pdb = cutR ^. cutsCutDb . CutDB.cutDbPayloadCas
     bhdb = _chainResBlockHeaderDb chain
 
@@ -303,15 +389,18 @@ internalPoll cutR cid chain cut requestKeys0 = do
     -- TODO: group by block for performance (not very important right now)
     lookupRequestKey key bHash = runMaybeT $ do
         let keyHash = unRequestKey key
-        let pactHash = H.fromUntypedHash keyHash
+        let pactHash = Pact.fromUntypedHash keyHash
         let matchingHash = (== pactHash) . _cmdHash . fst
         blockHeader <- liftIO $ TreeDB.lookupM bhdb bHash
         let payloadHash = _blockPayloadHash blockHeader
         (PayloadWithOutputs txsBs _ _ _ _ _) <- MaybeT $ casLookup pdb payloadHash
         !txs <- mapM fromTx txsBs
         case find matchingHash txs of
-            (Just (_cmd, (TransactionOutput output))) ->
-                MaybeT $ return $! decodeStrict' output
+            (Just (_cmd, (TransactionOutput output))) -> do
+                out <- MaybeT $ return $! decodeStrict' output
+                when (_crReqKey out /= key) $
+                    fail "internal error: Transaction output doesn't match its hash!"
+                return out
             Nothing -> mzero
 
     fromTx (!tx, !out) = do

@@ -4,7 +4,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE QuasiQuotes #-}
 -- |
 -- Module: Chainweb.Test.RemotePactTest
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -26,10 +31,13 @@ import Control.Concurrent.MVar.Strict
 import Control.Exception
 import Control.Lens
 import Control.Monad
+import Control.Monad.IO.Class
 
 import qualified Data.Aeson as A
+import Data.Default (def)
+import Data.Either
 import Data.Foldable (toList)
-import qualified Data.HashMap.Strict as HM
+import qualified Data.HashMap.Strict as HashMap
 import Data.Int
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
@@ -38,6 +46,8 @@ import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
+
+import NeatInterpolation
 
 import Network.Connection as HTTP
 import Network.HTTP.Client.TLS as HTTP
@@ -58,10 +68,11 @@ import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
 import Pact.Types.API
-import qualified Pact.Types.ChainId as CM
-import qualified Pact.Types.ChainMeta as CM
+import qualified Pact.Types.ChainId as Pact
+import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
+import Pact.Types.Term
 
 -- internal modules
 
@@ -74,6 +85,8 @@ import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.Client
+import Chainweb.Pact.Service.Types
 #if ! MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
@@ -91,6 +104,15 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
+#define DEBUG_TEST 0
+
+debug :: String -> IO ()
+#if DEBUG_TEST
+debug = putStrLn
+#else
+debug = const $ return ()
+#endif
+
 nNodes :: Natural
 nNodes = 1
 
@@ -103,6 +125,9 @@ cid = head . toList $ chainIds version
 testCmds :: PactTestApiCmds
 testCmds = apiCmds version cid
 
+testCmdsChainId :: ChainId -> PactTestApiCmds
+testCmdsChainId cid_ = apiCmds version cid_
+
 -- -------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
 
@@ -114,8 +139,10 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
           withRequestKeys iomvar net $ \rks ->
-              testGroup "PactRemoteTests"
-                [ responseGolden net rks ]
+            responseGolden net rks
+
+    , withNodes rdb nNodes $ \net ->
+        spvRequests net
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
@@ -123,9 +150,64 @@ responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
-    (PollResponses theMap) <- testPoll testCmds cwEnv rks
-    let values = mapMaybe (\rk -> _crResult <$> HM.lookup rk theMap) (NEL.toList $ _rkRequestKeys rks)
+    (PollResponses theMap) <- pollWithRetry testCmds cwEnv rks
+    let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
+                          (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
+
+
+spvRequests :: IO ChainwebNetwork -> TestTree
+spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
+    cenv <- fmap _getClientEnv nio
+    batch <- mkTxBatch
+    sid <- mkChainId version (0 :: Int)
+    r <- flip runClientM cenv $ do
+
+      void $ liftIO $ step "sendApiClient: submit batch"
+      rks <- sendApiCmd (testCmdsChainId sid) batch
+
+      void $ liftIO $ step "pollApiClient: poll until key is found"
+      void $ liftIO $ pollWithRetry (testCmdsChainId sid) cenv rks
+
+      liftIO $ sleep 6
+
+      void $ liftIO $ step "spvApiClient: submit request key"
+      pactSpvApiClient version sid (go rks)
+
+    case r of
+      Left e -> assertFailure $ "output proof failed: " <> sshow e
+      Right _ -> return ()
+  where
+    tid = Pact.ChainId "1"
+
+    go (RequestKeys t) = SpvRequest (NEL.head t) tid
+
+    mkTxBatch = do
+      ks <- liftIO testKeyPairs
+      let pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 100000 0
+      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "0")
+      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "1")
+      return $ SubmitBatch (pure cmd1 <> pure cmd2)
+
+    txcode = show $
+      [text|
+         (coin.cross-chain-transfer
+           'sender00
+           (read-msg 'target-chain-id)
+           'sender00
+           (read-keyset 'sender00-keyset)
+           1.0)
+         |]
+
+    txdata =
+      -- sender00 keyset
+      let ks = KeySet
+            [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
+            (Name "keys-all" def)
+      in A.object
+        [ "sender01-keyset" A..= ks
+        , "target-chain-id" A..= tid
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -150,13 +232,6 @@ testSend mNonce cmds env = do
         Left e -> assertFailure (show e)
         Right rks -> return rks
 
-testPoll :: PactTestApiCmds -> ClientEnv -> RequestKeys -> IO PollResponses
-testPoll cmds env rks = do
-    response <- pollWithRetry cmds env rks
-    case response of
-        Left e -> assertFailure (show e)
-        Right rsp -> return rsp
-
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
@@ -175,13 +250,13 @@ sendWithRetry cmds env sb = go maxSendRetries
         case result of
             Left _ ->
                 if retries == 0 then do
-                    putStrLn $ "send failing after " ++ show maxSendRetries ++ " retries"
+                    debug $ "send failing after " ++ show maxSendRetries ++ " retries"
                     return result
                 else do
                     sleep 1
                     go (retries - 1)
             Right _ -> do
-                putStrLn $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
+                debug $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                 return result
 
 maxPollRetries :: Int
@@ -192,24 +267,52 @@ pollWithRetry
     :: PactTestApiCmds
     -> ClientEnv
     -> RequestKeys
-    -> IO (Either ClientError PollResponses)
+    -> IO PollResponses
 pollWithRetry cmds env rks = do
   sleep 3
   go maxPollRetries
     where
-      go retries = do
-          result <- runClientM (pollApiCmd cmds (Poll (_rkRequestKeys rks))) env
+      go !retries = do
+          let retry failure = do
+                if retries == 0
+                  then do
+                    debug $ "poll failing after " ++ show maxSendRetries
+                               ++ " retries"
+                    fail failure
+                  else sleep 1 >> go (retries - 1)
+          let rkks = _rkRequestKeys rks
+          result <- runClientM (pollApiCmd cmds (Poll rkks)) env
           case result of
-              Left _ ->
-                  if retries == 0 then do
-                      putStrLn $ "poll failing after " ++ show maxSendRetries ++ " retries"
-                      return result
-                  else do
-                      sleep 1
-                      go (retries - 1)
-              Right _ -> do
-                  putStrLn $ "poll succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
-                  return result
+              Left e -> retry (show e)
+              Right (PollResponses mp) -> do
+                  ok <- checkResults (toList rkks) mp
+                  if ok
+                    then do
+                        debug $ concat
+                            [ "poll succeeded after "
+                            , show (maxSendRetries - retries)
+                            , " retries" ]
+                        return $ PollResponses mp
+                    else do
+                        debug "poll check failed, continuing"
+                        let msg = concat [ "poll check failure. keys: "
+                                         , show rks
+                                         , "\nresult map was: "
+                                         , show mp
+                                         ]
+                        retry msg
+
+      checkCommandResult x cr =
+          _crReqKey cr == x && isOkPactResult (_crResult cr)
+
+      isOkPactResult (PactResult e) = isRight e
+
+      checkResults [] _ = return True
+      checkResults (x:xs) mp = case HashMap.lookup x mp of
+                                 (Just cr) -> if checkCommandResult x cr
+                                                then checkResults xs mp
+                                                else return False
+                                 Nothing -> return False
 
 testBatch :: MVar Int -> IO SubmitBatch
 testBatch mnonce = do
@@ -219,8 +322,8 @@ testBatch mnonce = do
         c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
         pure $ (succ nn, SubmitBatch (pure c))
   where
-    pm :: CM.PublicMeta
-    pm = CM.PublicMeta (CM.ChainId "0") "sender00" 100 0.01 1000000 0
+    pm :: Pact.PublicMeta
+    pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 1000 0.1 1000000 0
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
@@ -243,6 +346,7 @@ apiCmds cwVersion theChainId =
 data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
     , pollApiCmd :: Poll -> ClientM PollResponses }
+
 
 --------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test

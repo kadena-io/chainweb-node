@@ -46,6 +46,7 @@ import Control.Monad (when)
 import Control.Monad.Catch (Exception(..))
 
 import Data.Aeson
+import Data.Decimal (roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Maybe
@@ -493,10 +494,9 @@ gasSupplyOf cmd = l * p
 {-# INLINABLE gasSupplyOf #-}
 
 gasFeeOf :: Gas -> GasPrice -> GasSupply
-gasFeeOf gas gp = s * p
+gasFeeOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
   where
-    p = fromRational $ toRational gp
-    s = fromIntegral @Gas @GasSupply gas
+    gs = roundTo 12 ((fromIntegral gas) * gp)
 {-# INLINABLE gasFeeOf #-}
 
 -- | Log request keys at DEBUG when successful

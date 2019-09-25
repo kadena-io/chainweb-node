@@ -44,6 +44,7 @@ import Control.Monad.Catch (MonadThrow)
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
+import Data.Decimal (roundTo)
 import Data.Default (Default(..))
 import Data.FileEmbed (embedFile)
 import Data.HashMap.Strict (HashMap)
@@ -64,7 +65,7 @@ import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
 import Pact.Parse (ParsedDecimal(..))
-import Pact.Types.Term (KeySet(..), Name(..))
+import Pact.Types.Term (KeySet(..), Name(..), PublicKey)
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
@@ -89,17 +90,20 @@ data Miner = Miner !MinerId !MinerKeys
     deriving stock (Eq, Ord, Show, Generic)
     deriving anyclass (NFData)
 
+-- NOTE: These JSON instances are used (among other things) to embed Miner data
+-- into the Genesis Payloads. If these change, the payloads become unreadable!
+--
 instance ToJSON Miner where
     toJSON (Miner (MinerId m) (MinerKeys ks)) = object
-      [ "m" .= m
-      , "ks" .= _ksKeys ks
-      , "kp" .= _ksPredFun ks
-      ]
+        [ "account" .= m
+        , "public-keys" .= _ksKeys ks
+        , "predicate" .= _ksPredFun ks
+        ]
 
 instance FromJSON Miner where
     parseJSON = withObject "Miner" $ \o -> Miner
-      <$> (MinerId <$> o .: "m")
-      <*> (MinerKeys <$> (KeySet <$> o .: "ks" <*> o .: "kp"))
+        <$> (MinerId <$> o .: "account")
+        <*> (MinerKeys <$> (KeySet <$> o .: "public-keys" <*> o .: "predicate"))
 
 -- | A lens into the miner id of a miner.
 --
@@ -124,10 +128,6 @@ defaultMiner = Miner (MinerId "miner")
         (Name "keys-all" def)
       )
 {-# INLINE defaultMiner #-}
-
-instance Default Miner where
-    def = defaultMiner
-    {-# INLINE def #-}
 
 -- | A trivial Miner.
 --
@@ -166,7 +166,7 @@ readRewards v =
       let
         !n = v ^. chainGraph . to (int . size)
         !m = fromRational $ toRational b
-      in (BlockHeight a, ParsedDecimal $ m / n)
+      in (BlockHeight a, ParsedDecimal $ roundTo 8 (m / n))
 
 -- | Read in the reward csv via TH for deployment purposes.
 --
@@ -183,6 +183,12 @@ pMiner = Miner
     <*> (MinerKeys <$> pks)
   where
     pks :: Parser KeySet
-    pks = KeySet
-        <$> some (strOption (long "miner-key" <> help "Public key of the account to send rewards"))
-        <*> pure (Name "keys-all" def)
+    pks = KeySet <$> many pKey <*> pPred
+
+pKey :: Parser PublicKey
+pKey = strOption (long "miner-key"
+    <> help "Public key of the account to send rewards (can pass multiple times)")
+
+pPred :: Parser Name
+pPred = (\s -> Name s def) <$>
+    strOption (long "miner-pred" <> value "keys-all" <> help "Keyset predicate")
