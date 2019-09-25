@@ -362,23 +362,32 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    initialCut = tableMaxValue (_getRocksDbCas cutHashesStore) >>= \case
-        Nothing -> do
-            logg Debug "using intial cut from cut db configuration"
-            return $! _cutDbConfigInitialCut config
-        Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
-            Left (TreeDbKeyNotFound _ :: TreeDbException BlockHeaderDb) -> do
-                logfun @T.Text Warn
-                    $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
-                    <> " from database. The database might be corrupted. Falling back to genesis cut"
+    initialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+        tableIterLast it
+        go it
+      where
+        -- TODO: should we limit the search to a certain number of attempts
+        -- or iterate in increasinly larger steps?
+        go it = tableIterValue it >>= \case
+            Nothing -> do
+                logg Debug "using intial cut from cut db configuration"
                 return $! _cutDbConfigInitialCut config
-            Left e -> throwM e
-            Right hm -> do
-                logg Debug $ "joining intial cut from cut db configuration with maximum persisted cut " <> sshow hm
-                joinIntoHeavier_
-                    (_webBlockHeaderStoreCas headerStore)
-                    hm
-                    (_cutMap $ _cutDbConfigInitialCut config)
+            Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
+                Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
+                    logfun @T.Text Warn
+                        $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
+                        <> " from database."
+                        <> " Error: " <> sshow e <> "."
+                        <> " The database might be corrupted. Falling back to previous cut."
+                    tableIterPrev it
+                    go it
+                Left e -> throwM e
+                Right hm -> do
+                    logg Debug $ "joining intial cut from cut db configuration with cut that was loaded from the database " <> sshow hm
+                    joinIntoHeavier_
+                        (_webBlockHeaderStoreCas headerStore)
+                        hm
+                        (_cutMap $ _cutDbConfigInitialCut config)
 
 -- | Stop the cut validation pipeline.
 --
