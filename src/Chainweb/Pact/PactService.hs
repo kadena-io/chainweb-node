@@ -724,7 +724,7 @@ rewindTo mb = do
             Just x -> return x
             Nothing -> do
                 logInfo $ "exception during rewind to "
-                    <> sshow (newH, parentHash) <> ". Failed to look last hash "
+                    <> sshow (newH, parentHash) <> ". Failed to look up last hash "
                     <> sshow (height, hash) <> " in block header db. Continuing with parent."
                 liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
                     Nothing -> throwM $ BlockValidationFailure
@@ -864,11 +864,13 @@ execLookupPactTxs
     => T2 BlockHeight BlockHash
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
-execLookupPactTxs (T2 leafHeight leafHash) txs =
-    withCheckpointerRewind (Just (leafHeight + 1, leafHash))
-                           "lookupPactTxs" $ \_pdbenv -> do
-        cp <- getCheckpointer
-        fmap Discard $ liftIO $ V.mapM (_cpLookupProcessedTx cp) txs
+execLookupPactTxs (T2 leafHeight leafHash) txs
+    | null txs = return mempty
+    | otherwise
+        = withCheckpointerRewind (Just (leafHeight + 1, leafHash)) "lookupPactTxs"
+            $ \_pdbenv -> do
+                cp <- getCheckpointer
+                fmap Discard $ liftIO $ V.mapM (_cpLookupProcessedTx cp) txs
 
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
