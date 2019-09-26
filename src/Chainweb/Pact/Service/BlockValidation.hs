@@ -72,7 +72,7 @@ local ct reqQ = do
     return resultVar
 
 lookupPactTxs
-    :: T2 BlockHeight BlockHash
+    :: Maybe (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
     -> TQueue RequestMsg
     -> IO (MVar (Either PactException

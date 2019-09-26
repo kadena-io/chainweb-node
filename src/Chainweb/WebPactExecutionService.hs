@@ -52,14 +52,18 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock = \h pd -> withChainService h $ \p -> _pactValidateBlock p h pd
   , _pactNewBlock = \m h ct -> withChainService h $ \p -> _pactNewBlock p m h ct
   , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
-  , _pactLookup = \h txs -> withChainService h $ \p -> _pactLookup p h txs
+  , _pactLookup = \eh txs ->
+        case eh of
+          Left cid -> withChainServiceForId cid $ \p -> _pactLookup p eh txs
+          Right h -> withChainService h $ \p -> _pactLookup p eh txs
   }
   where
-    withChainService h act = case HM.lookup (_chainId h) hm of
+    withChainServiceForId cid act = case HM.lookup cid hm of
         Just p -> act p
         Nothing ->
-            let msg = "PactExecutionService: Invalid chain ID in header: " ++ show h
+            let msg = "PactExecutionService: Invalid chain ID: " ++ show cid
             in throwM $ userError msg
+    withChainService h = withChainServiceForId (_chainId h)
 
 mkPactExecutionService
     :: TQueue RequestMsg
@@ -83,11 +87,13 @@ mkPactExecutionService q = PactExecutionService
       takeMVar mv
   }
 
-blockHeaderToRestorePoint :: BlockHeader -> T2 BlockHeight BlockHash
-blockHeaderToRestorePoint bh = T2 height hash
-  where
-    !height = _blockHeight bh
-    !hash = _blockHash bh
+blockHeaderToRestorePoint :: Either ChainId BlockHeader -> Maybe (T2 BlockHeight BlockHash)
+blockHeaderToRestorePoint e =
+    case e of
+        Left _ -> Nothing
+        Right bh -> let !height = _blockHeight bh
+                        !hash = _blockHash bh
+                    in Just $! T2 height hash
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
 -- given.
