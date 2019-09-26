@@ -366,10 +366,11 @@ validatingMempoolConfig
     -> MVar PactExecutionService
     -> Mempool.InMemConfig ChainwebTransaction
 validatingMempoolConfig cid cutmv mv = Mempool.InMemConfig
-    txcfg
-    blockGasLimit
-    maxRecentLog
-    preInsertCheck
+    { Mempool._inmemTxCfg = txcfg
+    , Mempool._inmemTxBlockSizeLimit = blockGasLimit
+    , Mempool._inmemMaxRecentItems = maxRecentLog
+    , Mempool._inmemPreInsertCheck = preInsertCheck
+    }
   where
     txcfg = Mempool.chainwebTransactionConfig
     blockGasLimit = 100000

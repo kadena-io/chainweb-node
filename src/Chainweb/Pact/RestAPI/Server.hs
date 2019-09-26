@@ -37,7 +37,6 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL.Lazy as Base64
-import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Tuple.Strict
 import Data.HashMap.Strict (HashMap)
@@ -87,7 +86,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
-import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
+import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -415,5 +414,6 @@ validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $! (\bs -> PayloadWithText (SB.toShort bs) (_cmdPayload cmd)) <$> cmdBS
+  ProcSucc cmd -> return $! mkPayloadWithText <$> cmd
+  -- (\bs -> PayloadWithText (SB.toShort bs) (_cmdPayload cmd)) <$> cmdBS
   ProcFail err -> Left $ err

@@ -10,7 +10,6 @@
 
 module Standalone.Utils where
 
-import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
@@ -19,7 +18,6 @@ import Control.Lens hiding ((.=))
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Short as SB
 import Data.Default
 import Data.FileEmbed
 import Data.Foldable
@@ -58,11 +56,8 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.WebPactExecutionService
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -124,26 +119,8 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
               ks <- testKeyPairs
               cmd <- mkCommand ks pm nonce msg
               case verifyCommand cmd of
-                ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+                ProcSucc t -> return $ mkPayloadWithText <$> t
                 ProcFail e -> throwM $ userError e
-
-          k t bs = PayloadWithText bs (_cmdPayload t)
-
-mkPactExecutionService' :: TQueue RequestMsg -> PactExecutionService
-mkPactExecutionService' q = emptyPactExecutionService
-  { _pactValidateBlock = \h pd -> do
-      mv <- validateBlock h pd q
-      r <- takeMVar mv
-      case r of
-          (Right !pdo) -> return pdo
-          Left e -> throwM e
-  , _pactNewBlock = \m h -> do
-      mv <- newBlock m h q
-      r <- takeMVar mv
-      case r of
-          (Right !pdo) -> return pdo
-          Left e -> throwM e
-  }
 
 data StopState
   = BlockStopCondition BlockStopState
@@ -245,10 +222,8 @@ mkExecTransactions cid ks nonce0 gas gasrate ttl ct txs = do
       let nonce = T.append nonce0 (T.pack $ show nn)
       cmd <- mkCommand ks pm nonce msg
       case verifyCommand cmd of
-        ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+        ProcSucc t -> return $! mkPayloadWithText <$> t
         ProcFail e -> throwM $ userError e
-
-    k t bs = PayloadWithText bs (_cmdPayload t)
 
 -- | Merge a list of JSON Objects together. Note: this will yield an empty
 -- object in the case that there are no objects in the list of values.
