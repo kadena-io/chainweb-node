@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -21,6 +22,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Lens hiding ((.=))
 import Control.Monad (when)
 
 import Data.Aeson (object, (.=))
@@ -38,6 +40,10 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Pact.Parse
+import Pact.Types.ChainMeta
+import Pact.Types.Command
+
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
@@ -51,6 +57,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils (withLink)
 import Chainweb.Version (ChainwebVersion(..), someChainId)
@@ -101,7 +108,8 @@ newBlockTest :: String -> IO (TQueue RequestMsg) -> TestTree
 newBlockTest label reqIO = golden label $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
-    respVar <- newBlock noMiner genesisHeader reqQ
+    let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
+    respVar <- newBlock noMiner genesisHeader (BlockCreationTime blockTime) reqQ
     goldenBytes "new-block" =<< takeMVar respVar
   where
     cid = someChainId testVersion
@@ -125,13 +133,14 @@ _getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
     gbh0 = genesisBlockHeader testVersion cid
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess  = MemPoolAccess
-    { mpaGetBlock = getTestBlock
+testMemPoolAccess = MemPoolAccess
+    { mpaGetBlock = \validate bh hash _header ->
+        getTestBlock validate bh hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    getTestBlock validate _bHeight _bHash _bHeader = do
+    getTestBlock validate bHeight bHash = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         d <- adminData
         let txs = V.fromList
@@ -147,8 +156,13 @@ testMemPoolAccess  = MemPoolAccess
               , PactTransaction "(at 'chain-id (chain-data))" d
               , PactTransaction "(at 'sender (chain-data))" d
               ]
-        outtxs <- goldenTestTransactions txs
-        oks <- validate _bHeight _bHash outtxs
+        let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
+            g = modifyPayloadWithText . set (pMeta . pmTTL)
+        outtxs' <- goldenTestTransactions txs
+        let outtxs = flip V.map outtxs' $ \tx ->
+                let ttl = TTLSeconds $ ParsedInteger 1000000
+                in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger 1000000))) tx
+        oks <- validate bHeight bHash outtxs
         when (not $ V.and oks) $ do
             fail $ mconcat [ "tx failed validation! input list: \n"
                            , show txs

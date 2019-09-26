@@ -163,12 +163,12 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService' requestQ
-        FastTimedCPM{} -> mkPactExecutionService' requestQ
-        Development -> mkPactExecutionService' requestQ
-        -- Testnet00 -> mkPactExecutionService' requestQ
-        -- Testnet01 -> mkPactExecutionService' requestQ
-        Testnet02 -> mkPactExecutionService' requestQ
+        TimedCPM{} -> mkPactExecutionService requestQ
+        FastTimedCPM{} -> mkPactExecutionService requestQ
+        Development -> mkPactExecutionService requestQ
+        -- Testnet00 -> mkPactExecutionService requestQ
+        -- Testnet01 -> mkPactExecutionService requestQ
+        Testnet02 -> mkPactExecutionService requestQ
 
 withChainwebInternalStandalone
     :: Logger logger

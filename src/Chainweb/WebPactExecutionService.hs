@@ -32,6 +32,7 @@ _webPactNewBlock
     :: WebPactExecutionService
     -> Miner
     -> BlockHeader
+    -> BlockCreationTime
     -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
@@ -49,7 +50,7 @@ mkWebPactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock = \h pd -> withChainService h $ \p -> _pactValidateBlock p h pd
-  , _pactNewBlock = \m h -> withChainService h $ \p -> _pactNewBlock p m h
+  , _pactNewBlock = \m h ct -> withChainService h $ \p -> _pactNewBlock p m h ct
   , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
   , _pactLookup = \h txs -> withChainService h $ \p -> _pactLookup p h txs
   }
@@ -70,8 +71,8 @@ mkPactExecutionService q = PactExecutionService
       case r of
         (Right !pdo) -> return pdo
         Left e -> throwM e
-  , _pactNewBlock = \m h -> do
-      mv <- newBlock m h q
+  , _pactNewBlock = \m h ct -> do
+      mv <- newBlock m h ct q
       r <- takeMVar mv
       either throwM evaluate r
   , _pactLocal = \ct -> do
@@ -94,7 +95,7 @@ blockHeaderToRestorePoint bh = T2 height hash
 emptyPactExecutionService :: PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
-    , _pactNewBlock = \_ _ -> pure emptyPayload
+    , _pactNewBlock = \_ _ _ -> pure emptyPayload
     , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     }
