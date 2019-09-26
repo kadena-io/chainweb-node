@@ -45,6 +45,7 @@ module TXG.Repl
 
 import Data.Aeson
 import Data.ByteString (ByteString)
+import Data.Decimal
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
@@ -126,14 +127,14 @@ signedCode k c =
 -- | Convenience function for constructing a coin transfer transaction
 transfer :: Text -> Text -> Double -> IO [Command Text]
 transfer from to amt = do
-  k <- stockKey from
-  let meta = defPubMeta { _pmSender = from }
-  kps <- mkKeyPairs [k]
-  fmap (:[]) $ txToCommand meta (NEL.fromList kps) $
-    CallBuiltin $ CC $ CoinTransfer
-      (SenderName $ Account $ T.unpack from)
-      (ReceiverName $ Account $ T.unpack to)
-      (Amount amt)
+    k <- stockKey from
+    let meta = defPubMeta { _pmSender = from }
+    kps <- mkKeyPairs [k]
+    fmap (:[]) $ txToCommand meta (NEL.fromList kps) $
+      CallBuiltin $ CC $ CoinTransfer
+        (SenderName $ Account $ T.unpack from)
+        (ReceiverName $ Account $ T.unpack to)
+        (Amount $ realFracToDecimal 12 amt)
 
 -- | Convenience function for constructing a transfer-and-create transaction
 transferCreate :: Text -> Text -> Guard -> Double -> IO [Command Text]
@@ -146,7 +147,7 @@ transferCreate from to guard amt = do
       (SenderName $ Account $ T.unpack from)
       (ReceiverName $ Account $ T.unpack to)
       guard
-      (Amount amt)
+      (Amount $ realFracToDecimal 12 amt)
 
 mkKeyset :: Text -> [PublicKeyBS] -> Value
 mkKeyset p ks = object
