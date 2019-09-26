@@ -442,8 +442,8 @@ validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
       case m of
         Nothing -> return True
         Just (T2 b _g) -> do
-          let validations = and $ map ($ tx) validators
-          return $! b >= limitInCoin && validations
+          let validations = (const (b >= limitInCoin)) : validators
+          return $! all ($ tx) validations
 
     checkOne tx = do
         let pactHash = view P.cmdHash tx
@@ -453,7 +453,7 @@ validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
         then checkAccount [k] tx
         else return False
       where
-        k tx' = timingsCheck blockOriginationTime (payloadObj <$> tx')
+        k tx' = bh /= 0 && timingsCheck blockOriginationTime (payloadObj <$> tx')
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
 -- associated with account name
@@ -654,6 +654,8 @@ playOneBlock currHeader plData pdbenv = do
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
   where
+    -- TODO: reminder to do duplication check. Effectively do the same checks
+    -- that are found in newblock.
     checkTTL = if isGenesisBlock then const $ const True else timingsCheck
 
     -- todo: generalize to more checks
@@ -832,10 +834,6 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     T2 !result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache
-
-    -- liftIO $ putStrLn "command result"
-    -- liftIO $ print result
-    -- liftIO $ putStrLn "command result"
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.

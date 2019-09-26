@@ -10,7 +10,6 @@
 
 module Standalone.Utils where
 
--- import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
@@ -19,7 +18,6 @@ import Control.Lens hiding ((.=))
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
--- import qualified Data.ByteString.Short as SB
 import Data.Default
 import Data.FileEmbed
 import Data.Foldable
@@ -122,10 +120,7 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
               cmd <- mkCommand ks pm nonce msg
               case verifyCommand cmd of
                 ProcSucc t -> return $ mkPayloadWithText <$> t
-                -- fmap (k t) (SB.toShort <$> cmd)
                 ProcFail e -> throwM $ userError e
-
-          -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 data StopState
   = BlockStopCondition BlockStopState
@@ -229,8 +224,6 @@ mkExecTransactions cid ks nonce0 gas gasrate ttl ct txs = do
       case verifyCommand cmd of
         ProcSucc t -> return $! mkPayloadWithText <$> t
         ProcFail e -> throwM $ userError e
-
-    -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 -- | Merge a list of JSON Objects together. Note: this will yield an empty
 -- object in the case that there are no objects in the list of values.

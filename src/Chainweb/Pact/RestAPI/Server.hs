@@ -37,7 +37,6 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL.Lazy as Base64
--- import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Tuple.Strict
 import Data.HashMap.Strict (HashMap)
