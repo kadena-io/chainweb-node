@@ -207,7 +207,9 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     deltaKey = SQLiteDeltaKey tn key
 
     modf (a, m, l, p) = (a, upd m, l, p)
-    upd = HashMap.insertWith DL.append deltaKey (DL.singleton delta)
+    {- "const" is used here because prefer the latest update of the rowkey for
+    the current transaction  -}
+    upd = HashMap.insertWith const deltaKey (DL.singleton delta)
 
 
 backendWriteUpdateBatch

@@ -3,7 +3,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
 -- Module: Chainweb.Test.PactInProcApi
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -27,6 +30,10 @@ module Chainweb.Test.Pact.Utils
 , mkTestContTransaction
 , pactTestLogger
 , withMVarResource
+, withTime
+, mkKeyset
+, stockKey
+, toTxCreationTime
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -52,14 +59,18 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Short as SB
+-- import qualified Data.ByteString.Short as SB
 import Data.Default (def)
+import Data.FileEmbed
 import Data.Foldable
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
+import Data.Text.Encoding
+
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
+import qualified Data.Yaml as Y
 
 import System.IO.Extra
 
@@ -69,6 +80,7 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
+import Pact.Parse
 import Pact.Types.ChainId
 import Pact.Types.ChainMeta
 import Pact.Types.Command
@@ -97,6 +109,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
@@ -193,12 +206,13 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
       case verifyCommand cmd of
         ProcSucc t ->
           let
-            r = fmap (k t) $ SB.toShort <$> cmd
+            -- r = fmap (k t) $ SB.toShort <$> cmd
+            r = mkPayloadWithText <$> t
             -- order matters for these tests
           in return $ (succ n, Vector.snoc acc r)
         ProcFail e -> throwM $ userError e
 
-    k t bs = PayloadWithText bs (_cmdPayload t)
+    -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 -- | Make pact 'ContMsg' transactions, specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, cont step, pact id, rollback,
@@ -238,10 +252,11 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
 
     cmd <- mkCommand ks pm nonce msg
     case verifyCommand cmd of
-      ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
+      -- ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
+      ProcSucc t -> return $ Vector.singleton $ mkPayloadWithText <$> t
       ProcFail e -> throwM $ userError e
   where
-    k t bs = PayloadWithText bs (_cmdPayload t)
+    -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def
@@ -337,8 +352,7 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid cutDB bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p ->
-            evalPactServiceM ctx $ execNewBlock mempoolAccess p m
+        { _pactNewBlock = \m p t -> evalPactServiceM ctx $ execNewBlock mempoolAccess p m t
         , _pactValidateBlock = \h d ->
             evalPactServiceM ctx $ execValidateBlock h d
         , _pactLocal = error
@@ -446,3 +460,32 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
 withMVarResource value = withResource (newMVar value) (const $ return ())
+
+withTime :: (IO (Time Integer) -> TestTree) -> TestTree
+withTime = withResource getCurrentTimeIntegral (const (return ()))
+
+mkKeyset :: Text -> [PublicKeyBS] -> Value
+mkKeyset p ks = object
+  [ "pred" .= p
+  , "keys" .= ks
+  ]
+
+stockKeyFile :: ByteString
+stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+
+-- | Convenient access to predefined testnet sender accounts
+stockKey :: Text -> IO ApiKeyPair
+stockKey s = do
+  let Right (Y.Object o) = Y.decodeEither' stockKeyFile
+      Just (Y.Object kp) = HM.lookup s o
+      Just (String pub) = HM.lookup "public" kp
+      Just (String priv) = HM.lookup "secret" kp
+      mkKeyBS = decodeKey . encodeUtf8
+  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
+
+decodeKey :: ByteString -> ByteString
+decodeKey = fst . B16.decode
+
+toTxCreationTime :: Time Integer -> TxCreationTime
+toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+          Seconds s -> TxCreationTime $ ParsedInteger s

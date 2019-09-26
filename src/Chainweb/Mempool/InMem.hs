@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
@@ -55,6 +56,7 @@ import Chainweb.BlockHeader
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
+import Chainweb.Time
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
@@ -226,14 +228,16 @@ insertInMem cfg lock runCheck txs0 = do
     preInsertFilter = if runCheck == CheckedInsert
                         then preInsertFilterReal
                         else return
-    preInsertFilterReal txs = do
-        let chk = _inmemPreInsertCheck cfg
-        let out1 = V.map sizeOK txs
-        out2 <- chk txs
-        let oks = V.zipWith (&&) out1 out2
-        -- keep the good txs only
-        return $! V.map fst $ V.filter snd $ V.zip txs oks
 
+    preInsertFilterReal txs = do
+        now <- getCurrentTimeIntegral
+        let txs1 = prevalidate [sizeOK, ttlCheck now] txs
+        oks <- _inmemPreInsertCheck cfg txs1
+        return $! V.map fst $ V.filter snd $ V.zip txs1 oks
+
+    prevalidate validations = V.map fst .
+                              V.filter snd .
+                              V.map (\tx -> (tx, all ($ tx) validations))
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)
     getSize = txGasLimit txcfg
@@ -241,6 +245,10 @@ insertInMem cfg lock runCheck txs0 = do
     sizeOK tx = getSize tx <= maxSize
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
+    ttlCheck (Time (TimeSpan now)) tx =
+      case txMetadata txcfg tx of
+        TransactionMetadata (Time (TimeSpan creationTime)) (Time (TimeSpan expiryTime)) ->
+            creationTime < now && now < expiryTime && creationTime < expiryTime
 
     insOne (!pending, !soFar) !tx =
         let !txhash = hasher tx

@@ -20,7 +20,7 @@ import Chainweb.Transaction
 
 data PactExecutionService = PactExecutionService
   { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
-  , _pactNewBlock :: Miner -> BlockHeader -> IO PayloadWithOutputs
+  , _pactNewBlock :: Miner -> BlockHeader -> BlockCreationTime -> IO PayloadWithOutputs
   , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
   , _pactLookup
         :: Either ChainId BlockHeader    -- restore point. Left cid means we
