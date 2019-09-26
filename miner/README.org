@@ -32,9 +32,9 @@ included in the chain. Without mining, a blockchain cannot progress and
 transactions will never finalize.
 
 Economically, mining is the principal way to obtain currency on the Kadena
-network. Since we uses Proof-of-Work, computational effort is rewarded with
-coins associated with each block you solve. The more computational power you
-have, the more likely you are to be successful at mining.
+network. Since we use Proof-of-Work, computational effort is rewarded with coins
+associated with each block you solve. The more computational power you have, the
+more likely you are to be successful at mining.
 
 Unlike blockchains that have a single chain, ours has many /parallel chains/.
 Everyone who chooses to mine can spread their effort across these multiple
