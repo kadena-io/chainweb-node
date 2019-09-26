@@ -35,6 +35,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL.Lazy as Base64
 import qualified Data.ByteString.Short as SB
@@ -412,8 +413,13 @@ toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
-validateCommand cmdText = let
-  cmdBS = encodeUtf8 <$> cmdText
-  in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $! (\bs -> PayloadWithText (SB.toShort bs) (_cmdPayload cmd)) <$> cmdBS
-  ProcFail err -> Left $ err
+validateCommand cmdText = case verifyCommand cmdBS of
+    ProcSucc cmd
+        | length (_cmdSigs cmd) <= 100 -> Right (f cmd <$> cmdBS)
+        | otherwise -> Left "More than 100 signatures given."
+    ProcFail err -> Left err
+  where
+    cmdBS :: Command ByteString
+    cmdBS = encodeUtf8 <$> cmdText
+
+    f cmd bs = PayloadWithText (SB.toShort bs) (_cmdPayload cmd)
