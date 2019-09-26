@@ -1,9 +1,9 @@
-#+TITLE: Mining for Kadena
+#+TITLE: Mining for the Kadena Public Blockchain
 #+AUTHOR: Colin
 
 * Table of Contents :TOC_4_gh:noexport:
 - [[#what-is-mining][What is Mining?]]
-- [[#kadena-mining-via-official-kadena-software][Kadena Mining via Official Kadena Software]]
+- [[#mining-via-official-kadena-software][Mining via Official Kadena Software]]
   - [[#obtaining-a-key-pair][Obtaining a Key Pair]]
   - [[#mining-with-chainweb-node][Mining with chainweb-node]]
     - [[#basics][Basics]]
@@ -31,16 +31,17 @@ process of mathematically "solving" a block. Unless solved, a block cannot be
 included in the chain. Without mining, a blockchain cannot progress and
 transactions will never finalize.
 
-Economically, mining is the principal way to obtain currency on a Kadena
-network. Since Kadena uses Proof-of-Work, computational effort is rewarded
-with coins associated with each block you solve. The more computational power
-you have, the more likely you are to be successful at mining.
+Economically, mining is the principal way to obtain currency on the Kadena
+network. Since we uses Proof-of-Work, computational effort is rewarded with
+coins associated with each block you solve. The more computational power you
+have, the more likely you are to be successful at mining.
 
-Unlike blockchains that have a single chain, the Kadena public blockchain has many. Everyone who
-chooses to mine can spread their effort across multiple chains, advancing each
-chain equally, thereby reducing competition and wasted effort.
+Unlike blockchains that have a single chain, ours has many /parallel chains/.
+Everyone who chooses to mine can spread their effort across these multiple
+chains, advancing each one equally, thereby reducing competition and wasted
+effort.
 
-* Kadena Mining via Official Kadena Software
+* Mining via Official Kadena Software
 
 There are two official ways to mine for the Kadena network. The first is to use
 ~chainweb-node~ (a "full" Node) and perform in-process CPU mining alongside
@@ -92,8 +93,8 @@ Doing so, we'll see the following configuration of your "mining identity":
     predicate: keys-all
 #+end_src
 
-With values specific to you replaced above (and the rest of the Kadena public blockchain configured
-correctly!) we're ready to mine:
+With values specific to you replaced above (and the rest of your ~chainweb-node~
+configured correctly!) we're ready to mine:
 
 #+begin_src bash
 chainweb-node --config-file=config.yaml
@@ -207,12 +208,12 @@ it bad luck.
 
 *** I specify ~--chain=...~ but am getting work for other chains. Why?
 
-It is fundamental to the design of the Kadena public blockchain that chains
-cannot progress much further than their neighbor chains. It may be that by
-asking for ~--chain=9~, the Node couldn't find work to do! In this case, it
-falls back to picking a random chain. This balances the needs of the Miner, who
-may want a specific Chain to progress efficiently, with the needs of the
-network, which requires all chains to grow evenly.
+It is fundamental to the design of a Chainweb network that chains cannot
+progress much further than their neighbor chains. It may be that by asking for
+~--chain=9~, the Node couldn't find work to do! In this case, it falls back to
+picking a random chain. This balances the needs of the Miner, who may want a
+specific Chain to progress efficiently, with the needs of the network, which
+requires all chains to grow evenly.
 
 *** Why am I being "preempted" so much?
 
