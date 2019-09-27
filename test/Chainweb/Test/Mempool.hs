@@ -107,7 +107,8 @@ instance Arbitrary MockTx where
                         <*> pure mockBlockGasLimit
                         <*> pure emptyMeta
     where
-      emptyMeta = TransactionMetadata Time.minTime Time.maxTime
+      emptyMeta = TransactionMetadata zero Time.maxTime
+      zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
 type InsertCheck = MVar (Vector MockTx -> IO (Vector Bool))
 data MempoolWithFunc =

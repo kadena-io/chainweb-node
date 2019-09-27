@@ -5,25 +5,32 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
-  , PayloadWithText(..)
+  , PayloadWithText
+  , payloadBytes
+  , payloadObj
   , chainwebPayloadCodec
   , gasLimitOf
   , gasPriceOf
+  , timeToLiveOf
+  , creationTimeOf
+  , mkPayloadWithText
+  , modifyPayloadWithText
   ) where
 
 import Control.DeepSeq
 
-import qualified Data.ByteString.Char8 as B
-import Data.Hashable
-
 import qualified Data.Aeson as Aeson
 import Data.Bytes.Get
 import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SB
+import Data.Hashable
 import Data.Text (Text)
 
 import GHC.Generics (Generic)
@@ -40,26 +47,27 @@ import Chainweb.Utils
 -- the Text that generated it, to make gossiping easier.
 --
 data PayloadWithText = PayloadWithText
-    { payloadBytes :: !SB.ShortByteString
-    , payloadObj :: !(Payload PublicMeta ParsedCode)
+    { _payloadBytes :: !SB.ShortByteString
+    , _payloadObj :: !(Payload PublicMeta ParsedCode)
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
 
-{-
-instance ToJSON PayloadWithText where
-    toJSON (PayloadWithText bs _) = toJSON (T.decodeUtf8 $ SB.fromShort bs)
-    toEncoding (PayloadWithText bs _) = toEncoding (T.decodeUtf8 $ SB.fromShort bs)
+mkPayloadWithText :: Payload PublicMeta ParsedCode -> PayloadWithText
+mkPayloadWithText p = PayloadWithText {
+    _payloadBytes =
+    SB.toShort $ BL.toStrict $ Aeson.encode $ fmap _pcCode p
+    , _payloadObj = p
+    }
 
-instance FromJSON PayloadWithText where
-    parseJSON = Aeson.withText "PayloadWithText" $ \text -> let bs = T.encodeUtf8 text in
-        case traverse parsePact =<< Aeson.eitherDecodeStrict' bs of
-          Left err -> fail err
-          (Right !payload) -> pure $! PayloadWithText (SB.toShort bs) (force payload)
-      where
-        parsePact :: Text -> Either String ParsedCode
-        parsePact code = ParsedCode code <$> parseExprs code
--}
+modifyPayloadWithText
+    :: (Payload PublicMeta ParsedCode -> Payload PublicMeta ParsedCode)
+    -> PayloadWithText
+    -> PayloadWithText
+modifyPayloadWithText f pwt = mkPayloadWithText newPayload
+  where
+    oldPayload = payloadObj pwt
+    newPayload = f oldPayload
 
 type ChainwebTransaction = Command PayloadWithText
 
@@ -79,7 +87,7 @@ instance Hashable (HashableTrans PayloadWithText) where
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
 chainwebPayloadCodec = Codec enc dec
   where
-    enc c = encodeToByteString $ fmap (SB.fromShort . payloadBytes) c
+    enc c = encodeToByteString $ fmap (SB.fromShort . _payloadBytes) c
     dec bs = case Aeson.decodeStrict' bs of
                Just cmd -> traverse decodePayload cmd
                Nothing -> Left "decode PayloadWithText failed"
@@ -103,3 +111,18 @@ gasLimitOf = _pmGasLimit . _pMeta . _cmdPayload
 gasPriceOf :: forall c. Command (Payload PublicMeta c) -> GasPrice
 gasPriceOf = _pmGasPrice . _pMeta . _cmdPayload
 {-# INLINE gasPriceOf #-}
+
+timeToLiveOf :: forall c . Command (Payload PublicMeta c) -> TTLSeconds
+timeToLiveOf = _pmTTL . _pMeta . _cmdPayload
+{-# INLINE timeToLiveOf #-}
+
+creationTimeOf :: forall c . Command (Payload PublicMeta c) -> TxCreationTime
+creationTimeOf = _pmCreationTime . _pMeta . _cmdPayload
+{-# INLINE creationTimeOf #-}
+
+
+payloadBytes :: PayloadWithText -> SB.ShortByteString
+payloadBytes = _payloadBytes
+
+payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
+payloadObj = _payloadObj

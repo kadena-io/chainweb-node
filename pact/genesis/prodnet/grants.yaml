@@ -17,6 +17,7 @@ code: |-
   (coin.coinbase "mark" (read-keyset "mark") 500.0)
   (coin.coinbase "miguel" (read-keyset "miguel") 500.0)
   (coin.coinbase "monica" (read-keyset "monica") 500.0)
+  (coin.coinbase "rebecca" (read-keyset "rebecca") 500.0)
   (coin.coinbase "stuart" (read-keyset "stuart") 500.0)
   (coin.coinbase "taylor" (read-keyset "taylor") 500.0)
   (coin.coinbase "tony" (read-keyset "tony") 500.0)

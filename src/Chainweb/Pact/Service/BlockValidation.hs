@@ -36,13 +36,14 @@ import Chainweb.Payload
 import Chainweb.Transaction
 
 
-newBlock :: Miner -> BlockHeader -> TQueue RequestMsg ->
+newBlock :: Miner -> BlockHeader -> BlockCreationTime -> TQueue RequestMsg ->
             IO (MVar (Either PactException PayloadWithOutputs))
-newBlock mi bHeader reqQ = do
+newBlock mi bHeader creationTime reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let !msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
           , _newMiner = mi
+          , _newCreationTime = creationTime
           , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
@@ -71,7 +72,7 @@ local ct reqQ = do
     return resultVar
 
 lookupPactTxs
-    :: T2 BlockHeight BlockHash
+    :: Maybe (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
     -> TQueue RequestMsg
     -> IO (MVar (Either PactException

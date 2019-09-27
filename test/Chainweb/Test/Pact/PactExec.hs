@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -36,6 +37,7 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHash (nullBlockHash)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService (execTransactions)
 import Chainweb.Pact.Types
@@ -47,7 +49,7 @@ import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Pact.Types.Command (CommandResult(..), PactResult(..))
 
 testVersion :: ChainwebVersion
-testVersion = Development
+testVersion = FastTimedCPM petersonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest label $

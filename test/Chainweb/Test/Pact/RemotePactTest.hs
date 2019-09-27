@@ -93,6 +93,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -138,11 +139,12 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
-          withRequestKeys iomvar net $ \rks ->
-            responseGolden net rks
+          withTime $ \iot ->
+            withRequestKeys iot iomvar net $ \rks ->
+                responseGolden net rks
 
-    , withNodes rdb nNodes $ \net ->
-        spvRequests net
+    , withTime $ \iot -> withNodes rdb nNodes $ \net ->
+        spvRequests iot net
     ]
     -- The outer testGroupSch wrapper is just for scheduling purposes.
 
@@ -156,8 +158,8 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
     return $! toS $! foldMap A.encode values
 
 
-spvRequests :: IO ChainwebNetwork -> TestTree
-spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
+spvRequests :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+spvRequests iot nio = testCaseSteps "spv client tests"$ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
     sid <- mkChainId version (0 :: Int)
@@ -184,7 +186,9 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
 
     mkTxBatch = do
       ks <- liftIO testKeyPairs
-      let pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 100000 0
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
       cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "0")
       cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "1")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
@@ -213,20 +217,21 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
 -- Utils
 
 withRequestKeys
-    :: IO (MVar Int)
+    :: IO (Time Integer)
+    -> IO (MVar Int)
     -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
     -> TestTree
-withRequestKeys ioNonce networkIO = withResource mkKeys (\_ -> return ())
+withRequestKeys iot ioNonce networkIO = withResource mkKeys (\_ -> return ())
   where
     mkKeys = do
         cwEnv <- _getClientEnv <$> networkIO
         mNonce <- ioNonce
-        testSend mNonce testCmds cwEnv
+        testSend iot mNonce testCmds cwEnv
 
-testSend :: MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
-testSend mNonce cmds env = do
-    sb <- testBatch mNonce
+testSend :: IO (Time Integer) -> MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
+testSend iot mNonce cmds env = do
+    sb <- testBatch iot mNonce
     result <- sendWithRetry cmds env sb
     case result of
         Left e -> assertFailure (show e)
@@ -314,16 +319,19 @@ pollWithRetry cmds env rks = do
                                                 else return False
                                  Nothing -> return False
 
-testBatch :: MVar Int -> IO SubmitBatch
-testBatch mnonce = do
+testBatch :: IO (Time Integer) -> MVar Int -> IO SubmitBatch
+testBatch iot mnonce = do
     modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
+        t <- toTxCreationTime <$> iot
         kps <- testKeyPairs
-        c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
+        c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just nonce)
         pure $ (succ nn, SubmitBatch (pure c))
   where
-    pm :: Pact.PublicMeta
-    pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 1000 0.1 1000000 0
+    pm :: Pact.TxCreationTime -> Pact.PublicMeta
+    pm t = Pact.PublicMeta (Pact.ChainId "0") "sender00" 1000 0.1 ttl t
+        where
+          ttl = 2 * 24 * 60 * 60
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)

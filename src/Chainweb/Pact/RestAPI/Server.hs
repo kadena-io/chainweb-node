@@ -37,7 +37,6 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL.Lazy as Base64
-import qualified Data.ByteString.Short as SB
 import Data.CAS
 import Data.Tuple.Strict
 import Data.HashMap.Strict (HashMap)
@@ -87,7 +86,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
-import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
+import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -313,7 +312,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     cut <- liftIO $! CutDB._cut cdb
     bh <- liftIO $! lookupCutM cid cut
 
-    T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe (Right bh) (pure ph)) >>= \case
       Left e -> throwError $ err400
         { errBody = "Internal error: transaction hash lookup failed: " <> sshow e }
       Right v -> case v ^?! _head of
@@ -369,7 +368,7 @@ internalPoll
 internalPoll cutR cid chain cut requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx chainLeaf requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx (Right chainLeaf) requestKeys >>= either throwM return
     let results = V.map (\(a, b) -> (a, fromJust b)) $
                   V.filter (isJust . snd) $
                   V.zip requestKeysV results0
@@ -415,5 +414,6 @@ validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = let
   cmdBS = encodeUtf8 <$> cmdText
   in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $! (\bs -> PayloadWithText (SB.toShort bs) (_cmdPayload cmd)) <$> cmdBS
+  ProcSucc cmd -> return $! mkPayloadWithText <$> cmd
+  -- (\bs -> PayloadWithText (SB.toShort bs) (_cmdPayload cmd)) <$> cmdBS
   ProcFail err -> Left $ err

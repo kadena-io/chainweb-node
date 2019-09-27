@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
@@ -55,7 +56,7 @@ import Chainweb.BlockHeader
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Time (getCurrentTimeIntegral)
+import Chainweb.Time
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
@@ -234,21 +235,28 @@ insertInMem cfg lock runCheck txs0 = do
              then preInsertFilterReal b txhashes
              else return txhashes
 
-    preInsertFilterReal badmap txhashes0 = do
-        let chk = _inmemPreInsertCheck cfg
-        let txs = V.filter (\(h,tx) -> sizeOK tx
-                               && not (HashMap.member h badmap)) txhashes0
-        oks <- chk $ V.map snd txs
-        -- keep the good txs only
-        return $! V.map fst $ V.filter snd $ V.zip txs oks
+    preInsertFilterReal badmap txs = do
+        now <- getCurrentTimeIntegral
+        let txs1 = prevalidate [sizeOK, ttlCheck now, notInBadMap badmap] txs
+        oks <- _inmemPreInsertCheck cfg $ V.map snd txs1
+        return $! V.map fst $ V.filter snd $ V.zip txs1 oks
 
+    notInBadMap badmap (h, _) = not (HashMap.member h badmap)
+
+    prevalidate validations = V.map fst .
+                              V.filter snd .
+                              V.map (\tx -> (tx, all ($ tx) validations))
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
-    sizeOK tx = getSize tx <= maxSize
+    sizeOK (_, tx) = getSize tx <= maxSize
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
+    ttlCheck (Time (TimeSpan now)) (_, tx) =
+      case txMetadata txcfg tx of
+        TransactionMetadata (Time (TimeSpan creationTime)) (Time (TimeSpan expiryTime)) ->
+            creationTime < now && now < expiryTime && creationTime < expiryTime
 
     insOne (!pending, !soFar) !(txhash, tx) =
         let !bytes = SB.toShort $! encodeTx tx

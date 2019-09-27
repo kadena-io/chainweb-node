@@ -1,9 +1,9 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -46,6 +46,7 @@ data PactException
   = BlockValidationFailure Text
   | PactInternalError Text
   | NoBlockValidatedYet
+  | TransactionValidationException [(PactHash, Text)]
   deriving (Eq,Show,Generic)
 
 instance ToJSON PactException
@@ -72,6 +73,7 @@ type PactExMVar t = MVar (Either PactException t)
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
     , _newMiner :: Miner
+    , _newCreationTime :: !BlockCreationTime
     , _newResultVar :: PactExMVar PayloadWithOutputs
     }
 instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
@@ -90,13 +92,14 @@ data LocalReq = LocalReq
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !(T2 BlockHeight BlockHash)
+    { _lookupRestorePoint :: !(Maybe (T2 BlockHeight BlockHash))
+        -- here if the restore point is "Nothing" it means "we don't care"
     , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
     }
 instance Show LookupPactTxsReq where
-    show (LookupPactTxsReq (T2 he ha) _ _) =
-        "LookupPactTxsReq@" ++ show he ++ ":" ++ show ha
+    show (LookupPactTxsReq m _ _) =
+        "LookupPactTxsReq@" ++ show m
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey

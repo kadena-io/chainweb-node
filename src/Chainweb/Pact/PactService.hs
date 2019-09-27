@@ -31,7 +31,6 @@ module Chainweb.Pact.PactService
     , initPactService'
     , minerReward
     ) where
-
 ------------------------------------------------------------------------------
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -100,6 +99,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -264,6 +264,7 @@ serviceRequests memPoolAccess reqQ = do
             NewBlockMsg NewBlockReq {..} -> do
                 tryOne "execNewBlock" _newResultVar $
                     execNewBlock memPoolAccess _newBlockHeader _newMiner
+                        _newCreationTime
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne' "execValidateBlock"
@@ -420,17 +421,18 @@ _liftCPErr = either internalError' return
 validateChainwebTxsPreBlock
     :: PactDbEnv'
     -> Checkpointer
+    -> BlockCreationTime
     -> BlockHeight
     -> BlockHash
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxsPreBlock dbEnv cp bh hash txs = do
+validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
     lb <- _cpGetLatestBlock cp
     when (Just (pred bh, hash) /= lb) $
         fail "internal error: restore point is wrong, refusing to validate."
     V.mapM checkOne txs
   where
-    checkAccount tx = do
+    checkAccount validators tx = do
       let !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
       let sender = P._pmSender pm
           (P.GasLimit (P.ParsedInteger limit)) = P._pmGasLimit pm
@@ -439,14 +441,19 @@ validateChainwebTxsPreBlock dbEnv cp bh hash txs = do
       m <- readCoinAccount dbEnv sender
       case m of
         Nothing -> return True
-        Just (T2 b _g) -> return $! b >= limitInCoin
+        Just (T2 b _g) -> do
+          let validations = (const (b >= limitInCoin)) : validators
+          return $! all ($ tx) validations
 
     checkOne tx = do
         let pactHash = view P.cmdHash tx
         mb <- _cpLookupProcessedTx cp pactHash
         if mb == Nothing
-        then checkAccount tx
+        -- prop_tx_ttl_newblock_validate
+        then checkAccount [k] tx
         else return False
+      where
+        k tx' = bh /= 0 && timingsCheck blockOriginationTime (payloadObj <$> tx')
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
 -- associated with account name
@@ -517,8 +524,9 @@ execNewBlock
     => MemPoolAccess
     -> BlockHeader
     -> Miner
+    -> BlockCreationTime
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
+execNewBlock mpAccess parentHeader miner creationTime = withDiscardedBatch $ do
     withCheckpointerRewind (Just (bHeight, pHash)) "execNewBlock" $ \pdbenv -> do
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
@@ -526,12 +534,14 @@ execNewBlock mpAccess parentHeader miner = withDiscardedBatch $ do
         liftIO $ mpaProcessFork mpAccess parentHeader
         liftIO $ mpaSetLastHeader mpAccess parentHeader
         cp <- getCheckpointer
-        let validate = validateChainwebTxsPreBlock pdbenv cp
+        let validate = validateChainwebTxsPreBlock pdbenv cp creationTime
         newTrans <- liftIO $
             mpaGetBlock mpAccess validate bHeight pHash parentHeader
+
         -- locally run 'execTransactions' with updated blockheight data
         results <- withBlockData parentHeader $
             execTransactions (Just pHash) miner newTrans pdbenv
+
         return $! Discard (toPayloadWithOutputs miner results)
   where
     pHeight = _blockHeight parentHeader
@@ -572,6 +582,7 @@ execNewGenesisBlock
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
+        liftIO $ V.mapM_ (print . P._pMeta . payloadObj . P._cmdPayload) newTrans
         results <- execTransactions Nothing miner newTrans pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
@@ -637,10 +648,33 @@ playOneBlock
 playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
+
+    mapM_ checkTx trans
     !results <- go miner trans
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
   where
+    -- TODO: reminder to do duplication check. Effectively do the same checks
+    -- that are found in newblock.
+    checkTTL = if isGenesisBlock then const $ const True else timingsCheck
+
+    -- todo: generalize to more checks
+    validateTx = checkTTL (_blockCreationTime currHeader) . fmap payloadObj
+    checkTx tx = when (not $ validateTx tx) $ do
+                     let hash = P._cmdHash tx
+                     let msg = [ (hash, validationErr hash) ]
+                     throwM $ TransactionValidationException msg
+
+    validationErr hash = mconcat
+      ["At "
+      , sshow (_blockHeight currHeader)
+      , " and "
+      , sshow (_blockHash currHeader)
+      , " this transaction (its hash): "
+      , sshow hash
+      , " failed to validate"
+      ]
+
     bParent = _blockParent currHeader
 
     isGenesisBlock = isGenesisBlockHeader currHeader
@@ -652,8 +686,6 @@ playOneBlock currHeader plData pdbenv = do
         bhDb <- asks _psBlockHeaderDb
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         withBlockData ph $! execTransactions (Just bParent) m txs pdbenv
-
-
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -667,39 +699,24 @@ rewindTo
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
     -> PactServiceM cas ()
-rewindTo mb = do
-    cp <- getCheckpointer
-    maybe rewindGenesis (doRewind cp) mb
+rewindTo mb = maybe rewindGenesis doRewind mb
   where
     rewindGenesis = return ()
-    doRewind cp (newH, parentHash) = do
+    doRewind (_, parentHash) = do
         payloadDb <- asks _psPdb
-        mbLastBlock <- liftIO $ _cpGetLatestBlock cp
-        lastHeightAndHash <- maybe failNonGenesisOnEmptyDb return mbLastBlock
+        lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
         bhDb <- asks _psBlockHeaderDb
-        playFork cp bhDb payloadDb newH parentHash lastHeightAndHash
+        playFork bhDb payloadDb parentHash lastHeader
 
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
-    playFork cp bhdb payloadDb newH parentHash (lastBlockHeight, lastHash) = do
+    playFork bhdb payloadDb parentHash lastHeader = do
         parentHeader <- liftIO $ lookupM bhdb parentHash
-        lastHeader <- findValidParent lastBlockHeight lastHash
 
         (!_, _, newBlocks) <-
             liftIO $ collectForkBlocks bhdb lastHeader parentHeader
         -- play fork blocks
         V.mapM_ (fastForward payloadDb) newBlocks
-      where
-        findValidParent height hash = liftIO (lookup bhdb hash) >>= \case
-            Just x -> return x
-            Nothing -> do
-                logInfo $ "exception during rewind to "
-                    <> sshow (newH, parentHash) <> ". Failed to look last hash "
-                    <> sshow (height, hash) <> " in block header db. Continuing with parent."
-                liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
-                    Nothing -> throwM $ BlockValidationFailure
-                        $ "exception during rewind: missing block parent of last hash " <> sshow (height, hash)
-                    Just predHash -> findValidParent (pred height) predHash
 
     fastForward :: forall c . PayloadCas c
                 => PayloadDb c -> BlockHeader -> PactServiceM c ()
@@ -827,14 +844,45 @@ transactionsFromPayload plData = do
 
 execLookupPactTxs
     :: PayloadCas cas
-    => T2 BlockHeight BlockHash
+    => Maybe (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
-execLookupPactTxs (T2 leafHeight leafHash) txs =
-    withCheckpointerRewind (Just (leafHeight + 1, leafHash))
-                           "lookupPactTxs" $ \_pdbenv -> do
+execLookupPactTxs restorePoint txs
+    | V.null txs = return mempty
+    | otherwise = go
+  where
+    getRestorePoint = case restorePoint of
+        Nothing -> fmap (\bh -> T2 (_blockHeight bh) (_blockHash bh))
+            <$> findLatestValidBlock
+        x -> return x
+
+    go = do
         cp <- getCheckpointer
-        fmap Discard $ liftIO $ V.mapM (_cpLookupProcessedTx cp) txs
+        mrp <- getRestorePoint
+        case mrp of
+            Nothing -> return mempty      -- can't look up anything at genesis
+            Just (T2 lh lha) ->
+                withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $ \_ ->
+                    liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
+
+findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
+findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+    Nothing -> return Nothing
+    Just (height, hash) -> go height hash
+  where
+    go height hash = do
+        bhdb <- view psBlockHeaderDb
+        liftIO (lookup bhdb hash) >>= \case
+            Nothing -> do
+                logInfo $ "Latest block isn't valid."
+                    <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
+                    <> " Continuing with parent."
+                cp <- getCheckpointer
+                liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
+                    Nothing -> throwM $ PactInternalError
+                        $ "missing block parent of last hash " <> sshow (height, hash)
+                    Just predHash -> go (pred height) predHash
+            x -> return x
 
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
