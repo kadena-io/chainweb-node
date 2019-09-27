@@ -699,39 +699,24 @@ rewindTo
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
     -> PactServiceM cas ()
-rewindTo mb = do
-    cp <- getCheckpointer
-    maybe rewindGenesis (doRewind cp) mb
+rewindTo mb = maybe rewindGenesis doRewind mb
   where
     rewindGenesis = return ()
-    doRewind cp (newH, parentHash) = do
+    doRewind (_, parentHash) = do
         payloadDb <- asks _psPdb
-        mbLastBlock <- liftIO $ _cpGetLatestBlock cp
-        lastHeightAndHash <- maybe failNonGenesisOnEmptyDb return mbLastBlock
+        lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
         bhDb <- asks _psBlockHeaderDb
-        playFork cp bhDb payloadDb newH parentHash lastHeightAndHash
+        playFork bhDb payloadDb parentHash lastHeader
 
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
-    playFork cp bhdb payloadDb newH parentHash (lastBlockHeight, lastHash) = do
+    playFork bhdb payloadDb parentHash lastHeader = do
         parentHeader <- liftIO $ lookupM bhdb parentHash
-        lastHeader <- findValidParent lastBlockHeight lastHash
 
         (!_, _, newBlocks) <-
             liftIO $ collectForkBlocks bhdb lastHeader parentHeader
         -- play fork blocks
         V.mapM_ (fastForward payloadDb) newBlocks
-      where
-        findValidParent height hash = liftIO (lookup bhdb hash) >>= \case
-            Just x -> return x
-            Nothing -> do
-                logInfo $ "exception during rewind to "
-                    <> sshow (newH, parentHash) <> ". Failed to look up last hash "
-                    <> sshow (height, hash) <> " in block header db. Continuing with parent."
-                liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
-                    Nothing -> throwM $ BlockValidationFailure
-                        $ "exception during rewind: missing block parent of last hash " <> sshow (height, hash)
-                    Just predHash -> findValidParent (pred height) predHash
 
     fastForward :: forall c . PayloadCas c
                 => PayloadDb c -> BlockHeader -> PactServiceM c ()
@@ -866,21 +851,38 @@ execLookupPactTxs restorePoint txs
     | V.null txs = return mempty
     | otherwise = go
   where
-    getRestorePoint cp =
-        case restorePoint of
-            Nothing -> do
-                (fmap (\(h, a) -> T2 h a)) <$> liftIO (_cpGetLatestBlock cp)
-            x -> return x
+    getRestorePoint = case restorePoint of
+        Nothing -> fmap (\bh -> T2 (_blockHeight bh) (_blockHash bh))
+            <$> findLatestValidBlock
+        x -> return x
 
     go = do
         cp <- getCheckpointer
-        mrp <- getRestorePoint cp
+        mrp <- getRestorePoint
         case mrp of
             Nothing -> return mempty      -- can't look up anything at genesis
             Just (T2 lh lha) ->
-                withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $
-                \_pdbenv -> fmap Discard $ liftIO $
-                V.mapM (_cpLookupProcessedTx cp) txs
+                withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $ \_ ->
+                    liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
+
+findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
+findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
+    Nothing -> return Nothing
+    Just (height, hash) -> go height hash
+  where
+    go height hash = do
+        bhdb <- view psBlockHeaderDb
+        liftIO (lookup bhdb hash) >>= \case
+            Nothing -> do
+                logInfo $ "Latest block isn't valid."
+                    <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
+                    <> " Continuing with parent."
+                cp <- getCheckpointer
+                liftIO (_cpGetBlockParent cp (height, hash)) >>= \case
+                    Nothing -> throwM $ PactInternalError
+                        $ "missing block parent of last hash " <> sshow (height, hash)
+                    Just predHash -> go (pred height) predHash
+            x -> return x
 
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
