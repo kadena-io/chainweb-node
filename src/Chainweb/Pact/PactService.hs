@@ -582,7 +582,6 @@ execNewGenesisBlock
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
-        liftIO $ V.mapM_ (print . P._pMeta . payloadObj . P._cmdPayload) newTrans
         results <- execTransactions Nothing miner newTrans pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
