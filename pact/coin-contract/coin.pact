@@ -72,10 +72,11 @@
     \the transaction, and the price is the spot price of gas at that time.    \
     \The gas buy will be executed prior to executing SENDER's code."
 
-    @model [ (property (not (= account ""))) ]
+    @model [ (property (> total 0.0))
+             (property (not (= account ""))) ]
 
     (enforce (not (= account ""))
-             "account name must be non-empty")
+      "account name must be non-empty")
 
     (enforce-unit total)
 
@@ -93,7 +94,11 @@
     \was charged has been calculated. MINER will be credited the gas cost,    \
     \and SENDER will receive the remainder up to the limit"
 
-    @model [(property (> total 0.0))]
+    @model [ (property (> total 0.0))
+             (property (not (= account ""))) ]
+
+    (enforce (not (= account ""))
+             "account name must be non-empty")
 
     (enforce-unit total)
     (require-capability (FUND_TX))
