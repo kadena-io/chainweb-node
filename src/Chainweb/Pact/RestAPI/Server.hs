@@ -313,7 +313,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     cut <- liftIO $! CutDB._cut cdb
     bh <- liftIO $! lookupCutM cid cut
 
-    T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe (Right bh) (pure ph)) >>= \case
       Left e -> throwError $ err400
         { errBody = "Internal error: transaction hash lookup failed: " <> sshow e }
       Right v -> case v ^?! _head of
@@ -369,7 +369,7 @@ internalPoll
 internalPoll cutR cid chain cut requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx chainLeaf requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx (Right chainLeaf) requestKeys >>= either throwM return
     let results = V.map (\(a, b) -> (a, fromJust b)) $
                   V.filter (isJust . snd) $
                   V.zip requestKeysV results0
