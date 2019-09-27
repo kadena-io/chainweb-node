@@ -275,8 +275,6 @@ getBlockInMem :: forall t .
 getBlockInMem cfg lock txValidate bheight phash size0 = do
     withMVar lock $ \mdata -> do
         !psq0 <- readIORef $ _inmemPending mdata
-        -- TODO: temporary: delete this in preference for Emmanuel's TTL branch
-        -- which passes block creation time as a parameter
         now <- getCurrentTimeIntegral
         !badmap <- pruneBadMap now <$!> readIORef (_inmemBadMap mdata)
         let !psq = HashMap.map decodeTx psq0
