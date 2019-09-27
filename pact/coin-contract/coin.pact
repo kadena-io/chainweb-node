@@ -98,9 +98,10 @@
              (property (not (= account ""))) ]
 
     (enforce (not (= account ""))
-             "account name must be non-empty")
+      "account name must be non-empty")
 
     (enforce-unit total)
+
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
       (let* ((fee (read-decimal "fee"))
@@ -132,6 +133,12 @@
   (defun create-account:string (account:string guard:guard)
     @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
     \account."
+
+    @model [ (property (not (= account ""))) ]
+
+    (enforce (not (= account ""))
+      "account name must be non-empty")
+
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
