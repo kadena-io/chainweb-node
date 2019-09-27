@@ -38,7 +38,6 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
@@ -182,9 +181,12 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
       let !rs = readRewards ver
           gasModel = tableGasModel defaultGasConfig
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
-                                bhDb rs gasModel
-      evalStateT (runReaderT act pse) (PactServiceState Nothing)
+
+      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger)
+              def pdb bhDb rs gasModel cid
+          !pst = PactServiceState Nothing
+
+      evalPactServiceM pse pst act
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
@@ -824,16 +826,17 @@ applyPactCmd
     -> PactServiceM cas (T2 ([HashCommandResult] -> [HashCommandResult]) ModuleCache)
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     psEnv <- ask
-    let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
-        !pd       = _psPublicData psEnv
-        !spv      = _psSpvSupport psEnv
-        pactHash  = view P.cmdHash cmdIn
+    let !logger = _cpeLogger . _psCheckpointEnv $ psEnv
+        !pd = _psPublicData psEnv
+        !spv = _psSpvSupport psEnv
+        !cid = _psServiceChainId psEnv
+        pactHash = view P.cmdHash cmdIn
 
     -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
     let !cmd = payloadObj <$> cmdIn
     T2 !result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache
+        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache cid
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.

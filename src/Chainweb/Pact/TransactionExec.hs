@@ -42,7 +42,7 @@ module Chainweb.Pact.TransactionExec
 ) where
 
 import Control.Lens hiding ((.=))
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import Control.Monad.Catch (Exception(..))
 
 import Data.Aeson
@@ -61,6 +61,7 @@ import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Parse (parseExprs)
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import Pact.Types.Hash as Pact
@@ -74,6 +75,7 @@ import Pact.Types.Term (DefName(..), ModuleName(..))
 -- internal Chainweb modules
 
 import Chainweb.BlockHash
+import Chainweb.ChainId as Chainweb
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types (GasId(..), GasSupply(..), ModuleCache)
@@ -98,15 +100,25 @@ applyCmd
     -> SPVSupport
     -> Command (Payload PublicMeta ParsedCode)
     -> ModuleCache
+    -> Chainweb.ChainId
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
+applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache cid = do
 
     let userGasEnv = mkGasEnvOf cmd gasModel
         requestKey = cmdToRequestKey cmd
         pd' = set pdPublicMeta (publicMetaOf cmd) pd
         supply = gasSupplyOf cmd
+        psid = chainIdToText cid
 
     let buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger freeGasEnv pd' spv
+        (Pact.ChainId cid') = view (pdPublicMeta . pmChainId) pd'
+
+    -- prop_pact_service_metadata_chain_id: disallow commands with bad chain id
+    -- in metadata from executing commands
+    --
+    unless (cid' == psid)
+      $ internalError
+      $ "Command chain id does not match the id of this service"
 
     buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd miner supply mcache
 

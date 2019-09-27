@@ -34,12 +34,12 @@ module Chainweb.Test.Pact.Utils
 , mkKeyset
 , stockKey
 , toTxCreationTime
+, evalPactServiceM'
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
 , testPactCtx
 , destroyTestPactCtx
-, evalPactServiceM
 , withPactCtx
 , withPactCtxSQLite
 , testWebPactExecutionService
@@ -281,9 +281,9 @@ data PactTransaction = PactTransaction
   } deriving (Eq, Show)
 
 
-evalPactServiceM :: TestPactCtx cas -> PactServiceM cas a -> IO a
-evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
-    (a,s') <- runStateT (runReaderT pact (_testPactCtxEnv ctx)) s
+evalPactServiceM' :: TestPactCtx cas -> PactServiceM cas a -> IO a
+evalPactServiceM' ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
+    (a,s') <- runStateT (runReaderT (_runPactServiceM pact) (_testPactCtxEnv ctx)) s
     return (s',a)
 
 destroyTestPactCtx :: TestPactCtx cas -> IO ()
@@ -302,8 +302,8 @@ testPactCtx v cid cdbv bhdb pdb = do
     let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
-    evalPactServiceM ctx (initialPayloadState v cid)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0) cid)
+    evalPactServiceM' ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
@@ -325,8 +325,8 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
-    evalPactServiceM ctx (initialPayloadState v cid)
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0) cid)
+    evalPactServiceM' ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
@@ -352,9 +352,9 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid cutDB bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p t -> evalPactServiceM ctx $ execNewBlock mempoolAccess p m t
+        { _pactNewBlock = \m p t -> evalPactServiceM' ctx $ execNewBlock mempoolAccess p m t
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock h d
+            evalPactServiceM' ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         , _pactLookup = error
@@ -403,7 +403,7 @@ withPactCtx v cutDB bhdbIO pdbIO f =
     withResource start destroyTestPactCtx $
     \ctxIO -> f $ \pact -> do
         ctx <- ctxIO
-        evalPactServiceM ctx pact
+        evalPactServiceM' ctx pact
   where
     start = do
         bhdb <- bhdbIO
@@ -438,7 +438,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
     freeSQLiteResource $ \io -> do
       withResource (start io cutDB) (destroy io) $ \ctxIO -> f $ \toPact -> do
           (ctx, dbSt) <- ctxIO
-          evalPactServiceM ctx (toPact dbSt)
+          evalPactServiceM' ctx (toPact dbSt)
   where
     destroy = const (destroyTestPactCtx . fst)
     start ios cdbv = do
@@ -454,8 +454,8 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
-      evalPactServiceM ctx (initialPayloadState v cid)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0) cid)
+      evalPactServiceM' ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree

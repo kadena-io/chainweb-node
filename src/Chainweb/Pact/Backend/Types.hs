@@ -70,14 +70,8 @@ module Chainweb.Pact.Backend.Types
       -- * mempool
     , MemPoolAccess(..)
 
-      -- * pact service monad + types
+      -- * Pact Service Env
     , PactServiceEnv(..)
-    , PactServiceState(..)
-    , PactServiceM
-
-    , PactServiceException(..)
-
-      -- * optics
     , psMempoolAccess
     , psCheckpointEnv
     , psSpvSupport
@@ -87,6 +81,17 @@ module Chainweb.Pact.Backend.Types
     , psBlockHeaderDb
     , psMinerRewards
     , psGasModel
+    , psServiceChainId
+
+      -- * Pact Service State
+    , PactServiceState(..)
+
+      -- * Pact Service Monad
+    , PactServiceM(..)
+    , evalPactServiceM
+
+      -- * Pact Exceptions
+    , PactServiceException(..)
     ) where
 
 import Control.Exception
@@ -113,6 +118,8 @@ import Foreign.C.Types (CInt(..))
 
 import GHC.Generics
 
+-- internal pact modules
+
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
@@ -127,9 +134,11 @@ import Pact.Types.Gas (GasModel)
 import Pact.Types.SPV
 
 -- internal modules
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
+import Chainweb.ChainId
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
@@ -317,13 +326,30 @@ data PactServiceEnv cas = PactServiceEnv
     , _psBlockHeaderDb :: BlockHeaderDb
     , _psMinerRewards :: HashMap BlockHeight ParsedDecimal
     , _psGasModel :: GasModel
+    , _psServiceChainId :: ChainId
     }
 
 data PactServiceState = PactServiceState
     {_psStateValidated :: Maybe BlockHeader
     }
 
-type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
+newtype PactServiceM cas a = PactServiceM
+    { _runPactServiceM :: ReaderT (PactServiceEnv cas) (StateT PactServiceState IO) a
+    } deriving newtype
+      ( Functor, Applicative, Monad
+      , MonadState PactServiceState, MonadReader (PactServiceEnv cas)
+      , MonadThrow, MonadCatch, MonadMask, MonadFail
+      , MonadIO
+      )
+
+evalPactServiceM
+    :: forall cas a
+    . PactServiceEnv cas
+    -> PactServiceState
+    -> PactServiceM cas a
+    -> IO a
+evalPactServiceM pse pst (PactServiceM t)
+    = evalStateT (runReaderT t pse) pst
 
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
