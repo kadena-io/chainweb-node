@@ -294,7 +294,9 @@
 
 
   (defun credit:string (account:string guard:guard amount:decimal)
-    @doc "Credit AMOUNT to ACCOUNT balance recording DATE and DATA"
+    @doc "Credit AMOUNT to ACCOUNT balance"
+
+    @model [ (property (> amount 0.0)) ]
 
     (enforce (> amount 0.0)
       "credit amount must be positive")
@@ -336,11 +338,17 @@
          \chain id as specified in the proof."
 
     @model [ (property (> quantity 0.0))
-           , (property (not (= create-chain-id "")))
-           ]
+             (property (not (= create-chain-id "")))
+             (property (not (= delete-account "")))
+             (property (not (= create-account ""))) ]
 
     (step
       (with-capability (TRANSFER)
+
+        (enforce (not (= delete-account ""))
+          "delete-account name must be non-empty")
+        (enforce (not (= create-account ""))
+          "create-account name must be non-empty")
 
         (enforce (!= "" create-chain-id) "empty create-chain-id")
         (enforce (not (= (at 'chain-id (chain-data)) create-chain-id))
