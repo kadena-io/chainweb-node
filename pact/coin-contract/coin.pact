@@ -72,6 +72,11 @@
     \the transaction, and the price is the spot price of gas at that time.    \
     \The gas buy will be executed prior to executing SENDER's code."
 
+    @model [ (property (not (= account ""))) ]
+
+    (enforce (not (= account ""))
+             "account name must be non-empty")
+
     (enforce-unit total)
 
     (enforce (> total 0.0)
