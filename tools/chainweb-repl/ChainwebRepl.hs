@@ -8,6 +8,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 -- |
 -- Module: ChainwebRepl
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -32,6 +34,8 @@ module ChainwebRepl
 , accountBalance
 , transfer
 , crossChainTransfer
+, createAccount
+, listenRetry
 
 -- * Environment
 , Env(..)
@@ -44,7 +48,7 @@ module ChainwebRepl
 , envGasPrice
 , envSender
 , envTtl
-, envPublicMeta
+, getEnvPublicMeta
 , envCid
 , _envCid
 , envUrl
@@ -60,7 +64,7 @@ module ChainwebRepl
 , jsonSecrets
 ) where
 
-
+import Control.Concurrent
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Control.Retry
@@ -72,6 +76,7 @@ import Data.Decimal
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Time.Clock.POSIX
 
 import GHC.Generics hiding (to)
 
@@ -102,6 +107,8 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Utils
 import Chainweb.Version
 
+import Keys
+
 -- -------------------------------------------------------------------------- --
 -- Environment
 
@@ -125,18 +132,17 @@ instance HasChainwebVersion Env where
 instance HasChainId Env where
     _chainId = _envChain
 
-_envPublicMeta :: Env -> PublicMeta
-_envPublicMeta env = PublicMeta
-    { _pmChainId = Pact.ChainId $ toText $ _envChain env
-    , _pmSender = _envSender env
-    , _pmGasLimit = _envGasLimit env
-    , _pmGasPrice = _envGasPrice env
-    , _pmTTL = _envTtl env
-    , _pmCreationTime = 0
-    }
-
-envPublicMeta :: Getter Env PublicMeta
-envPublicMeta = to _envPublicMeta
+getEnvPublicMeta :: Env -> IO PublicMeta
+getEnvPublicMeta env = do
+    t <- getPOSIXTime
+    return $ PublicMeta
+        { _pmChainId = Pact.ChainId $ toText $ _envChain env
+        , _pmSender = _envSender env
+        , _pmGasLimit = _envGasLimit env
+        , _pmGasPrice = _envGasPrice env
+        , _pmTTL = _envTtl env
+        , _pmCreationTime = TxCreationTime $ round $ realToFrac t
+        }
 
 _envCid :: Integral i => Env -> i
 _envCid = chainIdInt . _envChain
@@ -182,6 +188,26 @@ devEnv key sender c = Env
     , _envTtl = 600
     }
 
+prodEnv
+    :: T.Text
+        -- secret key in hex encoding
+    -> T.Text
+        -- sender account
+    -> Int
+        -- chain
+    -> Env
+prodEnv key sender c = Env
+    { _envVersion = Testnet02
+    , _envChain = cid Development c
+    , _envNode = unsafeHostAddressFromText "us1.testnet.chainweb.com:443"
+    , _envManager = mgr
+    , _envKeys = either (error . show) pure $ plainSecret key
+    , _envSender = sender
+    , _envGasLimit = 1000
+    , _envGasPrice = 0.001
+    , _envTtl = 600
+    }
+
 cid
     :: (HasChainwebVersion v, Integral i)
     => v
@@ -207,8 +233,9 @@ run env req = runClientM req (_envClientEnv env) >>= \case
 -- > listen env (NE.head ks)
 
 mkCmd :: Env -> Value -> T.Text -> IO (Command T.Text)
-mkCmd env dat pact
-    = mkExec (T.unpack pact) dat (_envPublicMeta env) (_envKeys env) Nothing
+mkCmd env dat pact = do
+    meta <- getEnvPublicMeta env
+    mkExec (T.unpack pact) dat meta (_envKeys env) Nothing
 
 noData :: Value
 noData = object []
@@ -261,6 +288,13 @@ accountBalance :: Env -> T.Text -> IO PactValue
 accountBalance env account = do
     result <$> local env noData ("(coin.account-balance " <> sshow account <> ")")
 
+accountExists :: Env -> T.Text -> IO Bool
+accountExists env acc = do
+    r <- local env noData ("(coin.account-info " <> sshow acc <> ")")
+    case _crResult r of
+        PactResult (Left _) -> return False
+        PactResult (Right _) -> return True
+
 transfer :: Env -> T.Text -> T.Text -> Decimal -> IO PactValue
 transfer env acc0 acc1 amount = do
     rk <- sendOne env noData $ pactFun "coin.transfer"
@@ -268,21 +302,38 @@ transfer env acc0 acc1 amount = do
             , StringArg acc1
             , DecArg amount
             ]
-    result <$> listen env rk
+    result <$> listenRetry 3 env rk
+
+listenRetry :: Int -> Env -> RequestKey -> IO (CommandResult Hash)
+listenRetry n env key = do
+    recoverAll (constantDelay 50000 <> limitRetries n) $ \s -> do
+        putStrLn
+            $ "await key " <> sshow key
+            <> " on chain " <> T.unpack (toText (_envChain env))
+            <> " [" <> show (view rsIterNumberL s) <> "]: "
+            <> show key
+        listen env key
+
+createAccount :: Env -> T.Text -> T.Text -> IO PactValue
+createAccount env acc pubKey = do
+    rk <- sendOne env dat $ pactFun "coin.create-account"
+        [ StringArg acc
+        , GuardArg ("(read-keyset \"account-keyset\")")
+        ]
+    result <$> listenRetry 3 env rk
+  where
+    dat = object
+        [ "account-keyset" .= [ pubKey ]
+        ]
 
 -- -------------------------------------------------------------------------- --
 -- SPV
 
 -- env is target chain env!
 spvCont :: Env -> RequestKey -> ContProof -> IO (Command T.Text)
-spvCont env rk proof
-    = mkCont pid 1 False noData (_envPublicMeta env) (_envKeys env) Nothing (Just proof)
-  where
-    pid = toPactId $ unRequestKey rk
-
-spvRollBackCmd :: Env -> RequestKey -> IO (Command T.Text)
-spvRollBackCmd env rk
-    = mkCont pid 0 True noData (_envPublicMeta env) (_envKeys env) Nothing Nothing
+spvCont env rk proof = do
+    meta <- getEnvPublicMeta env
+    mkCont pid 1 False noData meta (_envKeys env) Nothing (Just proof)
   where
     pid = toPactId $ unRequestKey rk
 
@@ -291,10 +342,19 @@ sendSpvCont env rk proof = NE.head . _rkRequestKeys <$> do
     cmds <- SubmitBatch . pure <$> spvCont env rk proof
     run env $ pactSendApiClient (_envVersion env) (_envChain env) cmds
 
-spvRollBack :: Env -> RequestKey -> IO RequestKey
-spvRollBack env rk = NE.head . _rkRequestKeys <$> do
-    cmds <- SubmitBatch . pure <$> spvRollBackCmd env rk
-    run env $ pactSendApiClient (_envVersion env) (_envChain env) cmds
+-- Cross chain pacts can't be rolled back
+--
+-- spvRollBack :: Env -> RequestKey -> IO RequestKey
+-- spvRollBack env rk = NE.head . _rkRequestKeys <$> do
+--     cmds <- SubmitBatch . pure <$> spvRollBackCmd env rk
+--     run env $ pactSendApiClient (_envVersion env) (_envChain env) cmds
+--
+-- spvRollBackCmd :: Env -> RequestKey -> IO (Command T.Text)
+-- spvRollBackCmd env rk = do
+--     meta <- getEnvPublicMeta env
+--     mkCont pid 0 True noData meta (_envKeys env) Nothing Nothing
+--   where
+--     pid = toPactId $ unRequestKey rk
 
 spv
     :: Env
@@ -307,10 +367,21 @@ spv env srcTxKey trgCid = do
     (TransactionOutputProofB64 p) <- run env
         $ pactSpvApiClient (_envVersion env) (_envChain env)
         $ SpvRequest srcTxKey (toPactCid trgCid)
-    return $ ContProof $ T.encodeUtf8 p
+    return $ ContProof p
+
+instance HasTextRepresentation RequestKey where
+    toText = encodeB64UrlNoPaddingText . unHash . unRequestKey
+    fromText x = RequestKey . Hash <$> decodeB64UrlNoPaddingText x
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
 
 crossChainTransfer :: Env -> Env -> T.Text -> T.Text -> T.Text -> Decimal -> IO PactValue
 crossChainTransfer srcEnv trgEnv srcAcc trgAcc pubKey amount = do
+
+    checkAccount srcEnv (_envSender srcEnv)
+    checkAccount srcEnv srcAcc
+    checkAccount trgEnv (_envSender trgEnv)
+    checkAccount trgEnv trgAcc
 
     -- delet coins
     rk <- sendOne srcEnv dat $ pactFun "coin.cross-chain-transfer"
@@ -321,24 +392,26 @@ crossChainTransfer srcEnv trgEnv srcAcc trgAcc pubKey amount = do
         , DecArg amount
         ]
 
-    let redeem = do
+    -- await result
+    !_ <- retryListen "delete" srcEnv rk
 
-            -- await result
-            !_ <- retryListen "delete" srcEnv rk
+    -- create spv proof:
+    --
+    -- TODO: this can fail for two reasons:
+    --
+    -- 1. the source tx can't be found
+    -- 2. the target is not reachable.
+    --
+    -- We should retry only in the former case
+    --
+    proof <- retryProof srcEnv rk trgCid
 
-            -- create spv proof
-            proof <- retryProof srcEnv rk trgCid
+    -- Redeem coins
+    trgRk <- sendSpvCont trgEnv rk proof
 
-            -- Redeem coins
-            trgRk <- sendSpvCont trgEnv rk proof
-            retryListen "redeem" trgEnv trgRk
+    -- Await result of reedem
+    retryListen "redeem" trgEnv trgRk
 
-    -- FIXME: In some cases we have to retry the rollback, too!
-    redeem `onException` do
-        putStrLn $ "try to rollback spv transaction " <> show rk
-        rk2 <- spvRollBack srcEnv rk
-        putStrLn $ "rollback tx: " <> show rk2
-        retryListen "rollback" srcEnv rk2
   where
     trgCid = _envChain trgEnv
 
@@ -350,7 +423,9 @@ crossChainTransfer srcEnv trgEnv srcAcc trgAcc pubKey amount = do
     retryProof env rk c =
         recoverAll (exponentialBackoff 2000000 <> limitRetries 6) $ \s -> do
             putStrLn
-                $ "await proof for target chain " <> T.unpack (toText c)
+                $ "await proof for tx " <> T.unpack (toText rk)
+                <> " on source chain " <> T.unpack (toText (_envChain env))
+                <> " for target chain " <> T.unpack (toText c)
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             spv env rk c
 
@@ -362,6 +437,80 @@ crossChainTransfer srcEnv trgEnv srcAcc trgAcc pubKey amount = do
                 <> " [" <> show (view rsIterNumberL s) <> "]: "
                 <> show key
             listen env key
+
+checkAccount :: Env -> T.Text -> IO ()
+checkAccount env acc = accountExists env acc >>= \case
+    True -> return ()
+    False -> error $ T.unpack $ "account " <> acc <> " is missing on chain " <> toText (_envChain env)
+
+-- -------------------------------------------------------------------------- --
+-- Ping Pong
+
+cct n srcEnv trgEnv srcAcc trgAcc pubKey amount = do
+    checkAccount srcEnv (_envSender srcEnv)
+    checkAccount srcEnv srcAcc
+    checkAccount trgEnv (_envSender trgEnv)
+    checkAccount trgEnv trgAcc
+    rk <- sendOne srcEnv dat $ pactFun "coin.cross-chain-transfer"
+        [ StringArg srcAcc
+        , ChainArg trgCid
+        , StringArg trgAcc
+        , GuardArg ("(read-keyset \"receiver-keyset\")")
+        , DecArg amount
+        ]
+    !_ <- retryListen "delete" srcEnv rk
+    proof <- retryProof srcEnv rk trgCid
+    rks <- redeemN n rk proof
+    await rks
+  where
+
+    await :: RequestKeys -> IO ()
+    await rks@(RequestKeys keys) = do
+        putStrLn "poll"
+        (PollResponses results) <- poll trgEnv keys
+        if (length results < length keys)
+          then do
+            threadDelay 10000000
+            await rks
+          else
+            return ()
+
+    trgCid = _envChain trgEnv
+
+    dat = object
+        [ "receiver-keyset" .= [ pubKey ]
+        ]
+
+    redeemN :: Int -> RequestKey -> ContProof -> IO RequestKeys
+    redeemN n rk proof = do
+        cmds <- SubmitBatch . NE.fromList <$> mapM (const $ spvCont trgEnv rk proof) [0..n-1]
+        run trgEnv $ pactSendApiClient (_envVersion trgEnv) (_envChain trgEnv) cmds
+
+    retryProof env rk c =
+        recoverAll (exponentialBackoff 2000000 <> limitRetries 6) $ \s -> do
+            putStrLn
+                $ "await proof for tx " <> T.unpack (toText rk)
+                <> " on source chain " <> T.unpack (toText (_envChain env))
+                <> " for target chain " <> T.unpack (toText c)
+                <> " [" <> show (view rsIterNumberL s) <> "]"
+            spv env rk c
+
+    retryListen label env key = result <$> do
+        recoverAll (constantDelay 50000 <> limitRetries 2) $ \s -> do
+            putStrLn
+                $ "await " <> label
+                <> " on chain " <> T.unpack (toText (_envChain env))
+                <> " [" <> show (view rsIterNumberL s) <> "]: "
+                <> show key
+            listen env key
+
+pingPong :: Env -> T.Text -> T.Text -> Int -> Int -> Decimal -> IO ()
+pingPong env acc pubKey srcCid trgCid amount = do
+    putStrLn "next round"
+    accountBalance (env & envCid .~ srcCid) acc >>= print
+    cct 50 (env & envCid .~ srcCid) (env & envCid .~ trgCid) acc acc pubKey amount
+    accountBalance (env & envCid .~ trgCid) acc >>= print
+    pingPong env acc pubKey trgCid srcCid (amount * 49)
 
 -- -------------------------------------------------------------------------- --
 -- Pact Code
