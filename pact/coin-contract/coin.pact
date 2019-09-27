@@ -73,10 +73,10 @@
     \The gas buy will be executed prior to executing SENDER's code."
 
     @model [ (property (> total 0.0))
-             (property (not (= account ""))) ]
+             (property (not (= sender ""))) ]
 
-    (enforce (not (= account ""))
-      "account name must be non-empty")
+    (enforce (not (= sender ""))
+      "sender name must be non-empty")
 
     (enforce-unit total)
 
@@ -95,10 +95,10 @@
     \and SENDER will receive the remainder up to the limit"
 
     @model [ (property (> total 0.0))
-             (property (not (= account ""))) ]
+             (property (not (= sender ""))) ]
 
-    (enforce (not (= account ""))
-      "account name must be non-empty")
+    (enforce (not (= sender ""))
+      "sender name must be non-empty")
 
     (enforce-unit total)
 
