@@ -222,14 +222,10 @@ insertCheckInMem cfg lock txs = do
                  , (InsertErrorBadlisted, notInBadMap badmap)
                  ]
     let out1 = V.map (\tx -> runPreChecks checks tx) txhashes
-    out2 <- V.map fromBool <$> _inmemPreInsertCheck cfg txs
+    out2 <- _inmemPreInsertCheck cfg txs
     return $! V.zip hashes (V.zipWith (<|>) out1 out2)
 
   where
-    -- TODO: just have the pre insert check return Maybe InsertError
-    fromBool True = Nothing
-    fromBool False = Just (InsertErrorOther "transaction failed pre-insert check")
-
     notInBadMap badmap (h, _) = not (HashMap.member h badmap)
     txcfg = _inmemTxCfg cfg
     hasher = txHasher txcfg

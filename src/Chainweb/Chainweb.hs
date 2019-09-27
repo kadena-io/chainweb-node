@@ -375,11 +375,12 @@ validatingMempoolConfig cid mv = Mempool.InMemConfig
     blockGasLimit = 100000
     maxRecentLog = 2048
     hasher = Mempool.txHasher txcfg
+    dupeResult = fmap (const Mempool.InsertErrorDuplicate)
     preInsertCheck txs = do
         let hashes = V.map toPactHash $ V.map hasher txs
         pex <- readMVar mv
         mbs <- _pactLookup pex (Left cid) hashes >>= either throwM return
-        return $! V.map (== Nothing) mbs
+        return $! V.map dupeResult mbs
     toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
 -- Intializes all local chainweb components but doesn't start any networking.
