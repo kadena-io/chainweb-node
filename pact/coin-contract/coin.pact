@@ -72,6 +72,12 @@
     \the transaction, and the price is the spot price of gas at that time.    \
     \The gas buy will be executed prior to executing SENDER's code."
 
+    @model [ (property (> total 0.0))
+             (property (!= sender "")) ]
+
+    (enforce (!= sender "")
+      "sender name must be non-empty")
+
     (enforce-unit total)
 
     (enforce (> total 0.0)
@@ -88,9 +94,14 @@
     \was charged has been calculated. MINER will be credited the gas cost,    \
     \and SENDER will receive the remainder up to the limit"
 
-    @model [(property (> total 0.0))]
+    @model [ (property (> total 0.0))
+             (property (!= sender "")) ]
+
+    (enforce (!= sender "")
+      "sender name must be non-empty")
 
     (enforce-unit total)
+
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
       (let* ((fee (read-decimal "fee"))
@@ -122,6 +133,12 @@
   (defun create-account:string (account:string guard:guard)
     @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
     \account."
+
+    @model [ (property (!= account "")) ]
+
+    (enforce (!= account "")
+      "account name must be non-empty")
+
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
@@ -145,9 +162,9 @@
   (defun rotate-account-guard:string (account:string new-guard:guard)
     @doc "Rotate guard associated with ACCOUNT"
 
-    @model [ (property (not (= account ""))) ]
+    @model [ (property (!= account "")) ]
 
-    (enforce (not (= account ""))
+    (enforce (!= account "")
       "account name must be non-empty")
 
     (with-read coin-table account
@@ -165,14 +182,13 @@
     \chain. This fails if either SENDER or RECEIVER does not exist.           \
     \Create-on-transfer can be done using the 'transfer-and-create' function."
 
-    @model [
-      (property conserves-mass)
-      (property (> amount 0.0))
-      (property (not (= sender "")))
-      (property (not (= receiver "")))
-    ]
+    @model [ (property conserves-mass)
+             (property (> amount 0.0))
+             (property (!= sender ""))
+             (property (!= receiver ""))
+             (property (!= sender receiver)) ]
 
-    (enforce (not (= sender receiver))
+    (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
 
     (enforce (!= "" sender) "empty sender")
@@ -202,12 +218,11 @@
     \This fails if the SENDER account does not exist. If the RECEIVER account \
     \does not exist, it is created and associated with GUARD."
 
-    @model [
-      ;(property conserves-mass) ;; fails on missing row, FV problem
-      (property (> amount 0.0))
-      (property (not (= sender "")))
-      (property (not (= receiver "")))
-    ]
+    @model [ ;(property conserves-mass) ;; fails on missing row, FV problem
+            (property (> amount 0.0))
+            (property (!= sender ""))
+            (property (!= receiver ""))
+            (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
@@ -253,7 +268,13 @@
     )
 
   (defun debit:string (account:string amount:decimal)
-    @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
+    @doc "Debit AMOUNT from ACCOUNT balance"
+
+    @model [ (property (> amount 0.0))
+             (property (!= account "")) ]
+
+    (enforce (!= account "")
+      "account name must be non-empty")
 
     (enforce (> amount 0.0)
       "debit amount must be positive")
@@ -271,7 +292,13 @@
 
 
   (defun credit:string (account:string guard:guard amount:decimal)
-    @doc "Credit AMOUNT to ACCOUNT balance recording DATE and DATA"
+    @doc "Credit AMOUNT to ACCOUNT balance"
+
+    @model [ (property (> amount 0.0))
+             (property (!= account "")) ]
+
+    (enforce (!= account "")
+      "account name must be non-empty")
 
     (enforce (> amount 0.0)
       "credit amount must be positive")
@@ -313,14 +340,20 @@
          \chain id as specified in the proof."
 
     @model [ (property (> quantity 0.0))
-           , (property (not (= create-chain-id "")))
-           ]
+             (property (!= create-chain-id ""))
+             (property (!= delete-account ""))
+             (property (!= create-account "")) ]
 
     (step
       (with-capability (TRANSFER)
 
+        (enforce (!= delete-account "")
+          "delete-account name must be non-empty")
+        (enforce (!= create-account "")
+          "create-account name must be non-empty")
+
         (enforce (!= "" create-chain-id) "empty create-chain-id")
-        (enforce (not (= (at 'chain-id (chain-data)) create-chain-id))
+        (enforce (!= (at 'chain-id (chain-data)) create-chain-id)
           "cannot run cross-chain transfers to the same chain")
 
         (enforce (> quantity 0.0)
