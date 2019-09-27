@@ -591,12 +591,13 @@ execLocal
     => ChainwebTransaction
     -> PactServiceM cas HashCommandResult
 execLocal cmd = withDiscardedBatch $ do
-    bh <- use psStateValidated >>= \v -> case v of
-        Nothing -> throwM NoBlockValidatedYet
-        (Just !p) -> return p
-
-    let target = Just (succ $ _blockHeight bh, _blockHash bh)
-    withCheckpointerRewind target "execLocal" $ \(PactDbEnv' pdbenv) -> do
+    cp <- getCheckpointer
+    mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
+    (bh, bhash) <- case mbLatestBlock of
+                       Nothing -> throwM NoBlockValidatedYet
+                       (Just !p) -> return p
+    let target = Just (succ bh, bhash)
+    withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
