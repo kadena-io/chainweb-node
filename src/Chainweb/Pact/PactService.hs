@@ -465,7 +465,7 @@ validateChainwebTxsPreBlock
 validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
     lb <- _cpGetLatestBlock cp
     when (Just (pred bh, hash) /= lb) $
-        fail "internal error: restore point is wrong, refusing to validate."
+        internalError "restore point is wrong, refusing to validate."
     validateChainwebTxs dbEnv cp blockOriginationTime bh txs
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
