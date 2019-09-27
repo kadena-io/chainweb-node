@@ -44,7 +44,7 @@ import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Version (ChainwebVersion(..), mkChainId)
 
 import Pact.Types.Command (CommandResult(..), PactResult(..))
 
@@ -53,29 +53,31 @@ testVersion = FastTimedCPM petersonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest label $
-        withResource newPayloadDb killPdb $ \pdb ->
-        withRocksResource $ \rocksIO ->
-        testGroup label
-    [ withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
-        \ctx -> testGroup "single transactions" $ schedule Sequential
+    withResource newPayloadDb killPdb $ \pdb ->
+      withRocksResource $ \rocksIO -> testGroup label
+        [ withPactCtxSQLite_ testVersion Nothing (bhdbIO rocksIO) pdb mkcid $ \ctx ->
+          testGroup "single transactions" $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             ]
-    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
-      \ctx2 -> _schTest $ execTest ctx2 testReq6
-    ]
+
+        , withPactCtxSQLite_ testVersion Nothing (bhdbIO rocksIO) pdb mkcid $ \ctx ->
+            _schTest $ execTest ctx testReq6
+        ]
   where
     bhdbIO :: IO RocksDb -> IO BlockHeaderDb
     bhdbIO rocksIO = do
         rdb <- rocksIO
+        cid <- mkcid testVersion
         let genesisHeader = genesisBlockHeader testVersion cid
         testBlockHeaderDb rdb genesisHeader
 
     label = "Chainweb.Test.Pact.PactExec"
     killPdb _ = return ()
-    cid = someChainId testVersion
+
+    mkcid v = mkChainId v (0::Int)
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
@@ -147,7 +149,7 @@ testReq6 = TestRequest
 -- Utils
 
 execTest
-    :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a)
+    :: (forall a. (PactDbEnv' -> PactServiceM cas a) -> IO a)
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do

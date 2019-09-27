@@ -42,6 +42,7 @@ module Chainweb.Test.Pact.Utils
 , destroyTestPactCtx
 , withPactCtx
 , withPactCtxSQLite
+, withPactCtxSQLite_
 , testWebPactExecutionService
 , testPactExecutionService
 , initializeSQLite
@@ -81,7 +82,7 @@ import Test.Tasty
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
 import Pact.Parse
-import Pact.Types.ChainId
+import Pact.Types.ChainId as Pact
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -96,7 +97,7 @@ import Pact.Types.Util (toB16Text)
 -- internal modules
 
 import Chainweb.BlockHeaderDB.Types
-import Chainweb.ChainId (chainIdToText)
+import Chainweb.ChainId as Chainweb
 import Chainweb.CutDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -113,7 +114,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
-import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
 
@@ -176,7 +176,7 @@ goldenTestTransactions txs = do
 mkTestExecTransactions
     :: Text
       -- ^ sender
-    -> ChainId
+    -> Pact.ChainId
       -- ^ chain id of execution
     -> [SomeKeyPair]
       -- ^ signer keys
@@ -221,7 +221,7 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
 mkTestContTransaction
     :: Text
       -- ^ sender
-    -> ChainId
+    -> Pact.ChainId
       -- ^ chain id of execution
     -> [SomeKeyPair]
       -- ^ signer keys
@@ -292,7 +292,7 @@ destroyTestPactCtx = void . takeMVar . _testPactCtxState
 testPactCtx
     :: PayloadCas cas
     => ChainwebVersion
-    -> Version.ChainId
+    -> Chainweb.ChainId
     -> Maybe (MVar (CutDb cas))
     -> BlockHeaderDb
     -> PayloadDb cas
@@ -314,7 +314,7 @@ testPactCtx v cid cdbv bhdb pdb = do
 testPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
-  -> Version.ChainId
+  -> Chainweb.ChainId
   -> Maybe (MVar (CutDb cas))
   -> BlockHeaderDb
   -> PayloadDb cas
@@ -339,7 +339,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
 testPactExecutionService
     :: PayloadCas cas
     => ChainwebVersion
-    -> Version.ChainId
+    -> Chainweb.ChainId
     -> Maybe (MVar (CutDb cas))
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
@@ -369,7 +369,7 @@ testWebPactExecutionService
     -> Maybe (MVar (CutDb cas))
     -> IO WebBlockHeaderDb
     -> IO (PayloadDb cas)
-    -> (Version.ChainId -> MemPoolAccess)
+    -> (Chainweb.ChainId -> MemPoolAccess)
        -- ^ transaction generator
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
@@ -397,7 +397,7 @@ withPactCtx
     -> Maybe (MVar (CutDb cas))
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
-    -> ((forall a . PactServiceM cas a -> IO a) -> TestTree)
+    -> ((forall a. PactServiceM cas a -> IO a) -> TestTree)
     -> TestTree
 withPactCtx v cutDB bhdbIO pdbIO f =
     withResource start destroyTestPactCtx $
@@ -425,14 +425,26 @@ freeSQLiteResource (del,sqlenv) = do
   del
 
 withPactCtxSQLite
-  :: PayloadCas cas
-  => ChainwebVersion
-  -> Maybe (MVar (CutDb cas))
-  -> IO BlockHeaderDb
-  -> IO (PayloadDb cas)
-  -> ((forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestTree)
-  -> TestTree
-withPactCtxSQLite v cutDB bhdbIO pdbIO f =
+    :: PayloadCas cas
+    => ChainwebVersion
+    -> Maybe (MVar (CutDb cas))
+    -> IO BlockHeaderDb
+    -> IO (PayloadDb cas)
+    -> ((forall a. (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestTree)
+    -> TestTree
+withPactCtxSQLite v cdb bdbIO pdbIO f =
+    withPactCtxSQLite_ v cdb bdbIO pdbIO (return . someChainId) f
+
+withPactCtxSQLite_
+    :: PayloadCas cas
+    => ChainwebVersion
+    -> Maybe (MVar (CutDb cas))
+    -> IO BlockHeaderDb
+    -> IO (PayloadDb cas)
+    -> (ChainwebVersion -> IO Chainweb.ChainId)
+    -> ((forall a. (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestTree)
+    -> TestTree
+withPactCtxSQLite_ v cutDB bhdbIO pdbIO k f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io -> do
@@ -442,11 +454,13 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
   where
     destroy = const (destroyTestPactCtx . fst)
     start ios cdbv = do
+      cid <- k v
+
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
           spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
-          cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios
