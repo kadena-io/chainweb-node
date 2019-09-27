@@ -270,7 +270,13 @@
     )
 
   (defun debit:string (account:string amount:decimal)
-    @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
+    @doc "Debit AMOUNT from ACCOUNT balance"
+
+    @model [ (property (> amount 0.0))
+             (property (not (= account ""))) ]
+
+    (enforce (not (= account ""))
+      "account name must be non-empty")
 
     (enforce (> amount 0.0)
       "debit amount must be positive")
