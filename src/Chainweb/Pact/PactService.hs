@@ -418,18 +418,14 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
-validateChainwebTxsPreBlock
+validateChainwebTxs
     :: PactDbEnv'
     -> Checkpointer
     -> BlockCreationTime
     -> BlockHeight
-    -> BlockHash
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
-    lb <- _cpGetLatestBlock cp
-    when (Just (pred bh, hash) /= lb) $
-        fail "internal error: restore point is wrong, refusing to validate."
+validateChainwebTxs dbEnv cp blockOriginationTime bh txs =
     V.mapM checkOne txs
   where
     checkAccount validators tx = do
@@ -445,15 +441,32 @@ validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
           let validations = (const (b >= limitInCoin)) : validators
           return $! all ($ tx) validations
 
-    checkOne tx = do
+    -- skip validation for genesis -- gas accounts / etc don't exist yet
+    checkOne tx = if bh == 0 then return True else checkOneReal tx
+    checkOneReal tx = do
         let pactHash = view P.cmdHash tx
         mb <- _cpLookupProcessedTx cp pactHash
         if mb == Nothing
-        -- prop_tx_ttl_newblock_validate
-        then checkAccount [k] tx
-        else return False
+            -- prop_tx_ttl_newblock_validate
+            then checkAccount [checkTimes] tx
+            else return False
       where
-        k tx' = bh /= 0 && timingsCheck blockOriginationTime (payloadObj <$> tx')
+        checkTimes tx' = timingsCheck blockOriginationTime (payloadObj <$> tx')
+
+
+validateChainwebTxsPreBlock
+    :: PactDbEnv'
+    -> Checkpointer
+    -> BlockCreationTime
+    -> BlockHeight
+    -> BlockHash
+    -> Vector ChainwebTransaction
+    -> IO (Vector Bool)
+validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
+    lb <- _cpGetLatestBlock cp
+    when (Just (pred bh, hash) /= lb) $
+        internalError "restore point is wrong, refusing to validate."
+    validateChainwebTxs dbEnv cp blockOriginationTime bh txs
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
 -- associated with account name
@@ -582,7 +595,6 @@ execNewGenesisBlock
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
-        liftIO $ V.mapM_ (print . P._pMeta . payloadObj . P._cmdPayload) newTrans
         results <- execTransactions Nothing miner newTrans pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
@@ -649,23 +661,24 @@ playOneBlock
 playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
-
-    mapM_ checkTx trans
+    cp <- getCheckpointer
+    let creationTime = _blockCreationTime currHeader
+    oks <- liftIO $
+           validateChainwebTxs pdbenv cp creationTime
+               (_blockHeight currHeader) trans
+    let mbad = V.elemIndex False oks
+    case mbad of
+        Nothing -> return ()  -- ok
+        Just idx -> let badtx = (V.!) trans idx
+                        hash = P._cmdHash badtx
+                        msg = [ (hash, validationErr hash) ]
+                    in throwM $ TransactionValidationException msg
+    -- transactions are now successfully validated.
     !results <- go miner trans
     psStateValidated .= Just currHeader
     return $! toPayloadWithOutputs miner results
+
   where
-    -- TODO: reminder to do duplication check. Effectively do the same checks
-    -- that are found in newblock.
-    checkTTL = if isGenesisBlock then const $ const True else timingsCheck
-
-    -- todo: generalize to more checks
-    validateTx = checkTTL (_blockCreationTime currHeader) . fmap payloadObj
-    checkTx tx = when (not $ validateTx tx) $ do
-                     let hash = P._cmdHash tx
-                     let msg = [ (hash, validationErr hash) ]
-                     throwM $ TransactionValidationException msg
-
     validationErr hash = mconcat
       ["At "
       , sshow (_blockHeight currHeader)
