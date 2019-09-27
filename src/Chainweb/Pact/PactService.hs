@@ -862,16 +862,28 @@ transactionsFromPayload plData = do
 
 execLookupPactTxs
     :: PayloadCas cas
-    => T2 BlockHeight BlockHash
+    => Maybe (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
-execLookupPactTxs (T2 leafHeight leafHash) txs
-    | null txs = return mempty
-    | otherwise
-        = withCheckpointerRewind (Just (leafHeight + 1, leafHash)) "lookupPactTxs"
-            $ \_pdbenv -> do
-                cp <- getCheckpointer
-                fmap Discard $ liftIO $ V.mapM (_cpLookupProcessedTx cp) txs
+execLookupPactTxs restorePoint txs
+    | V.null txs = return mempty
+    | otherwise = go
+  where
+    getRestorePoint cp =
+        case restorePoint of
+            Nothing -> do
+                (fmap (\(h, a) -> T2 h a)) <$> liftIO (_cpGetLatestBlock cp)
+            x -> return x
+
+    go = do
+        cp <- getCheckpointer
+        mrp <- getRestorePoint cp
+        case mrp of
+            Nothing -> return mempty      -- can't look up anything at genesis
+            Just (T2 lh lha) ->
+                withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $
+                \_pdbenv -> fmap Discard $ liftIO $
+                V.mapM (_cpLookupProcessedTx cp) txs
 
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
