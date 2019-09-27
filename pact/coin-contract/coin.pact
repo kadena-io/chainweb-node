@@ -296,7 +296,11 @@
   (defun credit:string (account:string guard:guard amount:decimal)
     @doc "Credit AMOUNT to ACCOUNT balance"
 
-    @model [ (property (> amount 0.0)) ]
+    @model [ (property (> amount 0.0))
+             (property (not (= account ""))) ]
+
+    (enforce (not (= account ""))
+      "account name must be non-empty")
 
     (enforce (> amount 0.0)
       "credit amount must be positive")
