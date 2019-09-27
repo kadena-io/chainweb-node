@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -18,7 +19,6 @@ import Control.Monad.State
 import Data.Aeson
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
-import Data.CAS.RocksDB
 import Data.IORef
 import Data.List (foldl')
 import Data.Text (Text)
@@ -30,8 +30,6 @@ import Data.Word
 
 import NeatInterpolation (text)
 
-import System.Directory
-import System.IO.Extra
 import System.LogLevel
 
 import Test.Tasty
@@ -57,7 +55,6 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -284,24 +281,6 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
                  , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
                  , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
                  }
-
-withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
-withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
-
-withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb (\_ -> return ())
-
-withBlockHeaderDb
-    :: IO RocksDb
-    -> BlockHeader
-    -> (IO BlockHeaderDb -> TestTree)
-    -> TestTree
-withBlockHeaderDb iordb b = withResource start stop
-  where
-    start = do
-        rdb <- iordb
-        testBlockHeaderDb rdb b
-    stop = closeBlockHeaderDb
 
 withPact
     :: LogLevel

@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -18,7 +19,6 @@ import Control.Monad.State
 
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
-import Data.CAS.RocksDB
 import Data.IORef
 import Data.List (foldl')
 import qualified Data.Text as T
@@ -27,8 +27,6 @@ import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
 
-import System.Directory
-import System.IO.Extra
 import System.LogLevel
 
 import Test.Tasty
@@ -56,7 +54,6 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -183,24 +180,6 @@ withPact iopdb iobhdb mempool iodir f =
 
     logger = genericLogger Warn T.putStrLn
     cid = someChainId testVer
-
-withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
-withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
-
-withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb (\_ -> return ())
-
-withBlockHeaderDb
-    :: IO RocksDb
-    -> BlockHeader
-    -> (IO BlockHeaderDb -> TestTree)
-    -> TestTree
-withBlockHeaderDb iordb b = withResource start stop
-  where
-    start = do
-        rdb <- iordb
-        testBlockHeaderDb rdb b
-    stop = closeBlockHeaderDb
 
 mineBlock
     :: BlockHeader
