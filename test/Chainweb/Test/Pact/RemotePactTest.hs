@@ -10,11 +10,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE LambdaCase #-}
+
 -- |
 -- Module: Chainweb.Test.RemotePactTest
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
--- Maintainer: Mark Nichols <mark@kadena.io>
+-- Maintainer: Mark Nichols <mark@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
 -- Unit test for Pact execution via the Http Pact interface (/send,
@@ -152,10 +154,13 @@ responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "command-0-resp" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
-    (PollResponses theMap) <- pollWithRetry testCmds cwEnv rks
-    let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
-                          (NEL.toList $ _rkRequestKeys rks)
-    return $! toS $! foldMap A.encode values
+    cid_ <- mkChainId version (0::Int)
+    PollResponses prs <- pollWithRetry (testCmdsChainId cid_) cwEnv rks
+
+    let vs = flip mapMaybe (NEL.toList $ _rkRequestKeys rks) $ \rk ->
+          _crResult <$> HashMap.lookup rk prs
+
+    return $! toS $ foldMap A.encode vs
 
 
 spvRequests :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -264,60 +269,60 @@ sendWithRetry cmds env sb = go maxSendRetries
                 debug $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
                 return result
 
-maxPollRetries :: Int
-maxPollRetries = 30
-
 -- | To allow time for node to startup, retry a number of times
 pollWithRetry
     :: PactTestApiCmds
     -> ClientEnv
     -> RequestKeys
     -> IO PollResponses
-pollWithRetry cmds env rks = do
-  sleep 3
-  go maxPollRetries
-    where
-      go !retries = do
-          let retry failure = do
-                if retries == 0
-                  then do
-                    debug $ "poll failing after " ++ show maxSendRetries
-                               ++ " retries"
-                    fail failure
-                  else sleep 1 >> go (retries - 1)
-          let rkks = _rkRequestKeys rks
-          result <- runClientM (pollApiCmd cmds (Poll rkks)) env
-          case result of
-              Left e -> retry (show e)
-              Right (PollResponses mp) -> do
-                  ok <- checkResults (toList rkks) mp
-                  if ok
-                    then do
-                        debug $ concat
-                            [ "poll succeeded after "
-                            , show (maxSendRetries - retries)
-                            , " retries" ]
-                        return $ PollResponses mp
-                    else do
-                        debug "poll check failed, continuing"
-                        let msg = concat [ "poll check failure. keys: "
-                                         , show rks
-                                         , "\nresult map was: "
-                                         , show mp
-                                         ]
-                        retry msg
+pollWithRetry cmds env rks = sleep 3 >> go 30
+  where
+    go !retries = do
+      let rs = _rkRequestKeys rks
 
-      checkCommandResult x cr =
-          _crReqKey cr == x && isOkPactResult (_crResult cr)
+      runClientM (pollApiCmd cmds (Poll rs)) env >>= \case
+        Left e -> retry retries $ show e
+        Right (PollResponses mp) -> do
+          ok <- checkResults (toList rs) mp
+          if ok
+          then do
+            debug $ concat
+              [ "poll succeeded after "
+              , show (maxSendRetries - retries)
+              , " retries"
+              ]
+            return $ PollResponses mp
+          else do
+            debug "poll check failed, continuing"
+            retry retries $ concat
+              [ "poll check failure. keys: "
+              , show rks
+              , "\nresult map was: "
+              , show mp
+              ]
 
-      isOkPactResult (PactResult e) = isRight e
+    retry retries failure = do
+      if retries > 0
+      then sleep 1 >> go (pred retries)
+      else do
+        debug
+          $ "poll failing after "
+          <> show maxSendRetries
+          <> " retries"
+        fail failure
 
-      checkResults [] _ = return True
-      checkResults (x:xs) mp = case HashMap.lookup x mp of
-                                 (Just cr) -> if checkCommandResult x cr
-                                                then checkResults xs mp
-                                                else return False
-                                 Nothing -> return False
+    checkResults [] _ = return True
+    checkResults (x:xs) mp = case HashMap.lookup x mp of
+      Just cr ->
+        if checkCommandResult x cr
+        then checkResults xs mp
+        else return False
+      Nothing -> return False
+
+    checkCommandResult x cr =
+      _crReqKey cr == x && isOkPactResult (_crResult cr)
+
+    isOkPactResult (PactResult e) = isRight e
 
 testBatch :: IO (Time Integer) -> MVar Int -> IO SubmitBatch
 testBatch iot mnonce = do
@@ -353,7 +358,8 @@ apiCmds cwVersion theChainId =
 
 data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
-    , pollApiCmd :: Poll -> ClientM PollResponses }
+    , pollApiCmd :: Poll -> ClientM PollResponses
+    }
 
 
 --------------------------------------------------------------------------------
