@@ -60,7 +60,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils (withLink)
-import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Version (ChainwebVersion(..), mkChainId)
 import Data.CAS.RocksDB
 
 testVersion :: ChainwebVersion
@@ -88,7 +88,10 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
         mv <- newEmptyMVar
         reqQ <- atomically newTQueue
         rdb <- rocksIO
+        cid <- mkChainId testVersion (0::Int)
+
         let genesisHeader = genesisBlockHeader testVersion cid
+
         bhdb <- testBlockHeaderDb rdb genesisHeader
         pdb <- newPayloadDb
 
@@ -102,17 +105,15 @@ withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
         cancel a
 
     logger = genericLogger Warn T.putStrLn
-    cid = someChainId testVersion
 
 newBlockTest :: String -> IO (TQueue RequestMsg) -> TestTree
 newBlockTest label reqIO = golden label $ do
     reqQ <- reqIO
+    cid <- mkChainId testVersion (0::Int)
     let genesisHeader = genesisBlockHeader testVersion cid
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
     respVar <- newBlock noMiner genesisHeader (BlockCreationTime blockTime) reqQ
     goldenBytes "new-block" =<< takeMVar respVar
-  where
-    cid = someChainId testVersion
 
 _localTest :: IO (TQueue RequestMsg) -> ScheduledTest
 _localTest reqIO = goldenSch "local" $ do
@@ -143,34 +144,42 @@ testMemPoolAccess = MemPoolAccess
     getTestBlock validate bHeight bHash = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         d <- adminData
-        let txs = V.fromList
-              [ PactTransaction (T.pack moduleStr) d
-              , PactTransaction "(create-table test1.accounts)" d
-              , PactTransaction "(test1.create-global-accounts)" d
-              , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
-              , PactTransaction "(at 'prev-block-hash (chain-data))" d
-              , PactTransaction "(at 'block-time (chain-data))" d
-              , PactTransaction "(at 'block-height (chain-data))" d
-              , PactTransaction "(at 'gas-limit (chain-data))" d
-              , PactTransaction "(at 'gas-price (chain-data))" d
-              , PactTransaction "(at 'chain-id (chain-data))" d
-              , PactTransaction "(at 'sender (chain-data))" d
-              ]
+
         let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
             g = modifyPayloadWithText . set (pMeta . pmTTL)
+            txs = txsWith d moduleStr
+
         outtxs' <- goldenTestTransactions txs
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger 1000000
                 in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger 1000000))) tx
         oks <- validate bHeight bHash outtxs
+
         when (not $ V.and oks) $ do
-            fail $ mconcat [ "tx failed validation! input list: \n"
-                           , show txs
-                           , "\n\nouttxs: "
-                           , show outtxs
-                           , "\n\noks: "
-                           , show oks ]
+          fail $ mconcat
+            [ "tx failed validation! input list: \n"
+            , show txs
+            , "\n\nouttxs: "
+            , show outtxs
+            , "\n\noks: "
+            , show oks
+            ]
+
         return outtxs
+
+    txsWith d s = V.fromList
+      [ PactTransaction (T.pack s) d
+      , PactTransaction "(create-table test1.accounts)" d
+      , PactTransaction "(test1.create-global-accounts)" d
+      , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
+      , PactTransaction "(at 'prev-block-hash (chain-data))" d
+      , PactTransaction "(at 'block-time (chain-data))" d
+      , PactTransaction "(at 'block-height (chain-data))" d
+      , PactTransaction "(at 'gas-limit (chain-data))" d
+      , PactTransaction "(at 'gas-price (chain-data))" d
+      , PactTransaction "(at 'chain-id (chain-data))" d
+      , PactTransaction "(at 'sender (chain-data))" d
+      ]
 
 
 testEmptyMemPool :: MemPoolAccess
