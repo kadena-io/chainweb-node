@@ -31,7 +31,6 @@ import Data.Text.Encoding
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
 
-import GHC.Conc (atomically)
 import GHC.Generics
 
 import System.Random

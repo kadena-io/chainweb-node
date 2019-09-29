@@ -63,7 +63,6 @@ import qualified Data.ByteString.Base16 as B16
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
-import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Text.Encoding

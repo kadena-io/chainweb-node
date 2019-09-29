@@ -14,7 +14,6 @@ module Chainweb.Mempool.RestAPI.Server
 
 ------------------------------------------------------------------------------
 import Control.Monad.Catch hiding (Handler)
-import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import qualified Data.DList as D
