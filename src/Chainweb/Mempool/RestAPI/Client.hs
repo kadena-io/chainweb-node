@@ -26,6 +26,7 @@ import Control.Monad
 import Control.Monad.Identity
 import Data.ByteString (ByteString)
 import Data.Proxy
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import Servant.API
@@ -134,7 +135,7 @@ lookupClient
 lookupClient txcfg v c txs = do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    let decode = either fail return . codecDecode (txCodec txcfg)
+    let decode = either (throw . DecodeException . T.pack) return . codecDecode (txCodec txcfg)
     cs <- lookupClient_ @v @c txs
     mapM (traverse decode) cs
 
