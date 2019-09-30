@@ -51,9 +51,10 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
 import Data.Either
-import Data.Foldable (toList)
+import Data.Foldable (foldlM, toList)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -421,6 +422,8 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
+type Balances = HM.HashMap Text Decimal
+
 -- | The principal validation logic for groups of Pact Transactions.
 --
 -- Skips validation for genesis transactions, since gas accounts, etc. don't
@@ -435,19 +438,19 @@ validateChainwebTxs
     -> IO (Vector Bool)
 validateChainwebTxs dbEnv cp blockOriginationTime bh txs
     | bh == 0 = pure $ V.replicate (V.length txs) False
-    | otherwise = V.mapM checkOne txs
+    | otherwise = do
+          bs <- balances txs
+          V.mapM (validate bs) txs
   where
-    checkAccount :: [P.Command PayloadWithText -> Bool] -> P.Command PayloadWithText -> IO Bool
-    checkAccount validators tx = readCoinAccount dbEnv sender >>= \case
-        Nothing -> return True
-        Just (T2 b _) -> do
-            -- TODO Remove this one-off `limitInCoin` check, it will be subsumed
-            -- by the accumulated gas check.
-            let validations = gasCheck b : validators
+    validate :: Balances -> ChainwebTransaction -> IO Bool
+    validate bs tx = case HM.lookup sender bs of
+        Nothing -> pure False
+        Just b -> do
+            let validations = [gasCheck b, checkTimes]
             return $! all ($ tx) validations
       where
         gasCheck :: Decimal -> b -> Bool
-        gasCheck b = const (b >= limitInCoin)
+        gasCheck b _ = b >= limitInCoin
 
         pm = P._pMeta . payloadObj $ P._cmdPayload tx
         sender = P._pmSender pm
@@ -455,16 +458,33 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
         limitInCoin = price * fromIntegral limit
 
-    checkOne :: P.Command PayloadWithText -> IO Bool
-    checkOne tx = do
-        let pactHash = view P.cmdHash tx
-        mb <- _cpLookupProcessedTx cp pactHash
-        -- prop_tx_ttl_newblock_validate
-        if | isNothing mb -> checkAccount [checkTimes] tx
-           | otherwise -> return False
-
-    checkTimes :: P.Command PayloadWithText -> Bool
+    checkTimes :: ChainwebTransaction -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
+
+    -- gasTotals :: Balances -> Vector ChainwebTransaction -> HM.HashMap Text Decimal
+    -- gasTotals = undefined
+
+    -- | The balances of all /relevant/ accounts in this group of Transactions.
+    -- TXs which are missing an entry in the `HM.HashMap` should not be
+    -- considered for further processing!
+    --
+    balances :: Vector ChainwebTransaction -> IO Balances
+    balances = foldlM balLookup mempty
+
+    balLookup :: Balances -> ChainwebTransaction -> IO Balances
+    balLookup acc tx
+        | HM.member sender acc = pure acc
+        | otherwise = do
+            let pactHash = view P.cmdHash tx
+            mb <- _cpLookupProcessedTx cp pactHash
+            if | isJust mb -> pure acc
+               | otherwise -> readCoinAccount dbEnv sender >>= \case
+                   Nothing -> pure acc
+                   Just (T2 b _) -> pure $ HM.insert sender b acc
+      where
+        sender :: Text
+        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+
 
 validateChainwebTxsPreBlock
     :: PactDbEnv'
