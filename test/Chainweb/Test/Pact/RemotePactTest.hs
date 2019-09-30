@@ -71,7 +71,9 @@ import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
+import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
+import Pact.Types.PactValue
 import Pact.Types.Term
 
 -- internal modules
@@ -147,6 +149,9 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testCase "/send reports validation failure" $
                 sendValidationTest iot net
+              , after AllSucceed "remote spv" $
+                testCase "trivial /local check" $
+                localTest iot net
               ]
     ]
 
@@ -159,6 +164,21 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
+localTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
+localTest iot nio = do
+    cenv <- fmap _getClientEnv nio
+    mv <- newMVar 0
+    SubmitBatch batch <- testBatch iot mv
+    let cmd = head $ toList batch
+    sid <- mkChainId version (0 :: Int)
+    res <- flip runClientM cenv $ localApiCmd (testCmdsChainId sid) cmd
+    checkCommandResult res
+  where
+    checkCommandResult (Left e) = fail $ "Servant failure on /local: " ++ show e
+    checkCommandResult (Right cr) =
+        let (PactResult e) = _crResult cr
+        in assertEqual "expect /local to succeed and return 3" e
+                       (Right (PLiteral $ LDecimal 3))
 
 sendValidationTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
 sendValidationTest iot nio = do
@@ -379,12 +399,14 @@ generatePactApi cwVersion chainid =
 
 apiCmds :: ChainwebVersion -> ChainId -> PactTestApiCmds
 apiCmds cwVersion theChainId =
-    let sendCmd :<|> pollCmd :<|> _ :<|> _ = generatePactApi cwVersion theChainId
-    in PactTestApiCmds sendCmd pollCmd
+    let sendCmd :<|> pollCmd :<|> _ :<|> localCmd = generatePactApi cwVersion theChainId
+    in PactTestApiCmds sendCmd pollCmd localCmd
 
 data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
-    , pollApiCmd :: Poll -> ClientM PollResponses }
+    , pollApiCmd :: Poll -> ClientM PollResponses
+    , localApiCmd :: Command Text -> ClientM (CommandResult H.Hash)
+    }
 
 
 --------------------------------------------------------------------------------
