@@ -253,6 +253,7 @@ insertInMem cfg lock runCheck txs0 = do
     sizeOK (_, tx) = getSize tx <= maxSize
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
+    -- prop_tx_ttl_arrival
     ttlCheck (Time (TimeSpan now)) (_, tx) =
       case txMetadata txcfg tx of
         TransactionMetadata (Time (TimeSpan creationTime)) (Time (TimeSpan expiryTime)) ->
