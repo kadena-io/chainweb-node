@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -71,6 +72,14 @@ import Pact.Server.API ()
 import Pact.Types.Gas (GasLimit(..))
 
 import P2P.Peer
+
+#if MIN_VERSION_swagger2(2,4,0)
+just :: a -> Maybe a
+just = Just
+#else
+just :: a -> a
+just = id
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
@@ -192,76 +201,76 @@ instance ToParamSchema PeerId where
 
 instance ToParamSchema BlockHash where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & format ?~ "byte"
         & maxLength ?~ int merkleLogHashBytesCount
         & minLength ?~ int merkleLogHashBytesCount
 
 instance ToParamSchema BlockPayloadHash where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & format ?~ "byte"
         & maxLength ?~ int merkleLogHashBytesCount
         & minLength ?~ int merkleLogHashBytesCount
 
 instance ToParamSchema BlockHeader where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & format ?~ "byte"
 
 instance ToParamSchema BlockHeight where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerInteger
+        & type_ .~ just SwaggerInteger
         & minimum_ ?~ 0
         & exclusiveMinimum ?~ False
 
 instance ToParamSchema MinRank where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerInteger
+        & type_ .~ just SwaggerInteger
         & minimum_ ?~ 0
         & exclusiveMinimum ?~ False
 
 instance ToParamSchema MaxRank where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerInteger
+        & type_ .~ just SwaggerInteger
         & minimum_ ?~ 0
         & exclusiveMinimum ?~ False
 
 instance ToParamSchema Limit where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerInteger
+        & type_ .~ just SwaggerInteger
         & minimum_ ?~ 0
         & exclusiveMinimum ?~ False
 
 instance ToParamSchema Eos where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerBoolean
+        & type_ .~ just SwaggerBoolean
 
 instance ToParamSchema (NextItem BlockHash) where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & pattern ?~ "(inclusive|exclusive):key"
 
 instance ToParamSchema (NextItem PeerId) where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & pattern ?~ "(inclusive|exclusive):key"
 
 instance ToParamSchema (NextItem Int) where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & pattern ?~ "(inclusive|exclusive):key"
 
 instance ToParamSchema ChainId where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerInteger
+        & type_ .~ just SwaggerInteger
         & format ?~ "word32"
 
 -- FIXME: Invention of new `ChainwebVersion` values will not warn of pattern
 -- match issues here!
 instance ToParamSchema ChainwebVersion where
     toParamSchema _ = mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & enum_ ?~ (toJSON <$>
             [ Test petersonChainGraph
             , TimedConsensus petersonChainGraph
@@ -283,7 +292,7 @@ instance ToSchema PeerInfo
 instance ToSchema ChainId where
     declareNamedSchema _ = pure . NamedSchema (Just "ChainId") $ mempty
         & description ?~ "Unique identifier for a Chainweb Chain"
-        & type_ .~ SwaggerInteger
+        & type_ .~ just SwaggerInteger
         & example ?~ toJSON (someChainId Testnet02)
 
 instance ToSchema PeerId where
@@ -291,7 +300,7 @@ instance ToSchema PeerId where
 
 instance ToSchema HostAddress where
     declareNamedSchema _ = return $ NamedSchema (Just "HostAddress") $ mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & pattern ?~ "<hostname>:<port>"
         & minLength ?~ 3
         & maxLength ?~ 258
@@ -345,7 +354,7 @@ instance ToSchema PayloadData where
         transactionsHashSchema <- declareSchemaRef (Proxy @BlockTransactionsHash)
         outputsHashSchema <- declareSchemaRef (Proxy @BlockOutputsHash)
         return $ NamedSchema (Just "PayloadData") $ mempty
-            & type_ .~ SwaggerObject
+            & type_ .~ just SwaggerObject
             & properties .~
                 [ ("transactions", transactionsSchema)
                 , ("minerData", minerDataSchema)
@@ -364,7 +373,7 @@ instance ToSchema PayloadWithOutputs where
         transactionsHashSchema <- declareSchemaRef (Proxy @BlockTransactionsHash)
         outputsHashSchema <- declareSchemaRef (Proxy @BlockOutputsHash)
         return $ NamedSchema (Just "PayloadWithOutputs") $ mempty
-            & type_ .~ SwaggerObject
+            & type_ .~ just SwaggerObject
             & properties .~
                 [ ("transactions", transactionsWithOutputSchema)
                 , ("minerData", minerDataSchema)
@@ -383,7 +392,7 @@ instance ToSchema CutHashes where
         mapSchema <- declareSchemaRef (Proxy @(HM.HashMap ChainId BlockHash))
         peerSchema <- declareSchemaRef (Proxy @PeerInfo)
         return $ NamedSchema (Just "CutHashes") $ mempty
-            & type_ .~ SwaggerObject
+            & type_ .~ just SwaggerObject
             & properties .~
                 [ ("hashes", mapSchema)
                 , ("origin", peerSchema)
@@ -392,7 +401,7 @@ instance ToSchema CutHashes where
 
 instance ToSchema (NextItem k) where
     declareNamedSchema _ = return $ NamedSchema (Just "next") $ mempty
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & pattern ?~ "(inclusive|exclusive):<Key>"
         & minLength ?~ 10 + 1
 
@@ -402,7 +411,7 @@ instance (ToSchema a) => ToSchema (Page k a) where
         keySchema <- declareSchemaRef (Proxy @(NextItem k))
         itemsSchema <- declareSchemaRef (Proxy @[a])
         return $ NamedSchema (Just "Page") $ mempty
-            & type_ .~ SwaggerObject
+            & type_ .~ just SwaggerObject
             & properties .~
                 [ ("limit", naturalSchema)
                 , ("items", itemsSchema)
@@ -414,7 +423,7 @@ instance ToSchema (BranchBounds BlockHeaderDb) where
     declareNamedSchema _ = do
         setSchema <- declareSchemaRef (Proxy @[BlockHash])
         return $ NamedSchema (Just "BranchBounds") $ mempty
-            & type_ .~ SwaggerObject
+            & type_ .~ just SwaggerObject
             & properties .~
                 [ ("upper", setSchema)
                 , ("lower", setSchema)
@@ -439,7 +448,7 @@ deriving instance ToSchema SpvRequest
 instance ToSchema ChainwebVersion where
     declareNamedSchema _ = pure . NamedSchema (Just "ChainwebVersion") $ mempty
         & description ?~ "Unique identifier for a Chainweb network"
-        & type_ .~ SwaggerString
+        & type_ .~ just SwaggerString
         & example ?~ toJSON Testnet02
 
 instance ToSchema MerkleLogHash where
@@ -473,7 +482,7 @@ instance ToSchema Miner where
         pure . NamedSchema (Just "Miner") $ mempty
             & title ?~ "Miner Identity"
             & description ?~ "Information required to reward Miners for mining work"
-            & type_ .~ SwaggerObject
+            & type_ .~ just SwaggerObject
             & properties .~
                 [ ("account", textSchema)
                 , ("public-keys", listSchema)

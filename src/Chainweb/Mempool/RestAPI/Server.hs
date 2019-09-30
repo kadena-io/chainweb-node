@@ -14,11 +14,11 @@ module Chainweb.Mempool.RestAPI.Server
 
 ------------------------------------------------------------------------------
 import Control.Monad.Catch hiding (Handler)
-import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 import Data.ByteString (ByteString)
 import qualified Data.DList as D
 import Data.IORef
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import Servant
 
@@ -36,7 +36,7 @@ insertHandler :: Show t => MempoolBackend t -> [ByteString] -> Handler NoContent
 insertHandler mempool txsBS = handleErrs (NoContent <$ begin)
   where
     txcfg = mempoolTxConfig mempool
-    decode = either fail return . codecDecode (txCodec txcfg)
+    decode = either (throwM . DecodeException . T.pack) return . codecDecode (txCodec txcfg)
     begin = do
         txs <- mapM decode txsBS
         let txV = V.fromList txs

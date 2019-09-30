@@ -73,10 +73,9 @@ module Chainweb.TreeDB
 ) where
 
 import Control.Arrow ((***))
-import Control.Lens (view, (&), _1)
+import Control.Lens hiding ((:>), (.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.Identity
 import Control.Monad.Trans
 
 import Data.Aeson
@@ -101,7 +100,6 @@ import Numeric.Natural
 
 import Prelude hiding (lookup)
 
-import Streaming.Prelude (Of)
 import qualified Streaming.Prelude as S
 
 import Test.QuickCheck

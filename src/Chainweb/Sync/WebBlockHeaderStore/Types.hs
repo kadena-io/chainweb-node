@@ -58,7 +58,6 @@ import Servant.Client
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Graph (HasChainGraph(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Version

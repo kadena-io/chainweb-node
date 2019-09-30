@@ -121,7 +121,6 @@ import qualified Data.ByteString as B (ByteString, length, pack)
 import qualified Data.ByteString.Char8 as B8
 import Data.Default (def)
 import Data.Foldable
-import Data.Foldable (toList)
 import Data.Hashable
 import Data.Hourglass (DateTime, durationHours, timeAdd)
 import qualified Data.List as L
