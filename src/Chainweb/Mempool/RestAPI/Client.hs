@@ -26,6 +26,7 @@ import Control.Monad
 import Control.Monad.Identity
 import Data.ByteString (ByteString)
 import Data.Proxy
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import Servant.API
@@ -55,8 +56,9 @@ toMempool version chain txcfg blocksizeLimit env =
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
-    , mempoolMarkValidated = markValidated
-    , mempoolGetBlock = getBlock
+    , mempoolInsertCheck = \_ -> unsupported
+    , mempoolMarkValidated = \_ -> unsupported
+    , mempoolGetBlock = \_ _ _ _ -> unsupported
     , mempoolGetPendingTransactions = getPending
     , mempoolClear = clear
     }
@@ -66,11 +68,6 @@ toMempool version chain txcfg blocksizeLimit env =
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
     insert _ v = void $ go (insertClient txcfg version chain (V.toList v))
-
-    -- TODO: should we permit remote getBlock?
-    -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
-    getBlock _ _ _ _ = unsupported
-    markValidated _ = unsupported
 
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
@@ -134,7 +131,7 @@ lookupClient
 lookupClient txcfg v c txs = do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    let decode = either fail return . codecDecode (txCodec txcfg)
+    let decode = either (throw . DecodeException . T.pack) return . codecDecode (txCodec txcfg)
     cs <- lookupClient_ @v @c txs
     mapM (traverse decode) cs
 

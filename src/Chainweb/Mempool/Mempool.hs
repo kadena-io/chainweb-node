@@ -65,6 +65,7 @@ module Chainweb.Mempool.Mempool
   , ServerNonce
   , HighwaterMark
   , InsertType(..)
+  , InsertError(..)
 
   , chainwebTransactionConfig
   , mockCodec
@@ -189,6 +190,25 @@ type HighwaterMark = (ServerNonce, MempoolTxId)
 data InsertType = CheckedInsert | UncheckedInsert
   deriving (Show, Eq)
 
+data InsertError = InsertErrorDuplicate
+                 | InsertErrorInvalidTime
+                 | InsertErrorOversized
+                 | InsertErrorBadlisted
+                 | InsertErrorOther Text
+  deriving (Generic, Eq)
+
+instance Show InsertError
+  where
+    show InsertErrorDuplicate = "Transaction already exists on chain"
+    show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
+    show InsertErrorOversized = "Transaction gas limit exceeds block gas limit"
+    show InsertErrorBadlisted =
+        "Transaction is badlisted because it previously failed to validate \
+        \(e.g. insufficient gas)"
+    show (InsertErrorOther m) = "insert error: " <> T.unpack m
+
+instance Exception InsertError
+
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
 data MempoolBackend t = MempoolBackend {
@@ -207,6 +227,10 @@ data MempoolBackend t = MempoolBackend {
   , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
                   -> Vector t
                   -> IO ()
+
+    -- | Perform the pre-insert check for the given transactions. Returns `Just
+    -- msg` if the request failed.
+  , mempoolInsertCheck :: Vector t -> IO (Vector (TransactionHash, Maybe InsertError))
 
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
@@ -243,6 +267,7 @@ noopMempool = do
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
+    , mempoolInsertCheck = noopInsertCheck
     , mempoolMarkValidated = noopMV
     , mempoolGetBlock = noopGetBlock
     , mempoolGetPendingTransactions = noopGetPending
@@ -260,6 +285,7 @@ noopMempool = do
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ const $ return ()
+    noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()
     noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)

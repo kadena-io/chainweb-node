@@ -60,7 +60,6 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
-import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB

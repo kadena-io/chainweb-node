@@ -62,14 +62,12 @@ import Pact.Interpreter
 import Pact.Parse (parseExprs)
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Types.Command
-import Pact.Types.Gas (Gas(..), GasLimit(..), GasModel(..))
 import Pact.Types.Hash as Pact
 import Pact.Types.Logger
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
 import Pact.Types.SPV
-import Pact.Types.Term (DefName(..), ModuleName(..))
 
 -- internal Chainweb modules
 
