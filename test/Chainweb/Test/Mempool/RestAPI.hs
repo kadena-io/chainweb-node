@@ -17,7 +17,6 @@ import Test.Tasty
 -- internal modules
 
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
-import Chainweb.ChainId (ChainId)
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Graph
 import Chainweb.Logger (GenericLogger)

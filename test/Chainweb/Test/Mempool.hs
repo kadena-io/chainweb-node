@@ -35,7 +35,7 @@ import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Gen (Gen, chooseAny)
+import Test.QuickCheck.Gen (chooseAny)
 import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit

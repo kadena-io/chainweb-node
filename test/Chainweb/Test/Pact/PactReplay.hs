@@ -10,7 +10,6 @@ module Chainweb.Test.Pact.PactReplay where
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Monad (void)
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State

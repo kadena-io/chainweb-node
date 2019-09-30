@@ -21,7 +21,7 @@ module Chainweb.Mempool.InMem
   ) where
 
 ------------------------------------------------------------------------------
-import Control.Applicative (pure, (<|>))
+import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq

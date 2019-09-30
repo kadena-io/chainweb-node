@@ -21,7 +21,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 import Options.Applicative
-import Options.Applicative.Types (Parser(..))
 
 import qualified Streaming.Prelude as S
 

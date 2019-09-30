@@ -62,7 +62,6 @@ import Data.Singletons
 import GHC.TypeLits
 
 import Servant.API
-import Servant.API (NoContent(..))
 import Servant.Client
 
 -- internal modules

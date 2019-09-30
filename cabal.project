@@ -24,6 +24,5 @@ source-repository-package
     tag: 17a5fb130926582eff081eeb1b94cb6c7097c67a
 
 constraints:
-      swagger2 < 2.4
-    , these < 1
-    , base-unicode-symbols < 0.2.4
+      base-unicode-symbols < 0.2.4
+    , swagger2 < 2.4
