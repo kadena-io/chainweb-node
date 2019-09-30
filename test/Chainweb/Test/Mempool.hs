@@ -110,7 +110,7 @@ instance Arbitrary MockTx where
       emptyMeta = TransactionMetadata zero Time.maxTime
       zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
-type InsertCheck = MVar (Vector MockTx -> IO (Vector Bool))
+type InsertCheck = MVar (Vector MockTx -> IO (Vector (Maybe InsertError)))
 data MempoolWithFunc =
     MempoolWithFunc (forall a
                      . ((InsertCheck -> MempoolBackend MockTx -> IO a)
@@ -211,7 +211,10 @@ propPreInsert (txs, badTxs) gossipMV mempool =
     hash = txHasher txcfg
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
-    checkNotBad xs = return $! V.map (not . (`elem` badTxs)) xs
+    checkOne tx = if tx `elem` badTxs
+                  then Just InsertErrorBadlisted
+                  else Nothing
+    checkNotBad xs = return $! V.map checkOne xs
 
 
 propTrivial

@@ -1,16 +1,17 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData
@@ -28,30 +29,32 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens ((^.), (^?!), _head, view)
+import Control.Lens (view, (^.), (^?!), _head)
+import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL.Lazy as Base64
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as BSL8
+import qualified Data.ByteString.Short as SB
 import Data.CAS
-import Data.Tuple.Strict
 import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
-import Data.Singletons
+import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
+import Data.Singletons
 import Data.Text (Text)
 import Data.Text.Encoding
-import qualified Data.ByteString.Lazy.Char8 as BSL8
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List.NonEmpty as NEL
+import Data.Tuple.Strict
 import qualified Data.Vector as V
-import qualified GHC.Event as Ev
 
+import qualified GHC.Event as Ev
 import GHC.Generics
 
 import Prelude hiding (init, lookup)
@@ -62,8 +65,8 @@ import System.LogLevel
 
 -- internal modules
 
-import qualified Pact.Types.ChainId as Pact
 import Pact.Types.API
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
@@ -76,7 +79,8 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..), InsertType(..))
+import Chainweb.Mempool.Mempool
+    (InsertType(..), MempoolBackend(..), TransactionHash(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -179,13 +183,27 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     case traverse validateCommand cmds of
       Right enriched -> do
-        liftIO $ mempoolInsert mempool CheckedInsert
-               $! V.fromList $ NEL.toList enriched
+        let txs = V.fromList $ NEL.toList enriched
+        -- if any of the txs in the batch fail validation, we punt on the whole
+        -- group
+        liftIO (mempoolInsertCheck mempool txs) >>= V.mapM_ checkResult
+        liftIO (mempoolInsert mempool UncheckedInsert txs)
         return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-      Left err ->
-        throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+      Left err -> failWith $ "Validation failed: " <> err
   where
+    failWith err = throwError $ err400 { errBody = BSL8.pack err }
+
     logg = logFunctionJson (setComponent "send-handler" logger)
+
+    toPactHash (TransactionHash h) = Pact.TypedHash $ SB.fromShort h
+
+    checkResult (_, Nothing) = return ()
+    checkResult (hash, Just insErr) =
+        failWith $ concat [ "Validation failed for hash "
+                          , show $ toPactHash hash
+                          , ": "
+                          , show insErr
+                          ]
 
 pollHandler
     :: PayloadCas cas

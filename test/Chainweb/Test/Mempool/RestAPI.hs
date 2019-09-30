@@ -53,7 +53,7 @@ data TestServer = TestServer
 
 newTestServer :: IO TestServer
 newTestServer = mask_ $ do
-    checkMv <- newMVar $ V.mapM (const $ return True)
+    checkMv <- newMVar $ V.mapM (const $ return Nothing)
     let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMvFunc checkMv)
     let blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     inmemMv <- newEmptyMVar
