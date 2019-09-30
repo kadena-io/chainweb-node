@@ -140,21 +140,18 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
           withTime $ \iot ->
-            withRequestKeys iot iomvar net $ \rks ->
-                responseGolden net rks
-
-    , withTime $ \iot -> withNodes rdb nNodes $ \net ->
-        testGroup "client tests" $
-        schedule Sequential [
-            testGroupSch "spv" [spvRequests iot net]
-          , testCaseSch "/send reports validation failure" $
+            testGroup "remote pact tests" [
+                withRequestKeys iot iomvar net $ responseGolden net
+              , after AllSucceed "remote-golden" $
+                testGroup "remote spv" [spvRequests iot net]
+              , after AllSucceed "remote spv" $
+                testCase "/send reports validation failure" $
                 sendValidationTest iot net
-          ]
+              ]
     ]
-    -- The outer testGroupSch wrapper is just for scheduling purposes.
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-responseGolden networkIO rksIO = golden "command-0-resp" $ do
+responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- pollWithRetry testCmds cwEnv rks
