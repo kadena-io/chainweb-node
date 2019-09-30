@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -103,14 +102,14 @@ onRestart pdb bhdb r = do
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 testMemPoolAccess iot  = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header  -> do
-            t <- meinhack bh <$> iot
+            t <- f bh <$> iot
             getTestBlock t validate bh hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    meinhack :: BlockHeight -> Time Integer -> Time Integer
-    meinhack b tt =
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
       foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
@@ -140,14 +139,14 @@ testMemPoolAccess iot  = MemPoolAccess
 dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 dupegenMemPoolAccess iot  = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header -> do
-            t <- meinhack bh <$> iot
+            t <- f bh <$> iot
             getTestBlock t validate bh hash _header
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    meinhack :: BlockHeight -> Time Integer -> Time Integer
-    meinhack b tt =
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
       foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
     getTestBlock txOrigTime validate bHeight bHash _bHeader = do
         akp0 <- stockKey "sender00"

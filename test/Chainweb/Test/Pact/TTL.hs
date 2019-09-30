@@ -1,10 +1,9 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE TypeFamilies      #-}
 
 module Chainweb.Test.Pact.TTL (tests) where
 
@@ -34,6 +33,7 @@ import Test.Tasty.HUnit
 -- pact imports
 
 import Pact.ApiReq
+import Pact.Types.ChainMeta
 
 -- chainweb imports
 
@@ -71,14 +71,26 @@ tests =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     testGroup label
-        [ withTime $ \iot -> withPact pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
+        [ withTime $ \iot ->
+          withPact pdb bhdb (testMemPoolAccess (BadTTL badttl) iot) dir $ \reqQIO ->
             testCase "reject-tx-with-badttl" $ testTTL genblock pdb bhdb reqQIO
+        , after AllSucceed "reject-tx-with-badttl" $
+          withTime $ \iot ->
+          withPact pdb bhdb (testMemPoolAccess (BadTxTime addtime) iot) dir $ \reqQIO ->
+            testCase "reject-tx-with-badtxtime" $ testTTL genblock pdb bhdb reqQIO
+        , after AllSucceed "reject-tx-with-badtxtime" $
+          withTime $ \iot ->
+          withPact pdb bhdb (testMemPoolAccess (BadExpirationTime addtime 1) iot) dir $ \reqQIO ->
+            testCase "reject-tx-with-badexpirationtime" $ testTTL genblock pdb bhdb reqQIO
         ]
   where
     genblock = genesisBlockHeader testVer cid
     label = "Chainweb.Test.Pact.TTL"
     cid = someChainId testVer
+    badttl = 100 * 24 * 60 * 60
+    addtime = toTxCreationTime . add second
 
+-- this tests for a bad ttl
 testTTL
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
@@ -128,28 +140,31 @@ withPact iopdb iobhdb mempool iodir f =
     logger = genericLogger Warn T.putStrLn
     cid = someChainId testVer
 
-testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess iot  = MemPoolAccess
+testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
+testMemPoolAccess _ttlcase iot  = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header  -> do
-            t <- meinhack bh <$> iot
+            t <- f bh <$> iot
             getTestBlock t validate bh hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    meinhack :: BlockHeight -> Time Integer -> Time Integer
-    meinhack b tt =
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
       foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
-        let nonce = T.pack . show @(Time Integer) $ txOrigTime --
-            badttl = 100 * 24 * 60 * 60
+        let nonce = T.pack . show @(Time Integer) $ txOrigTime
+            (txOrigTime', badttl) = case _ttlcase of
+              BadTTL b -> (toTxCreationTime txOrigTime, b)
+              BadTxTime g -> (g txOrigTime, 24 * 60 * 60)
+              BadExpirationTime g ttl -> (g txOrigTime, ttl)
         outtxs <-
           mkTestExecTransactions
             "sender00" "0" kp0
             nonce 10000 0.00000000001
-            badttl (toTxCreationTime txOrigTime) (tx bh)
+            badttl txOrigTime' (tx bh)
         _oks <- validate bHeight hash outtxs
         return outtxs
       where
@@ -219,8 +234,6 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
 
      _mv' <- r >>= validateBlock newHeader (toPayloadData payload)
 
-     -- void $ assertNotLeft =<< takeMVar mv'
-
      pdb <- iopdb
      addNewPayload pdb payload
 
@@ -242,3 +255,11 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
 assertNotLeft (Right r) = return r
+
+
+data TTLTestCase =
+  BadTTL TTLSeconds
+  | BadTxTime (Time Integer -> TxCreationTime)
+    -- this takes the blocktime as an argument to ensure that the transaction
+    -- comes after if needed.
+  | BadExpirationTime (Time Integer -> TxCreationTime) TTLSeconds

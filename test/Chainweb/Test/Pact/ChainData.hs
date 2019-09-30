@@ -264,7 +264,7 @@ instance Exception TestException
 testMemPoolAccess :: T.Text -> IO (Time Integer) -> MemPoolAccess
 testMemPoolAccess t iotime = MemPoolAccess
     { mpaGetBlock = \validate bh hash _parentHeader -> do
-        time <- meinhack bh <$> iotime
+        time <- f bh <$> iotime
         getTestBlock t time validate bh hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
@@ -272,6 +272,6 @@ testMemPoolAccess t iotime = MemPoolAccess
   where
     -- tx origination times needed to be unique to ensure that the corresponding
     -- tx hashes are also unique.
-    meinhack :: BlockHeight -> Time Integer -> Time Integer
-    meinhack b tt =
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
       foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
