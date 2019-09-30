@@ -422,7 +422,8 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
-type Balances = HM.HashMap Text Decimal
+type Balances  = HM.HashMap Text Decimal
+type GasTotals = HM.HashMap Text Decimal
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -439,30 +440,41 @@ validateChainwebTxs
 validateChainwebTxs dbEnv cp blockOriginationTime bh txs
     | bh == 0 = pure $ V.replicate (V.length txs) False
     | otherwise = do
-          bs <- balances txs
-          V.mapM (validate bs) txs
+        bs <- balances txs
+        let gt = gasTotals bs txs
+        V.mapM (validate bs gt) txs
   where
-    validate :: Balances -> ChainwebTransaction -> IO Bool
-    validate bs tx = case HM.lookup sender bs of
+    validate :: Balances -> GasTotals -> ChainwebTransaction -> IO Bool
+    validate bs gt tx = case (,) <$> HM.lookup sender bs <*> HM.lookup sender gt of
         Nothing -> pure False
-        Just b -> do
-            let validations = [gasCheck b, checkTimes]
+        Just (b, g) -> do
+            let validations = [gasCheck b g, checkTimes]
             return $! all ($ tx) validations
       where
-        gasCheck :: Decimal -> b -> Bool
-        gasCheck b _ = b >= limitInCoin
+        gasCheck :: Decimal -> Decimal -> b -> Bool
+        gasCheck b g _ = b >= g
 
-        pm = P._pMeta . payloadObj $ P._cmdPayload tx
-        sender = P._pmSender pm
-        P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
-        P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
-        limitInCoin = price * fromIntegral limit
+        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
 
     checkTimes :: ChainwebTransaction -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
 
-    -- gasTotals :: Balances -> Vector ChainwebTransaction -> HM.HashMap Text Decimal
-    -- gasTotals = undefined
+    -- | Per legal account, the amount of Gas expected to be requested across
+    -- all transactions.
+    --
+    gasTotals :: Balances -> Vector ChainwebTransaction -> GasTotals
+    gasTotals bs = V.foldl' f mempty
+      where
+        f :: GasTotals -> ChainwebTransaction -> GasTotals
+        f gt tx
+            | not (HM.member sender bs) = gt
+            | otherwise = HM.insertWith (+) sender limitInCoin gt
+          where
+            pm = P._pMeta . payloadObj $ P._cmdPayload tx
+            sender = P._pmSender pm
+            P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
+            P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
+            limitInCoin = price * fromIntegral limit
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
