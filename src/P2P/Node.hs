@@ -397,7 +397,7 @@ findNextPeer conf node = do
             $ s
 
         shiftR s = do
-            i <- randomR node (0, size s - 1)
+            i <- randomR node (0, max 1 (size s) - 1)
             return $! shift i s
 
     -- Classify the peers by priority
