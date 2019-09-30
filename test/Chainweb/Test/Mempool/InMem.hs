@@ -21,7 +21,7 @@ tests = testGroup "Chainweb.Mempool.InMem"
             $ MempoolWithFunc wf
   where
     wf f = do
-        mv <- newMVar (\v -> return $! V.map (const True) v)
+        mv <- newMVar (\v -> return $! V.map (const Nothing) v)
         let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMv mv)
         InMem.withInMemoryMempool cfg $ f mv
 

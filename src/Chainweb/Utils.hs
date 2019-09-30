@@ -229,7 +229,7 @@ import Numeric.Natural
 
 import qualified Options.Applicative as O
 
-import qualified Streaming as S (concats, effect, maps)
+import qualified Streaming as S (concats, effect)
 import qualified Streaming.Prelude as S
 
 import System.Directory (removeDirectoryRecursive)

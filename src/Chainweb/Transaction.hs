@@ -32,6 +32,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as SB
 import Data.Hashable
 import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 
 import GHC.Generics (Generic)
 
@@ -87,9 +88,9 @@ instance Hashable (HashableTrans PayloadWithText) where
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
 chainwebPayloadCodec = Codec enc dec
   where
-    enc c = encodeToByteString $ fmap (SB.fromShort . _payloadBytes) c
+    enc c = encodeToByteString $ fmap (decodeUtf8 . SB.fromShort . _payloadBytes) c
     dec bs = case Aeson.decodeStrict' bs of
-               Just cmd -> traverse decodePayload cmd
+               Just cmd -> traverse (decodePayload . encodeUtf8) cmd
                Nothing -> Left "decode PayloadWithText failed"
 
 decodePayload :: ByteString -> Either String PayloadWithText

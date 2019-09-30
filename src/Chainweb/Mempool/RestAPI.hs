@@ -40,6 +40,7 @@ module Chainweb.Mempool.RestAPI
 ------------------------------------------------------------------------------
 import Data.Aeson
 import Data.ByteString (ByteString)
+import Data.Kind (Type)
 import GHC.Generics
 import Servant
 
@@ -51,7 +52,7 @@ import Chainweb.Version
 
 ------------------------------------------------------------------------------
 -- type-indexed mempool
-newtype Mempool_ (v :: ChainwebVersionT) (c :: ChainIdT) (t :: *) = Mempool_ {
+newtype Mempool_ (v :: ChainwebVersionT) (c :: ChainIdT) (t :: Type) = Mempool_ {
     _mrMempool :: MempoolBackend t
   }
 
