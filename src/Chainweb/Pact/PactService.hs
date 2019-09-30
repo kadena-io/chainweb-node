@@ -1,12 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -15,6 +17,7 @@
 -- Stability: experimental
 --
 -- Pact service for Chainweb
+--
 module Chainweb.Pact.PactService
     (
       -- * For Chainweb
@@ -174,7 +177,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
     let sqlitefile = getSqliteFile sqlitedir
     logFunctionText chainwebLogger Info $
-        "opening sqlitedb named " <> (T.pack sqlitefile)
+        "opening sqlitedb named " <> T.pack sqlitefile
 
     withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
       checkpointEnv <- initRelationalCheckpointer
@@ -253,7 +256,7 @@ serviceRequests memPoolAccess reqQ = do
     go `finally` logInfo "Stopping service"
   where
     go = do
-        logDebug $ "serviceRequests: wait"
+        logDebug "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
@@ -418,6 +421,11 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
+-- | The principal validation logic for groups of Pact Transactions.
+--
+-- Skips validation for genesis transactions, since gas accounts, etc. don't
+-- exist yet.
+--
 validateChainwebTxs
     :: PactDbEnv'
     -> Checkpointer
@@ -425,34 +433,38 @@ validateChainwebTxs
     -> BlockHeight
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxs dbEnv cp blockOriginationTime bh txs =
-    V.mapM checkOne txs
+validateChainwebTxs dbEnv cp blockOriginationTime bh txs
+    | bh == 0 = pure $ V.replicate (V.length txs) False
+    | otherwise = V.mapM checkOne txs
   where
-    checkAccount validators tx = do
-      let !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
-      let sender = P._pmSender pm
-          (P.GasLimit (P.ParsedInteger limit)) = P._pmGasLimit pm
-          (P.GasPrice (P.ParsedDecimal price)) = P._pmGasPrice pm
-          limitInCoin = price * fromIntegral limit
-      m <- readCoinAccount dbEnv sender
-      case m of
+    checkAccount :: [P.Command PayloadWithText -> Bool] -> P.Command PayloadWithText -> IO Bool
+    checkAccount validators tx = readCoinAccount dbEnv sender >>= \case
         Nothing -> return True
-        Just (T2 b _g) -> do
-          let validations = (const (b >= limitInCoin)) : validators
-          return $! all ($ tx) validations
+        Just (T2 b _) -> do
+            -- TODO Remove this one-off `limitInCoin` check, it will be subsumed
+            -- by the accumulated gas check.
+            let validations = gasCheck b : validators
+            return $! all ($ tx) validations
+      where
+        gasCheck :: Decimal -> b -> Bool
+        gasCheck b = const (b >= limitInCoin)
 
-    -- skip validation for genesis -- gas accounts / etc don't exist yet
-    checkOne tx = if bh == 0 then return True else checkOneReal tx
-    checkOneReal tx = do
+        pm = P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender pm
+        P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
+        P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
+        limitInCoin = price * fromIntegral limit
+
+    checkOne :: P.Command PayloadWithText -> IO Bool
+    checkOne tx = do
         let pactHash = view P.cmdHash tx
         mb <- _cpLookupProcessedTx cp pactHash
-        if mb == Nothing
-            -- prop_tx_ttl_newblock_validate
-            then checkAccount [checkTimes] tx
-            else return False
-      where
-        checkTimes tx' = timingsCheck blockOriginationTime (payloadObj <$> tx')
+        -- prop_tx_ttl_newblock_validate
+        if | isNothing mb -> checkAccount [checkTimes] tx
+           | otherwise -> return False
 
+    checkTimes :: P.Command PayloadWithText -> Bool
+    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
 
 validateChainwebTxsPreBlock
     :: PactDbEnv'
