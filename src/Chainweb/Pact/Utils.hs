@@ -57,9 +57,9 @@ aeson :: (String -> b) -> (a -> b) -> Result a -> b
 aeson f _ (Error a) = f a
 aeson _ g (Success a) = g a
 
--- | The maximum time-to-live (expressed in microseconds)
+-- | The maximum time-to-live (expressed in seconds)
 maxTTL :: ParsedInteger
-maxTTL = ParsedInteger $ 2 * 24 * 60 * 60 * 1000000
+maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- This is probably going to be changed. Let us make it 2 days for now.
 
 -- prop_tx_ttl_newBlock/validateBlock

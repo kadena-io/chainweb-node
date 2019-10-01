@@ -8,7 +8,7 @@
 
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
--- Module: Chainweb.Test.PactInProcApi
+-- Module: Chainweb.Test.Pact.Utils
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emily Pillmore <emily@kadena.io>
@@ -34,6 +34,9 @@ module Chainweb.Test.Pact.Utils
 , mkKeyset
 , stockKey
 , toTxCreationTime
+, withPayloadDb
+, withBlockHeaderDb
+, withTemporaryDir
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -59,11 +62,12 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
--- import qualified Data.ByteString.Short as SB
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 import Data.Text (Text)
 import Data.Text.Encoding
 
@@ -71,6 +75,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
 
+import System.Directory
 import System.IO.Extra
 
 import Test.Tasty
@@ -94,7 +99,8 @@ import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
-import Chainweb.BlockHeaderDB.Types
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Miner.Pact
@@ -107,6 +113,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
+import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
@@ -115,6 +122,7 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
+import Chainweb.Test.Utils
 
 testKeyPairs :: IO [SomeKeyPair]
 testKeyPairs = do
@@ -488,3 +496,21 @@ decodeKey = fst . B16.decode
 toTxCreationTime :: Time Integer -> TxCreationTime
 toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
+
+withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
+withPayloadDb = withResource newPayloadDb (\_ -> return ())
+
+withBlockHeaderDb
+    :: IO RocksDb
+    -> BlockHeader
+    -> (IO BlockHeaderDb -> TestTree)
+    -> TestTree
+withBlockHeaderDb iordb b = withResource start stop
+  where
+    start = do
+        rdb <- iordb
+        testBlockHeaderDb rdb b
+    stop = closeBlockHeaderDb
+
+withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
+withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive

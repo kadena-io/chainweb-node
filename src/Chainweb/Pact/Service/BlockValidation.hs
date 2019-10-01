@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- |
--- Module      :  Chainweb.Pact.TransactionExec
+-- Module      :  Chainweb.Pact.Service.BlockValidation
 -- Copyright   :  Copyright © 2018 Kadena LLC.
 -- License     :  (see the file LICENSE)
 -- Maintainer  :  Emily Pillmore <emily@kadena.io>
