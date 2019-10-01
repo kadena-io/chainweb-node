@@ -61,6 +61,7 @@ import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Parse (parseExprs)
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
 import Pact.Types.Logger

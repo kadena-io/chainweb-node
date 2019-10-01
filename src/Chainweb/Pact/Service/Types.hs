@@ -19,7 +19,6 @@ import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 
 import Data.Aeson
-import Data.ByteString (ByteString)
 import Data.Text (Text, pack)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
@@ -117,6 +116,6 @@ instance FromJSON SpvRequest where
     <$> o .: "requestKey"
     <*> o .: "targetChainId"
 
-newtype TransactionOutputProofB64 = TransactionOutputProofB64 ByteString
+newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
