@@ -89,29 +89,40 @@ import Chainweb.Transaction (gasLimitOf, gasPriceOf)
 import Chainweb.Utils (sshow)
 
 
--- | "Magic" capability for coinbasing inserted into
--- the initial eval state for coinbase txs.
+-- | "Magic" capability 'COINBASE' used in the coin contract to
+-- constrain coinbase calls.
 --
 magic_COINBASE :: CapSlot Capability
 magic_COINBASE = mkMagicCapSlot "COINBASE"
 
--- | "Magic" capability for coinbasing inserted into
--- the initial eval state for buy/redeem gas txs
+-- | "Magic" capability 'FUND_TX' used in the coin contract to
+-- constrain gas buy/redeem calls.
 --
 magic_FUND_TX :: CapSlot Capability
 magic_FUND_TX = mkMagicCapSlot "FUND_TX"
 
 
-
+-- | The main entry point to executing transactions. From here,
+-- 'applyCmd' assembles the command environment for a command and
+-- orchestrates gas buys/redemption, and executing payloads.
+--
 applyCmd
     :: Logger
+      -- ^ Pact logger
     -> PactDbEnv p
+      -- ^ Pact db environment
     -> Miner
+      -- ^ The miner chosen to mine the block
     -> GasModel
+      -- ^ Gas model (pact Service config)
     -> PublicData
+      -- ^ Contains block height, time, prev hash + metadata
     -> SPVSupport
+      -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
+      -- ^ command with payload to execute
     -> ModuleCache
+      -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
 
@@ -182,10 +193,15 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
 
 applyGenesisCmd
     :: Logger
+      -- ^ Pact logger
     -> PactDbEnv p
+      -- ^ Pact db environment
     -> PublicData
+      -- ^ Contains block height, time, prev hash + metadata
     -> SPVSupport
+      -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
+      -- ^ command with payload to execute
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyGenesisCmd logger dbEnv pd spv cmd = do
     -- cmd env with permissive gas model
@@ -210,11 +226,17 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
 
 applyCoinbase
     :: Logger
+      -- ^ Pact logger
     -> PactDbEnv p
+      -- ^ Pact db environment
     -> Miner
+      -- ^ The miner chosen to mine the block
     -> ParsedDecimal
+      -- ^ Miner reward
     -> PublicData
+      -- ^ Contains block height, time, prev hash + metadata
     -> BlockHash
+      -- ^ hash of the mined block
     -> IO (CommandResult [TxLog Value])
 applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
     -- cmd env with permissive gas model
@@ -241,10 +263,15 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
 
 applyLocal
     :: Logger
+      -- ^ Pact logger
     -> PactDbEnv p
+      -- ^ Pact db environment
     -> PublicData
+      -- ^ Contains block height, time, prev hash + metadata
     -> SPVSupport
+      -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
+      -- ^ command with payload to execute
     -> IO (CommandResult [TxLog Value])
 applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
@@ -308,6 +335,8 @@ runPayload env initState c@Command{..} txLogs = case _pPayload _cmdPayload of
     Continuation ym ->
       applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs
 
+-- | Execute an 'ExecMsg' and Return the result with module cache
+--
 applyExec
     :: CommandEnv p
     -> EvalState
@@ -323,8 +352,9 @@ applyExec env@CommandEnv{..} initState rk em senderSigs hsh prevLogs = do
     return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
 
--- | variation on 'applyExec' that returns 'EvalResult' as opposed to
+-- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
+--
 applyExec'
     :: CommandEnv p
     -> EvalState
@@ -350,7 +380,8 @@ applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh
       (MsgData execData Nothing hsh) initRefStore _ceGasEnv
       permissiveNamespacePolicy _ceSPVSupport _cePublicData
 
-
+-- | Execute a 'ContMsg' and return the command result and module cache
+--
 applyContinuation
     :: CommandEnv p
     -> EvalState
@@ -367,7 +398,9 @@ applyContinuation env@CommandEnv{..} initState rk cm senderSigs hsh prevLogs = d
     return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
 
-
+-- | Execute a 'ContMsg' and return just eval result, not wrapped in a
+-- 'CommandResult' wrapper
+--
 applyContinuation'
     :: CommandEnv p
     -> EvalState
@@ -480,6 +513,7 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
 -- | Initialize a fresh eval state with magic capabilities.
 -- This is the way we inject the correct guards into the environment
 -- during Pact code execution
+--
 initCapabilities :: [CapSlot Capability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
