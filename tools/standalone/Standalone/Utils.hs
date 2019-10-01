@@ -58,10 +58,10 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Time
 import Chainweb.Transaction
 
-testKeyPairs :: IO [SomeKeyPair]
+testKeyPairs :: IO [SomeKeyPairCaps]
 testKeyPairs = do
     let (pub, priv, addr, scheme) = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
     mkKeyPairs [apiKP]
 
 
@@ -116,7 +116,7 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
                   -- TODO: This might need to be something more fleshed out.
                   nonce = T.pack $ show height
               ks <- testKeyPairs
-              cmd <- mkCommand ks pm nonce msg
+              cmd <- mkCommand ks pm nonce Nothing msg
               case verifyCommand cmd of
                 ProcSucc t -> return $ mkPayloadWithText <$> t
                 ProcFail e -> throwM $ userError e
@@ -192,7 +192,7 @@ data PactTransaction = PactTransaction
 mkExecTransactions
     :: PactChain.ChainId
       -- ^ chain id of execution
-    -> [SomeKeyPair]
+    -> [SomeKeyPairCaps]
       -- ^ signer keys
     -> Text
       -- ^ nonce
@@ -219,7 +219,7 @@ mkExecTransactions cid ks nonce0 gas gasrate ttl ct txs = do
       nn <- readIORef nref
       writeIORef nref $! succ nn
       let nonce = T.append nonce0 (T.pack $ show nn)
-      cmd <- mkCommand ks pm nonce msg
+      cmd <- mkCommand ks pm nonce Nothing msg
       case verifyCommand cmd of
         ProcSucc t -> return $! mkPayloadWithText <$> t
         ProcFail e -> throwM $ userError e
@@ -260,7 +260,7 @@ stockKey s = do
         Just (String pub) = HM.lookup "public" kp
         Just (String priv) = HM.lookup "secret" kp
         mkKeyBS = decodeKey . encodeUtf8
-    return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
+    return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519) Nothing
 
 decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode

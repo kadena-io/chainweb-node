@@ -72,6 +72,7 @@ import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
+import Pact.Types.Names
 import Pact.Types.Term
 
 -- internal modules
@@ -216,8 +217,8 @@ spvRequests iot nio = testCaseSteps "spv client tests"$ \step -> do
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "0")
-      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "1")
+      cmd1 <- liftIO $ mkExec txcode txdata pm ks Nothing (Just "0")
+      cmd2 <- liftIO $ mkExec txcode txdata pm ks Nothing (Just "1")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = show $
@@ -234,7 +235,7 @@ spvRequests iot nio = testCaseSteps "spv client tests"$ \step -> do
       -- sender00 keyset
       let ks = KeySet
             [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-            (Name "keys-all" def)
+            (Name $ BareName "keys-all" def)
       in A.object
         [ "sender01-keyset" A..= ks
         , "target-chain-id" A..= tid
@@ -352,7 +353,7 @@ testBatch' iot ttl mnonce = do
         let nonce = "nonce" <> sshow nn
         t <- toTxCreationTime <$> iot
         kps <- testKeyPairs
-        c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just nonce)
+        c <- mkExec "(+ 1 2)" A.Null (pm t) kps Nothing (Just nonce)
         pure $ (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta

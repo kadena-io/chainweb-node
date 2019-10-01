@@ -14,7 +14,7 @@ import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 
 import Pact.ApiReq (ApiKeyPair(..), mkExec, mkKeyPairs)
 import Pact.Types.ChainMeta (PublicMeta(..))
-import Pact.Types.Command (Command(..))
+import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 import Pact.Types.Crypto
     (PPKScheme(..), PrivateKeyBS(..), PublicKeyBS(..), SomeKeyPair,
     formatPublicKey)
@@ -23,13 +23,13 @@ import Pact.Types.Util (toB16Text)
 testApiKeyPairs :: NonEmpty ApiKeyPair
 testApiKeyPairs =
   let (pub, priv, addr, scheme) = someED25519Pair
-      apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+      apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
    in pure apiKP
 
-testSomeKeyPairs :: IO (NonEmpty SomeKeyPair)
+testSomeKeyPairs :: IO (NonEmpty SomeKeyPairCaps)
 testSomeKeyPairs = do
     let (pub, priv, addr, scheme) = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
     NEL.fromList <$> mkKeyPairs [apiKP]
 
 formatB16PubKey :: SomeKeyPair -> Text
@@ -59,12 +59,15 @@ someED25519Pair =
 decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
-initAdminKeysetContract :: PublicMeta -> NonEmpty SomeKeyPair -> IO (Command Text)
+initAdminKeysetContract
+    :: PublicMeta
+    -> NonEmpty SomeKeyPairCaps
+    -> IO (Command Text)
 initAdminKeysetContract meta adminKS =
-  mkExec theCode theData meta (NEL.toList adminKS) Nothing
+  mkExec theCode theData meta (NEL.toList adminKS) Nothing Nothing
   where
     theCode = "(define-keyset 'admin-keyset (read-keyset \"admin-keyset\"))"
-    theData = object ["admin-keyset" .= fmap formatB16PubKey adminKS]
+    theData = object ["admin-keyset" .= fmap (formatB16PubKey . fst) adminKS]
 
 measureDiffTime :: MonadIO m => m a -> m (NominalDiffTime, a)
 measureDiffTime someaction = do

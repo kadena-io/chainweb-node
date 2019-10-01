@@ -322,7 +322,7 @@ txGenerator1 time pidv sid tid = do
       -- sender01 keyset guard
       let ks = KeySet
             [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-            (Name "keys-all" def)
+            (Name $ BareName "keys-all" def)
 
       in Just $ object
          [ "sender01-keyset" .= ks

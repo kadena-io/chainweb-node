@@ -116,10 +116,10 @@ import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
 
-testKeyPairs :: IO [SomeKeyPair]
+testKeyPairs :: IO [SomeKeyPairCaps]
 testKeyPairs = do
     let (pub, priv, addr, scheme) = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
     mkKeyPairs [apiKP]
 
 testPactFilesDir :: FilePath
@@ -158,7 +158,7 @@ adminData :: IO (Maybe Value)
 adminData = fmap k testKeyPairs
   where
     k ks = Just $ object
-        [ "test-admin-keyset" .= fmap formatB16PubKey ks
+        [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
         ]
 
 -- | Shim for 'PactExec' and 'PactInProcApi' tests
@@ -177,7 +177,7 @@ mkTestExecTransactions
       -- ^ sender
     -> ChainId
       -- ^ chain id of execution
-    -> [SomeKeyPair]
+    -> [SomeKeyPairCaps]
       -- ^ signer keys
     -> Text
       -- ^ nonce
@@ -201,7 +201,7 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
           msg = Exec (ExecMsg c dd)
 
       let nonce = nonce0 <> sshow n
-      cmd <- mkCommand ks pm nonce msg
+      cmd <- mkCommand ks pm nonce Nothing msg
       case verifyCommand cmd of
         ProcSucc t ->
           let
@@ -222,7 +222,7 @@ mkTestContTransaction
       -- ^ sender
     -> ChainId
       -- ^ chain id of execution
-    -> [SomeKeyPair]
+    -> [SomeKeyPairCaps]
       -- ^ signer keys
     -> Text
       -- ^ nonce
@@ -249,7 +249,7 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
         msg :: PactRPC ContMsg =
           Continuation (ContMsg pid step rollback d proof)
 
-    cmd <- mkCommand ks pm nonce msg
+    cmd <- mkCommand ks pm nonce Nothing msg
     case verifyCommand cmd of
       -- ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
       ProcSucc t -> return $ Vector.singleton $ mkPayloadWithText <$> t
@@ -480,7 +480,7 @@ stockKey s = do
       Just (String pub) = HM.lookup "public" kp
       Just (String priv) = HM.lookup "secret" kp
       mkKeyBS = decodeKey . encodeUtf8
-  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
+  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519) Nothing
 
 decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode

@@ -38,7 +38,6 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson as Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64.URL.Lazy as Base64
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.CAS
@@ -361,12 +360,12 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     bdb = _chainResBlockHeaderDb chainR
     pdb = view CutDB.cutDbPayloadCas cdb
     b64 = TransactionOutputProofB64
-      . LBS.toStrict
+      . decodeUtf8
+      . BSL8.toStrict
       . Base64.encode
       . Aeson.encode
 
-    logg
-      = logFunctionJson (setComponent "spv-handler" l) Info
+    logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
     spvErrOf = BSL8.fromStrict

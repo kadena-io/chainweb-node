@@ -39,9 +39,11 @@ module Chainweb.Mempool.RestAPI
 
 ------------------------------------------------------------------------------
 import Data.Aeson
-import Data.ByteString (ByteString)
 import Data.Kind (Type)
+import Data.Text (Text)
+
 import GHC.Generics
+
 import Servant
 
 ------------------------------------------------------------------------------
@@ -98,13 +100,13 @@ type MempoolApi v c = MempoolInsertApi v c :<|>
 
 type MempoolInsertApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "insert" :>
-    ReqBody '[JSON] [ByteString] :> Put '[JSON] NoContent
+    ReqBody '[JSON] [Text] :> Put '[JSON] NoContent
 type MempoolMemberApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "member" :>
     ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [Bool]
 type MempoolLookupApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "lookup" :>
-    ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult ByteString]
+    ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult Text]
 type MempoolGetPendingApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getPending" :>
     QueryParam "nonce" ServerNonce :>
