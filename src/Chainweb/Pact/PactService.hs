@@ -438,7 +438,7 @@ validateChainwebTxs
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
 validateChainwebTxs dbEnv cp blockOriginationTime bh txs
-    | bh == 0 = pure $ V.replicate (V.length txs) False
+    | bh == 0 = pure $! V.replicate (V.length txs) True
     | otherwise = do
         bs <- balances txs
         let gt = gasTotals bs txs
