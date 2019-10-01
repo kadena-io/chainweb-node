@@ -458,35 +458,18 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
     --
     debitGas :: Balances -> ChainwebTransaction -> Decimal -> Maybe Balances
     debitGas bs tx bal
-        | difference < 0 = Nothing
-        | otherwise = Just $ HM.adjust (const difference) sender bs
+        | newBal < 0 = Nothing
+        | otherwise = Just $ HM.adjust (const newBal) sender bs
       where
         pm = P._pMeta . payloadObj $ P._cmdPayload tx
         sender = P._pmSender pm
         P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
         limitInCoin = price * fromIntegral limit
-        difference = bal - limitInCoin
+        newBal = bal - limitInCoin
 
     checkTimes :: ChainwebTransaction -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
-
-    -- | Per legal account, the amount of Gas expected to be requested across
-    -- all transactions.
-    --
-    -- gasTotals :: Balances -> Vector ChainwebTransaction -> GasTotals
-    -- gasTotals bs = V.foldl' f mempty
-    --   where
-    --     f :: GasTotals -> ChainwebTransaction -> GasTotals
-    --     f gt tx
-    --         | not (HM.member sender bs) = gt
-    --         | otherwise = HM.insertWith (+) sender limitInCoin gt
-    --       where
-    --         pm = P._pMeta . payloadObj $ P._cmdPayload tx
-    --         sender = P._pmSender pm
-    --         P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
-    --         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
-    --         limitInCoin = price * fromIntegral limit
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
