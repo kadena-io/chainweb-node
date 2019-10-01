@@ -17,7 +17,6 @@ import Control.Monad.State
 import Data.Aeson
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
-import Data.CAS.RocksDB
 import Data.IORef
 import Data.List (foldl')
 import Data.Text (Text)
@@ -29,8 +28,6 @@ import Data.Word
 
 import NeatInterpolation (text)
 
-import System.Directory
-import System.IO.Extra
 import System.LogLevel
 
 import Test.Tasty
@@ -56,7 +53,6 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -106,14 +102,14 @@ onRestart pdb bhdb r = do
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 testMemPoolAccess iot  = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header  -> do
-            t <- meinhack bh <$> iot
+            t <- f bh <$> iot
             getTestBlock t validate bh hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    meinhack :: BlockHeight -> Time Integer -> Time Integer
-    meinhack b tt =
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
       foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
@@ -143,14 +139,14 @@ testMemPoolAccess iot  = MemPoolAccess
 dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 dupegenMemPoolAccess iot  = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header -> do
-            t <- meinhack bh <$> iot
+            t <- f bh <$> iot
             getTestBlock t validate bh hash _header
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    meinhack :: BlockHeight -> Time Integer -> Time Integer
-    meinhack b tt =
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
       foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
     getTestBlock txOrigTime validate bHeight bHash _bHeader = do
         akp0 <- stockKey "sender00"
@@ -283,24 +279,6 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
                  , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
                  , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
                  }
-
-withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
-withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
-
-withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb (\_ -> return ())
-
-withBlockHeaderDb
-    :: IO RocksDb
-    -> BlockHeader
-    -> (IO BlockHeaderDb -> TestTree)
-    -> TestTree
-withBlockHeaderDb iordb b = withResource start stop
-  where
-    start = do
-        rdb <- iordb
-        testBlockHeaderDb rdb b
-    stop = closeBlockHeaderDb
 
 withPact
     :: LogLevel
