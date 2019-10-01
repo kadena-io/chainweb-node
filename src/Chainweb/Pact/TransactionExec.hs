@@ -498,7 +498,7 @@ buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
 buildExecParsedCode value code = maybe (go Null) go value
   where
     go v = case ParsedCode code <$> parseExprs code of
-      (Right !t) -> pure $! ExecMsg t v
+      Right !t -> pure $! ExecMsg t v
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
@@ -513,12 +513,13 @@ mkGasEnvOf cmd gasModel = GasEnv (gasLimitOf cmd) (gasPriceOf cmd) gasModel
 --
 publicMetaOf :: Command (Payload PublicMeta c) -> PublicMeta
 publicMetaOf = _pMeta . _cmdPayload
-{-#  INLINABLE publicMetaOf #-}
+{-# INLINABLE publicMetaOf #-}
 
 -- | Retrieve the optional Network identifier from a command
 --
 networkIdOf :: Command (Payload a b) -> Maybe NetworkId
 networkIdOf = _pNetworkId . _cmdPayload
+{-# INLINEABLE networkIdOf #-}
 
 -- | Calculate gas supply (user-specified limit * user-specified price) of
 -- a command
