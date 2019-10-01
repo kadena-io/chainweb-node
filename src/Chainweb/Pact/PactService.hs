@@ -547,6 +547,7 @@ execNewBlock mpAccess parentHeader miner creationTime = withDiscardedBatch $ do
         liftIO $ mpaProcessFork mpAccess parentHeader
         liftIO $ mpaSetLastHeader mpAccess parentHeader
         cp <- getCheckpointer
+        -- prop_tx_ttl_newblock
         let validate = validateChainwebTxsPreBlock pdbenv cp creationTime
         newTrans <- liftIO $
             mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -603,12 +604,13 @@ execLocal
     => ChainwebTransaction
     -> PactServiceM cas HashCommandResult
 execLocal cmd = withDiscardedBatch $ do
-    bh <- use psStateValidated >>= \v -> case v of
-        Nothing -> throwM NoBlockValidatedYet
-        (Just !p) -> return p
-
-    let target = Just (succ $ _blockHeight bh, _blockHash bh)
-    withCheckpointerRewind target "execLocal" $ \(PactDbEnv' pdbenv) -> do
+    cp <- getCheckpointer
+    mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
+    (bh, bhash) <- case mbLatestBlock of
+                       Nothing -> throwM NoBlockValidatedYet
+                       (Just !p) -> return p
+    let target = Just (succ bh, bhash)
+    withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
@@ -662,6 +664,7 @@ playOneBlock currHeader plData pdbenv = do
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
+    -- prop_tx_ttl_validate
     oks <- liftIO $
            validateChainwebTxs pdbenv cp creationTime
                (_blockHeight currHeader) trans

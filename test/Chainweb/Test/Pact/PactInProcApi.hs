@@ -160,7 +160,7 @@ testMemPoolAccess = MemPoolAccess
             g = modifyPayloadWithText . set (pMeta . pmTTL)
         outtxs' <- goldenTestTransactions txs
         let outtxs = flip V.map outtxs' $ \tx ->
-                let ttl = TTLSeconds $ ParsedInteger 1000000
+                let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60
                 in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger 1000000))) tx
         oks <- validate bHeight bHash outtxs
         when (not $ V.and oks) $ do
