@@ -232,6 +232,7 @@ insertCheckInMem cfg lock txs = do
     getSize = txGasLimit txcfg
     maxSize = _inmemTxBlockSizeLimit cfg
     sizeOK (_, tx) = getSize tx <= maxSize
+    -- prop_tx_ttl_arrival
     ttlCheck (Time (TimeSpan now)) (_, tx) =
       case txMetadata txcfg tx of
         TransactionMetadata (Time (TimeSpan creationTime)) (Time (TimeSpan expiryTime)) ->
