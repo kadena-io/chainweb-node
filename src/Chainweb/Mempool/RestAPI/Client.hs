@@ -24,6 +24,7 @@ module Chainweb.Mempool.RestAPI.Client
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Identity
 import Data.Proxy
 import qualified Data.Text as T
