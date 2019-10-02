@@ -1,12 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -15,6 +17,7 @@
 -- Stability: experimental
 --
 -- Pact service for Chainweb
+--
 module Chainweb.Pact.PactService
     (
       -- * For Chainweb
@@ -48,9 +51,11 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
 import Data.Either
-import Data.Foldable (toList)
+import Data.Foldable (foldlM, toList)
+import qualified Data.HashMap.Strict as HM
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import qualified Data.Map as Map
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -174,7 +179,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
     let sqlitefile = getSqliteFile sqlitedir
     logFunctionText chainwebLogger Info $
-        "opening sqlitedb named " <> (T.pack sqlitefile)
+        "opening sqlitedb named " <> T.pack sqlitefile
 
     withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
       checkpointEnv <- initRelationalCheckpointer
@@ -253,7 +258,7 @@ serviceRequests memPoolAccess reqQ = do
     go `finally` logInfo "Stopping service"
   where
     go = do
-        logDebug $ "serviceRequests: wait"
+        logDebug "serviceRequests: wait"
         msg <- liftIO $ getNextRequest reqQ
         logDebug $ "serviceRequests: " <> sshow msg
         case msg of
@@ -418,6 +423,13 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
+type Balances = HM.HashMap Text Decimal
+
+-- | The principal validation logic for groups of Pact Transactions.
+--
+-- Skips validation for genesis transactions, since gas accounts, etc. don't
+-- exist yet.
+--
 validateChainwebTxs
     :: PactDbEnv'
     -> Checkpointer
@@ -425,33 +437,60 @@ validateChainwebTxs
     -> BlockHeight
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxs dbEnv cp blockOriginationTime bh txs =
-    V.mapM checkOne txs
+validateChainwebTxs dbEnv cp blockOriginationTime bh txs
+    | bh == 0 = pure $! V.replicate (V.length txs) True
+    | otherwise = balances txs >>= newIORef >>= \bsr -> V.mapM (validate bsr) txs
   where
-    checkAccount validators tx = do
-      let !pm = P._pMeta $ payloadObj $ P._cmdPayload tx
-      let sender = P._pmSender pm
-          (P.GasLimit (P.ParsedInteger limit)) = P._pmGasLimit pm
-          (P.GasPrice (P.ParsedDecimal price)) = P._pmGasPrice pm
-          limitInCoin = price * fromIntegral limit
-      m <- readCoinAccount dbEnv sender
-      case m of
-        Nothing -> return True
-        Just (T2 b _g) -> do
-          let validations = (const (b >= limitInCoin)) : validators
-          return $! all ($ tx) validations
-
-    -- skip validation for genesis -- gas accounts / etc don't exist yet
-    checkOne tx = if bh == 0 then return True else checkOneReal tx
-    checkOneReal tx = do
-        let pactHash = view P.cmdHash tx
-        mb <- _cpLookupProcessedTx cp pactHash
-        if mb == Nothing
-            -- prop_tx_ttl_newblock_validate
-            then checkAccount [checkTimes] tx
-            else return False
+    validate :: IORef Balances -> ChainwebTransaction -> IO Bool
+    validate bsr tx = do
+        bs <- readIORef bsr
+        case HM.lookup sender bs >>= debitGas bs tx of
+            Nothing -> pure False
+            Just bs' -> do
+                let !valid = all ($ tx) validations
+                when valid $ writeIORef bsr bs'
+                pure valid
       where
-        checkTimes tx' = timingsCheck blockOriginationTime (payloadObj <$> tx')
+        validations = [checkTimes]
+        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+
+    -- | Attempt to debit the Gas cost from the sender's "running balance".
+    --
+    debitGas :: Balances -> ChainwebTransaction -> Decimal -> Maybe Balances
+    debitGas bs tx bal
+        | newBal < 0 = Nothing
+        | otherwise = Just $ HM.adjust (const newBal) sender bs
+      where
+        pm = P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender pm
+        P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
+        P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
+        limitInCoin = price * fromIntegral limit
+        newBal = bal - limitInCoin
+
+    checkTimes :: ChainwebTransaction -> Bool
+    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
+
+    -- | The balances of all /relevant/ accounts in this group of Transactions.
+    -- TXs which are missing an entry in the `HM.HashMap` should not be
+    -- considered for further processing!
+    --
+    balances :: Vector ChainwebTransaction -> IO Balances
+    balances = foldlM balLookup mempty
+
+    balLookup :: Balances -> ChainwebTransaction -> IO Balances
+    balLookup acc tx
+        | HM.member sender acc = pure acc
+        | otherwise = do
+            let pactHash = view P.cmdHash tx
+            mb <- _cpLookupProcessedTx cp pactHash
+            if | isJust mb -> pure acc
+               | otherwise -> readCoinAccount dbEnv sender >>= \case
+                   Nothing -> pure acc
+                   Just (T2 b _) -> pure $ HM.insert sender b acc
+      where
+        sender :: Text
+        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
 
 
 validateChainwebTxsPreBlock
@@ -547,6 +586,7 @@ execNewBlock mpAccess parentHeader miner creationTime = withDiscardedBatch $ do
         liftIO $ mpaProcessFork mpAccess parentHeader
         liftIO $ mpaSetLastHeader mpAccess parentHeader
         cp <- getCheckpointer
+        -- prop_tx_ttl_newblock
         let validate = validateChainwebTxsPreBlock pdbenv cp creationTime
         newTrans <- liftIO $
             mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -663,6 +703,7 @@ playOneBlock currHeader plData pdbenv = do
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
+    -- prop_tx_ttl_validate
     oks <- liftIO $
            validateChainwebTxs pdbenv cp creationTime
                (_blockHeight currHeader) trans
