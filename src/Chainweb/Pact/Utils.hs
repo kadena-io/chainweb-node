@@ -17,21 +17,28 @@ module Chainweb.Pact.Utils
     -- * time-to-live related items
     , maxTTL
     , timingsCheck
+    , fromPactChainId
     ) where
 
 import Data.Aeson
 
 import Control.Concurrent.MVar
+import Control.Monad.Catch
 
 import Pact.Interpreter as P
 import Pact.Parse
-import Pact.Types.Command
+import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
+import Pact.Types.Command
 
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Time
 import Chainweb.Transaction
+
+fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
+fromPactChainId (P.ChainId t) = chainIdFromText t
 
 toEnv' :: EnvPersist' -> IO Env'
 toEnv' (EnvPersist' ep') = do
