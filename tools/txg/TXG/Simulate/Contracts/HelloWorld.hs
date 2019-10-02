@@ -33,17 +33,20 @@ import Text.Printf (printf)
 
 import Pact.ApiReq (mkExec)
 import Pact.Types.ChainMeta (PublicMeta(..))
-import Pact.Types.Command (Command(..))
-import Pact.Types.Crypto (SomeKeyPair)
+import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 
 -- chainweb
 
 import TXG.Simulate.Utils
 
-helloWorldContractLoader :: PublicMeta -> NonEmpty SomeKeyPair -> IO (Command Text)
+
+helloWorldContractLoader
+    :: PublicMeta
+    -> NonEmpty SomeKeyPairCaps
+    -> IO (Command Text)
 helloWorldContractLoader meta adminKS = do
-  let theData = object ["admin-keyset" .= fmap formatB16PubKey adminKS]
-  mkExec (T.unpack theCode) theData meta (NEL.toList adminKS) Nothing
+  let theData = object ["admin-keyset" .= fmap (formatB16PubKey . fst) adminKS]
+  mkExec (T.unpack theCode) theData meta (NEL.toList adminKS) Nothing Nothing
   where
     theCode = [text|
 (module helloWorld 'admin-keyset
@@ -53,13 +56,14 @@ helloWorldContractLoader meta adminKS = do
     (format "Hello {}!" [name])))
 |]
 
-newtype Name = Name {getName :: Text} deriving (Eq, Show, Generic)
+newtype Name = Name { getName :: Text }
+    deriving (Eq, Show, Generic)
 
 instance Fake Name where
   fake = Name <$> personName
 
 helloRequest :: Name -> IO (Command Text)
-helloRequest (Name name) = mkExec theCode theData def [] Nothing
+helloRequest (Name name) = mkExec theCode theData def [] Nothing Nothing
   where
     theData = Null
     theCode = printf "(helloWorld.hello \"%s\")" name

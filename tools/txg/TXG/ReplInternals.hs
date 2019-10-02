@@ -34,9 +34,9 @@ import Text.Printf
 
 import Pact.ApiReq
 import Pact.Types.API
-import Pact.Types.Command
+import Pact.Types.ChainId (NetworkId(..))
 import Pact.Types.ChainMeta
-import Pact.Types.Crypto
+import Pact.Types.Command
 import Pact.Types.Hash
 
 -- chainweb imports
@@ -100,14 +100,15 @@ cmd
     -> Value
     -- ^ Env data
     -> PublicMeta
-    -> [SomeKeyPair]
+    -> [SomeKeyPairCaps]
+    -> Maybe NetworkId
     -> Maybe String
     -- ^ Transaction nonce.  If Nothing, then getCurrentTime is used.
     -> IO (Command Text)
 cmd = mkExec
 
 cmdStr :: String -> IO (Command Text)
-cmdStr str = cmd str Null defPubMeta [] Nothing
+cmdStr str = cmd str Null defPubMeta [] Nothing Nothing
 
 -- Structured transactions
 
@@ -125,7 +126,7 @@ type Amount = Double
 
 data CallBuiltIn'
     = CC CoinContractRequest
-    | SP SimplePaymentRequest (Maybe Keyset)
+    | SP SimplePaymentRequest (Maybe (NEL.NonEmpty SomeKeyPairCaps))
     | HelloCode Text
 
 data TxContent
@@ -138,7 +139,11 @@ easyTxToCommand txContent = do
     ks <- testSomeKeyPairs
     txToCommand defPubMeta ks txContent
 
-txToCommand :: PublicMeta -> Keyset -> TxContent -> IO (Command Text)
+txToCommand
+    :: PublicMeta
+    -> NEL.NonEmpty SomeKeyPairCaps
+    -> TxContent
+    -> IO (Command Text)
 txToCommand pubmeta ks = \case
     PactCode str -> cmdStr str
     Define Hello -> helloWorldContractLoader pubmeta ks

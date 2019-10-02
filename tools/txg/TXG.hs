@@ -47,6 +47,7 @@ import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map as M
 import qualified Data.Sequence.NonEmpty as NES
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import Fake (fake, generate)
 
@@ -67,7 +68,6 @@ import Pact.ApiReq
 import Pact.Types.API
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
-import Pact.Types.Crypto
 import qualified Pact.Types.Hash as H
 
 -- CHAINWEB
@@ -132,9 +132,9 @@ generateSimpleTransactions = do
       -- this contains the key of sender00
       kps <- testSomeKeyPairs
 
-      let theData = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
+      let theData = object ["test-admin-keyset" .= fmap (formatB16PubKey . fst) kps]
       meta <- Sim.makeMeta cid
-      (Nothing,) <$> mkExec theCode theData meta (NEL.toList kps) Nothing
+      (Nothing,) <$> mkExec theCode theData meta (NEL.toList kps) Nothing Nothing
 
 -- | O(1). The head value is moved to the end.
 rotate :: NESeq a -> NESeq a
@@ -177,8 +177,8 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
         :: Bool
         -> Verbose
         -> ChainId
-        -> Map Sim.Account (NonEmpty SomeKeyPair)
-        -> IO (Maybe Text,  Command Text)
+        -> Map Sim.Account (NonEmpty SomeKeyPairCaps)
+        -> IO (Maybe Text, Command Text)
     coinContract transfers (Verbose vb) cid coinaccts = do
       coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
       let msg = if vb then Just $ sshow coinContractRequest else Nothing
@@ -195,7 +195,7 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
       meta <- Sim.makeMetaWithSender sender cid
       (msg,) <$> createCoinContractRequest meta ks coinContractRequest
 
-    payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPair) -> IO (Command Text)
+    payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPairCaps) -> IO (Command Text)
     payments cid paymentAccts = do
       paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
       case paymentsRequest of
@@ -242,7 +242,8 @@ loop f = do
 
   loop f
 
-type ContractLoader = CM.PublicMeta -> NonEmpty SomeKeyPair -> IO (Command Text)
+type ContractLoader
+    = CM.PublicMeta -> NonEmpty SomeKeyPairCaps -> IO (Command Text)
 
 loadContracts :: Args -> HostAddress -> NonEmpty ContractLoader -> IO ()
 loadContracts config host contractLoaders = do
@@ -297,16 +298,16 @@ realTransactions config host tv distribution = do
   where
     buildGenAccountsKeysets
       :: NonEmpty Sim.Account
-      -> NonEmpty (NonEmpty SomeKeyPair)
-      -> NonEmpty (NonEmpty SomeKeyPair)
-      -> Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPair))
+      -> NonEmpty (NonEmpty SomeKeyPairCaps)
+      -> NonEmpty (NonEmpty SomeKeyPairCaps)
+      -> Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPairCaps))
     buildGenAccountsKeysets accs pks cks =
       M.fromList . NEL.toList $ nelZipWith3 go accs pks cks
 
     go :: Sim.Account
-       -> NonEmpty SomeKeyPair
-       -> NonEmpty SomeKeyPair
-       -> (Sim.Account, Map Sim.ContractName (NonEmpty SomeKeyPair))
+       -> NonEmpty SomeKeyPairCaps
+       -> NonEmpty SomeKeyPairCaps
+       -> (Sim.Account, Map Sim.ContractName (NonEmpty SomeKeyPairCaps))
     go name pks cks = (name, M.fromList [ps, cs])
       where
         ps = (Sim.ContractName "payment", pks)
@@ -346,14 +347,14 @@ realCoinTransactions config host tv distribution = do
   where
     buildGenAccountsKeysets
       :: NonEmpty Sim.Account
-      -> NonEmpty (NonEmpty SomeKeyPair)
-      -> Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPair))
+      -> NonEmpty (NonEmpty SomeKeyPairCaps)
+      -> Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPairCaps))
     buildGenAccountsKeysets accs cks =
       M.fromList . NEL.toList $ NEL.zipWith go accs cks
 
     go :: Sim.Account
-       -> NonEmpty SomeKeyPair
-       -> (Sim.Account, Map Sim.ContractName (NonEmpty SomeKeyPair))
+       -> NonEmpty SomeKeyPairCaps
+       -> (Sim.Account, Map Sim.ContractName (NonEmpty SomeKeyPairCaps))
     go name cks = (name, M.singleton (Sim.ContractName "coin") cks)
 
 versionChains :: ChainwebVersion -> NESeq ChainId
@@ -414,13 +415,13 @@ singleTransaction args host (SingleTX c cid)
       cfg <- mkTXGConfig Nothing args host
       kps <- testSomeKeyPairs
       meta <- Sim.makeMeta cid
-      cmd <- mkExec (T.unpack c) (datum kps) meta (NEL.toList kps) Nothing
+      cmd <- mkExec (T.unpack c) (datum kps) meta (NEL.toList kps) Nothing Nothing
       runExceptT (f cfg cmd) >>= \case
         Left e -> print e >> exitWith (ExitFailure 1)
         Right res -> pPrintNoColor res
   where
-    datum :: NonEmpty SomeKeyPair -> Value
-    datum kps = object ["test-admin-keyset" .= fmap formatB16PubKey kps]
+    datum :: NonEmpty SomeKeyPairCaps -> Value
+    datum kps = object ["test-admin-keyset" .= fmap (formatB16PubKey . fst) kps]
 
     f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
     f cfg@(TXGConfig _ _ ce v _ _) cmd = do
@@ -466,10 +467,17 @@ work cfg = do
           realCoinTransactions cfg host tv distribution
         RunSimpleExpressions distribution ->
           simpleExpressions cfg host tv distribution
-        PollRequestKeys rk -> liftIO $
-          pollRequestKeys cfg host . RequestKey $ H.Hash rk
-        ListenerRequestKey rk -> liftIO $
-          listenerRequestKey cfg host . ListenerRequest . RequestKey $ H.Hash rk
+        PollRequestKeys rk -> liftIO $ pollRequestKeys cfg host
+          . RequestKey
+          . H.Hash
+          . T.encodeUtf8
+          $ rk
+        ListenerRequestKey rk -> liftIO $ listenerRequestKey cfg host
+          . ListenerRequest
+          . RequestKey
+          . H.Hash
+          . T.encodeUtf8
+          $ rk
         SingleTransaction stx -> liftIO $
           singleTransaction cfg host stx
 
@@ -501,9 +509,10 @@ createLoader (Sim.ContractName contractName) meta kp = do
   adminKS <- testSomeKeyPairs
   -- TODO: theData may change later
   let theData = object
-                ["admin-keyset" .= fmap formatB16PubKey adminKS
-                , T.append (T.pack contractName) "-keyset" .= fmap formatB16PubKey kp]
-  mkExec theCode theData meta (NEL.toList adminKS) Nothing
+          ["admin-keyset" .= fmap (formatB16PubKey . fst) adminKS
+          , T.append (T.pack contractName) "-keyset" .= fmap (formatB16PubKey . fst) kp
+          ]
+  mkExec theCode theData meta (NEL.toList adminKS) Nothing Nothing
 
 -- Remember that coin contract is already loaded.
 defaultContractLoaders :: NonEmpty ContractLoader

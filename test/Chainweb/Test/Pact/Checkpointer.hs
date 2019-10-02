@@ -124,7 +124,7 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
   _hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
 
   blockenv01 <- _cpRestore _cpeCheckpointer (Just (bh01, hash00))
-  addKeyset blockenv01 "k2" (KeySet [] (Name ">=" (Info Nothing)))
+  addKeyset blockenv01 "k2" (KeySet [] (Name $ BareName ">=" (Info Nothing)))
 
   _cpDiscard _cpeCheckpointer
 
@@ -134,7 +134,7 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
   hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
   blockenv11 <- _cpRestore _cpeCheckpointer (Just (bh11, hash00))
-  addKeyset blockenv11 "k1" (KeySet [] (Name ">=" (Info Nothing)))
+  addKeyset blockenv11 "k1" (KeySet [] (Name $ BareName ">=" (Info Nothing)))
   _cpSave _cpeCheckpointer hash11
 
 addKeyset :: PactDbEnv' -> KeySetName -> KeySet -> IO ()
@@ -177,7 +177,7 @@ checkpointerTest name initdata =
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport
+                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
                   execMsg <- buildExecParsedCode eData eCode
                   applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
 
@@ -185,7 +185,7 @@ checkpointerTest name initdata =
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport
+                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
                   applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash))
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
@@ -469,7 +469,7 @@ runRegression pactdb e schemaInit = do
   let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
   _writeRow pactdb Update usert "key1" row' conn
   assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
-  let ks = KeySet [PublicKey "skdjhfskj"] (Name "predfun" def)
+  let ks = KeySet [PublicKey "skdjhfskj"] (Name $ BareName "predfun" def)
   _writeRow pactdb Write KeySets "ks1" ks conn
   assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" conn
   (modName,modRef,mod') <- loadModule
@@ -540,6 +540,6 @@ loadModule = do
         show (view (rEvalState . evalRefs . rsLoadedModules) s)
 
 nativeLookup :: NativeDefName -> Maybe (Term Name)
-nativeLookup (NativeDefName n) = case HM.lookup (Name n def) nativeDefs of
+nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDefs of
   Just (Direct t) -> Just t
   _ -> Nothing
