@@ -20,18 +20,22 @@ module Chainweb.Mempool.RestAPI.Client
   ) where
 
 ------------------------------------------------------------------------------
+
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Identity
-import Data.ByteString (ByteString)
 import Data.Proxy
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import Servant.API
 import Servant.Client
+
 ------------------------------------------------------------------------------
+
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
@@ -83,13 +87,18 @@ toMempool version chain txcfg blocksizeLimit env =
 insertClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => [ByteString]
+    => [T.Text]
     -> ClientM NoContent
 insertClient_ = client (mempoolInsertApi @v @c)
 
-insertClient :: TransactionConfig t -> ChainwebVersion -> ChainId -> [t] -> ClientM NoContent
+insertClient
+    :: TransactionConfig t
+    -> ChainwebVersion
+    -> ChainId
+    -> [t]
+    -> ClientM NoContent
 insertClient txcfg v c k0 = runIdentity $ do
-    let k = map (codecEncode $ txCodec txcfg) k0
+    let k = map (T.decodeUtf8 . codecEncode (txCodec txcfg)) k0
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ insertClient_ @v @c k
@@ -119,7 +128,7 @@ lookupClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
     => [TransactionHash]
-    -> ClientM [LookupResult ByteString]
+    -> ClientM [LookupResult T.Text]
 lookupClient_ = client (mempoolLookupApi @v @c)
 
 lookupClient
@@ -131,9 +140,14 @@ lookupClient
 lookupClient txcfg v c txs = do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    let decode = either (throw . DecodeException . T.pack) return . codecDecode (txCodec txcfg)
     cs <- lookupClient_ @v @c txs
-    mapM (traverse decode) cs
+    mapM (traverse go) cs
+  where
+    go h = case decode h of
+      Left e -> throwM . DecodeException $ T.pack e
+      Right t -> return t
+
+    decode = codecDecode (txCodec txcfg) . T.encodeUtf8
 
 
 ------------------------------------------------------------------------------

@@ -65,6 +65,7 @@ import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
 import Pact.Parse (ParsedDecimal(..))
+import Pact.Types.Names
 import Pact.Types.Term (KeySet(..), Name(..), PublicKey)
 
 -- -------------------------------------------------------------------------- --
@@ -125,14 +126,14 @@ defaultMiner = Miner (MinerId "miner")
     $ MinerKeys
       ( KeySet
         ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-        (Name "keys-all" def)
+        (Name $ BareName "keys-all" def)
       )
 {-# INLINE defaultMiner #-}
 
 -- | A trivial Miner.
 --
 noMiner :: Miner
-noMiner = Miner (MinerId "NoMiner") (MinerKeys $ KeySet [] (Name "<" def))
+noMiner = Miner (MinerId "NoMiner") (MinerKeys $ KeySet [] (Name $ BareName "<" def))
 {-# INLINE noMiner #-}
 
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.
@@ -190,5 +191,5 @@ pKey = strOption (long "miner-key"
     <> help "Public key of the account to send rewards (can pass multiple times)")
 
 pPred :: Parser Name
-pPred = (\s -> Name s def) <$>
+pPred = (\s -> Name $ BareName s def) <$>
     strOption (long "miner-pred" <> value "keys-all" <> help "Keyset predicate")

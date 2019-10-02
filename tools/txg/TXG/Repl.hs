@@ -110,13 +110,13 @@ mkKeyCombined pactWebPriv = mkKey pub priv
     (priv,pub) = T.splitAt (T.length pactWebPriv `div` 2) pactWebPriv
 
 k2g :: SomeKeyPair -> Guard
-k2g skp = Guard (skp :| [])
+k2g skp = Guard $ pure (skp, [])
 
 mkGuard pub priv = k2g $ mkKey pub priv
 mkGuardCombined pactWebPriv = k2g $ mkKeyCombined pactWebPriv
 
 signedCode
-  :: [SomeKeyPair]
+  :: [SomeKeyPairCaps]
   -- ^ Key pair to sign with
   -> String
   -- ^ Pact code

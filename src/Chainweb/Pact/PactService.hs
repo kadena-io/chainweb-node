@@ -46,7 +46,6 @@ import Control.Monad.State.Strict
 import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -59,6 +58,7 @@ import Data.Maybe (isJust, isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -299,7 +299,7 @@ serviceRequests memPoolAccess reqQ = do
 
 
 
-toTransactionBytes :: P.Command ByteString -> Transaction
+toTransactionBytes :: P.Command Text -> Transaction
 toTransactionBytes cwTrans =
     let plBytes = encodeToByteString cwTrans
     in Transaction { _transactionBytes = plBytes }
@@ -818,7 +818,8 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
-    cmdBSToTx = toTransactionBytes . fmap (SB.fromShort . payloadBytes)
+    cmdBSToTx = toTransactionBytes
+      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 
