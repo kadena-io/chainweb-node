@@ -143,7 +143,7 @@ lookupClient txcfg v c txs = do
     mapM (traverse go) cs
   where
     go h = case decode h of
-      Left e -> throw . DecodeException $ T.pack e
+      Left e -> throwM . DecodeException $ T.pack e
       Right t -> return t
 
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8

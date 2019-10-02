@@ -39,13 +39,13 @@ insertHandler mempool txsT = handleErrs (NoContent <$ begin)
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8
 
     go h = case decode h of
-      Left e -> throwM . DecodeException $ T.pack e
-      Right t -> return t
+        Left e -> throwM . DecodeException $ T.pack e
+        Right t -> return t
 
     begin = do
-      txs <- mapM go txsT
-      let txV = V.fromList txs
-      liftIO $ mempoolInsert mempool CheckedInsert txV
+        txs <- mapM go txsT
+        let txV = V.fromList txs
+        liftIO $ mempoolInsert mempool CheckedInsert txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
