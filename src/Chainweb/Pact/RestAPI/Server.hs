@@ -136,14 +136,15 @@ pactServer (cut, chain) =
     pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
+    v = FromSing (SChainwebVersion :: Sing v)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
 
     pactApiHandlers
-      = sendHandler logger mempool
+      = sendHandler logger v mempool
       :<|> pollHandler logger cut cid chain
       :<|> listenHandler logger cut cid chain
-      :<|> localHandler logger cut cid chain
+      :<|> localHandler logger v cut cid chain
 
     pactSpvHandler = spvHandler logger cut cid chain
 
@@ -174,12 +175,13 @@ data PactCmdLog
 sendHandler
     :: Logger logger
     => logger
+    -> ChainwebVersion
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
     -> Handler RequestKeys
-sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
+sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse validateCommand cmds of
+    case traverse (validateCommand v) cmds of  -- TODO
       Right enriched -> do
         let txs = V.fromList $ NEL.toList enriched
         -- if any of the txs in the batch fail validation, we punt on the whole
@@ -282,14 +284,15 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
 localHandler
     :: Logger logger
     => logger
+    -> ChainwebVersion
     -> CutResources logger cas
     -> ChainId
     -> ChainResources logger
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger _ _ cr cmd = do
+localHandler logger v _ _ cr cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
-    cmd' <- case validateCommand cmd of
+    cmd' <- case validateCommand v cmd of
       (Right !c) -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
@@ -425,12 +428,16 @@ internalPoll cutR cid chain cut requestKeys0 = do
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
 
-validateCommand :: Command Text -> Either String ChainwebTransaction
-validateCommand cmdText = case verifyCommand cmdBS of
+validateCommand :: ChainwebVersion -> Command Text -> Either String ChainwebTransaction
+validateCommand v cmdText = case verifyCommand cmdBS of
     ProcSucc cmd
-        | length (_cmdSigs cmd) <= 100 -> Right (mkPayloadWithText <$> cmd)
-        | otherwise -> Left "More than 100 signatures given."
+        | length (_cmdSigs cmd) > 100 -> Left "More than 100 signatures given."
+        | payloadVer cmd /= Just v -> Left "Incompatible ChainwebVersion given."
+        | otherwise -> Right (mkPayloadWithText <$> cmd)
     ProcFail err -> Left err
   where
     cmdBS :: Command ByteString
     cmdBS = encodeUtf8 <$> cmdText
+
+    payloadVer :: Command (Payload m c) -> Maybe ChainwebVersion
+    payloadVer = (>>= fromText . Pact._networkId) . _pNetworkId . _cmdPayload
