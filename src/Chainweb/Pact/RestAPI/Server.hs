@@ -63,6 +63,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.Pact.TransactionExec (networkIdOf)
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
@@ -181,7 +182,7 @@ sendHandler
     -> Handler RequestKeys
 sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse (validateCommand v) cmds of  -- TODO
+    case traverse (validateCommand v) cmds of
       Right enriched -> do
         let txs = V.fromList $ NEL.toList enriched
         -- if any of the txs in the batch fail validation, we punt on the whole
@@ -440,4 +441,4 @@ validateCommand v cmdText = case verifyCommand cmdBS of
     cmdBS = encodeUtf8 <$> cmdText
 
     payloadVer :: Command (Payload m c) -> Maybe ChainwebVersion
-    payloadVer = (>>= fromText . Pact._networkId) . _pNetworkId . _cmdPayload
+    payloadVer = networkIdOf >=> fromText . Pact._networkId
