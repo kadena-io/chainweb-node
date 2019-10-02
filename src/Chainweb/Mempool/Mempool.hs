@@ -194,6 +194,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
                  | InsertErrorOversized
                  | InsertErrorBadlisted
+                 | InsertErrorMetadataMismatch
                  | InsertErrorOther Text
   deriving (Generic, Eq)
 
@@ -205,6 +206,9 @@ instance Show InsertError
     show InsertErrorBadlisted =
         "Transaction is badlisted because it previously failed to validate \
         \(e.g. insufficient gas)"
+    show InsertErrorMetadataMismatch =
+        "Transaction metadata (chain id, chainweb version) conflicts with this \
+        \endpoint"
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
 instance Exception InsertError
