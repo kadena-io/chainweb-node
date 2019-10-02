@@ -253,6 +253,7 @@ library
         , Chainweb.Pact.Utils
 
         -- utils
+        , Servant.Client_
         , Utils.Logging
         , Utils.Logging.Config
         , Utils.Logging.Trace
