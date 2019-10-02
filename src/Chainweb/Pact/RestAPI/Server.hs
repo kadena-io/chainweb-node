@@ -61,6 +61,8 @@ import Servant
 
 import System.LogLevel
 
+import Text.Printf (printf)
+
 -- internal modules
 
 import Chainweb.Pact.TransactionExec (networkIdOf)
@@ -432,9 +434,12 @@ toPactTx (Transaction b) = decodeStrict' b
 validateCommand :: ChainwebVersion -> Command Text -> Either String ChainwebTransaction
 validateCommand v cmdText = case verifyCommand cmdBS of
     ProcSucc cmd
-        | length (_cmdSigs cmd) > 100 -> Left "More than 100 signatures given."
-        | payloadVer cmd /= Just v -> Left "Incompatible ChainwebVersion given."
-        | otherwise -> Right (mkPayloadWithText <$> cmd)
+        | length (_cmdSigs cmd) > 100 ->
+            Left "More than 100 signatures given."
+        | payloadVer cmd /= Just v ->
+            Left $ printf "Incompatible Network. Given: %s, Expected: %s " (show $ networkIdOf cmd) (show v)
+        | otherwise ->
+            Right (mkPayloadWithText <$> cmd)
     ProcFail err -> Left err
   where
     cmdBS :: Command ByteString
