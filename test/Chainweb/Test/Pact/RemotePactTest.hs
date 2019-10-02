@@ -246,8 +246,8 @@ spvRequests iot nio = testCaseSteps "spv client tests" $ \step -> do
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd1 <- liftIO $ mkExec txcode txdata pm ks Nothing (Just "0")
-      cmd2 <- liftIO $ mkExec txcode txdata pm ks Nothing (Just "1")
+      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = show $
@@ -279,8 +279,9 @@ withRequestKeys
     -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
     -> TestTree
-withRequestKeys iot ioNonce networkIO = withResource mkKeys (\_ -> return ())
+withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) f
   where
+    mkKeys :: IO RequestKeys
     mkKeys = do
         cwEnv <- _getClientEnv <$> networkIO
         mNonce <- ioNonce
@@ -377,16 +378,15 @@ pollWithRetry cmds env rks = do
                                  Nothing -> return False
 
 testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> IO SubmitBatch
-testBatch'' chain iot ttl mnonce = do
-    modifyMVar mnonce $ \(!nn) -> do
-        let nonce = "nonce" <> sshow nn
-        t <- toTxCreationTime <$> iot
-        kps <- testKeyPairs
-        c <- mkExec "(+ 1 2)" A.Null (pm t) kps Nothing (Just nonce)
-        pure $ (succ nn, SubmitBatch (pure c))
+testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
+    let nonce = "nonce" <> sshow nn
+    t <- toTxCreationTime <$> iot
+    kps <- testKeyPairs
+    c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+    pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
-    pm t = Pact.PublicMeta chain "sender00" 1000 0.1 (fromInteger ttl) t
+    pm = Pact.PublicMeta chain "sender00" 1000 0.1 (fromInteger ttl)
 
 testBatch' :: IO (Time Integer) -> Integer -> MVar Int -> IO SubmitBatch
 testBatch' = testBatch'' pactCid
