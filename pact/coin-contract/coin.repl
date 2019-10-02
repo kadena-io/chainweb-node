@@ -5,7 +5,7 @@
 (commit-tx)
 (begin-tx)
 
-;(verify 'coin)
+(verify 'coin)
 
 (env-data { "emily" : ["keys1"], "doug": ["keys2"], "stuart": ["keys3"] })
 (env-keys ["keys1", "keys2", "keys3", "keys4"])
