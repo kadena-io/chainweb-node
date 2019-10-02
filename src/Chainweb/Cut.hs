@@ -284,10 +284,14 @@ instance Exception CutException
 
 -- | Check that a cut is correctly braided.
 --
--- This check is only needed for external cuts. Note, that for
--- imported cuts this must be checked recursively. This can
--- be done by doing a join that starts with a meet with a local
--- cut.
+-- This check is needed for external cuts. For imported cuts this must be
+-- checked recursively. This can be done by doing a join that starts with a meet
+-- with a local cut.
+--
+-- Doing this check recursively on a given cut is expensive. By starting with a
+-- local cut that is know to have a valid braiding, one can instead (re-)build a
+-- cut using 'monotonicCutExtension', establishes this braiding property by
+-- construction.
 --
 checkBraidingOfCut
     :: MonadThrow m
@@ -333,12 +337,12 @@ isBraidingOfCutPair (Adj a b) = do
 -- | Extends a Cut monotonically, i.e. the replaced block header is the parent
 -- of the added block header.
 --
--- Checks
+-- The function checks that
 --
--- * block header is from the ChainGraph of the Cut
--- * result has valid braiding
--- * result is a cut
--- * update is monotonic
+-- * the added block header is from the ChainGraph of the Cut,
+-- * result is a cut,
+-- * the resulting cut has a valid braiding, and
+-- * the update is monotonic.
 --
 -- This includes a check that inductively maintains 'checkBraidingOfCut'.
 --
@@ -356,6 +360,16 @@ isMonotonicCutExtension c h = do
         (\cid v -> All $ let a = c ^?! ixg cid in _blockHash a == v || _blockParent a == v)
         (_getBlockHashRecord $ _blockAdjacentHashes h)
 
+-- | Extends a cut monotonically, such that the result is a correctly braided
+-- cut.
+--
+-- The result satisfies 'isMonotonicCutExtension', which guarantees that
+--
+-- * the added block header is from the ChainGraph of the Cut,
+-- * result is a cut,
+-- * the resulting cut has a valid braiding, and
+-- * the update is monotonic.
+--
 monotonicCutExtension
     :: MonadThrow m
     => Cut
@@ -365,6 +379,17 @@ monotonicCutExtension c h = do
     unlessM (isMonotonicCutExtension c h) $ throwM $ InvalidCutExtension h
     return $! c & cutHeaders . ix (_chainId h) .~ h
 
+-- | Extends a cut monotonically, such that the result is a correctly braided
+-- cut.
+--
+-- A result other than 'Nothing' satisfies 'isMonotonicCutExtension', which
+-- guarantees that
+--
+-- * the added block header is from the ChainGraph of the Cut,
+-- * result is a cut,
+-- * the resulting cut has a valid braiding, and
+-- * the update is monotonic.
+--
 tryMonotonicCutExtension
     :: MonadThrow m
     => Cut
