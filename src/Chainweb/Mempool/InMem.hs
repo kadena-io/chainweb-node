@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
@@ -100,7 +99,7 @@ newInMemMempoolData =
 toMempoolBackend
     :: InMemoryMempool t
     -> IO (MempoolBackend t)
-toMempoolBackend mempool = do
+toMempoolBackend mempool =
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
       , mempoolBlockGasLimit = blockSizeLimit
@@ -159,12 +158,12 @@ withInMemoryMempool_ l cfg f = do
   where
     monitor m = do
         let lf = logFunction l
-        logFunctionText l Info $ "Initialized Mempool Monitor"
+        logFunctionText l Info "Initialized Mempool Monitor"
         runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
             stats <- getMempoolStats m
-            logFunctionText l Debug $ "got stats"
+            logFunctionText l Debug "got stats"
             logFunctionJson l Info stats
-            logFunctionText l Debug $ "logged stats"
+            logFunctionText l Debug "logged stats"
             approximateThreadDelay 60000000 {- 1 minute -}
 
 ------------------------------------------------------------------------------
@@ -221,7 +220,7 @@ insertCheckInMem cfg lock txs = do
                  , (InsertErrorInvalidTime, ttlCheck now)
                  , (InsertErrorBadlisted, notInBadMap badmap)
                  ]
-    let out1 = V.map (\tx -> runPreChecks checks tx) txhashes
+    let out1 = V.map (runPreChecks checks) txhashes
     out2 <- _inmemPreInsertCheck cfg txs
     return $! V.zip hashes (V.zipWith (<|>) out1 out2)
 
@@ -291,7 +290,7 @@ getBlockInMem :: forall t .
               -> BlockHash
               -> GasLimit
               -> IO (Vector t)
-getBlockInMem cfg lock txValidate bheight phash size0 = do
+getBlockInMem cfg lock txValidate bheight phash size0 =
     withMVar lock $ \mdata -> do
         !psq0 <- readIORef $ _inmemPending mdata
         now <- getCurrentTimeIntegral
@@ -383,8 +382,7 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
             let (T2 !tx !pendingTxs') = unconsV pendingTxs
             let txSz = getSize tx
             if txSz <= sz
-              then do
-                  getBatch pendingTxs' (sz - txSz) (tx:soFar) 0
+              then getBatch pendingTxs' (sz - txSz) (tx:soFar) 0
               else getBatch pendingTxs' sz soFar (inARow + 1)
 
     go :: HashMap TransactionHash t
@@ -420,10 +418,9 @@ getPendingInMem cfg nonce lock since callback = do
         (dl, sz) <- foldlM go initState keys
         void $ sendChunk dl sz
 
-    sendSome psq rlog (rNonce, oHw) = do
-        if rNonce /= nonce
-          then sendAll psq
-          else sendSince psq rlog oHw
+    sendSome psq rlog (rNonce, oHw)
+        | rNonce /= nonce = sendAll psq
+        | otherwise = sendSince psq rlog oHw
 
     sendSince psq rlog oHw = do
         let mbTxs = getRecentTxs maxNumRecent oHw rlog
@@ -456,7 +453,7 @@ getPendingInMem cfg nonce lock since callback = do
 
 ------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
-clearInMem lock = do
+clearInMem lock =
     withMVarMasked lock $ \mdata -> do
         writeIORef (_inmemPending mdata) mempty
         writeIORef (_inmemRecentLog mdata) emptyRecentLog
@@ -497,7 +494,7 @@ getRecentTxs maxNumRecent oldHw rlog
 
 ------------------------------------------------------------------------------
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
-getMempoolStats m = do
+getMempoolStats m =
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
         <$!> (HashMap.size <$!> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))

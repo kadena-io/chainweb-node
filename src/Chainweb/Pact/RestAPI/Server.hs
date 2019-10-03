@@ -33,6 +33,7 @@ import Control.Lens (view, (^.), (^?!), _head)
 import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
+import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
@@ -81,7 +82,7 @@ import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertType(..), MempoolBackend(..), TransactionHash(..))
+    (InsertError, InsertType(..), MempoolBackend(..), TransactionHash(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -187,19 +188,21 @@ sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     case traverse (validateCommand v) cmds of
       Right enriched -> do
         let txs = V.fromList $ NEL.toList enriched
-        -- if any of the txs in the batch fail validation, we punt on the whole
-        -- group
+        -- If any of the txs in the batch fail validation, we reject them all.
         liftIO (mempoolInsertCheck mempool txs) >>= V.mapM_ checkResult
         liftIO (mempoolInsert mempool UncheckedInsert txs)
         return $! RequestKeys $ NEL.map cmdToRequestKey enriched
       Left err -> failWith $ "Validation failed: " <> err
   where
+    failWith :: String -> ExceptT ServerError IO a
     failWith err = throwError $ err400 { errBody = BSL8.pack err }
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
+    toPactHash :: TransactionHash -> Pact.TypedHash h
     toPactHash (TransactionHash h) = Pact.TypedHash $ SB.fromShort h
 
+    checkResult :: (TransactionHash, Maybe InsertError) -> ExceptT ServerError IO ()
     checkResult (_, Nothing) = return ()
     checkResult (hash, Just insErr) =
         failWith $ concat [ "Validation failed for hash "
