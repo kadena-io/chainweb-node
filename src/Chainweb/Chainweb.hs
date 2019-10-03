@@ -402,11 +402,14 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     -- Transaction is submitted via the @send@ endpoint, and once when a new TX
     -- is gossiped to us from a peer's mempool.
     --
-    preInsertBatch :: V.Vector ChainwebTransaction -> IO (V.Vector (Maybe MP.InsertError))
+    preInsertBatch
+        :: V.Vector MP.TransactionHash
+        -> IO (V.Vector (Either (MP.TransactionHash, MP.InsertError) ()))
     preInsertBatch txs = do
-        let hashes = V.map (toPactHash . hasher) txs
+        let hashes = V.map toPactHash txs
         pex <- readMVar mv
-        V.map toDupeResult <$> (_pactLookup pex (Left cid) hashes >>= either throwM return)
+        rs <- _pactLookup pex (Left cid) hashes >>= either throwM pure
+        pure $ V.zipWith (\r h -> maybe (Right ()) (Left . (h,)) $ toDupeResult r) rs txs
 
     toPactHash :: MP.TransactionHash -> P.TypedHash h
     toPactHash (MP.TransactionHash h) = P.TypedHash $ SB.fromShort h

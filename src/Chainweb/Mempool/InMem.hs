@@ -30,7 +30,7 @@ import Control.Monad (void, (<$!>))
 
 import Data.Aeson
 import qualified Data.ByteString.Short as SB
-import Data.Foldable (foldl', foldlM, for_)
+import Data.Foldable (foldl', foldlM)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
@@ -38,6 +38,7 @@ import Data.Maybe
 import Data.Ord
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Traversable (for)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -216,13 +217,20 @@ insertCheckInMem
 insertCheckInMem cfg lock txs = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
-    pure . for_ txs $ \tx ->
-        let !h = hasher tx
-        in maybe (Right ()) (Left . (h,)) $ validateOne cfg badmap now tx h
+
+    let withHashes :: Either (TransactionHash, InsertError) (Vector TransactionHash)
+        withHashes = for txs $ \tx ->
+          let !h = hasher tx
+          in maybe (Right h) (Left . (h,)) $ validateOne cfg badmap now tx h
+
+    case withHashes of
+        Left _ -> pure $ void withHashes
+        Right r -> void . sequenceA <$> _inmemPreInsertBatchChecks cfg r
   where
     hasher :: t -> TransactionHash
     hasher = txHasher (_inmemTxCfg cfg)
 
+-- TODO Make this `Either` as well.
 -- | Validation: Confirm the validity of some single transaction @t@.
 --
 validateOne
@@ -272,7 +280,7 @@ insertCheckInMem' cfg lock txs = do
                  , (InsertErrorBadlisted, notInBadMap badmap)
                  ]
     let out1 = V.map (runPreChecks checks) txhashes
-    out2 <- _inmemPreInsertBatchChecks cfg txs
+    out2 <- undefined -- _inmemPreInsertBatchChecks cfg txs
     return $! V.zip hashes (V.zipWith (<|>) out1 out2)
 
   where
@@ -298,14 +306,16 @@ insertCheckInMem' cfg lock txs = do
           else Just reason
 
 insertInMem
-    :: InMemConfig t    -- ^ in-memory config
+    :: forall t
+    .  InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> InsertType
     -> Vector t  -- ^ new transactions
     -> IO ()
 insertInMem cfg lock runCheck txs0 = do
     insertErrors <- insertCheck
-    let txhashes = V.map (\(tx, (h, _)) -> (h, tx)) $
+    let txhashes :: Vector (TransactionHash, t)
+        txhashes = V.map (\(tx, (h, _)) -> (h, tx)) $
                    V.filter (\(_, (_, m)) -> isNothing m) $
                    V.zip txs0 insertErrors
     withMVarMasked lock $ \mdata -> do
