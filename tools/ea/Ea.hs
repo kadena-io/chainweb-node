@@ -85,7 +85,7 @@ main :: IO ()
 main = do
     Env txs0 <- execParser opts
     for_  graphs $ \(v, tag, grants) -> do
-        let txs = bool txs0 [defCoinContractSig, defCoinContract, grants] $ null txs0
+        let txs = bool txs0 [defCoinContract, grants] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v tag txs
     putStrLn "Done."
@@ -98,9 +98,6 @@ main = do
       , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devGrants)
       , (Testnet02, "Testnet", prodGrants)
       ]
-
-defCoinContractSig :: FilePath
-defCoinContractSig = "pact/coin-contract/load-coin-contract-sig.yaml"
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
