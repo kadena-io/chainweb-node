@@ -77,7 +77,7 @@ module Chainweb.Chainweb
 
 -- ** Mempool integration
 , ChainwebTransaction
-, Mempool.chainwebTransactionConfig
+, MP.chainwebTransactionConfig
 , validatingMempoolConfig
 
 , withChainweb
@@ -118,15 +118,16 @@ import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
 
-import qualified Pact.Types.ChainMeta as P
-import Pact.Types.Command (cmdPayload, pMeta)
-import qualified Pact.Types.Hash as P
 import Prelude hiding (log)
 
 import System.Clock
 import System.LogLevel
 
 -- internal modules
+
+import qualified Pact.Types.ChainMeta as P
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Hash as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
@@ -141,8 +142,8 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import qualified Chainweb.Mempool.InMemTypes as Mempool
-import qualified Chainweb.Mempool.Mempool as Mempool
+import qualified Chainweb.Mempool.InMemTypes as MP
+import qualified Chainweb.Mempool.Mempool as MP
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
@@ -368,41 +369,65 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 validatingMempoolConfig
     :: ChainId
     -> MVar PactExecutionService
-    -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid mv = Mempool.InMemConfig
-    { Mempool._inmemTxCfg = txcfg
-    , Mempool._inmemTxBlockSizeLimit = blockGasLimit
-    , Mempool._inmemMaxRecentItems = maxRecentLog
-    , Mempool._inmemPreInsertCheck = preInsertCheck
+    -> MP.InMemConfig ChainwebTransaction
+validatingMempoolConfig cid mv = MP.InMemConfig
+    { MP._inmemTxCfg = txcfg
+    , MP._inmemTxBlockSizeLimit = blockGasLimit
+    , MP._inmemMaxRecentItems = maxRecentLog
+    , MP._inmemPreInsertCheck = preInsertCheck
     }
   where
-    txcfg = Mempool.chainwebTransactionConfig
+    txcfg = MP.chainwebTransactionConfig
     blockGasLimit = 100000
     maxRecentLog = 2048
-    hasher = Mempool.txHasher txcfg
-    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
+
+    hasher :: ChainwebTransaction -> MP.TransactionHash
+    hasher = MP.txHasher txcfg
+
+    toDupeResult :: Maybe a -> Maybe MP.InsertError
+    toDupeResult = fmap (const MP.InsertErrorDuplicate)
+
+    -- | Validation: All checks that should occur before a TX is inserted into
+    -- the mempool. A rejection at this stage means that something is
+    -- fundamentally wrong/illegal with the TX, and that it should be rejected
+    -- completely and not gossiped to other peers.
+    --
+    -- We expect this to be called in two places: once when a new Pact
+    -- Transaction is submitted via the @send@ endpoint, and once when a new TX
+    -- is gossiped to us from a peer's mempool.
+    --
+    preInsertCheck :: V.Vector ChainwebTransaction -> IO (V.Vector (Maybe MP.InsertError))
     preInsertCheck txs = do
-        let hashes = V.map toPactHash $ V.map hasher txs
+        let hashes = V.map (toPactHash . hasher) txs
         pex <- readMVar mv
         out1 <- V.map toDupeResult <$>
                 (_pactLookup pex (Left cid) hashes >>= either throwM return)
         out2 <- V.mapM checkMetadata txs
         -- N.B. this could just be "zipWith" but I wanted to generalize it to
         -- future-proof adding new checks here
-        return $! zipAllWith [out1, out2] (getFirst . mconcat . map First)
+        return $! zipAllWith [out1, out2] (getFirst . foldMap First)
 
-    toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
+    toPactHash :: MP.TransactionHash -> P.TypedHash h
+    toPactHash (MP.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
+    -- | Validation: Is this TX associated with the correct `ChainId`?
+    --
+    -- `Nothing` implies success.
+    --
+    checkMetadata :: ChainwebTransaction -> IO (Maybe MP.InsertError)
     checkMetadata tx = do
-        let pm = view pMeta . payloadObj . view cmdPayload $ tx
-        let pcid = view P.pmChainId pm
+        let pcid = P._pmChainId . P._pMeta . payloadObj . P._cmdPayload $ tx
         tcid <- fromPactChainId pcid
         if tcid == cid
-          then return Nothing
-          else return $! Just Mempool.InsertErrorMetadataMismatch
+            then return Nothing
+            else return $ Just MP.InsertErrorMetadataMismatch
+
+    vuncons :: V.Vector a -> Maybe (a, V.Vector a)
     vuncons v | V.null v = Nothing
               | otherwise = Just (V.unsafeHead v, V.unsafeTail v)
 
+    -- TODO This can likely be optimized.
+    zipAllWith :: [V.Vector a] -> ([a] -> b) -> V.Vector b
     zipAllWith vs combine = flip V.unfoldr vs $ \vecs ->
         let unconses = map vuncons vecs
             anyFinished = any isNothing unconses
@@ -509,7 +534,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
+                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
                     withMinerResources mLogger mConf mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
@@ -619,7 +644,7 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe :: [(ChainId, MP.MempoolBackend ChainwebTransaction)]
     mempoolsToServe = proj _chainResMempool
 
     chainP2pToServe :: [(NetworkId, PeerDb)]
@@ -631,7 +656,7 @@ runChainweb cw = do
         bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
     payloadDbsToServe :: [(ChainId, PayloadDb cas)]
-    payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+    payloadDbsToServe = itoList (view chainwebPayloadDb cw <$ _chainwebChains cw)
 
     pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw
