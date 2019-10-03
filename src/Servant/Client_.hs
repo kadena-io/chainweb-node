@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -29,19 +30,20 @@ module Servant.Client_
 ) where
 
 import Control.Lens
-import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.Error.Class
 import Control.Monad.Reader
-import Control.Monad.Trans.Control
 
-import Data.Functor.Alt
 import Data.Proxy
 
 import GHC.Generics
 
 import Servant.Client
 import Servant.Client.Core
+
+#if ! MIN_VERSION_servant_server(0,16,0)
+type ClientError = ServantError
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Run Modified Client
@@ -69,21 +71,6 @@ instance MonadReader ClientEnv ClientM_ where
     local f = ClientM_ . mapReaderT (local f) . unClientM_
     {-# INLINE ask #-}
     {-# INLINE local #-}
-
-instance MonadBase IO ClientM_ where
-    liftBase = ClientM_ . liftBase
-    {-# INLINE liftBase #-}
-
-instance MonadBaseControl IO ClientM_ where
-    type StM ClientM_ a = Either ClientError a
-    liftBaseWith f = ClientM_ (liftBaseWith (\g -> f (g . unClientM_)))
-    restoreM st = ClientM_ (restoreM st)
-    {-# INLINE liftBaseWith #-}
-    {-# INLINE restoreM #-}
-
-instance Alt ClientM_ where
-    a <!> b = a `catchError` \_ -> b
-    {-# INLINE (<!>) #-}
 
 instance RunClient ClientM_ where
     runRequest req = ClientM_ $ do
