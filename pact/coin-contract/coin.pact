@@ -12,10 +12,8 @@
 
       (defproperty account-structure (account:string)
         (and
-          (!= account "")
-          (and
-            (>= (length account) 3)
-            (<= (length account) 256))))
+          (>= (length account) 3)
+          (<= (length account) 256)))
     ]
 
   ; --------------------------------------------------------------------------
@@ -92,10 +90,6 @@
     @doc "Enforce that an account name conforms to the coin contract \
          \minimum and maximum length requirements, as well as the    \
          \latin-1 character set."
-
-    (enforce
-      (!= account "")
-      "Account name is empty - please conform to the min/max length requirements.")
 
     (enforce
       (is-charset COIN_CHARSET account)
