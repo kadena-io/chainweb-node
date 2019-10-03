@@ -117,7 +117,7 @@ data Env = Env
     , _envChain :: !ChainId
     , _envNode :: !HostAddress
     , _envManager :: !HTTP.Manager
-    , _envKeys :: ![SomeKeyPair]
+    , _envKeys :: ![SomeKeyPairCaps]
     , _envSender :: !T.Text
     , _envGasLimit :: !GasLimit
     , _envGasPrice :: !GasPrice
@@ -181,7 +181,7 @@ devEnv key sender c = Env
     , _envChain = cid Development c
     , _envNode = unsafeHostAddressFromText "us1.tn1.chainweb.com:443"
     , _envManager = mgr
-    , _envKeys = either (error . show) pure $ plainSecret key
+    , _envKeys = either (error . show) (\a -> [(a,[])]) $ plainSecret key
     , _envSender = sender
     , _envGasLimit = 1000
     , _envGasPrice = 0.001
@@ -201,7 +201,7 @@ prodEnv key sender c = Env
     , _envChain = cid Development c
     , _envNode = unsafeHostAddressFromText "us1.testnet.chainweb.com:443"
     , _envManager = mgr
-    , _envKeys = either (error . show) pure $ plainSecret key
+    , _envKeys = either (error . show) (\a -> [(a,[])]) $ plainSecret key
     , _envSender = sender
     , _envGasLimit = 1000
     , _envGasPrice = 0.001
@@ -235,7 +235,7 @@ run env req = runClientM req (_envClientEnv env) >>= \case
 mkCmd :: Env -> Value -> T.Text -> IO (Command T.Text)
 mkCmd env dat pact = do
     meta <- getEnvPublicMeta env
-    mkExec (T.unpack pact) dat meta (_envKeys env) Nothing
+    mkExec (T.unpack pact) dat meta (_envKeys env) (Just "development") Nothing
 
 noData :: Value
 noData = object []
@@ -333,7 +333,7 @@ createAccount env acc pubKey = do
 spvCont :: Env -> RequestKey -> ContProof -> IO (Command T.Text)
 spvCont env rk proof = do
     meta <- getEnvPublicMeta env
-    mkCont pid 1 False noData meta (_envKeys env) Nothing (Just proof)
+    mkCont pid 1 False noData meta (_envKeys env) Nothing (Just proof) (Just "development")
   where
     pid = toPactId $ unRequestKey rk
 
@@ -367,7 +367,7 @@ spv env srcTxKey trgCid = do
     (TransactionOutputProofB64 p) <- run env
         $ pactSpvApiClient (_envVersion env) (_envChain env)
         $ SpvRequest srcTxKey (toPactCid trgCid)
-    return $ ContProof p
+    return $ ContProof $ T.encodeUtf8 p
 
 instance HasTextRepresentation RequestKey where
     toText = encodeB64UrlNoPaddingText . unHash . unRequestKey
