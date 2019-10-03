@@ -76,6 +76,7 @@ import Chainweb.SPV.CreateProof
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
@@ -191,7 +192,8 @@ roundtrip sid0 tid0 burn create =
             let webHeaderDb = _webBlockHeaderStoreCas webStoreDb
 
             -- pact service, that is used to extend the cut data base
-            txGen1 <- burn pidv sid tid
+            t1 <- getCurrentTimeIntegral
+            txGen1 <- burn t1 pidv sid tid
 
             pact1 <- testWebPactExecutionService v (Just cdb)
                          (return webHeaderDb) (return pdb)
@@ -230,7 +232,8 @@ roundtrip sid0 tid0 burn create =
                 height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
-            txGen2 <- create cdb pidv sid tid (height sid c1)
+            t2 <- getCurrentTimeIntegral
+            txGen2 <- create t2 cdb pidv sid tid (height sid c1)
 
             pact2 <- testWebPactExecutionService v (Just cdb)
                          (return webHeaderDb) (return pdb)
@@ -262,10 +265,11 @@ type TransactionGenerator
     -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
+    = Time Integer -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
-    = MVar (CutDb RocksDbCas)
+    = Time Integer
+    -> MVar (CutDb RocksDbCas)
     -> MVar PactId
     -> Chainweb.ChainId
     -> Chainweb.ChainId
@@ -275,7 +279,7 @@ type CreatesGenerator
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
 txGenerator1 :: BurnGenerator
-txGenerator1 pidv sid tid = do
+txGenerator1 time pidv sid tid = do
     ref0 <- newIORef False
     ref1 <- newIORef False
     return $ go ref0 ref1
@@ -292,7 +296,7 @@ txGenerator1 pidv sid tid = do
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
-                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 10 0.01 100000 0 txs
+                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 10 0.01 100000 (toTxCreationTime time) txs
                   `finally` writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
@@ -318,7 +322,7 @@ txGenerator1 pidv sid tid = do
       -- sender01 keyset guard
       let ks = KeySet
             [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-            (Name "keys-all" def)
+            (Name $ BareName "keys-all" def)
 
       in Just $ object
          [ "sender01-keyset" .= ks
@@ -330,7 +334,7 @@ txGenerator1 pidv sid tid = do
 -- has already called the 'create-coin' half of the transaction, it will not do so again.
 --
 txGenerator2 :: CreatesGenerator
-txGenerator2 cdbv pidv sid tid bhe = do
+txGenerator2 time cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -349,12 +353,12 @@ txGenerator2 cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 0 Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
 txGenerator3 :: CreatesGenerator
-txGenerator3 cdbv pidv sid tid bhe = do
+txGenerator3 time cdbv pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -373,12 +377,12 @@ txGenerator3 cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 0 Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
 txGenerator4 :: CreatesGenerator
-txGenerator4 _cdbv pidv _ tid _ = do
+txGenerator4 time _cdbv pidv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where
@@ -393,5 +397,5 @@ txGenerator4 _cdbv pidv _ tid _ = do
                 ks <- testKeyPairs
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing 100000 0 Null
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True

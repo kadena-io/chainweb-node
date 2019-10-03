@@ -25,7 +25,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , withRequestKeys
 ) where
 
-import Control.Concurrent hiding (putMVar, readMVar, modifyMVar)
+import Control.Concurrent hiding (newMVar, putMVar, readMVar, modifyMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Exception
@@ -71,7 +71,10 @@ import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
+import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
+import Pact.Types.Names
+import Pact.Types.PactValue
 import Pact.Types.Term
 
 -- internal modules
@@ -93,6 +96,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -122,6 +126,9 @@ version = FastTimedCPM petersonChainGraph
 cid :: HasCallStack => ChainId
 cid = head . toList $ chainIds version
 
+pactCid :: HasCallStack => Pact.ChainId
+pactCid = Pact.ChainId $ chainIdToText cid
+
 testCmds :: PactTestApiCmds
 testCmds = apiCmds version cid
 
@@ -138,16 +145,21 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
-          withRequestKeys iomvar net $ \rks ->
-            responseGolden net rks
-
-    , withNodes rdb nNodes $ \net ->
-        spvRequests net
+          withTime $ \iot ->
+            testGroup "remote pact tests" [
+                withRequestKeys iot iomvar net $ responseGolden net
+              , after AllSucceed "remote-golden" $
+                testGroup "remote spv" [spvRequests iot net]
+              , after AllSucceed "remote spv" $
+                sendValidationTest iot net
+              , after AllSucceed "remote spv" $
+                testCase "trivial /local check" $
+                localTest iot net
+              ]
     ]
-    -- The outer testGroupSch wrapper is just for scheduling purposes.
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-responseGolden networkIO rksIO = golden "command-0-resp" $ do
+responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
     (PollResponses theMap) <- pollWithRetry testCmds cwEnv rks
@@ -155,9 +167,56 @@ responseGolden networkIO rksIO = golden "command-0-resp" $ do
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
+localTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
+localTest iot nio = do
+    cenv <- fmap _getClientEnv nio
+    mv <- newMVar 0
+    SubmitBatch batch <- testBatch iot mv
+    let cmd = head $ toList batch
+    sid <- mkChainId version (0 :: Int)
+    res <- flip runClientM cenv $ localApiCmd (testCmdsChainId sid) cmd
+    checkCommandResult res
+  where
+    checkCommandResult (Left e) = fail $ "Servant failure on /local: " ++ show e
+    checkCommandResult (Right cr) =
+        let (PactResult e) = _crResult cr
+        in assertEqual "expect /local to succeed and return 3" e
+                       (Right (PLiteral $ LDecimal 3))
 
-spvRequests :: IO ChainwebNetwork -> TestTree
-spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
+sendValidationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+sendValidationTest iot nio =
+    testCaseSteps "/send reports validation failure" $ \step -> do
+        step "check sending poisoned TTL batch"
+        cenv <- fmap _getClientEnv nio
+        mv <- newMVar 0
+        SubmitBatch batch1 <- testBatch' iot 10000 mv
+        SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv
+        let batch = SubmitBatch $ batch1 <> batch2
+        sid <- mkChainId version (0 :: Int)
+        expectSendFailure $ flip runClientM cenv $ do
+            sendApiCmd (testCmdsChainId sid) batch
+
+        step "check sending mismatched chain id"
+        batch3 <- testBatch'' "40" iot 20000 mv
+        expectSendFailure $ flip runClientM cenv $ do
+            sendApiCmd (testCmdsChainId sid) batch3
+
+  where
+    expectSendFailure act = do
+        m <- (wrap `catch` h)
+        maybe (return ()) (\msg -> assertBool msg False) m
+      where
+        wrap = do
+            let ef out = Just ("expected exception on bad tx, got: "
+                               <> show out)
+            act >>= return . either (const Nothing) ef
+
+        h :: SomeException -> IO (Maybe String)
+        h _ = return Nothing
+
+
+spvRequests :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+spvRequests iot nio = testCaseSteps "spv client tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
     sid <- mkChainId version (0 :: Int)
@@ -184,9 +243,11 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
 
     mkTxBatch = do
       ks <- liftIO testKeyPairs
-      let pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 100000 0
-      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "0")
-      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "1")
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
+      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = show $
@@ -203,7 +264,7 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
       -- sender00 keyset
       let ks = KeySet
             [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-            (Name "keys-all" def)
+            (Name $ BareName "keys-all" def)
       in A.object
         [ "sender01-keyset" A..= ks
         , "target-chain-id" A..= tid
@@ -213,20 +274,22 @@ spvRequests nio = testCaseSteps "spv client tests"$ \step -> do
 -- Utils
 
 withRequestKeys
-    :: IO (MVar Int)
+    :: IO (Time Integer)
+    -> IO (MVar Int)
     -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
     -> TestTree
-withRequestKeys ioNonce networkIO = withResource mkKeys (\_ -> return ())
+withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) f
   where
+    mkKeys :: IO RequestKeys
     mkKeys = do
         cwEnv <- _getClientEnv <$> networkIO
         mNonce <- ioNonce
-        testSend mNonce testCmds cwEnv
+        testSend iot mNonce testCmds cwEnv
 
-testSend :: MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
-testSend mNonce cmds env = do
-    sb <- testBatch mNonce
+testSend :: IO (Time Integer) -> MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
+testSend iot mNonce cmds env = do
+    sb <- testBatch iot mNonce
     result <- sendWithRetry cmds env sb
     case result of
         Left e -> assertFailure (show e)
@@ -314,16 +377,24 @@ pollWithRetry cmds env rks = do
                                                 else return False
                                  Nothing -> return False
 
-testBatch :: MVar Int -> IO SubmitBatch
-testBatch mnonce = do
-    modifyMVar mnonce $ \(!nn) -> do
-        let nonce = "nonce" <> sshow nn
-        kps <- testKeyPairs
-        c <- mkExec "(+ 1 2)" A.Null pm kps (Just nonce)
-        pure $ (succ nn, SubmitBatch (pure c))
+testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> IO SubmitBatch
+testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
+    let nonce = "nonce" <> sshow nn
+    t <- toTxCreationTime <$> iot
+    kps <- testKeyPairs
+    c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+    pure (succ nn, SubmitBatch (pure c))
   where
-    pm :: Pact.PublicMeta
-    pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 1000 0.1 1000000 0
+    pm :: Pact.TxCreationTime -> Pact.PublicMeta
+    pm = Pact.PublicMeta chain "sender00" 1000 0.1 (fromInteger ttl)
+
+testBatch' :: IO (Time Integer) -> Integer -> MVar Int -> IO SubmitBatch
+testBatch' = testBatch'' pactCid
+
+testBatch :: IO (Time Integer) -> MVar Int -> IO SubmitBatch
+testBatch iot mnonce = testBatch' iot ttl mnonce
+  where
+    ttl = 2 * 24 * 60 * 60
 
 type PactClientApi
        = (SubmitBatch -> ClientM RequestKeys)
@@ -340,12 +411,14 @@ generatePactApi cwVersion chainid =
 
 apiCmds :: ChainwebVersion -> ChainId -> PactTestApiCmds
 apiCmds cwVersion theChainId =
-    let sendCmd :<|> pollCmd :<|> _ :<|> _ = generatePactApi cwVersion theChainId
-    in PactTestApiCmds sendCmd pollCmd
+    let sendCmd :<|> pollCmd :<|> _ :<|> localCmd = generatePactApi cwVersion theChainId
+    in PactTestApiCmds sendCmd pollCmd localCmd
 
 data PactTestApiCmds = PactTestApiCmds
     { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
-    , pollApiCmd :: Poll -> ClientM PollResponses }
+    , pollApiCmd :: Poll -> ClientM PollResponses
+    , localApiCmd :: Command Text -> ClientM (CommandResult H.Hash)
+    }
 
 
 --------------------------------------------------------------------------------

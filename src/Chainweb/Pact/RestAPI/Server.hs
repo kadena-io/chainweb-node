@@ -1,16 +1,17 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Pact.RestAPI.Server
 ( PactServerData
@@ -28,31 +29,30 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens ((^.), (^?!), _head, view)
+import Control.Lens (view, (^.), (^?!), _head)
 import Control.Monad (when)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Base64.URL.Lazy as Base64
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.CAS
-import Data.Tuple.Strict
 import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
-import Data.Singletons
+import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
+import Data.Singletons
 import Data.Text (Text)
 import Data.Text.Encoding
-import qualified Data.ByteString.Lazy.Char8 as BSL8
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List.NonEmpty as NEL
+import Data.Tuple.Strict
 import qualified Data.Vector as V
-import qualified GHC.Event as Ev
 
+import qualified GHC.Event as Ev
 import GHC.Generics
 
 import Prelude hiding (init, lookup)
@@ -61,10 +61,13 @@ import Servant
 
 import System.LogLevel
 
+import Text.Printf (printf)
+
 -- internal modules
 
-import qualified Pact.Types.ChainId as Pact
+import Chainweb.Pact.TransactionExec (networkIdOf)
 import Pact.Types.API
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
@@ -77,7 +80,8 @@ import Chainweb.Chainweb.CutResources
 import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool (MempoolBackend(..), InsertType(..))
+import Chainweb.Mempool.Mempool
+    (InsertType(..), MempoolBackend(..), TransactionHash(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -87,7 +91,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
-import Chainweb.Transaction (ChainwebTransaction, PayloadWithText(..))
+import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -135,14 +139,15 @@ pactServer (cut, chain) =
     pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
+    v = FromSing (SChainwebVersion :: Sing v)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
 
     pactApiHandlers
-      = sendHandler logger mempool
+      = sendHandler logger v mempool
       :<|> pollHandler logger cut cid chain
       :<|> listenHandler logger cut cid chain
-      :<|> localHandler logger cut cid chain
+      :<|> localHandler logger v cut cid chain
 
     pactSpvHandler = spvHandler logger cut cid chain
 
@@ -173,20 +178,35 @@ data PactCmdLog
 sendHandler
     :: Logger logger
     => logger
+    -> ChainwebVersion
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
     -> Handler RequestKeys
-sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
+sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse validateCommand cmds of
+    case traverse (validateCommand v) cmds of
       Right enriched -> do
-        liftIO $ mempoolInsert mempool CheckedInsert
-               $! V.fromList $ NEL.toList enriched
+        let txs = V.fromList $ NEL.toList enriched
+        -- if any of the txs in the batch fail validation, we punt on the whole
+        -- group
+        liftIO (mempoolInsertCheck mempool txs) >>= V.mapM_ checkResult
+        liftIO (mempoolInsert mempool UncheckedInsert txs)
         return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-      Left err ->
-        throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
+      Left err -> failWith $ "Validation failed: " <> err
   where
+    failWith err = throwError $ err400 { errBody = BSL8.pack err }
+
     logg = logFunctionJson (setComponent "send-handler" logger)
+
+    toPactHash (TransactionHash h) = Pact.TypedHash $ SB.fromShort h
+
+    checkResult (_, Nothing) = return ()
+    checkResult (hash, Just insErr) =
+        failWith $ concat [ "Validation failed for hash "
+                          , show $ toPactHash hash
+                          , ": "
+                          , show insErr
+                          ]
 
 pollHandler
     :: PayloadCas cas
@@ -267,14 +287,15 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
 localHandler
     :: Logger logger
     => logger
+    -> ChainwebVersion
     -> CutResources logger cas
     -> ChainId
     -> ChainResources logger
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger _ _ cr cmd = do
+localHandler logger v _ _ cr cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
-    cmd' <- case validateCommand cmd of
+    cmd' <- case validateCommand v cmd of
       (Right !c) -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
@@ -313,7 +334,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     cut <- liftIO $! CutDB._cut cdb
     bh <- liftIO $! lookupCutM cid cut
 
-    T2 bhe _bha <- liftIO (_pactLookup pe bh (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe (Right bh) (pure ph)) >>= \case
       Left e -> throwError $ err400
         { errBody = "Internal error: transaction hash lookup failed: " <> sshow e }
       Right v -> case v ^?! _head of
@@ -344,12 +365,11 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     bdb = _chainResBlockHeaderDb chainR
     pdb = view CutDB.cutDbPayloadCas cdb
     b64 = TransactionOutputProofB64
-      . LBS.toStrict
-      . Base64.encode
+      . encodeB64UrlNoPaddingText
+      . BSL8.toStrict
       . Aeson.encode
 
-    logg
-      = logFunctionJson (setComponent "spv-handler" l) Info
+    logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
     spvErrOf = BSL8.fromStrict
@@ -369,7 +389,7 @@ internalPoll
 internalPoll cutR cid chain cut requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx chainLeaf requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx (Right chainLeaf) requestKeys >>= either throwM return
     let results = V.map (\(a, b) -> (a, fromJust b)) $
                   V.filter (isJust . snd) $
                   V.zip requestKeysV results0
@@ -411,9 +431,19 @@ internalPoll cutR cid chain cut requestKeys0 = do
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
 
-validateCommand :: Command Text -> Either String ChainwebTransaction
-validateCommand cmdText = let
-  cmdBS = encodeUtf8 <$> cmdText
-  in case verifyCommand cmdBS of
-  ProcSucc cmd -> return $! (\bs -> PayloadWithText (SB.toShort bs) (_cmdPayload cmd)) <$> cmdBS
-  ProcFail err -> Left $ err
+validateCommand :: ChainwebVersion -> Command Text -> Either String ChainwebTransaction
+validateCommand v cmdText = case verifyCommand cmdBS of
+    ProcSucc cmd
+        | length (_cmdSigs cmd) > 100 ->
+            Left "More than 100 signatures given."
+        | payloadVer cmd /= Just v ->
+            Left $ printf "Incompatible Network. Given: %s, Expected: %s " (show $ networkIdOf cmd) (show v)
+        | otherwise ->
+            Right (mkPayloadWithText <$> cmd)
+    ProcFail err -> Left err
+  where
+    cmdBS :: Command ByteString
+    cmdBS = encodeUtf8 <$> cmdText
+
+    payloadVer :: Command (Payload m c) -> Maybe ChainwebVersion
+    payloadVer = networkIdOf >=> fromText . Pact._networkId

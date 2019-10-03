@@ -21,7 +21,7 @@ tests = testGroup "Chainweb.Mempool.InMem"
             $ MempoolWithFunc wf
   where
     wf f = do
-        mv <- newMVar (\v -> V.mapM (const $ return True) v)
+        mv <- newMVar (\v -> return $! V.map (const Nothing) v)
         let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMv mv)
         InMem.withInMemoryMempool cfg $ f mv
 
@@ -33,4 +33,3 @@ tests = testGroup "Chainweb.Mempool.InMem"
                               mockMeta
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
-

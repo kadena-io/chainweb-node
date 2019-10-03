@@ -103,6 +103,8 @@ import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sortBy)
+import Data.Maybe
+import Data.Monoid
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -116,6 +118,8 @@ import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
 
+import qualified Pact.Types.ChainMeta as P
+import Pact.Types.Command (cmdPayload, pMeta)
 import qualified Pact.Types.Hash as P
 import Prelude hiding (log)
 
@@ -143,6 +147,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
+import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -362,28 +367,51 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 
 validatingMempoolConfig
     :: ChainId
-    -> MVar (CutDb cas)
     -> MVar PactExecutionService
     -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid cutmv mv = Mempool.InMemConfig
-    txcfg
-    blockGasLimit
-    maxRecentLog
-    preInsertCheck
+validatingMempoolConfig cid mv = Mempool.InMemConfig
+    { Mempool._inmemTxCfg = txcfg
+    , Mempool._inmemTxBlockSizeLimit = blockGasLimit
+    , Mempool._inmemMaxRecentItems = maxRecentLog
+    , Mempool._inmemPreInsertCheck = preInsertCheck
+    }
   where
     txcfg = Mempool.chainwebTransactionConfig
     blockGasLimit = 100000
     maxRecentLog = 2048
     hasher = Mempool.txHasher txcfg
+    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
     preInsertCheck txs = do
-        cdb <- readMVar cutmv
-        curCut <- _cut cdb
-        bh <- lookupCutM cid curCut
         let hashes = V.map toPactHash $ V.map hasher txs
         pex <- readMVar mv
-        mbs <- _pactLookup pex bh hashes >>= either throwM return
-        return $! V.map (== Nothing) mbs
+        out1 <- V.map toDupeResult <$>
+                (_pactLookup pex (Left cid) hashes >>= either throwM return)
+        out2 <- V.mapM checkMetadata txs
+        -- N.B. this could just be "zipWith" but I wanted to generalize it to
+        -- future-proof adding new checks here
+        return $! zipAllWith [out1, out2] (getFirst . mconcat . map First)
+
     toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
+
+    checkMetadata tx = do
+        let pm = view pMeta . payloadObj . view cmdPayload $ tx
+        let pcid = view P.pmChainId pm
+        tcid <- fromPactChainId pcid
+        if tcid == cid
+          then return Nothing
+          else return $! Just Mempool.InsertErrorMetadataMismatch
+    vuncons v | V.null v = Nothing
+              | otherwise = Just (V.unsafeHead v, V.unsafeTail v)
+
+    zipAllWith vs combine = flip V.unfoldr vs $ \vecs ->
+        let unconses = map vuncons vecs
+            anyFinished = any isNothing unconses
+        in if anyFinished
+           then Nothing
+           else let outs = map fromJuste unconses
+                    heads = map fst outs
+                    tails = map snd outs
+                in Just (combine heads, tails)
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -405,7 +433,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
-            let mcfg = validatingMempoolConfig cid cdbv
+            let mcfg = validatingMempoolConfig cid
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg cdbv payloadDb prune dbDir nodeid
                      resetDb)

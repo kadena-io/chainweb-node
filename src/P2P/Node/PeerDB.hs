@@ -354,7 +354,7 @@ incrementActiveSessionCount db i
 
 decrementActiveSessionCount :: PeerDb -> PeerInfo -> IO ()
 decrementActiveSessionCount db i
-    = updatePeerDb db (_peerAddr i) $ over peerEntryActiveSessionCount pred
+    = updatePeerDb db (_peerAddr i) $ over peerEntryActiveSessionCount (pred . max 1)
 
 incrementSuccessiveFailures :: PeerDb -> PeerInfo -> IO ()
 incrementSuccessiveFailures db i

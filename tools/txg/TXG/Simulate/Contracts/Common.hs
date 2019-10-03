@@ -64,7 +64,7 @@ import Pact.ApiReq (mkExec, ApiKeyPair(..), mkKeyPairs)
 import Pact.Parse
 import qualified Pact.Types.ChainId as CM
 import qualified Pact.Types.ChainMeta as CM
-import Pact.Types.Command (Command(..))
+import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 import Pact.Types.Crypto
 
 -- CHAINWEB
@@ -74,37 +74,49 @@ import Chainweb.Time
 import Chainweb.Utils
 import TXG.Simulate.Utils
 
-createPaymentsAccount :: CM.PublicMeta -> String -> IO (NonEmpty SomeKeyPair, Command Text)
+
+
+createPaymentsAccount
+    :: CM.PublicMeta
+    -> String
+    -> IO (NonEmpty SomeKeyPairCaps, Command Text)
 createPaymentsAccount meta name = do
     adminKS <- testSomeKeyPairs
-    nameKeyset <- pure <$> genKeyPair defaultScheme
-    let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
-    res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing
-    pure (nameKeyset, res)
+    nameKeyset <- (\k -> [(k, [])]) <$> genKeyPair defaultScheme
+    let theData = object
+          [ T.pack (name ++ "-keyset") .= fmap (formatB16PubKey . fst) nameKeyset
+          ]
+    res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing Nothing
+    pure (NEL.fromList nameKeyset, res)
   where
     theCode = printf "(payments.create-account \"%s\" %s (read-keyset \"%s-keyset\"))" name (show (1000000.1 :: Decimal)) name
 
-createCoinAccount :: CM.PublicMeta -> String -> IO (NonEmpty SomeKeyPair, Command Text)
+createCoinAccount
+    :: CM.PublicMeta
+    -> String
+    -> IO (NonEmpty SomeKeyPairCaps, Command Text)
 createCoinAccount meta name = do
     adminKS <- testSomeKeyPairs
     nameKeyset <- NEL.fromList <$> getKeyset
-    let theData = object [T.pack (name ++ "-keyset") .= fmap formatB16PubKey nameKeyset]
-    res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing
+    let theData = object [T.pack (name ++ "-keyset") .= fmap (formatB16PubKey . fst) nameKeyset]
+    res <- mkExec theCode theData meta (NEL.toList adminKS) Nothing Nothing
     pure (nameKeyset, res)
   where
     theCode = printf "(coin.create-account \"%s\" (read-keyset \"%s\"))" name name
     isSenderAccount name'  =
       elem name' (map getAccount coinAccountNames)
+
+    getKeyset :: IO [SomeKeyPairCaps]
     getKeyset
       | isSenderAccount name = do
           keypair <- stockKey (T.pack name)
           mkKeyPairs [keypair]
-      | otherwise = pure <$> genKeyPair defaultScheme
+      | otherwise = (\k -> [(k, [])]) <$> genKeyPair defaultScheme
 
-createPaymentsAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPair, Command Text))
+createPaymentsAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPairCaps, Command Text))
 createPaymentsAccounts meta = traverse (createPaymentsAccount meta) names
 
-createCoinAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPair, Command Text))
+createCoinAccounts :: CM.PublicMeta -> IO (NonEmpty (NonEmpty SomeKeyPairCaps, Command Text))
 createCoinAccounts meta = traverse (createCoinAccount meta) names
 
 coinAccountNames :: [Account]
@@ -121,7 +133,7 @@ stockKey s = do
       Just (String pub) = HM.lookup "public" kp
       Just (String priv) = HM.lookup "secret" kp
       mkKeyBS = decodeKey . encodeUtf8
-  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
+  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519) Nothing
 
 safeCapitalize :: String -> String
 safeCapitalize = fromMaybe [] . fmap (uncurry (:) . bimap toUpper (map toLower)) . uncons

@@ -10,7 +10,6 @@
 
 module Standalone.Utils where
 
-import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
@@ -19,7 +18,6 @@ import Control.Lens hiding ((.=))
 import Data.Aeson
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.Short as SB
 import Data.Default
 import Data.FileEmbed
 import Data.Foldable
@@ -33,7 +31,6 @@ import Data.Text.Encoding
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
 
-import GHC.Conc (atomically)
 import GHC.Generics
 
 import System.Random
@@ -58,16 +55,13 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.WebPactExecutionService
 
-testKeyPairs :: IO [SomeKeyPair]
+testKeyPairs :: IO [SomeKeyPairCaps]
 testKeyPairs = do
     let (pub, priv, addr, scheme) = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme)
+        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
     mkKeyPairs [apiKP]
 
 
@@ -122,28 +116,10 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
                   -- TODO: This might need to be something more fleshed out.
                   nonce = T.pack $ show height
               ks <- testKeyPairs
-              cmd <- mkCommand ks pm nonce msg
+              cmd <- mkCommand ks pm nonce Nothing msg
               case verifyCommand cmd of
-                ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+                ProcSucc t -> return $ mkPayloadWithText <$> t
                 ProcFail e -> throwM $ userError e
-
-          k t bs = PayloadWithText bs (_cmdPayload t)
-
-mkPactExecutionService' :: TQueue RequestMsg -> PactExecutionService
-mkPactExecutionService' q = emptyPactExecutionService
-  { _pactValidateBlock = \h pd -> do
-      mv <- validateBlock h pd q
-      r <- takeMVar mv
-      case r of
-          (Right !pdo) -> return pdo
-          Left e -> throwM e
-  , _pactNewBlock = \m h -> do
-      mv <- newBlock m h q
-      r <- takeMVar mv
-      case r of
-          (Right !pdo) -> return pdo
-          Left e -> throwM e
-  }
 
 data StopState
   = BlockStopCondition BlockStopState
@@ -216,7 +192,7 @@ data PactTransaction = PactTransaction
 mkExecTransactions
     :: PactChain.ChainId
       -- ^ chain id of execution
-    -> [SomeKeyPair]
+    -> [SomeKeyPairCaps]
       -- ^ signer keys
     -> Text
       -- ^ nonce
@@ -243,12 +219,10 @@ mkExecTransactions cid ks nonce0 gas gasrate ttl ct txs = do
       nn <- readIORef nref
       writeIORef nref $! succ nn
       let nonce = T.append nonce0 (T.pack $ show nn)
-      cmd <- mkCommand ks pm nonce msg
+      cmd <- mkCommand ks pm nonce Nothing msg
       case verifyCommand cmd of
-        ProcSucc t -> return $ fmap (k t) (SB.toShort <$> cmd)
+        ProcSucc t -> return $! mkPayloadWithText <$> t
         ProcFail e -> throwM $ userError e
-
-    k t bs = PayloadWithText bs (_cmdPayload t)
 
 -- | Merge a list of JSON Objects together. Note: this will yield an empty
 -- object in the case that there are no objects in the list of values.
@@ -286,7 +260,7 @@ stockKey s = do
         Just (String pub) = HM.lookup "public" kp
         Just (String priv) = HM.lookup "secret" kp
         mkKeyBS = decodeKey . encodeUtf8
-    return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519)
+    return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519) Nothing
 
 decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode

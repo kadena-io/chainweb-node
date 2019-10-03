@@ -14,11 +14,11 @@ module Chainweb.Mempool.RestAPI.Server
 
 ------------------------------------------------------------------------------
 import Control.Monad.Catch hiding (Handler)
-import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
-import Data.ByteString (ByteString)
 import qualified Data.DList as D
 import Data.IORef
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import Servant
 
@@ -32,13 +32,18 @@ import Chainweb.Utils
 import Chainweb.Version
 
 ------------------------------------------------------------------------------
-insertHandler :: Show t => MempoolBackend t -> [ByteString] -> Handler NoContent
-insertHandler mempool txsBS = handleErrs (NoContent <$ begin)
+insertHandler :: Show t => MempoolBackend t -> [T.Text] -> Handler NoContent
+insertHandler mempool txsT = handleErrs (NoContent <$ begin)
   where
     txcfg = mempoolTxConfig mempool
-    decode = either fail return . codecDecode (txCodec txcfg)
+    decode = codecDecode (txCodec txcfg) . T.encodeUtf8
+
+    go h = case decode h of
+        Left e -> throwM . DecodeException $ T.pack e
+        Right t -> return t
+
     begin = do
-        txs <- mapM decode txsBS
+        txs <- mapM go txsT
         let txV = V.fromList txs
         liftIO $ mempoolInsert mempool CheckedInsert txV
 
@@ -54,12 +59,12 @@ lookupHandler
     :: Show t
     => MempoolBackend t
     -> [TransactionHash]
-    -> Handler [LookupResult ByteString]
+    -> Handler [LookupResult T.Text]
 lookupHandler mempool txs = handleErrs (liftIO look)
   where
     txV = V.fromList txs
     txcfg = mempoolTxConfig mempool
-    encode = codecEncode (txCodec txcfg)
+    encode = T.decodeUtf8 . codecEncode (txCodec txcfg)
     look = V.toList . V.map (fmap encode) <$> mempoolLookup mempool txV
 
 getPendingHandler

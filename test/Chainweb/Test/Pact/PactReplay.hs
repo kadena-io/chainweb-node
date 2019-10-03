@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -9,7 +10,6 @@ module Chainweb.Test.Pact.PactReplay where
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Monad (void)
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -17,8 +17,8 @@ import Control.Monad.State
 import Data.Aeson
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
-import Data.CAS.RocksDB
 import Data.IORef
+import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -28,12 +28,14 @@ import Data.Word
 
 import NeatInterpolation (text)
 
-import System.Directory
-import System.IO.Extra
 import System.LogLevel
 
 import Test.Tasty
 import Test.Tasty.HUnit
+
+-- pact imports
+
+import Pact.ApiReq
 
 -- chainweb imports
 
@@ -51,7 +53,6 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -71,14 +72,14 @@ tests =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     testGroup label
-        [ withPact Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
+        [ withTime $ \iot -> withPact Warn pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
             testCase "initial-playthrough" $
             firstPlayThrough genblock pdb bhdb reqQIO
         , after AllSucceed "initial-playthrough" $
-          withPact Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
+          withTime $ \iot -> withPact Warn pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
             testCase "on-restart" $ onRestart pdb bhdb reqQIO
         , after AllSucceed "on-restart" $
-          withPact Quiet pdb bhdb dupegenMemPoolAccess dir $ \reqQIO ->
+          withTime $ \iot -> withPact Quiet pdb bhdb (dupegenMemPoolAccess iot) dir $ \reqQIO ->
             testCase "reject-dupes" $ testDupes genblock pdb bhdb reqQIO
         ]
   where
@@ -98,56 +99,78 @@ onRestart pdb bhdb r = do
     T3 _ b _ <- mineBlock block nonce pdb bhdb r
     assertEqual "Invalid BlockHeight" 9 (_blockHeight b)
 
-testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess  = MemPoolAccess
-    { mpaGetBlock = getTestBlock
+testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
+testMemPoolAccess iot  = MemPoolAccess
+    { mpaGetBlock = \validate bh hash _header  -> do
+            t <- f bh <$> iot
+            getTestBlock t validate bh hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    ksData :: Text -> Value
-    ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-    getTestBlock validate _bHeight _bHash bHeader = do
-        let Nonce nonce = _blockNonce bHeader
-            moduleStr = defModule (T.pack $ show nonce)
-            d = Just $ ksData (T.pack $ show nonce)
-        let txs = V.fromList $ [PactTransaction moduleStr d]
-        outtxs <- goldenTestTransactions txs
-        oks <- validate _bHeight _bHash outtxs
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
+      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
+        akp0 <- stockKey "sender00"
+        kp0 <- mkKeyPairs [akp0]
+        let nonce = T.pack . show @(Time Integer) $ txOrigTime
+        outtxs <-
+          mkTestExecTransactions
+            "sender00" "0" kp0
+            nonce 10000 0.00000000001
+            3600 (toTxCreationTime txOrigTime) (tx bh)
+        oks <- validate bHeight hash outtxs
         when (not $ V.and oks) $ do
             fail $ mconcat [ "tx failed validation! input list: \n"
-                           , show txs
+                           , show (tx bh)
                            , "\n\nouttxs: "
                            , show outtxs
                            , "\n\noks: "
-                           , show oks ]
+                           , show oks
+                           ]
         return outtxs
+      where
+        ksData :: Text -> Value
+        ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
+        tx nonce = V.singleton $ PactTransaction (code nonce) (Just $ ksData (T.pack $ show nonce))
+        code nonce = defModule (T.pack $ show nonce)
 
-dupegenMemPoolAccess :: MemPoolAccess
-dupegenMemPoolAccess  = MemPoolAccess
-    { mpaGetBlock = getTestBlock
+dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
+dupegenMemPoolAccess iot  = MemPoolAccess
+    { mpaGetBlock = \validate bh hash _header -> do
+            t <- f bh <$> iot
+            getTestBlock t validate bh hash _header
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    ksData :: Text -> Value
-    ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-    getTestBlock validate _bHeight _bHash _bHeader = do
+    f :: BlockHeight -> Time Integer -> Time Integer
+    f b tt =
+      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    getTestBlock txOrigTime validate bHeight bHash _bHeader = do
+        akp0 <- stockKey "sender00"
+        kp0 <- mkKeyPairs [akp0]
         let nonce = "0"
-            moduleStr = defModule (T.pack nonce)
-            d = Just $ ksData (T.pack nonce)
-        let txs = V.fromList $ [PactTransaction moduleStr d]
-        outtxs <- goldenTestTransactions txs
-        oks <- validate _bHeight _bHash outtxs
+        outtxs <-
+          mkTestExecTransactions
+          "sender00" "0" kp0
+          nonce 10000 0.00000000001
+          3600 (toTxCreationTime txOrigTime) (tx nonce)
+        oks <- validate bHeight bHash outtxs
         when (not $ V.and oks) $ do
-            fail $ mconcat [ "tx failed validation! input list: \n"
-                           , show txs
-                           , "\n\nouttxs: "
-                           , show outtxs
-                           , "\n\noks: "
-                           , show oks ]
+          fail $ mconcat [ "tx failed validation! input list: \n"
+                         , show (tx nonce)
+                         , "\n\nouttxs: "
+                         , "\n\noks: "
+                         , show oks
+                         ]
         return outtxs
-
+      where
+        ksData :: Text -> Value
+        ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
+        tx nonce = V.singleton $ PactTransaction (code nonce) (Just $ ksData nonce)
+        code nonce = defModule nonce
 
 firstPlayThrough
     :: BlockHeader
@@ -217,11 +240,12 @@ mineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
-     mv <- r >>= newBlock noMiner parentHeader
-     payload <- assertNotLeft =<< takeMVar mv
-
      -- assemble block without nonce and timestamp
      creationTime <- getCurrentTimeIntegral
+
+     mv <- r >>= newBlock noMiner parentHeader (BlockCreationTime creationTime)
+     payload <- assertNotLeft =<< takeMVar mv
+
      let bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
@@ -255,24 +279,6 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
                  , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
                  , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
                  }
-
-withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
-withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
-
-withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb (\_ -> return ())
-
-withBlockHeaderDb
-    :: IO RocksDb
-    -> BlockHeader
-    -> (IO BlockHeaderDb -> TestTree)
-    -> TestTree
-withBlockHeaderDb iordb b = withResource start stop
-  where
-    start = do
-        rdb <- iordb
-        testBlockHeaderDb rdb b
-    stop = closeBlockHeaderDb
 
 withPact
     :: LogLevel
