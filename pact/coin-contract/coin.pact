@@ -36,8 +36,12 @@
   ; Schemas and Tables
 
   (defschema coin-schema
+    @doc "The coin contract token schema"
+    ;@model [ (invariant (>= balance 0.0)) ] ; FV problem
+
     balance:decimal
     guard:guard)
+
   (deftable coin-table:{coin-schema})
 
   ; the shape of a cross-chain transfer (used for typechecking)
@@ -91,6 +95,7 @@
 
   (defun enforce-unit (amount:decimal)
     @doc "Enforce minimum precision allowed for coin transactions"
+
     (enforce
       (= (floor amount MINIMUM_PRECISION)
          amount)
@@ -224,6 +229,8 @@
     \guard."
 
     @model [ (property account-structure) ]
+
+    (enforce-account-structure account)
 
     (read coin-table account)
     )
