@@ -10,26 +10,12 @@
     [ (defproperty conserves-mass
         (= (column-delta coin-table 'balance) 0.0))
 
-      (defproperty account-structure
+      (defproperty account-structure (account:string)
         (and
           (!= account "")
           (and
             (>= (length account) 3)
             (<= (length account) 256))))
-
-      (defproperty sender-structure
-        (and
-          (!= sender "")
-          (and
-            (>= (length sender) 3)
-            (<= (length sender) 256))))
-
-      (defproperty receiver-structure
-        (and
-          (!= receiver "")
-          (and
-            (>= (length receiver) 3)
-            (<= (length receiver) 256))))
     ]
 
   ; --------------------------------------------------------------------------
@@ -144,7 +130,7 @@
     \The gas buy will be executed prior to executing SENDER's code."
 
     @model [ (property (> total 0.0))
-             (property sender-structure)
+             (property (account-structure sender))
            ]
 
     (enforce-account-structure sender)
@@ -164,9 +150,12 @@
     \and SENDER will receive the remainder up to the limit"
 
     @model [ (property (> total 0.0))
-             (property sender-structure) ]
+             (property (account-structure sender))
+             (property (account-structure miner))
+           ]
 
     (enforce-account-structure sender)
+    (enforce-account-structure miner)
     (enforce-unit total)
 
     (require-capability (FUND_TX))
@@ -201,7 +190,7 @@
     @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
     \account."
 
-    @model [ (property account-structure) ]
+    @model [ (property (account-structure account)) ]
 
     (enforce-account-structure account)
 
@@ -214,7 +203,7 @@
   (defun account-balance:decimal (account:string)
     @doc "Check an account's balance."
 
-    @model [ (property account-structure) ]
+    @model [ (property (account-structure account)) ]
 
     (enforce-account-structure account)
 
@@ -228,7 +217,7 @@
     @doc "Get all of an account's info.  This includes the balance and the    \
     \guard."
 
-    @model [ (property account-structure) ]
+    @model [ (property (account-structure account)) ]
 
     (enforce-account-structure account)
 
@@ -238,7 +227,7 @@
   (defun rotate-account-guard:string (account:string new-guard:guard)
     @doc "Rotate guard associated with ACCOUNT"
 
-    @model [ (property account-structure) ]
+    @model [ (property (account-structure account)) ]
 
     (enforce-account-structure account)
 
@@ -259,8 +248,8 @@
 
     @model [ (property conserves-mass)
              (property (> amount 0.0))
-             (property sender-structure)
-             (property receiver-structure)
+             (property (account-structure sender))
+             (property (account-structure receiver))
              (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
@@ -295,8 +284,8 @@
 
     @model [ ;(property conserves-mass) ;; fails on missing row, FV problem
             (property (> amount 0.0))
-            (property sender-structure)
-            (property receiver-structure)
+            (property (account-structure sender))
+            (property (account-structure receiver))
             (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
@@ -319,7 +308,7 @@
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
 
-    @model [ (property account-structure) ]
+    @model [ (property (account-structure account)) ]
 
     (enforce-account-structure account)
     (enforce-unit amount)
@@ -340,7 +329,8 @@
     \     ance (unused gas, if any)."
 
     @model [ (property (> total 0.0))
-             (property sender-structure)
+             (property (account-structure sender))
+             (property (account-structure miner))
              ;(property conserves-mass) not supported yet
            ]
 
@@ -352,7 +342,7 @@
     @doc "Debit AMOUNT from ACCOUNT balance"
 
     @model [ (property (> amount 0.0))
-             (property account-structure)
+             (property (account-structure account))
            ]
 
     (enforce-account-structure account)
@@ -378,14 +368,13 @@
     @doc "Credit AMOUNT to ACCOUNT balance"
 
     @model [ (property (> amount 0.0))
-             (property account-structure)
+             (property (account-structure account))
            ]
 
     (enforce-account-structure account)
 
+    (enforce (> amount 0.0) "credit amount must be positive")
     (enforce-unit amount)
-    (enforce (> amount 0.0)
-      "credit amount must be positive")
 
     (require-capability (TRANSFER))
     (with-default-read coin-table account
@@ -402,10 +391,10 @@
       ))
 
   (defpact cross-chain-transfer
-    ( sender:string
+    ( delete-account:string
       create-chain-id:string
-      receiver:string
-      receiver-guard:guard
+      create-account:string
+      create-account-guard:guard
       quantity:decimal )
 
     @doc "Transfer QUANTITY coins from DELETE-ACCOUNT on current chain to           \
@@ -425,15 +414,15 @@
 
     @model [ (property (> quantity 0.0))
              (property (!= create-chain-id ""))
-             (property sender-structure)
-             (property receiver-structure)
+             (property (account-structure delete-account))
+             (property (account-structure create-account))
            ]
 
     (step
       (with-capability (TRANSFER)
 
-        (enforce-account-structure sender)
-        (enforce-account-structure receiver)
+        (enforce-account-structure delete-account)
+        (enforce-account-structure create-account)
 
         (enforce (!= "" create-chain-id) "empty create-chain-id")
         (enforce (!= (at 'chain-id (chain-data)) create-chain-id)
@@ -444,11 +433,13 @@
 
         (enforce-unit quantity)
 
-        (debit sender quantity)
+        ;; step 1 - debit delete-account on current chain
+        (debit delete-account quantity)
+
         (let
           ((retv:object{transfer-schema}
-            { "create-account" : receiver
-            , "create-account-guard" : receiver-guard
+            { "create-account" : create-account
+            , "create-account-guard" : create-account-guard
             , "quantity" : quantity
             }))
           (yield retv create-chain-id)
@@ -456,13 +447,14 @@
 
     (step
       (resume
-        { "create-account" := receiver
-        , "create-account-guard" := receiver-guard
+        { "create-account" := create-account
+        , "create-account-guard" := create-account-guard
         , "quantity" := quantity
         }
 
+        ;; step 2 - credit create account on target chain
         (with-capability (TRANSFER)
-          (credit receiver receiver-guard quantity))
+          (credit create-account create-account-guard quantity))
         ))
     )
 )
