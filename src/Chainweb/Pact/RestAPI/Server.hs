@@ -186,13 +186,13 @@ sendHandler
 sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     case traverse (validateCommand v) cmds of
-      Right enriched -> do
-        let txs = V.fromList $ NEL.toList enriched
-        -- If any of the txs in the batch fail validation, we reject them all.
-        liftIO (mempoolInsertCheck mempool txs) >>= V.mapM_ checkResult
-        liftIO (mempoolInsert mempool UncheckedInsert txs)
-        return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-      Left err -> failWith $ "Validation failed: " <> err
+        Right enriched -> do
+            let txs = V.fromList $ NEL.toList enriched
+            -- If any of the txs in the batch fail validation, we reject them all.
+            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
+            liftIO (mempoolInsert mempool UncheckedInsert txs)
+            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
+        Left err -> failWith $ "Validation failed: " <> err
   where
     failWith :: String -> ExceptT ServerError IO a
     failWith err = throwError $ err400 { errBody = BSL8.pack err }
@@ -202,9 +202,9 @@ sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     toPactHash :: TransactionHash -> Pact.TypedHash h
     toPactHash (TransactionHash h) = Pact.TypedHash $ SB.fromShort h
 
-    checkResult :: (TransactionHash, Maybe InsertError) -> ExceptT ServerError IO ()
-    checkResult (_, Nothing) = return ()
-    checkResult (hash, Just insErr) =
+    checkResult :: Either (TransactionHash, InsertError) () -> ExceptT ServerError IO ()
+    checkResult (Right _) = pure ()
+    checkResult (Left (hash, insErr)) =
         failWith $ concat [ "Validation failed for hash "
                           , show $ toPactHash hash
                           , ": "

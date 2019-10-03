@@ -378,8 +378,10 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     }
   where
     txcfg = MP.chainwebTransactionConfig
-    blockGasLimit = 100000
     maxRecentLog = 2048
+
+    -- TODO Make this configurable.
+    blockGasLimit = 100000
 
     hasher :: ChainwebTransaction -> MP.TransactionHash
     hasher = MP.txHasher txcfg
