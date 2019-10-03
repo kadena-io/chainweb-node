@@ -374,7 +374,8 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     { MP._inmemTxCfg = txcfg
     , MP._inmemTxBlockSizeLimit = blockGasLimit
     , MP._inmemMaxRecentItems = maxRecentLog
-    , MP._inmemPreInsertCheck = preInsertCheck
+    , MP._inmemPreInsertPureChecks = preInsertSingle
+    , MP._inmemPreInsertBatchChecks = preInsertBatch
     }
   where
     txcfg = MP.chainwebTransactionConfig
@@ -389,6 +390,9 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     toDupeResult :: Maybe a -> Maybe MP.InsertError
     toDupeResult = fmap (const MP.InsertErrorDuplicate)
 
+    preInsertSingle :: ChainwebTransaction -> Maybe MP.InsertError
+    preInsertSingle tx = checkMetadata tx
+
     -- | Validation: All checks that should occur before a TX is inserted into
     -- the mempool. A rejection at this stage means that something is
     -- fundamentally wrong/illegal with the TX, and that it should be rejected
@@ -398,16 +402,11 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     -- Transaction is submitted via the @send@ endpoint, and once when a new TX
     -- is gossiped to us from a peer's mempool.
     --
-    preInsertCheck :: V.Vector ChainwebTransaction -> IO (V.Vector (Maybe MP.InsertError))
-    preInsertCheck txs = do
+    preInsertBatch :: V.Vector ChainwebTransaction -> IO (V.Vector (Maybe MP.InsertError))
+    preInsertBatch txs = do
         let hashes = V.map (toPactHash . hasher) txs
         pex <- readMVar mv
-        out1 <- V.map toDupeResult <$>
-                (_pactLookup pex (Left cid) hashes >>= either throwM return)
-        out2 <- V.mapM checkMetadata txs
-        -- N.B. this could just be "zipWith" but I wanted to generalize it to
-        -- future-proof adding new checks here
-        return $! zipAllWith [out1, out2] (getFirst . foldMap First)
+        V.map toDupeResult <$> (_pactLookup pex (Left cid) hashes >>= either throwM return)
 
     toPactHash :: MP.TransactionHash -> P.TypedHash h
     toPactHash (MP.TransactionHash h) = P.TypedHash $ SB.fromShort h
@@ -416,13 +415,13 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     --
     -- `Nothing` implies success.
     --
-    checkMetadata :: ChainwebTransaction -> IO (Maybe MP.InsertError)
+    checkMetadata :: ChainwebTransaction -> Maybe MP.InsertError
     checkMetadata tx = do
         let pcid = P._pmChainId . P._pMeta . payloadObj . P._cmdPayload $ tx
         tcid <- fromPactChainId pcid
         if tcid == cid
-            then return Nothing
-            else return $ Just MP.InsertErrorMetadataMismatch
+            then Nothing
+            else Just MP.InsertErrorMetadataMismatch
 
     vuncons :: V.Vector a -> Maybe (a, V.Vector a)
     vuncons v | V.null v = Nothing

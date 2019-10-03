@@ -48,7 +48,8 @@ data InMemConfig t = InMemConfig {
   , _inmemTxBlockSizeLimit :: !GasLimit
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
     -- Here Nothing means 'OK to insert'
-  , _inmemPreInsertCheck :: !(V.Vector t -> IO (V.Vector (Maybe InsertError)))
+  , _inmemPreInsertPureChecks :: t -> Maybe InsertError
+  , _inmemPreInsertBatchChecks :: !(V.Vector t -> IO (V.Vector (Maybe InsertError)))
 }
 
 ------------------------------------------------------------------------------

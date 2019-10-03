@@ -118,7 +118,7 @@ toMempoolBackend mempool =
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg blockSizeLimit _ _ = cfg
+    InMemConfig tcfg blockSizeLimit _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
@@ -234,7 +234,10 @@ validateOne
     -> TransactionHash
     -> Maybe InsertError
 validateOne cfg badmap (Time (TimeSpan now)) t h =
-    sizeOK >> ttlCheck >> notInBadMap
+    sizeOK
+    >> ttlCheck
+    >> notInBadMap
+    >> _inmemPreInsertPureChecks cfg t
   where
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
@@ -269,7 +272,7 @@ insertCheckInMem' cfg lock txs = do
                  , (InsertErrorBadlisted, notInBadMap badmap)
                  ]
     let out1 = V.map (runPreChecks checks) txhashes
-    out2 <- _inmemPreInsertCheck cfg txs
+    out2 <- _inmemPreInsertBatchChecks cfg txs
     return $! V.zip hashes (V.zipWith (<|>) out1 out2)
 
   where
