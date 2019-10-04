@@ -229,7 +229,7 @@ simpleClientSession envIO cid =
                 (Expected h)
                 (Actual r)
 
-        -- brancheHeaders
+        -- branchHeaders
 
         void $ liftIO $ step "branchHeadersClient: get no block headers"
         bhs3 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
@@ -269,7 +269,7 @@ simpleClientSession envIO cid =
                 (Expected 2)
                 (Actual $ _pageLimit bhs5)
 
-        -- brancheHeaders
+        -- branchHeaders
 
         void $ liftIO $ step "branchHashesClient: get no block headers"
         hs3 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
