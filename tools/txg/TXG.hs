@@ -67,6 +67,7 @@ import Text.Pretty.Simple (pPrintNoColor)
 import Pact.ApiReq
 import Pact.Types.API
 import qualified Pact.Types.ChainMeta as CM
+import qualified Pact.Types.ChainId as CI
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 
@@ -113,14 +114,15 @@ generateSimpleTransactions = do
   -- Generate a batch of transactions
   stdgen <- liftIO newStdGen
   BatchSize batch <- asks confBatchSize
-  (msgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $ f cid stdgen
+  v <- asks confVersion
+  (msgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $ f cid v stdgen
   -- Delay, so as not to hammer the network.
   delay <- generateDelay
   liftIO $ threadDelay delay
   pure (cid, msgs, cmds)
   where
-    f :: ChainId -> StdGen -> IO (Maybe Text, Command Text)
-    f cid stdgen = do
+    f :: ChainId -> ChainwebVersion -> StdGen -> IO (Maybe Text, Command Text)
+    f cid v stdgen = do
       let (operandA, operandB, op) = flip evalState stdgen $ do
             a <- state $ randomR (1, 100 :: Integer)
             b <- state $ randomR (1, 100 :: Integer)
@@ -134,7 +136,7 @@ generateSimpleTransactions = do
 
       let theData = object ["test-admin-keyset" .= fmap (formatB16PubKey . fst) kps]
       meta <- Sim.makeMeta cid
-      (Nothing,) <$> mkExec theCode theData meta (NEL.toList kps) Nothing Nothing
+      (Nothing,) <$> mkExec theCode theData meta (NEL.toList kps) (Just $ CI.NetworkId $ toText v) Nothing
 
 -- | O(1). The head value is moved to the end.
 rotate :: NESeq a -> NESeq a
@@ -158,15 +160,16 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
   field @"gsChains" %= rotate
 
   cks <- asks confKeysets
+  version <- asks confVersion
   case M.lookup cid cks of
     Nothing -> error $ printf "%s is missing Accounts!" (show cid)
     Just accs -> do
       BatchSize batch <- asks confBatchSize
       (mmsgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $
         case contractIndex of
-          CoinContract -> coinContract ifCoinOnlyTransfers isVerbose cid $ accounts "coin" accs
-          HelloWorld -> (Nothing,) <$> (generate fake >>= helloRequest)
-          Payments -> (Nothing,) <$> (payments cid $ accounts "payment" accs)
+          CoinContract -> coinContract version ifCoinOnlyTransfers isVerbose cid $ accounts "coin" accs
+          HelloWorld -> (Nothing,) <$> (generate fake >>= helloRequest version)
+          Payments -> (Nothing,) <$> (payments version cid $ accounts "payment" accs)
       generateDelay >>= liftIO . threadDelay
       pure (cid, mmsgs, cmds)
   where
@@ -174,12 +177,13 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
     accounts s = fromJuste . traverse (M.lookup (Sim.ContractName s))
 
     coinContract
-        :: Bool
+        :: ChainwebVersion
+        -> Bool
         -> Verbose
         -> ChainId
         -> Map Sim.Account (NonEmpty SomeKeyPairCaps)
         -> IO (Maybe Text, Command Text)
-    coinContract transfers (Verbose vb) cid coinaccts = do
+    coinContract version transfers (Verbose vb) cid coinaccts = do
       coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
       let msg = if vb then Just $ sshow coinContractRequest else Nothing
       let acclookup sn@(Sim.Account accsn) =
@@ -193,10 +197,10 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
               CoinTransfer (SenderName sn) _ _ -> acclookup sn
               CoinTransferAndCreate (SenderName acc) _ (Guard guardd) _ -> (acc, guardd)
       meta <- Sim.makeMetaWithSender sender cid
-      (msg,) <$> createCoinContractRequest meta ks coinContractRequest
+      (msg,) <$> createCoinContractRequest version meta ks coinContractRequest
 
-    payments :: ChainId -> Map Sim.Account (NonEmpty SomeKeyPairCaps) -> IO (Command Text)
-    payments cid paymentAccts = do
+    payments :: ChainwebVersion -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPairCaps) -> IO (Command Text)
+    payments v cid paymentAccts = do
       paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
       case paymentsRequest of
         SPRequestPay fromAccount _ _ -> case M.lookup fromAccount paymentAccts of
@@ -204,10 +208,10 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
             error "This account does not have an associated keyset!"
           Just keyset -> do
             meta <- Sim.makeMeta cid
-            simplePayReq meta paymentsRequest $ Just keyset
+            simplePayReq v meta paymentsRequest $ Just keyset
         SPRequestGetBalance _account -> do
           meta <- Sim.makeMeta cid
-          simplePayReq meta paymentsRequest Nothing
+          simplePayReq v meta paymentsRequest Nothing
         _ -> error "SimplePayments.CreateAccount code generation not supported"
 
 sendTransactions
@@ -275,8 +279,8 @@ realTransactions config host tv distribution = do
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
     !meta <- liftIO $ Sim.makeMeta cid
-    (paymentKS, paymentAcc) <- liftIO $ NEL.unzip <$> Sim.createPaymentsAccounts meta
-    (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts meta
+    (paymentKS, paymentAcc) <- liftIO $ NEL.unzip <$> Sim.createPaymentsAccounts v meta
+    (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts v meta
     pollresponse <- liftIO . runExceptT $ do
       rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc <> coinAcc) ce
       ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
@@ -329,7 +333,7 @@ realCoinTransactions config host tv distribution = do
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
     let f (Sim.Account sender) = do
           meta <- liftIO $ Sim.makeMetaWithSender sender cid
-          Sim.createCoinAccount meta sender
+          Sim.createCoinAccount (confVersion cfg) meta sender
     (coinKS, _coinAcc) <-
         liftIO $ unzip <$> traverse f Sim.coinAccountNames
     let accounts = buildGenAccountsKeysets (NEL.fromList Sim.coinAccountNames) (NEL.fromList coinKS)
@@ -415,7 +419,8 @@ singleTransaction args host (SingleTX c cid)
       cfg <- mkTXGConfig Nothing args host
       kps <- testSomeKeyPairs
       meta <- Sim.makeMeta cid
-      cmd <- mkExec (T.unpack c) (datum kps) meta (NEL.toList kps) Nothing Nothing
+      let v = confVersion cfg
+      cmd <- mkExec (T.unpack c) (datum kps) meta (NEL.toList kps) (Just $ CI.NetworkId $ toText v) Nothing
       runExceptT (f cfg cmd) >>= \case
         Left e -> print e >> exitWith (ExitFailure 1)
         Right res -> pPrintNoColor res
@@ -457,10 +462,12 @@ work cfg = do
     act :: TVar TXCount -> HostAddress -> LoggerT SomeLogMessage IO ()
     act tv host@(HostAddress h p) = localScope (\_ -> [(toText h, toText p)]) $ do
       case scriptCommand cfg of
-        DeployContracts [] -> liftIO $
-          loadContracts cfg host $ NEL.cons initAdminKeysetContract defaultContractLoaders
-        DeployContracts cs -> liftIO $
-          loadContracts cfg host $ initAdminKeysetContract :| map createLoader cs
+        DeployContracts [] -> liftIO $ do
+          let v = nodeVersion cfg
+          loadContracts cfg host $ NEL.cons (initAdminKeysetContract v) (defaultContractLoaders v)
+        DeployContracts cs -> liftIO $ do
+          let v = nodeVersion cfg
+          loadContracts cfg host $ (initAdminKeysetContract v) :| map (createLoader v) cs
         RunStandardContracts distribution ->
           realTransactions cfg host tv distribution
         RunCoinContract distribution ->
@@ -503,8 +510,8 @@ mainInfo =
 
 -- TODO: This function should also incorporate a user's keyset as well
 -- if it is given.
-createLoader :: Sim.ContractName -> ContractLoader
-createLoader (Sim.ContractName contractName) meta kp = do
+createLoader :: ChainwebVersion -> Sim.ContractName -> ContractLoader
+createLoader v (Sim.ContractName contractName) meta kp = do
   theCode <- readFile (contractName <> ".pact")
   adminKS <- testSomeKeyPairs
   -- TODO: theData may change later
@@ -512,12 +519,12 @@ createLoader (Sim.ContractName contractName) meta kp = do
           ["admin-keyset" .= fmap (formatB16PubKey . fst) adminKS
           , T.append (T.pack contractName) "-keyset" .= fmap (formatB16PubKey . fst) kp
           ]
-  mkExec theCode theData meta (NEL.toList adminKS) Nothing Nothing
+  mkExec theCode theData meta (NEL.toList adminKS) (Just $ CI.NetworkId $ toText v) Nothing
 
 -- Remember that coin contract is already loaded.
-defaultContractLoaders :: NonEmpty ContractLoader
-defaultContractLoaders =
-  NEL.fromList [ helloWorldContractLoader, simplePaymentsContractLoader ]
+defaultContractLoaders :: ChainwebVersion -> NonEmpty ContractLoader
+defaultContractLoaders v =
+  NEL.fromList [ helloWorldContractLoader v, simplePaymentsContractLoader v]
 
 api version chainid =
   case someChainwebVersionVal version of

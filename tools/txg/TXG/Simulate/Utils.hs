@@ -14,11 +14,15 @@ import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 
 import Pact.ApiReq (ApiKeyPair(..), mkExec, mkKeyPairs)
 import Pact.Types.ChainMeta (PublicMeta(..))
+import Pact.Types.ChainId (NetworkId(..))
 import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 import Pact.Types.Crypto
     (PPKScheme(..), PrivateKeyBS(..), PublicKeyBS(..), SomeKeyPair,
     formatPublicKey)
 import Pact.Types.Util (toB16Text)
+
+import Chainweb.Version
+import Chainweb.Utils
 
 testApiKeyPairs :: NonEmpty ApiKeyPair
 testApiKeyPairs =
@@ -60,11 +64,12 @@ decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
 initAdminKeysetContract
-    :: PublicMeta
+    :: ChainwebVersion
+    -> PublicMeta
     -> NonEmpty SomeKeyPairCaps
     -> IO (Command Text)
-initAdminKeysetContract meta adminKS =
-  mkExec theCode theData meta (NEL.toList adminKS) Nothing Nothing
+initAdminKeysetContract v meta adminKS =
+  mkExec theCode theData meta (NEL.toList adminKS) (Just $ NetworkId $ toText v) Nothing
   where
     theCode = "(define-keyset 'admin-keyset (read-keyset \"admin-keyset\"))"
     theData = object ["admin-keyset" .= fmap (formatB16PubKey . fst) adminKS]
