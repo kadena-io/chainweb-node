@@ -22,6 +22,8 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative ((<|>))
+import Control.Arrow ((&&&))
+import Control.Compactable (fforEither, separate)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
@@ -29,7 +31,7 @@ import Control.Exception (bracket, mask_, throw)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
-import Data.Bifunctor (bimap)
+import Data.Bifunctor (bimap, second)
 import qualified Data.ByteString.Short as SB
 import Data.Foldable (foldl', foldlM)
 import Data.HashMap.Strict (HashMap)
@@ -59,7 +61,7 @@ import Chainweb.BlockHeader
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Time
+import Chainweb.Time hiding (second)
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
@@ -209,6 +211,10 @@ maxNumPending :: Int
 maxNumPending = 10000
 
 ------------------------------------------------------------------------------
+
+-- | Validation: A short-circuiting variant of this check that fails outright at
+-- the first detection of any validation failure on any Transaction.
+--
 insertCheckInMem
     :: forall t
     .  InMemConfig t    -- ^ in-memory config
@@ -221,10 +227,10 @@ insertCheckInMem cfg lock txs = do
 
     -- We hash the tx here and pass it around around to avoid needing to repeat
     -- the hashing effort.
-    let withHashes :: Either (TransactionHash, InsertError) (Vector TransactionHash)
+    let withHashes :: Either (TransactionHash, InsertError) (Vector (TransactionHash, t))
         withHashes = for txs $ \tx ->
           let !h = hasher tx
-          in bimap (h,) (const h) $ validateOne cfg badmap now tx h
+          in bimap (h,) (const (h, tx)) $ validateOne cfg badmap now tx h
 
     case withHashes of
         Left _ -> pure $ void withHashes
@@ -267,45 +273,28 @@ validateOne cfg badmap (Time (TimeSpan now)) t h =
     notInBadMap :: Either InsertError ()
     notInBadMap = maybe (Right ()) (const $ Left InsertErrorBadlisted) $ HM.lookup h badmap
 
+-- | Validation: Similar to `insertCheckInMem`, but does not short circuit.
+-- Instead, bad transactions are filtered out and the successful ones are kept.
+--
 insertCheckInMem'
-    :: InMemConfig t    -- ^ in-memory config
+    :: forall t
+    .  InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
-    -> IO (Vector (TransactionHash, Maybe InsertError))
+    -> IO (Vector (TransactionHash, t))
 insertCheckInMem' cfg lock txs = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
-    let hashes = V.map hasher txs
-    let txhashes = V.zip hashes txs
-    let checks = [ (InsertErrorOversized, sizeOK)
-                 , (InsertErrorInvalidTime, ttlCheck now)
-                 , (InsertErrorBadlisted, notInBadMap badmap)
-                 ]
-    let out1 = V.map (runPreChecks checks) txhashes
-    out2 <- undefined -- _inmemPreInsertBatchChecks cfg txs
-    return $! V.zip hashes (V.zipWith (<|>) out1 out2)
 
+    let withHashes :: Vector (TransactionHash, t)
+        withHashes = snd . fforEither txs $ \tx ->
+          let !h = hasher tx
+          in second (const (h, tx)) $ validateOne cfg badmap now tx h
+
+    snd . separate <$> _inmemPreInsertBatchChecks cfg withHashes
   where
     txcfg = _inmemTxCfg cfg
     hasher = txHasher txcfg
-    getSize = txGasLimit txcfg
-    maxSize = _inmemTxBlockSizeLimit cfg
-    sizeOK (_, tx) = getSize tx <= maxSize
-
-    notInBadMap :: HashMap TransactionHash a -> (TransactionHash, b) -> Bool
-    notInBadMap badmap (h, _) = not (HM.member h badmap)
-
-    -- prop_tx_ttl_arrival
-    ttlCheck (Time (TimeSpan now)) (_, tx) =
-      case txMetadata txcfg tx of
-        TransactionMetadata (Time (TimeSpan creationTime)) (Time (TimeSpan expiryTime)) ->
-            creationTime < now && now < expiryTime && creationTime < expiryTime
-
-    runPreChecks [] _ = Nothing
-    runPreChecks ((reason, chk):chks) tx =
-        if chk tx
-          then runPreChecks chks tx
-          else Just reason
 
 insertInMem
     :: forall t
@@ -315,11 +304,7 @@ insertInMem
     -> Vector t  -- ^ new transactions
     -> IO ()
 insertInMem cfg lock runCheck txs0 = do
-    insertErrors <- insertCheck
-    let txhashes :: Vector (TransactionHash, t)
-        txhashes = V.map (\(tx, (h, _)) -> (h, tx)) $
-                   V.filter (\(_, (_, m)) -> isNothing m) $
-                   V.zip txs0 insertErrors
+    txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         let countRef = _inmemCountPending mdata
         cnt <- readIORef countRef
@@ -335,10 +320,10 @@ insertInMem cfg lock runCheck txs0 = do
             recordRecentTransactions maxRecent newHashes
 
   where
-    insertCheck :: IO (Vector (TransactionHash, Maybe a))
+    insertCheck :: IO (Vector (TransactionHash, t))
     insertCheck = if runCheck == CheckedInsert
-                  then undefined -- insertCheckInMem cfg lock txs0
-                  else return $! V.map (\tx -> (hasher tx, Nothing)) txs0
+                  then insertCheckInMem' cfg lock txs0
+                  else return $! V.map (hasher &&& id) txs0
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)

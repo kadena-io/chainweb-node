@@ -401,13 +401,13 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     -- is gossiped to us from a peer's mempool.
     --
     preInsertBatch
-        :: V.Vector MP.TransactionHash
-        -> IO (V.Vector (Either (MP.TransactionHash, MP.InsertError) ()))
+        :: V.Vector (MP.TransactionHash, ChainwebTransaction)
+        -> IO (V.Vector (Either (MP.TransactionHash, MP.InsertError) (MP.TransactionHash, ChainwebTransaction)))
     preInsertBatch txs = do
-        let hashes = V.map toPactHash txs
+        let hashes = V.map (toPactHash . fst) txs
         pex <- readMVar mv
         rs <- _pactLookup pex (Left cid) hashes >>= either throwM pure
-        pure $ V.zipWith (\r h -> maybe (Right ()) (Left . (h,)) $ toDupeResult r) rs txs
+        pure $ V.zipWith (\r (h,t) -> maybe (Right (h,t)) (Left . (h,)) $ toDupeResult r) rs txs
 
     toPactHash :: MP.TransactionHash -> P.TypedHash h
     toPactHash (MP.TransactionHash h) = P.TypedHash $ SB.fromShort h

@@ -6,6 +6,7 @@ extra-deps:
   # --- Missing from Stackage --- #
   - QuickCheck-GenT-0.2.0
   - bloomfilter-2.0.1.0
+  - compactable-0.1.2.3
   - digraph-0.1.0.2
   - fake-0.1.1.2
   - loglevel-0.1.0.0
