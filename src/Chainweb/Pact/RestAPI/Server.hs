@@ -62,11 +62,8 @@ import Servant
 
 import System.LogLevel
 
-import Text.Printf (printf)
-
 -- internal modules
 
-import Chainweb.Pact.TransactionExec (networkIdOf)
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
@@ -140,15 +137,14 @@ pactServer (cut, chain) =
     pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
-    v = FromSing (SChainwebVersion :: Sing v)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
 
     pactApiHandlers
-      = sendHandler logger v mempool
+      = sendHandler logger mempool
       :<|> pollHandler logger cut cid chain
       :<|> listenHandler logger cut cid chain
-      :<|> localHandler logger v cut cid chain
+      :<|> localHandler logger cut cid chain
 
     pactSpvHandler = spvHandler logger cut cid chain
 
@@ -179,13 +175,12 @@ data PactCmdLog
 sendHandler
     :: Logger logger
     => logger
-    -> ChainwebVersion
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
     -> Handler RequestKeys
-sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
+sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse (validateCommand v) cmds of
+    case traverse validateCommand cmds of
         Right enriched -> do
             let txs = V.fromList $ NEL.toList enriched
             -- If any of the txs in the batch fail validation, we reject them all.
@@ -290,15 +285,14 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
 localHandler
     :: Logger logger
     => logger
-    -> ChainwebVersion
     -> CutResources logger cas
     -> ChainId
     -> ChainResources logger
     -> Command Text
     -> Handler (CommandResult Hash)
-localHandler logger v _ _ cr cmd = do
+localHandler logger _ _ cr cmd = do
     liftIO $ logg Info $ PactCmdLogLocal cmd
-    cmd' <- case validateCommand v cmd of
+    cmd' <- case validateCommand cmd of
       (Right !c) -> return c
       Left err ->
         throwError $ err400 { errBody = "Validation failed: " <> BSL8.pack err }
@@ -434,19 +428,10 @@ internalPoll cutR cid chain cut requestKeys0 = do
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
 
-validateCommand :: ChainwebVersion -> Command Text -> Either String ChainwebTransaction
-validateCommand v cmdText = case verifyCommand cmdBS of
-    ProcSucc cmd
-        | length (_cmdSigs cmd) > 100 ->
-            Left "More than 100 signatures given."
-        | payloadVer cmd /= Just v ->
-            Left $ printf "Incompatible Network. Given: %s, Expected: %s " (show $ networkIdOf cmd) (show v)
-        | otherwise ->
-            Right (mkPayloadWithText <$> cmd)
+validateCommand :: Command Text -> Either String ChainwebTransaction
+validateCommand cmdText = case verifyCommand cmdBS of
+    ProcSucc cmd -> Right (mkPayloadWithText <$> cmd)
     ProcFail err -> Left err
   where
     cmdBS :: Command ByteString
     cmdBS = encodeUtf8 <$> cmdText
-
-    payloadVer :: Command (Payload m c) -> Maybe ChainwebVersion
-    payloadVer = networkIdOf >=> fromText . Pact._networkId
