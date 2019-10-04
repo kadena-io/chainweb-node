@@ -37,7 +37,7 @@ tests = testGroup "Chainweb.Mempool.sync"
     wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
     wf f = do
         mv <- newMVar (pure . V.map Right)
-        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (const $ Right ()) (checkMv mv)
+        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv)
         withInMemoryMempool cfg $ f mv
 
     checkMv :: MVar (t -> IO b) -> t -> IO b
@@ -65,7 +65,7 @@ txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
 
 testInMemCfg :: InMemConfig MockTx
 testInMemCfg =
-    InMemConfig txcfg mockBlockGasLimit 2048 (const $ Right ()) (pure . V.map Right)
+    InMemConfig txcfg mockBlockGasLimit 2048 Right (pure . V.map Right)
 
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)
