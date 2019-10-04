@@ -122,7 +122,7 @@ signedCode
   -- ^ Pact code
   -> IO [Command Text]
 signedCode k c =
-  fmap (:[]) (txToCommand defPubMeta (NEL.fromList k) (PactCode c))
+  fmap (:[]) (txToCommand defChainwebVersion defPubMeta (NEL.fromList k) (PactCode c))
 
 -- | Convenience function for constructing a coin transfer transaction
 transfer :: Text -> Text -> Double -> IO [Command Text]
@@ -130,7 +130,7 @@ transfer from to amt = do
     k <- stockKey from
     let meta = defPubMeta { _pmSender = from }
     kps <- mkKeyPairs [k]
-    fmap (:[]) $ txToCommand meta (NEL.fromList kps) $
+    fmap (:[]) $ txToCommand defChainwebVersion meta (NEL.fromList kps) $
       CallBuiltin $ CC $ CoinTransfer
         (SenderName $ Account $ T.unpack from)
         (ReceiverName $ Account $ T.unpack to)
@@ -142,7 +142,7 @@ transferCreate from to guard amt = do
   k <- stockKey from
   let meta = defPubMeta { _pmSender = from }
   kps <- mkKeyPairs [k]
-  fmap (:[]) $ txToCommand meta (NEL.fromList kps) $
+  fmap (:[]) $ txToCommand defChainwebVersion meta (NEL.fromList kps) $
     CallBuiltin $ CC $ CoinTransferAndCreate
       (SenderName $ Account $ T.unpack from)
       (ReceiverName $ Account $ T.unpack to)

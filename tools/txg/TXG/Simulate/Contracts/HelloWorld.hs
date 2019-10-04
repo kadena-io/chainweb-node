@@ -33,20 +33,26 @@ import Text.Printf (printf)
 
 import Pact.ApiReq (mkExec)
 import Pact.Types.ChainMeta (PublicMeta(..))
+import Pact.Types.ChainId
 import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 
 -- chainweb
+
+import Chainweb.Utils
+import Chainweb.Version
+
 
 import TXG.Simulate.Utils
 
 
 helloWorldContractLoader
-    :: PublicMeta
+    :: ChainwebVersion
+    -> PublicMeta
     -> NonEmpty SomeKeyPairCaps
     -> IO (Command Text)
-helloWorldContractLoader meta adminKS = do
+helloWorldContractLoader v meta adminKS = do
   let theData = object ["admin-keyset" .= fmap (formatB16PubKey . fst) adminKS]
-  mkExec (T.unpack theCode) theData meta (NEL.toList adminKS) Nothing Nothing
+  mkExec (T.unpack theCode) theData meta (NEL.toList adminKS) (Just $ NetworkId $ toText v) Nothing
   where
     theCode = [text|
 (module helloWorld 'admin-keyset
@@ -62,8 +68,8 @@ newtype Name = Name { getName :: Text }
 instance Fake Name where
   fake = Name <$> personName
 
-helloRequest :: Name -> IO (Command Text)
-helloRequest (Name name) = mkExec theCode theData def [] Nothing Nothing
+helloRequest :: ChainwebVersion -> Name -> IO (Command Text)
+helloRequest v (Name name) = mkExec theCode theData def [] (Just $ NetworkId $ toText v) Nothing
   where
     theData = Null
     theCode = printf "(helloWorld.hello \"%s\")" name
