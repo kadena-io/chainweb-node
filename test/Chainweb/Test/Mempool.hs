@@ -1,9 +1,12 @@
--- | Tests and test infrastructure common to all mempool backends.
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
+-- | Tests and test infrastructure common to all mempool backends.
+
 module Chainweb.Test.Mempool
   ( tests
   , remoteTests
@@ -15,6 +18,7 @@ module Chainweb.Test.Mempool
   , lookupIsMissing
   ) where
 
+import Data.Bifunctor (bimap)
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Exception (bracket)
@@ -102,15 +106,22 @@ arbitraryGasPrice :: Gen GasPrice
 arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
-  arbitrary = MockTx <$> chooseAny
-                        <*> arbitraryGasPrice
-                        <*> pure mockBlockGasLimit
-                        <*> pure emptyMeta
+  arbitrary = MockTx
+      <$> chooseAny
+      <*> arbitraryGasPrice
+      <*> pure mockBlockGasLimit
+      <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
       zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
-type InsertCheck = MVar (Vector MockTx -> IO (Vector (Maybe InsertError)))
+type BatchCheck =
+    Vector (TransactionHash, MockTx)
+    -> IO (V.Vector (Either (TransactionHash, InsertError) (TransactionHash, MockTx)))
+
+-- TODO Why is this inside an MVar?
+type InsertCheck = MVar BatchCheck
+
 data MempoolWithFunc =
     MempoolWithFunc (forall a
                      . ((InsertCheck -> MempoolBackend MockTx -> IO a)
@@ -134,8 +145,7 @@ mempoolProperty
     -> TestTree
 mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name go
   where
-    go = monadicIO (gen >>= run . tout . withMempool . test
-                        >>= either fail return)
+    go = monadicIO (gen >>= run . tout . withMempool . test >>= either fail return)
 
     tout m = timeout 60000000 m >>= maybe (fail "timeout") return
 
@@ -191,6 +201,7 @@ propBadlist (txs, badTxs) _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
+-- TODO Does this need to be updated?
 propPreInsert
     :: ([MockTx], [MockTx])
     -> InsertCheck
@@ -211,10 +222,16 @@ propPreInsert (txs, badTxs) gossipMV mempool =
     hash = txHasher txcfg
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
-    checkOne tx = if tx `elem` badTxs
-                  then Just InsertErrorBadlisted
-                  else Nothing
-    checkNotBad xs = return $! V.map checkOne xs
+
+    checkOne :: MockTx -> Either InsertError MockTx
+    checkOne tx
+        | tx `elem` badTxs = Left InsertErrorBadlisted
+        | otherwise = Right tx
+
+    checkNotBad
+        :: Vector (TransactionHash, MockTx)
+        -> IO (V.Vector (Either (TransactionHash, InsertError) (TransactionHash, MockTx)))
+    checkNotBad = pure . V.map (\(h, tx) -> bimap (h,) (h,) $ checkOne tx)
 
 
 propTrivial
