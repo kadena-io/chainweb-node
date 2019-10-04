@@ -126,6 +126,7 @@ import System.LogLevel
 
 -- internal modules
 
+import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
@@ -369,9 +370,10 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 
 validatingMempoolConfig
     :: ChainId
+    -> ChainwebVersion
     -> MVar PactExecutionService
     -> MP.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid mv = MP.InMemConfig
+validatingMempoolConfig cid v mv = MP.InMemConfig
     { MP._inmemTxCfg = txcfg
     , MP._inmemTxBlockSizeLimit = blockGasLimit
     , MP._inmemMaxRecentItems = maxRecentLog
@@ -416,11 +418,15 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     --
     checkMetadata :: ChainwebTransaction -> Either MP.InsertError ChainwebTransaction
     checkMetadata tx = do
-        let pcid = P._pmChainId . P._pMeta . payloadObj . P._cmdPayload $ tx
+        let !pay = payloadObj . P._cmdPayload $ tx
+            pcid = P._pmChainId $ P._pMeta pay
+            sigs = length (P._cmdSigs tx)
+            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
         tcid <- note (MP.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
-        if tcid == cid
-            then Right tx
-            else Left MP.InsertErrorMetadataMismatch
+        if | tcid /= cid   -> Left MP.InsertErrorMetadataMismatch
+           | sigs > 100    -> Left $ MP.InsertErrorOther "Too many signatures"
+           | ver /= Just v -> Left MP.InsertErrorMetadataMismatch
+           | otherwise     -> Right tx
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -442,7 +448,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
-            let mcfg = validatingMempoolConfig cid
+            let mcfg = validatingMempoolConfig cid v
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg cdbv payloadDb prune dbDir nodeid
                      resetDb)
