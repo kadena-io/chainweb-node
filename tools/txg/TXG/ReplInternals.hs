@@ -137,20 +137,21 @@ data TxContent
 easyTxToCommand :: TxContent -> IO (Command Text)
 easyTxToCommand txContent = do
     ks <- testSomeKeyPairs
-    txToCommand defPubMeta ks txContent
+    txToCommand defChainwebVersion defPubMeta ks txContent
 
 txToCommand
-    :: PublicMeta
+    :: ChainwebVersion
+    -> PublicMeta
     -> NEL.NonEmpty SomeKeyPairCaps
     -> TxContent
     -> IO (Command Text)
-txToCommand pubmeta ks = \case
+txToCommand v pubmeta ks = \case
     PactCode str -> cmdStr str
-    Define Hello -> helloWorldContractLoader pubmeta ks
-    Define Payments -> simplePaymentsContractLoader pubmeta ks
-    CallBuiltin (CC coinReq) -> createCoinContractRequest pubmeta ks coinReq
-    CallBuiltin (SP spReq mkeyset) -> simplePayReq pubmeta spReq mkeyset
-    CallBuiltin (HelloCode helloname) -> helloRequest $ Name helloname
+    Define Hello -> helloWorldContractLoader v pubmeta ks
+    Define Payments -> simplePaymentsContractLoader v pubmeta ks
+    CallBuiltin (CC coinReq) -> createCoinContractRequest v pubmeta ks coinReq
+    CallBuiltin (SP spReq mkeyset) -> simplePayReq v pubmeta spReq mkeyset
+    CallBuiltin (HelloCode helloname) -> helloRequest v $ Name helloname
 
 defChainwebVersion :: ChainwebVersion
 defChainwebVersion = Development
