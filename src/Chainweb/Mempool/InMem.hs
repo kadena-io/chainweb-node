@@ -29,6 +29,7 @@ import Control.Exception (bracket, mask_, throw)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
+import Data.Bifunctor (bimap)
 import qualified Data.ByteString.Short as SB
 import Data.Foldable (foldl', foldlM)
 import Data.HashMap.Strict (HashMap)
@@ -218,10 +219,12 @@ insertCheckInMem cfg lock txs = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
+    -- We hash the tx here and pass it around around to avoid needing to repeat
+    -- the hashing effort.
     let withHashes :: Either (TransactionHash, InsertError) (Vector TransactionHash)
         withHashes = for txs $ \tx ->
           let !h = hasher tx
-          in maybe (Right h) (Left . (h,)) $ validateOne cfg badmap now tx h
+          in bimap (h,) (const h) $ validateOne cfg badmap now tx h
 
     case withHashes of
         Left _ -> pure $ void withHashes
@@ -230,7 +233,6 @@ insertCheckInMem cfg lock txs = do
     hasher :: t -> TransactionHash
     hasher = txHasher (_inmemTxCfg cfg)
 
--- TODO Make this `Either` as well.
 -- | Validation: Confirm the validity of some single transaction @t@.
 --
 validateOne
@@ -240,7 +242,7 @@ validateOne
     -> Time Micros
     -> t
     -> TransactionHash
-    -> Maybe InsertError
+    -> Either InsertError ()
 validateOne cfg badmap (Time (TimeSpan now)) t h =
     sizeOK
     >> ttlCheck
@@ -250,20 +252,20 @@ validateOne cfg badmap (Time (TimeSpan now)) t h =
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
 
-    sizeOK :: Maybe InsertError
-    sizeOK = mbool InsertErrorOversized $ getSize t > maxSize
+    sizeOK :: Either InsertError ()
+    sizeOK = ebool_ InsertErrorOversized (getSize t <= maxSize)
       where
         getSize = txGasLimit txcfg
         maxSize = _inmemTxBlockSizeLimit cfg
 
     -- prop_tx_ttl_arrival
-    ttlCheck :: Maybe InsertError
-    ttlCheck = mbool InsertErrorInvalidTime $ ct >= now || now >= et || ct >= et
+    ttlCheck :: Either InsertError ()
+    ttlCheck = ebool_ InsertErrorInvalidTime (ct < now && now < et && ct < et)
       where
         TransactionMetadata (Time (TimeSpan ct)) (Time (TimeSpan et)) = txMetadata txcfg t
 
-    notInBadMap :: Maybe InsertError
-    notInBadMap = InsertErrorBadlisted <$ HM.lookup h badmap
+    notInBadMap :: Either InsertError ()
+    notInBadMap = maybe (Right ()) (const $ Left InsertErrorBadlisted) $ HM.lookup h badmap
 
 insertCheckInMem'
     :: InMemConfig t    -- ^ in-memory config

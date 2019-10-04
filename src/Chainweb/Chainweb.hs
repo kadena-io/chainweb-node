@@ -93,6 +93,7 @@ import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
@@ -384,13 +385,10 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     -- TODO Make this configurable.
     blockGasLimit = 100000
 
-    hasher :: ChainwebTransaction -> MP.TransactionHash
-    hasher = MP.txHasher txcfg
-
     toDupeResult :: Maybe a -> Maybe MP.InsertError
     toDupeResult = fmap (const MP.InsertErrorDuplicate)
 
-    preInsertSingle :: ChainwebTransaction -> Maybe MP.InsertError
+    preInsertSingle :: ChainwebTransaction -> Either MP.InsertError ()
     preInsertSingle tx = checkMetadata tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
@@ -416,31 +414,13 @@ validatingMempoolConfig cid mv = MP.InMemConfig
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
-    -- `Nothing` implies success.
-    --
-    checkMetadata :: ChainwebTransaction -> Maybe MP.InsertError
+    checkMetadata :: ChainwebTransaction -> Either MP.InsertError ()
     checkMetadata tx = do
         let pcid = P._pmChainId . P._pMeta . payloadObj . P._cmdPayload $ tx
-        tcid <- fromPactChainId pcid
+        tcid <- note (MP.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
         if tcid == cid
-            then Nothing
-            else Just MP.InsertErrorMetadataMismatch
-
-    vuncons :: V.Vector a -> Maybe (a, V.Vector a)
-    vuncons v | V.null v = Nothing
-              | otherwise = Just (V.unsafeHead v, V.unsafeTail v)
-
-    -- TODO This can likely be optimized.
-    zipAllWith :: [V.Vector a] -> ([a] -> b) -> V.Vector b
-    zipAllWith vs combine = flip V.unfoldr vs $ \vecs ->
-        let unconses = map vuncons vecs
-            anyFinished = any isNothing unconses
-        in if anyFinished
-           then Nothing
-           else let outs = map fromJuste unconses
-                    heads = map fst outs
-                    tails = map snd outs
-                in Just (combine heads, tails)
+            then Right ()
+            else Left MP.InsertErrorMetadataMismatch
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --

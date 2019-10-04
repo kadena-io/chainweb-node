@@ -58,7 +58,7 @@ module Chainweb.Utils
 , roundBy
 , unlessM
 , whenM
-, mbool
+, ebool_
 , partitionEithersNEL
 , (&)
 , IxedGet(..)
@@ -349,8 +349,8 @@ whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
 
-mbool :: a -> Bool -> Maybe a
-mbool a = bool Nothing (Just a)
+ebool_ :: e -> Bool -> Either e ()
+ebool_ e = bool (Left e) (Right ())
 
 -- | Round an integral `n` up to the nearest multiple of
 -- an integral `m`
