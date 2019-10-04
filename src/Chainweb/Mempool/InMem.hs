@@ -23,15 +23,16 @@ module Chainweb.Mempool.InMem
 ------------------------------------------------------------------------------
 import Control.Applicative ((<|>))
 import Control.Arrow ((&&&))
-import Control.Compactable (fforEither, separate)
+import Control.Compactable (fforMaybe, separate)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
+import Control.Error.Util (hush)
 import Control.Exception (bracket, mask_, throw)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
-import Data.Bifunctor (bimap, second)
+import Data.Bifunctor (bimap)
 import qualified Data.ByteString.Short as SB
 import Data.Foldable (foldl', foldlM)
 import Data.HashMap.Strict (HashMap)
@@ -61,7 +62,7 @@ import Chainweb.BlockHeader
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
-import Chainweb.Time hiding (second)
+import Chainweb.Time
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
@@ -287,9 +288,9 @@ insertCheckInMem' cfg lock txs = do
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
     let withHashes :: Vector (TransactionHash, t)
-        withHashes = snd . fforEither txs $ \tx ->
+        withHashes = fforMaybe txs $ \tx ->
           let !h = hasher tx
-          in second (const (h, tx)) $ validateOne cfg badmap now tx h
+          in (h, tx) <$ hush (validateOne cfg badmap now tx h)
 
     snd . separate <$> _inmemPreInsertBatchChecks cfg withHashes
   where
