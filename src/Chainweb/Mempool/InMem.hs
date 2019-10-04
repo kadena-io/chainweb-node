@@ -231,7 +231,7 @@ insertCheckInMem cfg lock txs = do
     let withHashes :: Either (TransactionHash, InsertError) (Vector (TransactionHash, t))
         withHashes = for txs $ \tx ->
           let !h = hasher tx
-          in bimap (h,) (const (h, tx)) $ validateOne cfg badmap now tx h
+          in bimap (h,) (h,) $ validateOne cfg badmap now tx h
 
     case withHashes of
         Left _ -> pure $ void withHashes
@@ -249,7 +249,7 @@ validateOne
     -> Time Micros
     -> t
     -> TransactionHash
-    -> Either InsertError ()
+    -> Either InsertError t
 validateOne cfg badmap (Time (TimeSpan now)) t h =
     sizeOK
     >> ttlCheck
@@ -290,7 +290,7 @@ insertCheckInMem' cfg lock txs = do
     let withHashes :: Vector (TransactionHash, t)
         withHashes = fforMaybe txs $ \tx ->
           let !h = hasher tx
-          in (h, tx) <$ hush (validateOne cfg badmap now tx h)
+          in (h,) <$> hush (validateOne cfg badmap now tx h)
 
     snd . separate <$> _inmemPreInsertBatchChecks cfg withHashes
   where

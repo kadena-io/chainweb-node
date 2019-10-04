@@ -47,7 +47,7 @@ data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
-  , _inmemPreInsertPureChecks :: t -> Either InsertError ()
+  , _inmemPreInsertPureChecks :: t -> Either InsertError t
   , _inmemPreInsertBatchChecks
         :: V.Vector (TransactionHash, t)
         -> IO (V.Vector (Either (TransactionHash, InsertError) (TransactionHash, t)))

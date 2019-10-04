@@ -388,7 +388,7 @@ validatingMempoolConfig cid mv = MP.InMemConfig
     toDupeResult :: Maybe a -> Maybe MP.InsertError
     toDupeResult = fmap (const MP.InsertErrorDuplicate)
 
-    preInsertSingle :: ChainwebTransaction -> Either MP.InsertError ()
+    preInsertSingle :: ChainwebTransaction -> Either MP.InsertError ChainwebTransaction
     preInsertSingle tx = checkMetadata tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
@@ -414,12 +414,12 @@ validatingMempoolConfig cid mv = MP.InMemConfig
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
-    checkMetadata :: ChainwebTransaction -> Either MP.InsertError ()
+    checkMetadata :: ChainwebTransaction -> Either MP.InsertError ChainwebTransaction
     checkMetadata tx = do
         let pcid = P._pmChainId . P._pMeta . payloadObj . P._cmdPayload $ tx
         tcid <- note (MP.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
         if tcid == cid
-            then Right ()
+            then Right tx
             else Left MP.InsertErrorMetadataMismatch
 
 -- Intializes all local chainweb components but doesn't start any networking.
