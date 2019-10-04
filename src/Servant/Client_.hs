@@ -78,10 +78,18 @@ instance RunClient ClientM_ where
         req' <- liftIO $ _modReq e req
         res <- lift (runRequest req')
         liftIO $ _modRes e res
-    throwClientError = throwError
-
     {-# INLINE runRequest #-}
+
+#if MIN_VERSION_servant_server(0,16,0)
+    throwClientError = throwError
     {-# INLINE throwClientError #-}
+#else
+    throwServantError = throwError
+    {-# INLINE throwServantError #-}
+
+    streamingRequest = error "ClientM_ doesn't support legacy servant streaming"
+    {-# INLINE streamingRequest #-}
+#endif
 
 -- | Locally overwrite 'Request's made the inner computation.
 --
