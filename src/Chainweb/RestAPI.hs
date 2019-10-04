@@ -66,7 +66,7 @@ import qualified Data.Text.Encoding as T
 import GHC.Generics (Generic)
 
 import Network.Socket
-import Network.Wai (Middleware)
+import Network.Wai (Middleware, mapResponseHeaders)
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings, runTLSSocket)
 import Network.Wai.Middleware.Cors
@@ -74,6 +74,8 @@ import Network.Wai.Middleware.Cors
 import Servant.API
 import Servant.Server
 import Servant.Swagger
+
+import System.Clock
 
 -- internal modules
 
@@ -224,14 +226,26 @@ chainwebApplication
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Application
-chainwebApplication v dbs mr hs =
-    chainwebCors . someServerApplication $ someChainwebServer v dbs mr hs
+chainwebApplication v dbs mr hs
+    = chainwebTime
+    . chainwebCors
+    . someServerApplication
+    $ someChainwebServer v dbs mr hs
 
 -- Simple cors with actualy simpleHeaders which includes content-type.
 chainwebCors :: Middleware
 chainwebCors = cors . const . Just $ simpleCorsResourcePolicy
     { corsRequestHeaders = simpleHeaders
     }
+
+chainwebTime :: Middleware
+chainwebTime app req resp = app req resp'
+  where
+    resp' res = do
+        timestamp <- sec <$> getTime Realtime
+        resp $ mapResponseHeaders
+            ((:) ("X-Server-Timestamp", sshow timestamp))
+            res
 
 serveChainwebOnPort
     :: Show t
