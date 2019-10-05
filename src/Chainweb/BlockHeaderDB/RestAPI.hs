@@ -387,13 +387,15 @@ newtype HeaderStream = HeaderStream Bool
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
     , _huTxCount :: !Int
-    , _huPowHash :: !Text }
+    , _huPowHash :: !Text
+    , _huTarget :: !Text }
 
 instance ToJSON HeaderUpdate where
     toJSON o = object
-        [ "header" .= _huHeader o
+        [ "header"  .= _huHeader o
         , "txCount" .= _huTxCount o
-        , "powHash" .= _huPowHash o ]
+        , "powHash" .= _huPowHash o
+        , "target"  .= _huTarget o ]
 
 type HeaderStreamApi_ = "header" :> "updates" :> Raw
 
