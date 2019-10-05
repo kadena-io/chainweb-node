@@ -67,6 +67,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
 import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadStore)
+import Chainweb.Difficulty (showTargetHex)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore.Types (PayloadCas, PayloadDb)
 import Chainweb.PowHash (powHashBytes)
@@ -332,7 +333,8 @@ headerStreamHandler db = Tagged $ \req respond -> do
         pure $ HeaderUpdate
             { _huHeader =  ObjectEncoded bh
             , _huTxCount = length $ _payloadWithOutputsTransactions x
-            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh }
+            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
+            , _huTarget = showTargetHex $ _blockTarget bh }
 
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
