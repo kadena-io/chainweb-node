@@ -98,6 +98,7 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
 
+import Data.Align (alignWith)
 import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
@@ -107,6 +108,7 @@ import Data.List (sortBy)
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
+import Data.These (These(..))
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
@@ -409,7 +411,11 @@ validatingMempoolConfig cid v mv = MP.InMemConfig
         let hashes = V.map (toPactHash . fst) txs
         pex <- readMVar mv
         rs <- _pactLookup pex (Left cid) hashes >>= either throwM pure
-        pure $ V.zipWith (\r (h,t) -> maybe (Right (h,t)) (Left . (h,)) $ toDupeResult r) rs txs
+        pure $ alignWith f rs txs
+      where
+        f (These r (h, t)) = maybe (Right (h,t)) (Left . (h,)) $ toDupeResult r
+        f (That (h, _)) = Left (h, MP.InsertErrorOther "preInsertBatch: align mismatch 0")
+        f (This _) = Left (MP.TransactionHash "", MP.InsertErrorOther "preInsertBatch: align mismatch 1")
 
     toPactHash :: MP.TransactionHash -> P.TypedHash h
     toPactHash (MP.TransactionHash h) = P.TypedHash $ SB.fromShort h
