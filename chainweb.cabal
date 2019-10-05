@@ -35,7 +35,6 @@ extra-source-files:
 
     pact/coin-contract/coin.repl
     pact/coin-contract/coin.pact
-    pact/coin-contract/coin-sig.pact
     pact/coin-contract/load-coin-contract.yaml
     test/pact/*.pact
     test/golden/*.txt
@@ -253,6 +252,7 @@ library
         , Chainweb.Pact.Utils
 
         -- utils
+        , Servant.Client_
         , Utils.Logging
         , Utils.Logging.Config
         , Utils.Logging.Trace
@@ -473,6 +473,7 @@ test-suite chainweb-tests
         , temporary >= 1.3
         , text >=1.2
         , these >= 0.7 && < 1
+        , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
