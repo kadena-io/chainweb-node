@@ -1,7 +1,7 @@
-{-# LANGUAGE CPP                        #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
@@ -16,8 +16,8 @@ import Data.Decimal
 import Data.Default
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy
-import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text as T
 
 import Network.HTTP.Client hiding (Proxy(..))
 import Network.HTTP.Client.TLS
@@ -43,15 +43,15 @@ import Pact.Types.Hash
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
-import Chainweb.Version
 import Chainweb.Pact.RestAPI
-#if !MIN_VERSION_servant(0,15,0)
+import Chainweb.Version
+#if !MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 
+import TXG.Simulate.Contracts.CoinContract
 import TXG.Simulate.Contracts.HelloWorld
 import TXG.Simulate.Contracts.SimplePayments
-import TXG.Simulate.Contracts.CoinContract
 import TXG.Simulate.Utils
 
 -- for ghci
