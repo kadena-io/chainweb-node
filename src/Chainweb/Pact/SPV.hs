@@ -1,8 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -31,9 +32,9 @@ import Control.Lens hiding (index)
 import Control.Monad.Catch
 
 import Data.Aeson hiding (Object, (.=))
-import Data.ByteString.Base64.URL as Base64
 import Data.Default (def)
 import Data.Text (Text, pack)
+import qualified Data.Text.Encoding as T
 
 import Crypto.Hash.Algorithms
 
@@ -97,21 +98,40 @@ verifySPV
     -> IO (Either Text (Object Name))
 verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
   where
-    -- extract spv resources from pact object
     go s o cdb = case s of
       "TXOUT" -> case extractProof o of
         Left !u -> return $! Left u
-        Right !t -> verifyTransactionOutputProof cdb t >>= extractOutputs handleResult
-      t -> return . Left $! "unsupported SPV types: " <> t
+        Right !t -> do
 
-    handleResult (CommandResult _ _ (PactResult (Right pv)) _ _ _ _) = case fromPactValue pv of
-      TObject !o _ -> return $! Right o
-      !o -> do
-        logLog l "ERROR" $ show o
-        return $! Left (pack "type error in associated pact transaction, should be object")
-    handleResult cr = do
-      logLog l "ERROR" $ show cr
-      return $! Left (pack "Invalid command result in associated pact output")
+
+          -- SPV proof verification is a 3 step process:
+          --
+          --  1. verify spv tx output proof via chainweb spv api
+          --
+          --  2. Decode tx outputs to 'HashCommandResult'
+          --
+          --  3. Extract tx outputs as a pact object and return the
+          --  object.
+
+          TransactionOutput p <- verifyTransactionOutputProof cdb t
+
+          q <- case decodeStrict' p :: Maybe HashCommandResult of
+            Nothing -> internalError "unable to decode spv transaction output"
+            Just cr -> return cr
+
+          r <- case _crResult q of
+            PactResult (Left cr) -> do
+              logLog l "ERROR" $ show cr
+              return $! Left "invalid command result in tx output proof"
+            PactResult (Right v) -> case fromPactValue v of
+              TObject !j _ -> return $! Right j
+              k -> do
+                logLog l "ERROR" $ show k
+                return $ Left "verified tx output has invalid type"
+
+          return r
+
+      t -> return . Left $! "unsupported SPV types: " <> t
 
 -- | SPV defpact transaction verification support. This call validates a pact 'endorsement'
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
@@ -123,16 +143,34 @@ verifyCont
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont cdbv (ContProof p) = readMVar cdbv >>= \cdb -> case Base64.decode p of
-      Left e -> return $! Left (sshow e)
-      Right t -> case decodeStrict' t of
-        Nothing -> internalError "unable to decode continuation transaction output"
-        Just u -> verifyTransactionOutputProof cdb u >>= extractOutputs handleResult
-  where
-    handleResult (CommandResult _ _ _ _ _ mpe _) = case mpe of
-      Nothing -> return $! Left "no pact exec found in command result"
-      Just pe -> return $! Right pe
+verifyCont cdbv (ContProof cp) = do
+    cdb <- readMVar cdbv
+    t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
 
+    case decodeStrict' t of
+      Nothing -> internalError "unable to decode continuation transaction output"
+      Just u -> do
+
+        -- Cont proof verification is a 3 step process:
+        --
+        --  1. verify spv tx output proof via chainweb spv api
+        --
+        --  2. Decode tx outputs to 'HashCommandResult'
+        --
+        --  3. Extract continuation 'PactExec' from decoded result
+        --  and return the cont exec object
+
+        TransactionOutput p <- verifyTransactionOutputProof cdb u
+
+        q <- case decodeStrict' p :: Maybe HashCommandResult of
+          Nothing -> internalError "unable to decode spv transaction output"
+          Just cr -> return cr
+
+        r <- case _crContinuation q of
+          Nothing -> return $! Left "no pact exec found in command result"
+          Just pe -> return $! Right pe
+
+        return r
 
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
@@ -142,20 +180,6 @@ extractProof o = toPactValue (TObject o def) >>= k
     k = aeson (Left . pack) Right
       . fromJSON
       . toJSON
-
--- | Extract the transaction outputs of a pact transaction. This completes the SPV
--- redemption
-extractOutputs
-    :: forall a
-    . (HashCommandResult -> IO (Either Text a))
-      -- ^ tx output from spv proof
-    -> TransactionOutput
-      -- ^ handler for the command result
-    -> IO (Either Text a)
-extractOutputs action (TransactionOutput t)
-    = case decodeStrict' t :: Maybe HashCommandResult of
-        Nothing -> internalError "unable to decode spv transaction output"
-        Just hcr -> action hcr
 
 -- | Look up pact tx hash at some block height in the
 -- payload db, and return the tx index for proof creation.
