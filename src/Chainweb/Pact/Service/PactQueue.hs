@@ -10,7 +10,6 @@
 module Chainweb.Pact.Service.PactQueue
     ( addRequest
     , getNextRequest
-    , sendCloseMsg
     , PactQueue
     ) where
 
@@ -25,10 +24,6 @@ type PactQueue = TBQueue RequestMsg
 -- | Add a request to the Pact execution queue
 addRequest :: PactQueue -> RequestMsg -> IO ()
 addRequest q msg = atomically $ writeTBQueue q msg
-
--- | Send special 'close' message to stop the processing thread
-sendCloseMsg :: PactQueue -> IO ()
-sendCloseMsg q = atomically $ writeTBQueue q CloseMsg
 
 -- | Get the next available request from the Pact execution queue
 getNextRequest :: PactQueue -> IO RequestMsg

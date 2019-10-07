@@ -1,10 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 -- |
@@ -24,7 +26,6 @@ module Chainweb.Pact.Service.PactInProcApi
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TBQueue
-import Control.Exception (evaluate, finally, mask)
 import Control.Monad.STM
 
 import Data.IORef
@@ -90,14 +91,17 @@ withPactService'
     -> Bool
     -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid
-                 resetDb action =
-    mask $ \rst -> do
-        reqQ <- atomically (newTBQueue pactQueueSize :: STM PactQueue)
-        a <- withLink $
-             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb
-                                pdb dbDir nodeid resetDb
-        evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
+withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb action = do
+    reqQ <- atomically $ newTBQueue pactQueueSize
+    race (server reqQ) (client reqQ) >>= \case
+        Left () -> error "pact service terminated unexpectedly"
+        Right a -> return a
+  where
+    client reqQ = action reqQ
+    server reqQ = runForever logg "pact-service" $
+        PS.initPactService
+            ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
+    logg = logFunction logger
 
 -- TODO: get from config
 -- TODO: why is this declared both here and in Mempool
@@ -169,5 +173,3 @@ pactMempoolSetLastHeader mpc _theLogger bHeader = do
     let headerRef = mpcLastNewBlockParent mpc
     atomicWriteIORef headerRef (Just bHeader)
 
-closeQueue :: PactQueue -> IO ()
-closeQueue = sendCloseMsg
