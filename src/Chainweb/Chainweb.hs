@@ -56,6 +56,7 @@ module Chainweb.Chainweb
 , configReintroTxs
 , configP2p
 , configTransactionIndex
+, configBlockGasLimit
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
@@ -203,6 +204,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottleRate :: !Natural
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
+    , _configBlockGasLimit :: !Mempool.GasLimit
     }
     deriving (Show, Eq, Generic)
 
@@ -230,6 +232,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottleRate = 1000
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
+    , _configBlockGasLimit = 100000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -246,6 +249,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttleRate" .= _configThrottleRate o
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
+        , "blockGasLimit" .= _configBlockGasLimit o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -262,6 +266,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottleRate ..: "throttleRate" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
+        <*< configBlockGasLimit ..: "blockGasLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -297,6 +302,9 @@ pChainwebConfiguration = id
     <*< configPruneChainDatabase .:: enableDisableFlag
         % long "prune-chain-database"
         <> help "prune the chain database for all chains on startup"
+    <*< configBlockGasLimit .:: jsonOption
+        % long "block-gas-limit"
+        <> help "the sum of all transaction gas fees in a block must not exceed this number"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -367,17 +375,17 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 
 validatingMempoolConfig
     :: ChainId
+    -> Mempool.GasLimit
     -> MVar PactExecutionService
     -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid mv = Mempool.InMemConfig
+validatingMempoolConfig cid gl mv = Mempool.InMemConfig
     { Mempool._inmemTxCfg = txcfg
-    , Mempool._inmemTxBlockSizeLimit = blockGasLimit
+    , Mempool._inmemTxBlockSizeLimit = gl
     , Mempool._inmemMaxRecentItems = maxRecentLog
     , Mempool._inmemPreInsertCheck = preInsertCheck
     }
   where
     txcfg = Mempool.chainwebTransactionConfig
-    blockGasLimit = 100000
     maxRecentLog = 2048
     hasher = Mempool.txHasher txcfg
     toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
@@ -433,7 +441,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
-            let mcfg = validatingMempoolConfig cid
+            let mcfg = validatingMempoolConfig cid (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg cdbv payloadDb prune dbDir nodeid
                      resetDb)
