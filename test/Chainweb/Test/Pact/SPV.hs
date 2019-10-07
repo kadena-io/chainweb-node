@@ -32,7 +32,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
 
 import Data.Aeson as Aeson
-import Data.ByteString.Base64.URL as Base64
+import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Lazy (toStrict)
 import Data.Default
 import Data.Foldable
@@ -348,7 +348,7 @@ txGenerator2 time cdbv pidv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
-                    proof = Just . ContProof . Base64.encode . toStrict . Aeson.encode . toJSON $ q
+                    proof = Just . ContProof . B64U.encode . toStrict . Aeson.encode . toJSON $ q
 
                 ks <- testKeyPairs
                 pid <- readMVar pidv
@@ -357,6 +357,7 @@ txGenerator2 time cdbv pidv sid tid bhe = do
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
+--
 txGenerator3 :: CreatesGenerator
 txGenerator3 time cdbv pidv sid tid bhe = do
     ref <- newIORef False
@@ -372,7 +373,7 @@ txGenerator3 time cdbv pidv sid tid bhe = do
                     $ createTransactionOutputProof cdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText sid)
-                    proof = Just . ContProof .  Base64.encode . toStrict . Aeson.encode $ q
+                    proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
                 ks <- testKeyPairs
                 pid <- readMVar pidv
@@ -381,6 +382,7 @@ txGenerator3 time cdbv pidv sid tid bhe = do
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
+--
 txGenerator4 :: CreatesGenerator
 txGenerator4 time _cdbv pidv _ tid _ = do
     ref <- newIORef False
