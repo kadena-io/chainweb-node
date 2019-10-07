@@ -521,7 +521,9 @@ initCapabilities cs = set (evalCapabilities . capStack) cs def
 mkMagicCapSlot :: Text -> CapSlot Capability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
-    cap = UserCapability (ModuleName "coin" Nothing) (DefName c) []
+    mn = ModuleName "coin" Nothing
+    fqn = QualifiedName mn c def
+    cap = UserCapability fqn mempty
 {-# INLINABLE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
