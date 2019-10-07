@@ -520,10 +520,14 @@ initCapabilities :: [CapSlot Capability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
+-- | Builder for "magic" capabilities given a magic cap name
+--
 mkMagicCapSlot :: Text -> CapSlot Capability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
-    cap = UserCapability (ModuleName "coin" Nothing) (DefName c) []
+    mn = ModuleName "coin" Nothing
+    fqn = QualifiedName mn c def
+    cap = UserCapability fqn []
 {-# INLINABLE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
@@ -538,6 +542,7 @@ buildExecParsedCode value code = maybe (go Null) go value
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
+
 
 -- | Create a gas environment from a verified command
 --
