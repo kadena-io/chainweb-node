@@ -35,7 +35,6 @@ extra-source-files:
 
     pact/coin-contract/coin.repl
     pact/coin-contract/coin.pact
-    pact/coin-contract/coin-sig.pact
     pact/coin-contract/load-coin-contract.yaml
     test/pact/*.pact
     test/golden/*.txt
@@ -406,6 +405,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.TTL
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
+        Chainweb.Test.RestAPI.Client_
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
