@@ -540,7 +540,7 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ initPactService version cid logger reqQ mempool mv
+        a <- withLink $ initPactService version cid logger reqQ mempool mv
                                      bhdb pdb (Just dir) Nothing False
         link a
         return (a, reqQ)
