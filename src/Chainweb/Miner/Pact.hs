@@ -66,7 +66,7 @@ import Chainweb.Utils
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Names
-import Pact.Types.Term (KeySet(..), Name(..), PublicKey)
+import Pact.Types.Term (KeySet(..), PublicKey)
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
