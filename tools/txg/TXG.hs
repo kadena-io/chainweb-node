@@ -37,7 +37,6 @@ import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 
 import Data.Generics.Product.Fields (field)
-import Data.List.NonEmpty (NonEmpty)
 import Data.LogMessage
 import Data.Map (Map)
 import Data.Sequence.NonEmpty (NESeq(..))
