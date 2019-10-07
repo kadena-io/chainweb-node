@@ -540,13 +540,11 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- withLink $ initPactService version cid logger reqQ mempool mv
+        a <- async $ initPactService version cid logger reqQ mempool mv
                                      bhdb pdb (Just dir) Nothing False
         return (a, reqQ)
 
-    stopPact (a, reqQ) = do
-        sendCloseMsg reqQ
-        cancel a
+    stopPact (a, _) = cancel a
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
