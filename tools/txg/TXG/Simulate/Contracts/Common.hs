@@ -35,7 +35,6 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Attoparsec.ByteString.Char8
-import Data.Bifunctor (bimap)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B8
 import Data.Char
