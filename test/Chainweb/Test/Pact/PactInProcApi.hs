@@ -18,7 +18,6 @@ module Chainweb.Test.Pact.PactInProcApi
 ( tests
 ) where
 
-import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM
 import Control.Exception
@@ -28,7 +27,6 @@ import Control.Monad (when)
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
 
@@ -47,62 +45,37 @@ import Pact.Types.Command
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
-import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
-import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.PactQueue (sendCloseMsg)
 import Chainweb.Pact.Service.Types
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.Utils (withLink)
 import Chainweb.Version (ChainwebVersion(..), someChainId)
-import Data.CAS.RocksDB
 
 testVersion :: ChainwebVersion
 testVersion = Development
 
 tests :: ScheduledTest
-tests = ScheduledTest label $ withRocksResource $ \rocksIO ->
-        testGroup label
-    [ withPact rocksIO testMemPoolAccess $ \reqQIO ->
+tests = ScheduledTest label $
+    withRocksResource $ \rocksIO ->
+    withTemporaryDir $ \dir ->
+    withBlockHeaderDb rocksIO genblock $ \bhdb ->
+    withPayloadDb $ \pdb ->
+    testGroup label
+    [ withPact testVersion Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
         newBlockTest "new-block-0" reqQIO
-    , withPact rocksIO testEmptyMemPool $ \reqQIO ->
+    , after AllSucceed "new-block-0" $
+      withPact testVersion Warn pdb bhdb testEmptyMemPool dir $ \reqQIO ->
         newBlockTest "empty-block-tests" reqQIO
     ]
   where
     label = "Chainweb.Test.Pact.PactInProcApi"
-
-withPact
-    :: IO RocksDb
-    -> MemPoolAccess
-    -> (IO (TQueue RequestMsg) -> TestTree)
-    -> TestTree
-withPact rocksIO mempool f = withResource startPact stopPact $ f . fmap snd
-  where
-    startPact = do
-        mv <- newEmptyMVar
-        reqQ <- atomically newTQueue
-        rdb <- rocksIO
-        let genesisHeader = genesisBlockHeader testVersion cid
-        bhdb <- testBlockHeaderDb rdb genesisHeader
-        pdb <- newPayloadDb
-
-        a <- withLink $ withTempDir $ \dir ->
-             PS.initPactService testVersion cid logger reqQ mempool mv
-                                bhdb pdb (Just dir) Nothing False
-        return (a, reqQ)
-
-    stopPact (a, reqQ) = do
-        sendCloseMsg reqQ
-        cancel a
-
-    logger = genericLogger Warn T.putStrLn
+    genblock = genesisBlockHeader testVersion cid
     cid = someChainId testVersion
+
 
 newBlockTest :: String -> IO (TQueue RequestMsg) -> TestTree
 newBlockTest label reqIO = golden label $ do
