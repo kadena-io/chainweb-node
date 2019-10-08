@@ -340,7 +340,7 @@ polling api cenv rks =
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
-          else fail "polling check failed"
+          else throwM $ PollingFailure "polling check failed"
   where
     rs = _rkRequestKeys rks
 
