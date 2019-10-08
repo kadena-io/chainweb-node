@@ -16,8 +16,10 @@
 --
 -- Unit test for Pact execution via (inprocess) API  in Chainweb
 module Chainweb.Test.Pact.Utils
-( -- * test data
-  someED25519Pair
+( -- * Exceptions
+  PactTestFailure(..)
+  -- * test data
+, someED25519Pair
 , testPactFilesDir
 , testKeyPairs
 , adminData
@@ -130,6 +132,22 @@ import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
 import Chainweb.Test.Utils
+
+
+-- ----------------------------------------------------------------------- --
+-- Test Exceptions
+
+data PactTestFailure
+    = PollingFailure String
+    | SendFailure String
+    | LocalFailure String
+    | SpvFailure String
+    deriving Show
+
+instance Exception PactTestFailure
+
+-- ----------------------------------------------------------------------- --
+-- Keys
 
 testKeyPairs :: IO [SomeKeyPairCaps]
 testKeyPairs = do
