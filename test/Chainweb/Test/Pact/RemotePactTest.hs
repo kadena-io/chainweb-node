@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -95,9 +94,6 @@ import Chainweb.NodeId
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
-#if ! MIN_VERSION_servant(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
