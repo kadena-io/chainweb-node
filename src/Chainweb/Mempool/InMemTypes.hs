@@ -49,8 +49,8 @@ data InMemConfig t = InMemConfig {
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
   , _inmemPreInsertPureChecks :: t -> Either InsertError t
   , _inmemPreInsertBatchChecks
-        :: V.Vector (TransactionHash, t)
-        -> IO (V.Vector (Either (TransactionHash, InsertError) (TransactionHash, t)))
+        :: V.Vector (T2 TransactionHash t)
+        -> IO (V.Vector (Either (T2 TransactionHash InsertError) (T2 TransactionHash t)))
 }
 
 ------------------------------------------------------------------------------

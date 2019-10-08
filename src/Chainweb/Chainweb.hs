@@ -110,6 +110,7 @@ import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
 import Data.These (These(..))
+import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
@@ -411,17 +412,18 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     -- is gossiped to us from a peer's mempool.
     --
     preInsertBatch
-        :: V.Vector (Mempool.TransactionHash, ChainwebTransaction)
-        -> IO (V.Vector (Either (Mempool.TransactionHash, Mempool.InsertError) (Mempool.TransactionHash, ChainwebTransaction)))
+        :: V.Vector (T2 Mempool.TransactionHash ChainwebTransaction)
+        -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
+                                (T2 Mempool.TransactionHash ChainwebTransaction)))
     preInsertBatch txs = do
-        let hashes = V.map (toPactHash . fst) txs
+        let hashes = V.map (toPactHash . sfst) txs
         pex <- readMVar mv
         rs <- _pactLookup pex (Left cid) hashes >>= either throwM pure
         pure $ alignWith f rs txs
       where
-        f (These r (h, t)) = maybe (Right (h,t)) (Left . (h,)) $ toDupeResult r
-        f (That (h, _)) = Left (h, Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
-        f (This _) = Left (Mempool.TransactionHash "", Mempool.InsertErrorOther "preInsertBatch: align mismatch 1")
+        f (These r (T2 h t)) = maybe (Right (T2 h t)) (Left . T2 h) $ toDupeResult r
+        f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
+        f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 
     toPactHash :: Mempool.TransactionHash -> P.TypedHash h
     toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h

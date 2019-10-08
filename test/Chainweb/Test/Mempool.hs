@@ -35,6 +35,7 @@ import Data.IORef
 import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Stack
@@ -118,8 +119,9 @@ instance Arbitrary MockTx where
       zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
 type BatchCheck =
-    Vector (TransactionHash, MockTx)
-    -> IO (V.Vector (Either (TransactionHash, InsertError) (TransactionHash, MockTx)))
+    Vector (T2 TransactionHash MockTx)
+    -> IO (V.Vector (Either (T2 TransactionHash InsertError)
+                            (T2 TransactionHash MockTx)))
 
 -- | We use an `MVar` so that tests can override/modify the instance's insert
 -- check for tests. To make quickcheck testing not take forever for remote, we
@@ -236,9 +238,10 @@ propPreInsert (txs, badTxs) gossipMV mempool =
         | otherwise = Right tx
 
     checkNotBad
-        :: Vector (TransactionHash, MockTx)
-        -> IO (V.Vector (Either (TransactionHash, InsertError) (TransactionHash, MockTx)))
-    checkNotBad = pure . V.map (\(h, tx) -> bimap (h,) (h,) $ checkOne tx)
+        :: Vector (T2 TransactionHash MockTx)
+        -> IO (V.Vector (Either (T2 TransactionHash InsertError)
+                                (T2 TransactionHash MockTx)))
+    checkNotBad = pure . V.map (\(T2 h tx) -> bimap (T2 h) (T2 h) $ checkOne tx)
 
 
 propTrivial

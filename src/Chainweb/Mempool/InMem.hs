@@ -22,7 +22,6 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative ((<|>))
-import Control.Arrow ((&&&))
 import Control.Compactable (fforMaybe, separate)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
@@ -221,17 +220,17 @@ insertCheckInMem
     .  InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
-    -> IO (Either (TransactionHash, InsertError) ())
+    -> IO (Either (T2 TransactionHash InsertError) ())
 insertCheckInMem cfg lock txs = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
     -- We hash the tx here and pass it around around to avoid needing to repeat
     -- the hashing effort.
-    let withHashes :: Either (TransactionHash, InsertError) (Vector (TransactionHash, t))
+    let withHashes :: Either (T2 TransactionHash InsertError) (Vector (T2 TransactionHash t))
         withHashes = for txs $ \tx ->
           let !h = hasher tx
-          in bimap (h,) (h,) $ validateOne cfg badmap now tx h
+          in bimap (T2 h) (T2 h) $ validateOne cfg badmap now tx h
 
     case withHashes of
         Left _ -> pure $ void withHashes
@@ -282,15 +281,15 @@ insertCheckInMem'
     .  InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
-    -> IO (Vector (TransactionHash, t))
+    -> IO (Vector (T2 TransactionHash t))
 insertCheckInMem' cfg lock txs = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
-    let withHashes :: Vector (TransactionHash, t)
+    let withHashes :: Vector (T2 TransactionHash t)
         withHashes = fforMaybe txs $ \tx ->
           let !h = hasher tx
-          in (h,) <$> hush (validateOne cfg badmap now tx h)
+          in (T2 h) <$> hush (validateOne cfg badmap now tx h)
 
     snd . separate <$> _inmemPreInsertBatchChecks cfg withHashes
   where
@@ -314,25 +313,26 @@ insertInMem cfg lock runCheck txs0 = do
         let newCnt = cnt + numTxs
         writeIORef countRef $! newCnt
         pending <- readIORef (_inmemPending mdata)
-        let (!pending', newHashesDL) = V.foldl' insOne (pending, id) txs
+        let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
 
   where
-    insertCheck :: IO (Vector (TransactionHash, t))
+    insertCheck :: IO (Vector (T2 TransactionHash t))
     insertCheck = if runCheck == CheckedInsert
                   then insertCheckInMem' cfg lock txs0
-                  else return $! V.map (hasher &&& id) txs0
+                  else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
-    insOne (!pending, !soFar) !(txhash, tx) =
+
+    insOne (T2 pending soFar) (T2 txhash tx) =
         let !bytes = SB.toShort $! encodeTx tx
-        in (HashMap.insert txhash bytes pending, soFar . (txhash:))
+        in T2 (HashMap.insert txhash bytes pending) (soFar . (txhash:))
 
 
 ------------------------------------------------------------------------------

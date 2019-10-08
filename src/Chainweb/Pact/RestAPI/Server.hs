@@ -196,9 +196,9 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     toPactHash :: TransactionHash -> Pact.TypedHash h
     toPactHash (TransactionHash h) = Pact.TypedHash $ SB.fromShort h
 
-    checkResult :: Either (TransactionHash, InsertError) () -> ExceptT ServerError IO ()
+    checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
     checkResult (Right _) = pure ()
-    checkResult (Left (hash, insErr)) =
+    checkResult (Left (T2 hash insErr)) =
         failWith $ concat [ "Validation failed for hash "
                           , show $ toPactHash hash
                           , ": "
