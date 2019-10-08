@@ -38,7 +38,6 @@ import Control.Monad.State.Strict
 
 import Data.Generics.Product.Fields (field)
 import qualified Data.HashSet as HS
-import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.LogMessage
 import Data.Map (Map)

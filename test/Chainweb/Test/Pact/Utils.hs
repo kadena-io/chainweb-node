@@ -118,7 +118,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types (internalError, RequestMsg(..))
+import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
@@ -529,24 +529,22 @@ withPact
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO FilePath
-    -> (IO (TQueue RequestMsg) -> TestTree)
+    -> (IO PactQueue -> TestTree)
     -> TestTree
 withPact version logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
-        reqQ <- atomically newTQueue
+        reqQ <- atomically $ newTBQueue 2000
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- withLink $ initPactService version cid logger reqQ mempool mv
+        a <- async $ initPactService version cid logger reqQ mempool mv
                                      bhdb pdb (Just dir) Nothing False
         return (a, reqQ)
 
-    stopPact (a, reqQ) = do
-        sendCloseMsg reqQ
-        cancel a
+    stopPact (a, _) = cancel a
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
