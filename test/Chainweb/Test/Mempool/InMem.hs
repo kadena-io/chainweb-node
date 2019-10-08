@@ -31,6 +31,7 @@ tests = testGroup "Chainweb.Mempool.InMem"
         f <- readMVar mv
         f xs
 
-    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit mockMeta
+    txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice mockGasLimit
+                              mockMeta
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec

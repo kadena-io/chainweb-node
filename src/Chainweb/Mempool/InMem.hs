@@ -105,7 +105,7 @@ newInMemMempoolData =
 toMempoolBackend
     :: InMemoryMempool t
     -> IO (MempoolBackend t)
-toMempoolBackend mempool =
+toMempoolBackend mempool = do
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
       , mempoolBlockGasLimit = blockSizeLimit
@@ -344,7 +344,7 @@ getBlockInMem :: forall t .
               -> BlockHash
               -> GasLimit
               -> IO (Vector t)
-getBlockInMem cfg lock txValidate bheight phash size0 =
+getBlockInMem cfg lock txValidate bheight phash size0 = do
     withMVar lock $ \mdata -> do
         !psq0 <- readIORef $ _inmemPending mdata
         now <- getCurrentTimeIntegral
@@ -472,9 +472,10 @@ getPendingInMem cfg nonce lock since callback = do
         (dl, sz) <- foldlM go initState keys
         void $ sendChunk dl sz
 
-    sendSome psq rlog (rNonce, oHw)
-        | rNonce /= nonce = sendAll psq
-        | otherwise = sendSince psq rlog oHw
+    sendSome psq rlog (rNonce, oHw) = do
+        if rNonce /= nonce
+          then sendAll psq
+          else sendSince psq rlog oHw
 
     sendSince psq rlog oHw = do
         let mbTxs = getRecentTxs maxNumRecent oHw rlog
@@ -507,7 +508,7 @@ getPendingInMem cfg nonce lock since callback = do
 
 ------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
-clearInMem lock =
+clearInMem lock = do
     withMVarMasked lock $ \mdata -> do
         writeIORef (_inmemPending mdata) mempty
         writeIORef (_inmemRecentLog mdata) emptyRecentLog
@@ -548,7 +549,7 @@ getRecentTxs maxNumRecent oldHw rlog
 
 ------------------------------------------------------------------------------
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
-getMempoolStats m =
+getMempoolStats m = do
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
         <$!> (HashMap.size <$!> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))

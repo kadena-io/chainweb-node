@@ -1,8 +1,10 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Tests and test infrastructure common to all mempool backends.
@@ -18,14 +20,13 @@ module Chainweb.Test.Mempool
   , lookupIsMissing
   ) where
 
-import Data.Bifunctor (bimap)
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Exception (bracket)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
-import GHC.Stack
+import Data.Bifunctor (bimap)
 import Data.Decimal (Decimal)
 import Data.Function (on)
 import qualified Data.HashSet as HashSet
@@ -36,6 +37,7 @@ import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import GHC.Stack
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
@@ -119,7 +121,12 @@ type BatchCheck =
     Vector (TransactionHash, MockTx)
     -> IO (V.Vector (Either (TransactionHash, InsertError) (TransactionHash, MockTx)))
 
--- TODO Why is this inside an MVar?
+-- | We use an `MVar` so that tests can override/modify the instance's insert
+-- check for tests. To make quickcheck testing not take forever for remote, we
+-- run the server and client mempools in a resource pool -- the test pulls an
+-- already running instance from the pool so we need a way to twiddle its check
+-- function for the tests.
+--
 type InsertCheck = MVar BatchCheck
 
 data MempoolWithFunc =
