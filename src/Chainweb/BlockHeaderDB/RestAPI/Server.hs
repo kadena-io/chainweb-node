@@ -32,8 +32,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Concurrent.Async (concurrently)
-import Control.Concurrent.Chan (newChan, writeChan)
 import Control.Lens hiding (children, (.=))
 import Control.Monad
 import qualified Control.Monad.Catch as E (Handler(..), catches)
@@ -45,12 +43,15 @@ import Data.Binary.Builder (fromByteString, fromLazyByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Short (fromShort)
+import Data.CAS (casLookupM)
 import Data.Foldable
+import Data.Functor.Of
+import Data.IORef
 import Data.Proxy
 import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as T
 
-import Network.Wai.EventSource (ServerEvent(..), eventSourceAppChan)
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Prelude hiding (lookup)
 
@@ -79,7 +80,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
-import Data.CAS (casLookupM)
 import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
@@ -319,11 +319,14 @@ headerStreamServer cdb = headerStreamHandler cdb
 
 headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler Application
 headerStreamHandler db = Tagged $ \req respond -> do
-    chan <- newChan
-    snd <$> concurrently
-        (SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db)
-        (eventSourceAppChan chan req respond)
+    streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
+    eventSourceAppIO (run streamRef) req respond
   where
+    run :: IORef (SP.Stream (Of ServerEvent) IO ()) -> IO ServerEvent
+    run var = readIORef var >>= SP.uncons >>= \case
+        Nothing -> return CloseEvent
+        Just (cur, !s') -> cur <$ writeIORef var s'
+
     cas :: PayloadDb cas
     cas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
 
