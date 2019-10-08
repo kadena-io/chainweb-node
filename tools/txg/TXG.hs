@@ -37,15 +37,15 @@ import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 
 import Data.Generics.Product.Fields (field)
+import qualified Data.HashSet as HS
 import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
 import Data.LogMessage
 import Data.Map (Map)
-import Data.Sequence.NonEmpty (NESeq(..))
-import Data.Text (Text)
-import qualified Data.HashSet as HS
-import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map as M
+import Data.Sequence.NonEmpty (NESeq(..))
 import qualified Data.Sequence.NonEmpty as NES
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -66,8 +66,8 @@ import Text.Pretty.Simple (pPrintNoColor)
 -- PACT
 import Pact.ApiReq
 import Pact.Types.API
-import qualified Pact.Types.ChainMeta as CM
 import qualified Pact.Types.ChainId as CI
+import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 
@@ -76,7 +76,7 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
-#if !MIN_VERSION_servant(0,15,0)
+#if !MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Utils
@@ -89,9 +89,9 @@ import TXG.Simulate.Contracts.SimplePayments
 import TXG.Simulate.Utils
 import TXG.Types
 
+import qualified Chainweb.Logging.Config as U
 import Utils.Logging
 import qualified Utils.Logging.Config as U
-import qualified Chainweb.Logging.Config as U
 
 ---
 
@@ -154,7 +154,7 @@ generateTransactions
     -> Verbose
     -> CmdChoice
     -> TXG m (ChainId, NonEmpty (Maybe Text) , NonEmpty (Command Text))
-generateTransactions ifCoinOnlyTransfers isVerbose contractIndex  = do
+generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
   -- Choose a Chain to send this transaction to, and cycle the state.
   cid <- NES.head <$> gets gsChains
   field @"gsChains" %= rotate

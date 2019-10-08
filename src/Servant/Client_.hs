@@ -83,6 +83,9 @@ instance RunClient ClientM_ where
 #if MIN_VERSION_servant_server(0,16,0)
     throwClientError = throwError
     {-# INLINE throwClientError #-}
+#elif MIN_VERSION_servant_server(0,15,0)
+    throwServantError = throwError
+    {-# INLINE throwServantError #-}
 #else
     throwServantError = throwError
     {-# INLINE throwServantError #-}
@@ -115,4 +118,3 @@ runClientM_ cm env
 client_ :: forall api . HasClient ClientM_ api => Client ClientM_ api
 client_ = clientIn (Proxy @api) (Proxy @ClientM_)
 {-# INLINE client_ #-}
-

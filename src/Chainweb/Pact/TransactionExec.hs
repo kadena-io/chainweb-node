@@ -1,7 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -61,8 +60,6 @@ import Data.Foldable (for_)
 import Data.Maybe
 import Data.Text (Text, pack)
 import Data.Tuple.Strict (T2(..), T3(..))
-
-import NeatInterpolation (text)
 
 -- internal Pact modules
 
@@ -486,10 +483,13 @@ mkBuyGasCmd
     -> GasSupply -- ^ The gas limit total * price
     -> IO (ExecMsg ParsedCode)
 mkBuyGasCmd (MinerId mid) (MinerKeys ks) sender total =
-    buildExecParsedCode buyGasData
-      [text|
-        (coin.fund-tx '$sender '$mid (read-keyset 'miner-keyset) (read-decimal 'total))
-        |]
+    buildExecParsedCode buyGasData $ mconcat
+      [ "(coin.fund-tx"
+      , " \"" <> sender <> "\""
+      , " \"" <> mid <> "\""
+      , " (read-keyset \"miner-keyset\")"
+      , " (read-decimal \"total\"))"
+      ]
   where
     buyGasData = Just $ object
       [ "miner-keyset" .= ks
@@ -499,10 +499,12 @@ mkBuyGasCmd (MinerId mid) (MinerKeys ks) sender total =
 
 mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
-    buildExecParsedCode coinbaseData
-      [text|
-        (coin.coinbase '$mid (read-keyset 'miner-keyset) (read-decimal 'reward))
-        |]
+    buildExecParsedCode coinbaseData $ mconcat
+      [ "(coin.coinbase"
+      , " \"" <> mid <> "\""
+      , " (read-keyset \"miner-keyset\")"
+      , " (read-decimal \"reward\"))"
+      ]
   where
     coinbaseData = Just $ object
       [ "miner-keyset" .= ks
@@ -518,10 +520,14 @@ initCapabilities :: [CapSlot Capability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
+-- | Builder for "magic" capabilities given a magic cap name
+--
 mkMagicCapSlot :: Text -> CapSlot Capability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
-    cap = UserCapability (ModuleName "coin" Nothing) (DefName c) []
+    mn = ModuleName "coin" Nothing
+    fqn = QualifiedName mn c def
+    cap = UserCapability fqn []
 {-# INLINABLE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
@@ -536,6 +542,7 @@ buildExecParsedCode value code = maybe (go Null) go value
       -- if we can't construct coin contract calls, this should
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
+
 
 -- | Create a gas environment from a verified command
 --
