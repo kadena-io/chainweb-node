@@ -231,8 +231,8 @@ insertCheckInMem cfg lock txs = do
           in bimap (T2 h) (T2 h) $ validateOne cfg badmap now tx h
 
     case withHashes of
-        Left _ -> pure $ void withHashes
-        Right r -> void . sequenceA <$> _inmemPreInsertBatchChecks cfg r
+        Left _ -> pure $! void withHashes
+        Right r -> void . sequenceA <$!> _inmemPreInsertBatchChecks cfg r
   where
     hasher :: t -> TransactionHash
     hasher = txHasher (_inmemTxCfg cfg)
@@ -289,7 +289,7 @@ insertCheckInMem' cfg lock txs = do
           let !h = hasher tx
           in (T2 h) <$> hush (validateOne cfg badmap now tx h)
 
-    V.mapMaybe hush <$> _inmemPreInsertBatchChecks cfg withHashes
+    V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
   where
     txcfg = _inmemTxCfg cfg
     hasher = txHasher txcfg
