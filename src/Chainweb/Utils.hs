@@ -878,19 +878,16 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     void go `finally` logfun Info (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
--- Count leading zero bits of a bytestring
+-- Count leading zeros of a bytestring
 
--- | Count leading zero bits of a bytestring
+-- | Count leading zeros of a bytestring
 --
-leadingZeros :: Integral int => B.ByteString -> int
-leadingZeros b =
-    let l = B.length b
-        midx = B.findIndex (/= 0x00) b
-        countInLastChar idx = countLeadingZeros $! B.unsafeIndex b (idx + 1)
-        f idx = 8 * idx + countInLastChar idx
-        !out = int $! maybe (8 * l) f midx
-    in out
-{-# INLINE leadingZeros #-}
+leadingZeros :: B.ByteString -> Natural
+leadingZeros b = int (B.length x) * 8 + case B.uncons y of
+    Just (h, _) -> int $ countLeadingZeros h
+    Nothing -> 0
+  where
+    (x, y) = B.span (== 0x00) b
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
