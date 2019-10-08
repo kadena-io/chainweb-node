@@ -78,7 +78,7 @@ module Chainweb.Chainweb
 
 -- ** Mempool integration
 , ChainwebTransaction
-, MP.chainwebTransactionConfig
+, Mempool.chainwebTransactionConfig
 , validatingMempoolConfig
 
 , withChainweb
@@ -147,8 +147,8 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import qualified Chainweb.Mempool.InMemTypes as MP
-import qualified Chainweb.Mempool.Mempool as MP
+import qualified Chainweb.Mempool.InMemTypes as Mempool
+import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
@@ -209,7 +209,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottleRate :: !Natural
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
-    , _configBlockGasLimit :: !MP.GasLimit
+    , _configBlockGasLimit :: !Mempool.GasLimit
     }
     deriving (Show, Eq, Generic)
 
@@ -381,24 +381,24 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 validatingMempoolConfig
     :: ChainId
     -> ChainwebVersion
-    -> MP.GasLimit
+    -> Mempool.GasLimit
     -> MVar PactExecutionService
-    -> MP.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid v gl mv = MP.InMemConfig
-    { MP._inmemTxCfg = txcfg
-    , MP._inmemTxBlockSizeLimit = gl
-    , MP._inmemMaxRecentItems = maxRecentLog
-    , MP._inmemPreInsertPureChecks = preInsertSingle
-    , MP._inmemPreInsertBatchChecks = preInsertBatch
+    -> Mempool.InMemConfig ChainwebTransaction
+validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
+    { Mempool._inmemTxCfg = txcfg
+    , Mempool._inmemTxBlockSizeLimit = gl
+    , Mempool._inmemMaxRecentItems = maxRecentLog
+    , Mempool._inmemPreInsertPureChecks = preInsertSingle
+    , Mempool._inmemPreInsertBatchChecks = preInsertBatch
     }
   where
-    txcfg = MP.chainwebTransactionConfig
+    txcfg = Mempool.chainwebTransactionConfig
     maxRecentLog = 2048
 
-    toDupeResult :: Maybe a -> Maybe MP.InsertError
-    toDupeResult = fmap (const MP.InsertErrorDuplicate)
+    toDupeResult :: Maybe a -> Maybe Mempool.InsertError
+    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
 
-    preInsertSingle :: ChainwebTransaction -> Either MP.InsertError ChainwebTransaction
+    preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     preInsertSingle tx = checkMetadata tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
@@ -411,8 +411,8 @@ validatingMempoolConfig cid v gl mv = MP.InMemConfig
     -- is gossiped to us from a peer's mempool.
     --
     preInsertBatch
-        :: V.Vector (MP.TransactionHash, ChainwebTransaction)
-        -> IO (V.Vector (Either (MP.TransactionHash, MP.InsertError) (MP.TransactionHash, ChainwebTransaction)))
+        :: V.Vector (Mempool.TransactionHash, ChainwebTransaction)
+        -> IO (V.Vector (Either (Mempool.TransactionHash, Mempool.InsertError) (Mempool.TransactionHash, ChainwebTransaction)))
     preInsertBatch txs = do
         let hashes = V.map (toPactHash . fst) txs
         pex <- readMVar mv
@@ -420,24 +420,24 @@ validatingMempoolConfig cid v gl mv = MP.InMemConfig
         pure $ alignWith f rs txs
       where
         f (These r (h, t)) = maybe (Right (h,t)) (Left . (h,)) $ toDupeResult r
-        f (That (h, _)) = Left (h, MP.InsertErrorOther "preInsertBatch: align mismatch 0")
-        f (This _) = Left (MP.TransactionHash "", MP.InsertErrorOther "preInsertBatch: align mismatch 1")
+        f (That (h, _)) = Left (h, Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
+        f (This _) = Left (Mempool.TransactionHash "", Mempool.InsertErrorOther "preInsertBatch: align mismatch 1")
 
-    toPactHash :: MP.TransactionHash -> P.TypedHash h
-    toPactHash (MP.TransactionHash h) = P.TypedHash $ SB.fromShort h
+    toPactHash :: Mempool.TransactionHash -> P.TypedHash h
+    toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
-    checkMetadata :: ChainwebTransaction -> Either MP.InsertError ChainwebTransaction
+    checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     checkMetadata tx = do
         let !pay = payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
             sigs = length (P._cmdSigs tx)
             ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
-        tcid <- note (MP.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
-        if | tcid /= cid   -> Left MP.InsertErrorMetadataMismatch
-           | sigs > 100    -> Left $ MP.InsertErrorOther "Too many signatures"
-           | ver /= Just v -> Left MP.InsertErrorMetadataMismatch
+        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
+        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
+           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
            | otherwise     -> Right tx
 
 -- Intializes all local chainweb components but doesn't start any networking.
@@ -646,7 +646,7 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, MP.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
     mempoolsToServe = proj _chainResMempool
 
     chainP2pToServe :: [(NetworkId, PeerDb)]
