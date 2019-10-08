@@ -11,6 +11,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE CPP #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -109,6 +110,14 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
+debug :: String -> IO ()
+#if DEBUG_TEST
+debug = putStrLn
+#else
+debug = const $ return ()
+#endif
+
+
 nNodes :: Natural
 nNodes = 1
 
@@ -141,7 +150,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
             testGroup "remote pact tests" [
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $
-                testGroup "remote spv" [spvRequests iot net]
+                testGroup "remote spv" [spv iot net]
               , after AllSucceed "remote spv" $
                 sendValidationTest iot net
               , after AllSucceed "remote spv" $
@@ -207,8 +216,8 @@ sendValidationTest iot nio =
         h _ = return Nothing
 
 
-spvRequests :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-spvRequests iot nio = testCaseSteps "spv client tests" $ \step -> do
+spv :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+spv iot nio = testCaseSteps "spv client tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
     sid <- mkChainId version (0 :: Int)
@@ -223,15 +232,21 @@ spvRequests iot nio = testCaseSteps "spv client tests" $ \step -> do
       liftIO $ sleep 6
 
       void $ liftIO $ step "spvApiClient: submit request key"
-      pactSpvApiClient version sid (go rks)
+      liftIO $ recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
+
+        let r = SpvRequest (NEL.head $ _rkRequestKeys rks) tid
+
+        debug
+          $ "requesting spv proof for " <> show r
+          <> " [" <> show (view rsIterNumberL s) <> "]"
+
+        runClientM (pactSpvApiClient version cid r) cenv
 
     case r of
       Left e -> assertFailure $ "output proof failed: " <> sshow e
       Right _ -> return ()
   where
     tid = Pact.ChainId "1"
-
-    go (RequestKeys t) = SpvRequest (NEL.head t) tid
 
     mkTxBatch = do
       ks <- liftIO testKeyPairs
@@ -298,7 +313,7 @@ sending
     -> IO RequestKeys
 sending api cenv batch =
     recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
-      putStrLn
+      debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
@@ -311,9 +326,6 @@ sending api cenv batch =
   where
     ss = _sbCmds batch
 
-
-
-
 -- | Poll with retry using an exponential backoff
 --
 polling
@@ -323,7 +335,7 @@ polling
     -> IO PollResponses
 polling api cenv rks =
     recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
-      putStrLn
+      debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
