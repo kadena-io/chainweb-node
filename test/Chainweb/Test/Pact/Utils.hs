@@ -141,6 +141,7 @@ data PactTestFailure
     = PollingFailure String
     | SendFailure String
     | LocalFailure String
+    | SpvFailure String
     deriving Show
 
 instance Exception PactTestFailure

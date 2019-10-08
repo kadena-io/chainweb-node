@@ -46,10 +46,8 @@ import qualified Data.HashMap.Strict as HashMap
 import Data.Int
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
-import Data.Proxy
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
-import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 
 import NeatInterpolation
@@ -61,7 +59,6 @@ import Numeric.Natural
 
 import Prelude hiding (lookup)
 
-import Servant.API
 import Servant.Client
 
 import System.IO.Extra
@@ -77,7 +74,6 @@ import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
-import qualified Pact.Types.Hash as H
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Term
@@ -92,7 +88,6 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
-import Chainweb.Pact.RestAPI
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
 import Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -117,26 +112,19 @@ debug = putStrLn
 debug = const $ return ()
 #endif
 
-
 nNodes :: Natural
 nNodes = 1
 
-version :: ChainwebVersion
-version = FastTimedCPM petersonChainGraph
+v :: ChainwebVersion
+v = FastTimedCPM petersonChainGraph
 
 cid :: HasCallStack => ChainId
-cid = head . toList $ chainIds version
+cid = head . toList $ chainIds v
 
 pactCid :: HasCallStack => Pact.ChainId
 pactCid = Pact.ChainId $ chainIdToText cid
 
-testCmds :: PactTestApiCmds
-testCmds = apiCmds version cid
-
-testCmdsChainId :: ChainId -> PactTestApiCmds
-testCmdsChainId cid_ = apiCmds version cid_
-
--- -------------------------------------------------------------------------- --
+-- ------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
 
 -- | Note: These tests are intermittently non-deterministic due to the way
@@ -150,7 +138,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
             testGroup "remote pact tests" [
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $
-                testGroup "remote spv" [spv iot net]
+                testGroup "remote spv" [spvTest iot net]
               , after AllSucceed "remote spv" $
                 sendValidationTest iot net
               , after AllSucceed "remote spv" $
@@ -162,8 +150,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
-    cwEnv <- _getClientEnv <$> networkIO
-    PollResponses theMap <- polling testCmds cwEnv rks
+    cenv <- _getClientEnv <$> networkIO
+    PollResponses theMap <- polling cid cenv rks
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
@@ -174,8 +162,8 @@ localTest iot nio = do
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv
     let cmd = head $ toList batch
-    sid <- mkChainId version (0 :: Int)
-    res <- flip runClientM cenv $ localApiCmd (testCmdsChainId sid) cmd
+    sid <- mkChainId v (0 :: Int)
+    res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
     checkCommandResult res
   where
     checkCommandResult (Left e) = throwM $ LocalFailure (show e)
@@ -193,14 +181,14 @@ sendValidationTest iot nio =
         SubmitBatch batch1 <- testBatch' iot 10000 mv
         SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv
         let batch = SubmitBatch $ batch1 <> batch2
-        sid <- mkChainId version (0 :: Int)
+        sid <- mkChainId v (0 :: Int)
         expectSendFailure $ flip runClientM cenv $ do
-            sendApiCmd (testCmdsChainId sid) batch
+            pactSendApiClient v sid batch
 
         step "check sending mismatched chain id"
         batch3 <- testBatch'' "40" iot 20000 mv
         expectSendFailure $ flip runClientM cenv $ do
-            sendApiCmd (testCmdsChainId sid) batch3
+            pactSendApiClient v sid batch3
 
   where
     expectSendFailure act = do
@@ -216,31 +204,23 @@ sendValidationTest iot nio =
         h _ = return Nothing
 
 
-spv :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-spv iot nio = testCaseSteps "spv client tests" $ \step -> do
+spvTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
-    sid <- mkChainId version (0 :: Int)
+    sid <- mkChainId v (0 :: Int)
     r <- flip runClientM cenv $ do
 
       void $ liftIO $ step "sendApiClient: submit batch"
-      rks <- liftIO $ sending (testCmdsChainId sid) cenv batch
+      rks <- liftIO $ sending sid cenv batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ polling (testCmdsChainId sid) cenv rks
+      void $ liftIO $ polling sid cenv rks
 
       liftIO $ sleep 6
 
       void $ liftIO $ step "spvApiClient: submit request key"
-      liftIO $ recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
-
-        let r = SpvRequest (NEL.head $ _rkRequestKeys rks) tid
-
-        debug
-          $ "requesting spv proof for " <> show r
-          <> " [" <> show (view rsIterNumberL s) <> "]"
-
-        runClientM (pactSpvApiClient version cid r) cenv
+      liftIO $ spv sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
 
     case r of
       Left e -> assertFailure $ "output proof failed: " <> sshow e
@@ -290,12 +270,12 @@ withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) 
   where
     mkKeys :: IO RequestKeys
     mkKeys = do
-        cwEnv <- _getClientEnv <$> networkIO
+        cenv <- _getClientEnv <$> networkIO
         mNonce <- ioNonce
-        testSend iot mNonce testCmds cwEnv
+        testSend iot mNonce cenv
 
-testSend :: IO (Time Integer) -> MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
-testSend iot mNonce cmds env = testBatch iot mNonce >>= sending cmds env
+testSend :: IO (Time Integer) -> MVar Int -> ClientEnv -> IO RequestKeys
+testSend iot mNonce env = testBatch iot mNonce >>= sending cid env
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
@@ -303,15 +283,34 @@ getClientEnv url = do
     mgr <- HTTP.newTlsManagerWith mgrSettings
     return $ mkClientEnv mgr url
 
+-- | Request an SPV proof using exponential retry logic
+--
+spv
+    :: ChainId
+    -> ClientEnv
+    -> SpvRequest
+    -> IO TransactionOutputProofB64
+spv sid cenv r =
+    recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
+      debug
+        $ "requesting spv proof for " <> show r
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single spv request and return the result
+      --
+      runClientM (pactSpvApiClient v sid r) cenv >>= \case
+        Left e -> throwM $ SpvFailure (show e)
+        Right t -> return t
+
 -- | Send a batch with retry logic using an exponential backoff.
 -- This test just does a simple check to make sure sends succeed.
 --
 sending
-    :: PactTestApiCmds
+    :: ChainId
     -> ClientEnv
     -> SubmitBatch
     -> IO RequestKeys
-sending api cenv batch =
+sending sid cenv batch =
     recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
       debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
@@ -319,7 +318,7 @@ sending api cenv batch =
 
       -- Send and return naively
       --
-      runClientM (sendApiCmd api batch) cenv >>= \case
+      runClientM (pactSendApiClient v sid batch) cenv >>= \case
         Left e -> throwM $ SendFailure (show e)
         Right rs -> return rs
 
@@ -329,11 +328,11 @@ sending api cenv batch =
 -- | Poll with retry using an exponential backoff
 --
 polling
-    :: PactTestApiCmds
+    :: ChainId
     -> ClientEnv
     -> RequestKeys
     -> IO PollResponses
-polling api cenv rks =
+polling sid cenv rks =
     recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -343,7 +342,7 @@ polling api cenv rks =
       -- by making sure results are successful and request keys
       -- are sane
 
-      runClientM (pollApiCmd api $ Poll rs) cenv >>= \case
+      runClientM (pactPollApiClient v sid $ Poll rs) cenv >>= \case
         Left e -> throwM $ PollingFailure (show e)
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
@@ -377,31 +376,6 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
   where
     ttl = 2 * 24 * 60 * 60
 
-type PactClientApi
-    = (SubmitBatch -> ClientM RequestKeys)
-    :<|> ((Poll -> ClientM PollResponses)
-    :<|> ((ListenerRequest -> ClientM ListenResponse)
-    :<|> (Command Text -> ClientM (CommandResult H.Hash))))
-
-generatePactApi :: ChainwebVersion -> ChainId -> PactClientApi
-generatePactApi cwVersion chainid =
-     case someChainwebVersionVal cwVersion of
-        SomeChainwebVersionT (_ :: Proxy cv) ->
-          case someChainIdVal chainid of
-            SomeChainIdT (_ :: Proxy cid) -> client (Proxy :: Proxy (PactApi cv cid))
-
-apiCmds :: ChainwebVersion -> ChainId -> PactTestApiCmds
-apiCmds cwVersion theChainId =
-    let sendCmd :<|> pollCmd :<|> _ :<|> localCmd = generatePactApi cwVersion theChainId
-    in PactTestApiCmds sendCmd pollCmd localCmd
-
-data PactTestApiCmds = PactTestApiCmds
-    { sendApiCmd :: SubmitBatch -> ClientM RequestKeys
-    , pollApiCmd :: Poll -> ClientM PollResponses
-    , localApiCmd :: Command Text -> ClientM (CommandResult H.Hash)
-    }
-
-
 --------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
 --------------------------------------------------------------------------------
@@ -419,7 +393,7 @@ withNodes rdb n f = withResource start
   where
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- withLink $ runTestNodes rdb Warn version n peerInfoVar
+        a <- withLink $ runTestNodes rdb Warn v n peerInfoVar
         i <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
         return (a, cwEnv)
@@ -439,10 +413,10 @@ runTestNodes
     -> Natural
     -> MVar PeerInfo
     -> IO ()
-runTestNodes rdb loglevel v n portMVar =
+runTestNodes rdb loglevel ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
-        let baseConf = config v n (NodeId i)
+        let baseConf = config ver n (NodeId i)
         conf <- if
             | i == 0 ->
                 return $ bootstrapConfig baseConf
@@ -480,7 +454,7 @@ config
     -> Natural
     -> NodeId
     -> ChainwebConfiguration
-config v n nid = defaultChainwebConfiguration v
+config ver n nid = defaultChainwebConfiguration ver
     & set configNodeId nid
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
