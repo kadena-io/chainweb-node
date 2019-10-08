@@ -32,9 +32,9 @@ module Chainweb.Test.Pact.RemotePactTest
 import Control.Concurrent hiding (newMVar, putMVar, readMVar, modifyMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
-import Control.Exception
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Retry
 
@@ -173,7 +173,7 @@ localTest iot nio = do
     res <- flip runClientM cenv $ localApiCmd (testCmdsChainId sid) cmd
     checkCommandResult res
   where
-    checkCommandResult (Left e) = fail $ "Servant failure on /local: " ++ show e
+    checkCommandResult (Left e) = throwM $ LocalFailure (show e)
     checkCommandResult (Right cr) =
         let (PactResult e) = _crResult cr
         in assertEqual "expect /local to succeed and return 3" e
@@ -309,11 +309,14 @@ sending api cenv batch =
       -- Send and return naively
       --
       runClientM (sendApiCmd api batch) cenv >>= \case
-        Left e -> fail $ show e
+        Left e -> throwM $ SendFailure (show e)
         Right rs -> return rs
 
   where
     ss = _sbCmds batch
+
+
+
 
 -- | Poll with retry using an exponential backoff
 --
@@ -333,7 +336,7 @@ polling api cenv rks =
       -- are sane
 
       runClientM (pollApiCmd api $ Poll rs) cenv >>= \case
-        Left e -> fail $ show e
+        Left e -> throwM $ PollingFailure (show e)
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
@@ -367,7 +370,7 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
     ttl = 2 * 24 * 60 * 60
 
 type PactClientApi
-       = (SubmitBatch -> ClientM RequestKeys)
+    = (SubmitBatch -> ClientM RequestKeys)
     :<|> ((Poll -> ClientM PollResponses)
     :<|> ((ListenerRequest -> ClientM ListenResponse)
     :<|> (Command Text -> ClientM (CommandResult H.Hash))))
