@@ -10,15 +10,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE GADTs #-}
+
 -- |
 -- Module: Chainweb.Test.RemotePactTest
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: See LICENSE file
--- Maintainer: Mark Nichols <mark@kadena.io>
+-- Maintainer: Mark Nichols <mark@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
 -- Unit test for Pact execution via the Http Pact interface (/send,
 -- etc.) (inprocess) API in Chainweb
+--
 module Chainweb.Test.Pact.RemotePactTest
 ( tests
 , withNodes
@@ -32,6 +36,7 @@ import Control.Exception
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Retry
 
 import qualified Data.Aeson as A
 import Data.Default (def)
@@ -108,15 +113,6 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
-#define DEBUG_TEST 0
-
-debug :: String -> IO ()
-#if DEBUG_TEST
-debug = putStrLn
-#else
-debug = const $ return ()
-#endif
-
 nNodes :: Natural
 nNodes = 1
 
@@ -162,7 +158,7 @@ responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
     cwEnv <- _getClientEnv <$> networkIO
-    (PollResponses theMap) <- pollWithRetry testCmds cwEnv rks
+    PollResponses theMap <- polling testCmds cwEnv rks
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
@@ -223,10 +219,10 @@ spvRequests iot nio = testCaseSteps "spv client tests" $ \step -> do
     r <- flip runClientM cenv $ do
 
       void $ liftIO $ step "sendApiClient: submit batch"
-      rks <- sendApiCmd (testCmdsChainId sid) batch
+      rks <- liftIO $ sending (testCmdsChainId sid) cenv batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ pollWithRetry (testCmdsChainId sid) cenv rks
+      void $ liftIO $ polling (testCmdsChainId sid) cenv rks
 
       liftIO $ sleep 6
 
@@ -288,12 +284,7 @@ withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) 
         testSend iot mNonce testCmds cwEnv
 
 testSend :: IO (Time Integer) -> MVar Int -> PactTestApiCmds -> ClientEnv -> IO RequestKeys
-testSend iot mNonce cmds env = do
-    sb <- testBatch iot mNonce
-    result <- sendWithRetry cmds env sb
-    case result of
-        Left e -> assertFailure (show e)
-        Right rks -> return rks
+testSend iot mNonce cmds env = testBatch iot mNonce >>= sending cmds env
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
@@ -301,81 +292,60 @@ getClientEnv url = do
     mgr <- HTTP.newTlsManagerWith mgrSettings
     return $ mkClientEnv mgr url
 
-maxSendRetries :: Int
-maxSendRetries = 30
+-- | Send a batch with retry logic using an exponential backoff.
+-- This test just does a simple check to make sure sends succeed.
+--
+sending
+    :: PactTestApiCmds
+    -> ClientEnv
+    -> SubmitBatch
+    -> IO RequestKeys
+sending api cenv batch =
+    recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
+      putStrLn
+        $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
 
--- | To allow time for node to startup, retry a number of times
-sendWithRetry :: PactTestApiCmds -> ClientEnv -> SubmitBatch -> IO (Either ClientError RequestKeys)
-sendWithRetry cmds env sb = go maxSendRetries
+      -- Send and return naively
+      --
+      runClientM (sendApiCmd api batch) cenv >>= \case
+        Left e -> fail $ show e
+        Right rs -> return rs
+
   where
-    go retries =  do
-        result <- runClientM (sendApiCmd cmds sb) env
-        case result of
-            Left _ ->
-                if retries == 0 then do
-                    debug $ "send failing after " ++ show maxSendRetries ++ " retries"
-                    return result
-                else do
-                    sleep 1
-                    go (retries - 1)
-            Right _ -> do
-                debug $ "send succeeded after " ++ show (maxSendRetries - retries) ++ " retries"
-                return result
+    ss = _sbCmds batch
 
-maxPollRetries :: Int
-maxPollRetries = 30
-
--- | To allow time for node to startup, retry a number of times
-pollWithRetry
+-- | Poll with retry using an exponential backoff
+--
+polling
     :: PactTestApiCmds
     -> ClientEnv
     -> RequestKeys
     -> IO PollResponses
-pollWithRetry cmds env rks = do
-  sleep 3
-  go maxPollRetries
-    where
-      go !retries = do
-          let retry failure = do
-                if retries == 0
-                  then do
-                    debug $ "poll failing after " ++ show maxSendRetries
-                               ++ " retries"
-                    fail failure
-                  else sleep 1 >> go (retries - 1)
-          let rkks = _rkRequestKeys rks
-          result <- runClientM (pollApiCmd cmds (Poll rkks)) env
-          case result of
-              Left e -> retry (show e)
-              Right (PollResponses mp) -> do
-                  ok <- checkResults (toList rkks) mp
-                  if ok
-                    then do
-                        debug $ concat
-                            [ "poll succeeded after "
-                            , show (maxSendRetries - retries)
-                            , " retries" ]
-                        return $ PollResponses mp
-                    else do
-                        debug "poll check failed, continuing"
-                        let msg = concat [ "poll check failure. keys: "
-                                         , show rks
-                                         , "\nresult map was: "
-                                         , show mp
-                                         ]
-                        retry msg
+polling api cenv rks =
+    recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
+      putStrLn
+        $ "polling for requestkeys " <> show (toList rs)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
 
-      checkCommandResult x cr =
-          _crReqKey cr == x && isOkPactResult (_crResult cr)
+      -- Run the poll cmd loop and check responses
+      -- by making sure results are successful and request keys
+      -- are sane
 
-      isOkPactResult (PactResult e) = isRight e
+      runClientM (pollApiCmd api $ Poll rs) cenv >>= \case
+        Left e -> fail $ show e
+        Right r@(PollResponses mp) ->
+          if all (go mp) (toList rs)
+          then return r
+          else fail "polling check failed"
+  where
+    rs = _rkRequestKeys rks
 
-      checkResults [] _ = return True
-      checkResults (x:xs) mp = case HashMap.lookup x mp of
-                                 (Just cr) -> if checkCommandResult x cr
-                                                then checkResults xs mp
-                                                else return False
-                                 Nothing -> return False
+    validate (PactResult a) = isRight a
+
+    go m rk = case m ^. at rk of
+      Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
+      Nothing -> False
 
 testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> IO SubmitBatch
 testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
