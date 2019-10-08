@@ -1,9 +1,14 @@
--- | Tests and test infrastructure common to all mempool backends.
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
+-- | Tests and test infrastructure common to all mempool backends.
+
 module Chainweb.Test.Mempool
   ( tests
   , remoteTests
@@ -21,7 +26,7 @@ import Control.Exception (bracket)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
-import GHC.Stack
+import Data.Bifunctor (bimap)
 import Data.Decimal (Decimal)
 import Data.Function (on)
 import qualified Data.HashSet as HashSet
@@ -30,8 +35,10 @@ import Data.IORef
 import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
 import Data.Ord (Down(..))
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import GHC.Stack
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
 import Test.QuickCheck hiding ((.&.))
@@ -102,15 +109,28 @@ arbitraryGasPrice :: Gen GasPrice
 arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
 
 instance Arbitrary MockTx where
-  arbitrary = MockTx <$> chooseAny
-                        <*> arbitraryGasPrice
-                        <*> pure mockBlockGasLimit
-                        <*> pure emptyMeta
+  arbitrary = MockTx
+      <$> chooseAny
+      <*> arbitraryGasPrice
+      <*> pure mockBlockGasLimit
+      <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
       zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
-type InsertCheck = MVar (Vector MockTx -> IO (Vector (Maybe InsertError)))
+type BatchCheck =
+    Vector (T2 TransactionHash MockTx)
+    -> IO (V.Vector (Either (T2 TransactionHash InsertError)
+                            (T2 TransactionHash MockTx)))
+
+-- | We use an `MVar` so that tests can override/modify the instance's insert
+-- check for tests. To make quickcheck testing not take forever for remote, we
+-- run the server and client mempools in a resource pool -- the test pulls an
+-- already running instance from the pool so we need a way to twiddle its check
+-- function for the tests.
+--
+type InsertCheck = MVar BatchCheck
+
 data MempoolWithFunc =
     MempoolWithFunc (forall a
                      . ((InsertCheck -> MempoolBackend MockTx -> IO a)
@@ -134,8 +154,7 @@ mempoolProperty
     -> TestTree
 mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name go
   where
-    go = monadicIO (gen >>= run . tout . withMempool . test
-                        >>= either fail return)
+    go = monadicIO (gen >>= run . tout . withMempool . test >>= either fail return)
 
     tout m = timeout 60000000 m >>= maybe (fail "timeout") return
 
@@ -191,6 +210,7 @@ propBadlist (txs, badTxs) _ mempool = runExceptT $ do
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
 
+-- TODO Does this need to be updated?
 propPreInsert
     :: ([MockTx], [MockTx])
     -> InsertCheck
@@ -211,10 +231,17 @@ propPreInsert (txs, badTxs) gossipMV mempool =
     hash = txHasher txcfg
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
-    checkOne tx = if tx `elem` badTxs
-                  then Just InsertErrorBadlisted
-                  else Nothing
-    checkNotBad xs = return $! V.map checkOne xs
+
+    checkOne :: MockTx -> Either InsertError MockTx
+    checkOne tx
+        | tx `elem` badTxs = Left InsertErrorBadlisted
+        | otherwise = Right tx
+
+    checkNotBad
+        :: Vector (T2 TransactionHash MockTx)
+        -> IO (V.Vector (Either (T2 TransactionHash InsertError)
+                                (T2 TransactionHash MockTx)))
+    checkNotBad = pure . V.map (\(T2 h tx) -> bimap (T2 h) (T2 h) $ checkOne tx)
 
 
 propTrivial
