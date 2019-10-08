@@ -291,7 +291,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -301,6 +301,10 @@ spv sid cenv r =
       runClientM (pactSpvApiClient v sid r) cenv >>= \case
         Left e -> throwM $ SpvFailure (show e)
         Right t -> return t
+  where
+    h _ = Handler $ \case
+      SpvFailure _ -> return True
+      _ -> return False
 
 -- | Send a batch with retry logic using an exponential backoff.
 -- This test just does a simple check to make sure sends succeed.
@@ -311,7 +315,7 @@ sending
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -325,6 +329,10 @@ sending sid cenv batch =
   where
     ss = _sbCmds batch
 
+    h _ = Handler $ \case
+      SendFailure _ -> return True
+      _ -> return False
+
 -- | Poll with retry using an exponential backoff
 --
 polling
@@ -333,7 +341,7 @@ polling
     -> RequestKeys
     -> IO PollResponses
 polling sid cenv rks =
-    recoverAll (exponentialBackoff 10000 <> limitRetries 15) $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -349,6 +357,10 @@ polling sid cenv rks =
           then return r
           else throwM $ PollingFailure "polling check failed"
   where
+    h _ = Handler $ \case
+      PollingFailure _ -> return True
+      _ -> return False
+
     rs = _rkRequestKeys rks
 
     validate (PactResult a) = isRight a
