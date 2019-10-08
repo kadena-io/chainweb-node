@@ -58,6 +58,7 @@ module Chainweb.Utils
 , roundBy
 , unlessM
 , whenM
+, ebool_
 , partitionEithersNEL
 , (&)
 , IxedGet(..)
@@ -195,6 +196,7 @@ import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
+import Data.Bool (bool)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString (ByteString)
@@ -348,6 +350,9 @@ unlessM c a = c >>= flip unless a
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
+
+ebool_ :: e -> Bool -> Either e ()
+ebool_ e = bool (Left e) (Right ())
 
 -- | Round an integral `n` up to the nearest multiple of
 -- an integral `m`
@@ -1137,7 +1142,7 @@ ssnd (T2 _ b) = b
 
 -- | Currying for functions of strict tuples
 --
-scurry :: forall a b c. ((T2 a b) -> c) -> a -> b -> c
+scurry :: forall a b c. (T2 a b -> c) -> a -> b -> c
 scurry k a b = k (T2 a b)
 {-# INLINE scurry #-}
 
