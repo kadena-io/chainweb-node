@@ -24,9 +24,9 @@ import qualified System.IO.Streams as Streams
 import System.Process
 import qualified System.Random.MWC as MWC
 
+import Chainweb.Miner.Core (fastCheckTarget)
 import Chainweb.PowHash
 import Chainweb.Version
-import Chainweb.Miner.Core (fastCheckTarget)
 
 
 pMiner :: Parser FilePath
@@ -72,9 +72,16 @@ callMiner target minerPath blockBytes = bracketOnError startup kill go
                     errbytes
                     ]
                 fail "miner-failure"
-            return $! outbytes
+            return $! fst $ B16.decode outbytes
 
-    startup =
+    startup = do
+        Streams.writeTo Streams.stderr $ Just $ B.concat [
+              "invoking '"
+            , B.pack minerPath
+            , " "
+            , target
+            , "'\n"
+            ]
         Streams.runInteractiveProcess minerPath [targetHashStr] Nothing (Just environment)
     readThread s = B.concat <$> Streams.toList s
 
