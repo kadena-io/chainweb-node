@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | A mock in-memory mempool backend that does not persist to disk.
@@ -22,7 +21,6 @@ module Chainweb.Mempool.InMem
 
 ------------------------------------------------------------------------------
 import Control.Applicative ((<|>))
-import Control.Compactable (fforMaybe, separate)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
@@ -287,11 +285,11 @@ insertCheckInMem' cfg lock txs = do
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
     let withHashes :: Vector (T2 TransactionHash t)
-        withHashes = fforMaybe txs $ \tx ->
+        withHashes = flip V.mapMaybe txs $ \tx ->
           let !h = hasher tx
           in (T2 h) <$> hush (validateOne cfg badmap now tx h)
 
-    snd . separate <$> _inmemPreInsertBatchChecks cfg withHashes
+    V.mapMaybe hush <$> _inmemPreInsertBatchChecks cfg withHashes
   where
     txcfg = _inmemTxCfg cfg
     hasher = txHasher txcfg

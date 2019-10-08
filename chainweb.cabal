@@ -279,7 +279,6 @@ library
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , clock >= 0.7
-        , compactable >= 0.1
         , configuration-tools >= 0.4.1
         , connection >=0.2
         , containers >= 0.5
