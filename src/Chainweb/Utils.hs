@@ -203,7 +203,6 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BL8
-import qualified Data.ByteString.Unsafe as B
 import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor.Of
