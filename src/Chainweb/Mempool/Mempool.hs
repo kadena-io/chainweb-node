@@ -107,6 +107,7 @@ import Data.IORef
 import Data.List (unfoldr)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -232,9 +233,9 @@ data MempoolBackend t = MempoolBackend {
                   -> Vector t
                   -> IO ()
 
-    -- | Perform the pre-insert check for the given transactions. Returns `Just
-    -- msg` if the request failed.
-  , mempoolInsertCheck :: Vector t -> IO (Vector (TransactionHash, Maybe InsertError))
+    -- | Perform the pre-insert check for the given transactions. Short-circuits
+    -- on the first Transaction that fails.
+  , mempoolInsertCheck :: Vector t -> IO (Either (T2 TransactionHash InsertError) ())
 
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
