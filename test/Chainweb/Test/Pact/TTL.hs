@@ -8,7 +8,6 @@
 module Chainweb.Test.Pact.TTL (tests) where
 
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
@@ -44,7 +43,7 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
@@ -90,7 +89,7 @@ testTTL
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
     (T3 _ newblock _) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
@@ -178,7 +177,7 @@ mineBlock
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -19,12 +20,12 @@
 module Chainweb.Pact.Service.PactInProcApi
     ( withPactService
     , withPactService'
+    , pactQueueSize
     ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
-import Control.Concurrent.STM.TQueue
-import Control.Exception (evaluate, finally, mask)
+import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
 import Data.IORef
@@ -44,7 +45,6 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -66,7 +66,7 @@ withPactService
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
-    -> (TQueue RequestMsg -> IO a)
+    -> (PactQueue -> IO a)
     -> IO a
 withPactService ver cid logger mpc cdbv bhdb pdb dbDir nodeid resetDb action =
     withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid resetDb
@@ -89,21 +89,28 @@ withPactService'
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
-    -> (TQueue RequestMsg -> IO a)
+    -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid
-                 resetDb action =
-    mask $ \rst -> do
-        reqQ <- atomically (newTQueue :: STM (TQueue RequestMsg))
-        a <- withLink $
-             PS.initPactService ver cid logger reqQ memPoolAccess cdbv bhDb
-                                pdb dbDir nodeid resetDb
-        evaluate =<< rst (action reqQ) `finally` closeQueue reqQ `finally` wait a
+withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb action = do
+    reqQ <- atomically $ newTBQueue pactQueueSize
+    race (server reqQ) (client reqQ) >>= \case
+        Left () -> error "pact service terminated unexpectedly"
+        Right a -> return a
+  where
+    client reqQ = action reqQ
+    server reqQ = runForever logg "pact-service" $
+        PS.initPactService
+            ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
+    logg = logFunction logger
 
 -- TODO: get from config
 -- TODO: why is this declared both here and in Mempool
 maxBlockSize :: GasLimit
 maxBlockSize = 1000000
+
+-- TODO: make this configurable
+pactQueueSize :: Num a => a
+pactQueueSize = 2000
 
 pactMemPoolAccess
     :: Logger logger
@@ -166,5 +173,3 @@ pactMempoolSetLastHeader mpc _theLogger bHeader = do
     let headerRef = mpcLastNewBlockParent mpc
     atomicWriteIORef headerRef (Just bHeader)
 
-closeQueue :: TQueue RequestMsg -> IO ()
-closeQueue = sendCloseMsg

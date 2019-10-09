@@ -360,14 +360,14 @@ withAmberDataBlocksBackend mgr conf inner = do
     -- whatever happens first.
     --
     processor queue = do
+        -- ensure that there is at least one transaction in every batch
+        h <- atomically $ readTBQueue queue
+
         -- set timer to 1 second
         timer <- registerDelay (int amberDataBatchDelayMs)
 
         -- Fill the batch
-        (remaining, batch) <- atomically $ do
-            -- ensure that there is at least one transaction in every batch
-            h <- readTBQueue queue
-            go amberDataBatchSize (initIndex h) timer
+        (remaining, batch) <- go amberDataBatchSize (initIndex h) timer
 
         errorLogFun Debug $ "[Amberdata] Send " <> sshow (amberDataBatchSize - remaining) <> " messages"
         let body = BB.toLazyByteString (mkList batch)
@@ -376,16 +376,15 @@ withAmberDataBlocksBackend mgr conf inner = do
         errorLogFun Debug $ "[Amberdata] Response: " <> sshow (HTTP.responseBody resp)
 
       where
-        go 0 !batch _ = return $! (0, batch)
-        go !remaining !batch !timer = isTimeout `orElse` fill
+        getNextAction timer = atomically $ isTimeout `orElse` fill
           where
-            isTimeout = do
-                check =<< readTVar timer
-                return $! (remaining, batch)
-            fill = tryReadTBQueue queue >>= \case
-                Nothing -> return $! (remaining, batch)
-                Just x -> do
-                    go (pred remaining) (batch <> indexWithComma x) timer
+            isTimeout = Nothing <$ (readTVar timer >>= check)
+            fill = tryReadTBQueue queue >>= maybe retry (return . Just)
+
+        go 0 !batch _ = return $! (0, batch)
+        go !remaining !batch !timer = getNextAction timer >>= \case
+            Nothing -> return (remaining, batch)
+            Just x -> go (remaining - 1) (batch <> indexWithComma x) timer
 
     putBulkLog a = HTTP.defaultRequest
         { HTTP.method = "POST"
