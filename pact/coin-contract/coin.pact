@@ -46,6 +46,10 @@
     "Magic capability to protect miner reward"
     true)
 
+  (defcap GENESIS ()
+    (compose-capability (COINBASE))
+    true)
+
   (defcap FUND_TX ()
     "Magic capability to execute gas purchases and redemptions"
     true)
@@ -467,7 +471,7 @@
 
   (deftable allocation-table:{allocation-schema})
 
-  (defun create-allocation-account (account:string date:time guard:guard)
+  (defun create-allocation-account (account:string date:time guard-ref:string)
     @doc "Add an entry to the coin allocation table"
     @model [ (property (account-structure account)) ]
 
@@ -476,24 +480,9 @@
     (insert allocation-table account
       { "balance" : 0.0
       , "date" : date
-      , "guard" : guard
+      , "guard" : (keyset-ref-guard guard-ref)
       , "redeemed" : false
       }))
-
-  (defun rotate-allocation-guard (account:string new-guard:guard)
-    @doc "Rotate the guard associated with an allocation account"
-    @model [ (property (account-structure account)) ]
-
-    (enforce-account)
-
-    (with-read allocation-table account
-      { "guard" := old-guard }
-
-      (enforce-guard old-guard)
-
-      (update allocation-table account
-        { "guard" : new-guard }))
-    )
 
   (defun release-allocation (account:string amount:decimal)
     @doc "Release funds associated with an allocation account"
@@ -511,45 +500,45 @@
         "amount requested for unlock is not a valid quantity: {}"
         [amount]))
 
-    (with-read allocation-table account
-      { "balance" := balance
-      , "date" := release-time
-      , "redeemed" := redeemed
-      , "guard" := guard
-      }
+    (with-capability (GENESIS)
+      (with-read allocation-table account
+        { "balance" := balance
+        , "date" := release-time
+        , "redeemed" := redeemed
+        , "guard" := guard
+        }
 
-      (let
-        ((new-balance:decimal (- balance amount))
-         (curr-time:time (at 'block-time (chain-data))))
+        (let
+          ((new-balance:decimal (- balance amount))
+           (curr-time:time (at 'block-time (chain-data))))
 
-        (enforce (not redeemed)
-          "allocation funds have already been redeemed")
+          (enforce (not redeemed)
+            "allocation funds have already been redeemed")
 
-        (enforce
-          (>= (diff-time release-time curr-time) 0)
-          (format "funds locked until {}" [release-time]))
+          (enforce
+            (>= (diff-time release-time curr-time) 0)
+            (format "funds locked until {}" [release-time]))
 
-        (enforce-guard guard)
+          (enforce-guard guard)
 
-        (enforce
-          (>= new-balance 0)
-          "insufficient funds")
+          (enforce
+            (>= new-balance 0)
+            "insufficient funds")
 
-        ; if account is now empty, mark row as redeemd
-        (if (= new-balance 0)
+          ; update balance to reflect coinbase
           (update allocation-table account
-            { "redeemed" : true })
+            { "balance" : new-balance })
 
-          "noop")
-
-        ; update balance to reflect coinbase
-        (update allocation-table account
-          { "balance" : new-balance })))
-
-        (with-capability (COINBASE)
           ; release funds via coinbase to account
-          (coinbase account guard amount))
-    )
+          (coinbase account guard amount)
+
+           ; if account is now empty, mark row as redeemd
+          (if (= new-balance 0)
+            (update allocation-table account
+              { "redeemed" : true })
+
+            "noop")
+    ))))
 
 )
 
