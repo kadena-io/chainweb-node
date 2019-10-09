@@ -8,27 +8,44 @@
 -- Pact execution service queue for Chainweb
 
 module Chainweb.Pact.Service.PactQueue
-    ( addRequest
-    , getNextRequest
-    , sendCloseMsg
-    ) where
+( PactQueue
+, newPactQueue
+, addRequest
+, getNextRequest
+, sendCloseMsg
+) where
 
-import Control.Concurrent.STM.TQueue
-import Control.Monad.STM
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.BoundedChan (BoundedChan)
+import qualified Control.Concurrent.BoundedChan as BChan
 
 import Chainweb.Pact.Service.Types
 
+type PactQueue = BoundedChan RequestMsg
+
 -- | Add a request to the Pact execution queue
-addRequest :: TQueue RequestMsg -> RequestMsg -> IO ()
-addRequest q msg = do
-    atomically $ writeTQueue q msg
+addRequest :: PactQueue -> RequestMsg -> IO ()
+addRequest = BChan.writeChan
+
+-- TODO: add tryAddRequest here? non-essential uses of pact queue (like mempool
+-- gossip) could fail fast on a blocked queue instead of making the load
+-- problem worse
+
+-- TODO: kill pact service with exception instead of enqueue
 
 -- | Send special 'close' message to stop the processing thread
-sendCloseMsg :: TQueue RequestMsg -> IO ()
-sendCloseMsg q = do
-    atomically $ writeTQueue q CloseMsg
+sendCloseMsg :: PactQueue -> IO ()
+sendCloseMsg = flip addRequest CloseMsg
 
 -- | Get the next available request from the Pact execution queue
-getNextRequest :: TQueue RequestMsg -> IO RequestMsg
-getNextRequest q = do
-    atomically $ readTQueue q
+getNextRequest :: PactQueue -> IO RequestMsg
+getNextRequest = BChan.readChan
+
+-- | Make a new pact service queue.
+newPactQueue :: IO PactQueue
+newPactQueue = do
+    caps <- getNumCapabilities
+    BChan.newBoundedChan $! caps * multiplier
+  where
+    multiplier :: Int
+    multiplier = 8

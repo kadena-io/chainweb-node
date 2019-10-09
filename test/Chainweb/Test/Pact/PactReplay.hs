@@ -8,7 +8,6 @@
 module Chainweb.Test.Pact.PactReplay where
 
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -46,7 +45,7 @@ import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
@@ -85,7 +84,7 @@ tests =
 onRestart
     :: IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> Assertion
 onRestart pdb bhdb r = do
     bhdb' <- bhdb
@@ -95,7 +94,7 @@ onRestart pdb bhdb r = do
     assertEqual "Invalid BlockHeight" 9 (_blockHeight b)
 
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess iot  = MemPoolAccess
+testMemPoolAccess iot = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
@@ -132,7 +131,7 @@ testMemPoolAccess iot  = MemPoolAccess
         code nonce = defModule (T.pack $ show nonce)
 
 dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-dupegenMemPoolAccess iot  = MemPoolAccess
+dupegenMemPoolAccess iot = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash _header
@@ -171,7 +170,7 @@ firstPlayThrough
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> Assertion
 firstPlayThrough genesisBlock iopdb iobhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
@@ -198,7 +197,7 @@ testDupes
   :: BlockHeader
   -> IO (PayloadDb HashMapCas)
   -> IO (BlockHeaderDb)
-  -> IO (TQueue RequestMsg)
+  -> IO PactQueue
   -> Assertion
 testDupes genesisBlock iopdb iobhdb rr = do
     (T3 _ newblock payload) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
@@ -231,7 +230,7 @@ mineBlock
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 

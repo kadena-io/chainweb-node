@@ -1,14 +1,13 @@
-{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeApplications  #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Pact.TTL (tests) where
 
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
@@ -16,9 +15,9 @@ import Data.Aeson
 import Data.Bytes.Put
 import Data.CAS.HashMap
 import Data.List (foldl')
-import Data.Tuple.Strict
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import NeatInterpolation
@@ -44,7 +43,7 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
@@ -90,7 +89,7 @@ testTTL
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
     (T3 _ newblock _) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
@@ -109,7 +108,7 @@ testTTL genesisBlock iopdb iobhdb rr = do
           return $ Just "Expected a transaction validation failure."
 
 testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess _ttlcase iot  = MemPoolAccess
+testMemPoolAccess _ttlcase iot = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
@@ -178,7 +177,7 @@ mineBlock
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 

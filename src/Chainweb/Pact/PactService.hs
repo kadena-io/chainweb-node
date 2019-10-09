@@ -36,7 +36,6 @@ module Chainweb.Pact.PactService
     ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent
-import Control.Concurrent.STM
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -99,7 +98,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.PactQueue (getNextRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
@@ -136,7 +135,7 @@ initPactService
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> TQueue RequestMsg
+    -> PactQueue
     -> MemPoolAccess
     -> MVar (CutDb cas)
     -> BlockHeaderDb
@@ -251,7 +250,7 @@ initializeCoinContract v cid pwo = do
 serviceRequests
     :: PayloadCas cas
     => MemPoolAccess
-    -> TQueue RequestMsg
+    -> PactQueue
     -> PactServiceM cas ()
 serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"

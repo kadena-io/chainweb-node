@@ -11,7 +11,6 @@ module Chainweb.WebPactExecutionService
   ) where
 
 import Control.Concurrent.MVar
-import Control.Concurrent.STM.TQueue
 import Control.Exception (evaluate)
 import Control.Monad.Catch
 import qualified Data.HashMap.Strict as HM
@@ -23,7 +22,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.WebPactExecutionService.Types
@@ -66,7 +65,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     withChainService h = withChainServiceForId (_chainId h)
 
 mkPactExecutionService
-    :: TQueue RequestMsg
+    :: PactQueue
     -> PactExecutionService
 mkPactExecutionService q = PactExecutionService
   { _pactValidateBlock = \h pd -> do

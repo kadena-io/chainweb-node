@@ -57,7 +57,6 @@ module Chainweb.Test.Pact.Utils
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -67,15 +66,15 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
+import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
 import Data.Text (Text)
-import qualified Data.Text.IO as T
 import Data.Text.Encoding
+import qualified Data.Text.IO as T
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -120,10 +119,11 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types (internalError, RequestMsg(..))
+import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -131,7 +131,6 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-import Chainweb.Test.Utils
 
 
 -- ----------------------------------------------------------------------- --
@@ -547,14 +546,14 @@ withPact
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO FilePath
-    -> (IO (TQueue RequestMsg) -> TestTree)
+    -> (IO PactQueue -> TestTree)
     -> TestTree
 withPact version logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
-        reqQ <- atomically newTQueue
+        reqQ <- newPactQueue
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
