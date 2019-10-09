@@ -468,7 +468,6 @@
   (create-allocation-account "brandon" (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
 
 (test-capability (GENESIS))
-(test-capability (COINBASE))
 
 (expect-failure
   "all allocation amounts must be positive"
