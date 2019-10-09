@@ -302,7 +302,7 @@ serviceRequests memPoolAccess reqQ = do
         -> PactServiceM cas a
         -> PactServiceM cas ()
     tryOne' which mvar post m =
-        (evalPact (post <$> m) >>= (liftIO . putMVar mvar))
+        (evalPactOnThread (post <$> m) >>= (liftIO . putMVar mvar))
         `catches`
             [ Handler $ \(e :: SomeAsyncException) -> do
                 logError $ mconcat
@@ -341,8 +341,8 @@ serviceRequests memPoolAccess reqQ = do
         -- No mask is needed here. Asynchronous exceptions are handled
         -- by the outer handlers and cause an abort. So no state is lost.
         --
-        evalPact :: PactServiceM cas a -> PactServiceM cas a
-        evalPact act = do
+        evalPactOnThread :: PactServiceM cas a -> PactServiceM cas a
+        evalPactOnThread act = do
             e <- ask
             s <- get
             (r, s') <- liftIO $
