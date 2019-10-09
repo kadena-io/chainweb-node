@@ -214,7 +214,7 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     let cmdEnv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd' spv nid
         requestKey = cmdToRequestKey cmd
     -- when calling genesis commands, we bring all magic capabilities in scope
-    let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
+    let initState = initCapabilities [magic_GENESIS, magic_COINBASE]
 
     resultE <- catchesPactError $! runPayload cmdEnv initState cmd []
     fmap (`T2` mempty) $! case resultE of

@@ -491,6 +491,8 @@
         (property (> amount 0.0))
       ]
 
+    (require-capability (GENESIS))
+
     (enforce-account)
 
     (enforce-unit amount)
@@ -500,7 +502,6 @@
         "amount requested for unlock is not a valid quantity: {}"
         [amount]))
 
-    (require-capability (GENESIS))
     (with-read allocation-table account
       { "balance" := balance
       , "date" := release-time
