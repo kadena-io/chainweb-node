@@ -615,29 +615,28 @@ withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
     processor queue = do
         i <- curIxName
 
+        -- ensure that there is at least one transaction in every batch
+        h <- atomically $ readTBQueue queue
+
         -- set timer to 1 second
         timer <- registerDelay (int elasticSearchBatchDelayMs)
 
         -- Fill the batch
-        (remaining, batch) <- atomically $ do
-            -- ensure that there is at least one transaction in every batch
-            h <- readTBQueue queue
-            go i elasticSearchBatchSize (indexAction i h) timer
+        (remaining, batch) <- go i elasticSearchBatchSize (indexAction i h) timer
 
         createIndex i
         errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
         void $ HTTP.httpLbs (putBulgLog batch) mgr
       where
-        go _ 0 !batch _ = return $! (0, batch)
-        go i !remaining !batch !timer = isTimeout `orElse` fill
+        getNextAction timer = atomically $ isTimeout `orElse` fill
           where
-            isTimeout = do
-                check =<< readTVar timer
-                return $! (remaining, batch)
-            fill = tryReadTBQueue queue >>= \case
-                Nothing -> return $! (remaining, batch)
-                Just x -> do
-                    go i (pred remaining) (batch <> indexAction i x) timer
+            isTimeout = Nothing <$ (readTVar timer >>= check)
+            fill = tryReadTBQueue queue >>= maybe retry (return . Just)
+
+        go _ 0 !batch _ = return $! (0, batch)
+        go i !remaining !batch !timer = getNextAction timer >>= \case
+            Nothing -> return (remaining, batch)
+            Just x -> go i (remaining - 1) (batch <> indexAction i x) timer
 
     createIndex i =
         void $ HTTP.httpLbs (putIndex i) { HTTP.method = "HEAD"} mgr
