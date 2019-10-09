@@ -537,21 +537,20 @@
             "not enough funds to withdraw amount: {} {}"
             [balance amount]))
 
-        (with-capability (COINBASE)
-          ; if account is now empty, mark row as redeemd
-          (if (= new-balance 0)
-            (update allocation-table account
-              { "redeemed" : true })
 
-            "noop")
-
-          ; release funds via coinbase to account
-          (coinbase account guard amount)
-
-          ; update balance to reflect coinbase
+        ; if account is now empty, mark row as redeemd
+        (if (= new-balance 0)
           (update allocation-table account
-            { "balance" : new-balance })))
-      )
+            { "redeemed" : true })
+
+          "noop")
+        (with-capability (COINBASE)
+          ; release funds via coinbase to account
+          (coinbase account guard amount))
+
+        ; update balance to reflect coinbase
+        (update allocation-table account
+          { "balance" : new-balance })))
     )
 
 )
