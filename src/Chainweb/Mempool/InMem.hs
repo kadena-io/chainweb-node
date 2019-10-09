@@ -219,7 +219,9 @@ insertCheckInMem
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Either (T2 TransactionHash InsertError) ())
-insertCheckInMem cfg lock txs = do
+insertCheckInMem cfg lock txs
+  | V.null txs = pure $ Right ()
+  | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
@@ -280,7 +282,9 @@ insertCheckInMem'
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Vector (T2 TransactionHash t))
-insertCheckInMem' cfg lock txs = do
+insertCheckInMem' cfg lock txs
+  | V.null txs = pure V.empty
+  | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
