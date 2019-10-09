@@ -19,7 +19,6 @@ module Chainweb.Test.Pact.PactInProcApi
 ) where
 
 import Control.Concurrent.MVar.Strict
-import Control.Concurrent.STM
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad (when)
@@ -48,7 +47,7 @@ import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -76,8 +75,7 @@ tests = ScheduledTest label $
     genblock = genesisBlockHeader testVersion cid
     cid = someChainId testVersion
 
-
-newBlockTest :: String -> IO (TQueue RequestMsg) -> TestTree
+newBlockTest :: String -> IO PactQueue -> TestTree
 newBlockTest label reqIO = golden label $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
@@ -87,7 +85,7 @@ newBlockTest label reqIO = golden label $ do
   where
     cid = someChainId testVersion
 
-_localTest :: IO (TQueue RequestMsg) -> ScheduledTest
+_localTest :: IO PactQueue -> ScheduledTest
 _localTest reqIO = goldenSch "local" $ do
     reqQ <- reqIO
     locVar0c <- _testLocal >>= \t -> local t reqQ
