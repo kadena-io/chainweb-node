@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -8,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -35,8 +37,9 @@ module Chainweb.Pact.PactService
     , minerReward
     ) where
 ------------------------------------------------------------------------------
-import Control.Concurrent
-import Control.Concurrent.STM
+import Control.Concurrent.MVar
+import Control.Concurrent.Async
+import Control.Exception (SomeAsyncException)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -99,7 +102,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.PactQueue (getNextRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
@@ -136,7 +139,7 @@ initPactService
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> TQueue RequestMsg
+    -> PactQueue
     -> MemPoolAccess
     -> MVar (CutDb cas)
     -> BlockHeaderDb
@@ -249,9 +252,10 @@ initializeCoinContract v cid pwo = do
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
-    :: PayloadCas cas
+    :: forall cas
+    . PayloadCas cas
     => MemPoolAccess
-    -> TQueue RequestMsg
+    -> PactQueue
     -> PactServiceM cas ()
 serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
@@ -274,7 +278,7 @@ serviceRequests memPoolAccess reqQ = do
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne' "execValidateBlock"
                         _valResultVar
-                        (return . flip validateHashes _valBlockHeader)
+                        (flip validateHashes _valBlockHeader)
                         (execValidateBlock _valBlockHeader _valPayloadData)
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
@@ -284,20 +288,67 @@ serviceRequests memPoolAccess reqQ = do
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
-    tryOne which mvar m = tryOne' which mvar (return . Right) m
+    tryOne
+        :: String
+        -> MVar (Either PactException a)
+        -> PactServiceM cas a
+        -> PactServiceM cas ()
+    tryOne which mvar m = tryOne' which mvar Right m
 
-    tryOne' which mvar post m = do
-        r <- try m
-        case r of
-            Left (SomeException e) -> do
-                logError $ mconcat [ "Received exception running pact service ("
-                                   , which
-                                   , "): "
-                                   , show e ]
-                liftIO $ putMVar mvar $! toPactInternalError e
-            Right r' -> post r' >>= liftIO . putMVar mvar
-
-
+    tryOne'
+        :: String
+        -> MVar (Either PactException b)
+        -> (a -> Either PactException b)
+        -> PactServiceM cas a
+        -> PactServiceM cas ()
+    tryOne' which mvar post m =
+        (evalPactOnThread (post <$> m) >>= (liftIO . putMVar mvar))
+        `catches`
+            [ Handler $ \(e :: SomeAsyncException) -> do
+                logError $ mconcat
+                    [ "Received asynchronous exception running pact service ("
+                    , which
+                    , "): "
+                    , show e
+                    ]
+                liftIO $ do
+                    void $ tryPutMVar mvar $! toPactInternalError e
+                    throwM e
+            , Handler $ \(e :: SomeException) -> do
+                logError $ mconcat
+                    [ "Received exception running pact service ("
+                    , which
+                    , "): "
+                    , show e
+                    ]
+                liftIO $ void $ tryPutMVar mvar $! toPactInternalError e
+            ]
+      where
+        -- Pact turns AsyncExceptions into textual exceptions within
+        -- PactInternalError. So there is no easy way for us to distinguish
+        -- whether an exception originates from within pact or from the outside.
+        --
+        -- A common strategy to deal with this is to run the computation (pact)
+        -- on a "hidden" internal thread. Lifting `forkIO` into a state
+        -- monad is generally note thread-safe. It is fine to do here, since
+        -- there is no concurrency. We use a thread here only to shield the
+        -- computation from external exceptions.
+        --
+        -- This solution isn't bullet-proof and only meant as a temporary fix. A
+        -- proper solution is to fix pact, to handle asynchronous exceptions
+        -- gracefully.
+        --
+        -- No mask is needed here. Asynchronous exceptions are handled
+        -- by the outer handlers and cause an abort. So no state is lost.
+        --
+        evalPactOnThread :: PactServiceM cas a -> PactServiceM cas a
+        evalPactOnThread act = do
+            e <- ask
+            s <- get
+            (r, s') <- liftIO $
+                withAsync (runStateT (runReaderT act e) s) wait
+            put $! s'
+            return $! r
 
 toTransactionBytes :: P.Command Text -> Transaction
 toTransactionBytes cwTrans =
@@ -309,7 +360,6 @@ toOutputBytes :: HashCommandResult -> TransactionOutput
 toOutputBytes cr =
     let outBytes = A.encode cr
     in TransactionOutput { _transactionOutputBytes = toS outBytes }
-
 
 toPayloadWithOutputs :: Miner -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =

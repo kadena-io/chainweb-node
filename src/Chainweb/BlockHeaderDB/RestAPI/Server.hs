@@ -32,8 +32,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 ) where
 
 import Control.Applicative
-import Control.Concurrent.Async (concurrently)
-import Control.Concurrent.Chan (newChan, writeChan)
 import Control.Lens hiding (children, (.=))
 import Control.Monad
 import qualified Control.Monad.Catch as E (Handler(..), catches)
@@ -42,11 +40,18 @@ import Control.Monad.IO.Class
 
 import Data.Aeson
 import Data.Binary.Builder (fromByteString, fromLazyByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base16 as B16
+import Data.ByteString.Short (fromShort)
+import Data.CAS (casLookupM)
 import Data.Foldable
+import Data.Functor.Of
+import Data.IORef
 import Data.Proxy
+import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as T
 
-import Network.Wai.EventSource (ServerEvent(..), eventSourceAppChan)
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Prelude hiding (lookup)
 
@@ -57,14 +62,16 @@ import qualified Streaming.Prelude as SP
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..))
+import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
 import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadStore)
+import Chainweb.Difficulty (showTargetHex)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore.Types (PayloadCas, PayloadDb)
+import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStoreCas)
@@ -73,7 +80,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
-import Data.CAS (casLookupM)
 import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
@@ -313,18 +319,25 @@ headerStreamServer cdb = headerStreamHandler cdb
 
 headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler Application
 headerStreamHandler db = Tagged $ \req respond -> do
-    chan <- newChan
-    snd <$> concurrently
-        (SP.mapM_ (g >=> writeChan chan . f) . SP.concat $ blockDiffStream db)
-        (eventSourceAppChan chan req respond)
+    streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
+    eventSourceAppIO (run streamRef) req respond
   where
+    run :: IORef (SP.Stream (Of ServerEvent) IO ()) -> IO ServerEvent
+    run var = readIORef var >>= SP.uncons >>= \case
+        Nothing -> return CloseEvent
+        Just (cur, !s') -> cur <$ writeIORef var s'
+
     cas :: PayloadDb cas
     cas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
 
     g :: BlockHeader -> IO HeaderUpdate
     g bh = do
         x <- casLookupM cas $ _blockPayloadHash bh
-        pure $ HeaderUpdate (ObjectEncoded bh) (length $ _payloadWithOutputsTransactions x)
+        pure $ HeaderUpdate
+            { _huHeader =  ObjectEncoded bh
+            , _huTxCount = length $ _payloadWithOutputsTransactions x
+            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
+            , _huTarget = showTargetHex $ _blockTarget bh }
 
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing

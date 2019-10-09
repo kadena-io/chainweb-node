@@ -56,6 +56,7 @@ module Chainweb.Chainweb
 , configReintroTxs
 , configP2p
 , configTransactionIndex
+, configBlockGasLimit
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
@@ -93,10 +94,12 @@ import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
 
+import Data.Align (alignWith)
 import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
@@ -106,6 +109,8 @@ import Data.List (sortBy)
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
+import Data.These (These(..))
+import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
@@ -118,15 +123,17 @@ import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
 
-import qualified Pact.Types.ChainMeta as P
-import Pact.Types.Command (cmdPayload, pMeta)
-import qualified Pact.Types.Hash as P
 import Prelude hiding (log)
 
 import System.Clock
 import System.LogLevel
 
 -- internal modules
+
+import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.ChainMeta as P
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Hash as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
@@ -203,6 +210,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottleRate :: !Natural
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
+    , _configBlockGasLimit :: !Mempool.GasLimit
     }
     deriving (Show, Eq, Generic)
 
@@ -230,6 +238,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottleRate = 1000
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
+    , _configBlockGasLimit = 100000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -246,6 +255,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttleRate" .= _configThrottleRate o
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
+        , "blockGasLimit" .= _configBlockGasLimit o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -262,6 +272,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottleRate ..: "throttleRate" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
+        <*< configBlockGasLimit ..: "blockGasLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -297,6 +308,9 @@ pChainwebConfiguration = id
     <*< configPruneChainDatabase .:: enableDisableFlag
         % long "prune-chain-database"
         <> help "prune the chain database for all chains on startup"
+    <*< configBlockGasLimit .:: jsonOption
+        % long "block-gas-limit"
+        <> help "the sum of all transaction gas fees in a block must not exceed this number"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -367,51 +381,66 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 
 validatingMempoolConfig
     :: ChainId
+    -> ChainwebVersion
+    -> Mempool.GasLimit
     -> MVar PactExecutionService
     -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid mv = Mempool.InMemConfig
+validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     { Mempool._inmemTxCfg = txcfg
-    , Mempool._inmemTxBlockSizeLimit = blockGasLimit
+    , Mempool._inmemTxBlockSizeLimit = gl
     , Mempool._inmemMaxRecentItems = maxRecentLog
-    , Mempool._inmemPreInsertCheck = preInsertCheck
+    , Mempool._inmemPreInsertPureChecks = preInsertSingle
+    , Mempool._inmemPreInsertBatchChecks = preInsertBatch
     }
   where
     txcfg = Mempool.chainwebTransactionConfig
-    blockGasLimit = 100000
     maxRecentLog = 2048
-    hasher = Mempool.txHasher txcfg
-    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
-    preInsertCheck txs = do
-        let hashes = V.map toPactHash $ V.map hasher txs
-        pex <- readMVar mv
-        out1 <- V.map toDupeResult <$>
-                (_pactLookup pex (Left cid) hashes >>= either throwM return)
-        out2 <- V.mapM checkMetadata txs
-        -- N.B. this could just be "zipWith" but I wanted to generalize it to
-        -- future-proof adding new checks here
-        return $! zipAllWith [out1, out2] (getFirst . mconcat . map First)
 
+    toDupeResult :: Maybe a -> Maybe Mempool.InsertError
+    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
+
+    preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
+    preInsertSingle tx = checkMetadata tx
+
+    -- | Validation: All checks that should occur before a TX is inserted into
+    -- the mempool. A rejection at this stage means that something is
+    -- fundamentally wrong/illegal with the TX, and that it should be rejected
+    -- completely and not gossiped to other peers.
+    --
+    -- We expect this to be called in two places: once when a new Pact
+    -- Transaction is submitted via the @send@ endpoint, and once when a new TX
+    -- is gossiped to us from a peer's mempool.
+    --
+    preInsertBatch
+        :: V.Vector (T2 Mempool.TransactionHash ChainwebTransaction)
+        -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
+                                (T2 Mempool.TransactionHash ChainwebTransaction)))
+    preInsertBatch txs = do
+        let hashes = V.map (toPactHash . sfst) txs
+        pex <- readMVar mv
+        rs <- _pactLookup pex (Left cid) hashes >>= either throwM pure
+        pure $ alignWith f rs txs
+      where
+        f (These r (T2 h t)) = maybe (Right (T2 h t)) (Left . T2 h) $ toDupeResult r
+        f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
+        f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
+
+    toPactHash :: Mempool.TransactionHash -> P.TypedHash h
     toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
+    -- | Validation: Is this TX associated with the correct `ChainId`?
+    --
+    checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     checkMetadata tx = do
-        let pm = view pMeta . payloadObj . view cmdPayload $ tx
-        let pcid = view P.pmChainId pm
-        tcid <- fromPactChainId pcid
-        if tcid == cid
-          then return Nothing
-          else return $! Just Mempool.InsertErrorMetadataMismatch
-    vuncons v | V.null v = Nothing
-              | otherwise = Just (V.unsafeHead v, V.unsafeTail v)
-
-    zipAllWith vs combine = flip V.unfoldr vs $ \vecs ->
-        let unconses = map vuncons vecs
-            anyFinished = any isNothing unconses
-        in if anyFinished
-           then Nothing
-           else let outs = map fromJuste unconses
-                    heads = map fst outs
-                    tails = map snd outs
-                in Just (combine heads, tails)
+        let !pay = payloadObj . P._cmdPayload $ tx
+            pcid = P._pmChainId $ P._pMeta pay
+            sigs = length (P._cmdSigs tx)
+            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
+        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
+        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
+           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise     -> Right tx
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -433,7 +462,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
-            let mcfg = validatingMempoolConfig cid
+            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg cdbv payloadDb prune dbDir nodeid
                      resetDb)
@@ -509,7 +538,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
+                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
                     withMinerResources mLogger mConf mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
@@ -631,7 +660,7 @@ runChainweb cw = do
         bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
     payloadDbsToServe :: [(ChainId, PayloadDb cas)]
-    payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+    payloadDbsToServe = itoList (view chainwebPayloadDb cw <$ _chainwebChains cw)
 
     pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw

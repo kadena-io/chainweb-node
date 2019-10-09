@@ -9,9 +9,7 @@
 
 module Chainweb.Test.Pact.ChainData where
 
-import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -21,7 +19,6 @@ import Data.CAS.HashMap
 import Data.IORef
 import Data.List (foldl')
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
@@ -43,15 +40,12 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Difficulty
-import Chainweb.Logger
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
@@ -92,7 +86,7 @@ chainDataTest t time =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
-    withPact pdb bhdb (testMemPoolAccess t time) dir $ \reqQIO ->
+    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir $ \reqQIO ->
         testCase ("chain-data." <> T.unpack t) $
             run genblock pdb bhdb reqQIO
   where
@@ -133,7 +127,7 @@ run
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> Assertion
 run genesisBlock iopdb iobhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
@@ -152,40 +146,12 @@ run genesisBlock iopdb iobhdb rr = do
               put newblock
               return ret
 
-withPact
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> MemPoolAccess
-    -> IO FilePath
-    -> (IO (TQueue RequestMsg) -> TestTree)
-    -> TestTree
-withPact iopdb iobhdb mempool iodir f =
-    withResource startPact stopPact $ f . fmap snd
-  where
-    startPact = do
-        mv <- newEmptyMVar
-        reqQ <- atomically newTQueue
-        pdb <- iopdb
-        bhdb <- iobhdb
-        dir <- iodir
-        a <- async $ initPactService testVer cid logger reqQ mempool mv
-                                     bhdb pdb (Just dir) Nothing False
-        link a
-        return (a, reqQ)
-
-    stopPact (a, reqQ) = do
-        sendCloseMsg reqQ
-        cancel a
-
-    logger = genericLogger Warn T.putStrLn
-    cid = someChainId testVer
-
 mineBlock
     :: BlockHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 

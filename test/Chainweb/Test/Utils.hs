@@ -97,7 +97,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (SomeException, bracket, handle)
+import Control.Exception (bracket)
 import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class
@@ -488,13 +488,12 @@ withTestAppServer
     -> IO b
 withTestAppServer tls v appIO envIO userFunc = bracket start stop go
   where
-    eatExceptions = handle (\(_ :: SomeException) -> return ())
     warpOnException _ _ = return ()
     start = do
         app <- appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
-        server <- async $ eatExceptions $ do
+        server <- async $ do
             let settings = W.setOnException warpOnException $
                            W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if

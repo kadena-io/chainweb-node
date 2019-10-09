@@ -7,9 +7,7 @@
 
 module Chainweb.Test.Pact.TTL (tests) where
 
-import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
@@ -20,7 +18,6 @@ import Data.List (foldl')
 import Data.Tuple.Strict
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Vector as V
 
 import NeatInterpolation
@@ -42,14 +39,11 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.Difficulty
-import Chainweb.Logger
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
@@ -72,15 +66,15 @@ tests =
     withTemporaryDir $ \dir ->
     testGroup label
         [ withTime $ \iot ->
-          withPact pdb bhdb (testMemPoolAccess (BadTTL badttl) iot) dir $ \reqQIO ->
+          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadTTL badttl) iot) dir $ \reqQIO ->
             testCase "reject-tx-with-badttl" $ testTTL genblock pdb bhdb reqQIO
         , after AllSucceed "reject-tx-with-badttl" $
           withTime $ \iot ->
-          withPact pdb bhdb (testMemPoolAccess (BadTxTime addtime) iot) dir $ \reqQIO ->
+          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadTxTime addtime) iot) dir $ \reqQIO ->
             testCase "reject-tx-with-badtxtime" $ testTTL genblock pdb bhdb reqQIO
         , after AllSucceed "reject-tx-with-badtxtime" $
           withTime $ \iot ->
-          withPact pdb bhdb (testMemPoolAccess (BadExpirationTime addtime 1) iot) dir $ \reqQIO ->
+          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadExpirationTime addtime 1) iot) dir $ \reqQIO ->
             testCase "reject-tx-with-badexpirationtime" $ testTTL genblock pdb bhdb reqQIO
         ]
   where
@@ -95,7 +89,7 @@ testTTL
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
     (T3 _ newblock _) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
@@ -112,33 +106,6 @@ testTTL genesisBlock iopdb iobhdb rr = do
         wrap = do
           (T3 _ _ _) <- act
           return $ Just "Expected a transaction validation failure."
-withPact
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> MemPoolAccess
-    -> IO FilePath
-    -> (IO (TQueue RequestMsg) -> TestTree)
-    -> TestTree
-withPact iopdb iobhdb mempool iodir f =
-    withResource startPact stopPact $ f . fmap snd
-  where
-    startPact = do
-        mv <- newEmptyMVar
-        reqQ <- atomically newTQueue
-        pdb <- iopdb
-        bhdb <- iobhdb
-        dir <- iodir
-        a <- async $ initPactService testVer cid logger reqQ mempool mv
-                                     bhdb pdb (Just dir) Nothing False
-        link a
-        return (a, reqQ)
-
-    stopPact (a, reqQ) = do
-        sendCloseMsg reqQ
-        cancel a
-
-    logger = genericLogger Warn T.putStrLn
-    cid = someChainId testVer
 
 testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
 testMemPoolAccess _ttlcase iot  = MemPoolAccess
@@ -210,7 +177,7 @@ mineBlock
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 

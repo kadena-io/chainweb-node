@@ -35,7 +35,6 @@ extra-source-files:
 
     pact/coin-contract/coin.repl
     pact/coin-contract/coin.pact
-    pact/coin-contract/coin-sig.pact
     pact/coin-contract/load-coin-contract.yaml
     test/pact/*.pact
     test/golden/*.txt
@@ -49,6 +48,10 @@ data-files:
 source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
+
+flag use_systemd
+    description: Use systemd watchdog features if set.
+    default: True
 
 flag ed25519
     description:
@@ -194,9 +197,10 @@ library
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
+        , Chainweb.Utils.Bench
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
-        , Chainweb.Utils.Bench
+        , Chainweb.Utils.Watchdog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebBlockHeaderDB.Types
@@ -253,6 +257,7 @@ library
         , Chainweb.Pact.Utils
 
         -- utils
+        , Servant.Client_
         , Utils.Logging
         , Utils.Logging.Config
         , Utils.Logging.Trace
@@ -367,6 +372,9 @@ library
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
+    if flag(use_systemd) && os(linux)
+        build-depends: systemd >= 1.2.0 && <2
+        cpp-options: -DWITH_SYSTEMD=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
@@ -405,6 +413,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.TTL
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
+        Chainweb.Test.RestAPI.Client_
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
@@ -455,6 +464,7 @@ test-suite chainweb-tests
         , reflection >= 2.1
         , resource-pool >= 0.2
         , resourcet >= 1.2
+        , retry >= 0.7
         , scheduler >= 1.4
         , servant >= 0.14
         , servant-client >= 0.14
@@ -472,6 +482,7 @@ test-suite chainweb-tests
         , temporary >= 1.3
         , text >=1.2
         , these >= 0.7 && < 1
+        , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12

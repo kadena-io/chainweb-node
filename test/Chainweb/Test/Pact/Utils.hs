@@ -16,8 +16,10 @@
 --
 -- Unit test for Pact execution via (inprocess) API  in Chainweb
 module Chainweb.Test.Pact.Utils
-( -- * test data
-  someED25519Pair
+( -- * Exceptions
+  PactTestFailure(..)
+  -- * test data
+, someED25519Pair
 , testPactFilesDir
 , testKeyPairs
 , adminData
@@ -50,9 +52,12 @@ module Chainweb.Test.Pact.Utils
 , initializeSQLite
 , freeSQLiteResource
 , testPactCtxSQLite
+, withPact
 ) where
 
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
+import Control.Concurrent.STM
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
@@ -69,6 +74,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 import Data.Text (Text)
+import qualified Data.Text.IO as T
 import Data.Text.Encoding
 
 import Data.Vector (Vector)
@@ -77,6 +83,7 @@ import qualified Data.Yaml as Y
 
 import System.Directory
 import System.IO.Extra
+import System.LogLevel
 
 import Test.Tasty
 
@@ -103,6 +110,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId (chainIdToText)
 import Chainweb.CutDB
+import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -111,6 +119,8 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Payload.PayloadStore.InMemory
@@ -123,6 +133,21 @@ import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
 import Chainweb.Test.Utils
+
+-- ----------------------------------------------------------------------- --
+-- Test Exceptions
+
+data PactTestFailure
+    = PollingFailure String
+    | SendFailure String
+    | LocalFailure String
+    | SpvFailure String
+    deriving Show
+
+instance Exception PactTestFailure
+
+-- ----------------------------------------------------------------------- --
+-- Keys
 
 testKeyPairs :: IO [SomeKeyPairCaps]
 testKeyPairs = do
@@ -514,3 +539,30 @@ withBlockHeaderDb iordb b = withResource start stop
 
 withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
 withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
+
+withPact
+    :: ChainwebVersion
+    -> LogLevel
+    -> IO (PayloadDb HashMapCas)
+    -> IO BlockHeaderDb
+    -> MemPoolAccess
+    -> IO FilePath
+    -> (IO PactQueue -> TestTree)
+    -> TestTree
+withPact version logLevel iopdb iobhdb mempool iodir f =
+    withResource startPact stopPact $ f . fmap snd
+  where
+    startPact = do
+        mv <- newEmptyMVar
+        reqQ <- atomically $ newTBQueue pactQueueSize
+        pdb <- iopdb
+        bhdb <- iobhdb
+        dir <- iodir
+        a <- async $ initPactService version cid logger reqQ mempool mv
+                                     bhdb pdb (Just dir) Nothing False
+        return (a, reqQ)
+
+    stopPact (a, _) = cancel a
+
+    logger = genericLogger logLevel T.putStrLn
+    cid = someChainId version

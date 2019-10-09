@@ -60,8 +60,6 @@ import Data.Map (Map)
 import Data.Sequence.NonEmpty (NESeq(..))
 import Data.Text (Text)
 
-import GHC.Generics (Generic)
-
 import Network.HTTP.Client hiding (Proxy, host)
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned hiding (name)

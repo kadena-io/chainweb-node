@@ -58,6 +58,7 @@ module Chainweb.Utils
 , roundBy
 , unlessM
 , whenM
+, ebool_
 , partitionEithersNEL
 , (&)
 , IxedGet(..)
@@ -129,6 +130,7 @@ module Chainweb.Utils
 , suffixHelp
 , textReader
 , textOption
+, jsonOption
 
 -- * Configuration to Enable/Disable Components
 
@@ -194,6 +196,7 @@ import qualified Data.Aeson.Types as Aeson
 import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
+import Data.Bool (bool)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString (ByteString)
@@ -201,6 +204,8 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy.Char8 as BL8
+import qualified Data.ByteString.Unsafe as B
 import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor.Of
@@ -346,6 +351,9 @@ unlessM c a = c >>= flip unless a
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM c a = c >>= flip when a
 {-# INLINE whenM #-}
+
+ebool_ :: e -> Bool -> Either e ()
+ebool_ e = bool (Left e) (Right ())
 
 -- | Round an integral `n` up to the nearest multiple of
 -- an integral `m`
@@ -681,6 +689,12 @@ textReader = eitherReader $ first show . fromText . T.pack
 textOption :: HasTextRepresentation a => Mod OptionFields a -> O.Parser a
 textOption = option textReader
 
+jsonOption :: FromJSON a => Mod OptionFields a -> O.Parser a
+jsonOption = option jsonReader
+
+jsonReader :: FromJSON a => ReadM a
+jsonReader = eitherReader $ eitherDecode' . BL8.pack
+
 -- -------------------------------------------------------------------------- --
 -- Error Handling
 
@@ -869,16 +883,19 @@ runForeverThrottled logfun name burst rate a = mask $ \umask -> do
     void go `finally` logfun Info (name <> " stopped")
 
 -- -------------------------------------------------------------------------- --
--- Count leading zeros of a bytestring
+-- Count leading zero bits of a bytestring
 
--- | Count leading zeros of a bytestring
+-- | Count leading zero bits of a bytestring
 --
-leadingZeros :: B.ByteString -> Natural
-leadingZeros b = int (B.length x) * 8 + case B.uncons y of
-    Just (h, _) -> int $ countLeadingZeros h
-    Nothing -> 0
-  where
-    (x, y) = B.span (== 0x00) b
+leadingZeros :: Integral int => B.ByteString -> int
+leadingZeros b =
+    let l = B.length b
+        midx = B.findIndex (/= 0x00) b
+        countInLastChar idx = countLeadingZeros $! B.unsafeIndex b (idx + 1)
+        f idx = 8 * idx + countInLastChar idx
+        !out = int $! maybe (8 * l) f midx
+    in out
+{-# INLINE leadingZeros #-}
 
 -- -------------------------------------------------------------------------- --
 -- Configuration wrapper to enable and disable components
@@ -1129,7 +1146,7 @@ ssnd (T2 _ b) = b
 
 -- | Currying for functions of strict tuples
 --
-scurry :: forall a b c. ((T2 a b) -> c) -> a -> b -> c
+scurry :: forall a b c. (T2 a b -> c) -> a -> b -> c
 scurry k a b = k (T2 a b)
 {-# INLINE scurry #-}
 
