@@ -47,7 +47,7 @@
     true)
 
   (defcap GENESIS ()
-    (compose-capability (COINBASE))
+    "Magic capability constraining genesis txs"
     true)
 
   (defcap FUND_TX ()
@@ -471,29 +471,39 @@
 
   (deftable allocation-table:{allocation-schema})
 
-  (defun create-allocation-account (account:string date:time guard-ref:string)
+  (defun create-allocation-account (account:string date:time guard-ref:string amount:decimal)
     @doc "Add an entry to the coin allocation table"
     @model [ (property (account-structure account)) ]
 
-    (enforce-account account)
+    (with-capability (GENESIS)
+      (require-capability (COINBASE))
 
-    (insert allocation-table account
-      { "balance" : 0.0
-      , "date" : date
-      , "guard" : (keyset-ref-guard guard-ref)
-      , "redeemed" : false
-      }))
+      (enforce-account account)
+      (enforce (>= amount 0.0)
+        "allocation amount must be non-negative")
 
-  (defun release-allocation (account:string amount:decimal)
+      (enforce-unit amount)
+
+      (insert allocation-table account
+        { "balance" : amount
+        , "date" : date
+        , "guard" : (keyset-ref-guard guard-ref)
+        , "redeemed" : false
+        })))
+
+  (defun release-allocation
+    ( account:string
+      receiver:string
+      receiver-guard:guard
+      amount:decimal )
+
     @doc "Release funds associated with an allocation account"
     @model
       [ (property (account-structure account))
         (property (> amount 0.0))
       ]
 
-    (require-capability (GENESIS))
-
-    (enforce-account)
+    (enforce-account account)
 
     (enforce-unit amount)
     (enforce
@@ -517,28 +527,31 @@
           "allocation funds have already been redeemed")
 
         (enforce
-          (>= (diff-time release-time curr-time) 0)
+          (>= (diff-time release-time curr-time) 0.0)
           (format "funds locked until {}" [release-time]))
 
         (enforce-guard guard)
 
         (enforce
-          (>= new-balance 0)
+          (>= new-balance 0.0)
           "insufficient funds")
 
         ; update balance to reflect coinbase
         (update allocation-table account
           { "balance" : new-balance })
 
-        ; release funds via coinbase to account
-        (coinbase account guard amount)
+        (with-capability (TRANSFER)
+          ; release funds via coinbase to account
+          (credit receiver receiver-guard amount))
 
         ; if account is now empty, mark row as redeemd
-        (if (= new-balance 0)
+        (if (= new-balance 0.0)
           (update allocation-table account
             { "redeemed" : true })
 
           "noop")
+
+        "Allocation successful"
     )))
 
 )

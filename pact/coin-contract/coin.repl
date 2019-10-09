@@ -452,3 +452,74 @@
 (expect-failure
   "bad redeem-gas fails"
   (redeem-gas 'doug (read-keyset 'doug) 'emily UNIT_BAD))
+
+(commit-tx)
+
+;; Coin allocation tests
+
+(begin-tx)
+
+(use coin)
+
+; account creation
+
+(expect-failure
+  "allocation account creation only occurs at genesis"
+  (create-allocation-account "brandon" (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
+
+(test-capability (GENESIS))
+(test-capability (COINBASE))
+
+(expect-failure
+  "all allocation amounts must be positive"
+  (create-allocation-account "brandon" (time "1900-10-31T00:00:00Z") "brandon" -200000.0))
+
+(expect-failure
+  "all allocation accounts must satisfy coin contract account min chars"
+  (create-allocation-account "br" (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
+
+(expect-failure
+  "all allocation accounts must satisfy coin contract account max chars"
+  (create-allocation-account "There he met Saunders Mac Lane. Mac Lane, then visiting Paris, was anxious to learn from Yoneda, and commenced an interview with Yoneda in a café at Gare du Nord. The interview was continued on Yoneda’s train until its departure. In its course, Mac Lane learned about the lemma and subsequently baptized it." (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
+
+
+; successful keyset refs require defined keyset
+
+(env-data { "brandon" : ["brandon"], "receiver" : ["receiver"]  })
+(env-keys ["brandon", "receiver"])
+(define-keyset "receiver" (read-keyset "receiver"))
+
+(expect
+  "allocating coin accounts succeeds"
+  "Write succeeded"
+  (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 200000.0))
+
+; release-allocation
+
+(env-chain-data { "block-time" : (time "2020-10-31T00:00:00Z") })
+
+(expect-failure
+  "negative amounts should fail to release funds"
+  (release-allocation "brandon" -1.0))
+
+(expect-failure
+  "trivial amounts should fail to release"
+  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 0.0))
+
+(expect-failure
+  "releasing funds fails when asking for more than allocated"
+  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 200001.0))
+
+(expect
+  "successfully allocates funds for correct amounts"
+  "Allocation successful"
+  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 199999.0))
+
+(expect
+  "succesfully allocates remainder of funds"
+  "Allocation successful"
+  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 1.0))
+
+(expect-failure
+  "releases fail when funds have been redeemed"
+  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 1.0))
