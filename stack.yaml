@@ -14,6 +14,7 @@ extra-deps:
   - paths-0.2.0.0
   - streaming-events-1.0.0
   - strict-tuple-0.1.2
+  - systemd-1.2.0
   - yet-another-logger-0.3.1
 
   # --- Transitive Pact Dependencies --- #
