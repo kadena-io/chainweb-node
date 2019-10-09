@@ -1,0 +1,107 @@
+diff --git a/rts/RaiseAsync.c b/rts/RaiseAsync.c
+index f5e96a2c435c7db9f504973d4c0ca0f0d6ee5407..b08acc40782921fc8a0054b78d9d7f42a3d980fd 100644
+--- a/rts/RaiseAsync.c
++++ b/rts/RaiseAsync.c
+@@ -416,21 +416,12 @@ check_target:
+     }
+ 
+     case BlockedOnSTM:
+-        lockTSO(target);
+-        // Unblocking BlockedOnSTM threads requires the TSO to be
+-        // locked; see STM.c:unpark_tso().
+-        if (target->why_blocked != BlockedOnSTM) {
+-            unlockTSO(target);
+-            goto retry;
+-        }
+         if ((target->flags & TSO_BLOCKEX) &&
+             ((target->flags & TSO_INTERRUPTIBLE) == 0)) {
+             blockedThrowTo(cap,target,msg);
+-            unlockTSO(target);
+             return THROWTO_BLOCKED;
+         } else {
+             raiseAsync(cap, target, msg->exception, false, NULL);
+-            unlockTSO(target);
+             return THROWTO_SUCCESS;
+         }
+ 
+diff --git a/rts/SMPClosureOps.h b/rts/SMPClosureOps.h
+index 1d18e1b018fde21f8123977759ef1fcec8da1fb5..c73821a782983318b89a2631a43d3e7e03294767 100644
+--- a/rts/SMPClosureOps.h
++++ b/rts/SMPClosureOps.h
+@@ -124,15 +124,6 @@ EXTERN_INLINE void unlockClosure(StgClosure *p, const StgInfoTable *info)
+     p->header.info = info;
+ }
+ 
+-// Handy specialised versions of lockClosure()/unlockClosure()
+-INLINE_HEADER void lockTSO(StgTSO *tso);
+-INLINE_HEADER void lockTSO(StgTSO *tso)
+-{ lockClosure((StgClosure *)tso); }
+-
+-INLINE_HEADER void unlockTSO(StgTSO *tso);
+-INLINE_HEADER void unlockTSO(StgTSO *tso)
+-{ unlockClosure((StgClosure*)tso, (const StgInfoTable *)&stg_TSO_info); }
+-
+ #endif /* CMINUSMINUS */
+ 
+ #include "EndPrivate.h"
+diff --git a/rts/STM.c b/rts/STM.c
+index 058eec74091ca5641d6fca9e7d6c1b0cebc23274..abb44172dd0c19e2ccbc3dae1fe573dc978f8e4a 100644
+--- a/rts/STM.c
++++ b/rts/STM.c
+@@ -332,24 +332,7 @@ static void unpark_tso(Capability *cap, StgTSO *tso) {
+     // queues: it's up to the thread itself to remove it from the wait queues
+     // if it decides to do so when it is scheduled.
+ 
+-    // Unblocking a TSO from BlockedOnSTM is done under the TSO lock,
+-    // to avoid multiple CPUs unblocking the same TSO, and also to
+-    // synchronise with throwTo(). The first time the TSO is unblocked
+-    // we mark this fact by setting block_info.closure == STM_AWOKEN.
+-    // This way we can avoid sending further wakeup messages in the
+-    // future.
+-    lockTSO(tso);
+-    if (tso->why_blocked == BlockedOnSTM &&
+-        tso->block_info.closure == &stg_STM_AWOKEN_closure) {
+-      TRACE("unpark_tso already woken up tso=%p", tso);
+-    } else if (tso -> why_blocked == BlockedOnSTM) {
+-      TRACE("unpark_tso on tso=%p", tso);
+-      tso->block_info.closure = &stg_STM_AWOKEN_closure;
+-      tryWakeupThread(cap,tso);
+-    } else {
+-      TRACE("spurious unpark_tso on tso=%p", tso);
+-    }
+-    unlockTSO(tso);
++    tryWakeupThread(cap,tso);
+ }
+ 
+ static void unpark_waiters_on(Capability *cap, StgTVar *s) {
+diff --git a/rts/Threads.c b/rts/Threads.c
+index be6962246d48973db9a18f1d90622282de2f716c..78c5b6cc8432ab3baf9ffa7f8d079526caf28d4d 100644
+--- a/rts/Threads.c
++++ b/rts/Threads.c
+@@ -297,8 +297,11 @@ tryWakeupThread (Capability *cap, StgTSO *tso)
+         goto unblock;
+     }
+ 
+-    case BlockedOnBlackHole:
+     case BlockedOnSTM:
++        tso->block_info.closure = &stg_STM_AWOKEN_closure;
++        goto unblock;
++
++    case BlockedOnBlackHole:
+     case ThreadMigrating:
+         goto unblock;
+ 
+diff --git a/rts/sm/Sanity.c b/rts/sm/Sanity.c
+index e5a22fdafe4bf3e1a1d06e7e0f7cb9527de5a317..8d4171b1cd5ed117d6c4cbaa8acc5f5fdbf92d64 100644
+--- a/rts/sm/Sanity.c
++++ b/rts/sm/Sanity.c
+@@ -547,7 +547,8 @@ checkTSO(StgTSO *tso)
+     ASSERT(next == END_TSO_QUEUE ||
+            info == &stg_MVAR_TSO_QUEUE_info ||
+            info == &stg_TSO_info ||
+-           info == &stg_WHITEHOLE_info); // happens due to STM doing lockTSO()
++           info == &stg_WHITEHOLE_info); // used to happen due to STM doing
++                                         // lockTSO(), might not happen now
+ 
+     if (   tso->why_blocked == BlockedOnMVar
+         || tso->why_blocked == BlockedOnMVarRead

@@ -44,6 +44,10 @@ in
                  inherit sha256;
                }) {};
       in {
+        ghc = super.ghc.overrideAttrs (drv: {
+          patches = [ ./patches/stm-throwto.patch ];
+        });
+
         aeson = callHackageDirect {
           pkg = "aeson";
           ver = "1.4.3.0";
