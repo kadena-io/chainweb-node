@@ -487,6 +487,7 @@
 
 (env-data { "brandon" : ["brandon"], "receiver" : ["receiver"]  })
 (env-keys ["brandon", "receiver"])
+(define-keyset "brandon" (read-keyset "brandon"))
 (define-keyset "receiver" (read-keyset "receiver"))
 
 (expect
