@@ -248,7 +248,7 @@
   "emily now has insufficient funds and cannot transfer"
   (transfer 'emily 'doug 1.0))
 
-(transfer-and-create 'doug 'will (read-keyset 'will) 1.0)
+(transfer-create 'doug 'will (read-keyset 'will) 1.0)
 
 (expect
   "doug now has 0.4 coins"
@@ -351,7 +351,7 @@
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
 
 ;; account details will now feature rotated guard
-(rotate-account-guard 'emily (read-keyset 'doug))
+(rotate-guard 'emily (read-keyset 'doug))
 (expect
   "account info for 'emily uses 'doug keyset after rotation"
   "Account: 0.6 Guard: KeySet {keys: [keys2],pred: keys-all}"
@@ -392,15 +392,15 @@
   "bad transfer fails"
   (transfer 'emily 'doug UNIT_BAD))
 
-;;transfer-and-create
+;;transfer-create
 (expect
-  "min transfer-and-create ok"
+  "min transfer-create ok"
   "Write succeeded"
-  (transfer-and-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
+  (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
 (expect-failure
-  "bad transfer-and-create fails"
-  (transfer-and-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
+  "bad transfer-create fails"
+  (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
 
 ;;cross-chain-transfer (step 0 only covered)
 (pact-state true)

@@ -10,7 +10,7 @@
     [ (defproperty conserves-mass
         (= (column-delta coin-table 'balance) 0.0))
 
-      (defproperty account-structure (account:string)
+      (defproperty account (account:string)
         (and
           (>= (length account) 3)
           (<= (length account) 256)))
@@ -21,19 +21,19 @@
 
   (defschema coin-schema
     @doc "The coin contract token schema"
-    ;@model [ (invariant (>= balance 0.0)) ] ; FV problem
+    @model [ (invariant (>= balance 0.0)) ] ; FV problem
 
     balance:decimal
     guard:guard)
 
   (deftable coin-table:{coin-schema})
 
-  ; the shape of a cross-chain transfer (used for typechecking)
   (defschema transfer-schema
+    @doc "Convenience schema for typechecking cross-chain transfers"
+
     create-account:string
     create-account-guard:guard
-    quantity:decimal
-    )
+    quantity:decimal)
 
   ; --------------------------------------------------------------------------
   ; Capabilities
@@ -86,7 +86,7 @@
       (format "Amount violates minimum precision: {}" [amount]))
     )
 
-  (defun enforce-account-structure (account:string)
+  (defun enforce-account (account:string)
     @doc "Enforce that an account name conforms to the coin contract \
          \minimum and maximum length requirements, as well as the    \
          \latin-1 character set."
@@ -124,10 +124,10 @@
     \The gas buy will be executed prior to executing SENDER's code."
 
     @model [ (property (> total 0.0))
-             (property (account-structure sender))
+             (property (account sender))
            ]
 
-    (enforce-account-structure sender)
+    (enforce-account sender)
 
     (enforce-unit total)
     (enforce (> total 0.0) "gas supply must be a positive quantity")
@@ -144,12 +144,12 @@
     \and SENDER will receive the remainder up to the limit"
 
     @model [ (property (> total 0.0))
-             (property (account-structure sender))
-             (property (account-structure miner))
+             (property (account sender))
+             (property (account miner))
            ]
 
-    (enforce-account-structure sender)
-    (enforce-account-structure miner)
+    (enforce-account sender)
+    (enforce-account miner)
     (enforce-unit total)
 
     (require-capability (FUND_TX))
@@ -184,9 +184,9 @@
     @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
     \account."
 
-    @model [ (property (account-structure account)) ]
+    @model [ (property (account account)) ]
 
-    (enforce-account-structure account)
+    (enforce-account account)
 
     (insert coin-table account
       { "balance" : 0.0
@@ -197,9 +197,9 @@
   (defun account-balance:decimal (account:string)
     @doc "Check an account's balance."
 
-    @model [ (property (account-structure account)) ]
+    @model [ (property (account account)) ]
 
-    (enforce-account-structure account)
+    (enforce-account account)
 
     (with-read coin-table account
       { "balance" := balance }
@@ -211,19 +211,19 @@
     @doc "Get all of an account's info.  This includes the balance and the    \
     \guard."
 
-    @model [ (property (account-structure account)) ]
+    @model [ (property (account account)) ]
 
-    (enforce-account-structure account)
+    (enforce-account account)
 
     (read coin-table account)
     )
 
-  (defun rotate-account-guard:string (account:string new-guard:guard)
+  (defun rotate-guard:string (account:string new-guard:guard)
     @doc "Rotate guard associated with ACCOUNT"
 
-    @model [ (property (account-structure account)) ]
+    @model [ (property (account account)) ]
 
-    (enforce-account-structure account)
+    (enforce-account account)
 
     (with-read coin-table account
       { "guard" := old-guard }
@@ -242,15 +242,15 @@
 
     @model [ (property conserves-mass)
              (property (> amount 0.0))
-             (property (account-structure sender))
-             (property (account-structure receiver))
+             (property (account sender))
+             (property (account receiver))
              (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
 
-    (enforce-account-structure sender)
-    (enforce-account-structure receiver)
+    (enforce-account sender)
+    (enforce-account receiver)
 
     (enforce (> amount 0.0)
       "transfer amount must be positive")
@@ -266,7 +266,7 @@
       )
     )
 
-  (defun transfer-and-create:string
+  (defun transfer-create:string
     ( sender:string
       receiver:string
       receiver-guard:guard
@@ -278,15 +278,15 @@
 
     @model [ ;(property conserves-mass) ;; fails on missing row, FV problem
             (property (> amount 0.0))
-            (property (account-structure sender))
-            (property (account-structure receiver))
+            (property (account sender))
+            (property (account receiver))
             (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
 
-    (enforce-account-structure sender)
-    (enforce-account-structure receiver)
+    (enforce-account sender)
+    (enforce-account receiver)
 
     (enforce (> amount 0.0)
       "transfer amount must be positive")
@@ -302,9 +302,9 @@
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
 
-    @model [ (property (account-structure account)) ]
+    @model [ (property (account account)) ]
 
-    (enforce-account-structure account)
+    (enforce-account account)
     (enforce-unit amount)
 
     (require-capability (COINBASE))
@@ -323,8 +323,8 @@
     \     ance (unused gas, if any)."
 
     @model [ (property (> total 0.0))
-             (property (account-structure sender))
-             (property (account-structure miner))
+             (property (account sender))
+             (property (account miner))
              ;(property conserves-mass) not supported yet
            ]
 
@@ -336,10 +336,10 @@
     @doc "Debit AMOUNT from ACCOUNT balance"
 
     @model [ (property (> amount 0.0))
-             (property (account-structure account))
+             (property (account account))
            ]
 
-    (enforce-account-structure account)
+    (enforce-account account)
 
     (enforce (> amount 0.0)
       "debit amount must be positive")
@@ -362,10 +362,10 @@
     @doc "Credit AMOUNT to ACCOUNT balance"
 
     @model [ (property (> amount 0.0))
-             (property (account-structure account))
+             (property (account account))
            ]
 
-    (enforce-account-structure account)
+    (enforce-account account)
 
     (enforce (> amount 0.0) "credit amount must be positive")
     (enforce-unit amount)
@@ -408,15 +408,15 @@
 
     @model [ (property (> quantity 0.0))
              (property (!= create-chain-id ""))
-             (property (account-structure delete-account))
-             (property (account-structure create-account))
+             (property (account delete-account))
+             (property (account create-account))
            ]
 
     (step
       (with-capability (TRANSFER)
 
-        (enforce-account-structure delete-account)
-        (enforce-account-structure create-account)
+        (enforce-account delete-account)
+        (enforce-account create-account)
 
         (enforce (!= "" create-chain-id) "empty create-chain-id")
         (enforce (!= (at 'chain-id (chain-data)) create-chain-id)
@@ -451,6 +451,110 @@
           (credit create-account create-account-guard quantity))
         ))
     )
+
+
+  ; --------------------------------------------------------------------------
+  ; Coin allocations
+
+  (defschema allocation-schema
+    @doc "The coin allocation schema for genesis lockups"
+    @model [ (invariant (>= balance 0.0)) ]
+
+    balance:decimal
+    date:time
+    guard:guard
+    redeemed:bool)
+
+  (deftable allocation-table:{allocation-schema})
+
+  (defun create-allocation-account (account:string date:time guard:guard)
+    @doc "Add an entry to the coin allocation table"
+    @model [ (property (account-structure account)) ]
+
+    (enforce-account account)
+
+    (insert allocation-table account
+      { "balance" : 0.0
+      , "date" : date
+      , "guard" : guard
+      , "redeemed" : false
+      }))
+
+  (defun rotate-allocation-guard (account:string new-guard:guard)
+    @doc "Rotate the guard associated with an allocation account"
+    @model [ (property (account-structure account)) ]
+
+    (enforce-account)
+
+    (with-read allocation-table account
+      { "guard" := old-guard }
+
+      (enforce-guard old-guard)
+
+      (update allocation-table account
+        { "guard" : new-guard }))
+    )
+
+  (defun release-allocation (account:string amount:decimal)
+    @doc "Release funds associated with an allocation account"
+    @model
+      [ (property (account-structure account))
+        (property (> amount 0.0))
+      ]
+
+    (enforce-account)
+
+    (enforce-unit amount)
+    (enforce
+      (> amount 0.0)
+      (format
+        "amount requested for unlock is not a valid quantity: {}"
+        [amount]))
+
+    (with-read allocation-table account
+      { "balance" := balance
+      , "date" := release-time
+      , "redeemed" := redeemed
+      , "guard" := guard
+      }
+
+      (let
+        ((new-balance:decimal (- balance amount))
+         (curr-time:time (at 'block-time (chain-data))))
+
+        (enforce (not redeemed)
+          "allocation funds have already been redeemed")
+
+        (enforce
+          (>= (diff-time release-time curr-time) 0)
+          (format "funds locked until {}" [release-time]))
+
+        (enforce-guard guard)
+
+        (enforce
+          (>= new-balance 0)
+          (format
+            "not enough funds to withdraw amount: {} {}"
+            [balance amount]))
+
+        (with-capability (COINBASE)
+          ; if account is now empty, mark row as redeemd
+          (if (= new-balance 0)
+            (update allocation-table account
+              { "redeemed" : true })
+
+            "noop")
+
+          ; release funds via coinbase to account
+          (coinbase account guard amount)
+
+          ; update balance to reflect coinbase
+          (update allocation-table account
+            { "balance" : new-balance })))
+      )
+    )
+
 )
 
 (create-table coin-table)
+(create-table allocation-table)
