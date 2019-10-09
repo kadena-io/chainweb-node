@@ -98,6 +98,11 @@ magic_COINBASE = mkMagicCapSlot "COINBASE"
 magic_FUND_TX :: CapSlot Capability
 magic_FUND_TX = mkMagicCapSlot "FUND_TX"
 
+-- | "Magic" capability 'GENESIS' used in the coin contract to
+-- constrain genesis-only allocations
+--
+magic_GENESIS :: CapSlot Capability
+magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command and

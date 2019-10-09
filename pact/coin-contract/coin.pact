@@ -500,45 +500,45 @@
         "amount requested for unlock is not a valid quantity: {}"
         [amount]))
 
-    (with-capability (GENESIS)
-      (with-read allocation-table account
-        { "balance" := balance
-        , "date" := release-time
-        , "redeemed" := redeemed
-        , "guard" := guard
-        }
+    (require-capability (GENESIS))
+    (with-read allocation-table account
+      { "balance" := balance
+      , "date" := release-time
+      , "redeemed" := redeemed
+      , "guard" := guard
+      }
 
-        (let
-          ((new-balance:decimal (- balance amount))
-           (curr-time:time (at 'block-time (chain-data))))
+      (let
+        ((new-balance:decimal (- balance amount))
+         (curr-time:time (at 'block-time (chain-data))))
 
-          (enforce (not redeemed)
-            "allocation funds have already been redeemed")
+        (enforce (not redeemed)
+          "allocation funds have already been redeemed")
 
-          (enforce
-            (>= (diff-time release-time curr-time) 0)
-            (format "funds locked until {}" [release-time]))
+        (enforce
+          (>= (diff-time release-time curr-time) 0)
+          (format "funds locked until {}" [release-time]))
 
-          (enforce-guard guard)
+        (enforce-guard guard)
 
-          (enforce
-            (>= new-balance 0)
-            "insufficient funds")
+        (enforce
+          (>= new-balance 0)
+          "insufficient funds")
 
-          ; update balance to reflect coinbase
+        ; update balance to reflect coinbase
+        (update allocation-table account
+          { "balance" : new-balance })
+
+        ; release funds via coinbase to account
+        (coinbase account guard amount)
+
+        ; if account is now empty, mark row as redeemd
+        (if (= new-balance 0)
           (update allocation-table account
-            { "balance" : new-balance })
+            { "redeemed" : true })
 
-          ; release funds via coinbase to account
-          (coinbase account guard amount)
-
-           ; if account is now empty, mark row as redeemd
-          (if (= new-balance 0)
-            (update allocation-table account
-              { "redeemed" : true })
-
-            "noop")
-    ))))
+          "noop")
+    )))
 
 )
 
