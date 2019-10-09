@@ -21,6 +21,7 @@
 module Chainweb.Pact.Service.PactInProcApi
     ( withPactService
     , withPactService'
+    , pactQueueSize
     ) where
 
 import Control.Concurrent.Async
