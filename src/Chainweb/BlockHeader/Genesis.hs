@@ -36,12 +36,11 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as DN
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMPayload as TN
-import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as PN
--- import qualified Chainweb.BlockHeader.Genesis.TestnetPayload0 as PN0
--- import qualified Chainweb.BlockHeader.Genesis.TestnetPayloadN as PNN
-import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
+import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
+import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TN
+import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
+import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph
@@ -50,7 +49,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoch)
-import Chainweb.Version (ChainwebVersion(..), chainIds, encodeChainwebVersion)
+import Chainweb.Version
 
 ---
 
@@ -106,11 +105,13 @@ genesisBlockPayload PowConsensus{} _ = emptyPayload
 genesisBlockPayload TimedCPM{} _ = TN.payloadBlock
 genesisBlockPayload FastTimedCPM{} _ = TN.payloadBlock
 -- Development Instances
-genesisBlockPayload Development _ = DN.payloadBlock
+genesisBlockPayload Development cid = case chainIdInt @Int cid of
+    0 -> DN0.payloadBlock
+    _ -> DNN.payloadBlock
 -- Production Instances
--- genesisBlockPayload Testnet02 0 = PN0.payloadBlock
--- genesisBlockPayload Testnet02 _ = PNN.payloadBlock
-genesisBlockPayload Testnet02 _ = PN.payloadBlock
+genesisBlockPayload Testnet02 cid = case chainIdInt @Int cid of
+    0 -> PN0.payloadBlock
+    _ -> PNN.payloadBlock
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'

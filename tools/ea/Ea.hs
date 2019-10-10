@@ -37,7 +37,6 @@ import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
--- import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -55,7 +54,6 @@ import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
--- import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction (mkPayloadWithText)
@@ -72,19 +70,17 @@ import Pact.Types.SPV (noSPVSupport)
 main :: IO ()
 main = do
     for_ chain0 $ \(v, tag, txs) -> do
-      putStrLn $ "Generating Genesis Allocations for " <> show v <> "on Chain 0..."
-      genPayloadModule v (tag <> "0") txs
-
+        printf "Generating special Genesis Payload for %s on Chain 0...\n" $ show v
+        genPayloadModule v (tag <> "0") txs
     for_ otherChains $ \(v, tag, txs) -> do
-        -- let txs = bool txs0 [coinContract, grants, ns, allocation] $ null txs0
-        putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
+        printf "Generating Genesis Payload for %s on all other Chains...\n" $ show v
         genPayloadModule v (tag <> "N") txs
     putStrLn "Done."
   where
     otherChains =
       [ (Development, "Development", [ coinContract, devGrants, devNs ])
       , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [ coinContract, devGrants, devNs ])
-      , (Testnet02, "TestNet", [ coinContract, prodGrants, prodNs ])
+      , (Testnet02, "Testnet", [ coinContract, prodGrants, prodNs ])
       ]
 
     chain0 =

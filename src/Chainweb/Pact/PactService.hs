@@ -90,10 +90,7 @@ import qualified Pact.Types.SPV as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as DN
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMPayload as TN
-import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as PN
+import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
@@ -222,12 +219,14 @@ initialPayloadState
 initialPayloadState Test{} _ = pure ()
 initialPayloadState TimedConsensus{} _ = pure ()
 initialPayloadState PowConsensus{} _ = pure ()
-initialPayloadState v@TimedCPM{} cid = initializeCoinContract v cid TN.payloadBlock
-initialPayloadState v@FastTimedCPM{} cid = initializeCoinContract v cid TN.payloadBlock
-initialPayloadState v@Development cid = initializeCoinContract v cid DN.payloadBlock
-initialPayloadState v@Testnet02 cid = initializeCoinContract v cid PN.payloadBlock
-
-
+initialPayloadState v@TimedCPM{} cid =
+    initializeCoinContract v cid $ genesisBlockPayload v cid
+initialPayloadState v@FastTimedCPM{} cid =
+    initializeCoinContract v cid $ genesisBlockPayload v cid
+initialPayloadState v@Development cid =
+    initializeCoinContract v cid $ genesisBlockPayload v cid
+initialPayloadState v@Testnet02 cid =
+    initializeCoinContract v cid $ genesisBlockPayload v cid
 
 initializeCoinContract
     :: forall cas. PayloadCas cas
