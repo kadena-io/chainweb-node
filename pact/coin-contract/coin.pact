@@ -10,7 +10,7 @@
     [ (defproperty conserves-mass
         (= (column-delta coin-table 'balance) 0.0))
 
-      (defproperty validate-account (account:string)
+      (defproperty valid-account (account:string)
         (and
           (>= (length account) 3)
           (<= (length account) 256)))
@@ -29,7 +29,7 @@
   (deftable coin-table:{coin-schema})
 
   (defschema transfer-schema
-    @doc "Convenience schema for typechecking cross-chain transfers"
+    @doc "Schema for yielded value in transfers"
 
     create-account:string
     create-account-guard:guard
@@ -134,7 +134,7 @@
     \The gas buy will be executed prior to executing SENDER's code."
 
     @model [ (property (> total 0.0))
-             (property (validate-account sender))
+             (property (valid-account sender))
            ]
 
     (enforce-account sender)
@@ -154,8 +154,8 @@
     \and SENDER will receive the remainder up to the limit"
 
     @model [ (property (> total 0.0))
-             (property (validate-account sender))
-             (property (validate-account miner))
+             (property (valid-account sender))
+             (property (valid-account miner))
            ]
 
     (enforce-account sender)
@@ -194,7 +194,7 @@
     @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
     \account."
 
-    @model [ (property (validate-account account)) ]
+    @model [ (property (valid-account account)) ]
 
     (enforce-account account)
 
@@ -207,7 +207,7 @@
   (defun account-balance:decimal (account:string)
     @doc "Check an account's balance."
 
-    @model [ (property (validate-account account)) ]
+    @model [ (property (valid-account account)) ]
 
     (enforce-account account)
 
@@ -221,7 +221,7 @@
     @doc "Get all of an account's info.  This includes the balance and the    \
     \guard."
 
-    @model [ (property (validate-account account)) ]
+    @model [ (property (valid-account account)) ]
 
     (enforce-account account)
 
@@ -231,7 +231,7 @@
   (defun rotate-guard:string (account:string new-guard:guard)
     @doc "Rotate guard associated with ACCOUNT"
 
-    @model [ (property (validate-account account)) ]
+    @model [ (property (valid-account account)) ]
 
     (enforce-account account)
 
@@ -252,8 +252,8 @@
 
     @model [ (property conserves-mass)
              (property (> amount 0.0))
-             (property (validate-account sender))
-             (property (validate-account receiver))
+             (property (valid-account sender))
+             (property (valid-account receiver))
              (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
@@ -288,8 +288,8 @@
 
     @model [ ;(property conserves-mass) ;; fails on missing row, FV problem
             (property (> amount 0.0))
-            (property (validate-account sender))
-            (property (validate-account receiver))
+            (property (valid-account sender))
+            (property (valid-account receiver))
             (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
@@ -312,7 +312,7 @@
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
 
-    @model [ (property (validate-account account)) ]
+    @model [ (property (valid-account account)) ]
 
     (enforce-account account)
     (enforce-unit amount)
@@ -333,8 +333,8 @@
     \     ance (unused gas, if any)."
 
     @model [ (property (> total 0.0))
-             (property (validate-account sender))
-             (property (validate-account miner))
+             (property (valid-account sender))
+             (property (valid-account miner))
              ;(property conserves-mass) not supported yet
            ]
 
@@ -346,7 +346,7 @@
     @doc "Debit AMOUNT from ACCOUNT balance"
 
     @model [ (property (> amount 0.0))
-             (property (validate-account account))
+             (property (valid-account account))
            ]
 
     (enforce-account account)
@@ -372,7 +372,7 @@
     @doc "Credit AMOUNT to ACCOUNT balance"
 
     @model [ (property (> amount 0.0))
-             (property (validate-account account))
+             (property (valid-account account))
            ]
 
     (enforce-account account)
@@ -418,8 +418,8 @@
 
     @model [ (property (> quantity 0.0))
              (property (!= create-chain-id ""))
-             (property (validate-account delete-account))
-             (property (validate-account create-account))
+             (property (valid-account delete-account))
+             (property (valid-account create-account))
            ]
 
     (step
@@ -482,9 +482,10 @@
         date:time
         guard-ref:string
         amount:decimal
-        )
-    @doc "Add an entry to the coin allocation table"
-    @model [ (property (validate-account account)) ]
+      )
+
+    @doc "Add an entry to the coin allocation table. Requires ALLOCATION"
+    @model [ (property (valid-account account)) ]
 
     (require-capability (ALLOCATION))
 
@@ -505,11 +506,11 @@
     ( account:string
       receiver:string
       receiver-guard:guard
-      )
+    )
 
     @doc "Release funds associated with an allocation account"
     @model
-      [ (property (validate-account account)) ]
+      [ (property (valid-account account)) ]
 
     (enforce-account account)
 
@@ -530,15 +531,15 @@
           (format "funds locked until {}" [release-time]))
 
         (enforce-guard guard)
+        (with-capability (TRANSFER)
+          ; release funds via coinbase to account
+          (credit receiver receiver-guard balance)
 
-        ; release funds via coinbase to account
-        (coinbase receiver receiver-guard balance))
+          (update allocation-table account
+            { "redeemed" : true })
 
-        (update allocation-table account
-          { "redeemed" : true })
-
-        "Allocation successful"
-    ))
+          "Allocation successful")
+    )))
 
 )
 
