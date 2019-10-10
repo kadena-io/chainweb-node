@@ -1,5 +1,7 @@
 (define-keyset 'test-admin (read-keyset "test-admin-keyset"))
 
+(namespace 'free)
+
 (module test1 'test-admin
 
   (defschema account

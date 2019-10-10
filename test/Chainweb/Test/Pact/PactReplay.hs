@@ -283,6 +283,8 @@ defModule idx = [text| ;;
 
 (define-keyset 'k$idx (read-keyset 'k$idx))
 
+(namespace 'free)
+
 (module m$idx 'k$idx
 
   (defschema sch col:integer)

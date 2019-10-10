@@ -152,7 +152,8 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmd mcache = do
         -- initialize refstate with cached module definitions
         let st0 = set (evalRefs . rsLoadedModules) mcache' def
 
-        cmdResultE <- catchesPactError $! runPayload payloadEnv st0 cmd buyGasLogs
+        cmdResultE <- catchesPactError $!
+          runPayload payloadEnv st0 cmd buyGasLogs managedNamespacePolicy
 
         case cmdResultE of
 
@@ -211,7 +212,7 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     -- when calling genesis commands, we bring all magic capabilities in scope
     let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
 
-    resultE <- catchesPactError $! runPayload cmdEnv initState cmd []
+    resultE <- catchesPactError $! runPayload cmdEnv initState cmd [] permissiveNamespacePolicy
     fmap (`T2` mempty) $! case resultE of
       Left e -> do
         jsonErrorResult' cmdEnv requestKey e [] (Gas 0)
@@ -244,7 +245,7 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
     let rk = RequestKey ch
 
     cexec <- mkCoinbaseCmd mid mks mr
-    cre <- catchesPactError $! applyExec' cenv initState cexec [] ch
+    cre <- catchesPactError $! applyExec' cenv initState cexec [] ch managedNamespacePolicy
 
     case cre of
       Left e -> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
@@ -285,11 +286,13 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
     _ -> throwCmdEx "local continuations not supported"
 
   !r <- catchesPactError $!
-    applyExec cmdEnv def requestKey exec (_pSigners _cmdPayload) (toUntypedHash _cmdHash) []
+    applyExec cmdEnv def requestKey exec (_pSigners _cmdPayload)
+    (toUntypedHash _cmdHash) [] managedNamespacePolicy
 
   case r of
     Left e -> jsonErrorResult' cmdEnv requestKey e [] 0 "applyLocal"
     Right (T2 rr _) -> return $! rr { _crMetaData = Just (toJSON pd') }
+
 
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
@@ -325,12 +328,13 @@ runPayload
     -> EvalState
     -> Command (Payload PublicMeta ParsedCode)
     -> [TxLog Value] -- log state
+    -> NamespacePolicy
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-runPayload env initState c@Command{..} txLogs = case _pPayload _cmdPayload of
+runPayload env initState c@Command{..} txLogs nsp = case _pPayload _cmdPayload of
     Exec pm ->
-      applyExec env initState (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs
+      applyExec env initState (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
     Continuation ym ->
-      applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs
+      applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
 
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
@@ -342,9 +346,10 @@ applyExec
     -> [Signer]
     -> Hash
     -> [TxLog Value]
+    -> NamespacePolicy
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyExec env@CommandEnv{..} initState rk em senderSigs hsh prevLogs = do
-    EvalResult{..} <- applyExec' env initState em senderSigs hsh
+applyExec env@CommandEnv{..} initState rk em senderSigs hsh prevLogs nsp = do
+    EvalResult{..} <- applyExec' env initState em senderSigs hsh nsp
     -- applyExec enforces non-empty expression set so `last` ok
     return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
@@ -358,8 +363,9 @@ applyExec'
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
+    -> NamespacePolicy
     -> IO EvalResult
-applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh = do
+applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh nsp = do
     -- fail if parsed code contains no expressions
     --
     when (null $ _pcExps parsedCode) $
@@ -375,7 +381,11 @@ applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh
   where
     evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
       (MsgData execData Nothing hsh) initRefStore _ceGasEnv
-      permissiveNamespacePolicy _ceSPVSupport _cePublicData
+      nsp _ceSPVSupport _cePublicData
+
+managedNamespacePolicy :: NamespacePolicy
+managedNamespacePolicy = SmartNamespacePolicy False
+  (QualifiedName (ModuleName "ns" Nothing) "validate" def)
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -387,9 +397,10 @@ applyContinuation
     -> [Signer]
     -> Hash
     -> [TxLog Value]
+    -> NamespacePolicy
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyContinuation env@CommandEnv{..} initState rk cm senderSigs hsh prevLogs = do
-    EvalResult{..} <- applyContinuation' env initState cm senderSigs hsh
+applyContinuation env@CommandEnv{..} initState rk cm senderSigs hsh prevLogs nsp = do
+    EvalResult{..} <- applyContinuation' env initState cm senderSigs hsh nsp
     -- last safe here because cont msg is guaranteed one exp
 
     return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
@@ -404,8 +415,9 @@ applyContinuation'
     -> ContMsg
     -> [Signer]
     -> Hash
+    -> NamespacePolicy
     -> IO EvalResult
-applyContinuation' CommandEnv{..} initState cm senderSigs hsh =
+applyContinuation' CommandEnv{..} initState cm senderSigs hsh nsp =
     evalContinuation senderSigs initState evalEnv cm
   where
     step = _cmStep cm
@@ -414,7 +426,7 @@ applyContinuation' CommandEnv{..} initState cm senderSigs hsh =
     pactStep = Just $ PactStep step rollback pid Nothing
     evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
       (MsgData (_cmData cm) pactStep hsh) initRefStore
-      _ceGasEnv permissiveNamespacePolicy _ceSPVSupport _cePublicData
+      _ceGasEnv nsp _ceSPVSupport _cePublicData
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')
@@ -439,7 +451,7 @@ buyGas env cmd (Miner mid mks) supply mcache = do
 
     buyGasCmd <- mkBuyGasCmd mid mks sender supply
     result <- applyExec' env initState buyGasCmd
-      (_pSigners $ _cmdPayload cmd) bgHash
+      (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
     let !mcache' = _erLoadedModules result
 
@@ -469,6 +481,7 @@ redeemGas env cmd cmdResult gid prevLogs mcache = do
 
     applyContinuation env initState rk (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
+      managedNamespacePolicy
 
   where
     redeemGasCmd fee (GasId pid) =
