@@ -90,7 +90,7 @@
       (format "Amount violates minimum precision: {}" [amount]))
     )
 
-  (defun enforce-account (account:string)
+  (defun validate-account (account:string)
     @doc "Enforce that an account name conforms to the coin contract \
          \minimum and maximum length requirements, as well as the    \
          \latin-1 character set."
@@ -131,7 +131,7 @@
              (property (valid-account sender))
            ]
 
-    (enforce-account sender)
+    (validate-account sender)
 
     (enforce-unit total)
     (enforce (> total 0.0) "gas supply must be a positive quantity")
@@ -152,8 +152,8 @@
              (property (valid-account miner))
            ]
 
-    (enforce-account sender)
-    (enforce-account miner)
+    (validate-account sender)
+    (validate-account miner)
     (enforce-unit total)
 
     (require-capability (FUND_TX))
@@ -190,7 +190,7 @@
 
     @model [ (property (valid-account account)) ]
 
-    (enforce-account account)
+    (validate-account account)
 
     (insert coin-table account
       { "balance" : 0.0
@@ -203,7 +203,7 @@
 
     @model [ (property (valid-account account)) ]
 
-    (enforce-account account)
+    (validate-account account)
 
     (with-read coin-table account
       { "balance" := balance }
@@ -217,7 +217,7 @@
 
     @model [ (property (valid-account account)) ]
 
-    (enforce-account account)
+    (validate-account account)
 
     (read coin-table account)
     )
@@ -227,7 +227,7 @@
 
     @model [ (property (valid-account account)) ]
 
-    (enforce-account account)
+    (validate-account account)
 
     (with-read coin-table account
       { "guard" := old-guard }
@@ -253,8 +253,8 @@
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
 
-    (enforce-account sender)
-    (enforce-account receiver)
+    (validate-account sender)
+    (validate-account receiver)
 
     (enforce (> amount 0.0)
       "transfer amount must be positive")
@@ -289,8 +289,8 @@
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
 
-    (enforce-account sender)
-    (enforce-account receiver)
+    (validate-account sender)
+    (validate-account receiver)
 
     (enforce (> amount 0.0)
       "transfer amount must be positive")
@@ -308,7 +308,7 @@
 
     @model [ (property (valid-account account)) ]
 
-    (enforce-account account)
+    (validate-account account)
     (enforce-unit amount)
 
     (require-capability (COINBASE))
@@ -343,7 +343,7 @@
              (property (valid-account account))
            ]
 
-    (enforce-account account)
+    (validate-account account)
 
     (enforce (> amount 0.0)
       "debit amount must be positive")
@@ -369,7 +369,7 @@
              (property (valid-account account))
            ]
 
-    (enforce-account account)
+    (validate-account account)
 
     (enforce (> amount 0.0) "credit amount must be positive")
     (enforce-unit amount)
@@ -419,8 +419,8 @@
     (step
       (with-capability (TRANSFER)
 
-        (enforce-account delete-account)
-        (enforce-account create-account)
+        (validate-account delete-account)
+        (validate-account create-account)
 
         (enforce (!= "" create-chain-id) "empty create-chain-id")
         (enforce (!= (at 'chain-id (chain-data)) create-chain-id)
@@ -481,9 +481,9 @@
     @doc "Add an entry to the coin allocation table. Requires ALLOCATION"
     @model [ (property (valid-account account)) ]
 
-    (require-capability (GENESIS))
+    (require-capability (GENESIS ))
 
-    (enforce-account account)
+    (validate-account account)
     (enforce (>= amount 0.0)
       "allocation amount must be non-negative")
 
@@ -506,7 +506,7 @@
     @model
       [ (property (valid-account account)) ]
 
-    (enforce-account account)
+    (validate-account account)
 
     (with-read allocation-table account
       { "balance" := balance
