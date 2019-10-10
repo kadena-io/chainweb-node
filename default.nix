@@ -3,6 +3,7 @@
 , system ? builtins.currentSystem
 , runTests ? true
 , runCoverage ? false
+, systemdFeatures ? (system == "x86_64-linux")
 }:
 
 let rp = builtins.fetchTarball {
@@ -49,6 +50,17 @@ in
           ver = "1.4.3.0";
           sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
         };
+
+        systemd =
+          if systemdFeatures then
+            callHackageDirect {
+              pkg = "systemd";
+              # we'd like to use a newer one but it requires network >= 3
+              ver = "1.2.0";
+              sha256 = "1mwrrki3zsc4ncr7psjv9iqkzh7f25c2ch4lf2784fh6q46i997j";
+            }
+          else null;
+
 
         chainweb = justStaticExecutables (enableDWARFDebugging (overrideCabal super.chainweb (drv: {
           doCheck = runTests;
@@ -191,8 +203,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "8e063ab69a786310f1232c8073b7f0ab09248927";
-          sha256 = "07rphh6ak4l6dc0whk662v40cqb4b43yiqf92jbybc9zb9j5z36m";
+          rev = "a6753a7833af60d7a529d37e13fc36f6204ecb2d";
+          sha256 = "0fn01qy3lzygr1kq47q17kayr0x28x3mi4yibi6wr1850zvi4d3a";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -364,8 +376,7 @@ in
       };
     packages = {
       chainweb = gitignore.gitignoreSource
-        [ ".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md"
-          ".vcs-info" ] ./.;
+        [ ".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md" ] ./.;
     };
     shellToolOverrides = ghc: super: {
       stack = pkgs.stack;

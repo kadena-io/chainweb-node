@@ -65,6 +65,7 @@ module Chainweb.Mempool.Mempool
   , ServerNonce
   , HighwaterMark
   , InsertType(..)
+  , InsertError(..)
 
   , chainwebTransactionConfig
   , mockCodec
@@ -81,6 +82,7 @@ module Chainweb.Mempool.Mempool
 ------------------------------------------------------------------------------
 import Control.DeepSeq (NFData)
 import Control.Exception
+import Control.Lens
 import Control.Monad (replicateM, when)
 
 import Crypto.Hash (hash)
@@ -105,6 +107,7 @@ import Data.IORef
 import Data.List (unfoldr)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -118,13 +121,14 @@ import System.LogLevel
 -- internal modules
 
 import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.Time (Micros(..), Time(..))
+import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -187,6 +191,29 @@ type HighwaterMark = (ServerNonce, MempoolTxId)
 data InsertType = CheckedInsert | UncheckedInsert
   deriving (Show, Eq)
 
+data InsertError = InsertErrorDuplicate
+                 | InsertErrorInvalidTime
+                 | InsertErrorOversized
+                 | InsertErrorBadlisted
+                 | InsertErrorMetadataMismatch
+                 | InsertErrorOther Text
+  deriving (Generic, Eq)
+
+instance Show InsertError
+  where
+    show InsertErrorDuplicate = "Transaction already exists on chain"
+    show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
+    show InsertErrorOversized = "Transaction gas limit exceeds block gas limit"
+    show InsertErrorBadlisted =
+        "Transaction is badlisted because it previously failed to validate \
+        \(e.g. insufficient gas)"
+    show InsertErrorMetadataMismatch =
+        "Transaction metadata (chain id, chainweb version) conflicts with this \
+        \endpoint"
+    show (InsertErrorOther m) = "insert error: " <> T.unpack m
+
+instance Exception InsertError
+
 ------------------------------------------------------------------------------
 -- | Mempool backend API. Here @t@ is the transaction payload type.
 data MempoolBackend t = MempoolBackend {
@@ -205,6 +232,10 @@ data MempoolBackend t = MempoolBackend {
   , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
                   -> Vector t
                   -> IO ()
+
+    -- | Perform the pre-insert check for the given transactions. Short-circuits
+    -- on the first Transaction that fails.
+  , mempoolInsertCheck :: Vector t -> IO (Either (T2 TransactionHash InsertError) ())
 
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
@@ -241,6 +272,7 @@ noopMempool = do
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
+    , mempoolInsertCheck = noopInsertCheck
     , mempoolMarkValidated = noopMV
     , mempoolGetBlock = noopGetBlock
     , mempoolGetPendingTransactions = noopGetPending
@@ -258,6 +290,7 @@ noopMempool = do
     noopMember v = return $ V.replicate (V.length v) False
     noopLookup v = return $ V.replicate (V.length v) Missing
     noopInsert = const $ const $ return ()
+    noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()
     noopGetBlock _ _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
@@ -271,17 +304,24 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     chainwebTestHashMeta
     getGasPrice
     getGasLimit
-    (const txmeta)
+    txmeta
 
   where
     getGasPrice = gasPriceOf . fmap payloadObj
     getGasLimit = gasLimitOf . fmap payloadObj
+    getTimeToLive = timeToLiveOf . fmap payloadObj
+    getCreationTime = creationTimeOf . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
-
-    -- TODO: plumb through origination + expiry time from pact once it makes it
-    -- into PublicMeta
-    txmeta = TransactionMetadata Time.minTime Time.maxTime
+    txmeta t =
+        TransactionMetadata
+        (toMicros ct)
+        (toMicros $ ct + min maxDuration ttl)
+      where
+        (TxCreationTime ct) = getCreationTime t
+        toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+        (TTLSeconds ttl) = getTimeToLive t
+        maxDuration = 2 * 24 * 60 * 60 + 1
 
 ------------------------------------------------------------------------------
 data SyncState = SyncState {

@@ -20,17 +20,22 @@ module Chainweb.Mempool.RestAPI.Client
   ) where
 
 ------------------------------------------------------------------------------
+
 import Control.DeepSeq
 import Control.Exception
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Identity
-import Data.ByteString (ByteString)
 import Data.Proxy
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import Prelude hiding (lookup)
 import Servant.API
 import Servant.Client
+
 ------------------------------------------------------------------------------
+
 import Chainweb.ChainId
 import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
@@ -55,8 +60,9 @@ toMempool version chain txcfg blocksizeLimit env =
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
-    , mempoolMarkValidated = markValidated
-    , mempoolGetBlock = getBlock
+    , mempoolInsertCheck = \_ -> unsupported
+    , mempoolMarkValidated = \_ -> unsupported
+    , mempoolGetBlock = \_ _ _ _ -> unsupported
     , mempoolGetPendingTransactions = getPending
     , mempoolClear = clear
     }
@@ -66,11 +72,6 @@ toMempool version chain txcfg blocksizeLimit env =
     member v = V.fromList <$> go (memberClient version chain (V.toList v))
     lookup v = V.fromList <$> go (lookupClient txcfg version chain (V.toList v))
     insert _ v = void $ go (insertClient txcfg version chain (V.toList v))
-
-    -- TODO: should we permit remote getBlock?
-    -- getBlock sz = V.fromList <$> go (getBlockClient version chain (Just sz))
-    getBlock _ _ _ _ = unsupported
-    markValidated _ = unsupported
 
     getPending hw cb = do
         runClientM (getPendingClient version chain hw) env >>= \case
@@ -86,13 +87,18 @@ toMempool version chain txcfg blocksizeLimit env =
 insertClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => [ByteString]
+    => [T.Text]
     -> ClientM NoContent
 insertClient_ = client (mempoolInsertApi @v @c)
 
-insertClient :: TransactionConfig t -> ChainwebVersion -> ChainId -> [t] -> ClientM NoContent
+insertClient
+    :: TransactionConfig t
+    -> ChainwebVersion
+    -> ChainId
+    -> [t]
+    -> ClientM NoContent
 insertClient txcfg v c k0 = runIdentity $ do
-    let k = map (codecEncode $ txCodec txcfg) k0
+    let k = map (T.decodeUtf8 . codecEncode (txCodec txcfg)) k0
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
     return $ insertClient_ @v @c k
@@ -122,7 +128,7 @@ lookupClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
     => [TransactionHash]
-    -> ClientM [LookupResult ByteString]
+    -> ClientM [LookupResult T.Text]
 lookupClient_ = client (mempoolLookupApi @v @c)
 
 lookupClient
@@ -134,9 +140,14 @@ lookupClient
 lookupClient txcfg v c txs = do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal c
-    let decode = either fail return . codecDecode (txCodec txcfg)
     cs <- lookupClient_ @v @c txs
-    mapM (traverse decode) cs
+    mapM (traverse go) cs
+  where
+    go h = case decode h of
+      Left e -> throwM . DecodeException $ T.pack e
+      Right t -> return t
+
+    decode = codecDecode (txCodec txcfg) . T.encodeUtf8
 
 
 ------------------------------------------------------------------------------

@@ -30,16 +30,17 @@ import Chainweb.Utils (Codec(..))
 
 
 tests :: TestTree
-tests = testGroup "Chainweb.Mempool.sync" [
-            mempoolProperty "Mempool.syncMempools" gen propSync
-                $ MempoolWithFunc wf
-         ]
+tests = testGroup "Chainweb.Mempool.sync"
+    [ mempoolProperty "Mempool.syncMempools" gen propSync $ MempoolWithFunc wf
+    ]
   where
+    wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
     wf f = do
-        mv <- newMVar (V.mapM (const $ return True))
-        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMv mv)
+        mv <- newMVar (pure . V.map Right)
+        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv)
         withInMemoryMempool cfg $ f mv
 
+    checkMv :: MVar (t -> IO b) -> t -> IO b
     checkMv mv xs = do
         f <- readMVar mv
         f xs
@@ -50,7 +51,9 @@ tests = testGroup "Chainweb.Mempool.sync" [
       let xss = Set.fromList xs
       let yss = Set.fromList ys `Set.difference` xss
       let zss = Set.fromList zs `Set.difference` (xss `Set.union` yss)
-      pre (not (Set.null xss || Set.null yss || Set.null zss) && length ys < 10000 && length zs < 10000)
+      pre (not (Set.null xss || Set.null yss || Set.null zss)
+           && length ys < 10000
+           && length zs < 10000)
       return (xss, yss, zss)
 
 txcfg :: TransactionConfig MockTx
@@ -61,7 +64,8 @@ txcfg = TransactionConfig mockCodec hasher hashmeta mockGasPrice
     hasher = chainwebTestHasher . codecEncode mockCodec
 
 testInMemCfg :: InMemConfig MockTx
-testInMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (V.mapM $ const $ return True)
+testInMemCfg =
+    InMemConfig txcfg mockBlockGasLimit 2048 Right (pure . V.map Right)
 
 propSync
     :: (Set MockTx, Set MockTx , Set MockTx)

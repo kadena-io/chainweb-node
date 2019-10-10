@@ -1,7 +1,7 @@
-{-# LANGUAGE CPP                        #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
@@ -16,8 +16,8 @@ import Data.Decimal
 import Data.Default
 import qualified Data.List.NonEmpty as NEL
 import Data.Proxy
-import qualified Data.Text as T
 import Data.Text (Text)
+import qualified Data.Text as T
 
 import Network.HTTP.Client hiding (Proxy(..))
 import Network.HTTP.Client.TLS
@@ -34,24 +34,24 @@ import Text.Printf
 
 import Pact.ApiReq
 import Pact.Types.API
-import Pact.Types.Command
+import Pact.Types.ChainId (NetworkId(..))
 import Pact.Types.ChainMeta
-import Pact.Types.Crypto
+import Pact.Types.Command
 import Pact.Types.Hash
 
 -- chainweb imports
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
-import Chainweb.Version
 import Chainweb.Pact.RestAPI
-#if !MIN_VERSION_servant(0,15,0)
+import Chainweb.Version
+#if !MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
 
+import TXG.Simulate.Contracts.CoinContract
 import TXG.Simulate.Contracts.HelloWorld
 import TXG.Simulate.Contracts.SimplePayments
-import TXG.Simulate.Contracts.CoinContract
 import TXG.Simulate.Utils
 
 -- for ghci
@@ -100,14 +100,15 @@ cmd
     -> Value
     -- ^ Env data
     -> PublicMeta
-    -> [SomeKeyPair]
+    -> [SomeKeyPairCaps]
+    -> Maybe NetworkId
     -> Maybe String
     -- ^ Transaction nonce.  If Nothing, then getCurrentTime is used.
     -> IO (Command Text)
 cmd = mkExec
 
 cmdStr :: String -> IO (Command Text)
-cmdStr str = cmd str Null defPubMeta [] Nothing
+cmdStr str = cmd str Null defPubMeta [] Nothing Nothing
 
 -- Structured transactions
 
@@ -125,7 +126,7 @@ type Amount = Double
 
 data CallBuiltIn'
     = CC CoinContractRequest
-    | SP SimplePaymentRequest (Maybe Keyset)
+    | SP SimplePaymentRequest (Maybe (NEL.NonEmpty SomeKeyPairCaps))
     | HelloCode Text
 
 data TxContent
@@ -136,16 +137,21 @@ data TxContent
 easyTxToCommand :: TxContent -> IO (Command Text)
 easyTxToCommand txContent = do
     ks <- testSomeKeyPairs
-    txToCommand defPubMeta ks txContent
+    txToCommand defChainwebVersion defPubMeta ks txContent
 
-txToCommand :: PublicMeta -> Keyset -> TxContent -> IO (Command Text)
-txToCommand pubmeta ks = \case
+txToCommand
+    :: ChainwebVersion
+    -> PublicMeta
+    -> NEL.NonEmpty SomeKeyPairCaps
+    -> TxContent
+    -> IO (Command Text)
+txToCommand v pubmeta ks = \case
     PactCode str -> cmdStr str
-    Define Hello -> helloWorldContractLoader pubmeta ks
-    Define Payments -> simplePaymentsContractLoader pubmeta ks
-    CallBuiltin (CC coinReq) -> createCoinContractRequest pubmeta ks coinReq
-    CallBuiltin (SP spReq mkeyset) -> simplePayReq pubmeta spReq mkeyset
-    CallBuiltin (HelloCode helloname) -> helloRequest $ Name helloname
+    Define Hello -> helloWorldContractLoader v pubmeta ks
+    Define Payments -> simplePaymentsContractLoader v pubmeta ks
+    CallBuiltin (CC coinReq) -> createCoinContractRequest v pubmeta ks coinReq
+    CallBuiltin (SP spReq mkeyset) -> simplePayReq v pubmeta spReq mkeyset
+    CallBuiltin (HelloCode helloname) -> helloRequest v $ Name helloname
 
 defChainwebVersion :: ChainwebVersion
 defChainwebVersion = Development

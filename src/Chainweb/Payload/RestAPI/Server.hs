@@ -27,7 +27,6 @@ module Chainweb.Payload.RestAPI.Server
 ) where
 
 import Control.Monad
-import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 

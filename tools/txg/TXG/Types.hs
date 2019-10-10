@@ -60,8 +60,6 @@ import Data.Map (Map)
 import Data.Sequence.NonEmpty (NESeq(..))
 import Data.Text (Text)
 
-import GHC.Generics (Generic)
-
 import Network.HTTP.Client hiding (Proxy, host)
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned hiding (name)
@@ -77,7 +75,7 @@ import Chainweb.HostAddress
 import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
 import Chainweb.Version
 
-import Pact.Types.Crypto (SomeKeyPair)
+import Pact.Types.Command (SomeKeyPairCaps)
 
 import qualified TXG.Simulate.Contracts.Common as Sim
 import qualified Utils.Logging.Config as U
@@ -108,8 +106,8 @@ data TXCmd
   | RunStandardContracts TimingDistribution
   | RunCoinContract TimingDistribution
   | RunSimpleExpressions TimingDistribution
-  | PollRequestKeys ByteString
-  | ListenerRequestKey ByteString
+  | PollRequestKeys Text
+  | ListenerRequestKey Text
   | SingleTransaction SingleTX
   deriving (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -124,8 +122,8 @@ transactionCommandToText = T.decodeUtf8 . fromJuste . transactionCommandBytes
 
 transactionCommandBytes :: TXCmd -> Maybe B8.ByteString
 transactionCommandBytes t = case t of
-  PollRequestKeys bs -> Just $ "poll [" <> bs <> "]"
-  ListenerRequestKey bs -> Just $ "listen " <> bs
+  PollRequestKeys bs -> Just $ T.encodeUtf8 $ "poll [" <> bs <> "]"
+  ListenerRequestKey bs -> Just $ T.encodeUtf8 $ "listen " <> bs
   _ -> Nothing
 
 transactionCommandFromText :: MonadThrow m => Text -> m TXCmd
@@ -146,7 +144,7 @@ pollkeys = do
   _open <- A.char '[' >> A.skipSpace
   bs <- parseRequestKey
   _close <- A.skipSpace >> A.char ']'
-  pure $ PollRequestKeys bs
+  pure $ PollRequestKeys $ T.decodeUtf8 bs
 
 
 -- This is brittle!
@@ -157,8 +155,8 @@ listenkeys :: A.Parser TXCmd
 listenkeys = do
   _constructor <- A.string "listen"
   A.skipSpace
-  bytestring <- parseRequestKey
-  pure $ ListenerRequestKey bytestring
+  bs <- parseRequestKey
+  pure $ ListenerRequestKey $ T.decodeUtf8 bs
 
 instance HasTextRepresentation TXCmd where
   toText = transactionCommandToText
@@ -273,7 +271,7 @@ data TXGState = TXGState
 
 data TXGConfig = TXGConfig
   { confTimingDist :: !(Maybe TimingDistribution)
-  , confKeysets :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPair))))
+  , confKeysets :: !(Map ChainId (Map Sim.Account (Map Sim.ContractName (NonEmpty SomeKeyPairCaps))))
   , confClientEnv :: !ClientEnv
   , confVersion :: !ChainwebVersion
   , confBatchSize :: !BatchSize

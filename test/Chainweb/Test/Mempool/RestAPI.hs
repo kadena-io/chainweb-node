@@ -16,7 +16,7 @@ import Test.Tasty
 
 -- internal modules
 
-import Chainweb.ChainId (ChainId)
+import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Graph
 import Chainweb.Logger (GenericLogger)
@@ -53,8 +53,8 @@ data TestServer = TestServer
 
 newTestServer :: IO TestServer
 newTestServer = mask_ $ do
-    checkMv <- newMVar $ V.mapM (const $ return True)
-    let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMvFunc checkMv)
+    checkMv <- newMVar (pure . V.map Right)
+    let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMvFunc checkMv)
     let blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
@@ -87,8 +87,10 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)]) mr
+    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)]) mr hs
       where
+        hs = HeaderStream False
+
         mr :: Maybe (MiningCoordination GenericLogger cas)
         mr = Nothing
 

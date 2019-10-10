@@ -2,10 +2,12 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI.Server
@@ -24,6 +26,9 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 -- * Single Chain Server
 , blockHeaderDbApp
 , blockHeaderDbApiLayout
+
+-- * Header Stream Server
+, someHeaderStreamServer
 ) where
 
 import Control.Applicative
@@ -34,27 +39,48 @@ import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
 import Data.Aeson
+import Data.Binary.Builder (fromByteString, fromLazyByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base16 as B16
+import Data.ByteString.Short (fromShort)
+import Data.CAS (casLookupM)
 import Data.Foldable
+import Data.Functor.Of
+import Data.IORef
 import Data.Proxy
+import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as T
+
+import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Prelude hiding (lookup)
 
 import Servant.API
 import Servant.Server
 
+import qualified Streaming.Prelude as SP
+
 -- internal modules
 
+import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
+import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadStore)
+import Chainweb.Difficulty (showTargetHex)
+import Chainweb.Payload (PayloadWithOutputs(..))
+import Chainweb.Payload.PayloadStore.Types (PayloadCas, PayloadDb)
+import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStoreCas)
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
+
+import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -276,3 +302,43 @@ someBlockHeaderDbServer (SomeBlockHeaderDb (db :: BlockHeaderDb_ v c))
 someBlockHeaderDbServers :: ChainwebVersion -> [(ChainId, BlockHeaderDb)] -> SomeServer
 someBlockHeaderDbServers v = mconcat
     . fmap (someBlockHeaderDbServer . uncurry (someBlockHeaderDbVal v))
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader Event Stream
+
+someHeaderStreamServer :: PayloadCas cas => ChainwebVersion -> CutDb cas -> SomeServer
+someHeaderStreamServer (FromSing (SChainwebVersion :: Sing v)) cdb =
+    SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
+
+headerStreamServer
+    :: forall cas (v :: ChainwebVersionT)
+    .  PayloadCas cas
+    => CutDb cas
+    -> Server (HeaderStreamApi v)
+headerStreamServer cdb = headerStreamHandler cdb
+
+headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler Application
+headerStreamHandler db = Tagged $ \req respond -> do
+    streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
+    eventSourceAppIO (run streamRef) req respond
+  where
+    run :: IORef (SP.Stream (Of ServerEvent) IO ()) -> IO ServerEvent
+    run var = readIORef var >>= SP.uncons >>= \case
+        Nothing -> return CloseEvent
+        Just (cur, !s') -> cur <$ writeIORef var s'
+
+    cas :: PayloadDb cas
+    cas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+
+    g :: BlockHeader -> IO HeaderUpdate
+    g bh = do
+        x <- casLookupM cas $ _blockPayloadHash bh
+        pure $ HeaderUpdate
+            { _huHeader =  ObjectEncoded bh
+            , _huTxCount = length $ _payloadWithOutputsTransactions x
+            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
+            , _huTarget = showTargetHex $ _blockTarget bh }
+
+    f :: HeaderUpdate -> ServerEvent
+    f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
+        [ fromLazyByteString . encode $ toJSON hu ]

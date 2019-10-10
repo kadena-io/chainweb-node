@@ -20,22 +20,26 @@ module Chainweb.Mempool.InMem
   ) where
 
 ------------------------------------------------------------------------------
-import Control.Applicative (pure, (<|>))
+import Control.Applicative ((<|>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
+import Control.Error.Util (hush)
 import Control.Exception (bracket, mask_, throw)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
+import Data.Bifunctor (bimap)
 import qualified Data.ByteString.Short as SB
 import Data.Foldable (foldl', foldlM)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Maybe
 import Data.Ord
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Traversable (for)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -55,6 +59,7 @@ import Chainweb.BlockHeader
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
+import Chainweb.Time
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
@@ -90,6 +95,7 @@ newInMemMempoolData =
     InMemoryMempoolData <$!> newIORef 0
                         <*> newIORef mempty
                         <*> newIORef emptyRecentLog
+                        <*> newIORef mempty
 
 
 ------------------------------------------------------------------------------
@@ -103,6 +109,7 @@ toMempoolBackend mempool = do
       , mempoolMember = member
       , mempoolLookup = lookup
       , mempoolInsert = insert
+      , mempoolInsertCheck = insertCheck
       , mempoolMarkValidated = markValidated
       , mempoolGetBlock = getBlock
       , mempoolGetPendingTransactions = getPending
@@ -113,10 +120,11 @@ toMempoolBackend mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg blockSizeLimit _ _ = cfg
+    InMemConfig tcfg blockSizeLimit _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg lockMVar
+    insertCheck = insertCheckInMem cfg lockMVar
     markValidated = markValidatedInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
@@ -153,12 +161,12 @@ withInMemoryMempool_ l cfg f = do
   where
     monitor m = do
         let lf = logFunction l
-        logFunctionText l Info $ "Initialized Mempool Monitor"
+        logFunctionText l Info "Initialized Mempool Monitor"
         runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
             stats <- getMempoolStats m
-            logFunctionText l Debug $ "got stats"
+            logFunctionText l Debug "got stats"
             logFunctionJson l Info stats
-            logFunctionText l Debug $ "logged stats"
+            logFunctionText l Debug "logged stats"
             approximateThreadDelay 60000000 {- 1 minute -}
 
 ------------------------------------------------------------------------------
@@ -201,51 +209,132 @@ maxNumPending :: Int
 maxNumPending = 10000
 
 ------------------------------------------------------------------------------
-insertInMem :: InMemConfig t    -- ^ in-memory config
-            -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
-            -> InsertType
-            -> Vector t  -- ^ new transactions
-            -> IO ()
+
+-- | Validation: A short-circuiting variant of this check that fails outright at
+-- the first detection of any validation failure on any Transaction.
+--
+insertCheckInMem
+    :: forall t
+    .  InMemConfig t    -- ^ in-memory config
+    -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> Vector t  -- ^ new transactions
+    -> IO (Either (T2 TransactionHash InsertError) ())
+insertCheckInMem cfg lock txs
+  | V.null txs = pure $ Right ()
+  | otherwise = do
+    now <- getCurrentTimeIntegral
+    badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
+
+    -- We hash the tx here and pass it around around to avoid needing to repeat
+    -- the hashing effort.
+    let withHashes :: Either (T2 TransactionHash InsertError) (Vector (T2 TransactionHash t))
+        withHashes = for txs $ \tx ->
+          let !h = hasher tx
+          in bimap (T2 h) (T2 h) $ validateOne cfg badmap now tx h
+
+    case withHashes of
+        Left _ -> pure $! void withHashes
+        Right r -> void . sequenceA <$!> _inmemPreInsertBatchChecks cfg r
+  where
+    hasher :: t -> TransactionHash
+    hasher = txHasher (_inmemTxCfg cfg)
+
+-- | Validation: Confirm the validity of some single transaction @t@.
+--
+validateOne
+    :: forall t a
+    .  InMemConfig t
+    -> HashMap TransactionHash a
+    -> Time Micros
+    -> t
+    -> TransactionHash
+    -> Either InsertError t
+validateOne cfg badmap (Time (TimeSpan now)) t h =
+    sizeOK
+    >> ttlCheck
+    >> notInBadMap
+    >> _inmemPreInsertPureChecks cfg t
+  where
+    txcfg :: TransactionConfig t
+    txcfg = _inmemTxCfg cfg
+
+    sizeOK :: Either InsertError ()
+    sizeOK = ebool_ InsertErrorOversized (getSize t <= maxSize)
+      where
+        getSize = txGasLimit txcfg
+        maxSize = _inmemTxBlockSizeLimit cfg
+
+    -- prop_tx_ttl_arrival
+    ttlCheck :: Either InsertError ()
+    ttlCheck = ebool_ InsertErrorInvalidTime (ct < now && now < et && ct < et)
+      where
+        TransactionMetadata (Time (TimeSpan ct)) (Time (TimeSpan et)) = txMetadata txcfg t
+
+    notInBadMap :: Either InsertError ()
+    notInBadMap = maybe (Right ()) (const $ Left InsertErrorBadlisted) $ HashMap.lookup h badmap
+
+-- | Validation: Similar to `insertCheckInMem`, but does not short circuit.
+-- Instead, bad transactions are filtered out and the successful ones are kept.
+--
+insertCheckInMem'
+    :: forall t
+    .  InMemConfig t    -- ^ in-memory config
+    -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> Vector t  -- ^ new transactions
+    -> IO (Vector (T2 TransactionHash t))
+insertCheckInMem' cfg lock txs
+  | V.null txs = pure V.empty
+  | otherwise = do
+    now <- getCurrentTimeIntegral
+    badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
+
+    let withHashes :: Vector (T2 TransactionHash t)
+        withHashes = flip V.mapMaybe txs $ \tx ->
+          let !h = hasher tx
+          in (T2 h) <$> hush (validateOne cfg badmap now tx h)
+
+    V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
+  where
+    txcfg = _inmemTxCfg cfg
+    hasher = txHasher txcfg
+
+insertInMem
+    :: forall t
+    .  InMemConfig t    -- ^ in-memory config
+    -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
+    -> InsertType
+    -> Vector t  -- ^ new transactions
+    -> IO ()
 insertInMem cfg lock runCheck txs0 = do
-    txs1 <- preInsertFilter txs0
+    txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         let countRef = _inmemCountPending mdata
         cnt <- readIORef countRef
-        let txs = V.take (max 0 (maxNumPending - cnt)) txs1
+        let txs = V.take (max 0 (maxNumPending - cnt)) txhashes
         let numTxs = V.length txs
         let newCnt = cnt + numTxs
         writeIORef countRef $! newCnt
         pending <- readIORef (_inmemPending mdata)
-        let (!pending', newHashesDL) = V.foldl' insOne (pending, id) txs
+        let T2 pending' newHashesDL = V.foldl' insOne (T2 pending id) txs
         let !newHashes = V.fromList $ newHashesDL []
         writeIORef (_inmemPending mdata) $! force pending'
         modifyIORef' (_inmemRecentLog mdata) $
             recordRecentTransactions maxRecent newHashes
 
   where
-    preInsertFilter = if runCheck == CheckedInsert
-                        then preInsertFilterReal
-                        else return
-    preInsertFilterReal txs = do
-        let chk = _inmemPreInsertCheck cfg
-        let out1 = V.map sizeOK txs
-        out2 <- chk txs
-        let oks = V.zipWith (&&) out1 out2
-        -- keep the good txs only
-        return $! V.map fst $ V.filter snd $ V.zip txs oks
+    insertCheck :: IO (Vector (T2 TransactionHash t))
+    insertCheck = if runCheck == CheckedInsert
+                  then insertCheckInMem' cfg lock txs0
+                  else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg
     encodeTx = codecEncode (txCodec txcfg)
-    getSize = txGasLimit txcfg
-    maxSize = _inmemTxBlockSizeLimit cfg
-    sizeOK tx = getSize tx <= maxSize
     maxRecent = _inmemMaxRecentItems cfg
     hasher = txHasher txcfg
 
-    insOne (!pending, !soFar) !tx =
-        let !txhash = hasher tx
-            !bytes = SB.toShort $! encodeTx tx
-        in (HashMap.insert txhash bytes pending, soFar . (txhash:))
+    insOne (T2 pending soFar) (T2 txhash tx) =
+        let !bytes = SB.toShort $! encodeTx tx
+        in T2 (HashMap.insert txhash bytes pending) (soFar . (txhash:))
 
 
 ------------------------------------------------------------------------------
@@ -260,16 +349,26 @@ getBlockInMem :: forall t .
 getBlockInMem cfg lock txValidate bheight phash size0 = do
     withMVar lock $ \mdata -> do
         !psq0 <- readIORef $ _inmemPending mdata
+        now <- getCurrentTimeIntegral
+        !badmap <- pruneBadMap now <$!> readIORef (_inmemBadMap mdata)
         let !psq = HashMap.map decodeTx psq0
-        (!psq', out) <- go psq size0 []
-        let ins !h !t = HashMap.insert (hasher t) t h
-        -- put the pending txs back into the map.
+        T3 psq' badmap' out <- go psq badmap size0 []
+
+        -- put the txs chosen for the block back into the map -- they don't get
+        -- expunged until they are mined and validated by consensus.
         let !psq'' = HashMap.map (SB.toShort . encodeTx) $! V.foldl' ins psq' out
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemCountPending mdata) $! HashMap.size psq''
+        writeIORef (_inmemBadMap mdata) $! force badmap'
         return $! out
 
   where
+    pruneBadMap now = HashMap.filter (> now)
+
+    ins !h !t = HashMap.insert (hasher t) t h
+    insBadMap !h !t = let endTime = txMetaExpiryTime (txMetadata txcfg t)
+                      in HashMap.insert (hasher t) endTime h
+
     del !psq tx = let h = hasher tx
                   in HashMap.delete h psq
 
@@ -292,17 +391,21 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
 
     validateBatch
         :: HashMap TransactionHash t
+        -> BadMap
         -> Vector t
-        -> IO (Vector t, HashMap TransactionHash t)
-    validateBatch !psq0 q = do
+        -> IO (T3 (Vector t) (HashMap TransactionHash t) BadMap)
+    validateBatch !psq0 !badmap q = do
         oks1 <- txValidate bheight phash q
         let oks2 = V.map sizeOK q
-        let oks = V.zipWith (&&) oks1 oks2
-        let good = V.map fst $ V.filter snd $ V.zip q oks
+        let !oks = V.zipWith (&&) oks1 oks2
+        let (good1, bad1) = V.partition snd $! V.zip q oks
+        let !good = V.map fst good1
 
         -- remove considered txs -- successful ones will be re-added at the end
         let !psq' = V.foldl' del psq0 q
-        return (good, psq')
+        -- txs that fail pre-block validation get sent to the naughty list.
+        let !badmap' = V.foldl' insBadMap badmap (V.map fst bad1)
+        return $! T3 good psq' badmap'
 
     maxInARow :: Int
     maxInARow = 200
@@ -335,22 +438,22 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
             let (T2 !tx !pendingTxs') = unconsV pendingTxs
             let txSz = getSize tx
             if txSz <= sz
-              then do
-                  getBatch pendingTxs' (sz - txSz) (tx:soFar) 0
+              then getBatch pendingTxs' (sz - txSz) (tx:soFar) 0
               else getBatch pendingTxs' sz soFar (inARow + 1)
 
     go :: HashMap TransactionHash t
+       -> BadMap
        -> GasLimit
        -> [Vector t]
-       -> IO (HashMap TransactionHash t, Vector t)
-    go !psq !remainingGas !soFar = do
+       -> IO (T3 (HashMap TransactionHash t) BadMap (Vector t))
+    go !psq !badmap !remainingGas !soFar = do
         nb <- nextBatch psq remainingGas
         if null nb
-          then return (psq, V.concat soFar)
+          then return $! T3 psq badmap (V.concat soFar)
           else do
-            (good, psq') <- validateBatch psq $! V.fromList nb
+            T3 good psq' badmap' <- validateBatch psq badmap $! V.fromList nb
             let newGas = V.foldl' (\s t -> s + getSize t) 0 good
-            go psq' (remainingGas - newGas) (good : soFar)
+            go psq' badmap' (remainingGas - newGas) (good : soFar)
 
 
 ------------------------------------------------------------------------------
@@ -450,5 +553,6 @@ getRecentTxs maxNumRecent oldHw rlog
 getMempoolStats :: InMemoryMempool t -> IO MempoolStats
 getMempoolStats m = do
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
-        <$!> (HashMap.size <$> readIORef (_inmemPending d))
-        <*> (length . _rlRecent <$> readIORef (_inmemRecentLog d))
+        <$!> (HashMap.size <$!> readIORef (_inmemPending d))
+        <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
+        <*> (HashMap.size <$!> readIORef (_inmemBadMap d))

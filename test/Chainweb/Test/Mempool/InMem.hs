@@ -10,7 +10,7 @@ import Test.Tasty
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.InMemTypes (InMemConfig(..))
 import Chainweb.Mempool.Mempool
-import Chainweb.Test.Mempool (MempoolWithFunc(..))
+import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
 import Chainweb.Utils (Codec(..))
 ------------------------------------------------------------------------------
@@ -20,11 +20,13 @@ tests = testGroup "Chainweb.Mempool.InMem"
             $ Chainweb.Test.Mempool.tests
             $ MempoolWithFunc wf
   where
+    wf :: (InsertCheck -> MempoolBackend MockTx -> IO a) -> IO a
     wf f = do
-        mv <- newMVar (\v -> V.mapM (const $ return True) v)
-        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 (checkMv mv)
+        mv <- newMVar (pure . V.map Right)
+        let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv)
         InMem.withInMemoryMempool cfg $ f mv
 
+    checkMv :: MVar (t -> IO b) -> t -> IO b
     checkMv mv xs = do
         f <- readMVar mv
         f xs
@@ -33,4 +35,3 @@ tests = testGroup "Chainweb.Mempool.InMem"
                               mockMeta
     hashmeta = chainwebTestHashMeta
     hasher = chainwebTestHasher . codecEncode mockCodec
-

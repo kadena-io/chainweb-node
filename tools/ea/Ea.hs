@@ -31,11 +31,13 @@ module Ea ( main ) where
 
 import BasePrelude
 
+import Control.Lens (set)
+
 import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Short as SB
+-- import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -55,11 +57,15 @@ import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
+-- import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
-import Chainweb.Transaction (PayloadWithText(..))
+import Chainweb.Time
+import Chainweb.Transaction (mkPayloadWithText)
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.ApiReq (mkApiReq)
+import Pact.Parse
+import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
 import Pact.Types.SPV (noSPVSupport)
 
@@ -78,8 +84,8 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
-    for_  graphs $ \(v, tag, grants) -> do
-        let txs = bool txs0 [defCoinContractSig, defCoinContract, grants] $ null txs0
+    for_  graphs $ \(v, tag, grants, ns) -> do
+        let txs = bool txs0 [defCoinContract, grants, ns] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v tag txs
     putStrLn "Done."
@@ -88,13 +94,10 @@ main = do
         (fullDesc <> header "ea - Generate Pact Payload modules")
 
     graphs =
-      [ (Development, "Development", devGrants)
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devGrants)
-      , (Testnet02, "Testnet", prodGrants)
+      [ (Development, "Development", devGrants, devNs)
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devGrants, devNs)
+      , (Testnet02, "Testnet", prodGrants, prodNs)
       ]
-
-defCoinContractSig :: FilePath
-defCoinContractSig = "pact/coin-contract/load-coin-contract-sig.yaml"
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
@@ -104,6 +107,13 @@ devGrants = "pact/genesis/testnet/grants.yaml"
 
 prodGrants :: FilePath
 prodGrants = "pact/genesis/prodnet/grants.yaml"
+
+
+devNs :: FilePath
+devNs = "pact/genesis/testnet/ns.yaml"
+
+prodNs :: FilePath
+prodNs = "pact/genesis/prodnet/ns.yaml"
 
 ---------------------
 -- Payload Generation
@@ -119,7 +129,9 @@ genPayloadModule v tag txFiles =
                 procCmd = verifyCommand cmdBS
             case procCmd of
                 f@ProcFail{} -> fail (show f)
-                ProcSucc c -> fixupPayload cmdBS c
+                ProcSucc c -> do
+                  let t = toTxCreationTime (Time (TimeSpan 0))
+                  return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
@@ -133,9 +145,11 @@ genPayloadModule v tag txFiles =
 
         TIO.writeFile (T.unpack fileName) modl
   where
-    fixupPayload cmdBS c =
-        return $! fmap (\bs -> PayloadWithText bs (_cmdPayload c))
-                       (SB.toShort <$> cmdBS)
+    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
+    setTTL = set (cmdPayload . pMeta . pmTTL)
+    toTxCreationTime :: Time Integer -> TxCreationTime
+    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+      Seconds s -> TxCreationTime $ ParsedInteger s
     cid = someChainId v
 
 startModule :: Text -> [Text]

@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
@@ -19,10 +20,13 @@ module Chainweb.Test.RestAPI
 import Control.Monad
 import Control.Monad.IO.Class
 
+import qualified Data.ByteString.Char8 as B8
 import Data.Either
 import Data.Foldable
+import qualified Data.HashSet as HS
 import Data.Maybe
 import qualified Data.Text as T
+import Data.Time.Clock.POSIX
 
 import Network.HTTP.Types.Status
 
@@ -32,6 +36,8 @@ import qualified Streaming.Prelude as SP
 
 import Test.Tasty
 import Test.Tasty.HUnit
+
+import Text.Read (readEither)
 
 -- internal modules
 
@@ -45,6 +51,7 @@ import Chainweb.RestAPI
 #if ! MIN_VERSION_servant(0,16,0)
 import Chainweb.RestAPI.Utils
 #endif
+import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -52,6 +59,8 @@ import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.CAS.RocksDB
+
+import Servant.Client_
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries
@@ -117,7 +126,41 @@ simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 simpleSessionTests rdb tls version =
     withBlockHeaderDbsServer tls version (testBlockHeaderDbs rdb version) (return noMempool)
     $ \env -> testGroup "client session tests"
-        $ simpleClientSession env <$> toList (chainIds version)
+        $ httpHeaderTests env (head $ toList $ chainIds version)
+        : (simpleClientSession env <$> toList (chainIds version))
+
+httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
+httpHeaderTests envIO cid =
+    testGroup ("http header tests for chain " <> sshow cid) $
+        [ go "headerClient" $ \v h -> headerClient' v cid (key h)
+        , go "headerPutClient" $ \v h -> headerPutClient' v cid (head $ testBlockHeaders h)
+        , go "headersClient" $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
+        , go "hashesClient" $ \v _ -> hashesClient' v cid Nothing Nothing Nothing Nothing
+        , go "branchHashesClient" $ \v _ -> branchHashesClient' v cid Nothing Nothing Nothing
+            Nothing (BranchBounds mempty mempty)
+        , go "branchHeadersClient" $ \v _ -> branchHeadersClient' v cid Nothing Nothing Nothing
+            Nothing (BranchBounds mempty mempty)
+        ]
+      where
+        go label run = testCase label $ do
+            BlockHeaderDbsTestClientEnv env _ version <- liftIO envIO
+            res <- flip runClientM_ env $ modifyResponse checkHeader $ do
+                run version (genesisBlockHeader version cid)
+            assertBool ("test failed: " <> sshow res) (isRight res)
+            return ()
+
+        checkHeader res = do
+            cur <- realToFrac <$> getPOSIXTime :: IO Double
+            case Prelude.lookup "X-Server-Timestamp" (toList $ responseHeaders res) of
+                Nothing -> assertFailure "X-Server-Timestamp header is missing from response"
+                Just t -> case readEither (B8.unpack t) of
+                    Left e -> assertFailure $ "failed to read value of X-Server-Timestamp header: " <> sshow e
+                    Right x -> do
+                        let d = cur - x
+                        assertBool
+                            ("test failed because X-Server-Time is of by " <> sshow d <> " seconds")
+                            (d <= 1)
+                        return res
 
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
@@ -185,6 +228,103 @@ simpleClientSession envIO cid =
             assertExpectation "header client returned wrong entry"
                 (Expected h)
                 (Actual r)
+
+        -- branchHeaders
+
+        void $ liftIO $ step "branchHeadersClient: get no block headers"
+        bhs3 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
+            (BranchBounds mempty mempty)
+        assertExpectation "branchHeadersClient returned wrong number of entries"
+            (Expected 0)
+            (Actual $ _pageLimit bhs3)
+
+        forM_ ([2..] `zip` newHeaders) $ \(i, h) -> do
+            void $ liftIO $ step $ "branchHeadersClient: get " <> sshow i <> " block headers with upper bound"
+            bhs4 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds mempty (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected i)
+                (Actual $ _pageLimit bhs4)
+
+            void $ liftIO $ step "branchHeadersClient: get no block headers with lower and upper bound"
+            bhs5 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h)) (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected 0)
+                (Actual $ _pageLimit bhs5)
+
+        forM_ (newHeaders `zip` drop 1 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHeadersClient: get one block headers with lower and upper bound"
+            bhs5 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected 1)
+                (Actual $ _pageLimit bhs5)
+
+        forM_ (newHeaders `zip` drop 2 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHeadersClient: get two block headers with lower and upper bound"
+            bhs5 <- branchHeadersClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHeadersClient returned wrong number of entries"
+                (Expected 2)
+                (Actual $ _pageLimit bhs5)
+
+        -- branchHeaders
+
+        void $ liftIO $ step "branchHashesClient: get no block headers"
+        hs3 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
+            (BranchBounds mempty mempty)
+        assertExpectation "branchHashesClient returned wrong number of entries"
+            (Expected 0)
+            (Actual $ _pageLimit hs3)
+
+        forM_ ([2..] `zip` newHeaders) $ \(i, h) -> do
+            void $ liftIO $ step $ "branchHashesClient: get " <> sshow i <> " block headers with upper bound"
+            hs4 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds mempty (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected i)
+                (Actual $ _pageLimit hs4)
+
+            void $ liftIO $ step "branchHashesClient: get no block headers with lower and upper bound"
+            hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h)) (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected 0)
+                (Actual $ _pageLimit hs5)
+
+        forM_ (newHeaders `zip` drop 1 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
+            hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected 1)
+                (Actual $ _pageLimit hs5)
+
+        forM_ (newHeaders `zip` drop 2 newHeaders) $ \(h0, h1) -> do
+            void $ liftIO $ step "branchHashesClient: get two block headers with lower and upper bound"
+            hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key h0)) (HS.singleton (UpperBound $ key h1)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected 2)
+                (Actual $ _pageLimit hs5)
+
+        -- branch hashes with fork
+
+        void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
+        let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) gbh0
+        forM_ newHeaders2 $ \h -> do
+            void $ liftIO $ step $ "headerPutClient: " <> T.unpack (encodeToText (_blockHash h))
+            void $ headerPutClient version cid h
+
+        let lower = last $ newHeaders
+        forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do
+            void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
+            hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
+                (BranchBounds (HS.singleton (LowerBound $ key lower)) (HS.singleton (UpperBound $ key h)))
+            assertExpectation "branchHashesClient returned wrong number of entries"
+                (Expected i)
+                (Actual $ _pageLimit hs5)
 
 -- -------------------------------------------------------------------------- --
 -- Test Client Session

@@ -36,6 +36,7 @@ import System.LogLevel
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
@@ -162,12 +163,12 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService
         PowConsensus{} -> emptyPactExecutionService
-        TimedCPM{} -> mkPactExecutionService' requestQ
-        FastTimedCPM{} -> mkPactExecutionService' requestQ
-        Development -> mkPactExecutionService' requestQ
-        -- Testnet00 -> mkPactExecutionService' requestQ
-        -- Testnet01 -> mkPactExecutionService' requestQ
-        Testnet02 -> mkPactExecutionService' requestQ
+        TimedCPM{} -> mkPactExecutionService requestQ
+        FastTimedCPM{} -> mkPactExecutionService requestQ
+        Development -> mkPactExecutionService requestQ
+        -- Testnet00 -> mkPactExecutionService requestQ
+        -- Testnet01 -> mkPactExecutionService requestQ
+        Testnet02 -> mkPactExecutionService requestQ
 
 withChainwebInternalStandalone
     :: Logger logger
@@ -186,7 +187,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     concurrentWith
       -- initialize chains concurrently
       (\cid -> do
-          let mcfg = validatingMempoolConfig cid cdbv
+          let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
           withChainResourcesStandalone v cid rocksDb peer (chainLogger cid)
                 mcfg cdbv payloadDb prune dbDir nodeid resetDb)
 
@@ -251,6 +252,8 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebCutResources = cuts
                                       , _chainwebMiner = m
                                       , _chainwebCoordinator = mc
+                                      , _chainwebHeaderStream =
+                                          HeaderStream $ _configHeaderStream conf
                                       , _chainwebLogger = logger
                                       , _chainwebPeer = peer
                                       , _chainwebPayloadDb = payloadDb

@@ -52,9 +52,11 @@ module Chainweb.Chainweb
 , configChainwebVersion
 , configMiner
 , configCoordinator
+, configHeaderStream
 , configReintroTxs
 , configP2p
 , configTransactionIndex
+, configBlockGasLimit
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 
@@ -65,6 +67,7 @@ module Chainweb.Chainweb
 , chainwebHostAddress
 , chainwebMiner
 , chainwebCoordinator
+, chainwebHeaderStream
 , chainwebLogger
 , chainwebSocket
 , chainwebPeer
@@ -91,17 +94,23 @@ import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
 
+import Data.Align (alignWith)
 import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sortBy)
+import Data.Maybe
+import Data.Monoid
 import qualified Data.Text as T
+import Data.These (These(..))
+import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
@@ -114,7 +123,6 @@ import Network.Wai.Middleware.Throttle
 
 import Numeric.Natural
 
-import qualified Pact.Types.Hash as P
 import Prelude hiding (log)
 
 import System.Clock
@@ -122,8 +130,14 @@ import System.LogLevel
 
 -- internal modules
 
+import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.ChainMeta as P
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Hash as P
+
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
+import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
@@ -140,6 +154,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
+import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -187,6 +202,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
     , _configCoordinator :: !Bool
+    , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
@@ -194,6 +210,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottleRate :: !Natural
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
+    , _configBlockGasLimit :: !Mempool.GasLimit
     }
     deriving (Show, Eq, Generic)
 
@@ -213,6 +230,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
     , _configCoordinator = False
+    , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
@@ -220,6 +238,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configThrottleRate = 1000
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
+    , _configBlockGasLimit = 100000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -228,6 +247,7 @@ instance ToJSON ChainwebConfiguration where
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
         , "miningCoordination" .= _configCoordinator o
+        , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
@@ -235,6 +255,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttleRate" .= _configThrottleRate o
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
+        , "blockGasLimit" .= _configBlockGasLimit o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -243,6 +264,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
         <*< configCoordinator ..: "miningCoordination" % o
+        <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
@@ -250,6 +272,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottleRate ..: "throttleRate" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
+        <*< configBlockGasLimit ..: "blockGasLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -265,6 +288,9 @@ pChainwebConfiguration = id
     <*< configCoordinator .:: boolOption_
         % long "mining-coordination"
         <> help "whether to enable external requests for mining work"
+    <*< configHeaderStream .:: boolOption_
+        % long "header-stream"
+        <> help "whether to enable an endpoint for streaming block updates"
     <*< configReintroTxs .:: enableDisableFlag
         % long "tx-reintro"
         <> help "whether to enable transaction reintroduction from losing forks"
@@ -282,6 +308,9 @@ pChainwebConfiguration = id
     <*< configPruneChainDatabase .:: enableDisableFlag
         % long "prune-chain-database"
         <> help "prune the chain database for all chains on startup"
+    <*< configBlockGasLimit .:: jsonOption
+        % long "block-gas-limit"
+        <> help "the sum of all transaction gas fees in a block must not exceed this number"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -292,6 +321,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebCutResources :: !(CutResources logger cas)
     , _chainwebMiner :: !(Maybe (MinerResources logger cas))
     , _chainwebCoordinator :: !(Maybe (MiningCoordination logger cas))
+    , _chainwebHeaderStream :: !HeaderStream
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
@@ -351,28 +381,66 @@ withChainweb c logger rocksDb dbDir resetDb inner =
 
 validatingMempoolConfig
     :: ChainId
-    -> MVar (CutDb cas)
+    -> ChainwebVersion
+    -> Mempool.GasLimit
     -> MVar PactExecutionService
     -> Mempool.InMemConfig ChainwebTransaction
-validatingMempoolConfig cid cutmv mv = Mempool.InMemConfig
-    txcfg
-    blockGasLimit
-    maxRecentLog
-    preInsertCheck
+validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
+    { Mempool._inmemTxCfg = txcfg
+    , Mempool._inmemTxBlockSizeLimit = gl
+    , Mempool._inmemMaxRecentItems = maxRecentLog
+    , Mempool._inmemPreInsertPureChecks = preInsertSingle
+    , Mempool._inmemPreInsertBatchChecks = preInsertBatch
+    }
   where
     txcfg = Mempool.chainwebTransactionConfig
-    blockGasLimit = 100000
     maxRecentLog = 2048
-    hasher = Mempool.txHasher txcfg
-    preInsertCheck txs = do
-        cdb <- readMVar cutmv
-        curCut <- _cut cdb
-        bh <- lookupCutM cid curCut
-        let hashes = V.map toPactHash $ V.map hasher txs
+
+    toDupeResult :: Maybe a -> Maybe Mempool.InsertError
+    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
+
+    preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
+    preInsertSingle tx = checkMetadata tx
+
+    -- | Validation: All checks that should occur before a TX is inserted into
+    -- the mempool. A rejection at this stage means that something is
+    -- fundamentally wrong/illegal with the TX, and that it should be rejected
+    -- completely and not gossiped to other peers.
+    --
+    -- We expect this to be called in two places: once when a new Pact
+    -- Transaction is submitted via the @send@ endpoint, and once when a new TX
+    -- is gossiped to us from a peer's mempool.
+    --
+    preInsertBatch
+        :: V.Vector (T2 Mempool.TransactionHash ChainwebTransaction)
+        -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
+                                (T2 Mempool.TransactionHash ChainwebTransaction)))
+    preInsertBatch txs = do
+        let hashes = V.map (toPactHash . sfst) txs
         pex <- readMVar mv
-        mbs <- _pactLookup pex bh hashes >>= either throwM return
-        return $! V.map (== Nothing) mbs
+        rs <- _pactLookup pex (Left cid) hashes >>= either throwM pure
+        pure $ alignWith f rs txs
+      where
+        f (These r (T2 h t)) = maybe (Right (T2 h t)) (Left . T2 h) $ toDupeResult r
+        f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
+        f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
+
+    toPactHash :: Mempool.TransactionHash -> P.TypedHash h
     toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
+
+    -- | Validation: Is this TX associated with the correct `ChainId`?
+    --
+    checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
+    checkMetadata tx = do
+        let !pay = payloadObj . P._cmdPayload $ tx
+            pcid = P._pmChainId $ P._pMeta pay
+            sigs = length (P._cmdSigs tx)
+            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
+        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
+        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
+           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise     -> Right tx
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
@@ -394,7 +462,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
-            let mcfg = validatingMempoolConfig cid cdbv
+            let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg cdbv payloadDb prune dbDir nodeid
                      resetDb)
@@ -470,7 +538,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
+                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
                     withMinerResources mLogger mConf mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
@@ -479,6 +547,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebCutResources = cuts
                             , _chainwebMiner = m
                             , _chainwebCoordinator = mc
+                            , _chainwebHeaderStream = HeaderStream $ _configHeaderStream conf
                             , _chainwebLogger = logger
                             , _chainwebPeer = peer
                             , _chainwebPayloadDb = payloadDb
@@ -591,7 +660,7 @@ runChainweb cw = do
         bimap MempoolNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
 
     payloadDbsToServe :: [(ChainId, PayloadDb cas)]
-    payloadDbsToServe = itoList $ const (view chainwebPayloadDb cw) <$> _chainwebChains cw
+    payloadDbsToServe = itoList (view chainwebPayloadDb cw <$ _chainwebChains cw)
 
     pactDbsToServe :: [(ChainId, PactServerData logger cas)]
     pactDbsToServe = _chainwebPactData cw
@@ -617,6 +686,7 @@ runChainweb cw = do
             , _chainwebServerPactDbs = pactDbsToServe
             }
         (_chainwebCoordinator cw)
+        (_chainwebHeaderStream cw)
 
     -- HTTP Request Logger
 

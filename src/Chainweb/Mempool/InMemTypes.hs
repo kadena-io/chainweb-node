@@ -17,6 +17,7 @@ module Chainweb.Mempool.InMemTypes
   , RecentItem
   , RecentLog(..)
   , MempoolStats(..)
+  , BadMap
   ) where
 
 ------------------------------------------------------------------------------
@@ -35,6 +36,7 @@ import GHC.Generics
 -- internal imports
 
 import Chainweb.Mempool.Mempool
+import Chainweb.Time (Micros(..), Time(..))
 
 ------------------------------------------------------------------------------
 type PendingMap = HashMap TransactionHash SB.ShortByteString
@@ -45,8 +47,10 @@ data InMemConfig t = InMemConfig {
     _inmemTxCfg :: {-# UNPACK #-} !(TransactionConfig t)
   , _inmemTxBlockSizeLimit :: !GasLimit
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
-    -- Here True means 'OK to insert'
-  , _inmemPreInsertCheck :: !(V.Vector t -> IO (V.Vector Bool))
+  , _inmemPreInsertPureChecks :: t -> Either InsertError t
+  , _inmemPreInsertBatchChecks
+        :: V.Vector (T2 TransactionHash t)
+        -> IO (V.Vector (Either (T2 TransactionHash InsertError) (T2 TransactionHash t)))
 }
 
 ------------------------------------------------------------------------------
@@ -56,11 +60,16 @@ data InMemoryMempool t = InMemoryMempool {
   , _inmemNonce :: !ServerNonce
 }
 
+
+------------------------------------------------------------------------------
+type BadMap = HashMap TransactionHash (Time Micros)
+
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
     _inmemCountPending :: !(IORef Int)
   , _inmemPending :: !(IORef PendingMap)
   , _inmemRecentLog :: !(IORef RecentLog)
+  , _inmemBadMap :: !(IORef BadMap)
 }
 
 ------------------------------------------------------------------------------
@@ -74,6 +83,7 @@ data RecentLog = RecentLog {
 data MempoolStats = MempoolStats
     { _mStatsPendingCount :: {-# UNPACK #-} !Int
     , _mStatsRecentCount :: {-# UNPACK #-} !Int
+    , _mStatsBadlistCount :: {-# UNPACK #-} !Int
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, NFData)

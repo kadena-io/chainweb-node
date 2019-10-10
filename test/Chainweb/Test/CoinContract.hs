@@ -28,6 +28,7 @@ import Data.Text
 
 import Pact.Repl
 import Pact.Repl.Types
+import Pact.Types.Names
 import Pact.Types.Runtime
 
 -- internal chainweb modules
@@ -85,7 +86,7 @@ sender0 = "sender"
 minerKeys0 :: MinerKeys
 minerKeys0 = MinerKeys $ KeySet
   ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-  (Name "default" def)
+  (Name $ BareName "default" def)
 
 minerId0 :: MinerId
 minerId0 = MinerId "default miner"

@@ -60,7 +60,6 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
-import Chainweb.ChainId (ChainId)
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -140,13 +139,13 @@ newWork choice miner pact c = do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.
             --
-            payload <- _pactNewBlock pact miner p
+            creationTime <- getCurrentTimeIntegral
+            payload <- _pactNewBlock pact miner p (BlockCreationTime creationTime)
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
             -- core Mining logic.
             --
-            creationTime <- getCurrentTimeIntegral
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
 

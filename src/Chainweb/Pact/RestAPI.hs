@@ -21,6 +21,16 @@ module Chainweb.Pact.RestAPI
   PactApi
 , pactApi
 
+-- ** Pact APIs for Individual commands
+, PactLocalApi
+, pactLocalApi
+, PactListenApi
+, pactListenApi
+, PactSendApi
+, pactSendApi
+, PactPollApi
+, pactPollApi
+
 -- * Pact Spv Api
 , PactSpvApi
 , pactSpvApi
@@ -62,6 +72,42 @@ pactApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . Proxy (PactApi v c)
 pactApi = Proxy
+
+-- -------------------------------------------------------------------------- --
+-- Individual Pact V1 Endpoints
+
+type PactV1ApiEndpoint (v :: ChainwebVersionT) (c :: ChainIdT) api
+    = 'ChainwebEndpoint v
+    :> ChainEndpoint c
+    :> "pact"
+    :> "api"
+    :> "v1"
+    :> api
+
+type PactLocalApi v c = PactV1ApiEndpoint v c ApiLocal
+type PactSendApi v c = PactV1ApiEndpoint v c ApiSend
+type PactListenApi v c = PactV1ApiEndpoint v c ApiListen
+type PactPollApi v c = PactV1ApiEndpoint v c ApiPoll
+
+pactLocalApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactLocalApi v c)
+pactLocalApi = Proxy
+
+pactSendApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactSendApi v c)
+pactSendApi = Proxy
+
+pactListenApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactListenApi v c)
+pactListenApi = Proxy
+
+pactPollApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PactPollApi v c)
+pactPollApi = Proxy
 
 -- -------------------------------------------------------------------------- --
 -- GET Pact Spv Transaction Proof

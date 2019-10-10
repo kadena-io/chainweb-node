@@ -97,7 +97,7 @@ module Chainweb.Test.Utils
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Exception (SomeException, bracket, handle)
+import Control.Exception (bracket)
 import Control.Lens (deep, filtered, toListOf)
 import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class
@@ -141,6 +141,7 @@ import Text.Printf (printf)
 
 -- internal modules
 
+import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Logger (Logger)
 import Chainweb.BlockHeader
@@ -418,7 +419,8 @@ starBlockHeaderDbs n genDbs = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withChainServer
-    :: Show t
+    :: forall t cas logger a
+    .  Show t
     => ToJSON t
     => FromJSON t
     => PayloadCas cas
@@ -428,7 +430,10 @@ withChainServer
     -> IO a
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
-    app = chainwebApplication (Test singletonChainGraph) dbs Nothing
+    app :: W.Application
+    app = chainwebApplication (Test singletonChainGraph) dbs Nothing (HeaderStream False)
+
+    work :: Int -> IO a
     work port = do
         mgr <- HTTP.newManager HTTP.defaultManagerSettings
         f $ mkClientEnv mgr (BaseUrl Http "localhost" port "")
@@ -483,13 +488,12 @@ withTestAppServer
     -> IO b
 withTestAppServer tls v appIO envIO userFunc = bracket start stop go
   where
-    eatExceptions = handle (\(_ :: SomeException) -> return ())
     warpOnException _ _ = return ()
     start = do
         app <- appIO
         (port, sock) <- W.openFreePort
         readyVar <- newEmptyMVar
-        server <- async $ eatExceptions $ do
+        server <- async $ do
             let settings = W.setOnException warpOnException $
                            W.setBeforeMainLoop (putMVar readyVar ()) W.defaultSettings
             if
@@ -565,7 +569,7 @@ clientEnvWithChainwebTestServer tls v dbsIO f =
     miningRes = Nothing
 
     mkApp :: IO W.Application
-    mkApp = chainwebApplication v <$> dbsIO <*> pure miningRes
+    mkApp = chainwebApplication v <$> dbsIO <*> pure miningRes <*> pure (HeaderStream False)
 
     mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do

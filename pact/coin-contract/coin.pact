@@ -6,19 +6,26 @@
   \create. To access the coin contract, you may use its fully-qualified name,  \
   \or issue the '(use coin)' command in the body of a module declaration."
 
-  @model [
-    (defproperty conserves-mass
-      (= (column-delta coin-table 'balance) 0.0))
-  ]
+  @model
+    [ (defproperty conserves-mass
+        (= (column-delta coin-table 'balance) 0.0))
 
-  (implements coin-sig)
+      (defproperty account-structure (account:string)
+        (and
+          (>= (length account) 3)
+          (<= (length account) 256)))
+    ]
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
 
   (defschema coin-schema
+    @doc "The coin contract token schema"
+    ;@model [ (invariant (>= balance 0.0)) ] ; FV problem
+
     balance:decimal
     guard:guard)
+
   (deftable coin-table:{coin-schema})
 
   ; the shape of a cross-chain transfer (used for typechecking)
@@ -51,15 +58,59 @@
   (defcap GOVERNANCE ()
     (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
 
+
+  ; --------------------------------------------------------------------------
+  ; Constants
+
+  (defconst COIN_CHARSET CHARSET_LATIN1
+    "The default coin contract character set")
+
   (defconst MINIMUM_PRECISION 12
     "Minimum allowed precision for coin transactions")
 
+  (defconst MINIMUM_ACCOUNT_LENGTH 3
+    "Minimum account length admissible for coin accounts")
+
+  (defconst MAXIMUM_ACCOUNT_LENGTH 256
+    "Maximum account name length admissible for coin accounts")
+
+  ; --------------------------------------------------------------------------
+  ; Utilities
+
   (defun enforce-unit (amount:decimal)
     @doc "Enforce minimum precision allowed for coin transactions"
+
     (enforce
       (= (floor amount MINIMUM_PRECISION)
          amount)
       (format "Amount violates minimum precision: {}" [amount]))
+    )
+
+  (defun enforce-account-structure (account:string)
+    @doc "Enforce that an account name conforms to the coin contract \
+         \minimum and maximum length requirements, as well as the    \
+         \latin-1 character set."
+
+    (enforce
+      (is-charset COIN_CHARSET account)
+      (format
+        "Account does not conform to the coin contract charset: {}"
+        [account]))
+
+    (let ((account-length (length account)))
+
+      (enforce
+        (>= account-length MINIMUM_ACCOUNT_LENGTH)
+        (format
+          "Account name does not conform to the min length requirement: {}"
+          [account]))
+
+      (enforce
+        (<= account-length MAXIMUM_ACCOUNT_LENGTH)
+        (format
+          "Account name does not conform to the min length requirement: {}"
+          [account]))
+      )
   )
 
   ; --------------------------------------------------------------------------
@@ -72,10 +123,14 @@
     \the transaction, and the price is the spot price of gas at that time.    \
     \The gas buy will be executed prior to executing SENDER's code."
 
-    (enforce-unit total)
+    @model [ (property (> total 0.0))
+             (property (account-structure sender))
+           ]
 
-    (enforce (> total 0.0)
-      "gas supply must be a positive quantity")
+    (enforce-account-structure sender)
+
+    (enforce-unit total)
+    (enforce (> total 0.0) "gas supply must be a positive quantity")
 
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
@@ -88,9 +143,15 @@
     \was charged has been calculated. MINER will be credited the gas cost,    \
     \and SENDER will receive the remainder up to the limit"
 
-    @model [(property (> total 0.0))]
+    @model [ (property (> total 0.0))
+             (property (account-structure sender))
+             (property (account-structure miner))
+           ]
 
+    (enforce-account-structure sender)
+    (enforce-account-structure miner)
     (enforce-unit total)
+
     (require-capability (FUND_TX))
     (with-capability (TRANSFER)
       (let* ((fee (read-decimal "fee"))
@@ -122,6 +183,11 @@
   (defun create-account:string (account:string guard:guard)
     @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
     \account."
+
+    @model [ (property (account-structure account)) ]
+
+    (enforce-account-structure account)
+
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
@@ -130,6 +196,11 @@
 
   (defun account-balance:decimal (account:string)
     @doc "Check an account's balance."
+
+    @model [ (property (account-structure account)) ]
+
+    (enforce-account-structure account)
+
     (with-read coin-table account
       { "balance" := balance }
       balance
@@ -139,16 +210,20 @@
   (defun account-info:object (account:string)
     @doc "Get all of an account's info.  This includes the balance and the    \
     \guard."
+
+    @model [ (property (account-structure account)) ]
+
+    (enforce-account-structure account)
+
     (read coin-table account)
     )
 
   (defun rotate-account-guard:string (account:string new-guard:guard)
     @doc "Rotate guard associated with ACCOUNT"
 
-    @model [ (property (not (= account ""))) ]
+    @model [ (property (account-structure account)) ]
 
-    (enforce (not (= account ""))
-      "account name must be non-empty")
+    (enforce-account-structure account)
 
     (with-read coin-table account
       { "guard" := old-guard }
@@ -165,18 +240,17 @@
     \chain. This fails if either SENDER or RECEIVER does not exist.           \
     \Create-on-transfer can be done using the 'transfer-and-create' function."
 
-    @model [
-      (property conserves-mass)
-      (property (> amount 0.0))
-      (property (not (= sender "")))
-      (property (not (= receiver "")))
-    ]
+    @model [ (property conserves-mass)
+             (property (> amount 0.0))
+             (property (account-structure sender))
+             (property (account-structure receiver))
+             (property (!= sender receiver)) ]
 
-    (enforce (not (= sender receiver))
+    (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
 
-    (enforce (!= "" sender) "empty sender")
-    (enforce (!= "" receiver) "empty sender")
+    (enforce-account-structure sender)
+    (enforce-account-structure receiver)
 
     (enforce (> amount 0.0)
       "transfer amount must be positive")
@@ -202,18 +276,17 @@
     \This fails if the SENDER account does not exist. If the RECEIVER account \
     \does not exist, it is created and associated with GUARD."
 
-    @model [
-      ;(property conserves-mass) ;; fails on missing row, FV problem
-      (property (> amount 0.0))
-      (property (not (= sender "")))
-      (property (not (= receiver "")))
-    ]
+    @model [ ;(property conserves-mass) ;; fails on missing row, FV problem
+            (property (> amount 0.0))
+            (property (account-structure sender))
+            (property (account-structure receiver))
+            (property (!= sender receiver)) ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
 
-    (enforce (!= "" sender) "empty sender")
-    (enforce (!= "" receiver) "empty sender")
+    (enforce-account-structure sender)
+    (enforce-account-structure receiver)
 
     (enforce (> amount 0.0)
       "transfer amount must be positive")
@@ -225,13 +298,18 @@
       (credit receiver receiver-guard amount))
     )
 
-  (defun coinbase:string (address:string address-guard:guard amount:decimal)
+  (defun coinbase:string (account:string account-guard:guard amount:decimal)
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
-    (require-capability (COINBASE))
+
+    @model [ (property (account-structure account)) ]
+
+    (enforce-account-structure account)
     (enforce-unit amount)
+
+    (require-capability (COINBASE))
     (with-capability (TRANSFER)
-      (credit address address-guard amount))
+      (credit account account-guard amount))
     )
 
   (defpact fund-tx (sender:string miner:string miner-guard:guard total:decimal)
@@ -243,20 +321,30 @@
     \  2) A settlement phase, resuming TX_MAX_CHARGE, and allocating to the   \
     \     coinbase account for used gas and fee, and sender account for bal-  \
     \     ance (unused gas, if any)."
-    @model [
-      (property (> total 0.0))
-      ;(property conserves-mass) not supported yet
-    ]
+
+    @model [ (property (> total 0.0))
+             (property (account-structure sender))
+             (property (account-structure miner))
+             ;(property conserves-mass) not supported yet
+           ]
 
     (step (buy-gas sender total))
     (step (redeem-gas miner miner-guard sender total))
     )
 
   (defun debit:string (account:string amount:decimal)
-    @doc "Debit AMOUNT from ACCOUNT balance recording DATE and DATA"
+    @doc "Debit AMOUNT from ACCOUNT balance"
+
+    @model [ (property (> amount 0.0))
+             (property (account-structure account))
+           ]
+
+    (enforce-account-structure account)
 
     (enforce (> amount 0.0)
       "debit amount must be positive")
+
+    (enforce-unit amount)
 
     (require-capability (TRANSFER))
     (with-capability (ACCOUNT_GUARD account)
@@ -271,10 +359,16 @@
 
 
   (defun credit:string (account:string guard:guard amount:decimal)
-    @doc "Credit AMOUNT to ACCOUNT balance recording DATE and DATA"
+    @doc "Credit AMOUNT to ACCOUNT balance"
 
-    (enforce (> amount 0.0)
-      "credit amount must be positive")
+    @model [ (property (> amount 0.0))
+             (property (account-structure account))
+           ]
+
+    (enforce-account-structure account)
+
+    (enforce (> amount 0.0) "credit amount must be positive")
+    (enforce-unit amount)
 
     (require-capability (TRANSFER))
     (with-default-read coin-table account
@@ -313,14 +407,19 @@
          \chain id as specified in the proof."
 
     @model [ (property (> quantity 0.0))
-           , (property (not (= create-chain-id "")))
+             (property (!= create-chain-id ""))
+             (property (account-structure delete-account))
+             (property (account-structure create-account))
            ]
 
     (step
       (with-capability (TRANSFER)
 
+        (enforce-account-structure delete-account)
+        (enforce-account-structure create-account)
+
         (enforce (!= "" create-chain-id) "empty create-chain-id")
-        (enforce (not (= (at 'chain-id (chain-data)) create-chain-id))
+        (enforce (!= (at 'chain-id (chain-data)) create-chain-id)
           "cannot run cross-chain transfers to the same chain")
 
         (enforce (> quantity 0.0)
@@ -328,12 +427,14 @@
 
         (enforce-unit quantity)
 
+        ;; step 1 - debit delete-account on current chain
         (debit delete-account quantity)
+
         (let
           ((retv:object{transfer-schema}
-            { "create-account": create-account
-            , "create-account-guard": create-account-guard
-            , "quantity": quantity
+            { "create-account" : create-account
+            , "create-account-guard" : create-account-guard
+            , "quantity" : quantity
             }))
           (yield retv create-chain-id)
           )))
@@ -345,6 +446,7 @@
         , "quantity" := quantity
         }
 
+        ;; step 2 - credit create account on target chain
         (with-capability (TRANSFER)
           (credit create-account create-account-guard quantity))
         ))

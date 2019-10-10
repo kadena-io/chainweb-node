@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- |
--- Module      :  Chainweb.Pact.TransactionExec
+-- Module      :  Chainweb.Pact.Service.BlockValidation
 -- Copyright   :  Copyright © 2018 Kadena LLC.
 -- License     :  (see the file LICENSE)
 -- Maintainer  :  Emily Pillmore <emily@kadena.io>
@@ -21,7 +21,6 @@ module Chainweb.Pact.Service.BlockValidation
 
 
 import Control.Concurrent.MVar.Strict
-import Control.Concurrent.STM.TQueue
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Pact.Types.Hash as P
@@ -36,13 +35,14 @@ import Chainweb.Payload
 import Chainweb.Transaction
 
 
-newBlock :: Miner -> BlockHeader -> TQueue RequestMsg ->
+newBlock :: Miner -> BlockHeader -> BlockCreationTime -> PactQueue ->
             IO (MVar (Either PactException PayloadWithOutputs))
-newBlock mi bHeader reqQ = do
+newBlock mi bHeader creationTime reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let !msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
           , _newMiner = mi
+          , _newCreationTime = creationTime
           , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
@@ -50,7 +50,7 @@ newBlock mi bHeader reqQ = do
 validateBlock
     :: BlockHeader
     -> PayloadData
-    -> TQueue RequestMsg
+    -> PactQueue
     -> IO (MVar (Either PactException PayloadWithOutputs))
 validateBlock bHeader plData reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
@@ -61,7 +61,7 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either PactException HashCommandResult))
+local :: ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException HashCommandResult))
 local ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
@@ -71,9 +71,9 @@ local ct reqQ = do
     return resultVar
 
 lookupPactTxs
-    :: T2 BlockHeight BlockHash
+    :: Maybe (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
-    -> TQueue RequestMsg
+    -> PactQueue
     -> IO (MVar (Either PactException
                      (Vector (Maybe (T2 BlockHeight BlockHash)))))
 lookupPactTxs restorePoint txs reqQ = do
