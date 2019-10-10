@@ -3,9 +3,6 @@ code: |-
 
   ; Genesis allocations
 
-  (define-keyset "croesus" (read-keyset "croesus"))
-  (coin.create-allocation-account "croesus" (time "2019-10-10T18:00:00Z") "croesus" 9000000000.0)
-
   (define-keyset "sender00" (read-keyset "sender00"))
   (coin.create-allocation-account "sender00" (time "2019-10-10T18:00:00Z") "sender00" 100000000.0)
 
@@ -18,39 +15,20 @@ code: |-
   (define-keyset "sender03" (read-keyset "sender03"))
   (coin.create-allocation-account "sender03" (time "2019-10-10T18:00:00Z") "sender03" 130000000.0)
 
-  (define-keyset "sender04" (read-keyset "sender04"))
-  (coin.create-allocation-account "sender04" (time "2019-10-10T18:00:00Z") "sender04" 140000000.0)
-
-  (define-keyset "sender05" (read-keyset "sender05"))
-  (coin.create-allocation-account "sender05" (time "2019-10-10T18:00:00Z") "sender05" 150000000.0)
-
-  (define-keyset "sender06" (read-keyset "sender06"))
-  (coin.create-allocation-account "sender06" (time "2019-10-10T18:00:00Z") "sender06" 160000000.0)
-
-  (define-keyset "sender07" (read-keyset "sender07"))
-  (coin.create-allocation-account "sender07" (time "2019-10-10T18:00:00Z") "sender07" 170000000.0)
-
-  (define-keyset "sender08" (read-keyset "sender08"))
-  (coin.create-allocation-account "sender08" (time "2019-10-10T18:00:00Z") "sender08" 180000000.0)
-
-  (define-keyset "sender09" (read-keyset "sender09"))
-  (coin.create-allocation-account "sender09" (time "2019-10-10T18:00:00Z") "sender09" 190000000.0)
-
   ; Genesis coinbase
 
-  (coin.coinbase "croesus" (read-keyset "croesus") 9000000000.0)
-  (coin.coinbase "sender00" (read-keyset "sender00") 100000000.0)
-  (coin.coinbase "sender01" (read-keyset "sender01") 110000000.0)
-  (coin.coinbase "sender02" (read-keyset "sender02") 120000000.0)
-  (coin.coinbase "sender03" (read-keyset "sender03") 130000000.0)
-  (coin.coinbase "sender04" (read-keyset "sender04") 140000000.0)
-  (coin.coinbase "sender05" (read-keyset "sender05") 150000000.0)
-  (coin.coinbase "sender06" (read-keyset "sender06") 160000000.0)
-  (coin.coinbase "sender07" (read-keyset "sender07") 170000000.0)
-  (coin.coinbase "sender08" (read-keyset "sender08") 180000000.0)
-  (coin.coinbase "sender09" (read-keyset "sender09") 190000000.0)
-  (coin.coinbase "multi-00-01" (read-keyset "multi-00-01") 101000000.0)
-  (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 123400000.0)
+  (coin.coinbase "sender00" (keyset-ref-guard "sender00") 100000000.0)
+  (coin.coinbase "sender01" (keyset-ref-guard "sender01") 110000000.0)
+  (coin.coinbase "sender02" (keyset-ref-guard "sender02") 120000000.0)
+  (coin.coinbase "sender03" (keyset-ref-guard "sender03") 130000000.0)
+  (coin.coinbase "sender04" (keyset-ref-guard "sender04") 140000000.0)
+  (coin.coinbase "sender05" (keyset-ref-guard "sender05") 150000000.0)
+  (coin.coinbase "sender06" (keyset-ref-guard "sender06") 160000000.0)
+  (coin.coinbase "sender07" (keyset-ref-guard "sender07") 170000000.0)
+  (coin.coinbase "sender08" (keyset-ref-guard "sender08") 180000000.0)
+  (coin.coinbase "sender09" (keyset-ref-guard "sender09") 190000000.0)
+  (coin.coinbase "multi-00-01" (keyset-ref-guard "multi-00-01") 101000000.0)
+  (coin.coinbase "multi-02-03-04-any" (keyset-ref-guard "multi-02-03-04-any") 123400000.0)
 
 data:
   croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
