@@ -482,27 +482,41 @@
   (create-allocation-account "There he met Saunders Mac Lane. Mac Lane, then visiting Paris, was anxious to learn from Yoneda, and commenced an interview with Yoneda in a café at Gare du Nord. The interview was continued on Yoneda’s train until its departure. In its course, Mac Lane learned about the lemma and subsequently baptized it." (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
 
 
+; (expect-failure
+;  "keyset-ref guards ..."
+;  (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 200000.0))
+
 ; successful keyset refs require defined keyset
 
-(env-data { "brandon" : ["brandon"], "receiver" : ["receiver"]  })
-(env-keys ["brandon", "receiver"])
+(env-data { "brandon" : ["brandon"]})
 (define-keyset "brandon" (read-keyset "brandon"))
-(define-keyset "receiver" (read-keyset "receiver"))
 
 (expect
   "allocating coin accounts succeeds"
   "Write succeeded"
-  (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 200000.0))
+  (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 10.0))
 
 ; release-allocation
 
 (env-chain-data { "block-time" : (time "2020-10-31T00:00:00Z") })
 
+(expect-failure
+  "allocation release fails when keys are not in scope"
+  (release-allocation "brandon"))
+
+(env-keys ["brandon"])
+
 (expect
   "successfully allocates funds for correct amounts"
   "Allocation successful"
-  (release-allocation "brandon" "receiver" (read-keyset 'receiver)))
+  (release-allocation "brandon"))
 
 (expect-failure
   "releases fail when funds have been redeemed"
-  (release-allocation "brandon" "receiver" (read-keyset 'receiver)))
+  (release-allocation "brandon"))
+
+(expect
+  "brandon has 10 coins released to his account in coin contract"
+  "brandon has 10.0 coins guarded by 'brandon"
+  (let* ((info:object{coin-schema} (account-info "brandon")))
+    (format "brandon has {} coins guarded by {}" [(at 'balance info) (at 'guard info)])))

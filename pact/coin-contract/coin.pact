@@ -481,7 +481,7 @@
     @doc "Add an entry to the coin allocation table. Requires ALLOCATION"
     @model [ (property (valid-account account)) ]
 
-    (require-capability (GENESIS ))
+    (require-capability (GENESIS))
 
     (validate-account account)
     (enforce (>= amount 0.0)
@@ -489,18 +489,19 @@
 
     (enforce-unit amount)
 
-    (insert allocation-table account
-      { "balance" : amount
-      , "date" : date
-      , "guard" : (keyset-ref-guard guard-ref)
-      , "redeemed" : false
-      }))
+    (let
+      ((guard:guard (keyset-ref-guard guard-ref)))
+
+      (create-account account guard)
+      (insert allocation-table account
+        { "balance" : amount
+        , "date" : date
+        , "guard" : (keyset-ref-guard guard-ref)
+        , "redeemed" : false
+        })))
 
   (defun release-allocation
-    ( account:string
-      receiver:string
-      receiver-guard:guard
-    )
+    ( account:string )
 
     @doc "Release funds associated with an allocation account"
     @model
@@ -528,7 +529,7 @@
 
         (with-capability (TRANSFER)
           ; release funds via coinbase to account
-          (credit receiver receiver-guard balance)
+          (credit account guard balance)
 
           (update allocation-table account
             { "redeemed" : true
