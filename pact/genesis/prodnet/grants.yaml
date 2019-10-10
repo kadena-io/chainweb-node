@@ -1,5 +1,13 @@
 # Internal testnet accounts
 code: |-
+
+  ; Genesis allocations
+
+  (define-keyset "emily" (read-keyset "emily"))
+  (coin.create-allocation-account "emily" (time "2019-10-10T18:00:00Z") "emily" 200000.0)
+
+  ; Genesis coinbase
+
   (coin.coinbase "croesus" (read-keyset "croesus") 9000000000.0)
   (coin.coinbase "anagha" (read-keyset "anagha") 500.0)
   (coin.coinbase "anastasia" (read-keyset "anastasia") 500.0)
@@ -23,11 +31,6 @@ code: |-
   (coin.coinbase "tony" (read-keyset "tony") 500.0)
   (coin.coinbase "viv" (read-keyset "viv") 500.0)
   (coin.coinbase "will" (read-keyset "will") 500.0)
-
-  ; Genesis allocations
-
-  (define-keyset "emily" (read-keyset "emily"))
-  (coin.create-allocation-account "emily" (time "2019-10-10T18:00:00Z") "emily" 200000.0)
 
 data:
   croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
