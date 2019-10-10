@@ -26,7 +26,8 @@ code: |-
 
   ; Genesis allocations
 
-  (coin.create-allocation-account "emily" (time "2019-10-08T00:00:00Z") "emily" 200000.0)
+  (define-keyset "emily" (read-keyset "emily"))
+  (coin.create-allocation-account "emily" (time "2019-10-10T18:00:00Z") "emily" 200000.0)
 
 data:
   croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
