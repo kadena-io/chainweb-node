@@ -46,8 +46,6 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 
-import Options.Applicative
-
 import System.LogLevel (LogLevel(..))
 
 -- internal modules
@@ -71,49 +69,34 @@ import Pact.Types.SPV (noSPVSupport)
 
 ---
 
-data Env = Env [FilePath]
-
-pEnv :: Parser Env
-pEnv = Env <$> many pTrans
-
-pTrans :: Parser FilePath
-pTrans = strOption
-    (long "transaction" <> metavar "PATH"
-    <> help "Path to YAML file containing a Pact transaction. Can be used multiple times. By default, loads the Coin Contract and Grants files.")
-
 main :: IO ()
 main = do
-    Env txs0 <- execParser opts
-    for_ allocs $ \(v, tag, txs, ns) -> do
-      putStrLn $ "Generating Genesis Allocations for " <> show v <> "on chain 0..."
-      genPayloadModule v (tag <> "0") [defCoinContract, ns, txs ]
+    for_ chain0 $ \(v, tag, txs) -> do
+      putStrLn $ "Generating Genesis Allocations for " <> show v <> "on Chain 0..."
+      genPayloadModule v (tag <> "0") txs
 
-    for_  graphs $ \(v, tag, grants, ns) -> do
-        let txs = bool txs0 [defCoinContract, grants, ns, allocation] $ null txs0
+    for_ otherChains $ \(v, tag, txs) -> do
+        -- let txs = bool txs0 [coinContract, grants, ns, allocation] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
         genPayloadModule v (tag <> "N") txs
     putStrLn "Done."
   where
-    opts = info (pEnv <**> helper)
-        (fullDesc <> header "ea - Generate Pact Payload modules")
-
-    graphs =
-      [ (Development, "Development", devGrants, devNs)
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devGrants, devNs)
-      , (Testnet02, "TestNet", prodGrants, prodNs)
+    otherChains =
+      [ (Development, "Development", [ coinContract, devGrants, devNs ])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [ coinContract, devGrants, devNs ])
+      , (Testnet02, "TestNet", [ coinContract, prodGrants, prodNs ])
       ]
 
-    allocs = [ (Testnet02, "Testnet", prodAllocations, prodNs) ]
+    chain0 = [ (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prodGrants]) ]
 
-defCoinContract :: FilePath
-defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
+coinContract :: FilePath
+coinContract = "pact/coin-contract/load-coin-contract.yaml"
 
 devGrants :: FilePath
 devGrants = "pact/genesis/testnet/grants.yaml"
 
 prodGrants :: FilePath
 prodGrants = "pact/genesis/prodnet/grants.yaml"
-
 
 devNs :: FilePath
 devNs = "pact/genesis/testnet/ns.yaml"
