@@ -182,8 +182,14 @@ in
 
         these = doJailbreak (callHackageDirect {
           pkg = "these";
-          ver = "0.7.5";
-          sha256 = "0m9d9n7dy7plq20pxbl8pdgq4w2xskx2rbg9d4qnac14412bfcmf";
+          ver = "0.8.1";
+          sha256 = "1gzp7aw4344hf8rxz5n7s95d3sjbzqachdpnrjd2bk23xm45pwfr";
+        });
+
+        assoc = doJailbreak (callHackageDirect {
+          pkg = "assoc";
+          ver = "1";
+          sha256 = "0gwi61iars7nl5is06a8xnipb8909jw18d7l53ciy9gwz8m46q4x";
         });
 
         insert-ordered-containers = doJailbreak (callHackageDirect {
@@ -203,8 +209,8 @@ in
         pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
           owner = "kadena-io";
           repo = "pact";
-          rev = "1377995189b21d4f0a2c13666cf3c822d4274484";
-          sha256 = "0nmrvvsqvim77qi1vjrnhrnafsalv362yl6yw410i2xapv4hy0ha";
+          rev = "5bb45810b9f024473b41e5f1f2dee5a03e6e4743";
+          sha256 = "1c147sgz1s4mvg5djkzaw4fq3xg6fbn9wvf23b1c4pm459jcz1dm";
           }) {}) pkgs.z3);
 
         streaming = callHackageDirect {
@@ -293,7 +299,6 @@ in
         bytes = dontCheck super.bytes;
         intervals = dontCheck super.intervals;
         bound = dontCheck super.bound;
-        trifecta = dontCheck super.trifecta;
         lens-aeson = dontCheck super.lens-aeson;
         # test suite for this is failing on ghcjs:
         hw-hspec-hedgehog = dontCheck super.hw-hspec-hedgehog;
@@ -371,6 +376,12 @@ in
           rev = "6ee9fcb026ebdb49b810802a981d166680d867c9";
           sha256 = "09fcf896bs6i71qhj5w6qbwllkv3gywnn5wfsdrcm0w1y6h8i88f";
         }) {});
+
+        trifecta = dontCheck (callHackageDirect {
+          pkg = "trifecta";
+          ver = "2.1";
+          sha256 = "0hbv8q12rgg4ni679fbx7ac3blzqxj06dw1fyr6ipc8kjpypb049";
+        });
         ######################################################################
 
       };

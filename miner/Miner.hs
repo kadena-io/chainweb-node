@@ -79,6 +79,10 @@ import Servant.Client
 import qualified Streaming.Prelude as SP
 import qualified System.Random.MWC as MWC
 
+#if ! MIN_VERSION_rio(0,1,9)
+import System.Exit (exitFailure)
+#endif
+
 -- internal modules
 
 import Chainweb.BlockHeader (Nonce(..), decodeBlockHeight, _height)
@@ -205,7 +209,7 @@ run = do
     case cmd $ args env of
         GPU -> logError "GPU mining is not yet available."
         CPU _ -> getWork >>= traverse_ (mining (scheme env))
-    exitFailure
+    liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
 scheme env = case cmd $ args env of CPU e -> cpu e; GPU -> gpu

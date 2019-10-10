@@ -27,8 +27,11 @@ extra-deps:
   - tls-1.5.1
   - warp-tls-3.2.8        # To match `tls-1.5`
 
+  # --- Forced Downgrades --- #
+  - these-0.8.1
+
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: d6a99747ebd1a2068585c0c2656019cd1fb24850
+    commit: 5bb45810b9f024473b41e5f1f2dee5a03e6e4743
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
