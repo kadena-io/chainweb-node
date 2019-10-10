@@ -467,7 +467,7 @@
   "allocation account creation only occurs at genesis"
   (create-allocation-account "brandon" (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
 
-(test-capability (ALLOCATION))
+(test-capability (GENESIS))
 
 (expect-failure
   "all allocation amounts must be positive"
