@@ -87,7 +87,10 @@ main = do
       , (Testnet02, "TestNet", [ coinContract, prodGrants, prodNs ])
       ]
 
-    chain0 = [ (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prodGrants]) ]
+    chain0 =
+      [ (Development, "Development", [ coinContract, devNs, devAllocations, devGrants ])
+      , (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prodGrants])
+      ]
 
 coinContract :: FilePath
 coinContract = "pact/coin-contract/load-coin-contract.yaml"
@@ -103,6 +106,9 @@ devNs = "pact/genesis/testnet/ns.yaml"
 
 prodNs :: FilePath
 prodNs = "pact/genesis/prodnet/ns.yaml"
+
+devAllocations :: FilePath
+devAllocations = "pact/genesis/testnet/allocations.yaml"
 
 prodAllocations :: FilePath
 prodAllocations = "pact/genesis/prodnet/allocations.yaml"

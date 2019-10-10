@@ -1,22 +1,5 @@
 # Provides mock system module for 'accounts'
 code: |-
-
-  ; Genesis allocations
-
-  (define-keyset "sender00" (read-keyset "sender00"))
-  (coin.create-allocation-account "sender00" (time "2019-10-10T18:00:00Z") "sender00" 100000000.0)
-
-  (define-keyset "sender01" (read-keyset "sender01"))
-  (coin.create-allocation-account "sender01" (time "2019-10-10T18:00:00Z") "sender01" 110000000.0)
-
-  (define-keyset "sender02" (read-keyset "sender02"))
-  (coin.create-allocation-account "sender02" (time "2019-10-10T18:00:00Z") "sender02" 120000000.0)
-
-  (define-keyset "sender03" (read-keyset "sender03"))
-  (coin.create-allocation-account "sender03" (time "2019-10-10T18:00:00Z") "sender03" 130000000.0)
-
-  ; Genesis coinbase
-
   (coin.coinbase "sender00" (keyset-ref-guard "sender00") 100000000.0)
   (coin.coinbase "sender01" (keyset-ref-guard "sender01") 110000000.0)
   (coin.coinbase "sender02" (keyset-ref-guard "sender02") 120000000.0)

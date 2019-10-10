@@ -1,11 +1,5 @@
 # Internal testnet accounts
 code: |-
-
-  ; Genesis allocations
-
-  (define-keyset "emily" (read-keyset "emily"))
-  (coin.create-allocation-account "emily" (time "2019-10-10T18:00:00Z") "emily" 200000.0)
-
   (coin.coinbase "croesus" (read-keyset "croesus") 9000000000.0)
   (coin.coinbase "anagha" (read-keyset "anagha") 500.0)
   (coin.coinbase "anastasia" (read-keyset "anastasia") 500.0)
@@ -37,7 +31,7 @@ data:
   andrew: ["7d7a09b741e6726219709f7ab9790c69f8cd12b1026d0090ac7c52e9aa0ab74b"]
   ben: ["d8e512b2d08afaf20c59aaf2a0db57262c31965e4310e330c1ad8075ecaa3647"]
   colin: ["db776793be0fcf8e76c75bdb35a36e67f298111dc6145c66693b0133192e2616"]
-  doug: ["dea647009295dc015ba6e6359b85bafe09d2ce935a03c3bf83f775442d539025"]
+  doug: ["dea647009295dc015ba6e6359b85bafe09d2ce935a03c3b3f775442d539025"]
   emily: ["77a4947c43cdb4b4fdef00b10dc8446c0e591b73366861048c195bb6a59bf5b9"]
   emmanuel: ["a784a52984229ed28b703810cd452565759d88420875a5db257fa8e806ac9de5"]
   francesco: ["4b0f29b9e0a996587e5b5524731c91ecf02ecaa8b7e70e5f8f1881c5f0c18fc1"]
