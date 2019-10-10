@@ -29,7 +29,7 @@
   (deftable coin-table:{coin-schema})
 
   (defschema transfer-schema
-    @doc "Schema for yielded value in transfers"
+    @doc "Schema for yielded value in cross-chain transfers"
 
     create-account:string
     create-account-guard:guard
