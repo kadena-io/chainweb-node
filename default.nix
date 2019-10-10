@@ -101,11 +101,11 @@ in
           sha256 = "1wcvs705b377zm0l33mhpzy1kyhwclxqkd5gzhk7dsd6ymnrlmpm";
         };
 
-        scheduler = callHackageDirect {
+        scheduler = dontCheck (callHackageDirect {
           pkg = "scheduler";
-          ver = "1.4.1";
-          sha256 = "00nr6bdazbaqjv2fw55krbi7g8xi2vdvhdvb6z83ag905c79jyci";
-        };
+          ver = "1.4.2.1";
+          sha256 = "0xlcvcwf3n4zbhf9pa3hyzc4ds628aki077564gaf4sdg1gm90qh";
+        });
 
         # This is a benchmark dep of `scheduler`, but Nix seems to want it
         # anyway, despite scheduler being marked as `dontBenchmark`.
