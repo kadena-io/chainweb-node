@@ -531,6 +531,7 @@
           (format "funds locked until {}" [release-time]))
 
         (enforce-guard guard)
+
         (with-capability (TRANSFER)
           ; release funds via coinbase to account
           (credit receiver receiver-guard balance)

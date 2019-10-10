@@ -24,9 +24,9 @@ code: |-
   (coin.coinbase "viv" (read-keyset "viv") 500.0)
   (coin.coinbase "will" (read-keyset "will") 500.0)
 
-  # Genesis allocations
+  ; Genesis allocations
 
-  (coin.create-allocation-account "emily" (time "2020-10-31T00:00:00Z") 200000.0)
+  (coin.create-allocation-account "emily" (time "2020-10-31T00:00:00Z") "emily" 200000.0)
 
 data:
   croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]

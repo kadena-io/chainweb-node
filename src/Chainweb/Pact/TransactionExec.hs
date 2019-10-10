@@ -104,6 +104,14 @@ magic_FUND_TX = mkMagicCapSlot "FUND_TX"
 magic_GENESIS :: CapSlot Capability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
+-- | "Magic" composed capability 'ALLOCATION' composed of 'GENESIS' and
+-- 'COINBASE'
+--
+magic_ALLOCATION :: CapSlot Capability
+magic_ALLOCATION = set csComposed caps $ mkMagicCapSlot "ALLOCATION"
+  where
+    caps = fmap _csCap [magic_GENESIS, magic_COINBASE]
+
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command and
 -- orchestrates gas buys/redemption, and executing payloads.
@@ -214,11 +222,12 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     let cmdEnv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd' spv nid
         requestKey = cmdToRequestKey cmd
     -- when calling genesis commands, we bring all magic capabilities in scope
-    let initState = initCapabilities [magic_GENESIS, magic_COINBASE]
+    let initState = initCapabilities [magic_GENESIS, magic_COINBASE, magic_ALLOCATION]
 
     resultE <- catchesPactError $! runPayload cmdEnv initState cmd []
     fmap (`T2` mempty) $! case resultE of
       Left e -> do
+        print e
         jsonErrorResult' cmdEnv requestKey e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
       Right (T2 result _) -> do
