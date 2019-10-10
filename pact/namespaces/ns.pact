@@ -3,6 +3,7 @@
 (define-keyset 'ns-operate-keyset (read-keyset 'ns-operate-keyset))
 
 (module ns 'ns-admin-keyset
+  "Administers definition of new namespaces in Chainweb."
 
   (defschema reg-entry
     admin-guard:guard
@@ -21,6 +22,12 @@
   (defun failure ()
     (enforce false "Disabled"))
 
+  (defun validate-name (name)
+    (enforce (!= "" name) "Empty name not allowed")
+    (enforce (< (length name) 64) "Name must be less than 64 characters long")
+    (enforce (is-charset CHARSET_LATIN1 name)
+             "Name must be in latin1 charset"))
+
   (defun validate:bool
       ( ns-name:string
         ns-admin:guard
@@ -28,7 +35,7 @@
     " Manages namespace install for Chainweb. Requires active row in registry \
     \ for NS-NAME with guard matching NS-ADMIN."
 
-    (enforce (!= "" ns-name) "Empty ns name")
+    (validate-name ns-name)
 
     (with-default-read registry ns-name
       { 'admin-guard : ns-admin
@@ -51,7 +58,8 @@
 
     (with-capability (OPERATE)
 
-      (enforce (!= "" ns-name) "Empty ns name")
+      (validate-name ns-name)
+
       (write registry ns-name
         { 'admin-guard: guard
         , 'active: active })

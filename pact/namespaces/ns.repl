@@ -68,3 +68,19 @@
 (commit-tx)
 
 (expect "kadena.mod2 works" 4 (kadena.mod2.foo))
+
+(use ns)
+(env-keys ["operate"])
+(expect-failure
+  "cannot register empty name"
+  (write-registry "" GUARD_SUCCESS true))
+
+(expect-failure
+  "cannot register >64 length name"
+  (write-registry
+    "1234567890123456789012345678901234567890123456789012345678901234567890"
+    GUARD_SUCCESS true))
+
+(expect-failure
+  "must be latin1 charset"
+  (write-registry "emilyπ" GUARD_SUCCESS true))
