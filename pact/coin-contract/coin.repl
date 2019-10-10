@@ -467,7 +467,7 @@
   "allocation account creation only occurs at genesis"
   (create-allocation-account "brandon" (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
 
-(test-capability (GENESIS))
+(test-capability (ALLOCATION))
 
 (expect-failure
   "all allocation amounts must be positive"
@@ -498,28 +498,11 @@
 
 (env-chain-data { "block-time" : (time "2020-10-31T00:00:00Z") })
 
-(expect-failure
-  "negative amounts should fail to release funds"
-  (release-allocation "brandon" -1.0))
-
-(expect-failure
-  "trivial amounts should fail to release"
-  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 0.0))
-
-(expect-failure
-  "releasing funds fails when asking for more than allocated"
-  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 200001.0))
-
 (expect
   "successfully allocates funds for correct amounts"
   "Allocation successful"
-  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 199999.0))
-
-(expect
-  "succesfully allocates remainder of funds"
-  "Allocation successful"
-  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 1.0))
+  (release-allocation "brandon" "receiver" (read-keyset 'receiver)))
 
 (expect-failure
   "releases fail when funds have been redeemed"
-  (release-allocation "brandon" "receiver" (read-keyset 'receiver) 1.0))
+  (release-allocation "brandon" "receiver" (read-keyset 'receiver)))
