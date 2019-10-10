@@ -10,25 +10,21 @@
 module Chainweb.Pact.Service.PactQueue
     ( addRequest
     , getNextRequest
-    , sendCloseMsg
+    , PactQueue
     ) where
 
-import Control.Concurrent.STM.TQueue
+import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
 import Chainweb.Pact.Service.Types
 
--- | Add a request to the Pact execution queue
-addRequest :: TQueue RequestMsg -> RequestMsg -> IO ()
-addRequest q msg = do
-    atomically $ writeTQueue q msg
+-- | The type of the Pact Queue
+type PactQueue = TBQueue RequestMsg
 
--- | Send special 'close' message to stop the processing thread
-sendCloseMsg :: TQueue RequestMsg -> IO ()
-sendCloseMsg q = do
-    atomically $ writeTQueue q CloseMsg
+-- | Add a request to the Pact execution queue
+addRequest :: PactQueue -> RequestMsg -> IO ()
+addRequest q msg = atomically $ writeTBQueue q msg
 
 -- | Get the next available request from the Pact execution queue
-getNextRequest :: TQueue RequestMsg -> IO RequestMsg
-getNextRequest q = do
-    atomically $ readTQueue q
+getNextRequest :: PactQueue -> IO RequestMsg
+getNextRequest q = atomically $ readTBQueue q

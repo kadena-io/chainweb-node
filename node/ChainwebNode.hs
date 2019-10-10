@@ -92,6 +92,7 @@ import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
+import Chainweb.Utils.Watchdog (notifyReady, withWatchdog)
 import Chainweb.Version
 
 import Data.LogMessage
@@ -316,7 +317,8 @@ node conf logger = do
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
-            [ runChainweb cw
+            [ notifyReady >> runChainweb cw
+              -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runAmberdataBlockMonitor (amberdataChainId conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runQueueMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -448,6 +450,6 @@ mainInfo = programInfoValidate
     validateChainwebNodeConfiguration
 
 main :: IO ()
-main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
+main = withWatchdog $ runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     withNodeLogger (_nodeConfigLog conf) v $ node conf

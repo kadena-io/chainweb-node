@@ -21,7 +21,6 @@ module Chainweb.Pact.Service.BlockValidation
 
 
 import Control.Concurrent.MVar.Strict
-import Control.Concurrent.STM.TQueue
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Pact.Types.Hash as P
@@ -36,7 +35,7 @@ import Chainweb.Payload
 import Chainweb.Transaction
 
 
-newBlock :: Miner -> BlockHeader -> BlockCreationTime -> TQueue RequestMsg ->
+newBlock :: Miner -> BlockHeader -> BlockCreationTime -> PactQueue ->
             IO (MVar (Either PactException PayloadWithOutputs))
 newBlock mi bHeader creationTime reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
@@ -51,7 +50,7 @@ newBlock mi bHeader creationTime reqQ = do
 validateBlock
     :: BlockHeader
     -> PayloadData
-    -> TQueue RequestMsg
+    -> PactQueue
     -> IO (MVar (Either PactException PayloadWithOutputs))
 validateBlock bHeader plData reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
@@ -62,7 +61,7 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> TQueue RequestMsg -> IO (MVar (Either PactException HashCommandResult))
+local :: ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException HashCommandResult))
 local ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
@@ -74,7 +73,7 @@ local ct reqQ = do
 lookupPactTxs
     :: Maybe (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
-    -> TQueue RequestMsg
+    -> PactQueue
     -> IO (MVar (Either PactException
                      (Vector (Maybe (T2 BlockHeight BlockHash)))))
 lookupPactTxs restorePoint txs reqQ = do

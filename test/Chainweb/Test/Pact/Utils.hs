@@ -119,8 +119,9 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types (internalError, RequestMsg(..))
+import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
@@ -132,7 +133,6 @@ import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
 import Chainweb.Test.Utils
-
 
 -- ----------------------------------------------------------------------- --
 -- Test Exceptions
@@ -547,24 +547,22 @@ withPact
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO FilePath
-    -> (IO (TQueue RequestMsg) -> TestTree)
+    -> (IO PactQueue -> TestTree)
     -> TestTree
 withPact version logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
-        reqQ <- atomically newTQueue
+        reqQ <- atomically $ newTBQueue pactQueueSize
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- withLink $ initPactService version cid logger reqQ mempool mv
+        a <- async $ initPactService version cid logger reqQ mempool mv
                                      bhdb pdb (Just dir) Nothing False
         return (a, reqQ)
 
-    stopPact (a, reqQ) = do
-        sendCloseMsg reqQ
-        cancel a
+    stopPact (a, _) = cancel a
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version

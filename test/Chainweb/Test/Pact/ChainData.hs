@@ -10,7 +10,6 @@
 module Chainweb.Test.Pact.ChainData where
 
 import Control.Concurrent.MVar
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -46,7 +45,7 @@ import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
@@ -128,7 +127,7 @@ run
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
     -> IO (BlockHeaderDb)
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> Assertion
 run genesisBlock iopdb iobhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
@@ -152,7 +151,7 @@ mineBlock
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
-    -> IO (TQueue RequestMsg)
+    -> IO PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
