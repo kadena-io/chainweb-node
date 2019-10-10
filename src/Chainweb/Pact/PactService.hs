@@ -492,6 +492,7 @@ validateChainwebTxs
     -> IO (Vector Bool)
 validateChainwebTxs dbEnv cp blockOriginationTime bh txs
     | bh == 0 = pure $! V.replicate (V.length txs) True
+    | V.null txs = pure V.empty
     | otherwise = do
           let f t = let p = view P.cmdHash t
                     in (bool Unique Duplicate . isJust) <$> _cpLookupProcessedTx cp p
