@@ -114,7 +114,8 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.TestnetPayload
+        , Chainweb.BlockHeader.Genesis.TestnetPayload0
+        , Chainweb.BlockHeader.Genesis.TestnetPayloadN
         , Chainweb.BlockHeader.Genesis.FastTimedCPMPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB

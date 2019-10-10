@@ -84,10 +84,14 @@ pTrans = strOption
 main :: IO ()
 main = do
     Env txs0 <- execParser opts
+    for_ allocs $ \(v, tag, txs, ns) -> do
+      putStrLn $ "Generating Genesis Allocations for " <> show v <> "on chain 0..."
+      genPayloadModule v (tag <> "0") [defCoinContract, ns, txs ]
+
     for_  graphs $ \(v, tag, grants, ns) -> do
-        let txs = bool txs0 [defCoinContract, grants, ns] $ null txs0
+        let txs = bool txs0 [defCoinContract, grants, ns, allocation] $ null txs0
         putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
-        genPayloadModule v tag txs
+        genPayloadModule v (tag <> "N") txs
     putStrLn "Done."
   where
     opts = info (pEnv <**> helper)
@@ -96,8 +100,10 @@ main = do
     graphs =
       [ (Development, "Development", devGrants, devNs)
       , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devGrants, devNs)
-      , (Testnet02, "Testnet", prodGrants, prodNs)
+      , (Testnet02, "TestNet", prodGrants, prodNs)
       ]
+
+    allocs = [ (Testnet02, "Testnet", prodAllocations, prodNs) ]
 
 defCoinContract :: FilePath
 defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
@@ -114,6 +120,9 @@ devNs = "pact/genesis/testnet/ns.yaml"
 
 prodNs :: FilePath
 prodNs = "pact/genesis/prodnet/ns.yaml"
+
+prodAllocations :: FilePath
+prodAllocations = "pact/genesis/prodnet/allocations.yaml"
 
 ---------------------
 -- Payload Generation

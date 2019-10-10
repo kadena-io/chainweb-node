@@ -1,0 +1,10 @@
+chainId: 0
+
+apiReq:
+  code: -|
+    (coin.allocation....)
+
+  data: ...
+
+  nonce: testnet-allocaitons
+  keyPairs: []

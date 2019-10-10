@@ -38,7 +38,8 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as DN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMPayload as TN
-import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as PN
+import qualified Chainweb.BlockHeader.Genesis.TestnetPayload0 as PN0
+import qualified Chainweb.BlockHeader.Genesis.TestnetPayloadN as PNN
 import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
@@ -106,7 +107,8 @@ genesisBlockPayload FastTimedCPM{} _ = TN.payloadBlock
 -- Development Instances
 genesisBlockPayload Development _ = DN.payloadBlock
 -- Production Instances
-genesisBlockPayload Testnet02 _ = PN.payloadBlock
+genesisBlockPayload Testnet02 0 = PN0.payloadBlock
+genesisBlockPayload Testnet02 _ = PNN.payloadBlock
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
