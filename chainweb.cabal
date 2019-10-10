@@ -331,6 +331,7 @@ library
         , resourcet >= 1.2
         , safeio >= 0.0
         , safe-exceptions >= 0.1
+        , semialign >= 1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
@@ -466,6 +467,7 @@ test-suite chainweb-tests
         , resourcet >= 1.2
         , retry >= 0.7
         , scheduler >= 1.4
+        , semialign >= 1
         , servant >= 0.14
         , servant-client >= 0.14
         , servant-client-core >= 0.14
