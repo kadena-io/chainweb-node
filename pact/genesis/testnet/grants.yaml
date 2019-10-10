@@ -21,14 +21,14 @@ code: |-
   (coin.coinbase "sender01" (keyset-ref-guard "sender01") 110000000.0)
   (coin.coinbase "sender02" (keyset-ref-guard "sender02") 120000000.0)
   (coin.coinbase "sender03" (keyset-ref-guard "sender03") 130000000.0)
-  (coin.coinbase "sender04" (keyset-ref-guard "sender04") 140000000.0)
-  (coin.coinbase "sender05" (keyset-ref-guard "sender05") 150000000.0)
-  (coin.coinbase "sender06" (keyset-ref-guard "sender06") 160000000.0)
-  (coin.coinbase "sender07" (keyset-ref-guard "sender07") 170000000.0)
-  (coin.coinbase "sender08" (keyset-ref-guard "sender08") 180000000.0)
-  (coin.coinbase "sender09" (keyset-ref-guard "sender09") 190000000.0)
-  (coin.coinbase "multi-00-01" (keyset-ref-guard "multi-00-01") 101000000.0)
-  (coin.coinbase "multi-02-03-04-any" (keyset-ref-guard "multi-02-03-04-any") 123400000.0)
+  (coin.coinbase "sender04" (read-keyset "sender04") 140000000.0)
+  (coin.coinbase "sender05" (read-keyset "sender05") 150000000.0)
+  (coin.coinbase "sender06" (read-keyset "sender06") 160000000.0)
+  (coin.coinbase "sender07" (read-keyset "sender07") 170000000.0)
+  (coin.coinbase "sender08" (read-keyset "sender08") 180000000.0)
+  (coin.coinbase "sender09" (read-keyset "sender09") 190000000.0)
+  (coin.coinbase "multi-00-01" (read-keyset "multi-00-01") 101000000.0)
+  (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 123400000.0)
 
 data:
   croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
