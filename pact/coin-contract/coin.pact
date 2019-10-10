@@ -42,12 +42,6 @@
     "Autonomous capability to protect debit and credit actions"
     true)
 
-  (defcap ALLOCATION ()
-    "Magic capability constrains all genesis transactions"
-
-    (compose-capability (COINBASE))
-    (compose-capability (GENESIS)))
-
   (defcap COINBASE ()
     "Magic capability to protect miner reward"
     true)
@@ -487,7 +481,7 @@
     @doc "Add an entry to the coin allocation table. Requires ALLOCATION"
     @model [ (property (valid-account account)) ]
 
-    (require-capability (ALLOCATION))
+    (require-capability (GENESIS))
 
     (enforce-account account)
     (enforce (>= amount 0.0)
@@ -537,7 +531,9 @@
           (credit receiver receiver-guard balance)
 
           (update allocation-table account
-            { "redeemed" : true })
+            { "redeemed" : true
+            , "balance" : 0.0
+            })
 
           "Allocation successful")
     )))
