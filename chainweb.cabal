@@ -317,7 +317,7 @@ library
         , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
-        , mwc-probability >= 2.0 && <2.1
+        , mwc-probability >= 2.0 && <2.2
         , neat-interpolation >= 0.3.2
         , network >= 2.6
         , optparse-applicative >= 0.14
@@ -564,7 +564,7 @@ executable chainweb-miner
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , retry >= 0.7
-        , rio >= 0.1.5 && < 0.1.9
+        , rio >= 0.1.5
         , scheduler >= 1.4.1
         , servant-client >= 0.14
         , streaming >= 0.2
