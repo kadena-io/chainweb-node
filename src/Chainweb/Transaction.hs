@@ -11,6 +11,7 @@ module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
   , PayloadWithText
+  , payloadWithText
   , payloadBytes
   , payloadObj
   , chainwebPayloadCodec
@@ -121,6 +122,8 @@ creationTimeOf :: forall c . Command (Payload PublicMeta c) -> TxCreationTime
 creationTimeOf = _pmCreationTime . _pMeta . _cmdPayload
 {-# INLINE creationTimeOf #-}
 
+payloadWithText :: Command PayloadWithText -> PayloadWithText
+payloadWithText = _cmdPayload
 
 payloadBytes :: PayloadWithText -> SB.ShortByteString
 payloadBytes = _payloadBytes

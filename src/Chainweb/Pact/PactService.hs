@@ -929,11 +929,9 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         !spv      = _psSpvSupport psEnv
         pactHash  = view P.cmdHash cmdIn
 
-    -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
-    let !cmd = payloadObj <$> cmdIn
     T2 !result mcache' <- liftIO $ if isGenesis
-        then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache
+        then applyGenesisCmd logger dbEnv pd spv cmdIn
+        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
