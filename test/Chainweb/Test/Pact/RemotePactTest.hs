@@ -129,7 +129,7 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
-          withTime $ \iot -> do
+          withTime $ \iot ->
             testGroup "remote pact tests" [
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $

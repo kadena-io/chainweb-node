@@ -461,7 +461,7 @@
   ; Coin allocations
 
   (defschema allocation-schema
-    @doc "The coin allocation schema for genesis lockups"
+    @doc "Genesis allocation registry"
     ;@model [ (invariant (>= balance 0.0)) ]
 
     balance:decimal

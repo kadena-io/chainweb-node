@@ -219,8 +219,7 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
 
     resultE <- catchesPactError $! runPayload cmdEnv initState cmd [] permissiveNamespacePolicy
     fmap (`T2` mempty) $! case resultE of
-      Left e -> do
-        print e
+      Left e ->
         jsonErrorResult' cmdEnv requestKey e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
       Right (T2 result _) -> do
