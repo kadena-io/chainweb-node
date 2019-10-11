@@ -19,7 +19,8 @@ module Chainweb.Test.Pact.Utils
 ( -- * Exceptions
   PactTestFailure(..)
   -- * test data
-, someED25519Pair
+, sender00KeyPair
+, sender01KeyPair
 , testPactFilesDir
 , testKeyPairs
 , adminData
@@ -149,24 +150,34 @@ instance Exception PactTestFailure
 -- ----------------------------------------------------------------------- --
 -- Keys
 
-testKeyPairs :: IO [SomeKeyPairCaps]
-testKeyPairs = do
-    let (pub, priv, addr, scheme) = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
-    mkKeyPairs [apiKP]
+type ChainwebKeyPair
+    = (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+
+testKeyPairs :: ChainwebKeyPair -> IO [SomeKeyPairCaps]
+testKeyPairs (pub, priv, addr, scheme) =
+    mkKeyPairs [ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing]
 
 testPactFilesDir :: FilePath
 testPactFilesDir = "test/pact/"
 
--- | note this is "sender00"'s key
-someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
-someED25519Pair =
+sender00KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+sender00KeyPair =
     ( PubBS $ getByteString
         "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
 
     , PrivBS $ getByteString
         "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
     , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
+    , ED25519
+    )
+
+sender01KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+sender01KeyPair =
+    ( PubBS $ getByteString
+        "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
+    , PrivBS $ getByteString
+        "2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7"
+    , "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
     , ED25519
     )
 
@@ -189,7 +200,7 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap _ = id
 
 adminData :: IO (Maybe Value)
-adminData = fmap k testKeyPairs
+adminData = fmap k $ testKeyPairs sender00KeyPair
   where
     k ks = Just $ object
         [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
@@ -199,7 +210,7 @@ adminData = fmap k testKeyPairs
 goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
-    ks <- testKeyPairs
+    ks <- testKeyPairs sender00KeyPair
     mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,

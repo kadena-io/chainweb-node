@@ -472,11 +472,11 @@
   (deftable allocation-table:{allocation-schema})
 
   (defun create-allocation-account
-      ( account:string
-        date:time
-        guard-ref:string
-        amount:decimal
-      )
+    ( account:string
+      date:time
+      guard-ref:string
+      amount:decimal
+    )
 
     @doc "Add an entry to the coin allocation table. Requires ALLOCATION"
     @model [ (property (valid-account account)) ]
@@ -505,8 +505,7 @@
     ( account:string )
 
     @doc "Release funds associated with an allocation account"
-    @model
-      [ (property (valid-account account)) ]
+    @model [ (property (valid-account account)) ]
 
     (validate-account account)
 
@@ -523,8 +522,8 @@
           "allocation funds have already been redeemed")
 
         (enforce
-          (>= (diff-time release-time curr-time) 0.0)
-          (format "funds locked until {}" [release-time]))
+          (>= (diff-time curr-time release-time) 0.0)
+          (format "funds locked until {}. current time: {}" [release-time curr-time]))
 
         (enforce-guard guard)
 

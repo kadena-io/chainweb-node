@@ -498,16 +498,20 @@
 
 ; release-allocation
 
-(env-chain-data { "block-time" : (time "2020-10-31T00:00:00Z") })
-
 (expect-failure
   "allocation release fails when keys are not in scope"
   (release-allocation "brandon"))
 
 (env-keys ["brandon"])
 
+(expect-failure
+  "allocation coins fails since release date is not >= current time"
+  (release-allocation "brandon"))
+
+(env-chain-data { "block-time" : (time "2020-10-31T00:00:00Z") })
+
 (expect
-  "successfully allocates funds for correct amounts"
+  "successfully allocates funds for correct amounts and date"
   "Allocation successful"
   (release-allocation "brandon"))
 

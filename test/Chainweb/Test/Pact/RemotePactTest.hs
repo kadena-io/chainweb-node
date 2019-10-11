@@ -43,6 +43,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
+import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 
 import NeatInterpolation
@@ -128,7 +129,7 @@ tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
-          withTime $ \iot ->
+          withTime $ \iot -> do
             testGroup "remote pact tests" [
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $
@@ -139,7 +140,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 testCase "trivial /local check" $
                 localTest iot net
               , after AllSucceed "remote spv" $
-                testGroup "allocation check" [allocationTest iot net]
+                testGroup "genesis allocations"
+                  [ allocationTest "sender00" iot net ]
               ]
     ]
 
@@ -223,7 +225,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     tid = Pact.ChainId "2"
 
     mkTxBatch = do
-      ks <- liftIO testKeyPairs
+      ks <- liftIO $ testKeyPairs sender00KeyPair
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
@@ -251,15 +253,14 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= tid
         ]
 
-allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
+allocationTest :: String -> IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+allocationTest account iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
 
     -- batch with the initial release request
-    batch0 <- mkTxBatch0
+    batch0 <- mkTxBatch txcode0 A.Null
     -- batch with the account balance query
-    SubmitBatch batch1 <- mkTxBatch1
-
+    SubmitBatch batch1 <- mkTxBatch txcode1 A.Null
     sid <- mkChainId v (0 :: Int)
 
     r <- flip runClientM cenv $ do
@@ -282,28 +283,24 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 200000000.0)
+        [ (FieldKey "balance", PLiteral $ LDecimal 199999998.5)
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
         ]
 
-    mkTxBatch0 = do
-      ks <- liftIO testKeyPairs
+    mkTxBatch code cdata = do
+      ks <- case account of
+        "sender00" -> testKeyPairs sender00KeyPair
+        "sender01" -> testKeyPairs sender01KeyPair
+        t -> error $ "unsupported test sender value: " <> t
+
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd <- liftIO $ mkExec txcode0 A.Null pm ks (Just "fastTimedCPM-peterson") (Just "0")
+          pm = Pact.PublicMeta (Pact.ChainId "0") (T.pack account) 100000 0.01 ttl t
+      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
       return $ SubmitBatch (pure cmd)
 
-    mkTxBatch1 = do
-      ks <- liftIO testKeyPairs
-      t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd <- liftIO $ mkExec txcode1 A.Null pm ks (Just "fastTimedCPM-peterson") (Just "0")
-      return $ SubmitBatch (pure cmd)
-
-    txcode0 = concat ["(coin.release-allocation ", "\"sender00\")"]
-    txcode1 = concat ["(coin.account-info ", "\"sender00\")"]
+    txcode0 = concat ["(coin.release-allocation ", "\"" <> account <> "\")"]
+    txcode1 = concat ["(coin.account-info ", "\"" <> account <> "\")"]
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -421,7 +418,7 @@ testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> IO Su
 testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
-    kps <- testKeyPairs
+    kps <- testKeyPairs sender00KeyPair
     c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
