@@ -53,7 +53,7 @@ nix-linux:
     - cat .vcs-info
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - nix-shell --run "echo Done with shell test"
-    - ./result/ghc/chainweb/bin/chainweb-node --version
+    - ./result/bin/chainweb-node --version
     # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
@@ -83,7 +83,7 @@ slow-tests:
   script:
     - echo This is a master slow test run.
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
-    - result/ghc/chainweb/bin/cwtool slow-tests +RTS -N4
+    - result/bin/cwtool slow-tests +RTS -N4
 
 # pages:
 #   stage: deploy
@@ -107,4 +107,4 @@ nightly-nix:
 
     # It probably makes sense to run coverage nightly
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg runCoverage true
-    - result/ghc/chainweb/bin/cwtool slow-tests +RTS -N4
+    - result/bin/cwtool slow-tests +RTS -N4
