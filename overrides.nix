@@ -19,6 +19,8 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
       };
 
+      chainweb = justStaticExecutables (enableDWARFDebugging super.chainweb);
+
       chainweb-storage = pkgs.haskell.lib.dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "chainweb-storage";
