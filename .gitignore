@@ -32,7 +32,6 @@ result-*
 .ghc.environment.*
 .ghci
 *~
-\#*
 .stylish-haskell.yaml
 public
 log

@@ -13,6 +13,8 @@ let # Working on getting this function upstreamed into nixpkgs, but
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
 
+      chainweb = justStaticExecutables super.chainweb;
+
       aeson = callHackageDirect {
         pkg = "aeson";
         ver = "1.4.3.0";
