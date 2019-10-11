@@ -85,7 +85,7 @@ main = do
 
     chain0 =
       [ (Development, "Development", [coinContract, devNs, devAllocations, dev0Grants])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, dev0Grants, devNs])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, devAllocations, dev0Grants, devNs])
       , (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prod0Grants])
       ]
 
