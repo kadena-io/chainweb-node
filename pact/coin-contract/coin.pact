@@ -478,7 +478,9 @@
       amount:decimal
     )
 
-    @doc "Add an entry to the coin allocation table. Requires ALLOCATION"
+    @doc "Add an entry to the coin allocation table. Requires GENESIS \
+         \capability. "
+
     @model [ (property (valid-account account)) ]
 
     (require-capability (GENESIS))
