@@ -25,9 +25,10 @@ import Chainweb.BlockHash (encodeBlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeaders)
 import Chainweb.ChainId (ChainId)
-import Chainweb.Test.Utils (golden)
 import Chainweb.Utils (runPut, sshow)
 import Chainweb.Version (ChainwebVersion(..))
+
+import Tools.Tests.Utils (golden)
 
 ---
 

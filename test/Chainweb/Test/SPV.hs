@@ -49,11 +49,12 @@ import Chainweb.SPV.CreateProof
 import Chainweb.SPV.RestAPI.Client
 import Chainweb.SPV.VerifyProof
 import Chainweb.Test.CutDB
-import Chainweb.Test.Utils
 import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS.RocksDB
+
+import Tools.Tests.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -240,4 +241,3 @@ txApiTests envIO step = do
 
                 step "confirm that transaction output proof subject matches transaction output"
                 assertEqual "proof subject matches transaction output" out subj
-

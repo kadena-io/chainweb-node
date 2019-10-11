@@ -24,10 +24,11 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHeaderDB
 import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
-import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withToyDB, toyChainId, withTestBlockHeaderDb)
 import Chainweb.TreeDB
 
 import Data.CAS.RocksDB
+
+import Tools.Tests.Utils (insertN, toyBlockHeaderDb, withToyDB, toyChainId, withTestBlockHeaderDb)
 
 tests :: RocksDb -> TestTree
 tests rdb = testGroup "Unit Tests"
@@ -60,4 +61,3 @@ rankFiltering rdb = withToyDB rdb toyChainId $ \g db -> do
     insertN 100 g db
     l <- entries db Nothing Nothing (Just . MinRank $ Min 90) Nothing $ S.length_
     l @?= 11
-

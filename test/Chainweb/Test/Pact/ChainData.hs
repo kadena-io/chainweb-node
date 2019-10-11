@@ -4,7 +4,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
--- {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 
 module Chainweb.Test.Pact.ChainData where
@@ -49,12 +48,13 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils (runGet)
 import Chainweb.Version
+
+import Tools.Tests.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Tests

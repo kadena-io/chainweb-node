@@ -43,10 +43,11 @@ import Chainweb.Pact.PactService (execTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.Types.Command (CommandResult(..), PactResult(..))
+
+import Tools.Tests.Utils
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph

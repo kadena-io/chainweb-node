@@ -28,11 +28,12 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.Test.Utils (insertN, withToyDB, toyChainId)
 import Chainweb.TreeDB
 import Chainweb.TreeDB.Persist (fileEntries, persist)
 
 import Data.CAS.RocksDB
+
+import Tools.Tests.Utils (insertN, withToyDB, toyChainId)
 
 ---
 

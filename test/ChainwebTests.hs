@@ -11,6 +11,8 @@
 -- Chainweb Test Suite
 --
 
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+
 module Main ( main ) where
 
 import Test.Tasty
@@ -40,15 +42,13 @@ import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.Pact.TTL
+-- import qualified Chainweb.Test.Pact.TxGen
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
-import Chainweb.Test.Utils
-    (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
-    withToyDB)
 import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
@@ -58,6 +58,10 @@ import qualified Data.Word.Encoding (properties)
 
 import qualified P2P.Node.PeerDB (properties)
 import qualified P2P.TaskQueue.Test (properties)
+
+import Tools.Tests.Utils
+    (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
+    withToyDB)
 
 main :: IO ()
 main =
@@ -87,6 +91,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.PactReplay.tests
         , Chainweb.Test.Pact.ChainData.tests
         , Chainweb.Test.Pact.TTL.tests
+        -- , Chainweb.Test.Pact.TxGen.tests rdb
         ]
 
 suite :: RocksDb -> [ScheduledTest]

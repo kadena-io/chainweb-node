@@ -14,7 +14,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
--- Module: Chainweb.Test.MultiNode
+-- Module: Tools.Tests.MultiNode
 -- Copyright: Copyright © 2019 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -32,7 +32,7 @@
 -- The configuration defines a scaled down, accelerated chain that tries to
 -- similulate a full-scale chain in a miniaturized settings.
 --
-module Chainweb.Test.MultiNode ( test ) where
+module Tools.Tests.MultiNode ( test ) where
 
 #ifndef DEBUG_MULTINODE_TEST
 #define DEBUG_MULTINODE_TEST 0
@@ -83,7 +83,6 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.NodeId
-import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
 import Chainweb.Version
@@ -94,7 +93,9 @@ import Data.CAS.RocksDB
 import P2P.Node.Configuration
 import P2P.Peer
 
+import Tools.Tests.P2P.Peer.BootstrapConfig
 import Tools.Tests.Utils
+
 
 -- -------------------------------------------------------------------------- --
 -- * Configuration

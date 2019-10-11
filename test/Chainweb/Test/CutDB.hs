@@ -68,8 +68,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Sync.WebBlockHeaderStore.Test
-import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -80,6 +78,8 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.TaskMap
+
+import Tools.Tests.Utils (testRocksDb)
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store

@@ -84,7 +84,6 @@ import Chainweb.Version as Chainweb
 import Data.CAS.RocksDB
 import Data.LogMessage
 
-
 -- | Note: These tests are intermittently non-deterministic due to the way
 -- random chain sampling works with our test harnesses.
 --

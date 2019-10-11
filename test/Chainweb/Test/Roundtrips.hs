@@ -37,8 +37,6 @@ import Chainweb.NodeId
 import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Orphans.Internal ()
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -46,6 +44,8 @@ import Chainweb.Version
 import P2P.Node
 import P2P.Node.Configuration
 import P2P.Peer
+
+import Tools.Tests.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Roundrip Tests

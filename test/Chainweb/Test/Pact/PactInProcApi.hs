@@ -49,10 +49,11 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
+
+import Tools.Tests.Utils
 
 testVersion :: ChainwebVersion
 testVersion = Development

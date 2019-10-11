@@ -28,13 +28,14 @@ import qualified Chainweb.Mempool.RestAPI.Client as MClient
 import Chainweb.RestAPI
 import Chainweb.Test.Mempool (InsertCheck, MempoolWithFunc(..))
 import qualified Chainweb.Test.Mempool
-import Chainweb.Test.Utils (withTestAppServer)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
 
 import Data.CAS.RocksDB
 
 import Network.X509.SelfSigned
+
+import Tools.Tests.Utils (withTestAppServer)
 
 ------------------------------------------------------------------------------
 tests :: TestTree

@@ -47,12 +47,12 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
+import Tools.Tests.Utils
 
 testVer :: ChainwebVersion
 testVer = Development

@@ -50,7 +50,8 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
+
+import Tools.Tests.Utils
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"

@@ -40,11 +40,12 @@ import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
-import Chainweb.Test.Utils
 import Chainweb.Time
 import qualified Chainweb.TreeDB as TreeDB
 
 import Data.LogMessage
+
+import Tools.Tests.Utils
 
 ----------------------------------------------------------------------------------------------------
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest

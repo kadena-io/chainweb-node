@@ -52,7 +52,6 @@ import Chainweb.RestAPI
 import Chainweb.RestAPI.Utils
 #endif
 import Chainweb.Test.RestAPI.Client_
-import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -61,6 +60,8 @@ import Chainweb.Version
 import Data.CAS.RocksDB
 
 import Servant.Client_
+
+import Tools.Tests.Utils
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDb queries
@@ -496,4 +497,3 @@ testPageLimitHashesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
 testPageLimitHashesClient version = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient version cid l n Nothing Nothing
-
