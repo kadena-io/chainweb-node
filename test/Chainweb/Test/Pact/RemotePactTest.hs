@@ -39,6 +39,7 @@ import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import Data.Int
 import qualified Data.List.NonEmpty as NEL
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
@@ -273,13 +274,18 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     case r of
       Left e -> assertFailure $ "test failure: " <> show e
-      Right cr ->
-        let
-          (PactResult pr) = _crResult cr
-        in assertEqual "expect /local allocation balance" pr balance
+      Right cr -> assertEqual "expect /local allocation balance" (resultOf cr) accountInfo
 
   where
-    balance = Right $ PLiteral $ LDecimal 200000000.0
+    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
+    accountInfo = Right
+      $ PObject
+      $ ObjectMap
+      $ M.fromList
+        [ (FieldKey "balance", PLiteral $ LDecimal 200000000.0)
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
+        ]
+
     mkTxBatch0 = do
       ks <- liftIO testKeyPairs
       t <- toTxCreationTime <$> iot
@@ -297,7 +303,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       return $ SubmitBatch (pure cmd)
 
     txcode0 = concat ["(coin.release-allocation ", "\"sender00\")"]
-    txcode1 = concat ["(coin.account-balance ", "\"sender00\")"]
+    txcode1 = concat ["(coin.account-info ", "\"sender00\")"]
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -333,7 +339,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recovering (exponentialBackoff 10000 <> limitRetries 12) [h] $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -357,7 +363,7 @@ sending
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -383,7 +389,7 @@ polling
     -> RequestKeys
     -> IO PollResponses
 polling sid cenv rks =
-    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"
