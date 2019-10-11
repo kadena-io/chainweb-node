@@ -14,7 +14,6 @@ code: |-
   (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 123400000.0)
 
 data:
-  croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
   sender00: ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
   sender01: ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
   sender02: ["3a9dd532d73dace195dbb64d1dba6572fb783d0fdd324685e32fbda2f89f99a6"]

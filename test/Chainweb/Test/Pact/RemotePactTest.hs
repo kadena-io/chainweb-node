@@ -43,7 +43,6 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
-import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 
 import NeatInterpolation
@@ -52,8 +51,6 @@ import Network.Connection as HTTP
 import Network.HTTP.Client.TLS as HTTP
 
 import Numeric.Natural
-
-import Prelude hiding (lookup)
 
 import Servant.Client
 
@@ -141,7 +138,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 localTest iot net
               , after AllSucceed "remote spv" $
                 testGroup "genesis allocations"
-                  [ allocationTest "sender00" iot net ]
+                  [ allocationTest iot net ]
               ]
     ]
 
@@ -253,8 +250,8 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= tid
         ]
 
-allocationTest :: String -> IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-allocationTest account iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
+allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
 
     -- batch with the initial release request
@@ -288,19 +285,15 @@ allocationTest account iot nio = testCaseSteps "genesis allocation tests" $ \ste
         ]
 
     mkTxBatch code cdata = do
-      ks <- case account of
-        "sender00" -> testKeyPairs sender00KeyPair
-        "sender01" -> testKeyPairs sender01KeyPair
-        t -> error $ "unsupported test sender value: " <> t
-
+      ks <- testKeyPairs sender00KeyPair
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") (T.pack account) 100000 0.01 ttl t
+          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
       cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
       return $ SubmitBatch (pure cmd)
 
-    txcode0 = concat ["(coin.release-allocation ", "\"" <> account <> "\")"]
-    txcode1 = concat ["(coin.account-info ", "\"" <> account <> "\")"]
+    txcode0 = concat ["(coin.release-allocation ", "\"sender00\")"]
+    txcode1 = concat ["(coin.account-info ", "\"sender00\")"]
 
 -- -------------------------------------------------------------------------- --
 -- Utils
