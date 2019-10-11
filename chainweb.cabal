@@ -265,16 +265,11 @@ library
         , Utils.Logging.Trace
 
         -- tools
-        , Tools.Tests.MultiNode
-        , Tools.Tests.Orphans.Internal
-        , Tools.Tests.Orphans.External
-        , Tools.Tests.P2P.Peer.BootstrapConfig
-        , Tools.Tests.Utils
+        , Tools.Chain2Gexf
+        , Tools.CwTool
         , Tools.Ea
         , Tools.Gexf
-        , Tools.Tests.Network.X509.SelfSigned.Test
         , Tools.RunNodes
-        , Tools.Tests.SlowTests
         , Tools.Standalone
         , Tools.Standalone.Chainweb
         , Tools.Standalone.Utils
@@ -287,6 +282,13 @@ library
         , Tools.TXG.Simulate.Contracts.SimplePayments
         , Tools.TXG.Simulate.Utils
         , Tools.TXG.Types
+        , Tools.Tests.MultiNode
+        , Tools.Tests.Network.X509.SelfSigned.Test
+        , Tools.Tests.Orphans.External
+        , Tools.Tests.Orphans.Internal
+        , Tools.Tests.P2P.Peer.BootstrapConfig
+        , Tools.Tests.SlowTests
+        , Tools.Tests.Utils
         , Tools.TxStream
 
     build-depends:
@@ -442,9 +444,7 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.Sync
         Chainweb.Test.Miner.Core
         Chainweb.Test.Misc
-        Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
-        Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.PactExec
@@ -452,8 +452,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
         Chainweb.Test.Pact.TTL
-        -- Chainweb.Test.Pact.TxGen
-        -- Chainweb.Test.Pact.Utils
+        Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
         Chainweb.Test.Roundtrips
@@ -463,7 +462,6 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
-        Chainweb.Test.Utils
 
     build-depends:
         -- internal
@@ -527,6 +525,7 @@ test-suite chainweb-tests
         , text >=1.2
         , these >= 1 && < 1.1
         , time >= 1.8
+        , token-bucket >= 0.1
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , vector >= 0.12
@@ -613,6 +612,21 @@ executable chainweb-miner
         , streaming-events >= 1.0
         , strict-tuple >= 0.1
         , wai-extra >= 3.0
+
+executable cwtool
+    import: warning-flags, debugging-flags
+    default-language: Haskell2010
+    ghc-options:
+        -threaded
+        -with-rtsopts=-N
+    hs-source-dirs: cwtool
+    main-is: CwTool.hs
+    build-depends:
+        -- internal
+          chainweb
+          , base
+    if flag(ed25519)
+        cpp-options: -DWITH_ED25519=1
 
 benchmark bench
     default-language: Haskell2010

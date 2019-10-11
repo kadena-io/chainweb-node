@@ -38,9 +38,10 @@ import Test.Tasty.QuickCheck
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
-import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils (len)
+
+import Tools.Tests.Utils
 
 treeDbInvariants
     :: (TreeDb db, IsBlockHeader (DbEntry db), Ord (DbEntry db), Ord (DbKey db))

@@ -1,17 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Tool.CwTool (main) where
+module Tools.CwTool (main) where
 
 import System.Environment
 import System.Exit
 import Text.Printf
 
-import qualified Chain2Gexf
-import qualified Ea
-import qualified RunNodes
-import qualified SlowTests
-import qualified TXG
-import qualified Standalone
-import qualified TxStream
+import qualified Tools.Chain2Gexf as Chain2Gexf
+import qualified Tools.Ea as Ea
+import qualified Tools.RunNodes as RunNodes
+import qualified Tools.Tests.SlowTests as SlowTests
+import qualified Tools.TXG as TXG
+import qualified Tools.Standalone as Standalone
+import qualified Tools.TxStream as TxStream
 
 main :: IO ()
 main = do

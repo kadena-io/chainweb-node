@@ -132,7 +132,8 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-import Chainweb.Test.Utils
+
+import Tools.Tests.Utils
 
 -- ----------------------------------------------------------------------- --
 -- Test Exceptions
