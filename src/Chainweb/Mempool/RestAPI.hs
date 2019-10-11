@@ -72,7 +72,7 @@ someMempoolVal v cid m =
 ------------------------------------------------------------------------------
 -- pending transactions
 data PendingTransactions = PendingTransactions
-    { _pendingTransationsHashes :: ![TransactionHash]
+    { _pendingTransationsHashes :: ![TXHash]
     , _pendingTransactionsHighwaterMark :: !HighwaterMark
     }
     deriving (Show, Eq, Ord, Generic)
@@ -103,10 +103,10 @@ type MempoolInsertApi v c =
     ReqBody '[JSON] [Text] :> Put '[JSON] NoContent
 type MempoolMemberApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "member" :>
-    ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [Bool]
+    ReqBody '[JSON] [TXHash] :> Post '[JSON] [Bool]
 type MempoolLookupApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "lookup" :>
-    ReqBody '[JSON] [TransactionHash] :> Post '[JSON] [LookupResult Text]
+    ReqBody '[JSON] [TXHash] :> Post '[JSON] [LookupResult Text]
 type MempoolGetPendingApi v c =
     'ChainwebEndpoint v :> MempoolEndpoint c :> "getPending" :>
     QueryParam "nonce" ServerNonce :>

@@ -60,7 +60,7 @@ prop_validTxSource
     -> BlockHeader
     -> Property
 prop_validTxSource db genBlock = monadicIO $ do
-    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
+    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TXHash))
     ForkInfo{..} <- genFork db mapRef genBlock
 
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
@@ -96,7 +96,7 @@ prop_noOrphanedTxs
     -> BlockHeader
     -> Property
 prop_noOrphanedTxs db genBlock = monadicIO $ do
-    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
+    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TXHash))
     ForkInfo{..} <- genFork db mapRef genBlock
 
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
@@ -111,8 +111,8 @@ data ForkInfo = ForkInfo
   { fiBlockHeaderDb :: BlockHeaderDb
   , fiOldHeader :: BlockHeader
   , fiNewHeader :: BlockHeader
-  , fiOldForkTrans :: HashSet TransactionHash
-  , fiNewForkTrans :: HashSet TransactionHash
+  , fiOldForkTrans :: HashSet TXHash
+  , fiNewForkTrans :: HashSet TXHash
     -- for printing debug info...
   , fiForkHeight :: Int
   , fiLeftBranchHeight :: Int
@@ -124,19 +124,19 @@ data ForkInfo = ForkInfo
 
 data BlockTrans = BlockTrans
     { btBlockHeader :: BlockHeader
-    , btTransactions :: HashSet TransactionHash }
+    , btTransactions :: HashSet TXHash }
 
 data MockPayload = MockPayload
     { _mplHash :: BlockHash
-    , _mplTxHashes :: [TransactionHash]
+    , _mplTxHashes :: [TXHash]
     }
     deriving (Show, Eq, Ord, Generic, Hashable)
 
 ----------------------------------------------------------------------------------------------------
 lookupFunc
-  :: IORef (HashMap BlockHeader (HashSet TransactionHash))
+  :: IORef (HashMap BlockHeader (HashSet TXHash))
   -> BlockHeader
-  -> IO (HashSet TransactionHash)
+  -> IO (HashSet TXHash)
 lookupFunc mapRef h = do
     hm <- readIORef mapRef
     case HM.lookup h hm of
@@ -144,13 +144,13 @@ lookupFunc mapRef h = do
         Just txs -> return txs
 
 ----------------------------------------------------------------------------------------------------
-getTransPool :: PropertyM IO (HashSet TransactionHash)
+getTransPool :: PropertyM IO (HashSet TXHash)
 getTransPool =
     HS.fromList <$> sequenceA txHashes
   where
     txHashes = fmap (\n -> do
                         mockTx <- mkMockTx n
-                        return $ TransactionHash $ SB.toShort $ mockEncode mockTx )
+                        return $ TXHash $ SB.toShort $ mockEncode mockTx )
                     [1..100]
 
 ----------------------------------------------------------------------------------------------------
@@ -159,7 +159,7 @@ getTransPool =
 -- | Generate a tree containing a fork
 genFork
     :: BlockHeaderDb
-    -> IORef (HashMap BlockHeader (HashSet TransactionHash))
+    -> IORef (HashMap BlockHeader (HashSet TXHash))
     -> BlockHeader
     -> PropertyM IO ForkInfo
 genFork db mapRef startHeader = do
@@ -180,8 +180,8 @@ mkMockTx n = do
 
 ----------------------------------------------------------------------------------------------------
 takeTrans
-    :: HashSet TransactionHash
-    -> PropertyM IO (HashSet TransactionHash, HashSet TransactionHash)
+    :: HashSet TXHash
+    -> PropertyM IO (HashSet TXHash, HashSet TXHash)
 takeTrans txs = do
     n <- pick $ choose (1, 3)
     return $ splitHsAt n txs
@@ -189,9 +189,9 @@ takeTrans txs = do
 ----------------------------------------------------------------------------------------------------
 genTree
   :: BlockHeaderDb
-  -> IORef (HashMap BlockHeader (HashSet TransactionHash))
+  -> IORef (HashMap BlockHeader (HashSet TXHash))
   -> BlockHeader
-  -> HashSet TransactionHash
+  -> HashSet TXHash
   -> PropertyM IO (Tree BlockTrans)
 genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
@@ -205,7 +205,7 @@ genTree db mapRef h allTxs = do
 ----------------------------------------------------------------------------------------------------
 -- | Create a new Tree node
 newNode
-    :: IORef (HashMap BlockHeader (HashSet TransactionHash))
+    :: IORef (HashMap BlockHeader (HashSet TXHash))
     -> BlockTrans
     -> [Tree BlockTrans]
     -> PropertyM IO (Tree BlockTrans)
@@ -222,9 +222,9 @@ newNode mapRef blockTrans children = do
 ----------------------------------------------------------------------------------------------------
 preForkTrunk
     :: BlockHeaderDb
-    -> IORef (HashMap BlockHeader (HashSet TransactionHash))
+    -> IORef (HashMap BlockHeader (HashSet TXHash))
     -> BlockHeader
-    -> HashSet TransactionHash
+    -> HashSet TXHash
     -> PropertyM IO (Forest BlockTrans)
 preForkTrunk db mapRef h avail = do
     next <- header' h
@@ -250,9 +250,9 @@ frequencyM xs = do
 ----------------------------------------------------------------------------------------------------
 fork
     :: BlockHeaderDb
-    -> IORef (HashMap BlockHeader (HashSet TransactionHash))
+    -> IORef (HashMap BlockHeader (HashSet TXHash))
     -> BlockHeader
-    -> HashSet TransactionHash
+    -> HashSet TXHash
     -> PropertyM IO (Forest BlockTrans)
 fork db mapRef h avail = do
     nextLeft <- header' h
@@ -280,9 +280,9 @@ genForkLengths = do
 ----------------------------------------------------------------------------------------------------
 postForkTrunk
     :: BlockHeaderDb
-    -> IORef (HashMap BlockHeader (HashSet TransactionHash))
+    -> IORef (HashMap BlockHeader (HashSet TXHash))
     -> BlockHeader
-    -> HashSet TransactionHash
+    -> HashSet TXHash
     -> Int
     -> PropertyM IO (Forest BlockTrans)
 postForkTrunk db mapRef h avail count = do
@@ -414,8 +414,8 @@ debugHeader context BlockHeader{..} =
     ++ "\n"
 
 ----------------------------------------------------------------------------------------------------
-debugTrans :: String -> HashSet TransactionHash -> String
-debugTrans context txs = "\n" ++ show (HS.size txs) ++ " TransactionHashes from: " ++ context
+debugTrans :: String -> HashSet TXHash -> String
+debugTrans context txs = "\n" ++ show (HS.size txs) ++ " TXHashes from: " ++ context
                        ++ concatMap (\t -> "\n\t" ++ show t) txs
 
 ----------------------------------------------------------------------------------------------------

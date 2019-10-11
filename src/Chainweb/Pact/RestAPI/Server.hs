@@ -78,7 +78,7 @@ import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertError, InsertType(..), MempoolBackend(..), TransactionHash(..))
+    (InsertError, InsertType(..), MempoolBackend(..), TXHash(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -88,7 +88,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
-import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
+import Chainweb.Transaction (ChainwebTX, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -174,7 +174,7 @@ data PactCmdLog
 sendHandler
     :: Logger logger
     => logger
-    -> MempoolBackend ChainwebTransaction
+    -> MempoolBackend ChainwebTX
     -> SubmitBatch
     -> Handler RequestKeys
 sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
@@ -193,10 +193,10 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
 
     logg = logFunctionJson (setComponent "send-handler" logger)
 
-    toPactHash :: TransactionHash -> Pact.TypedHash h
-    toPactHash (TransactionHash h) = Pact.TypedHash $ SB.fromShort h
+    toPactHash :: TXHash -> Pact.TypedHash h
+    toPactHash (TXHash h) = Pact.TypedHash $ SB.fromShort h
 
-    checkResult :: Either (T2 TransactionHash InsertError) () -> ExceptT ServerError IO ()
+    checkResult :: Either (T2 TXHash InsertError) () -> ExceptT ServerError IO ()
     checkResult (Right _) = pure ()
     checkResult (Left (T2 hash insErr)) =
         failWith $ concat [ "Validation failed for hash "
@@ -427,7 +427,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
 
-validateCommand :: Command Text -> Either String ChainwebTransaction
+validateCommand :: Command Text -> Either String ChainwebTX
 validateCommand cmdText = case verifyCommand cmdBS of
     ProcSucc cmd -> Right (mkPayloadWithText <$> cmd)
     ProcFail err -> Left err

@@ -77,7 +77,7 @@ module Chainweb.Chainweb
 , chainwebConfig
 
 -- ** Mempool integration
-, ChainwebTransaction
+, ChainwebTX
 , Mempool.chainwebTransactionConfig
 , validatingMempoolConfig
 
@@ -384,7 +384,7 @@ validatingMempoolConfig
     -> ChainwebVersion
     -> Mempool.GasLimit
     -> MVar PactExecutionService
-    -> Mempool.InMemConfig ChainwebTransaction
+    -> Mempool.InMemConfig ChainwebTX
 validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     { Mempool._inmemTxCfg = txcfg
     , Mempool._inmemTxBlockSizeLimit = gl
@@ -399,7 +399,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     toDupeResult :: Maybe a -> Maybe Mempool.InsertError
     toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
 
-    preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
+    preInsertSingle :: ChainwebTX -> Either Mempool.InsertError ChainwebTX
     preInsertSingle tx = checkMetadata tx
 
     -- | Validation: All checks that should occur before a TX is inserted into
@@ -412,9 +412,9 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     -- is gossiped to us from a peer's mempool.
     --
     preInsertBatch
-        :: V.Vector (T2 Mempool.TransactionHash ChainwebTransaction)
-        -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
-                                (T2 Mempool.TransactionHash ChainwebTransaction)))
+        :: V.Vector (T2 Mempool.TXHash ChainwebTX)
+        -> IO (V.Vector (Either (T2 Mempool.TXHash Mempool.InsertError)
+                                (T2 Mempool.TXHash ChainwebTX)))
     preInsertBatch txs = do
         let hashes = V.map (toPactHash . sfst) txs
         pex <- readMVar mv
@@ -423,14 +423,14 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
       where
         f (These r (T2 h t)) = maybe (Right (T2 h t)) (Left . T2 h) $ toDupeResult r
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
-        f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
+        f (This _) = Left (T2 (Mempool.TXHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
 
-    toPactHash :: Mempool.TransactionHash -> P.TypedHash h
-    toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
+    toPactHash :: Mempool.TXHash -> P.TypedHash h
+    toPactHash (Mempool.TXHash h) = P.TypedHash $ SB.fromShort h
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
-    checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
+    checkMetadata :: ChainwebTX -> Either Mempool.InsertError ChainwebTX
     checkMetadata tx = do
         let !pay = payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
@@ -648,7 +648,7 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTX)]
     mempoolsToServe = proj _chainResMempool
 
     chainP2pToServe :: [(NetworkId, PeerDb)]

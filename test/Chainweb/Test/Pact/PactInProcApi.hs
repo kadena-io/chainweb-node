@@ -151,7 +151,7 @@ testEmptyMemPool = MemPoolAccess
     , mpaProcessFork = \_ -> return ()
     }
 
-_testLocal :: IO ChainwebTransaction
+_testLocal :: IO ChainwebTX
 _testLocal = do
     d <- adminData
     fmap (head . V.toList)

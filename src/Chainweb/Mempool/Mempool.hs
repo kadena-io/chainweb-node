@@ -55,7 +55,7 @@ module Chainweb.Mempool.Mempool
   ( MempoolBackend(..)
   , MempoolPreBlockCheck
   , TransactionConfig(..)
-  , TransactionHash(..)
+  , TXHash(..)
   , TransactionMetadata(..)
   , MempoolTxId
   , HashMeta(..)
@@ -169,7 +169,7 @@ data TransactionConfig t = TransactionConfig {
     txCodec :: {-# UNPACK #-} !(Codec t)
 
     -- | hash function to use when making transaction hashes.
-  , txHasher :: t -> TransactionHash
+  , txHasher :: t -> TXHash
 
     -- | hash function metadata. Currently informational only -- for future use.
   , txHashMeta :: {-# UNPACK #-} !HashMeta
@@ -223,10 +223,10 @@ data MempoolBackend t = MempoolBackend {
   , mempoolBlockGasLimit :: GasLimit
 
     -- | Returns true if the given transaction hash is known to this mempool.
-  , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
+  , mempoolMember :: Vector TXHash -> IO (Vector Bool)
 
     -- | Lookup transactions in the pending queue by hash.
-  , mempoolLookup :: Vector TransactionHash -> IO (Vector (LookupResult t))
+  , mempoolLookup :: Vector TXHash -> IO (Vector (LookupResult t))
 
     -- | Insert the given transactions into the mempool.
   , mempoolInsert :: InsertType      -- run pre-gossip check? Ignored at remote pools.
@@ -235,10 +235,10 @@ data MempoolBackend t = MempoolBackend {
 
     -- | Perform the pre-insert check for the given transactions. Short-circuits
     -- on the first Transaction that fails.
-  , mempoolInsertCheck :: Vector t -> IO (Either (T2 TransactionHash InsertError) ())
+  , mempoolInsertCheck :: Vector t -> IO (Either (T2 TXHash InsertError) ())
 
     -- | Remove the given hashes from the pending set.
-  , mempoolMarkValidated :: Vector TransactionHash -> IO ()
+  , mempoolMarkValidated :: Vector TXHash -> IO ()
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
@@ -253,7 +253,7 @@ data MempoolBackend t = MempoolBackend {
     -- the remote high-water mark.
   , mempoolGetPendingTransactions
       :: Maybe HighwaterMark                -- previous high-water mark, if any
-      -> (Vector TransactionHash -> IO ())  -- chunk callback
+      -> (Vector TXHash -> IO ())  -- chunk callback
       -> IO HighwaterMark                   -- returns remote high water mark
 
   -- | A hook to clear the mempool. Intended only for the in-mem backend and
@@ -298,7 +298,7 @@ noopMempool = do
 
 
 ------------------------------------------------------------------------------
-chainwebTransactionConfig :: TransactionConfig ChainwebTransaction
+chainwebTransactionConfig :: TransactionConfig ChainwebTX
 chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     commandHash
     chainwebTestHashMeta
@@ -312,7 +312,7 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     getTimeToLive = timeToLiveOf . fmap payloadObj
     getCreationTime = creationTimeOf . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
-                    in TransactionHash $! SB.toShort $ h
+                    in TXHash $! SB.toShort $ h
     txmeta t =
         TransactionMetadata
         (toMicros ct)
@@ -326,8 +326,8 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
 ------------------------------------------------------------------------------
 data SyncState = SyncState {
     _syncCount :: {-# UNPACK #-} !Int64
-  , _syncMissing :: ![Vector TransactionHash]
-  , _syncPresent :: !(HashSet TransactionHash)
+  , _syncMissing :: ![Vector TXHash]
+  , _syncPresent :: !(HashSet TXHash)
   , _syncTooMany :: !Bool
   }
 
@@ -499,26 +499,26 @@ syncMempools log us localMempool remoteMempool =
 -- TODO: production versions of this kind of DB should salt with a
 -- runtime-generated constant to avoid collision attacks; see the \"hashing and
 -- security\" section of the hashable docs.
-newtype TransactionHash = TransactionHash SB.ShortByteString
+newtype TXHash = TXHash SB.ShortByteString
   deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
-instance Show TransactionHash where
+instance Show TXHash where
     show = T.unpack . encodeToText
 
-instance Hashable TransactionHash where
-  hashWithSalt s (TransactionHash h) = hashWithSalt s (hashCode :: Int)
+instance Hashable TXHash where
+  hashWithSalt s (TXHash h) = hashWithSalt s (hashCode :: Int)
     where
       hashCode = either error id $ runGetS (fromIntegral <$> getWord64host) (B.take 8 $ SB.fromShort h)
   {-# INLINE hashWithSalt #-}
 
-instance ToJSON TransactionHash where
-  toJSON (TransactionHash x) = toJSON $! encodeB64UrlNoPaddingText $ SB.fromShort x
-instance FromJSON TransactionHash where
-  parseJSON = withText "TransactionHash" (either (fail . show) return . p)
+instance ToJSON TXHash where
+  toJSON (TXHash x) = toJSON $! encodeB64UrlNoPaddingText $ SB.fromShort x
+instance FromJSON TXHash where
+  parseJSON = withText "TXHash" (either (fail . show) return . p)
     where
-      p :: Text -> Either SomeException TransactionHash
-      !p = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
+      p :: Text -> Either SomeException TXHash
+      !p = (TXHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
 
 
 ------------------------------------------------------------------------------
@@ -536,9 +536,9 @@ data HashMeta = HashMeta {
   , hashmetaLenBytes :: {-# UNPACK #-} !Int
 }
 
-chainwebTestHasher :: ByteString -> TransactionHash
+chainwebTestHasher :: ByteString -> TXHash
 chainwebTestHasher s = let !b = SB.toShort $ convert $ hash @_ @SHA512t_256 $ "TEST" <> s
-                       in TransactionHash b
+                       in TXHash b
 
 chainwebTestHashMeta :: HashMeta
 chainwebTestHashMeta = HashMeta "chainweb-sha512-256" 32

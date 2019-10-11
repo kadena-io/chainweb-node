@@ -262,7 +262,7 @@ type TransactionGenerator
     -> BlockHeight
     -> BlockHash
     -> BlockHeader
-    -> IO (Vector ChainwebTransaction)
+    -> IO (Vector ChainwebTX)
 
 type BurnGenerator
     = Time Integer -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator

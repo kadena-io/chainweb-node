@@ -119,9 +119,8 @@ instance Arbitrary MockTx where
       zero = Time.Time (Time.TimeSpan (Time.Micros 0))
 
 type BatchCheck =
-    Vector (T2 TransactionHash MockTx)
-    -> IO (V.Vector (Either (T2 TransactionHash InsertError)
-                            (T2 TransactionHash MockTx)))
+    Vector (T2 TXHash MockTx)
+    -> IO (V.Vector (Either (T2 TXHash InsertError) (T2 TXHash MockTx)))
 
 -- | We use an `MVar` so that tests can override/modify the instance's insert
 -- check for tests. To make quickcheck testing not take forever for remote, we
@@ -238,9 +237,8 @@ propPreInsert (txs, badTxs) gossipMV mempool =
         | otherwise = Right tx
 
     checkNotBad
-        :: Vector (T2 TransactionHash MockTx)
-        -> IO (V.Vector (Either (T2 TransactionHash InsertError)
-                                (T2 TransactionHash MockTx)))
+        :: Vector (T2 TXHash MockTx)
+        -> IO (V.Vector (Either (T2 TXHash InsertError) (T2 TXHash MockTx)))
     checkNotBad = pure . V.map (\(T2 h tx) -> bimap (T2 h) (T2 h) $ checkOne tx)
 
 

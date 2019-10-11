@@ -67,15 +67,15 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
+import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
 import Data.Text (Text)
-import qualified Data.Text.IO as T
 import Data.Text.Encoding
+import qualified Data.Text.IO as T
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -123,8 +123,9 @@ import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -132,7 +133,6 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-import Chainweb.Test.Utils
 
 -- ----------------------------------------------------------------------- --
 -- Test Exceptions
@@ -196,7 +196,7 @@ adminData = fmap k testKeyPairs
 
 -- | Shim for 'PactExec' and 'PactInProcApi' tests
 goldenTestTransactions
-    :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
+    :: Vector PactTransaction -> IO (Vector ChainwebTX)
 goldenTestTransactions txs = do
     ks <- testKeyPairs
     mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
@@ -224,7 +224,7 @@ mkTestExecTransactions
       -- ^ time in seconds until creation (from offset)
     -> Vector PactTransaction
       -- ^ the pact transactions with data to run
-    -> IO (Vector ChainwebTransaction)
+    -> IO (Vector ChainwebTX)
 mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
     fmap snd $ foldM go (0 :: Int, mempty) txs
   where
@@ -276,7 +276,7 @@ mkTestContTransaction
     -> TxCreationTime
       -- ^ time in seconds until creation (from offset)
     -> Value
-    -> IO (Vector ChainwebTransaction)
+    -> IO (Vector ChainwebTX)
 mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl ct d = do
     let pm = PublicMeta cid sender gas rate ttl ct
         msg :: PactRPC ContMsg =

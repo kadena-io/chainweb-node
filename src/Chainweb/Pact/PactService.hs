@@ -488,7 +488,7 @@ validateChainwebTxs
     -> Checkpointer
     -> BlockCreationTime
     -> BlockHeight
-    -> Vector ChainwebTransaction
+    -> Vector ChainwebTX
     -> IO (Vector Bool)
 validateChainwebTxs dbEnv cp blockOriginationTime bh txs
     | bh == 0 = pure $! V.replicate (V.length txs) True
@@ -500,7 +500,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
           let txs' = V.zip txs dupecheckOks
           balances txs' >>= newIORef >>= \bsr -> V.mapM (validate bsr) txs'
   where
-    validate :: IORef Balances -> (ChainwebTransaction, Uniqueness) -> IO Bool
+    validate :: IORef Balances -> (ChainwebTX, Uniqueness) -> IO Bool
     validate _ (_, Duplicate) = pure False
     validate bsr (tx, Unique) = do
         bs <- readIORef bsr
@@ -516,7 +516,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
 
     -- | Attempt to debit the Gas cost from the sender's "running balance".
     --
-    debitGas :: Balances -> ChainwebTransaction -> Decimal -> Maybe Balances
+    debitGas :: Balances -> ChainwebTX -> Decimal -> Maybe Balances
     debitGas bs tx bal
         | newBal < 0 = Nothing
         | otherwise = Just $ HM.adjust (const newBal) sender bs
@@ -528,17 +528,17 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         limitInCoin = price * fromIntegral limit
         newBal = bal - limitInCoin
 
-    checkTimes :: ChainwebTransaction -> Bool
+    checkTimes :: ChainwebTX -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
     -- considered for further processing!
     --
-    balances :: Vector (ChainwebTransaction, Uniqueness) -> IO Balances
+    balances :: Vector (ChainwebTX, Uniqueness) -> IO Balances
     balances = foldlM balLookup mempty
 
-    balLookup :: Balances -> (ChainwebTransaction, Uniqueness) -> IO Balances
+    balLookup :: Balances -> (ChainwebTX, Uniqueness) -> IO Balances
     balLookup acc (_, Duplicate) = return acc
     balLookup acc (tx, Unique) =
         if HM.member sender acc
@@ -558,7 +558,7 @@ validateChainwebTxsPreBlock
     -> BlockCreationTime
     -> BlockHeight
     -> BlockHash
-    -> Vector ChainwebTransaction
+    -> Vector ChainwebTX
     -> IO (Vector Bool)
 validateChainwebTxsPreBlock dbEnv cp blockOriginationTime bh hash txs = do
     lb <- _cpGetLatestBlock cp
@@ -690,7 +690,7 @@ withDiscardedBatch act = bracket start end (const act)
 execNewGenesisBlock
     :: PayloadCas cas
     => Miner
-    -> Vector ChainwebTransaction
+    -> Vector ChainwebTX
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
@@ -699,7 +699,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
 
 execLocal
     :: PayloadCas cas
-    => ChainwebTransaction
+    => ChainwebTX
     -> PactServiceM cas HashCommandResult
 execLocal cmd = withDiscardedBatch $ do
     cp <- getCheckpointer
@@ -868,7 +868,7 @@ execValidateBlock currHeader plData =
 execTransactions
     :: Maybe BlockHash
     -> Miner
-    -> Vector ChainwebTransaction
+    -> Vector ChainwebTX
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
@@ -905,7 +905,7 @@ runCoinbase (Just parentHash) dbEnv miner = do
 applyPactCmds
     :: Bool
     -> P.PactDbEnv p
-    -> Vector ChainwebTransaction
+    -> Vector ChainwebTX
     -> Miner
     -> PactServiceM cas (Vector HashCommandResult)
 applyPactCmds isGenesis env cmds miner =
@@ -917,7 +917,7 @@ applyPactCmds isGenesis env cmds miner =
 applyPactCmd
     :: Bool
     -> P.PactDbEnv p
-    -> ChainwebTransaction
+    -> ChainwebTX
     -> Miner
     -> ModuleCache
     -> ([HashCommandResult] -> [HashCommandResult])  -- ^ difference list
@@ -944,7 +944,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
-transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
+transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTX)
 transactionsFromPayload plData = do
     let !transSeq = _payloadDataTransactions plData
     let !transList = toList transSeq

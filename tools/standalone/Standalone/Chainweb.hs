@@ -96,7 +96,7 @@ withChainResourcesStandalone
     -> RocksDb
     -> PeerResources logger
     -> logger
-    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
+    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTX)
     -> MVar (CutDb cas)
     -> PayloadDb cas
     -> Bool

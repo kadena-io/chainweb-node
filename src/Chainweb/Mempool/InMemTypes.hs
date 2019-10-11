@@ -39,7 +39,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 
 ------------------------------------------------------------------------------
-type PendingMap = HashMap TransactionHash SB.ShortByteString
+type PendingMap = HashMap TXHash SB.ShortByteString
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.
@@ -49,8 +49,8 @@ data InMemConfig t = InMemConfig {
   , _inmemMaxRecentItems :: {-# UNPACK #-} !Int
   , _inmemPreInsertPureChecks :: t -> Either InsertError t
   , _inmemPreInsertBatchChecks
-        :: V.Vector (T2 TransactionHash t)
-        -> IO (V.Vector (Either (T2 TransactionHash InsertError) (T2 TransactionHash t)))
+        :: V.Vector (T2 TXHash t)
+        -> IO (V.Vector (Either (T2 TXHash InsertError) (T2 TXHash t)))
 }
 
 ------------------------------------------------------------------------------
@@ -62,7 +62,7 @@ data InMemoryMempool t = InMemoryMempool {
 
 
 ------------------------------------------------------------------------------
-type BadMap = HashMap TransactionHash (Time Micros)
+type BadMap = HashMap TXHash (Time Micros)
 
 ------------------------------------------------------------------------------
 data InMemoryMempoolData t = InMemoryMempoolData {
@@ -73,7 +73,7 @@ data InMemoryMempoolData t = InMemoryMempoolData {
 }
 
 ------------------------------------------------------------------------------
-type RecentItem = T2 MempoolTxId TransactionHash
+type RecentItem = T2 MempoolTxId TXHash
 data RecentLog = RecentLog {
     _rlNext :: {-# UNPACK #-} !MempoolTxId
   , _rlRecent :: !(V.Vector RecentItem)

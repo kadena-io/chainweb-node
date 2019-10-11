@@ -98,10 +98,10 @@ chainDataTest t time =
 getTestBlock
     :: T.Text
     -> Time Integer
-    -> MempoolPreBlockCheck ChainwebTransaction
+    -> MempoolPreBlockCheck ChainwebTX
     -> BlockHeight
     -> BlockHash
-    -> IO (V.Vector ChainwebTransaction)
+    -> IO (V.Vector ChainwebTX)
 getTestBlock t txOrigTime _validate _bh _hash = do
     akp0 <- stockKey "sender00"
     kp0 <- mkKeyPairs [akp0]

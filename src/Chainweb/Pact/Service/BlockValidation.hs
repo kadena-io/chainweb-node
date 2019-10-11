@@ -61,7 +61,7 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException HashCommandResult))
+local :: ChainwebTX -> PactQueue -> IO (MVar (Either PactException HashCommandResult))
 local ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq

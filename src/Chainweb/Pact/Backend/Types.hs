@@ -118,12 +118,11 @@ import Pact.Parse (ParsedDecimal(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import Pact.Types.ChainMeta (PublicData(..))
+import Pact.Types.Gas (GasModel)
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
-    (ExecutionMode(..), PactDb(..), TableName(..), TxId(..),
-    TxLog(..))
-import Pact.Types.Gas (GasModel)
+    (ExecutionMode(..), PactDb(..), TableName(..), TxId(..), TxLog(..))
 import Pact.Types.SPV
 
 -- internal modules
@@ -328,11 +327,11 @@ type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
-        :: MempoolPreBlockCheck ChainwebTransaction
+        :: MempoolPreBlockCheck ChainwebTX
         -> BlockHeight
         -> BlockHash
         -> BlockHeader
-        -> IO (Vector ChainwebTransaction)
+        -> IO (Vector ChainwebTX)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
   }

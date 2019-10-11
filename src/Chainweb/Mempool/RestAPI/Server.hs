@@ -48,7 +48,7 @@ insertHandler mempool txsT = handleErrs (NoContent <$ begin)
         liftIO $ mempoolInsert mempool CheckedInsert txV
 
 
-memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
+memberHandler :: Show t => MempoolBackend t -> [TXHash] -> Handler [Bool]
 memberHandler mempool txs = handleErrs (liftIO mem)
   where
     txV = V.fromList txs
@@ -58,7 +58,7 @@ memberHandler mempool txs = handleErrs (liftIO mem)
 lookupHandler
     :: Show t
     => MempoolBackend t
-    -> [TransactionHash]
+    -> [TXHash]
     -> Handler [LookupResult T.Text]
 lookupHandler mempool txs = handleErrs (liftIO look)
   where

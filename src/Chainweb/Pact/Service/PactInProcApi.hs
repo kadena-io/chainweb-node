@@ -59,7 +59,7 @@ withPactService
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> MempoolConsensus ChainwebTransaction
+    -> MempoolConsensus ChainwebTX
     -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
@@ -114,7 +114,7 @@ pactQueueSize = 2000
 
 pactMemPoolAccess
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus ChainwebTX
     -> logger
     -> MemPoolAccess
 pactMemPoolAccess mpc logger = MemPoolAccess
@@ -125,13 +125,13 @@ pactMemPoolAccess mpc logger = MemPoolAccess
 
 pactMemPoolGetBlock
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus ChainwebTX
     -> logger
-    -> (MempoolPreBlockCheck ChainwebTransaction
+    -> (MempoolPreBlockCheck ChainwebTX
             -> BlockHeight
             -> BlockHash
             -> BlockHeader
-            -> IO (Vector ChainwebTransaction))
+            -> IO (Vector ChainwebTX))
 pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
@@ -143,7 +143,7 @@ pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
 
 pactProcessFork
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus ChainwebTX
     -> logger
     -> (BlockHeader -> IO ())
 pactProcessFork mpc theLogger bHeader = do
@@ -166,10 +166,9 @@ pactProcessFork mpc theLogger bHeader = do
 
 pactMempoolSetLastHeader
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus ChainwebTX
     -> logger
     -> (BlockHeader -> IO ())
 pactMempoolSetLastHeader mpc _theLogger bHeader = do
     let headerRef = mpcLastNewBlockParent mpc
     atomicWriteIORef headerRef (Just bHeader)
-

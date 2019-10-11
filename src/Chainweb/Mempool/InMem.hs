@@ -171,7 +171,7 @@ withInMemoryMempool_ l cfg f = do
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
-            -> Vector TransactionHash
+            -> Vector TXHash
             -> IO (Vector Bool)
 memberInMem lock txs = do
     q <- withMVarMasked lock (readIORef . _inmemPending)
@@ -183,7 +183,7 @@ memberInMem lock txs = do
 ------------------------------------------------------------------------------
 lookupInMem :: TransactionConfig t
             -> MVar (InMemoryMempoolData t)
-            -> Vector TransactionHash
+            -> Vector TXHash
             -> IO (Vector (LookupResult t))
 lookupInMem txcfg lock txs = do
     q <- withMVarMasked lock (readIORef . _inmemPending)
@@ -199,7 +199,7 @@ lookupInMem txcfg lock txs = do
 
 ------------------------------------------------------------------------------
 markValidatedInMem :: MVar (InMemoryMempoolData t)
-                   -> Vector TransactionHash
+                   -> Vector TXHash
                    -> IO ()
 markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
     let pref = _inmemPending mdata
@@ -218,7 +218,7 @@ insertCheckInMem
     .  InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
-    -> IO (Either (T2 TransactionHash InsertError) ())
+    -> IO (Either (T2 TXHash InsertError) ())
 insertCheckInMem cfg lock txs
   | V.null txs = pure $ Right ()
   | otherwise = do
@@ -227,7 +227,7 @@ insertCheckInMem cfg lock txs
 
     -- We hash the tx here and pass it around around to avoid needing to repeat
     -- the hashing effort.
-    let withHashes :: Either (T2 TransactionHash InsertError) (Vector (T2 TransactionHash t))
+    let withHashes :: Either (T2 TXHash InsertError) (Vector (T2 TXHash t))
         withHashes = for txs $ \tx ->
           let !h = hasher tx
           in bimap (T2 h) (T2 h) $ validateOne cfg badmap now tx h
@@ -236,7 +236,7 @@ insertCheckInMem cfg lock txs
         Left _ -> pure $! void withHashes
         Right r -> void . sequenceA <$!> _inmemPreInsertBatchChecks cfg r
   where
-    hasher :: t -> TransactionHash
+    hasher :: t -> TXHash
     hasher = txHasher (_inmemTxCfg cfg)
 
 -- | Validation: Confirm the validity of some single transaction @t@.
@@ -244,10 +244,10 @@ insertCheckInMem cfg lock txs
 validateOne
     :: forall t a
     .  InMemConfig t
-    -> HashMap TransactionHash a
+    -> HashMap TXHash a
     -> Time Micros
     -> t
-    -> TransactionHash
+    -> TXHash
     -> Either InsertError t
 validateOne cfg badmap (Time (TimeSpan now)) t h =
     sizeOK
@@ -281,14 +281,14 @@ insertCheckInMem'
     .  InMemConfig t    -- ^ in-memory config
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
-    -> IO (Vector (T2 TransactionHash t))
+    -> IO (Vector (T2 TXHash t))
 insertCheckInMem' cfg lock txs
   | V.null txs = pure V.empty
   | otherwise = do
     now <- getCurrentTimeIntegral
     badmap <- withMVarMasked lock $ readIORef . _inmemBadMap
 
-    let withHashes :: Vector (T2 TransactionHash t)
+    let withHashes :: Vector (T2 TXHash t)
         withHashes = flip V.mapMaybe txs $ \tx ->
           let !h = hasher tx
           in (T2 h) <$> hush (validateOne cfg badmap now tx h)
@@ -322,7 +322,7 @@ insertInMem cfg lock runCheck txs0 = do
             recordRecentTransactions maxRecent newHashes
 
   where
-    insertCheck :: IO (Vector (T2 TransactionHash t))
+    insertCheck :: IO (Vector (T2 TXHash t))
     insertCheck = if runCheck == CheckedInsert
                   then insertCheckInMem' cfg lock txs0
                   else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
@@ -390,10 +390,10 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
     sizeOK tx = getSize tx <= maxSize
 
     validateBatch
-        :: HashMap TransactionHash t
+        :: HashMap TXHash t
         -> BadMap
         -> Vector t
-        -> IO (T3 (Vector t) (HashMap TransactionHash t) BadMap)
+        -> IO (T3 (Vector t) (HashMap TXHash t) BadMap)
     validateBatch !psq0 !badmap q = do
         oks1 <- txValidate bheight phash q
         let oks2 = V.map sizeOK q
@@ -413,7 +413,7 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
     unconsV v = T2 (V.unsafeHead v) (V.unsafeTail v)
 
     nextBatch
-        :: HashMap TransactionHash t
+        :: HashMap TXHash t
         -> GasLimit
         -> IO [t]
     nextBatch !psq !remainingGas = do
@@ -441,11 +441,11 @@ getBlockInMem cfg lock txValidate bheight phash size0 = do
               then getBatch pendingTxs' (sz - txSz) (tx:soFar) 0
               else getBatch pendingTxs' sz soFar (inARow + 1)
 
-    go :: HashMap TransactionHash t
+    go :: HashMap TXHash t
        -> BadMap
        -> GasLimit
        -> [Vector t]
-       -> IO (T3 (HashMap TransactionHash t) BadMap (Vector t))
+       -> IO (T3 (HashMap TXHash t) BadMap (Vector t))
     go !psq !badmap !remainingGas !soFar = do
         nb <- nextBatch psq remainingGas
         if null nb
@@ -461,7 +461,7 @@ getPendingInMem :: InMemConfig t
                 -> ServerNonce
                 -> MVar (InMemoryMempoolData t)
                 -> Maybe (ServerNonce, MempoolTxId)
-                -> (Vector TransactionHash -> IO ())
+                -> (Vector TXHash -> IO ())
                 -> IO (ServerNonce, MempoolTxId)
 getPendingInMem cfg nonce lock since callback = do
     (psq, !rlog) <- readLock
@@ -520,7 +520,7 @@ clearInMem lock = do
 emptyRecentLog :: RecentLog
 emptyRecentLog = RecentLog 0 mempty
 
-recordRecentTransactions :: Int -> Vector TransactionHash -> RecentLog -> RecentLog
+recordRecentTransactions :: Int -> Vector TXHash -> RecentLog -> RecentLog
 recordRecentTransactions maxNumRecent newTxs rlog = rlog'
   where
     !rlog' = RecentLog { _rlNext = newNext
@@ -537,7 +537,7 @@ recordRecentTransactions maxNumRecent newTxs rlog = rlog'
 
 -- | Get the recent transactions from the transaction log. Returns Nothing if
 -- the old high water mark is too out of date.
-getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe [TransactionHash]
+getRecentTxs :: Int -> MempoolTxId -> RecentLog -> Maybe [TXHash]
 getRecentTxs maxNumRecent oldHw rlog
     | oldHw <= oldestHw || oldHw > oldNext = Nothing
     | oldHw == oldNext = Just mempty

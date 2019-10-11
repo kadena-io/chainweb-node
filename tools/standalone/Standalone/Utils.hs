@@ -1,7 +1,6 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -11,9 +10,9 @@
 module Standalone.Utils where
 
 import Control.Concurrent.STM
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Lens hiding ((.=))
 
 import Data.Aeson
 import Data.ByteString (ByteString)
@@ -90,7 +89,7 @@ onlyCoinTransferMemPoolAccess cid blocksize = MemPoolAccess
     }
 
 defaultMemPoolAccess :: ChainId -> Int -> MemPoolAccess
-defaultMemPoolAccess cid blocksize  = MemPoolAccess
+defaultMemPoolAccess cid blocksize = MemPoolAccess
     { mpaGetBlock = \_preblockcheck height _hash _prevBlock ->
         makeBlock height cid blocksize ("(+ 1 2)", Nothing)
     , mpaSetLastHeader = const $ return ()
@@ -102,7 +101,7 @@ defaultMemPoolAccess cid blocksize  = MemPoolAccess
         -> ChainId
         -> Int
         -> (Text, Maybe Value)
-        -> IO (Vector.Vector ChainwebTransaction)
+        -> IO (Vector.Vector ChainwebTX)
     makeBlock height cidd n = Vector.replicateM n . go
         where
           go (c, d) = do
@@ -162,7 +161,7 @@ getTestBlock
     -- ^ chain id
     -> Int
     -- ^ number of transactions in a block
-    -> IO (Vector.Vector ChainwebTransaction)
+    -> IO (Vector.Vector ChainwebTX)
 getTestBlock cid blocksize = do
     let gen = do
           (sendera, senderb) <- distinctSenders
@@ -206,7 +205,7 @@ mkExecTransactions
       -- ^ time in seconds until creation (from offset)
     -> Vector.Vector (Text, PactTransaction)
       -- ^ the pact transactions with data to run
-    -> IO (Vector.Vector ChainwebTransaction)
+    -> IO (Vector.Vector ChainwebTX)
 mkExecTransactions cid ks nonce0 gas gasrate ttl ct txs = do
     nref <- newIORef (0 :: Int)
     traverse (go nref) txs

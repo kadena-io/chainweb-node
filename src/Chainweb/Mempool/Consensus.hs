@@ -57,7 +57,7 @@ data MempoolConsensus t = MempoolConsensus
     , mpcProcessFork
           :: LogFunction
           -> BlockHeader
-          -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
+          -> IO (Vector ChainwebTX, Vector ChainwebTX)
     }
 
 data ReintroducedTxsLog = ReintroducedTxsLog
@@ -100,7 +100,7 @@ processFork
     -> IORef (Maybe BlockHeader)
     -> LogFunction
     -> BlockHeader
-    -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
+    -> IO (Vector ChainwebTX, Vector ChainwebTX)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     lastHeader <- readIORef lastHeaderRef
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader

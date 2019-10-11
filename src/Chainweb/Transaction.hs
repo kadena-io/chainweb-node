@@ -8,7 +8,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Chainweb.Transaction
-  ( ChainwebTransaction
+  ( ChainwebTX
   , HashableTrans(..)
   , PayloadWithText
   , payloadBytes
@@ -70,9 +70,9 @@ modifyPayloadWithText f pwt = mkPayloadWithText newPayload
     oldPayload = payloadObj pwt
     newPayload = f oldPayload
 
-type ChainwebTransaction = Command PayloadWithText
+type ChainwebTX = Command PayloadWithText
 
--- | Hashable newtype of ChainwebTransaction
+-- | Hashable newtype of ChainwebTX
 newtype HashableTrans a = HashableTrans { unHashable :: Command a }
     deriving (Eq, Functor, Ord)
 

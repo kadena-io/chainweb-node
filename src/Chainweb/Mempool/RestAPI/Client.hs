@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -108,14 +107,14 @@ insertClient txcfg v c k0 = runIdentity $ do
 memberClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => [TransactionHash]
+    => [TXHash]
     -> ClientM [Bool]
 memberClient_ = client (mempoolMemberApi @v @c)
 
 memberClient
   :: ChainwebVersion
   -> ChainId
-  -> [TransactionHash]
+  -> [TXHash]
   -> ClientM [Bool]
 memberClient v c txs = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
@@ -127,7 +126,7 @@ memberClient v c txs = runIdentity $ do
 lookupClient_
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
     . (KnownChainwebVersionSymbol v, KnownChainIdSymbol c)
-    => [TransactionHash]
+    => [TXHash]
     -> ClientM [LookupResult T.Text]
 lookupClient_ = client (mempoolLookupApi @v @c)
 
@@ -135,7 +134,7 @@ lookupClient
   :: TransactionConfig t
   -> ChainwebVersion
   -> ChainId
-  -> [TransactionHash]
+  -> [TXHash]
   -> ClientM [LookupResult t]
 lookupClient txcfg v c txs = do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v

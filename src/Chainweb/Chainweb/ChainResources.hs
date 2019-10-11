@@ -87,7 +87,7 @@ data ChainResources logger = ChainResources
     { _chainResPeer :: !(PeerResources logger)
     , _chainResBlockHeaderDb :: !BlockHeaderDb
     , _chainResLogger :: !logger
-    , _chainResMempool :: !(MempoolBackend ChainwebTransaction)
+    , _chainResMempool :: !(MempoolBackend ChainwebTX)
     , _chainResPact :: PactExecutionService
     }
 
@@ -115,7 +115,7 @@ withChainResources
     -> RocksDb
     -> PeerResources logger
     -> logger
-    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
+    -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTX)
     -> MVar (CutDb cas)
     -> PayloadDb cas
     -> Bool
