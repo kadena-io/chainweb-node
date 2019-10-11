@@ -77,8 +77,11 @@ import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Text as T
 import Servant.Client
 import qualified Streaming.Prelude as SP
-import System.Exit (exitFailure)
 import qualified System.Random.MWC as MWC
+
+#if ! MIN_VERSION_rio(0,1,9)
+import System.Exit (exitFailure)
+#endif
 
 -- internal modules
 
