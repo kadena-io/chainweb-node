@@ -78,24 +78,31 @@ main = do
     putStrLn "Done."
   where
     otherChains =
-      [ (Development, "Development", [ coinContract, devGrants, devNs ])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [ coinContract, devGrants, devNs ])
-      , (Testnet02, "Testnet", [ coinContract, prodGrants, prodNs ])
+      [ (Development, "Development", [coinContract, devNGrants, devNs])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, devNGrants, devNs])
+      , (Testnet02, "Testnet", [ coinContract, prodNGrants, prodNs ])
       ]
 
     chain0 =
-      [ (Development, "Development", [ coinContract, devNs, devAllocations, devGrants ])
-      , (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prodGrants])
+      [ (Development, "Development", [coinContract, devNs, devAllocations, dev0Grants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, dev0Grants, devNs])
+      , (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prod0Grants])
       ]
 
 coinContract :: FilePath
 coinContract = "pact/coin-contract/load-coin-contract.yaml"
 
-devGrants :: FilePath
-devGrants = "pact/genesis/testnet/grants.yaml"
+dev0Grants :: FilePath
+dev0Grants = "pact/genesis/testnet/grants0.yaml"
 
-prodGrants :: FilePath
-prodGrants = "pact/genesis/prodnet/grants.yaml"
+devNGrants :: FilePath
+devNGrants = "pact/genesis/testnet/grantsN.yaml"
+
+prod0Grants :: FilePath
+prod0Grants = "pact/genesis/prodnet/grants0.yaml"
+
+prodNGrants :: FilePath
+prodNGrants = "pact/genesis/prodnet/grantsN.yaml"
 
 devNs :: FilePath
 devNs = "pact/genesis/testnet/ns.yaml"

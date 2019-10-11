@@ -1,7 +1,5 @@
 # Internal testnet allocations
 code: |-
-
-
   (define-keyset "sender00" (read-keyset "sender00"))
   (coin.create-allocation-account "sender00" (time "2019-10-10T18:00:00Z") "sender00" 100000000.0)
 

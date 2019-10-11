@@ -1,6 +1,5 @@
 # Internal testnet accounts
 code: |-
-  (coin.coinbase "croesus" (read-keyset "croesus") 9000000000.0)
   (coin.coinbase "anagha" (read-keyset "anagha") 500.0)
   (coin.coinbase "anastasia" (read-keyset "anastasia") 500.0)
   (coin.coinbase "andrew" (read-keyset "andrew") 500.0)
@@ -25,7 +24,6 @@ code: |-
   (coin.coinbase "will" (read-keyset "will") 500.0)
 
 data:
-  croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
   anagha: ["0d8dcae3b6fd805c552ea3bca93d9787624311f784f992be3a1ecd446102ccd9"]
   anastasia: ["1ec74de724b3c700737d99906aba48dbed6b90140bbc64133c558571b18883c3"]
   andrew: ["7d7a09b741e6726219709f7ab9790c69f8cd12b1026d0090ac7c52e9aa0ab74b"]

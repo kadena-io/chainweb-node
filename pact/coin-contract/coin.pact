@@ -493,6 +493,7 @@
       ((guard:guard (keyset-ref-guard guard-ref)))
 
       (create-account account guard)
+
       (insert allocation-table account
         { "balance" : amount
         , "date" : date

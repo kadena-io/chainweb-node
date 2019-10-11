@@ -38,7 +38,8 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TN
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
 import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
 import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.Crypto.MerkleLog
@@ -102,12 +103,16 @@ genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
-genesisBlockPayload TimedCPM{} _ = TN.payloadBlock
-genesisBlockPayload FastTimedCPM{} _ = TN.payloadBlock
+genesisBlockPayload TimedCPM{} _ = TNN.payloadBlock
+genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
+    0 -> TN0.payloadBlock
+    _ -> TNN.payloadBlock
+
 -- Development Instances
 genesisBlockPayload Development cid = case chainIdInt @Int cid of
     0 -> DN0.payloadBlock
     _ -> DNN.payloadBlock
+
 -- Production Instances
 genesisBlockPayload Testnet02 cid = case chainIdInt @Int cid of
     0 -> PN0.payloadBlock
