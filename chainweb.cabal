@@ -51,7 +51,7 @@ source-repository head
 
 flag use_systemd
     description: Use systemd watchdog features if set.
-    default: True
+    default: False
 
 flag ed25519
     description:
