@@ -132,7 +132,6 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
 
   where
     cmd = payloadObj <$> cmdIn
-    userGasEnv = mkGasEnvOf cmd gasModel
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     supply = gasSupplyOf cmd
@@ -141,6 +140,10 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
     gasPrice = fromRational $ toRational $ gasPriceOf cmd
     initialGas = initialGasOf (payloadWithText cmdIn)
     initialGasFee = gasFeeOf initialGas gasPrice
+
+    naiveGasEnv = mkGasEnvOf cmd gasModel
+    -- Discount the initial gas charge from the Pact execution gas limit
+    userGasEnv = over geGasLimit (\l -> l - fromIntegral initialGas) naiveGasEnv
 
     buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger
                   freeGasEnv pd' spv nid
