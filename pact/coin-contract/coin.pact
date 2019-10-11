@@ -215,8 +215,14 @@
 
     (enforce-account-structure account)
 
-    (read coin-table account)
+    (+
+      { "account" : account }
+      (read coin-table account))
     )
+
+  (defun get-all-keys:[object:{coin-schema}] ()
+    "Retrieve all account keys from the coin contract table"
+    (keys coin-table))
 
   (defun rotate-account-guard:string (account:string new-guard:guard)
     @doc "Rotate guard associated with ACCOUNT"

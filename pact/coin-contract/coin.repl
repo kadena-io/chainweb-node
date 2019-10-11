@@ -53,7 +53,7 @@
 ; account information checks out for new accounts
 (expect
   "account-info reflects the correct balance and guard information"
-  {"balance": 0.0, "guard": (read-keyset 'doug)}
+  { "account": "doug", "balance": 0.0, "guard": (read-keyset 'doug)}
   (account-info 'doug))
 
 
@@ -262,7 +262,7 @@
 
 (expect
   "account-info reflects the correct balance and guard information"
-  {"balance": 1.0, "guard": (read-keyset 'will)}
+  {"account": "will", "balance": 1.0, "guard": (read-keyset 'will)}
   (account-info 'will))
 
 ;; coinbase should fail when 'COINBASE' capability is not in scope
@@ -452,3 +452,19 @@
 (expect-failure
   "bad redeem-gas fails"
   (redeem-gas 'doug (read-keyset 'doug) 'emily UNIT_BAD))
+
+(commit-tx)
+
+(begin-tx)
+
+(use coin)
+
+(expect
+  "calling get-all-keys returns all keys in the coin table"
+  ["doug" "emily" "stuart" "will"]
+  (sort (get-all-keys)))
+
+(expect
+  "mapping account info over get-all-keys yields total account info (piped to guard)"
+  [{"account": "doug","balance": 1.400000000004,"guard":(read-keyset 'doug)}]
+  (take 1 (sort (map (account-info) (get-all-keys)))))
