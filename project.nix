@@ -13,20 +13,22 @@ in
   (import pactSrc {}).rp.project ({ pkgs, ... }:
 let
 
-gitignore = pkgs.callPackage (pkgs.fetchFromGitHub {
-  owner = "siers";
-  repo = "nix-gitignore";
-  rev = "4f2d85f2f1aa4c6bff2d9fcfd3caad443f35476e";
-  sha256 = "1vzfi3i3fpl8wqs1yq95jzdi6cpaby80n8xwnwa8h2jvcw3j7kdz";
-}) {};
+gitignoreSrc = pkgs.fetchFromGitHub {
+  owner = "hercules-ci";
+  repo = "gitignore";
+  rev = "f9e996052b5af4032fe6150bba4a6fe4f7b9d698";
+  sha256 = "0jrh5ghisaqdd0vldbywags20m2cxpkbbk5jjjmwaw0gr8nhsafv";
+};
+inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
 
 in {
     name = "chainweb";
     overrides = import ./overrides.nix pactSrc pkgs;
 
     packages = {
-      chainweb = gitignore.gitignoreSource
-        [ ".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md" ] ./.;
+      chainweb = gitignoreSource ./.;
+      #chainweb = gitignoreFilter
+      #  [ ".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md" ] ./.;
     };
 
     shellToolOverrides = ghc: super: {
