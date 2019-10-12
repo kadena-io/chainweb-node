@@ -565,10 +565,10 @@ newtype MinAdjustment = MinAdjustment Natural
 minAdjust :: ChainwebVersion -> Maybe MinAdjustment
 minAdjust Test{} = Nothing
 minAdjust TimedConsensus{} = Nothing
-minAdjust PowConsensus{} = Just $ MinAdjustment 3
+minAdjust PowConsensus{} = Just $ MinAdjustment 1
 minAdjust TimedCPM{} = Nothing
 minAdjust FastTimedCPM{} = Nothing
 -- See `adjust` for motivation.
-minAdjust Development = Just $ MinAdjustment 3
-minAdjust Testnet02 = Just $ MinAdjustment 3
+minAdjust Development = Just $ MinAdjustment 1
+minAdjust Testnet02 = Just $ MinAdjustment 1
 
