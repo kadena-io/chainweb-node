@@ -1,4 +1,4 @@
-resolver: lts-13.30
+resolver: lts-14.8
 
 ghc-options: {"$locals": -ddump-to-file -ddump-hi -funclutter-valid-hole-fits -fmax-relevant-binds=0}
 
@@ -6,7 +6,6 @@ extra-deps:
   # --- Missing from Stackage --- #
   - QuickCheck-GenT-0.2.0
   - bloomfilter-2.0.1.0
-  - compactable-0.1.2.3
   - digraph-0.1.0.2
   - fake-0.1.1.2
   - loglevel-0.1.0.0
@@ -14,29 +13,22 @@ extra-deps:
   - paths-0.2.0.0
   - streaming-events-1.0.0
   - strict-tuple-0.1.2
-  - systemd-1.2.0
   - yet-another-logger-0.3.1
 
   # --- Transitive Pact Dependencies --- #
   - ed25519-donna-0.1.1
-  - prettyprinter-convert-ansi-wl-pprint-1.1
   - sbv-8.2
-  - swagger2-2.3.1.1
+  - trifecta-2.1
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
-  # --- Other Transitive Dependencies --- #
-  - massiv-0.4.1.0  # Due to digraph
-
   # --- Forced Upgrades --- #
-  - aeson-1.4.3.0
   - generic-lens-1.2.0.0  # For generic newtype unwrapping
-  - scheduler-1.4.2       # For `replicateWork` function
   - tls-1.5.1
   - warp-tls-3.2.8        # To match `tls-1.5`
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 1377995189b21d4f0a2c13666cf3c822d4274484
+    commit: a2cc6ef0917c954fb8d51f0606a3c0cebca9cd55
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a

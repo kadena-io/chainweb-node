@@ -37,8 +37,8 @@ module Chainweb.Pact.PactService
     , minerReward
     ) where
 ------------------------------------------------------------------------------
-import Control.Concurrent.MVar
 import Control.Concurrent.Async
+import Control.Concurrent.MVar
 import Control.Exception (SomeAsyncException)
 import Control.Lens
 import Control.Monad
@@ -49,6 +49,7 @@ import Control.Monad.State.Strict
 import qualified Data.Aeson as A
 import Data.Bifoldable (bitraverse_)
 import Data.Bifunctor (first)
+import Data.Bool (bool)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -475,6 +476,8 @@ _liftCPErr = either internalError' return
 
 type Balances = HM.HashMap Text Decimal
 
+data Uniqueness = Duplicate | Unique
+
 -- | The principal validation logic for groups of Pact Transactions.
 --
 -- Skips validation for genesis transactions, since gas accounts, etc. don't
@@ -489,10 +492,17 @@ validateChainwebTxs
     -> IO (Vector Bool)
 validateChainwebTxs dbEnv cp blockOriginationTime bh txs
     | bh == 0 = pure $! V.replicate (V.length txs) True
-    | otherwise = balances txs >>= newIORef >>= \bsr -> V.mapM (validate bsr) txs
+    | V.null txs = pure V.empty
+    | otherwise = do
+          let f t = let p = view P.cmdHash t
+                    in (bool Unique Duplicate . isJust) <$> _cpLookupProcessedTx cp p
+          dupecheckOks <- V.mapM f txs
+          let txs' = V.zip txs dupecheckOks
+          balances txs' >>= newIORef >>= \bsr -> V.mapM (validate bsr) txs'
   where
-    validate :: IORef Balances -> ChainwebTransaction -> IO Bool
-    validate bsr tx = do
+    validate :: IORef Balances -> (ChainwebTransaction, Uniqueness) -> IO Bool
+    validate _ (_, Duplicate) = pure False
+    validate bsr (tx, Unique) = do
         bs <- readIORef bsr
         case HM.lookup sender bs >>= debitGas bs tx of
             Nothing -> pure False
@@ -525,19 +535,18 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
     -- TXs which are missing an entry in the `HM.HashMap` should not be
     -- considered for further processing!
     --
-    balances :: Vector ChainwebTransaction -> IO Balances
+    balances :: Vector (ChainwebTransaction, Uniqueness) -> IO Balances
     balances = foldlM balLookup mempty
 
-    balLookup :: Balances -> ChainwebTransaction -> IO Balances
-    balLookup acc tx
-        | HM.member sender acc = pure acc
-        | otherwise = do
-            let pactHash = view P.cmdHash tx
-            mb <- _cpLookupProcessedTx cp pactHash
-            if | isJust mb -> pure acc
-               | otherwise -> readCoinAccount dbEnv sender >>= \case
-                   Nothing -> pure acc
-                   Just (T2 b _) -> pure $ HM.insert sender b acc
+    balLookup :: Balances -> (ChainwebTransaction, Uniqueness) -> IO Balances
+    balLookup acc (_, Duplicate) = return acc
+    balLookup acc (tx, Unique) =
+        if HM.member sender acc
+          then pure acc
+          else do
+              readCoinAccount dbEnv sender >>= \case
+                  Nothing -> pure acc
+                  Just (T2 b _) -> pure $ HM.insert sender b acc
       where
         sender :: Text
         sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
