@@ -249,7 +249,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-     HeaderBytes newBytes  <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
+     HeaderBytes newBytes  <- usePowHash testVer (\p -> mine p (\_ _ -> return ()) (_blockNonce bh) tbytes) hbytes
      newHeader <- runGet decodeBlockHeaderWithoutHash newBytes
 
      mv' <- r >>= validateBlock newHeader (toPayloadData payload)
