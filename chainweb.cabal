@@ -555,7 +555,9 @@ executable chainweb-miner
 
         -- external
         , base >= 4.11 && < 5
+        , bytestring >= 0.10
         , connection >= 0.2
+        , containers >= 0.5
         , errors >= 2.3
         , generic-lens >= 1.2
         , http-client >= 0.5
@@ -570,6 +572,8 @@ executable chainweb-miner
         , streaming >= 0.2
         , streaming-events >= 1.0
         , strict-tuple >= 0.1
+        , text >= 1.2
+        , time >= 1.8
         , wai-extra >= 3.0
 
 executable cwtool

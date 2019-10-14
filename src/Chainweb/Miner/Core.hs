@@ -20,8 +20,10 @@ module Chainweb.Miner.Core
   , WorkBytes(..), workBytes, unWorkBytes
   , usePowHash
   , mine
+  , Stats(..)
   ) where
 
+import Control.Monad
 import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
@@ -93,6 +95,10 @@ usePowHash FastTimedCPM{} f = f $ Proxy @Blake2s_256
 usePowHash Development f = f $ Proxy @Blake2s_256
 usePowHash Testnet02 f = f $ Proxy @Blake2s_256
 
+newtype Stats = Stats
+  { statsLastNonce :: Nonce
+  } deriving (Eq,Ord,Show)
+
 -- | This Miner makes low-level assumptions about the chainweb protocol. It may
 -- break if the protocol changes.
 --
@@ -104,18 +110,19 @@ usePowHash Testnet02 f = f $ Proxy @Blake2s_256
 mine
   :: forall a. HashAlgorithm a
   => Proxy a
+  -> (Nonce -> Stats -> IO ())
   -> Nonce
   -> TargetBytes
   -> HeaderBytes
   -> IO HeaderBytes
-mine _ nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes $ \trgPtr -> do
+mine _ updateStats nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes $ \trgPtr -> do
     !ctx <- hashMutableInit @a
     fmap HeaderBytes . BA.copy hbytes $ \buf ->
         allocaBytes (powSize :: Int) $ \pow -> do
 
             -- inner mining loop
             --
-            let go !n = do
+            let go !n@(Nonce nv) = do
                     -- Compute POW hash for the nonce
                     injectNonce n buf
                     hash ctx buf pow
@@ -123,7 +130,9 @@ mine _ nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes
                     -- check whether the nonce meets the target
                     fastCheckTarget trgPtr (castPtr pow) >>= \case
                         True -> pure ()
-                        False -> go (succ n)
+                        False -> do
+                          when (nv `mod` 100000 == 0) $ updateStats nonce (Stats n)
+                          go (succ n)
 
             -- Start inner mining loop
             go nonce

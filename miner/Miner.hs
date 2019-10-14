@@ -59,9 +59,14 @@
 module Main ( main ) where
 
 import Control.Error.Util (hush)
+import Control.Monad
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
+import Data.ByteString.Builder
 import Data.Generics.Product.Fields (field)
+import Data.Map (Map)
+import qualified Data.Map as M
+import Data.Time.Clock.POSIX
 import Data.Tuple.Strict (T3(..))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
@@ -78,6 +83,7 @@ import qualified RIO.Text as T
 import Servant.Client
 import qualified Streaming.Prelude as SP
 import qualified System.Random.MWC as MWC
+import Text.Printf
 
 #if ! MIN_VERSION_rio(0,1,9)
 import System.Exit (exitFailure)
@@ -118,14 +124,16 @@ data Command = CPU CPUEnv | GPU
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 
 data Env = Env
-    { gen :: !MWC.GenIO
-    , mgr :: !Manager
-    , log :: !LogFunc
-    , args :: !ClientArgs }
+    { envGen :: !MWC.GenIO
+    , envMgr :: !Manager
+    , envLog :: !LogFunc
+    , envArgs :: !ClientArgs
+    , envStats :: IORef (Map Nonce Stats)
+    , envStart :: !POSIXTime }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
-    logFuncL = field @"log"
+    logFuncL = field @"envLog"
 
 pClientArgs :: Parser ClientArgs
 pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> pUrl <*> pMiner <*> pChainId
@@ -190,7 +198,9 @@ main = do
     withLogFunc lopts $ \logFunc -> do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
-        runRIO (Env g m logFunc cargs) run
+        stats <- newIORef mempty
+        start <- getPOSIXTime
+        runRIO (Env g m logFunc cargs stats start) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -206,13 +216,13 @@ run :: RIO Env ()
 run = do
     logInfo "Starting Miner."
     env <- ask
-    case cmd $ args env of
+    case cmd $ envArgs env of
         GPU -> logError "GPU mining is not yet available."
         CPU _ -> getWork >>= traverse_ (mining (scheme env))
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-scheme env = case cmd $ args env of CPU e -> cpu e; GPU -> gpu
+scheme env = case cmd $ envArgs env of CPU e -> cpu e; GPU -> gpu
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
@@ -249,16 +259,30 @@ getWork = do
     f :: Env -> IO (Either ClientError WorkBytes)
     f e = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
       where
-        a = args e
+        a = envArgs e
         v = version a
-        m = mgr e
+        m = envMgr e
         u = coordinator a
+
+printStats :: RIO Env ()
+printStats = do
+  e <- ask
+  now <- liftIO getPOSIXTime
+  m <- readIORef (envStats e)
+  let totalHashes = sum $ fmap (\(Nonce start,Stats (Nonce cur)) -> cur - start) $ M.toList m
+      elapsedTime = now - envStart e
+      hps = (fromIntegral totalHashes :: Double) / realToFrac elapsedTime
+  logInfo $ Utf8Builder $ byteString $ encodeUtf8 $ T.pack $ printf "%d hashes in %.0fs (%.2f MH/s)\n" totalHashes (realToFrac elapsedTime :: Double) (hps / 1000000.0)
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
-mining :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes) -> WorkBytes -> RIO Env ()
+mining
+    :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
+    -> WorkBytes
+    -> RIO Env ()
 mining go wb = do
     race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
+    printStats
     getWork >>= traverse_ (mining go)
   where
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
@@ -279,7 +303,7 @@ mining go wb = do
         f :: RIO Env ()
         f = do
             e <- ask
-            liftIO $ withEvents (req $ args e) (mgr e) (void . SP.head_ . SP.filter realEvent)
+            liftIO $ withEvents (req $ envArgs e) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
             logDebug $ cid <> ": Current work was preempted."
 
@@ -305,14 +329,17 @@ mining go wb = do
     miningSuccess :: HeaderBytes -> RIO Env ()
     miningSuccess h = do
       e <- ask
-      let !v = version $ args e
-          !m = mgr e
-          !u = coordinator $ args e
+      let !v = version $ envArgs e
+          !m = envMgr e
+          !u = coordinator $ envArgs e
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo $ cid <> ": Mined block at Height " <> hgh <> "."
       r <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
       when (isLeft r) $ logWarn "Failed to submit new BlockHeader!"
+
+updateStats :: Env -> Nonce -> Stats -> IO ()
+updateStats e n0 s = void $ atomicModifyIORef' (envStats e) (\m -> (M.insert n0 s m, ()))
 
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 cpu cpue tbytes hbytes = do
@@ -322,8 +349,8 @@ cpu cpue tbytes hbytes = do
         replicateWork (fromIntegral $ cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
-            n <- Nonce <$> MWC.uniform (gen e)
-            new <- usePowHash (version $ args e) (\p -> mine p n tbytes) hbytes
+            n <- Nonce <$> MWC.uniform (envGen e)
+            new <- usePowHash (version $ envArgs e) (\p -> mine p (updateStats e) n tbytes) hbytes
             terminateWith sch new
   where
     comp :: Comp
