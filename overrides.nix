@@ -87,8 +87,8 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       systemd = callHackageDirect {
         pkg = "systemd";
-        ver = "1.2.0";
-        sha256 = "1mwrrki3zsc4ncr7psjv9iqkzh7f25c2ch4lf2784fh6q46i997j";
+        ver = "2.2.0";
+        sha256 = "14zhwbxngf10anbhw901xqxb5gd3x6v6izd3wgizdl400h3wvn2h";
       };
 
       streaming-events = callHackageDirect {
