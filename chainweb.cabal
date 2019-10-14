@@ -374,7 +374,7 @@ library
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
     if flag(use_systemd) && os(linux)
-        build-depends: systemd >= 2.2
+        build-depends: systemd >= 1.2
         cpp-options: -DWITH_SYSTEMD=1
 
 -- -------------------------------------------------------------------------- --
