@@ -87,7 +87,7 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       systemd = callHackageDirect {
         pkg = "systemd";
-        ver = "2.2.0";
+        ver = "1.2.0";
         sha256 = "14zhwbxngf10anbhw901xqxb5gd3x6v6izd3wgizdl400h3wvn2h";
       };
 
