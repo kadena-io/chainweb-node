@@ -512,7 +512,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                 pure valid
       where
         validations = [checkTimes]
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
     -- | Attempt to debit the Gas cost from the sender's "running balance".
     --
@@ -521,7 +521,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         | newBal < 0 = Nothing
         | otherwise = Just $ HM.adjust (const newBal) sender bs
       where
-        pm = P._pMeta . payloadObj $ P._cmdPayload tx
+        pm = P._pMeta . _payloadObj $ P._cmdPayload tx
         sender = P._pmSender pm
         P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
@@ -529,7 +529,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         newBal = bal - limitInCoin
 
     checkTimes :: ChainwebTransaction -> Bool
-    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
+    checkTimes = timingsCheck blockOriginationTime . fmap _payloadObj
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
@@ -549,7 +549,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                   Just (T2 b _) -> pure $ HM.insert sender b acc
       where
         sender :: Text
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
 
 validateChainwebTxsPreBlock
@@ -711,7 +711,7 @@ execLocal cmd = withDiscardedBatch $ do
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap payloadObj cmd)
+                _psPublicData _psSpvSupport (fmap _payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -878,7 +878,7 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes
-      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+      . fmap (T.decodeUtf8 . SB.fromShort . _payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 

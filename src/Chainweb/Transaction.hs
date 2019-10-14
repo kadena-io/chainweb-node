@@ -10,10 +10,7 @@
 module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
-  , PayloadWithText
-  , payloadWithText
-  , payloadBytes
-  , payloadObj
+  , PayloadWithText(..)
   , chainwebPayloadCodec
   , gasLimitOf
   , gasPriceOf
@@ -68,7 +65,7 @@ modifyPayloadWithText
     -> PayloadWithText
 modifyPayloadWithText f pwt = mkPayloadWithText newPayload
   where
-    oldPayload = payloadObj pwt
+    oldPayload = _payloadObj pwt
     newPayload = f oldPayload
 
 type ChainwebTransaction = Command PayloadWithText
@@ -121,12 +118,3 @@ timeToLiveOf = _pmTTL . _pMeta . _cmdPayload
 creationTimeOf :: forall c . Command (Payload PublicMeta c) -> TxCreationTime
 creationTimeOf = _pmCreationTime . _pMeta . _cmdPayload
 {-# INLINE creationTimeOf #-}
-
-payloadWithText :: Command PayloadWithText -> PayloadWithText
-payloadWithText = _cmdPayload
-
-payloadBytes :: PayloadWithText -> SB.ShortByteString
-payloadBytes = _payloadBytes
-
-payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
-payloadObj = _payloadObj

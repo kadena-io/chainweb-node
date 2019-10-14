@@ -42,6 +42,7 @@ import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
+import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 
 import NeatInterpolation
@@ -66,6 +67,7 @@ import Pact.ApiReq (mkExec)
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
+import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Names
@@ -250,6 +252,50 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         [ "sender01-keyset" A..= ks
         , "target-chain-id" A..= tid
         ]
+
+
+txSizeGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+txSizeGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
+    cenv <- fmap _getClientEnv nio
+    sid <- mkChainId v (0 :: Int)
+
+    let run batch = flip runClientM cenv $ do
+          void $ liftIO $ step "sendApiClient: submit transaction"
+          rks <- liftIO $ sending sid cenv batch
+
+          void $ liftIO $ step "pollApiClient: polling for request key"
+          void $ liftIO $ polling sid cenv rks
+
+    -- batch with big tx and insufficient gas
+    batch0 <- mkTxBatch txcode0 A.Null 1
+    -- batch with function using a long list and insufficient gas to run function
+    batch1 <- mkTxBatch txcode1 A.Null 1
+
+    res0 <- run batch0
+    res1 <- run batch1
+
+    case res0 of
+      Left e -> assertFailure $ "test failure: " <> show e
+      Right cr -> assertEqual "expect /local allocation balance" (resultOf cr) gasError0
+
+  where
+    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
+    gasError0 = Left $
+      Pact.PactError Pact.GasError def [] "tx too big"
+    gasError1 = Left $
+      Pact.PactError Pact.GasError def [] "tx too big"
+
+    mkTxBatch code cdata limit = do
+      ks <- testKeyPairs someED25519Pair
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
+      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      return $ SubmitBatch (pure cmd)
+
+    longList = T.replicate 10 " 1"
+    txcode0 = T.unpack $ T.concat ["[", longList, "]"]
+    txcode1 = T.unpack $ T.concat ["(at 0 ", "[", longList, "]", ")"]
 
 -- -------------------------------------------------------------------------- --
 -- Utils

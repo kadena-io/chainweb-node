@@ -124,21 +124,23 @@ applyCmd
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
-  | initialGasFee > supply = jsonErrorResult buyGasEnv requestKey
-                             (PactError GasError def [] "tx too big")
-                             [] initialGas mcache
-                             "tx failure for requestKey: insufficient gas"
+  | initialGasFee > supply =
+    -- no gas actually charged
+    jsonErrorResult buyGasEnv requestKey
+    (PactError GasError def [] "tx too big") [] 0 mcache
+    ("tx failure for requestKey: gas limit of "
+      <> show (view geGasLimit naiveGasEnv) <> " but expected " <> show initialGas)
   | otherwise = apply
 
   where
-    cmd = payloadObj <$> cmdIn
+    cmd = _payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     supply = gasSupplyOf cmd
     nid = networkIdOf cmd
 
     gasPrice = fromRational $ toRational $ gasPriceOf cmd
-    initialGas = initialGasOf (payloadWithText cmdIn)
+    initialGas = initialGasOf (_cmdPayload cmdIn)
     initialGasFee = gasFeeOf initialGas gasPrice
 
     naiveGasEnv = mkGasEnvOf cmd gasModel
@@ -146,7 +148,7 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
     userGasEnv = over geGasLimit (\l -> l - fromIntegral initialGas) naiveGasEnv
 
     buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger
-                  freeGasEnv pd' spv nid
+      freeGasEnv pd' spv nid
 
     apply = do
 
@@ -165,13 +167,13 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
           logDebugRequestKey logger requestKey "successful gas buy for request key"
 
           let !payloadEnv = set ceGasEnv userGasEnv
-                  $ set cePublicData pd' buyGasEnv
+                $ set cePublicData pd' buyGasEnv
 
           -- initialize refstate with cached module definitions
           let st0 = set (evalRefs . rsLoadedModules) mcache' def
 
           cmdResultE <- catchesPactError $!
-                        runPayload payloadEnv st0 cmd buyGasLogs managedNamespacePolicy
+            runPayload payloadEnv st0 cmd buyGasLogs managedNamespacePolicy
 
           case cmdResultE of
 
@@ -190,7 +192,7 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
               let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
                   cmdLogs = fromMaybe [] $ _crLogs cmdResult
               redeemResultE <- catchesPactError $!
-                               redeemGas redeemGasEnv cmdIn cmdResult pactId cmdLogs mcache''
+                redeemGas redeemGasEnv cmd initialGas cmdResult pactId cmdLogs mcache''
 
               case redeemResultE of
 
@@ -222,7 +224,7 @@ applyGenesisCmd
 applyGenesisCmd logger dbEnv pd spv cmdIn = do
     -- cmd env with permissive gas model
 
-    let cmd = payloadObj <$> cmdIn
+    let cmd = _payloadObj <$> cmdIn
         pd' = set pdPublicMeta (publicMetaOf cmd) pd
         nid = networkIdOf cmd
 
@@ -456,10 +458,10 @@ initialGasOf cmd = Gas (fromIntegral gasFee)
     feePerByte :: Float = 0.01
 
     contProofSize :: Float = realToFrac $
-      case _pPayload (payloadObj cmd) of
+      case _pPayload (_payloadObj cmd) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
         _ -> 0
-    txSize :: Float = realToFrac (SB.length (payloadBytes cmd))
+    txSize :: Float = realToFrac (SB.length (_payloadBytes cmd))
     actualSize = txSize - contProofSize
     gasFee :: Int = ceiling (actualSize * feePerByte)
 
@@ -502,16 +504,15 @@ buyGas env cmd (Miner mid mks) supply mcache = do
 --
 redeemGas
     :: CommandEnv p
-    -> Command PayloadWithText
+    -> Command (Payload PublicMeta ParsedCode)
+    -> Gas
     -> CommandResult a -- ^ result from the user command payload
     -> GasId           -- ^ result of the buy-gas continuation
     -> [TxLog Value]   -- ^ previous txlogs
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-redeemGas env cmdIn cmdResult gid prevLogs mcache = do
-    let cmd        = payloadObj <$> cmdIn
-        initialGas = initialGasOf (payloadWithText cmdIn)
-        totalGas   = initialGas + _crGas cmdResult
+redeemGas env cmd initialGas cmdResult gid prevLogs mcache = do
+    let totalGas   = initialGas + _crGas cmdResult
         fee        = gasFeeOf totalGas (gasPriceOf cmd)
         rk         = cmdToRequestKey cmd
         initState  = set (evalRefs . rsLoadedModules) mcache
