@@ -37,11 +37,10 @@ import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
-import Data.Int
 import qualified Data.List.NonEmpty as NEL
 import Data.List.NonEmpty (NonEmpty)
-import Data.Map (Map)
-import qualified Data.Map as M
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
@@ -56,13 +55,10 @@ import Network.HTTP.Client.TLS as HTTP
 
 import Numeric.Natural
 
-import Prelude hiding (lookup)
-
 import Servant.Client
 
 import System.IO.Extra
 import System.LogLevel
-import System.Time.Extra
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -148,7 +144,10 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 testCase "trivial local check" $
                 localTest iot net
               , after AllSucceed "trivial local check" $
-                testGroup "txgen test (send)" [txgenTest 1 iot net]
+                testGroup "txgen test" [txgenTest 1 iot net]
+              , after AllSucceed "txgen test" $
+                testGroup "genesis allocations"
+                  [ allocationTest iot net ]
               ]
     ]
 
@@ -262,7 +261,7 @@ spvTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
-    sid <- mkChainId v (0 :: Int)
+    sid <- mkChainId v (1 :: Int)
     r <- flip runClientM cenv $ do
 
       void $ liftIO $ step "sendApiClient: submit batch"
@@ -271,8 +270,6 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       void $ liftIO $ step "pollApiClient: poll until key is found"
       void $ liftIO $ polling sid cenv rks
 
-      liftIO $ sleep 6
-
       void $ liftIO $ step "spvApiClient: submit request key"
       liftIO $ spv sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
 
@@ -280,15 +277,15 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       Left e -> assertFailure $ "output proof failed: " <> sshow e
       Right _ -> return ()
   where
-    tid = Pact.ChainId "1"
+    tid = Pact.ChainId "2"
 
     mkTxBatch = do
-      ks <- liftIO testKeyPairs
+      ks <- liftIO $ testKeyPairs sender00KeyPair
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
-      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
+          pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
+      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
+      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = show $
@@ -310,6 +307,51 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         [ "sender01-keyset" A..= ks
         , "target-chain-id" A..= tid
         ]
+
+allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
+    cenv <- fmap _getClientEnv nio
+
+    -- batch with the initial release request
+    batch0 <- mkTxBatch txcode0 A.Null
+    -- batch with the account balance query
+    SubmitBatch batch1 <- mkTxBatch txcode1 A.Null
+    sid <- mkChainId v (0 :: Int)
+
+    r <- flip runClientM cenv $ do
+      void $ liftIO $ step "sendApiClient: submit allocation release request"
+      rks0 <- liftIO $ sending sid cenv batch0
+
+      void $ liftIO $ step "pollApiClient: polling for allocation key"
+      void $ liftIO $ polling sid cenv rks0
+
+      void $ liftIO $ step "localApiClient: submit local account balance request"
+      pactLocalApiClient v sid $ head (toList batch1)
+
+    case r of
+      Left e -> assertFailure $ "test failure: " <> show e
+      Right cr -> assertEqual "expect /local allocation balance" (resultOf cr) accountInfo
+
+  where
+    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
+    accountInfo = Right
+      $ PObject
+      $ ObjectMap
+      $ M.fromList
+        [ (FieldKey "balance", PLiteral $ LDecimal 199999998.59)
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
+        ]
+
+    mkTxBatch code cdata = do
+      ks <- testKeyPairs sender00KeyPair
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
+      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      return $ SubmitBatch (pure cmd)
+
+    txcode0 = concat ["(coin.release-allocation ", "\"sender00\")"]
+    txcode1 = concat ["(coin.account-info ", "\"sender00\")"]
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -345,7 +387,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -369,7 +411,7 @@ sending
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -395,7 +437,7 @@ polling
     -> RequestKeys
     -> IO PollResponses
 polling sid cenv rks =
-    recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -427,7 +469,7 @@ testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> IO Su
 testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
-    kps <- testKeyPairs
+    kps <- testKeyPairs sender00KeyPair
     c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where

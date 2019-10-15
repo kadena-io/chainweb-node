@@ -115,9 +115,12 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
-        , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.TestnetPayload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPMPayload
+        , Chainweb.BlockHeader.Genesis.Development0Payload
+        , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
+        , Chainweb.BlockHeader.Genesis.Testnet0Payload
+        , Chainweb.BlockHeader.Genesis.TestnetNPayload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -392,7 +395,7 @@ library
         , text >= 1.2
         , these >= 1 && < 1.1
         , time >= 1.8
-        , tls >=1.5
+        , tls >=1.5.2
         , token-bucket >= 0.1
         , transformers >= 0.5
         , unordered-containers >= 0.2

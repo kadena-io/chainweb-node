@@ -248,7 +248,7 @@
   "emily now has insufficient funds and cannot transfer"
   (transfer 'emily 'doug 1.0))
 
-(transfer-and-create 'doug 'will (read-keyset 'will) 1.0)
+(transfer-create 'doug 'will (read-keyset 'will) 1.0)
 
 (expect
   "doug now has 0.4 coins"
@@ -351,7 +351,7 @@
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
 
 ;; account details will now feature rotated guard
-(rotate-account-guard 'emily (read-keyset 'doug))
+(rotate-guard 'emily (read-keyset 'doug))
 (expect
   "account info for 'emily uses 'doug keyset after rotation"
   "Account: 0.6 Guard: KeySet {keys: [keys2],pred: keys-all}"
@@ -392,15 +392,15 @@
   "bad transfer fails"
   (transfer 'emily 'doug UNIT_BAD))
 
-;;transfer-and-create
+;;transfer-create
 (expect
-  "min transfer-and-create ok"
+  "min transfer-create ok"
   "Write succeeded"
-  (transfer-and-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
+  (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
 (expect-failure
-  "bad transfer-and-create fails"
-  (transfer-and-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
+  "bad transfer-create fails"
+  (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
 
 ;;cross-chain-transfer (step 0 only covered)
 (pact-state true)
@@ -452,3 +452,75 @@
 (expect-failure
   "bad redeem-gas fails"
   (redeem-gas 'doug (read-keyset 'doug) 'emily UNIT_BAD))
+
+(commit-tx)
+
+;; Coin allocation tests
+
+(begin-tx)
+
+(use coin)
+
+; account creation
+
+(expect-failure
+  "allocation account creation only occurs at genesis"
+  (create-allocation-account "brandon" (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
+
+(test-capability (GENESIS))
+
+(expect-failure
+  "all allocation amounts must be positive"
+  (create-allocation-account "brandon" (time "1900-10-31T00:00:00Z") "brandon" -200000.0))
+
+(expect-failure
+  "all allocation accounts must satisfy coin contract account min chars"
+  (create-allocation-account "br" (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
+
+(expect-failure
+  "all allocation accounts must satisfy coin contract account max chars"
+  (create-allocation-account "There he met Saunders Mac Lane. Mac Lane, then visiting Paris, was anxious to learn from Yoneda, and commenced an interview with Yoneda in a café at Gare du Nord. The interview was continued on Yoneda’s train until its departure. In its course, Mac Lane learned about the lemma and subsequently baptized it." (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
+
+(expect-failure
+ "account creation fails when no keyset corresponds with keyset ref"
+ (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 200000.0))
+
+; successful keyset refs require defined keyset
+
+(env-data { "brandon" : ["brandon"]})
+(define-keyset "brandon" (read-keyset "brandon"))
+
+(expect
+  "allocating coin accounts succeeds"
+  "Write succeeded"
+  (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 10.0))
+
+; release-allocation
+
+(expect-failure
+  "allocation release fails when keys are not in scope"
+  (release-allocation "brandon"))
+
+(env-keys ["brandon"])
+
+(expect-failure
+  "allocation coins fails since release date is not >= current time"
+  (release-allocation "brandon"))
+
+(env-chain-data { "block-time" : (time "2020-10-31T00:00:00Z") })
+
+(expect
+  "successfully allocates funds for correct amounts and date"
+  "Allocation successfully released to main ledger"
+  (release-allocation "brandon"))
+
+(expect-failure
+  "releases fail when funds have been redeemed"
+  (release-allocation "brandon"))
+
+(expect
+  "brandon has 10 coins released to his account in coin contract"
+  true
+  (=
+    {"balance":10.0, "guard":(keyset-ref-guard "brandon")}
+    (account-info "brandon")))
