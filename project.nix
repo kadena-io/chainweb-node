@@ -3,7 +3,6 @@
 }:
 
 let
-yesyes
 pactSrc = builtins.fetchTarball {
   url = "https://github.com/kadena-io/pact/archive/${pactRef}.tar.gz";
   sha256 = pactSha;
