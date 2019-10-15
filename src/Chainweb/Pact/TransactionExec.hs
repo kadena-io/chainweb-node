@@ -218,14 +218,13 @@ applyGenesisCmd
       -- ^ Contains block height, time, prev hash + metadata
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
-    -> Command PayloadWithText
+    -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyGenesisCmd logger dbEnv pd spv cmdIn = do
+applyGenesisCmd logger dbEnv pd spv cmd = do
     -- cmd env with permissive gas model
 
-    let cmd = _payloadObj <$> cmdIn
-        pd' = set pdPublicMeta (publicMetaOf cmd) pd
+    let pd' = set pdPublicMeta (publicMetaOf cmd) pd
         nid = networkIdOf cmd
 
     let cmdEnv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd' spv nid

@@ -930,7 +930,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         pactHash  = view P.cmdHash cmdIn
 
     T2 !result mcache' <- liftIO $ if isGenesis
-        then applyGenesisCmd logger dbEnv pd spv cmdIn
+        then applyGenesisCmd logger dbEnv pd spv (_payloadObj <$> cmdIn)
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
     cp <- getCheckpointer
