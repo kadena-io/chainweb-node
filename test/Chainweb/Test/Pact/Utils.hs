@@ -18,6 +18,7 @@
 module Chainweb.Test.Pact.Utils
 ( -- * Exceptions
   PactTestFailure(..)
+, ChainwebKeyPair
   -- * test data
 , sender00KeyPair
 , sender01KeyPair
@@ -323,7 +324,6 @@ data PactTransaction = PactTransaction
   { _pactCode :: Text
   , _pactData :: Maybe Value
   } deriving (Eq, Show)
-
 
 evalPactServiceM :: TestPactCtx cas -> PactServiceM cas a -> IO a
 evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
