@@ -156,7 +156,7 @@ invalidProof = expectFailure "resumePact: no previous execution found" $
     roundtrip 0 1 txGenerator1 txGenerator4
 
 wrongChainProof :: Assertion
-wrongChainProof = expectFailure "cannot redeem cont proof on wrong target chain" $
+wrongChainProof = expectFailure "cannot redeem continuation proof on wrong target chain" $
     roundtrip 0 1 txGenerator1 txGenerator5
 
 
