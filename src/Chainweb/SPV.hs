@@ -126,16 +126,16 @@ parseProof label mkProof = withObject label $ \o -> mkProof
 data TransactionProof a = TransactionProof ChainId (MerkleProof a)
     deriving (Show, Eq)
 
--- | Getter into the chain id of a 'TransactionProof'
---
-proofChainId :: Getter (TransactionProof a) ChainId
-proofChainId = to (\(TransactionProof cid _) -> cid)
-
 instance ToJSON (TransactionProof SHA512t_256) where
     toJSON (TransactionProof cid p) = proofToJson cid p
 
 instance FromJSON (TransactionProof SHA512t_256) where
     parseJSON = parseProof "TransactionProof" TransactionProof
+
+-- | Getter into the chain id of a 'TransactionProof'
+--
+proofChainId :: Getter (TransactionProof a) ChainId
+proofChainId = to (\(TransactionProof cid _) -> cid)
 
 -- -------------------------------------------------------------------------- --
 -- Output Proofs
