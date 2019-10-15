@@ -19,9 +19,10 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
       };
 
-      chainweb = justStaticExecutables (enableDWARFDebugging super.chainweb);
+      chainweb = enableCabalFlag (
+        justStaticExecutables (enableDWARFDebugging super.chainweb)) "use_systemd";
 
-      chainweb-storage = pkgs.haskell.lib.dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
+      chainweb-storage = dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
         repo = "chainweb-storage";
         rev = "17a5fb130926582eff081eeb1b94cb6c7097c67a";
@@ -82,6 +83,12 @@ let # Working on getting this function upstreamed into nixpkgs, but
         pkg = "scheduler";
         ver = "1.4.2.1";
         sha256 = "0xlcvcwf3n4zbhf9pa3hyzc4ds628aki077564gaf4sdg1gm90qh";
+      };
+
+      systemd = callHackageDirect {
+        pkg = "systemd";
+        ver = "1.2.0";
+        sha256 = "1mwrrki3zsc4ncr7psjv9iqkzh7f25c2ch4lf2784fh6q46i997j";
       };
 
       streaming-events = callHackageDirect {
