@@ -64,7 +64,7 @@ import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
 import Data.Time.Clock.POSIX
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T3(..), T2(..))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
@@ -74,10 +74,10 @@ import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
 import RIO
 import RIO.List.Partial (head)
-import qualified RIO.Map as M
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Text as T
+import RIO.Time (NominalDiffTime)
 import Servant.Client
 import qualified Streaming.Prelude as SP
 import qualified System.Random.MWC as MWC
@@ -126,8 +126,7 @@ data Env = Env
     , envMgr :: !Manager
     , envLog :: !LogFunc
     , envArgs :: !ClientArgs
-    , envStats :: IORef (Map Nonce Stats)
-    , envStart :: !POSIXTime }
+    , envStats :: IORef Word64 }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
@@ -196,9 +195,8 @@ main = do
     withLogFunc lopts $ \logFunc -> do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
-        stats <- newIORef mempty
-        start <- getPOSIXTime
-        runRIO (Env g m logFunc cargs stats start) run
+        stats <- newIORef 0
+        runRIO (Env g m logFunc cargs stats) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -262,19 +260,6 @@ getWork = do
         m = envMgr e
         u = coordinator a
 
-printStats :: RIO Env ()
-printStats = do
-  e <- ask
-  now <- liftIO getPOSIXTime
-  m <- readIORef (envStats e)
-  let !hashes = M.foldlWithKey' f 0 m
-      !elapsedTime = realToFrac $ now - envStart e
-      !hps = (fromIntegral hashes :: Double) / elapsedTime
-      !msg = printf "%d hashes in %ds (%.2f MH/s)" hashes elapsedTime (hps / 1000000.0)
-  logInfo . display $ T.pack msg
-  where
-    f acc (Nonce s) (Stats (Nonce cur)) = acc + (cur - s)
-
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
 mining
@@ -282,17 +267,17 @@ mining
     -> WorkBytes
     -> RIO Env ()
 mining go wb = do
-    race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
-    printStats
+    !now <- liftIO getPOSIXTime
+    race updateSignal (go tbytes hbytes) >>= traverse_ (miningSuccess now)
     getWork >>= traverse_ (mining go)
   where
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
 
-    chain :: IO Utf8Builder
-    chain = ("Chain " <>) . display . chainIdInt @Int <$> runGet decodeChainId cbs
+    chain :: IO Int
+    chain = chainIdInt <$> runGet decodeChainId cbs
 
-    height :: IO Utf8Builder
-    height = display . _height <$> runGet decodeBlockHeight (B.take 8 $ B.drop 258 hbs)
+    height :: IO Word64
+    height = _height <$> runGet decodeBlockHeight (B.take 8 $ B.drop 258 hbs)
 
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
@@ -306,7 +291,7 @@ mining go wb = do
             e <- ask
             liftIO $ withEvents (req $ envArgs e) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
-            logDebug $ cid <> ": Current work was preempted."
+            logDebug . display . T.pack $ printf "Chain %d: Current work was preempted." cid
 
         -- TODO Formalize the signal content a bit more?
         realEvent :: ServerEvent -> Bool
@@ -327,32 +312,35 @@ mining go wb = do
     -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
     -- won the race instead, then the `go` call is automatically cancelled.
     --
-    miningSuccess :: HeaderBytes -> RIO Env ()
-    miningSuccess h = do
+    miningSuccess :: NominalDiffTime -> HeaderBytes -> RIO Env ()
+    miningSuccess before h = do
       e <- ask
+      !now <- liftIO getPOSIXTime
+      hashes <- readIORef (envStats e)
       let !v = version $ envArgs e
           !m = envMgr e
           !u = coordinator $ envArgs e
+          !r = (fromIntegral hashes :: Double) / realToFrac (now - before) / 1000000
       cid <- liftIO chain
       hgh <- liftIO height
-      logInfo $ cid <> ": Mined block at Height " <> hgh <> "."
-      r <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
-      when (isLeft r) $ logWarn "Failed to submit new BlockHeader!"
-
-updateStats :: Env -> Nonce -> Stats -> IO ()
-updateStats e n0 s = void $ atomicModifyIORef' (envStats e) (\m -> (M.insert n0 s m, ()))
+      logInfo . display . T.pack $
+          printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
+      res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
+      when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
 
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
     e <- ask
-    liftIO . fmap head . withScheduler comp $ \sch ->
+    T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
             n <- Nonce <$> MWC.uniform (envGen e)
-            new <- usePowHash (version $ envArgs e) (\p -> mine p (updateStats e) n tbytes) hbytes
+            new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
             terminateWith sch new
+    writeIORef (envStats e) ns
+    pure new
   where
     comp :: Comp
     comp = case cores cpue of

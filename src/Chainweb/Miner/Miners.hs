@@ -29,7 +29,7 @@ module Chainweb.Miner.Miners
 
 import Data.Bytes.Put (runPutS)
 import qualified Data.Map.Strict as M
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
@@ -119,8 +119,8 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     work :: BlockHeader -> IO BlockHeader
     work bh = do
         let T3 _ tbytes hbytes = transferableBytes bh
-        HeaderBytes newBytes <- usePowHash v (\p -> mine p (\_ _ -> return ()) (_blockNonce bh) tbytes) hbytes
-        runGet decodeBlockHeaderWithoutHash newBytes
+        T2 (HeaderBytes new) _ <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
+        runGet decodeBlockHeaderWithoutHash new
 
 -- | Can be piped to `workBytes` for a form suitable to use with
 -- `Chainweb.Miner.RestAPI.MiningApi_`.
