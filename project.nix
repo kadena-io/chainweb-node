@@ -1,9 +1,8 @@
-{ pactRef ? "d1d2096b2c027329962f6cf0224ff2a2c7630029"
-, pactSha ? "17gyy78xb8p7902j0619iqxrxc4dwhwy2ra0ycrqqpii14p28i2g"
+{ pactRef ? "5154b06995502cd975a971d49b22136ca7a521b7"
+, pactSha ? "0l4pjbjkvv6x2kds138mlv3lgcbw4b1pdj2j7x9bcghqs3f0h1z5"
 }:
 
 let
-
 pactSrc = builtins.fetchTarball {
   url = "https://github.com/kadena-io/pact/archive/${pactRef}.tar.gz";
   sha256 = pactSha;
