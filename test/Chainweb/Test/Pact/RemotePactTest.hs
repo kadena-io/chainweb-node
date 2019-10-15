@@ -279,7 +279,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 199999998.5)
+        [ (FieldKey "balance", PLiteral $ LDecimal 199999998.59)
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
         ]
 
