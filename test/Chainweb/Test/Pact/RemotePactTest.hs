@@ -144,10 +144,10 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 testCase "trivial local check" $
                 localTest iot net
               , after AllSucceed "trivial local check" $
-                testGroup "txgen test" [txgenTest 1 iot net]
-              , after AllSucceed "txgen test" $
                 testGroup "genesis allocations"
                   [ allocationTest iot net ]
+              , after AllSucceed "genesis allocations" $
+                testGroup "txgen test" [txgenTest 1 iot net]
               ]
     ]
 
@@ -183,7 +183,8 @@ txgenTest batchsize iot nio = testCaseSteps "txgen tests" $ \step -> do
                 CoinAccountBalance account -> acclookup account
                 CoinTransfer (SenderName sn) _ _ -> acclookup sn
                 CoinTransferAndCreate (SenderName acc) _ (Guard guardd) _ -> (acc, guardd)
-        meta <- makeMetaWithSender sender chain
+        meta' <- makeMetaWithSender sender chain
+        let meta = meta' { Pact._pmGasLimit = 10000 }
         createCoinContractRequest v meta ks req
 
     makeAccounts t chain = do
