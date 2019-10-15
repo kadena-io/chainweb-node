@@ -72,7 +72,8 @@ callMiner target minerPath blockBytes = bracketOnError startup kill go
                     errbytes
                     ]
                 fail "miner-failure"
-            return $! fst $ B16.decode outbytes
+            -- reverse -- we want little-endian
+            return $! B.reverse $ fst $ B16.decode outbytes
 
     startup = do
         Streams.writeTo Streams.stderr $ Just $ B.concat [
@@ -97,7 +98,7 @@ checkMinerOutput nonceB targetHex blockBytes0 = do
         ok <- fastCheckTarget (castPtr targetPtr) (castPtr hashPtr)
         return (ok, hashBytes)
   where
-    !blockBytes = nonceB <> B.drop 4 blockBytes0
+    !blockBytes = nonceB <> B.drop 8 blockBytes0
     hashBytes = SB.fromShort $ powHashBytes $ powHash Testnet02 blockBytes
     targetBytes = fst $ B16.decode targetHex
 
