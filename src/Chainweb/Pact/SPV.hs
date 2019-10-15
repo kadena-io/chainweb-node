@@ -56,6 +56,7 @@ import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
+import qualified Chainweb.Version as CW
 
 import Data.CAS
 
@@ -73,12 +74,14 @@ import Pact.Types.SPV
 --
 pactSPV
     :: forall cas
-    . MVar (CutDb cas)
+    . CW.ChainId
+      -- ^ chain id of the pact service
+    -> MVar (CutDb cas)
       -- ^ handle into the cutdb
     -> Logger
       -- ^ pact service logger
     -> SPVSupport
-pactSPV cdbv l = SPVSupport (verifySPV cdbv l) (verifyCont cdbv)
+pactSPV cid cdbv l = SPVSupport (verifySPV cid cdbv l) (verifyCont cid cdbv)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
@@ -86,7 +89,9 @@ pactSPV cdbv l = SPVSupport (verifySPV cdbv l) (verifyCont cdbv)
 --
 verifySPV
     :: forall cas
-    . MVar (CutDb cas)
+    . CW.ChainId
+      -- ^ chain id of the pact service
+    -> MVar (CutDb cas)
       -- ^ handle into the cut db
     -> Logger
       -- ^ pact service logger
@@ -96,7 +101,7 @@ verifySPV
     -> Object Name
       -- ^ the 'TransactionOutputProof' object to validate
     -> IO (Either Text (Object Name))
-verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
+verifySPV cid cdbv l typ proof = readMVar cdbv >>= go typ proof
   where
     go s o cdb = case s of
       "TXOUT" -> case extractProof o of
@@ -138,12 +143,13 @@ verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
 --
 verifyCont
     :: forall cas
-    . MVar (CutDb cas)
+    . CW.ChainId
+         MVar (CutDb cas)
       -- ^ handle into the cut db
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont cdbv (ContProof cp) = do
+verifyCont cid cdbv (ContProof cp) = do
     cdb <- readMVar cdbv
     t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
 
