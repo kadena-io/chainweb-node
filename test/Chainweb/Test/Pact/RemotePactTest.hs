@@ -140,6 +140,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testCase "trivial /local check" $
                 localTest iot net
+              , testGroup "gas for tx size"
+                [ txTooBigGasTest iot net ]
               ]
     ]
 
@@ -147,7 +149,7 @@ responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
     cenv <- _getClientEnv <$> networkIO
-    PollResponses theMap <- polling cid cenv rks
+    PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
@@ -211,7 +213,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       rks <- liftIO $ sending sid cenv batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ polling sid cenv rks
+      void $ liftIO $ polling sid cenv rks ExpectPactResult
 
       liftIO $ sleep 6
 
@@ -254,48 +256,55 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         ]
 
 
-txSizeGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-txSizeGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
+txTooBigGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     sid <- mkChainId v (0 :: Int)
 
-    let run batch = flip runClientM cenv $ do
+    let run batch expectation = flip runClientM cenv $ do
           void $ liftIO $ step "sendApiClient: submit transaction"
           rks <- liftIO $ sending sid cenv batch
 
           void $ liftIO $ step "pollApiClient: polling for request key"
-          void $ liftIO $ polling sid cenv rks
+          (PollResponses resp) <- liftIO $ polling sid cenv rks expectation
+          return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
     -- batch with big tx and insufficient gas
     batch0 <- mkTxBatch txcode0 A.Null 1
-    -- batch with function using a long list and insufficient gas to run function
-    batch1 <- mkTxBatch txcode1 A.Null 1
 
-    res0 <- run batch0
-    res1 <- run batch1
+    -- batch to test that gas for tx size discounted from the total gas supply
+    batch1 <- mkTxBatch txcode1 A.Null 4
+    
+    res0 <- run batch0 ExpectPactError
+    res1 <- run batch1 ExpectPactError
 
+    void $ liftIO $ step "when tx too big, gas pact error thrown"
     case res0 of
-      Left e -> assertFailure $ "test failure: " <> show e
-      Right cr -> assertEqual "expect /local allocation balance" (resultOf cr) gasError0
+      Left e -> assertFailure $ "test failure for big tx with insuffient gas: " <> show e
+      Right cr -> assertEqual "expect gas error for big tx" (resultOf <$> cr) gasError0
+
+    void $ liftIO $ step "discounts initial gas charge from gas available for pact execution"
+    case res1 of
+      Left e -> assertFailure $ "test failure for discounting initial gas charge: " <> show e
+      Right cr -> assertEqual "expect gas error after discounting initial gas charge" (resultOf <$> cr) gasError1
 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
-    gasError0 = Left $
+    gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "tx too big"
-    gasError1 = Left $
-      Pact.PactError Pact.GasError def [] "tx too big"
+    gasError1 = Just $ Left $
+      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 0) exceeded: 2"
 
     mkTxBatch code cdata limit = do
-      ks <- testKeyPairs someED25519Pair
+      ks <- testKeyPairs
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
       cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
       return $ SubmitBatch (pure cmd)
 
-    longList = T.replicate 10 " 1"
-    txcode0 = T.unpack $ T.concat ["[", longList, "]"]
-    txcode1 = T.unpack $ T.concat ["(at 0 ", "[", longList, "]", ")"]
+    txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
+    txcode1 = txcode0 <> "(identity 1)"
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -375,12 +384,15 @@ sending sid cenv batch =
 
 -- | Poll with retry using an exponential backoff
 --
+data PollingExpectation = ExpectPactError | ExpectPactResult
+
 polling
     :: ChainId
     -> ClientEnv
     -> RequestKeys
+    -> PollingExpectation
     -> IO PollResponses
-polling sid cenv rks =
+polling sid cenv rks pollingExpectation =
     recovering (exponentialBackoff 10000 <> limitRetries 10) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -403,7 +415,9 @@ polling sid cenv rks =
 
     rs = _rkRequestKeys rks
 
-    validate (PactResult a) = isRight a
+    validate (PactResult a) = case pollingExpectation of
+      ExpectPactResult -> isRight a
+      ExpectPactError -> isLeft a
 
     go m rk = case m ^. at rk of
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
