@@ -262,10 +262,7 @@ getWork = do
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
-mining
-    :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-    -> WorkBytes
-    -> RIO Env ()
+mining :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes) -> WorkBytes -> RIO Env ()
 mining go wb = do
     !now <- liftIO getPOSIXTime
     race updateSignal (go tbytes hbytes) >>= traverse_ (miningSuccess now)
