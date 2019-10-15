@@ -871,8 +871,8 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
-    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
-    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
+    T2 coinOut mc <- runCoinbase nonGenesisParentHash pactdbenv miner
+    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
@@ -885,8 +885,8 @@ runCoinbase
     :: Maybe BlockHash
     -> P.PactDbEnv p
     -> Miner
-    -> PactServiceM cas HashCommandResult
-runCoinbase Nothing _ _ = return noCoinbase
+    -> PactServiceM cas (T2 HashCommandResult ModuleCache)
+runCoinbase Nothing _ _ = return $ T2 noCoinbase mempty
 runCoinbase (Just parentHash) dbEnv miner = do
     psEnv <- ask
 
@@ -895,8 +895,8 @@ runCoinbase (Just parentHash) dbEnv miner = do
         !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- minerReward bh
-    cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
-    return $! toHashCommandResult cr
+    T2 cr mc <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
+    return $! T2 (toHashCommandResult cr) mc
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
 -- The output vector is in the same order as the input (i.e. you can zip it
@@ -906,9 +906,10 @@ applyPactCmds
     -> P.PactDbEnv p
     -> Vector ChainwebTransaction
     -> Miner
+    -> ModuleCache
     -> PactServiceM cas (Vector HashCommandResult)
-applyPactCmds isGenesis env cmds miner =
-    V.fromList . ($ []) . sfst <$> V.foldM f (T2 id mempty) cmds
+applyPactCmds isGenesis env cmds miner mc =
+    V.fromList . ($ []) . sfst <$> V.foldM f (T2 id mc) cmds
   where
     f  (T2 dl mcache) cmd = applyPactCmd isGenesis env cmd miner mcache dl
 
