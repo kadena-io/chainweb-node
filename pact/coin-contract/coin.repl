@@ -481,10 +481,9 @@
   "all allocation accounts must satisfy coin contract account max chars"
   (create-allocation-account "There he met Saunders Mac Lane. Mac Lane, then visiting Paris, was anxious to learn from Yoneda, and commenced an interview with Yoneda in a café at Gare du Nord. The interview was continued on Yoneda’s train until its departure. In its course, Mac Lane learned about the lemma and subsequently baptized it." (time "1900-10-31T00:00:00Z") "brandon" 200000.0))
 
-
-; (expect-failure
-;  "keyset-ref guards ..."
-;  (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 200000.0))
+(expect-failure
+ "account creation fails when no keyset corresponds with keyset ref"
+ (create-allocation-account "brandon" (time "2020-10-31T00:00:00Z") "brandon" 200000.0))
 
 ; successful keyset refs require defined keyset
 
@@ -521,6 +520,7 @@
 
 (expect
   "brandon has 10 coins released to his account in coin contract"
-  "brandon has 10.0 coins guarded by 'brandon"
-  (let* ((info:object{coin-schema} (account-info "brandon")))
-    (format "brandon has {} coins guarded by {}" [(at 'balance info) (at 'guard info)])))
+  true
+  (=
+    {"balance":10.0, "guard":(keyset-ref-guard "brandon")}
+    (account-info "brandon")))

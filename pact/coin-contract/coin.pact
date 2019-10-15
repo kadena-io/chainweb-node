@@ -474,12 +474,13 @@
   (defun create-allocation-account
     ( account:string
       date:time
-      guard-ref:string
+      keyset-ref:string
       amount:decimal
     )
 
-    @doc "Add an entry to the coin allocation table. Requires GENESIS \
-         \capability. "
+    @doc "Add an entry to the coin allocation table. This function \
+         \also creates a corresponding empty coin contract account \
+         \of the same name and guard. Requires GENESIS capability. "
 
     @model [ (property (valid-account account)) ]
 
@@ -492,14 +493,14 @@
     (enforce-unit amount)
 
     (let
-      ((guard:guard (keyset-ref-guard guard-ref)))
+      ((guard:guard (keyset-ref-guard keyset-ref)))
 
       (create-account account guard)
 
       (insert allocation-table account
         { "balance" : amount
         , "date" : date
-        , "guard" : (keyset-ref-guard guard-ref)
+        , "guard" : guard
         , "redeemed" : false
         })))
 
@@ -524,13 +525,12 @@
           "allocation funds have already been redeemed")
 
         (enforce
-          (>= (diff-time curr-time release-time) 0.0)
+          (>= curr-time release-time)
           (format "funds locked until {}. current time: {}" [release-time curr-time]))
 
         (enforce-guard guard)
 
         (with-capability (TRANSFER)
-          ; release funds via coinbase to account
           (credit account guard balance)
 
           (update allocation-table account
