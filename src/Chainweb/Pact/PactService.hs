@@ -512,7 +512,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                 pure valid
       where
         validations = [checkTimes]
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
     -- | Attempt to debit the Gas cost from the sender's "running balance".
     --
@@ -521,7 +521,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         | newBal < 0 = Nothing
         | otherwise = Just $ HM.adjust (const newBal) sender bs
       where
-        pm = P._pMeta . payloadObj $ P._cmdPayload tx
+        pm = P._pMeta . _payloadObj $ P._cmdPayload tx
         sender = P._pmSender pm
         P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
@@ -529,7 +529,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         newBal = bal - limitInCoin
 
     checkTimes :: ChainwebTransaction -> Bool
-    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
+    checkTimes = timingsCheck blockOriginationTime . fmap _payloadObj
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
@@ -549,7 +549,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                   Just (T2 b _) -> pure $ HM.insert sender b acc
       where
         sender :: Text
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
 
 validateChainwebTxsPreBlock
@@ -711,7 +711,7 @@ execLocal cmd = withDiscardedBatch $ do
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap payloadObj cmd)
+                _psPublicData _psSpvSupport (fmap _payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -872,13 +872,13 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
-    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner
-    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner
+    T2 coinOut mc <- runCoinbase nonGenesisParentHash pactdbenv miner
+    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes
-      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+      . fmap (T.decodeUtf8 . SB.fromShort . _payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 
@@ -886,8 +886,8 @@ runCoinbase
     :: Maybe BlockHash
     -> P.PactDbEnv p
     -> Miner
-    -> PactServiceM cas HashCommandResult
-runCoinbase Nothing _ _ = return noCoinbase
+    -> PactServiceM cas (T2 HashCommandResult ModuleCache)
+runCoinbase Nothing _ _ = return $ T2 noCoinbase mempty
 runCoinbase (Just parentHash) dbEnv miner = do
     psEnv <- ask
 
@@ -896,8 +896,8 @@ runCoinbase (Just parentHash) dbEnv miner = do
         !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- minerReward bh
-    cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
-    return $! toHashCommandResult cr
+    T2 cr mc <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
+    return $! T2 (toHashCommandResult cr) mc
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
 -- The output vector is in the same order as the input (i.e. you can zip it
@@ -907,9 +907,10 @@ applyPactCmds
     -> P.PactDbEnv p
     -> Vector ChainwebTransaction
     -> Miner
+    -> ModuleCache
     -> PactServiceM cas (Vector HashCommandResult)
-applyPactCmds isGenesis env cmds miner =
-    V.fromList . ($ []) . sfst <$> V.foldM f (T2 id mempty) cmds
+applyPactCmds isGenesis env cmds miner mc =
+    V.fromList . ($ []) . sfst <$> V.foldM f (T2 id mc) cmds
   where
     f  (T2 dl mcache) cmd = applyPactCmd isGenesis env cmd miner mcache dl
 
@@ -929,11 +930,9 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         !spv      = _psSpvSupport psEnv
         pactHash  = view P.cmdHash cmdIn
 
-    -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
-    let !cmd = payloadObj <$> cmdIn
     T2 !result mcache' <- liftIO $ if isGenesis
-        then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache
+        then applyGenesisCmd logger dbEnv pd spv (_payloadObj <$> cmdIn)
+        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
