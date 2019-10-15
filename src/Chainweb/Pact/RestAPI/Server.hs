@@ -331,13 +331,10 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     bh <- liftIO $! lookupCutM cid cut
 
     T2 bhe _bha <- liftIO (_pactLookup pe (Right bh) (pure ph)) >>= \case
-      Left e -> toErr
-        $ "Internal error: transaction hash lookup failed: "
-        <> sshow e
+      Left e ->
+        toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case v ^?! _head of
-        Nothing -> toErr
-          $ "Transaction hash not found: "
-          <> sshow ph
+        Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
         Just t -> return t
 
     idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
@@ -352,8 +349,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
         toErr $ "SPV target not reachable: " <> spvErrOf e
       Left e@SpvExceptionVerificationFailed{} ->
         toErr $ "SPV verification failed: " <> spvErrOf e
-      Left e ->
-        toErr $ "Internal error: SPV verification failed: " <> spvErrOf e
+      Left e -> toErr $ "Internal error: SPV verification failed: " <> spvErrOf e
       Right q -> return q
 
     return $! b64 p
@@ -371,7 +367,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr s = throwError $ err400 { errBody = s }
+    toErr e = throwError $ err400 { errBody = e }
 
     spvErrOf = BSL8.fromStrict
       . encodeUtf8

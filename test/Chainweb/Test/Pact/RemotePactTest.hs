@@ -224,17 +224,17 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       Right _ -> return ()
   where
     tid = Pact.ChainId "2"
+    ttl = 2 * 24 * 60 * 60
 
     mkTxBatch = do
       ks <- liftIO $ testKeyPairs sender00KeyPair
       t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
+      let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
       cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
       cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
-    txcode = show $
+    txcode = show
       [text|
          (coin.cross-chain-transfer
            'sender00
@@ -309,9 +309,10 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
 
     -- batch with the initial release request
-    batch0 <- mkTxBatch txcode0 A.Null
+    batch0 <- mkSingletonBatch iot sender00KeyPair tx0 (Just "0") pm
     -- batch with the account balance query
-    SubmitBatch batch1 <- mkTxBatch txcode1 A.Null
+    SubmitBatch batch1 <- mkSingletonBatch iot sender00KeyPair tx1 (Just "1") pm
+
     sid <- mkChainId v (0 :: Int)
 
     r <- flip runClientM cenv $ do
@@ -338,19 +339,28 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
         ]
 
-    mkTxBatch code cdata = do
-      ks <- testKeyPairs sender00KeyPair
-      t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
-      return $ SubmitBatch (pure cmd)
+    ttl = 2 * 24 * 60 * 60
+    pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl
 
-    txcode0 = concat ["(coin.release-allocation ", "\"sender00\")"]
-    txcode1 = concat ["(coin.account-info ", "\"sender00\")"]
+    tx0 = PactTransaction "(coin.release-allocation \"sender00\")" Nothing
+    tx1 = PactTransaction "(coin.account-info \"sender00\")" Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Utils
+
+mkSingletonBatch
+    :: IO (Time Integer)
+    -> ChainwebKeyPair
+    -> PactTransaction
+    -> Maybe String
+    -> (Pact.TxCreationTime -> Pact.PublicMeta)
+    -> IO SubmitBatch
+mkSingletonBatch iot kps (PactTransaction c d) nonce pmk = do
+    ks <- testKeyPairs kps
+    pm <- pmk . toTxCreationTime <$> iot
+    let dd = maybe A.Null id d
+    cmd <- liftIO $ mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
+    return $ SubmitBatch (cmd NEL.:| [])
 
 withRequestKeys
     :: IO (Time Integer)

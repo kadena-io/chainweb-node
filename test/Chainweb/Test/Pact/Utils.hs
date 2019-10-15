@@ -18,6 +18,7 @@
 module Chainweb.Test.Pact.Utils
 ( -- * Exceptions
   PactTestFailure(..)
+, ChainwebKeyPair
   -- * test data
 , sender00KeyPair
 , sender01KeyPair
@@ -324,7 +325,6 @@ data PactTransaction = PactTransaction
   , _pactData :: Maybe Value
   } deriving (Eq, Show)
 
-
 evalPactServiceM :: TestPactCtx cas -> PactServiceM cas a -> IO a
 evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
     (a,s') <- runStateT (runReaderT pact (_testPactCtxEnv ctx)) s
@@ -352,7 +352,7 @@ testPactCtx v cid cdbv bhdb pdb = do
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-    spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 testPactCtxSQLite
@@ -375,7 +375,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
-    spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 -- | A test PactExecutionService for a single chain
@@ -488,7 +488,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
     start ios cdbv = do
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
-          spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+          spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
       bhdb <- bhdbIO
