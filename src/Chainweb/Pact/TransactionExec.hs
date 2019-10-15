@@ -100,6 +100,11 @@ magic_COINBASE = mkMagicCapSlot "COINBASE"
 magic_FUND_TX :: CapSlot Capability
 magic_FUND_TX = mkMagicCapSlot "FUND_TX"
 
+-- | "Magic" capability 'GENESIS' used in the coin contract to
+-- constrain genesis-only allocations
+--
+magic_GENESIS :: CapSlot Capability
+magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 -- | The main entry point to executing transactions. From here,
 -- 'applyCmd' assembles the command environment for a command and
@@ -230,11 +235,11 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     let cmdEnv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd' spv nid
         requestKey = cmdToRequestKey cmd
     -- when calling genesis commands, we bring all magic capabilities in scope
-    let initState = initCapabilities [magic_FUND_TX, magic_COINBASE]
+    let initState = initCapabilities [magic_GENESIS, magic_COINBASE]
 
     resultE <- catchesPactError $! runPayload cmdEnv initState cmd [] permissiveNamespacePolicy
     fmap (`T2` mempty) $! case resultE of
-      Left e -> do
+      Left e ->
         jsonErrorResult' cmdEnv requestKey e [] (Gas 0)
           "genesis tx failure for request key while running genesis"
       Right (T2 result _) -> do
