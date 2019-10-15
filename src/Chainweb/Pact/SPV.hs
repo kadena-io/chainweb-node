@@ -104,7 +104,7 @@ verifySPV cid cdbv typ proof = readMVar cdbv >>= go typ proof
         Left t -> return (Left t)
         Right u
           | (view outputProofChainId u) /= cid ->
-            internalError "unable to decode spv transaction output"
+            internalError "cannot redeem spv proof on wrong target chain"
           | otherwise -> do
 
             -- SPV proof verification is a 3 step process:
@@ -151,7 +151,7 @@ verifyCont cid cdbv (ContProof cp) = do
       Nothing -> internalError "unable to decode continuation proof"
       Just u
         | (view outputProofChainId u) /= cid ->
-          internalError "cannot redeem cont proof on wrong target chain"
+          internalError "cannot redeem continuation proof on wrong target chain"
         | otherwise -> do
 
           -- Cont proof verification is a 3 step process:
