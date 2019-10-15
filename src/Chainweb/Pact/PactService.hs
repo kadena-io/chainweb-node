@@ -146,12 +146,13 @@ initPactService
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
-                nodeid resetDb =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
-                     nodeid resetDb $ do
-        initialPayloadState ver cid
-        serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid resetDb =
+    initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb go
+  where
+    spv :: P.SPVSupport
+    spv = pactSPV cid cdbv
+
+    go = initialPayloadState ver cid >> serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -159,7 +160,7 @@ initPactService'
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> (P.Logger -> P.SPVSupport)
+    -> P.SPVSupport
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
@@ -188,7 +189,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
       let !rs = readRewards ver
           gasModel = tableGasModel defaultGasConfig
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
+      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
                                 bhDb rs gasModel
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where
@@ -511,7 +512,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                 pure valid
       where
         validations = [checkTimes]
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
     -- | Attempt to debit the Gas cost from the sender's "running balance".
     --
@@ -520,7 +521,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         | newBal < 0 = Nothing
         | otherwise = Just $ HM.adjust (const newBal) sender bs
       where
-        pm = P._pMeta . payloadObj $ P._cmdPayload tx
+        pm = P._pMeta . _payloadObj $ P._cmdPayload tx
         sender = P._pmSender pm
         P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
@@ -528,7 +529,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         newBal = bal - limitInCoin
 
     checkTimes :: ChainwebTransaction -> Bool
-    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
+    checkTimes = timingsCheck blockOriginationTime . fmap _payloadObj
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
@@ -548,7 +549,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                   Just (T2 b _) -> pure $ HM.insert sender b acc
       where
         sender :: Text
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
 
 validateChainwebTxsPreBlock
@@ -710,7 +711,7 @@ execLocal cmd = withDiscardedBatch $ do
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap payloadObj cmd)
+                _psPublicData _psSpvSupport (fmap _payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -877,7 +878,7 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes
-      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+      . fmap (T.decodeUtf8 . SB.fromShort . _payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 
@@ -929,11 +930,9 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         !spv      = _psSpvSupport psEnv
         pactHash  = view P.cmdHash cmdIn
 
-    -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
-    let !cmd = payloadObj <$> cmdIn
     T2 !result mcache' <- liftIO $ if isGenesis
-        then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache
+        then applyGenesisCmd logger dbEnv pd spv (_payloadObj <$> cmdIn)
+        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.

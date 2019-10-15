@@ -156,7 +156,8 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
     {-# INLINE injectNonce #-}
 
     -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
-    -- in little endian encoding.
+    -- in little endian encoding, hence we compare against the target from the
+    -- end of the bytes first, then move toward the front 8 bytes at a time.
     --
     fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
     fastCheckTarget !trgPtr !powPtr =
@@ -175,6 +176,13 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
                         EQ -> return True
     {-# INLINE fastCheckTarget #-}
 
+    -- | Recall that `peekElemOff` acts like `drop` for the size of the type in
+    -- question. Here, this is `Word64`. Since our hash is treated as a
+    -- `Word256`, each @n@ knocks off a `Word64`'s worth of bytes, and there
+    -- would be 4 such sections (64 * 4 = 256).
+    --
+    -- This must never be called for @n >= 4@.
+    --
     fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
     fastCheckTargetN n trgPtr powPtr = compare
         <$> peekElemOff trgPtr n

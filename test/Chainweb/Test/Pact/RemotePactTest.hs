@@ -42,6 +42,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
+import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 
 import NeatInterpolation
@@ -63,6 +64,7 @@ import Pact.ApiReq (mkExec)
 import Pact.Types.API
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
+import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Names
@@ -136,8 +138,11 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 testCase "trivial /local check" $
                 localTest iot net
               , after AllSucceed "remote spv" $
+                testGroup "gas for tx size"
+                [ txTooBigGasTest iot net ]
+              , after AllSucceed "remote spv" $
                 testGroup "genesis allocations"
-                  [ allocationTest iot net ]
+                [ allocationTest iot net ]
               ]
     ]
 
@@ -145,7 +150,7 @@ responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
     cenv <- _getClientEnv <$> networkIO
-    PollResponses theMap <- polling cid cenv rks
+    PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
@@ -209,7 +214,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       rks <- liftIO $ sending sid cenv batch
 
       void $ liftIO $ step "pollApiClient: poll until key is found"
-      void $ liftIO $ polling sid cenv rks
+      void $ liftIO $ polling sid cenv rks ExpectPactResult
 
       void $ liftIO $ step "spvApiClient: submit request key"
       liftIO $ spv sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
@@ -219,17 +224,17 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       Right _ -> return ()
   where
     tid = Pact.ChainId "2"
+    ttl = 2 * 24 * 60 * 60
 
     mkTxBatch = do
       ks <- liftIO $ testKeyPairs sender00KeyPair
       t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
+      let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
       cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
       cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
-    txcode = show $
+    txcode = show
       [text|
          (coin.cross-chain-transfer
            'sender00
@@ -249,14 +254,65 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= tid
         ]
 
+txTooBigGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
+    cenv <- fmap _getClientEnv nio
+    sid <- mkChainId v (0 :: Int)
+
+    let run batch expectation = flip runClientM cenv $ do
+          void $ liftIO $ step "sendApiClient: submit transaction"
+          rks <- liftIO $ sending sid cenv batch
+
+          void $ liftIO $ step "pollApiClient: polling for request key"
+          (PollResponses resp) <- liftIO $ polling sid cenv rks expectation
+          return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
+
+    -- batch with big tx and insufficient gas
+    batch0 <- mkTxBatch txcode0 A.Null 1
+
+    -- batch to test that gas for tx size discounted from the total gas supply
+    batch1 <- mkTxBatch txcode1 A.Null 4
+    
+    res0 <- run batch0 ExpectPactError
+    res1 <- run batch1 ExpectPactError
+
+    void $ liftIO $ step "when tx too big, gas pact error thrown"
+    case res0 of
+      Left e -> assertFailure $ "test failure for big tx with insuffient gas: " <> show e
+      Right cr -> assertEqual "expect gas error for big tx" (resultOf <$> cr) gasError0
+
+    void $ liftIO $ step "discounts initial gas charge from gas available for pact execution"
+    case res1 of
+      Left e -> assertFailure $ "test failure for discounting initial gas charge: " <> show e
+      Right cr -> assertEqual "expect gas error after discounting initial gas charge" (resultOf <$> cr) gasError1
+
+  where
+    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
+    gasError0 = Just $ Left $
+      Pact.PactError Pact.GasError def [] "tx too big"
+    gasError1 = Just $ Left $
+      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 0) exceeded: 2"
+
+    mkTxBatch code cdata limit = do
+      ks <- testKeyPairs sender00KeyPair
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
+      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      return $ SubmitBatch (pure cmd)
+
+    txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
+    txcode1 = txcode0 <> "(identity 1)"
+
 allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
 
     -- batch with the initial release request
-    batch0 <- mkTxBatch txcode0 A.Null
+    batch0 <- mkSingletonBatch iot sender00KeyPair tx0 (Just "0") pm
     -- batch with the account balance query
-    SubmitBatch batch1 <- mkTxBatch txcode1 A.Null
+    SubmitBatch batch1 <- mkSingletonBatch iot sender00KeyPair tx1 (Just "1") pm
+
     sid <- mkChainId v (0 :: Int)
 
     r <- flip runClientM cenv $ do
@@ -264,7 +320,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       rks0 <- liftIO $ sending sid cenv batch0
 
       void $ liftIO $ step "pollApiClient: polling for allocation key"
-      void $ liftIO $ polling sid cenv rks0
+      void $ liftIO $ polling sid cenv rks0 ExpectPactResult
 
       void $ liftIO $ step "localApiClient: submit local account balance request"
       pactLocalApiClient v sid $ head (toList batch1)
@@ -279,23 +335,32 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 199999930.2)
+        [ (FieldKey "balance", PLiteral $ LDecimal 199999930.16)
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
         ]
 
-    mkTxBatch code cdata = do
-      ks <- testKeyPairs sender00KeyPair
-      t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
-      return $ SubmitBatch (pure cmd)
+    ttl = 2 * 24 * 60 * 60
+    pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl
 
-    txcode0 = concat ["(coin.release-allocation ", "\"sender00\")"]
-    txcode1 = concat ["(coin.account-info ", "\"sender00\")"]
+    tx0 = PactTransaction "(coin.release-allocation \"sender00\")" Nothing
+    tx1 = PactTransaction "(coin.account-info \"sender00\")" Nothing
 
 -- -------------------------------------------------------------------------- --
 -- Utils
+
+mkSingletonBatch
+    :: IO (Time Integer)
+    -> ChainwebKeyPair
+    -> PactTransaction
+    -> Maybe String
+    -> (Pact.TxCreationTime -> Pact.PublicMeta)
+    -> IO SubmitBatch
+mkSingletonBatch iot kps (PactTransaction c d) nonce pmk = do
+    ks <- testKeyPairs kps
+    pm <- pmk . toTxCreationTime <$> iot
+    let dd = maybe A.Null id d
+    cmd <- liftIO $ mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
+    return $ SubmitBatch (cmd NEL.:| [])
 
 withRequestKeys
     :: IO (Time Integer)
@@ -372,12 +437,15 @@ sending sid cenv batch =
 
 -- | Poll with retry using an exponential backoff
 --
+data PollingExpectation = ExpectPactError | ExpectPactResult
+
 polling
     :: ChainId
     -> ClientEnv
     -> RequestKeys
+    -> PollingExpectation
     -> IO PollResponses
-polling sid cenv rks =
+polling sid cenv rks pollingExpectation =
     recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
@@ -400,7 +468,9 @@ polling sid cenv rks =
 
     rs = _rkRequestKeys rks
 
-    validate (PactResult a) = isRight a
+    validate (PactResult a) = case pollingExpectation of
+      ExpectPactResult -> isRight a
+      ExpectPactError -> isLeft a
 
     go m rk = case m ^. at rk of
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
