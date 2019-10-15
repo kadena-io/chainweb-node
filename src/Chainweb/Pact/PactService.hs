@@ -146,12 +146,13 @@ initPactService
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
-                nodeid resetDb =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
-                     nodeid resetDb $ do
-        initialPayloadState ver cid
-        serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid resetDb =
+    initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb go
+  where
+    spv :: P.SPVSupport
+    spv = pactSPV cid cdbv
+
+    go = initialPayloadState ver cid >> serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -159,7 +160,7 @@ initPactService'
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> (P.Logger -> P.SPVSupport)
+    -> P.SPVSupport
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
@@ -188,7 +189,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
       let !rs = readRewards ver
           gasModel = tableGasModel defaultGasConfig
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
+      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
                                 bhDb rs gasModel
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where

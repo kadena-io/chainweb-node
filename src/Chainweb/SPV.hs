@@ -18,10 +18,13 @@
 module Chainweb.SPV
 ( SpvException(..)
 , TransactionProof(..)
+, proofChainId
 , TransactionOutputProof(..)
+, outputProofChainId
 ) where
 
 import Control.Applicative
+import Control.Lens (Getter, to)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -123,6 +126,11 @@ parseProof label mkProof = withObject label $ \o -> mkProof
 data TransactionProof a = TransactionProof ChainId (MerkleProof a)
     deriving (Show, Eq)
 
+-- | Getter into the chain id of a 'TransactionOutputProof'
+--
+proofChainId :: Getter (TransactionOutputProof a) ChainId
+proofChainId = to (\(TransactionOutputProof cid _) -> cid)
+
 instance ToJSON (TransactionProof SHA512t_256) where
     toJSON (TransactionProof cid p) = proofToJson cid p
 
@@ -144,3 +152,7 @@ instance ToJSON (TransactionOutputProof SHA512t_256) where
 instance FromJSON (TransactionOutputProof SHA512t_256) where
     parseJSON = parseProof "TransactionOutputProof" TransactionOutputProof
 
+-- | Getter into the chain id of a 'TransactionOutputProof'
+--
+outputProofChainId :: Getter (TransactionOutputProof a) ChainId
+outputProofChainId = to (\(TransactionOutputProof cid _) -> cid)
