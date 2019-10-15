@@ -62,10 +62,7 @@ import Control.Error.Util (hush)
 import Control.Monad
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
-import Data.ByteString.Builder
 import Data.Generics.Product.Fields (field)
-import Data.Map (Map)
-import qualified Data.Map as M
 import Data.Time.Clock.POSIX
 import Data.Tuple.Strict (T3(..))
 import Network.Connection (TLSSettings(..))
@@ -77,13 +74,14 @@ import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
 import RIO
 import RIO.List.Partial (head)
+import qualified RIO.Map as M
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Text as T
 import Servant.Client
 import qualified Streaming.Prelude as SP
 import qualified System.Random.MWC as MWC
-import Text.Printf
+import Text.Printf (printf)
 
 #if ! MIN_VERSION_rio(0,1,9)
 import System.Exit (exitFailure)
@@ -269,10 +267,13 @@ printStats = do
   e <- ask
   now <- liftIO getPOSIXTime
   m <- readIORef (envStats e)
-  let totalHashes = sum $ fmap (\(Nonce start,Stats (Nonce cur)) -> cur - start) $ M.toList m
-      elapsedTime = now - envStart e
-      hps = (fromIntegral totalHashes :: Double) / realToFrac elapsedTime
-  logInfo $ Utf8Builder $ byteString $ encodeUtf8 $ T.pack $ printf "%d hashes in %.0fs (%.2f MH/s)\n" totalHashes (realToFrac elapsedTime :: Double) (hps / 1000000.0)
+  let !hashes = M.foldlWithKey' f 0 m
+      !elapsedTime = realToFrac $ now - envStart e
+      !hps = (fromIntegral hashes :: Double) / elapsedTime
+      !msg = printf "%d hashes in %ds (%.2f MH/s)" hashes elapsedTime (hps / 1000000.0)
+  logInfo . display $ T.pack msg
+  where
+    f acc (Nonce s) (Stats (Nonce cur)) = acc + (cur - s)
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --

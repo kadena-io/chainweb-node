@@ -558,7 +558,6 @@ executable chainweb-miner
 
         -- external
         , base >= 4.11 && < 5
-        , bytestring >= 0.10
         , connection >= 0.2
         , containers >= 0.5
         , errors >= 2.3
