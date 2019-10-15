@@ -354,7 +354,7 @@ library
         , text >= 1.2
         , these >= 1 && < 1.1
         , time >= 1.8
-        , tls >=1.5
+        , tls >=1.5.2
         , token-bucket >= 0.1
         , transformers >= 0.5
         , unordered-containers >= 0.2
@@ -377,7 +377,7 @@ library
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
     if flag(use_systemd) && os(linux)
-        build-depends: systemd >= 1.2.0 && <2
+        build-depends: systemd >= 1.2
         cpp-options: -DWITH_SYSTEMD=1
 
 -- -------------------------------------------------------------------------- --
