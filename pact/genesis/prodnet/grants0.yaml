@@ -1,13 +1,12 @@
 # Internal testnet accounts
 code: |-
-  (coin.coinbase "croesus" (read-keyset "croesus") 9000000000.0)
   (coin.coinbase "anagha" (read-keyset "anagha") 500.0)
   (coin.coinbase "anastasia" (read-keyset "anastasia") 500.0)
   (coin.coinbase "andrew" (read-keyset "andrew") 500.0)
   (coin.coinbase "ben" (read-keyset "ben") 500.0)
   (coin.coinbase "colin" (read-keyset "colin") 500.0)
   (coin.coinbase "doug" (read-keyset "doug") 500.0)
-  (coin.coinbase "emily" (read-keyset "emily") 500.0)
+  (coin.coinbase "emily" (keyset-ref-guard "emily") 500.0)
   (coin.coinbase "emmanuel" (read-keyset "emmanuel") 500.0)
   (coin.coinbase "francesco" (read-keyset "francesco") 500.0)
   (coin.coinbase "heekyun" (read-keyset "heekyun") 500.0)
@@ -23,14 +22,14 @@ code: |-
   (coin.coinbase "tony" (read-keyset "tony") 500.0)
   (coin.coinbase "viv" (read-keyset "viv") 500.0)
   (coin.coinbase "will" (read-keyset "will") 500.0)
+
 data:
-  croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
   anagha: ["0d8dcae3b6fd805c552ea3bca93d9787624311f784f992be3a1ecd446102ccd9"]
   anastasia: ["1ec74de724b3c700737d99906aba48dbed6b90140bbc64133c558571b18883c3"]
   andrew: ["7d7a09b741e6726219709f7ab9790c69f8cd12b1026d0090ac7c52e9aa0ab74b"]
   ben: ["d8e512b2d08afaf20c59aaf2a0db57262c31965e4310e330c1ad8075ecaa3647"]
   colin: ["db776793be0fcf8e76c75bdb35a36e67f298111dc6145c66693b0133192e2616"]
-  doug: ["dea647009295dc015ba6e6359b85bafe09d2ce935a03c3bf83f775442d539025"]
+  doug: ["dea647009295dc015ba6e6359b85bafe09d2ce935a03c3b3f775442d539025"]
   emily: ["77a4947c43cdb4b4fdef00b10dc8446c0e591b73366861048c195bb6a59bf5b9"]
   emmanuel: ["a784a52984229ed28b703810cd452565759d88420875a5db257fa8e806ac9de5"]
   francesco: ["4b0f29b9e0a996587e5b5524731c91ecf02ecaa8b7e70e5f8f1881c5f0c18fc1"]
