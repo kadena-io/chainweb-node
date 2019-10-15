@@ -24,11 +24,11 @@ extra-deps:
 
   # --- Forced Upgrades --- #
   - generic-lens-1.2.0.0  # For generic newtype unwrapping
-  - tls-1.5.1
+  - tls-1.5.2
   - warp-tls-3.2.8        # To match `tls-1.5`
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: a2cc6ef0917c954fb8d51f0606a3c0cebca9cd55
+    commit: 5154b06995502cd975a971d49b22136ca7a521b7
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
