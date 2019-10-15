@@ -326,7 +326,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     case r of
       Left e -> assertFailure $ "test failure: " <> show e
-      Right cr -> assertEqual "expect /local allocation balance" (resultOf cr) accountInfo
+      Right cr -> assertEqual "expect /local allocation balance" accountInfo (resultOf cr)
 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
@@ -334,7 +334,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 199999998.55)
+        [ (FieldKey "balance", PLiteral $ LDecimal 199999930.16)
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
         ]
 

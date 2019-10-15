@@ -244,7 +244,7 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
           "genesis tx failure for request key while running genesis"
       Right (T2 result _) -> do
         logDebugRequestKey logger requestKey "successful genesis tx for request key"
-        return result
+        return $ result { _crGas = 0 }
 
 
 applyCoinbase
@@ -260,7 +260,7 @@ applyCoinbase
       -- ^ Contains block height, time, prev hash + metadata
     -> BlockHash
       -- ^ hash of the mined block
-    -> IO (CommandResult [TxLog Value])
+    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
     -- cmd env with permissive gas model
     let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport Nothing
@@ -273,7 +273,7 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
     cre <- catchesPactError $! applyExec' cenv initState cexec [] ch managedNamespacePolicy
 
     case cre of
-      Left e -> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
+      Left e -> (`T2` mempty) <$> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
       Right er -> do
         logDebugRequestKey logger rk
           $ "successful coinbase of "
@@ -281,8 +281,10 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
           ++ " to "
           ++ show mid
 
-        return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-          (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
+        return $! T2
+          (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
+           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing)
+          (_erLoadedModules er)
 
 applyLocal
     :: Logger
