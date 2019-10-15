@@ -253,7 +253,7 @@ validateOne
     -> Either InsertError t
 validateOne cfg badmap (Time (TimeSpan now)) t h =
     sizeOK
-    >> gasRoundingCheck
+    >> gasPriceRoundingChcek
     >> ttlCheck
     >> notInBadMap
     >> _inmemPreInsertPureChecks cfg t
@@ -274,9 +274,10 @@ validateOne cfg badmap (Time (TimeSpan now)) t h =
         TransactionMetadata (Time (TimeSpan ct)) (Time (TimeSpan et)) = txMetadata txcfg t
 
     -- prop_tx_gas_rounding
-    gasRoundingCheck :: Either InsertError ()
-    gasRoundingCheck = ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
+    gasPriceRoundingChcek :: Either InsertError ()
+    gasPriceRoundingChcek = ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
         where
+          -- Should a hop be specified as a constant in Chainweb.Utils?
           f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= 12
           msg = mconcat
             [ "This transaction's gas price: "
