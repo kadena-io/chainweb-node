@@ -508,7 +508,7 @@
     ( account:string )
 
     @doc "Release funds associated with allocation ACCOUNT into main ledger.   \
-         \ACCOUNT must already exist in main ledger. Allocation is deactivated
+         \ACCOUNT must already exist in main ledger. Allocation is deactivated \
          \after release."
     @model [ (property (valid-account account)) ]
 

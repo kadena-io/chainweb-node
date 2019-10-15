@@ -511,7 +511,7 @@
 
 (expect
   "successfully allocates funds for correct amounts and date"
-  "Allocation successful"
+  "Allocation successfully released to main ledger"
   (release-allocation "brandon"))
 
 (expect-failure
