@@ -507,7 +507,9 @@
   (defun release-allocation
     ( account:string )
 
-    @doc "Release funds associated with an allocation account"
+    @doc "Release funds associated with allocation ACCOUNT into main ledger.   \
+         \ACCOUNT must already exist in main ledger. Allocation is deactivated
+         \after release."
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
@@ -538,7 +540,7 @@
             , "balance" : 0.0
             })
 
-          "Allocation successful")
+          "Allocation successfully released to main ledger")
     )))
 
 )
