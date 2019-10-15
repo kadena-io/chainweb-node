@@ -105,8 +105,8 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       tls = callHackageDirect {
         pkg = "tls";
-        ver = "1.5.2";
-        sha256 = "00bps2bmp3ahlfw6wf7ifnni8kn306bbzapqcgsallnpgzx62gp1";
+        ver = "1.5.1";
+        sha256 = "0rh7302v2swbbfkjp15mgvs5xhbzqd0id30rqpjhmawszr1hnnd1";
       };
 
       warp-tls = callHackageDirect {

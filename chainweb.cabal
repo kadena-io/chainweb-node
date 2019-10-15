@@ -354,7 +354,7 @@ library
         , text >= 1.2
         , these >= 1 && < 1.1
         , time >= 1.8
-        , tls >=1.5.2
+        , tls >=1.5
         , token-bucket >= 0.1
         , transformers >= 0.5
         , unordered-containers >= 0.2
