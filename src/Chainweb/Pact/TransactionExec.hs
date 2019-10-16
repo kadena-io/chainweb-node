@@ -65,7 +65,7 @@ import Data.Decimal (Decimal,roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Maybe
-import Data.Text (Text, pack)
+import Data.Text (Text, pack, unpack)
 import Data.Tuple.Strict (T2(..), T3(..))
 
 -- internal Pact modules
@@ -159,7 +159,9 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache = applyBuyGas
     buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger
       freeGasEnv pd' spv nid
 
-    fatal = internalError
+    fatal e = do
+      logLog logger "ERROR" $ "critical transaction failure: " <> show requestKey <> ": " <> (unpack e)
+      internalError e
 
     applyBuyGas = do
 
