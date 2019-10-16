@@ -428,7 +428,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 1099906.16) -- 1k + 1mm - gas
+        [ (FieldKey "balance", PLiteral $ LDecimal 1099918.46) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
         ]
 
