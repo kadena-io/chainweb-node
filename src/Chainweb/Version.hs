@@ -532,7 +532,7 @@ blockRate Testnet02 = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
--- algorithm seen in `hashTarget`.
+-- algorithm seen in `adjust`.
 --
 newtype WindowWidth = WindowWidth Natural
 
