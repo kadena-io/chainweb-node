@@ -418,8 +418,7 @@ adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget = newTarget
   where
     br :: Natural
     br = case blockRate ver of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+        BlockRate (Seconds n) -> int n
 
     -- The average time in seconds that it took to mine each block in
     -- the given window.

@@ -519,16 +519,16 @@ newtype BlockRate = BlockRate Seconds
 -- number of seconds we expect to pass while a miner mines on various chains,
 -- eventually succeeding on one.
 --
-blockRate :: ChainwebVersion -> Maybe BlockRate
-blockRate Test{} = Nothing
-blockRate TimedConsensus{} = Just $ BlockRate 4
-blockRate PowConsensus{} = Just $ BlockRate 10
-blockRate TimedCPM{} = Just $ BlockRate 4
+blockRate :: ChainwebVersion -> BlockRate
+blockRate Test{} = BlockRate 0
+blockRate TimedConsensus{} = BlockRate 4
+blockRate PowConsensus{} = BlockRate 10
+blockRate TimedCPM{} = BlockRate 4
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate FastTimedCPM{} = Just $ BlockRate 1
-blockRate Development = Just $ BlockRate 30
+blockRate FastTimedCPM{} = BlockRate 1
+blockRate Development = BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Testnet02 = Just $ BlockRate 30
+blockRate Testnet02 = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
