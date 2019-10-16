@@ -52,6 +52,7 @@ data ChainwebHashTag
     | MinerDataTag
     | CoinbaseOutputTag
     | EpochStartTimeTag
+    | FeatureFlagsTag
     deriving (Show, Eq)
 
 instance MerkleUniverse ChainwebHashTag where
@@ -75,6 +76,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'MinerDataTag = 0x0017
     type MerkleTagVal ChainwebHashTag 'CoinbaseOutputTag = 0x0018
     type MerkleTagVal ChainwebHashTag 'EpochStartTimeTag = 0x0019
+    type MerkleTagVal ChainwebHashTag 'FeatureFlagsTag = 0x0020
 
 instance IsMerkleLogEntry ChainwebHashTag Void where
     type Tag Void = 'VoidTag
