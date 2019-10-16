@@ -52,14 +52,16 @@ module Chainweb.Pact.TransactionExec
 ) where
 
 import Control.Lens hiding ((.=))
-import Control.Monad (when,join)
+import Control.Monad (when)
 import Control.Monad.Catch (Exception(..))
 import Control.Monad.State (put)
+import Control.Monad.Trans.Maybe
+
 
 import Data.Aeson
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
-import Data.Decimal (roundTo)
+import Data.Decimal (Decimal,roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Maybe
@@ -73,13 +75,14 @@ import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
 import Pact.Types.Logger
 import Pact.Types.PactValue
+import Pact.Types.Pretty
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.Server
@@ -135,25 +138,19 @@ applyCmd
     -> ModuleCache
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
-  | initialGasFee > supply =
-    -- no gas actually charged
-    jsonErrorResult buyGasEnv requestKey
-    (PactError GasError def [] "tx too big") [] 0 mcache
-    ("tx failure for requestKey: gas limit of "
-      <> show (view geGasLimit naiveGasEnv) <> " but expected " <> show initialGas)
-  | otherwise = apply
-
+applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache = applyBuyGas
   where
     cmd = _payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
-    supply = gasSupplyOf cmd
-    nid = networkIdOf cmd
 
-    gasPrice = fromRational $ toRational $ gasPriceOf cmd
+    gasPrice = gasPriceOf cmd
+    gasLimit = fromIntegral $ gasLimitOf cmd
+    supply = gasFeeOf gasLimit gasPrice
+
     initialGas = initialGasOf (_cmdPayload cmdIn)
-    initialGasFee = gasFeeOf initialGas gasPrice
+
+    nid = networkIdOf cmd
 
     naiveGasEnv = mkGasEnvOf cmd gasModel
     -- Discount the initial gas charge from the Pact execution gas limit
@@ -162,64 +159,61 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache
     buyGasEnv = CommandEnv Nothing Transactional pactDbEnv logger
       freeGasEnv pd' spv nid
 
-    apply = do
+    fatal = internalError
+
+    applyBuyGas = do
 
       buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd miner supply mcache
 
       case buyGasResultE of
 
-        Left e1 ->
-          jsonErrorResult buyGasEnv requestKey e1 [] (Gas 0) mcache
-          "tx failure for requestKey when buying gas"
-        Right (Left e) ->
-          -- this call needs to fail hard if Left. It means the continuation did not process
-          -- correctly, and we should fail the transaction
-          internalError e
-        Right (Right (T3 pactId buyGasLogs mcache')) -> do
-          logDebugRequestKey logger requestKey "successful gas buy for request key"
+        Left e1 -> fatal $ "tx failure for requestKey when buying gas: " <> tShow e1
+        Right (Left e) -> fatal e
 
-          let !payloadEnv = set ceGasEnv userGasEnv
-                $ set cePublicData pd' buyGasEnv
+        Right (Right r) -> checkTooBigTx r $ applyPayload r
 
-          -- initialize refstate with cached module definitions
-          let st0 = initStateInterpreter $ setModuleCache mcache' def
+    checkTooBigTx (T3 _ buyGasLogs mcache') next
+      | initialGas >= gasLimit = jsonErrorResult buyGasEnv requestKey
+          (PactError GasError def [] $ "Tx too big (" <> pretty initialGas <> "), limit " <> pretty gasLimit)
+          buyGasLogs gasLimit mcache' "Tx too big"
 
-          cmdResultE <- catchesPactError $!
-            runPayload payloadEnv st0 cmd buyGasLogs managedNamespacePolicy
+      | otherwise = next
 
-          case cmdResultE of
+    applyPayload (T3 pactId buyGasLogs mcache') = do
+      let !payloadEnv = set ceGasEnv userGasEnv
+                        $ set cePublicData pd' buyGasEnv
 
-            Left e2 ->
-              -- we return the limit here as opposed to the supply (price * limit).
-              -- Private chains have no notion of price, and the user knows what price
-              -- they haggled for this tx, so this is justified.
-              let
-                (GasLimit (ParsedInteger !g)) = gasLimitOf cmd
-              in jsonErrorResult payloadEnv requestKey e2 buyGasLogs (Gas $ fromIntegral g) mcache'
-                 "tx failure for request key when running cmd"
-            Right (T2 cmdResult !mcache'') -> do
+      -- initialize refstate with cached module definitions
+      let st0 = initStateInterpreter $ setModuleCache mcache' def
 
-              logDebugRequestKey logger requestKey "success for requestKey"
+      cmdResultE <- catchesPactError $!
+        runPayload payloadEnv st0 cmd buyGasLogs managedNamespacePolicy
 
-              let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
-                  cmdLogs = fromMaybe [] $ _crLogs cmdResult
-              redeemResultE <- catchesPactError $!
-                redeemGas redeemGasEnv cmd initialGas cmdResult pactId cmdLogs mcache''
+      case cmdResultE of
 
-              case redeemResultE of
+        Left e2 -> jsonErrorResult payloadEnv requestKey e2 buyGasLogs gasLimit mcache'
+                   "tx failure for request key when running cmd"
+        Right r -> applyRedeem pactId payloadEnv r
 
-                Left e3 ->
+    applyRedeem pactId payloadEnv (T2 cmdResult !mcache'') = do
 
-                  jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult) mcache''
-                  "tx failure for request key while redeeming gas"
+      let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
+          cmdLogs = fromMaybe [] $ _crLogs cmdResult
+      redeemResultE <- catchesPactError $!
+                       redeemGas redeemGasEnv cmd initialGas cmdResult pactId cmdLogs mcache''
 
-                Right (T2 redeemResult !mcache''') -> do
+      case redeemResultE of
 
-                  let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
-                      !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
+        Left e3 ->
+          jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult) mcache''
+          "tx failure for request key while redeeming gas"
 
-                  logDebugRequestKey logger requestKey "successful gas redemption for request key"
-                  pure $! T2 finalResult $! mcache'''
+        Right (T2 redeemResult !mcache''') -> do
+
+          let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
+              !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
+
+          pure $! T2 finalResult $! mcache'''
 
 applyGenesisCmd
     :: Logger
@@ -471,17 +465,16 @@ initStateInterpreter s = defaultInterpreterState (const s)
 --   ignoring the size of a continuation proof, if present
 --
 initialGasOf :: PayloadWithText -> Gas
-initialGasOf cmd = Gas (fromIntegral gasFee)
+initialGasOf cmd = gasFee
   where
-    feePerByte :: Float = 0.01
+    feePerByte :: Decimal = 0.01
 
-    contProofSize :: Float = realToFrac $
+    contProofSize =
       case _pPayload (_payloadObj cmd) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
         _ -> 0
-    txSize :: Float = realToFrac (SB.length (_payloadBytes cmd))
-    actualSize = txSize - contProofSize
-    gasFee :: Int = ceiling (actualSize * feePerByte)
+    txSize = SB.length (_payloadBytes cmd) - contProofSize
+    gasFee = round $ fromIntegral txSize * feePerByte
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')
@@ -513,6 +506,7 @@ buyGas env cmd (Miner mid mks) supply mcache = go
     go = do
 
       buyGasCmd <- mkBuyGasCmd mid mks sender supply
+      -- print ("\n\nBUY GAS:",supply, "\n\n")
       result <- applyExec' env interp buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
@@ -524,40 +518,39 @@ buyGas env cmd (Miner mid mks) supply mcache = go
         Just pe -> return $! Right $ T3 (GasId $ _pePactId pe) (_erLogs result) mcache'
 
 findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
-findPayer = go
-  where
+findPayer = return Nothing -- disabled until tested
 
+_findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
+_findPayer = runMaybeT go
+  where
+    go = do
+      (m,qn,as) <- MaybeT findPayerCap
+      pMod <- MaybeT $ lookupModule qn m
+      MaybeT $ return $ validateMod pMod
+      capRef <- MaybeT $ resolveRef qn (QName qn)
+      return $ runCap (getInfo qn) capRef as
+
+    findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
     sigPayerCap (UserCapability q@(QualifiedName m n _) as) | n == "GAS_PAYER" = Just (m,q,as)
     sigPayerCap _ = Nothing
 
-    loadPayerMod (m,q,c) = fmap (,q,c) <$> lookupModule q m
-
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
-    validateMod (ModuleData (MDModule (Module {..})) _,q,as) | gasPayerIface `elem` _mInterfaces = Just (q,as)
+
+    validateMod (ModuleData (MDModule (Module {..})) _) | gasPayerIface `elem` _mInterfaces = Just ()
     validateMod _ = Nothing
 
-    capToApp q as = resolveRef qi (QName q) >>= \rr -> case rr of
-      Just r -> return $ App (TVar r qi) (map (liftTerm . fromPactValue) as) qi
-      Nothing -> undefined
-      where qi = getInfo q
+    mkApp i r as = App (TVar r i) (map (liftTerm . fromPactValue) as) i
 
-    runCap (q,as) input = do
-      app <- capToApp q as
-      ar <- evalCap q CapCallStack False app
+    runCap i capRef as input = do
+      ar <- evalCap i CapCallStack False $ mkApp i capRef as
       case ar of
         NewlyAcquired -> do
           r <- input
           popCapStack (const (return ()))
           return r
-        _ -> evalError' q "Internal error, GAS_PAYER already acquired"
-
-    go = do
-      payerModM <- findPayerCap >>= traverse loadPayerMod
-      case join (validateMod <$> join payerModM) of
-        Nothing -> return Nothing
-        Just c -> return $ Just $ runCap c
+        _ -> evalError' i "Internal error, GAS_PAYER already acquired"
 
 
 
@@ -581,7 +574,7 @@ redeemGas env cmd initialGas cmdResult gid prevLogs mcache = do
         rk         = cmdToRequestKey cmd
         initState  = initStateInterpreter $ setModuleCache mcache
           $ initCapabilities [magic_FUND_TX]
-
+    -- print ("\n\nREDEEM GAS:",rk,initialGas,_crGas cmdResult,fee, "\n\n")
     applyContinuation env initState rk (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
       managedNamespacePolicy
@@ -684,24 +677,17 @@ networkIdOf :: Command (Payload a b) -> Maybe NetworkId
 networkIdOf = _pNetworkId . _cmdPayload
 {-# INLINEABLE networkIdOf #-}
 
--- | Calculate gas supply (user-specified limit * user-specified price) of
--- a command
---
-gasSupplyOf :: Command (Payload PublicMeta c) -> GasSupply
-gasSupplyOf cmd = l * p
-  where
-    l :: GasSupply = fromIntegral @GasLimit @GasSupply $ gasLimitOf cmd
-    p :: GasSupply = fromRational $ toRational $ gasPriceOf cmd
-{-# INLINABLE gasSupplyOf #-}
-
 -- | Calculate the gas fee (pact-generate gas cost * user-specified gas price),
 -- rounding to the nearest stu.
 --
 gasFeeOf :: Gas -> GasPrice -> GasSupply
 gasFeeOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
   where
-    gs = roundTo 12 ((fromIntegral gas) * gp)
+    gs = toCoinUnit ((fromIntegral gas) * gp)
 {-# INLINABLE gasFeeOf #-}
+
+toCoinUnit :: Decimal -> Decimal
+toCoinUnit = roundTo 12
 
 -- | Log request keys at DEBUG when successful
 --
