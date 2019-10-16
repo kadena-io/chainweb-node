@@ -33,7 +33,7 @@
              (property (!= sender receiver)) ]
   )
 
-  (defpact transfer-chain:string
+  (defpact teleport:string
     ( sender:string
       receiver:string
       receiver-guard:guard
@@ -111,7 +111,7 @@
   (defun enforce-unit:bool
     ( amount:decimal
     )
-    " Enforce minimum precision allowed for transactions."
+    "Enforce minimum precision allowed for transactions."
   )
 
   (defun create-account:string
