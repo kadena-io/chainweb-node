@@ -1,9 +1,9 @@
-{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeApplications  #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Pact.TTL (tests) where
 
@@ -15,9 +15,9 @@ import Data.Aeson
 import Data.Bytes.Put
 import Data.CAS.HashMap
 import Data.List (foldl')
-import Data.Tuple.Strict
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import NeatInterpolation
@@ -108,7 +108,7 @@ testTTL genesisBlock iopdb iobhdb rr = do
           return $ Just "Expected a transaction validation failure."
 
 testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess _ttlcase iot  = MemPoolAccess
+testMemPoolAccess _ttlcase iot = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
@@ -196,8 +196,8 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-     HeaderBytes newBytes  <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
-     newHeader <- runGet decodeBlockHeaderWithoutHash newBytes
+     T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
+     newHeader <- runGet decodeBlockHeaderWithoutHash new
 
      _mv' <- r >>= validateBlock newHeader (toPayloadData payload)
 

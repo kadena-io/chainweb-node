@@ -93,6 +93,7 @@ module Chainweb.Test.Utils
 , runSched
 , runRocks
 , runSchedRocks
+, withArgs
 ) where
 
 import Control.Concurrent
@@ -127,6 +128,7 @@ import Numeric.Natural
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
 import System.Directory
+import System.Environment (withArgs)
 import System.IO.Temp
 import System.Random (randomIO)
 
