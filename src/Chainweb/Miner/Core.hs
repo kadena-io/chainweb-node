@@ -28,8 +28,9 @@ import Crypto.Hash.IO
 import Data.Bifunctor (second)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
@@ -107,26 +108,29 @@ mine
   -> Nonce
   -> TargetBytes
   -> HeaderBytes
-  -> IO HeaderBytes
-mine _ nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes $ \trgPtr -> do
-    !ctx <- hashMutableInit @a
-    fmap HeaderBytes . BA.copy hbytes $ \buf ->
-        allocaBytes (powSize :: Int) $ \pow -> do
+  -> IO (T2 HeaderBytes Word64)
+mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
+    nonces <- newIORef 0
+    BA.withByteArray tbytes $ \trgPtr -> do
+      !ctx <- hashMutableInit @a
+      new <- fmap HeaderBytes . BA.copy hbytes $ \buf ->
+          allocaBytes (powSize :: Int) $ \pow -> do
 
-            -- inner mining loop
-            --
-            let go !n = do
-                    -- Compute POW hash for the nonce
-                    injectNonce n buf
-                    hash ctx buf pow
+              -- inner mining loop
+              --
+              let go !n@(Nonce nv) = do
+                      -- Compute POW hash for the nonce
+                      injectNonce n buf
+                      hash ctx buf pow
 
-                    -- check whether the nonce meets the target
-                    fastCheckTarget trgPtr (castPtr pow) >>= \case
-                        True -> pure ()
-                        False -> go (succ n)
+                      -- check whether the nonce meets the target
+                      fastCheckTarget trgPtr (castPtr pow) >>= \case
+                          True -> writeIORef nonces (nv - o)
+                          False -> go (succ n)
 
-            -- Start inner mining loop
-            go nonce
+              -- Start inner mining loop
+              go orig
+      T2 new <$> readIORef nonces
   where
     bufSize :: Int
     !bufSize = B.length hbytes
