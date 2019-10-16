@@ -126,7 +126,7 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
                       -- check whether the nonce meets the target
                       fastCheckTarget trgPtr (castPtr pow) >>= \case
                           True -> writeIORef nonces (nv - o)
-                          False -> go (succ n)
+                          False -> go (Nonce $ nv + 1)
 
               -- Start inner mining loop
               go orig
