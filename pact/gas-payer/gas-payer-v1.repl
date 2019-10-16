@@ -1,0 +1,51 @@
+(load "../coin-contract/coin.repl")
+(env-data {'gas-payer-operate: ["operate"]})
+(env-keys ["operate"])
+(load "gas-payer-v1.pact")
+(load "gas-payer-v1-reference.pact")
+
+(verify 'gas-payer-v1-reference)
+
+(env-data {'alice: ["alice"], "buyer": ["buyer"]})
+(env-keys ["operate","buyer"])
+
+
+(test-capability (coin.COINBASE))
+(coin.coinbase "gas-payer" (create-gas-payer-guard) 10.0)
+(coin.create-account "gas-buyer" (read-keyset 'buyer))
+
+(expect-failure "gas should not be allowed pre-funding"
+  (test-capability (GAS_PAYER "alice" 1 1.0)))
+
+(fund-user "alice" (read-keyset "alice") 10.0)
+
+(expect-failure "gas should not be allowed without signature"
+  (test-capability (GAS_PAYER "alice" 1 1.0)))
+
+(env-sigs [{"key": "alice", "caps": [(GAS_PAYER "alice" 2 1.0)]}])
+
+(expect-failure "gas should not be allowed on mismatched sig cap"
+  (test-capability (GAS_PAYER "alice" 1 1.0)))
+
+;; note installing this way not because managed but to demonstrate
+;; key pinning for security.
+(env-sigs [{"key": "alice", "caps": [(GAS_PAYER "alice" 1 1.0)]}])
+
+(expect-failure "Cannot unlock payer account"
+  (coin.transfer "gas-payer" "gas-buyer" 1.0))
+
+(expect "GAS_PAYER acquired"
+  "Capability granted"
+  (test-capability (GAS_PAYER "alice" 1 1.0)))
+
+(expect "gas is allowed after cap is installed"
+  true
+  (require-capability (ALLOW_GAS)))
+
+(expect "user balance updated"
+  9.0
+  (user-balance "alice"))
+
+(expect "Gas buy succeeds"
+  "Write succeeded"
+  (coin.transfer "gas-payer" "gas-buyer" 1.0))
