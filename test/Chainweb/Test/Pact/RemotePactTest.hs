@@ -140,10 +140,9 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testGroup "gas for tx size"
                 [ txTooBigGasTest iot net ]
-              -- TODO disabled until dedicated allocation accounts are used
-              --, after AllSucceed "remote spv" $
-              --  testGroup "genesis allocations"
-              --  [ allocationTest iot net ]
+              , after AllSucceed "remote spv" $
+                testGroup "genesis allocations"
+                [ allocationTest iot net ]
               ]
     ]
 
@@ -309,7 +308,7 @@ allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     let testCaseStep = void . liftIO . step
-    
+
     cenv <- fmap _getClientEnv nio
     sid <- liftIO $ mkChainId v (0 :: Int)
 
