@@ -387,12 +387,11 @@ newtype FeatureFlags = FeatureFlags Word64
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON)
 
--- TODO
 encodeFeatureFlags :: MonadPut m => FeatureFlags -> m ()
-encodeFeatureFlags = undefined
+encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
 
 decodeFeatureFlags :: MonadGet m => m FeatureFlags
-decodeFeatureFlags = undefined
+decodeFeatureFlags = FeatureFlags <$> getWord64le
 
 instance IsMerkleLogEntry ChainwebHashTag FeatureFlags where
     type Tag FeatureFlags = 'FeatureFlagsTag
@@ -621,6 +620,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
+    encodeFeatureFlags (_blockFlags b)
 
 encodeBlockHeader
     :: MonadPut m
