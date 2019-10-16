@@ -1,9 +1,9 @@
 # Provides mock system module for 'accounts'
 code: |-
-  (coin.coinbase "sender00" (keyset-ref-guard "sender00") 100000000.0)
-  (coin.coinbase "sender01" (keyset-ref-guard "sender01") 110000000.0)
-  (coin.coinbase "sender02" (keyset-ref-guard "sender02") 120000000.0)
-  (coin.coinbase "sender03" (keyset-ref-guard "sender03") 130000000.0)
+  (coin.coinbase "sender00" (read-keyset "sender00") 100000000.0)
+  (coin.coinbase "sender01" (read-keyset "sender01") 110000000.0)
+  (coin.coinbase "sender02" (read-keyset "sender02") 120000000.0)
+  (coin.coinbase "sender03" (read-keyset "sender03") 130000000.0)
   (coin.coinbase "sender04" (read-keyset "sender04") 140000000.0)
   (coin.coinbase "sender05" (read-keyset "sender05") 150000000.0)
   (coin.coinbase "sender06" (read-keyset "sender06") 160000000.0)
@@ -12,6 +12,11 @@ code: |-
   (coin.coinbase "sender09" (read-keyset "sender09") 190000000.0)
   (coin.coinbase "multi-00-01" (read-keyset "multi-00-01") 101000000.0)
   (coin.coinbase "multi-02-03-04-any" (read-keyset "multi-02-03-04-any") 123400000.0)
+
+  ; enough to cover the gas costs for allocation release
+  (coin.coinbase "allocation00" (keyset-ref-guard "allocation00") 100000.0)
+  (coin.coinbase "allocation01" (keyset-ref-guard "allocation01") 100000.0)
+  (coin.coinbase "allocation02" (keyset-ref-guard "allocation02") 100000.0)
 
 data:
   sender00: ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
@@ -24,6 +29,10 @@ data:
   sender07: ["4c31dc9ee7f24177f78b6f518012a208326e2af1f37bb0a2405b5056d0cad628"]
   sender08: ["63b2eba4ed70d4612d3e7bc90db2fbf4c76f7b074363e86d73f0bc617f8e8b81"]
   sender09: ["c59d9840b0b66090836546b7eb4a73606257527ec8c2b482300fd229264b07e6"]
+  allocation00: ["d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"]
+  allocation01: ["b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"]
+  allocation02: ["0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"]
+
   multi-00-01:
     - "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
     - "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"

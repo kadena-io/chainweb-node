@@ -1,22 +1,17 @@
 # Internal testnet allocations
 code: |-
-  (define-keyset "sender00" (read-keyset "sender00"))
-  (coin.create-allocation-account "sender00" (time "1969-10-10T18:00:00Z") "sender00" 100000000.0)
+  (define-keyset "allocation00" (read-keyset "allocation00"))
+  (coin.create-allocation-account "allocation00" (time "1900-10-15T18:00:00Z") "allocation00" 1000000.0)
 
-  (define-keyset "sender01" (read-keyset "sender01"))
-  (coin.create-allocation-account "sender01" (time "2030-10-10T18:00:00Z") "sender01" 110000000.0)
+  (define-keyset "allocation01" (read-keyset "allocation01"))
+  (coin.create-allocation-account "allocation01" (time "2019-10-31T18:00:00Z") "allocation01" 1000000.0)
 
-  (define-keyset "sender02" (read-keyset "sender02"))
-  (coin.create-allocation-account "sender02" (time "2019-10-12T18:00:00Z") "sender02" 120000000.0)
-
-  (define-keyset "sender03" (read-keyset "sender03"))
-  (coin.create-allocation-account "sender03" (time "2019-10-11T18:00:00Z") "sender03" 130000000.0)
+  (define-keyset "allocation02" (read-keyset "allocation02"))
+  (coin.create-allocation-account "allocation02" (time "1900-10-31T18:00:00Z") "allocation02" 1000000.0)
 
 data:
-  sender00: ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
-  sender01: ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
-  sender02: ["3a9dd532d73dace195dbb64d1dba6572fb783d0fdd324685e32fbda2f89f99a6"]
-  sender03: ["43f2adb1de192000cb3777bacc7f983b6614fd9c1715cd44cd484b6d3a0d34c8"]
-
+  allocation00: ["d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"]
+  allocation01: ["b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"]
+  allocation02: ["e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"]
 nonce: testnet-allocations
 keyPairs: []
