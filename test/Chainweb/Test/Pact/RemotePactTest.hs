@@ -140,9 +140,10 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testGroup "gas for tx size"
                 [ txTooBigGasTest iot net ]
-              , after AllSucceed "remote spv" $
-                testGroup "genesis allocations"
-                [ allocationTest iot net ]
+              -- TODO disabled until dedicated allocation accounts are used
+              --, after AllSucceed "remote spv" $
+              --  testGroup "genesis allocations"
+              --  [ allocationTest iot net ]
               ]
     ]
 
@@ -279,19 +280,19 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     void $ liftIO $ step "when tx too big, gas pact error thrown"
     case res0 of
       Left e -> assertFailure $ "test failure for big tx with insuffient gas: " <> show e
-      Right cr -> assertEqual "expect gas error for big tx" (resultOf <$> cr) gasError0
+      Right cr -> assertEqual "expect gas error for big tx" gasError0 (resultOf <$> cr)
 
     void $ liftIO $ step "discounts initial gas charge from gas available for pact execution"
     case res1 of
       Left e -> assertFailure $ "test failure for discounting initial gas charge: " <> show e
-      Right cr -> assertEqual "expect gas error after discounting initial gas charge" (resultOf <$> cr) gasError1
+      Right cr -> assertEqual "expect gas error after discounting initial gas charge" gasError1 (resultOf <$> cr)
 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "tx too big"
+      Pact.PactError Pact.GasError def [] "Tx too big (3), limit 1"
     gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 0) exceeded: 2"
+      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 1) exceeded: 2"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair
@@ -308,7 +309,7 @@ allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     let testCaseStep = void . liftIO . step
-
+    
     cenv <- fmap _getClientEnv nio
     sid <- liftIO $ mkChainId v (0 :: Int)
 
