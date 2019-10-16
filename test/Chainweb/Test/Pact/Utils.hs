@@ -22,6 +22,8 @@ module Chainweb.Test.Pact.Utils
   -- * test data
 , sender00KeyPair
 , sender01KeyPair
+, allocation00KeyPair
+, allocation01KeyPair
 , testPactFilesDir
 , testKeyPairs
 , adminData
@@ -182,6 +184,25 @@ sender01KeyPair =
     , ED25519
     )
 
+allocation00KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation00KeyPair =
+    ( PubBS $ getByteString
+        "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , PrivBS $ getByteString
+        "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
+    , "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , ED25519
+    )
+
+allocation01KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation01KeyPair =
+    ( PubBS $ getByteString
+        "b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"
+    , PrivBS $ getByteString
+        "5dbbbd8b765b7d0cf8426d6992924b057c70a2138ecd4cf60cfcde643f304ea9"
+    , "b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"
+    , ED25519
+    )
 -- ----------------------------------------------------------------------- --
 -- helper logic
 
