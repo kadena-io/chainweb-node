@@ -37,8 +37,6 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
-, MinAdjustment(..)
-, minAdjust
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -552,23 +550,3 @@ window FastTimedCPM{} = Nothing
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet02 = Just $ WindowWidth 120
-
--- | The minimum factor of change that a single application of `adjust` must
--- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
--- this value should be above \(e = 2.71828\cdots\).
---
-newtype MinAdjustment = MinAdjustment Natural
-
--- | The Proof-of-Work `MinAdjustment` for each `ChainwebVersion`. For chainwebs
--- that do not expect to perform POW, this should be `Nothing`.
---
-minAdjust :: ChainwebVersion -> Maybe MinAdjustment
-minAdjust Test{} = Nothing
-minAdjust TimedConsensus{} = Nothing
-minAdjust PowConsensus{} = Just $ MinAdjustment 1
-minAdjust TimedCPM{} = Nothing
-minAdjust FastTimedCPM{} = Nothing
--- See `adjust` for motivation.
-minAdjust Development = Just $ MinAdjustment 1
-minAdjust Testnet02 = Just $ MinAdjustment 1
-
