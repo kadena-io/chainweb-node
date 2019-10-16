@@ -338,12 +338,12 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     step "negative allocation test: allocation01 release"
     q <- flip runClientM cenv $ do
-      batch2 <- liftIO
+      batch0 <- liftIO
         $ mkSingletonBatch iot allocation01KeyPair tx2 n2
         $ pm "allocation01"
 
       testCaseStep "sendApiClient: submit allocation release request"
-      rks <- liftIO $ sending sid cenv batch2
+      rks <- liftIO $ sending sid cenv batch0
 
       testCaseStep "pollApiClient: polling for allocation key"
       PollResponses r <- liftIO $ polling sid cenv rks ExpectPactError
@@ -357,17 +357,54 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
         _ -> assertFailure "unexpected pact result success in negative allocation test"
       _ -> assertFailure "unexpected failure in negative allocation test"
 
+
+    step "positive key-rotation test: allocation2"
+    r <- flip runClientM cenv $ do
+
+      batch0 <- liftIO
+        $ mkSingletonBatch iot allocation02KeyPair tx3 n3
+        $ pm "allocation02"
+
+      testCaseStep "senderApiClient: submit keyset rotation request"
+      rks <- liftIO $ sending sid cenv batch0
+
+      testCaseStep "pollApiClient: polling for successful rotation"
+      void $ liftIO $ polling sid cenv rks ExpectPactResult
+
+      testCaseStep "senderApiClient: submit allocation release request"
+      batch1 <- liftIO
+        $ mkSingletonBatch iot allocation02KeyPair' tx4 n4
+        $ pm "allocation02"
+
+      rks' <- liftIO $ sending sid cenv batch1
+      testCaseStep "pollingApiClient: polling for successful release"
+      void $ liftIO $ polling sid cenv rks' ExpectPactResult
+
+      testCaseStep "localApiClient: retrieving account info for allocation02"
+      SubmitBatch batch2 <- liftIO
+        $ mkSingletonBatch iot allocation02KeyPair' tx5 n5
+        $ pm "allocation02"
+
+      pactLocalApiClient v sid $ head (toList batch2)
+
+    case r of
+      Left e -> assertFailure $ "test failure: " <> show e
+      Right cr -> assertEqual "expect /local allocation balance" accountInfo' (resultOf cr)
+
   where
     n0 = Just "allocation-0"
     n1 = Just "allocation-1"
     n2 = Just "allocation-2"
+    n3 = Just "allocation-3"
+    n4 = Just "allocation-4"
+    n5 = Just "allocation-5"
 
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     accountInfo = Right
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 1000929.92) -- 1k + 1mm - gas
+        [ (FieldKey "balance", PLiteral $ LDecimal 1099929.92) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
@@ -377,6 +414,24 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     tx0 = PactTransaction "(coin.release-allocation \"allocation00\")" Nothing
     tx1 = PactTransaction "(coin.account-info \"allocation00\")" Nothing
     tx2 = PactTransaction "(coin.release-allocation \"allocation01\")" Nothing
+    tx3 =
+      let
+        c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
+        d = KeySet
+          [ "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a" ]
+          (Name $ BareName "keys-all" def)
+      in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
+    tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
+    tx5 = PactTransaction "(coin.account-info \"allocation02\")" Nothing
+
+    accountInfo' = Right
+      $ PObject
+      $ ObjectMap
+      $ M.fromList
+        [ (FieldKey "balance", PLiteral $ LDecimal 1099906.16) -- 1k + 1mm - gas
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
+        ]
+
 
 -- -------------------------------------------------------------------------- --
 -- Utils

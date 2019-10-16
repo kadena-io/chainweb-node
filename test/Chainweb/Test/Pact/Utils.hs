@@ -24,6 +24,8 @@ module Chainweb.Test.Pact.Utils
 , sender01KeyPair
 , allocation00KeyPair
 , allocation01KeyPair
+, allocation02KeyPair
+, allocation02KeyPair'
 , testPactFilesDir
 , testKeyPairs
 , adminData
@@ -201,6 +203,26 @@ allocation01KeyPair =
     , PrivBS $ getByteString
         "5dbbbd8b765b7d0cf8426d6992924b057c70a2138ecd4cf60cfcde643f304ea9"
     , "b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"
+    , ED25519
+    )
+
+allocation02KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation02KeyPair =
+    ( PubBS $ getByteString
+        "e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"
+    , PrivBS $ getByteString
+        "45f026b7a6bb278ed4099136c13e842cdd80138ab7c5acd4a1f0e6c97d1d1e3c"
+    , "e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"
+    , ED25519
+    )
+
+allocation02KeyPair' :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation02KeyPair' =
+    ( PubBS $ getByteString
+        "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"
+    , PrivBS $ getByteString
+        "2f75b5d875dd7bf07cc1a6973232a9e53dc1d4ffde2bab0bbace65cd87e87f53"
+    , "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"
     , ED25519
     )
 -- ----------------------------------------------------------------------- --
