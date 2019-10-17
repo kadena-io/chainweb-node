@@ -23,7 +23,7 @@
 
   (defschema coin-schema
     @doc "The coin contract token schema"
-    @model [ (invariant (>= balance 0.0)) ] ; FV problem
+    @model [ (invariant (>= balance 0.0)) ]
 
     balance:decimal
     guard:guard)
@@ -212,12 +212,11 @@
     )
 
   (defun create-account:string (account:string guard:guard)
-    @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
-    \account."
-
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
+
+    (enforce-guard guard)
 
     (insert coin-table account
       { "balance" : 0.0
@@ -226,8 +225,6 @@
     )
 
   (defun get-balance:decimal (account:string)
-    @doc "Check an account's balance."
-
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
@@ -240,20 +237,14 @@
 
   (defun details:object{fungible-v1.account-details}
     ( account:string )
-
-    @doc "Get all of an account's info.  This includes the balance and the    \
-    \guard."
-
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
 
-    (read coin-table account)
+    (+ { "account" : account } (read coin-table account))
     )
 
   (defun rotate:string (account:string new-guard:guard)
-    @doc "Rotate guard associated with ACCOUNT"
-
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
@@ -262,6 +253,7 @@
       { "guard" := old-guard }
 
       (enforce-guard old-guard)
+      (enforce-guard new-guard)
 
       (update coin-table account
         { "guard" : new-guard }
@@ -270,14 +262,9 @@
 
   (defun precision:integer
     ()
-    "Return the maximum allowed decimal precision."
     MINIMUM_PRECISION)
 
   (defun transfer:string (sender:string receiver:string amount:decimal)
-    @doc "Transfer AMOUNT between accounts SENDER and RECEIVER on the same    \
-    \chain. This fails if either SENDER or RECEIVER does not exist.           \
-    \Create-on-transfer can be done using the 'transfer-and-create' function."
-
     @model [ (property conserves-mass)
              (property (> amount 0.0))
              (property (valid-account sender))
@@ -310,15 +297,7 @@
       receiver-guard:guard
       amount:decimal )
 
-    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
-    \This fails if the SENDER account does not exist. If the RECEIVER account \
-    \does not exist, it is created and associated with GUARD."
-
-    @model [ ;(property conserves-mass) ;; fails on missing row, FV problem
-            (property (> amount 0.0))
-            (property (valid-account sender))
-            (property (valid-account receiver))
-            (property (!= sender receiver)) ]
+    @model [ (property conserves-mass) ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
@@ -423,27 +402,12 @@
         })
       ))
 
-  (defpact teleport:string
+  (defpact teleport-transfer:string
     ( sender:string
       receiver:string
       receiver-guard:guard
       target-chain:string
       amount:decimal )
-
-    @doc "Transfer QUANTITY coins from DELETE-ACCOUNT on current chain to           \
-         \CREATE-ACCOUNT on CREATE-CHAIN-ID. Target chain id must not be the        \
-         \current chain-id.                                                         \
-         \                                                                          \
-         \Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, \
-         \and produce an SPV receipt which may be manually redeemed for an SPV      \
-         \proof. Once a proof is obtained, the user may call 'create-coin' and      \
-         \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT QUANTITY-  \
-         \many coins.                                                               \
-         \                                                                          \
-         \Step 2: Consume an SPV proof for a number of coins, and credit the        \
-         \account associated with the proof the quantify of coins burned on the     \
-         \source chain by the burn account. Note: must be called on the correct     \
-         \chain id as specified in the proof."
 
     @model [ (property (> quantity 0.0))
              (property (!= receiver ""))
@@ -567,7 +531,7 @@
 
         (enforce-guard guard)
 
-        (with-capability (TRANSFER)
+        (with-capability (CREDIT account balance)
           (credit account guard balance)
 
           (update allocation-table account

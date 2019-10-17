@@ -6,7 +6,7 @@
 (commit-tx)
 (begin-tx)
 
-;; HUGE GLARING TODO - pending FV fixes in Pact
+; HUGE GLARING TODO - pending FV fixes in Pact
 ;(verify 'coin)
 
 (env-data { "emily" : ["keys1"], "doug": ["keys2"], "stuart": ["keys3"] })
@@ -54,7 +54,7 @@
 ; account information checks out for new accounts
 (expect
   "details reflects the correct balance and guard information"
-  {"balance": 0.0, "guard": (read-keyset 'doug)}
+  {"account" : "doug", "balance": 0.0, "guard": (read-keyset 'doug)}
   (details 'doug))
 
 
@@ -273,7 +273,7 @@
 
 (expect
   "details reflects the correct balance and guard information"
-  {"balance": 1.0, "guard": (read-keyset 'will)}
+  {"account" : "will", "balance": 1.0, "guard": (read-keyset 'will)}
   (details 'will))
 
 ;; coinbase should fail when 'COINBASE' capability is not in scope
@@ -296,7 +296,7 @@
 
 (expect
   "after coinbase, emily should have 1.6 coins in its account"
-  2.6
+  1.6
   (get-balance 'emily))
 
 
@@ -314,18 +314,18 @@
 
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
-  (teleport 'emily "1" 'doug (read-keyset 'doug) 0.0))
+  (teleport-transfer 'emily "1" 'doug (read-keyset 'doug) 0.0))
 
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
-  (teleport 'emily "1" 'doug (read-keyset 'doug) (- 1.0)))
+  (teleport-transfer 'emily "1" 'doug (read-keyset 'doug) (- 1.0)))
 
 (expect
   "burn side of cross-chain transfers succeed"
   "success"
   (let
     ((p
-      (teleport 'emily 'doug (read-keyset 'doug) "1" 1.0)))
+      (teleport-transfer 'emily 'doug (read-keyset 'doug) "1" 1.0)))
     "success"))
 
 ; make sure chain-id is enforced in the yield
@@ -356,7 +356,7 @@
 ;; account guard rotation
 (expect
   "account info for 'emily uses 'emily keyset pre-rotation"
-  "Account: 1.6 Guard: KeySet {keys: [keys1],pred: keys-all}"
+  "Account: 0.6 Guard: KeySet {keys: [keys1],pred: keys-all}"
   (let
     ((i (details 'emily)))
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
@@ -365,7 +365,7 @@
 (rotate 'emily (read-keyset 'doug))
 (expect
   "account info for 'emily uses 'doug keyset after rotation"
-  "Account: 1.6 Guard: KeySet {keys: [keys2],pred: keys-all}"
+  "Account: 0.6 Guard: KeySet {keys: [keys2],pred: keys-all}"
   (let ((i (details 'emily)))
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
 
@@ -393,40 +393,48 @@
   true
   (enforce-unit UNIT_GOOD))
 
-;; ;; Transfer
-;; (expect
-;;   "min transfer ok"
-;;   "Write succeeded"
-;;   (transfer 'emily 'doug UNIT_GOOD))
+(test-capability (TRANSFER "emily" "doug" UNIT_GOOD))
+;; Transfer
+(expect
+  "min transfer ok"
+  "Write succeeded"
+  (transfer 'emily 'doug UNIT_GOOD))
 
-;; (expect-failure
-;;   "bad transfer fails"
-;;   (transfer 'emily 'doug UNIT_BAD))
+ (expect-failure
+   "bad transfer fails"
+   (transfer 'emily 'doug UNIT_BAD))
 
-;;transfer-create
-;; (expect
-;;   "min transfer-create ok"
-;;   "Write succeeded"
-;;   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
+;; transfer-create
+(expect-failure
+  "TRANSFER capability fails when paid amount is exceeded"
+  (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
-;; (expect-failure
-;;   "bad transfer-create fails"
-;;   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
+(test-capability (DEBIT "emily" UNIT_GOOD))
+(test-capability (CREDIT "doug" UNIT_GOOD))
+(test-capability (TRANSFER "emily" "doug" (* 2 UNIT_GOOD)))
+(expect
+  "min transfer-create ok"
+  "Write succeeded"
+  (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
-;;teleport (step 0 only covered)
+ (expect-failure
+   "bad transfer-create fails"
+   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
+
+;;teleport-transfer (step 0 only covered)
 (pact-state true)
 
 (expect
-  "min teleport step 1 succeeds"
+  "min teleport-transfer step 1 succeeds"
   "success"
   (let ((s "success"))
-    (teleport 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
+    (teleport-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
     s))
 
 (pact-state true)
 (expect-failure
-  "bad teleport fails"
-  (teleport 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
+  "bad teleport-transfer fails"
+  (teleport-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
 
 ;;coinbase
 (test-capability (COINBASE))
@@ -499,6 +507,7 @@
 ; successful keyset refs require defined keyset
 
 (env-data { "brandon" : ["brandon"]})
+(env-keys ["brandon"])
 (define-keyset "brandon" (read-keyset "brandon"))
 
 (expect
@@ -520,18 +529,18 @@
 
 (env-chain-data { "block-time" : (time "2020-10-31T00:00:00Z") })
 
-;; (expect
-;;   "successfully allocates funds for correct amounts and date"
-;;   "Allocation successfully released to main ledger"
-;;   (release-allocation "brandon"))
+(expect
+ "successfully allocates funds for correct amounts and date"
+ "Allocation successfully released to main ledger"
+ (release-allocation "brandon"))
 
-;; (expect-failure
-;;   "releases fail when funds have been redeemed"
-;;   (release-allocation "brandon"))
+(expect-failure
+ "releases fail when funds have been redeemed"
+ (release-allocation "brandon"))
 
-;; (expect
-;;   "brandon has 10 coins released to his account in coin contract"
-;;   true
-;;   (=
-;;     {"balance":10.0, "guard":(keyset-ref-guard "brandon")}
-;;     (details "brandon")))
+(expect
+  "brandon has 10 coins released to his account in coin contract"
+  true
+  (=
+    {"account" : "brandon", "balance":10.0, "guard":(keyset-ref-guard "brandon")}
+    (details "brandon")))
