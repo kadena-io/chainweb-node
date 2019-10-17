@@ -70,6 +70,7 @@
     @managed TRANSFER-mgr
     (enforce (!= sender receiver) "same sender and receiver")
     (enforce-unit amount)
+    (enforce (> amount 0.0) "Positive amount")
     (compose-capability (DEBIT sender amount))
     (compose-capability (CREDIT receiver amount))
   )
@@ -84,7 +85,7 @@
     (let* ((bal:decimal (at 'amount managed))
            (amt:decimal (at 'amount requested))
            (rem:decimal (- bal amt)))
-      (enforce (>= rem 0.0) (format "TRANSFER exceeded for balance {}" bal))
+      (enforce (>= rem 0.0) (format "TRANSFER exceeded for balance {}" [bal]))
       (+ { 'amount: rem } managed))
   )
 

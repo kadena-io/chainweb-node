@@ -229,53 +229,52 @@
   "transfers of trivial or negative quantities fails fast"
   (transfer 'emily 'doug 0.0))
 
-;; (install-capability (coin.TRANSFER "emily" "doug" -1.0))
+(expect-failure "can't install negative"
+  (test-capability (coin.TRANSFER "emily" "doug" -1.0)))
 
-;; (expect-failure
-;;   "transfers of trivial or negative quantities fails fast"
-;;   (transfer 'emily 'doug (- 1.0)))
+(test-capability (coin.TRANSFER "emily" "doug" 1.0))
+(expect
+  "roundtrip 1.0 transfer succeeds" "Write succeeded"
+  (transfer 'emily 'doug 1.0))
 
-;; (install-capability (coin.TRANSFER "emily" "doug" 1.0))
-;; (expect
-;;   "roundtrip 1.0 transfer succeeds" "Write succeeded"
-;;   (transfer 'emily 'doug 1.0))
+;(expect
+;  "roundtrip 1.0 transfer succeeds" "Write succeeded"
+;  (transfer 'doug 'emily 1.0))
 
-;; (expect
-;;   "roundtrip 1.0 transfer succeeds" "Write succeeded"
-;;   (transfer 'doug 'emily 1.0))
+(expect-failure "emily->doug capability used up"
+  (transfer 'emily 'doug 1.0))
 
-;; (transfer 'emily 'doug 1.0)
+(expect
+  "emily now has 0.6 coins after transfer to 'doug"
+  0.6
+  (get-balance 'emily))
 
-;; (expect
-;;   "emily now has 0.6 coins after transfer to 'doug"
-;;   0.6
-;;   (get-balance 'emily))
+(expect
+  "doug now has 1.4 coins after transfer from 'emily"
+  1.4
+  (get-balance 'doug))
 
-;; (expect
-;;   "doug now has 1.4 coins after transfer from 'emily"
-;;   1.4
-;;   (get-balance 'doug))
+(expect-failure
+  "emily now has insufficient funds and cannot transfer"
+  (transfer 'emily 'doug 1.0))
 
-;; (expect-failure
-;;   "emily now has insufficient funds and cannot transfer"
-;;   (transfer 'emily 'doug 1.0))
-
-;; (transfer-create 'doug 'will (read-keyset 'will) 1.0)
+(test-capability (TRANSFER 'doug 'will 1.0))
+(transfer-create 'doug 'will (read-keyset 'will) 1.0)
 
 (expect
   "doug now has 0.4 coins"
   0.4
   (get-balance 'doug))
 
-;; (expect
-;;   "will now has 1.0 coins"
-;;   1.0
-;;   (get-balance 'will))
+(expect
+  "will now has 1.0 coins"
+  1.0
+  (get-balance 'will))
 
-;; (expect
-;;   "details reflects the correct balance and guard information"
-;;   {"balance": 1.0, "guard": (read-keyset 'will)}
-;;   (details 'will))
+(expect
+  "details reflects the correct balance and guard information"
+  {"balance": 1.0, "guard": (read-keyset 'will)}
+  (details 'will))
 
 ;; coinbase should fail when 'COINBASE' capability is not in scope
 ;; and should magically create tokens for users and reflect correct balance
