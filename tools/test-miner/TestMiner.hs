@@ -89,7 +89,7 @@ genOneBlockAndTest targetZeroes minerPath0 = do
         let msg = B.concat [
               "Successful result from miner in ",
               B.pack (show d),
-              "seconds.\n"
+              " seconds.\n"
               ]
         B.hPutStr stderr msg
     targetHex = makeTarget targetZeroes
