@@ -48,18 +48,13 @@
     "Magic capability constraining genesis transactions"
     true)
 
-  (defcap ACCOUNT_GUARD (account)
-    "Lookup and enforce guards associated with an account"
-    (with-read coin-table account { "guard" := g }
-      (enforce-guard g)))
-
   (defcap DEBIT (sender:string amount:decimal)
-    "Debit is protected by SENDER guard."
+    "Capability for managing debiting operations"
     (enforce-guard (at 'guard (read coin-table sender)))
     (enforce (!= sender "") "valid sender"))
 
   (defcap CREDIT (receiver:string amount:decimal)
-    "Credit marker guard."
+    "Capability for managing crediting operations"
     (enforce (!= receiver "") "valid receiver"))
 
   (defcap TRANSFER:bool
