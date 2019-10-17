@@ -92,6 +92,8 @@ import qualified Chainweb.Logging.Config as U
 import Utils.Logging
 import qualified Utils.Logging.Config as U
 
+import Chainweb.Mempool.RestAPI
+import Chainweb.Mempool.Mempool
 ---
 
 generateDelay :: MonadIO m => TXG m Int
@@ -432,6 +434,17 @@ singleTransaction args host (SingleTX c cid)
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
 
+
+inMempool :: Args -> HostAddress -> (ChainId, [TransactionHash]) -> IO ()
+inMempool args host (cid, txhashes)
+    | not . HS.member cid . chainIds $ nodeVersion args =
+      putStrLn "Invalid target ChainId" >> exitWith (ExitFailure 1)
+    | otherwise = do
+        (TXGConfig _ _ ce v _ _) <- mkTXGConfig Nothing args host
+        runClientM (isMempoolMember v cid txhashes) ce >>= \case
+          Left e -> print e >> exitWith (ExitFailure 1)
+          Right res -> pPrintNoColor res
+
 -- If we want package information in txg logs the following list should be
 -- populated with the respective information from the PkgInfo module.
 --
@@ -486,6 +499,8 @@ work cfg = do
           $ rk
         SingleTransaction stx -> liftIO $
           singleTransaction cfg host stx
+        MempoolMember req -> liftIO $ inMempool cfg host req
+
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
@@ -559,3 +574,30 @@ listen version chainid = go
 --         SomeChainIdT (_ :: Proxy cid) ->
 --           let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
 --           in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
+
+isMempoolMember :: ChainwebVersion -> ChainId -> [TransactionHash] -> ClientM [Bool]
+isMempoolMember version chainid = go
+  where
+    _ :<|> go :<|> _ :<|> _ = genapiMempool version chainid
+
+
+genapiMempool version chainid =
+  case someChainwebVersionVal version of
+    SomeChainwebVersionT (_ :: Proxy cv) ->
+      case someChainIdVal chainid of
+        SomeChainIdT (_ :: Proxy cid) -> client (Proxy :: Proxy (MempoolApi cv cid))
+
+---------------------------
+-- FOR DEBUGGING IN GHCI --
+---------------------------
+{-
+_genapi3 :: ChainwebVersion -> ChainId -> Text
+_genapi3 version chainid =
+  case someChainwebVersionVal version of
+    SomeChainwebVersionT (_ :: Proxy cv) ->
+      case someChainIdVal chainid of
+        SomeChainIdT (_ :: Proxy cid) ->
+          -- client (Proxy :: Proxy (MempoolApi cv cid))
+          let p = (Proxy :: Proxy (MempoolMemberApi cv cid))
+          in toUrlPiece $ safeLink (Proxy :: (Proxy (MempoolApi cv cid))) p
+-}

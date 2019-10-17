@@ -72,6 +72,7 @@ import System.Random.MWC (Gen)
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
+import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
 import Chainweb.Version
 
@@ -109,6 +110,7 @@ data TXCmd
   | PollRequestKeys Text
   | ListenerRequestKey Text
   | SingleTransaction SingleTX
+  | MempoolMember (ChainId, [TransactionHash])
   deriving (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
