@@ -1,4 +1,3 @@
-
 (interface fungible-v1
   " Standard for fungible coins and tokens as specified in KIP-0002. "
 
@@ -57,7 +56,7 @@
            ]
   )
 
-  (defcap TRANSFER:bool
+  (defcap TRANSFER
     ( sender:string
       receiver:string
       amount:decimal
@@ -73,7 +72,7 @@
     receiver:string
     amount:decimal)
 
-  (defun TRANSFER-mgr:object{transfer-schema}
+  (defun TRANSFER-mgr
     ( managed:object{transfer-schema}
       requested:object{transfer-schema}
     )

@@ -34,7 +34,7 @@
   ; --------------------------------------------------------------------------
   ; Capabilities
 
-  (defcap TRANSFER:bool
+  (defcap TRANSFER
     ( sender:string
       receiver:string
       amount:decimal
@@ -46,7 +46,7 @@
     (compose-capability (CREDIT receiver amount))
   )
 
-  (defun TRANSFER-mgr:object{transfer-schema}
+  (defun TRANSFER-mgr
     ( managed:object{transfer-schema}
       requested:object{transfer-schema}
     )
@@ -89,8 +89,7 @@
     true)
 
   (defcap GOVERNANCE ()
-    (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
-
+    true)
 
   ; --------------------------------------------------------------------------
   ; Constants
@@ -298,7 +297,7 @@
 
     (enforce-unit amount)
 
-    (with-capability (TRANSFER)
+    (with-capability (TRANSFER sender receiver amount)
       (debit sender amount)
       (with-read coin-table receiver
         { "guard" := g }
