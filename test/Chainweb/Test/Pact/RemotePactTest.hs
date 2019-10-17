@@ -399,7 +399,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     n4 = Just "allocation-4"
     n5 = Just "allocation-5"
 
-    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = (pr, g)
+    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     accountInfo = Right
       $ PObject
       $ ObjectMap
