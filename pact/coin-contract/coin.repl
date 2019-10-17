@@ -164,7 +164,18 @@
   "FUND-TX fails for insufficient funds"
   (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
-(credit 'emily (read-keyset 'emily) 1.0)
+(env-data { "fee" : 1.0 , "miner" : ["miner"] })
+
+(expect
+  "redeem-gas succeeds when fee is in scope"
+  "Write succeeded"
+  (redeem-gas "miner" (read-keyset "miner") "emily" 1.0))
+
+;; setup for next txs
+(env-data { "emily" : ["keys1"] })
+(env-keys ["keys1"])
+(test-capability (CREDIT "emily" 1.0))
+(credit "emily" (read-keyset "emily") 1.0)
 
 (commit-tx)
 

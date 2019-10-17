@@ -183,32 +183,33 @@
     (enforce-unit total)
 
     (require-capability (FUND_TX))
-    (with-capability (CREDIT miner total)
-      (let* ((fee (read-decimal "fee"))
-             (refund (- total fee)))
+    (let*
+      ((fee (read-decimal "fee"))
+       (refund (- total fee)))
 
-        (enforce-unit fee)
+      (enforce-unit fee)
+      (enforce (>= fee 0.0)
+        "fee must be a non-negative quantity")
 
-        (enforce (>= fee 0.0)
-          "fee must be a non-negative quantity")
-
-        (enforce (>= refund 0.0)
-          "refund must be a non-negative quantity")
+      (enforce (>= refund 0.0)
+        "refund must be a non-negative quantity")
 
         ; directly update instead of credit
+      (with-capability (CREDIT sender refund)
         (if (> refund 0.0)
-          (with-capability (CREDIT sender refund)
-            (with-read coin-table sender
-              { "balance" := balance }
-              (update coin-table sender
-              { "balance": (+ balance refund) })
-              ))
-          "noop")
+          (with-read coin-table sender
+            { "balance" := balance }
+            (update coin-table sender
+              { "balance": (+ balance refund) }))
 
+          "noop"))
+
+      (with-capability (CREDIT miner fee)
         (if (> fee 0.0)
           (credit miner miner-guard fee)
-          "noop")
-        ))
+          "noop"))
+      )
+
     )
 
   (defun create-account:string (account:string guard:guard)
@@ -356,15 +357,14 @@
     (enforce-unit amount)
 
     (require-capability (DEBIT account amount))
-    (with-capability (ACCOUNT_GUARD account)
-      (with-read coin-table account
-        { "balance" := balance }
+    (with-read coin-table account
+      { "balance" := balance }
 
-        (enforce (<= amount balance) "Insufficient funds")
+      (enforce (<= amount balance) "Insufficient funds")
 
-        (update coin-table account
-          { "balance" : (- balance amount) }
-          )))
+      (update coin-table account
+        { "balance" : (- balance amount) }
+        ))
     )
 
 
