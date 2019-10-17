@@ -52,7 +52,7 @@ makeTarget numZeroes = B.append (B.replicate numFs 'f') (B.replicate numZeroes '
   where
     numFs = max 0 (64 - numZeroes)
 
-callMiner :: ByteString -> FilePath -> ByteString -> IO ByteString
+callMiner :: ByteString -> FilePath -> ByteString -> IO (ByteString, ByteString)
 callMiner target minerPath blockBytes = bracketOnError startup kill go
   where
     targetHashStr = B.unpack target
@@ -73,7 +73,8 @@ callMiner target minerPath blockBytes = bracketOnError startup kill go
                     ]
                 fail "miner-failure"
             -- reverse -- we want little-endian
-            return $! B.reverse $ fst $ B16.decode outbytes
+            return (B.reverse $ fst $ B16.decode outbytes,
+                    errbytes)
 
     startup = do
         Streams.writeTo Streams.stderr $ Just $ B.concat [
@@ -114,10 +115,10 @@ genOneBlockAndTest
 genOneBlockAndTest targetZeroes minerPath = do
     blockBytes <- makeBlock
     t1 <- getTime Monotonic
-    nonceBytes <- callMiner targetHex minerPath blockBytes
+    (nonceBytes, errBytes) <- callMiner targetHex minerPath blockBytes
     t2 <- getTime Monotonic
     (ok, outHashBytes) <- checkMinerOutput nonceBytes targetHex blockBytes
-    if ok then reportOK (t2 - t1) else failHash nonceBytes outHashBytes
+    if ok then reportOK (t2 - t1) else failHash nonceBytes outHashBytes errBytes blockBytes
   where
     reportOK t = do
         let d = fromInteger (toNanoSecs t) / (1000000000 :: Double)
@@ -129,16 +130,33 @@ genOneBlockAndTest targetZeroes minerPath = do
         Streams.writeTo Streams.stderr $ Just msg
     targetHex = makeTarget targetZeroes
 
-    failHash nonceBytes outHashBytes = fail msg
+    failHash nonceBytes outHashBytes errBytes blockBytes = do
+        Streams.writeTo Streams.stderr $ Just $ mconcat [
+            B.pack msg
+            , "\n\nProcess stderr: \n"
+            , errBytes
+            , "\n\n"
+            ]
+        -- DEBUG
+        (ok', outHashBytes') <- checkMinerOutput (B.reverse nonceBytes) targetHex blockBytes
+        Streams.writeTo Streams.stderr $ Just $ mconcat [
+            "\n\n\nDEBUG:\n\n"
+            , "ok'="
+            , B.pack (show ok')
+            , "\n"
+            , B.pack (format (B.reverse nonceBytes) outHashBytes')
+            ]
+        fail msg
       where
-        msg = concat [ "FAILURE: miner outputted nonce "
-                     , B.unpack $ B16.encode nonceBytes
-                     , ", resulting in hash "
-                     , B.unpack $ B16.encode outHashBytes
-                     , ".\nThis does not match target hex "
-                     , B.unpack targetHex
-                     , "\n"
-                     ]
+        msg = format nonceBytes outHashBytes
+        format nb ohb = concat [ "FAILURE: miner outputted nonce "
+                               , B.unpack $ B16.encode nb
+                               , ", resulting in hash "
+                               , B.unpack $ B16.encode ohb
+                               , ".\nThis does not match target hex "
+                               , B.unpack targetHex
+                               , "\n"
+                               ]
 
 main :: IO ()
 main = do
