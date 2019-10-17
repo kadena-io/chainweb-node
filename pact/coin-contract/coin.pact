@@ -216,8 +216,6 @@
 
     (validate-account account)
 
-    (enforce-guard guard)
-
     (insert coin-table account
       { "balance" : 0.0
       , "guard"   : guard
@@ -225,10 +223,6 @@
     )
 
   (defun get-balance:decimal (account:string)
-    @model [ (property (valid-account account)) ]
-
-    (validate-account account)
-
     (with-read coin-table account
       { "balance" := balance }
       balance
@@ -237,17 +231,15 @@
 
   (defun details:object{fungible-v1.account-details}
     ( account:string )
-    @model [ (property (valid-account account)) ]
-
-    (validate-account account)
-
-    (+ { "account" : account } (read coin-table account))
+    (with-read coin-table account
+      { "balance" := bal
+      , "guard" := g }
+      { "account" : account
+      , "balance" : bal
+      , "guard": g })
     )
 
   (defun rotate:string (account:string new-guard:guard)
-    @model [ (property (valid-account account)) ]
-
-    (validate-account account)
 
     (with-read coin-table account
       { "guard" := old-guard }
@@ -402,6 +394,13 @@
         })
       ))
 
+
+  (defschema teleport-schema
+    @doc "Schema for yielded value in cross-chain transfers"
+    receiver:string
+    receiver-guard:guard
+    amount:decimal)
+
   (defpact teleport-transfer:string
     ( sender:string
       receiver:string
@@ -409,7 +408,7 @@
       target-chain:string
       amount:decimal )
 
-    @model [ (property (> quantity 0.0))
+    @model [ (property (> amount 0.0))
              (property (!= receiver ""))
              (property (valid-account sender))
              (property (valid-account receiver))
@@ -434,7 +433,7 @@
         (debit sender amount)
 
         (let
-          ((teleport-details
+          ((teleport-details:object{teleport-schema}
             { "receiver" : receiver
             , "receiver-guard" : receiver-guard
             , "amount" : amount
