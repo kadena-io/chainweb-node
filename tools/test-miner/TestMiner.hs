@@ -7,8 +7,6 @@
 
 module TestMiner (main) where
 
-import qualified Control.Concurrent.Async as Async
-import Control.Exception
 import Control.Monad
 import qualified Data.ByteString as B8
 import qualified Data.ByteString.Base16 as B16
@@ -19,12 +17,12 @@ import qualified Data.ByteString.Unsafe as B
 import Foreign.Ptr
 import Options.Applicative
 import System.Clock
-import System.Exit
-import qualified System.IO.Streams as Streams
-import System.Process
+import System.IO
+import qualified System.Path as P
 import qualified System.Random.MWC as MWC
 
-import Chainweb.Miner.Core (fastCheckTarget)
+import Chainweb.Miner.Core
+    (MiningResult(..), callExternalMiner, fastCheckTarget)
 import Chainweb.PowHash
 import Chainweb.Version
 
@@ -36,7 +34,7 @@ pMiner = strOption
 pTargetZeroes :: Parser Int
 pTargetZeroes = option auto
     (long "num-target-zeroes" <> value 20
-     <> help "how many leading zeroes (out of a possible 64) to require at the hex prefix")
+     <> help "how many target zeroes (out of a possible 64) to require at the hex suffix")
 
 pNumTrials :: Parser Int
 pNumTrials = option auto
@@ -51,42 +49,6 @@ makeTarget :: Int -> ByteString
 makeTarget numZeroes = B.append (B.replicate numFs 'f') (B.replicate numZeroes '0')
   where
     numFs = max 0 (64 - numZeroes)
-
-callMiner :: ByteString -> FilePath -> ByteString -> IO (ByteString, ByteString)
-callMiner target minerPath blockBytes = bracketOnError startup kill go
-  where
-    targetHashStr = B.unpack target
-    environment = [("TARGET_HASH", targetHashStr)]
-    kill (_, _, _, ph) = terminateProcess ph
-    go (pstdin, pstdout, pstderr, ph) = do
-        Streams.writeTo pstdin $ Just blockBytes
-        Streams.writeTo pstdin Nothing
-        Async.withAsync (readThread pstdout) $ \stdoutThread ->
-          Async.withAsync (readThread pstderr) $ \stderrThread -> do
-            code <- waitForProcess ph
-            (outbytes, errbytes) <- (,) <$> Async.wait stdoutThread
-                                        <*> Async.wait stderrThread
-            when (code /= ExitSuccess) $ do
-                Streams.writeTo Streams.stderr $ Just $ B.concat [
-                    "Got error from miner. Stderr was: ",
-                    errbytes
-                    ]
-                fail "miner-failure"
-            -- reverse -- we want little-endian
-            return (B.reverse $ fst $ B16.decode outbytes,
-                    errbytes)
-
-    startup = do
-        Streams.writeTo Streams.stderr $ Just $ B.concat [
-              "invoking '"
-            , B.pack minerPath
-            , " "
-            , target
-            , "'\n"
-            ]
-        Streams.runInteractiveProcess minerPath [targetHashStr] Nothing (Just environment)
-    readThread s = B.concat <$> Streams.toList s
-
 
 checkMinerOutput
     :: ByteString      -- ^ generated nonce
@@ -112,13 +74,15 @@ genOneBlockAndTest
     :: Int                      -- ^ num target hash zeroes
     -> FilePath                 -- ^ miner path
     -> IO ()
-genOneBlockAndTest targetZeroes minerPath = do
+genOneBlockAndTest targetZeroes minerPath0 = do
+    minerPath <- P.makeAbsolute $ P.fromFilePath minerPath0
     blockBytes <- makeBlock
     t1 <- getTime Monotonic
-    (nonceBytes, errBytes) <- callMiner targetHex minerPath blockBytes
+    (MiningResult nonceBytes _ _ errBytes) <-
+        either fail return =<< callExternalMiner minerPath [] True targetHex blockBytes
     t2 <- getTime Monotonic
     (ok, outHashBytes) <- checkMinerOutput nonceBytes targetHex blockBytes
-    if ok then reportOK (t2 - t1) else failHash nonceBytes outHashBytes errBytes blockBytes
+    if ok then reportOK (t2 - t1) else failHash nonceBytes outHashBytes errBytes
   where
     reportOK t = do
         let d = fromInteger (toNanoSecs t) / (1000000000 :: Double)
@@ -127,36 +91,27 @@ genOneBlockAndTest targetZeroes minerPath = do
               B.pack (show d),
               "seconds.\n"
               ]
-        Streams.writeTo Streams.stderr $ Just msg
+        B.hPutStr stderr msg
     targetHex = makeTarget targetZeroes
 
-    failHash nonceBytes outHashBytes errBytes blockBytes = do
-        Streams.writeTo Streams.stderr $ Just $ mconcat [
+    failHash nonceBytes outHashBytes errBytes = do
+        B.hPutStr stderr $ mconcat [
             B.pack msg
             , "\n\nProcess stderr: \n"
             , errBytes
             , "\n\n"
             ]
-        -- DEBUG
-        (ok', outHashBytes') <- checkMinerOutput (B.reverse nonceBytes) targetHex blockBytes
-        Streams.writeTo Streams.stderr $ Just $ mconcat [
-            "\n\n\nDEBUG:\n\n"
-            , "ok'="
-            , B.pack (show ok')
-            , "\n"
-            , B.pack (format (B.reverse nonceBytes) outHashBytes')
-            ]
         fail msg
       where
-        msg = format nonceBytes outHashBytes
-        format nb ohb = concat [ "FAILURE: miner outputted nonce "
-                               , B.unpack $ B16.encode nb
-                               , ", resulting in hash "
-                               , B.unpack $ B16.encode ohb
-                               , ".\nThis does not match target hex "
-                               , B.unpack targetHex
-                               , "\n"
-                               ]
+        msg = formatErr nonceBytes outHashBytes
+        formatErr nb ohb = concat [ "FAILURE: miner outputted nonce "
+                                  , B.unpack $ B16.encode nb
+                                  , ", resulting in hash "
+                                  , B.unpack $ B16.encode ohb
+                                  , ".\nThis does not match target hex "
+                                  , B.unpack targetHex
+                                  , "\n"
+                                  ]
 
 main :: IO ()
 main = do
