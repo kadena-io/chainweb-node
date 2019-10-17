@@ -37,7 +37,6 @@ import Data.Aeson (ToJSON)
 import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
--- import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -45,8 +44,6 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
-
-import Options.Applicative
 
 import System.LogLevel (LogLevel(..))
 
@@ -57,7 +54,6 @@ import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
--- import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction (mkPayloadWithText)
@@ -71,49 +67,54 @@ import Pact.Types.SPV (noSPVSupport)
 
 ---
 
-data Env = Env [FilePath]
-
-pEnv :: Parser Env
-pEnv = Env <$> many pTrans
-
-pTrans :: Parser FilePath
-pTrans = strOption
-    (long "transaction" <> metavar "PATH"
-    <> help "Path to YAML file containing a Pact transaction. Can be used multiple times. By default, loads the Coin Contract and Grants files.")
-
 main :: IO ()
 main = do
-    Env txs0 <- execParser opts
-    for_  graphs $ \(v, tag, grants, ns) -> do
-        let txs = bool txs0 [defCoinContract, grants, ns] $ null txs0
-        putStrLn $ "Generating Genesis Payload for " <> show v <> "..."
-        genPayloadModule v tag txs
+    for_ chain0 $ \(v, tag, txs) -> do
+        printf "Generating special Genesis Payload for %s on Chain 0...\n" $ show v
+        genPayloadModule v (tag <> "0") txs
+    for_ otherChains $ \(v, tag, txs) -> do
+        printf "Generating Genesis Payload for %s on all other Chains...\n" $ show v
+        genPayloadModule v (tag <> "N") txs
     putStrLn "Done."
   where
-    opts = info (pEnv <**> helper)
-        (fullDesc <> header "ea - Generate Pact Payload modules")
-
-    graphs =
-      [ (Development, "Development", devGrants, devNs)
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devGrants, devNs)
-      , (Testnet02, "Testnet", prodGrants, prodNs)
+    otherChains =
+      [ (Development, "Development", [coinContract, devNGrants, devNs])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, devNGrants, devNs])
+      , (Testnet02, "Testnet", [ coinContract, prodNGrants, prodNs ])
       ]
 
-defCoinContract :: FilePath
-defCoinContract = "pact/coin-contract/load-coin-contract.yaml"
+    chain0 =
+      [ (Development, "Development", [coinContract, devNs, devAllocations, dev0Grants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, devNs, devAllocations, dev0Grants])
+      , (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prod0Grants])
+      ]
 
-devGrants :: FilePath
-devGrants = "pact/genesis/testnet/grants.yaml"
+coinContract :: FilePath
+coinContract = "pact/coin-contract/load-coin-contract.yaml"
 
-prodGrants :: FilePath
-prodGrants = "pact/genesis/prodnet/grants.yaml"
+dev0Grants :: FilePath
+dev0Grants = "pact/genesis/testnet/grants0.yaml"
 
+devNGrants :: FilePath
+devNGrants = "pact/genesis/testnet/grantsN.yaml"
+
+prod0Grants :: FilePath
+prod0Grants = "pact/genesis/prodnet/grants0.yaml"
+
+prodNGrants :: FilePath
+prodNGrants = "pact/genesis/prodnet/grantsN.yaml"
 
 devNs :: FilePath
 devNs = "pact/genesis/testnet/ns.yaml"
 
 prodNs :: FilePath
 prodNs = "pact/genesis/prodnet/ns.yaml"
+
+devAllocations :: FilePath
+devAllocations = "pact/genesis/testnet/allocations.yaml"
+
+prodAllocations :: FilePath
+prodAllocations = "pact/genesis/prodnet/allocations.yaml"
 
 ---------------------
 -- Payload Generation
@@ -135,7 +136,7 @@ genPayloadModule v tag txFiles =
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger (const noSPVSupport)
+        payloadWO <- initPactService' v cid logger noSPVSupport
                          bhdb pdb Nothing Nothing False $
                          execNewGenesisBlock noMiner (V.fromList cwTxs)
 

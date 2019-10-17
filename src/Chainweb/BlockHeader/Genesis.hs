@@ -36,10 +36,12 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import qualified Chainweb.BlockHeader.Genesis.DevelopmentPayload as DN
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMPayload as TN
-import qualified Chainweb.BlockHeader.Genesis.TestnetPayload as PN
-import Chainweb.ChainId (ChainId, HasChainId(..), encodeChainId)
+import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
+import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
+import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
+import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph
@@ -48,7 +50,7 @@ import Chainweb.MerkleUniverse
 import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
 import Chainweb.Time (Time(..), TimeSpan(..), epoch)
-import Chainweb.Version (ChainwebVersion(..), chainIds, encodeChainwebVersion)
+import Chainweb.Version
 
 ---
 
@@ -101,12 +103,20 @@ genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
-genesisBlockPayload TimedCPM{} _ = TN.payloadBlock
-genesisBlockPayload FastTimedCPM{} _ = TN.payloadBlock
+genesisBlockPayload TimedCPM{} _ = TNN.payloadBlock
+genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
+    0 -> TN0.payloadBlock
+    _ -> TNN.payloadBlock
+
 -- Development Instances
-genesisBlockPayload Development _ = DN.payloadBlock
+genesisBlockPayload Development cid = case chainIdInt @Int cid of
+    0 -> DN0.payloadBlock
+    _ -> DNN.payloadBlock
+
 -- Production Instances
-genesisBlockPayload Testnet02 _ = PN.payloadBlock
+genesisBlockPayload Testnet02 cid = case chainIdInt @Int cid of
+    0 -> PN0.payloadBlock
+    _ -> PNN.payloadBlock
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'
@@ -145,6 +155,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         :+: BlockHeight 0
         :+: v
         :+: EpochStartTime t
+        :+: FeatureFlags 0
         :+: MerkleLogBody (blockHashRecordToVector adjParents)
     adjParents = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)

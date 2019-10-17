@@ -22,8 +22,9 @@ module Chainweb.Test.Pact.SPV
   tests
   -- * repl tests
 , standard
-, wrongchain
-, badproof
+, wrongChain
+, wrongChainProof
+, invalidProof
 ) where
 
 import Control.Concurrent.MVar
@@ -91,12 +92,13 @@ import Data.LogMessage
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
     [ testCase "standard SPV verification round trip" standard
-    , testCase "wrong chain execution fails" wrongchain
-    , testCase "invalid proof formats fail" badproof
+    , testCase "wrong chain execution fails" wrongChain
+    , testCase "invalid proof formats fail" invalidProof
+    , testCase "wrong target chain in proofs fail" wrongChainProof
     ]
 
 v :: ChainwebVersion
-v = FastTimedCPM petersonChainGraph
+v = FastTimedCPM triangleChainGraph
 
 logg :: LogMessage a => LogLevel -> a -> IO ()
 logg l
@@ -145,13 +147,18 @@ expectSuccess test = do
 standard :: Assertion
 standard = expectSuccess $ roundtrip 0 1 txGenerator1 txGenerator2
 
-wrongchain :: Assertion
-wrongchain = expectFailure "enforceYield: yield provenance" $
+wrongChain :: Assertion
+wrongChain = expectFailure "enforceYield: yield provenance" $
     roundtrip 0 1 txGenerator1 txGenerator3
 
-badproof :: Assertion
-badproof = expectFailure "resumePact: no previous execution found" $
+invalidProof :: Assertion
+invalidProof = expectFailure "resumePact: no previous execution found" $
     roundtrip 0 1 txGenerator1 txGenerator4
+
+wrongChainProof :: Assertion
+wrongChainProof = expectFailure "cannot redeem continuation proof on wrong target chain" $
+    roundtrip 0 1 txGenerator1 txGenerator5
+
 
 withAll :: ChainwebVersion -> ([SQLiteEnv] -> IO c) -> IO c
 withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
@@ -228,7 +235,7 @@ roundtrip sid0 tid0 burn create =
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            c2 <- fmap fromJuste $ extendAwait cutDb pact1 80 $ \c ->
+            c2 <- fmap fromJuste $ extendAwait cutDb pact1 10 $ \c ->
                 height tid c > diam + height sid c1
 
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
@@ -292,7 +299,7 @@ txGenerator1 time pidv sid tid = do
             readIORef ref1 >>= \case
               True -> return mempty
               False -> do
-                ks <- testKeyPairs
+                ks <- testKeyPairs sender00KeyPair
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
@@ -350,7 +357,7 @@ txGenerator2 time cdbv pidv sid tid bhe = do
                 let pcid = Pact.ChainId (chainIdToText tid)
                     proof = Just . ContProof . B64U.encode . toStrict . Aeson.encode . toJSON $ q
 
-                ks <- testKeyPairs
+                ks <- testKeyPairs sender00KeyPair
                 pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
@@ -375,7 +382,7 @@ txGenerator3 time cdbv pidv sid tid bhe = do
                 let pcid = Pact.ChainId (chainIdToText sid)
                     proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
-                ks <- testKeyPairs
+                ks <- testKeyPairs sender00KeyPair
                 pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
@@ -396,8 +403,35 @@ txGenerator4 time _cdbv pidv _ tid _ = do
 
                 let pcid = Pact.ChainId (chainIdToText tid)
 
-                ks <- testKeyPairs
+                ks <- testKeyPairs sender00KeyPair
                 pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
+                    `finally` writeIORef ref True
+
+-- | Execute on the create-coin command on the correct target chain, with a proof
+-- pointing at the wrong target chain
+--
+txGenerator5 :: CreatesGenerator
+txGenerator5 time cdbv pidv sid tid bhe = do
+    ref <- newIORef False
+    return $ go ref
+  where
+    go ref cid _bhe _bha _
+        | tid /= cid = return mempty
+        | otherwise = readIORef ref >>= \case
+            True -> return mempty
+            False -> do
+                cdb <- readMVar cdbv
+                tid' <- chainIdFromText "2"
+                q <- fmap toJSON
+                    $ createTransactionOutputProof cdb tid' sid bhe 0
+
+                let pcid = Pact.ChainId (chainIdToText sid)
+                    proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
+
+                ks <- testKeyPairs sender00KeyPair
+                pid <- readMVar pidv
+
+                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True

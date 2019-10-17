@@ -29,8 +29,9 @@ import Crypto.Hash.IO
 import Data.Bifunctor (second)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString as B
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
@@ -108,26 +109,29 @@ mine
   -> Nonce
   -> TargetBytes
   -> HeaderBytes
-  -> IO HeaderBytes
-mine _ nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes $ \trgPtr -> do
-    !ctx <- hashMutableInit @a
-    fmap HeaderBytes . BA.copy hbytes $ \buf ->
-        allocaBytes (powSize :: Int) $ \pow -> do
+  -> IO (T2 HeaderBytes Word64)
+mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
+    nonces <- newIORef 0
+    BA.withByteArray tbytes $ \trgPtr -> do
+      !ctx <- hashMutableInit @a
+      new <- fmap HeaderBytes . BA.copy hbytes $ \buf ->
+          allocaBytes (powSize :: Int) $ \pow -> do
 
-            -- inner mining loop
-            --
-            let go !n = do
-                    -- Compute POW hash for the nonce
-                    injectNonce n buf
-                    hash ctx buf pow
+              -- inner mining loop
+              --
+              let go !n@(Nonce nv) = do
+                      -- Compute POW hash for the nonce
+                      injectNonce n buf
+                      hash ctx buf pow
 
-                    -- check whether the nonce meets the target
-                    fastCheckTarget trgPtr (castPtr pow) >>= \case
-                        True -> pure ()
-                        False -> go (succ n)
+                      -- check whether the nonce meets the target
+                      fastCheckTarget trgPtr (castPtr pow) >>= \case
+                          True -> writeIORef nonces (nv - o)
+                          False -> go (Nonce $ nv + 1)
 
-            -- Start inner mining loop
-            go nonce
+              -- Start inner mining loop
+              go orig
+      T2 new <$> readIORef nonces
   where
     bufSize :: Int
     !bufSize = B.length hbytes
@@ -144,17 +148,18 @@ mine _ nonce (TargetBytes tbytes) (HeaderBytes hbytes) = BA.withByteArray tbytes
             hashInternalFinalize ctxPtr $ castPtr pow
     {-# INLINE hash #-}
 
-    -- | `injectNonce` makes low-level assumptions about the byte layout of a
-    -- hashed `BlockHeader`. If that layout changes, this functions need to be
-    -- updated. The assumption allows us to iterate on new nonces quickly.
-    --
-    injectNonce :: Nonce -> Ptr Word8 -> IO ()
-    injectNonce (Nonce n) buf = poke (castPtr buf) n
-    {-# INLINE injectNonce #-}
-
--- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
--- in little endian encoding.
+-- | `injectNonce` makes low-level assumptions about the byte layout of a
+-- hashed `BlockHeader`. If that layout changes, this functions need to be
+-- updated. The assumption allows us to iterate on new nonces quickly.
 --
+injectNonce :: Nonce -> Ptr Word8 -> IO ()
+injectNonce (Nonce n) buf = poke (castPtr buf) n
+{-# INLINE injectNonce #-}
+
+
+-- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers in
+-- little endian encoding, hence we compare against the target from the end of
+-- the bytes first, then move toward the front 8 bytes at a time.
 fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
 fastCheckTarget !trgPtr !powPtr =
     fastCheckTargetN 3 trgPtr powPtr >>= \case
@@ -172,6 +177,12 @@ fastCheckTarget !trgPtr !powPtr =
                     EQ -> return True
 {-# INLINE fastCheckTarget #-}
 
+-- | Recall that `peekElemOff` acts like `drop` for the size of the type in
+-- question. Here, this is `Word64`. Since our hash is treated as a `Word256`,
+-- each @n@ knocks off a `Word64`'s worth of bytes, and there would be 4 such
+-- sections (64 * 4 = 256).
+--
+-- This must never be called for @n >= 4@.
 fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
 fastCheckTargetN n trgPtr powPtr = compare
     <$> peekElemOff trgPtr n

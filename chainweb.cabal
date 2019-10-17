@@ -113,9 +113,12 @@ library
         , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
-        , Chainweb.BlockHeader.Genesis.DevelopmentPayload
-        , Chainweb.BlockHeader.Genesis.TestnetPayload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPMPayload
+        , Chainweb.BlockHeader.Genesis.Development0Payload
+        , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
+        , Chainweb.BlockHeader.Genesis.Testnet0Payload
+        , Chainweb.BlockHeader.Genesis.TestnetNPayload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -570,6 +573,7 @@ executable chainweb-miner
         , streaming >= 0.2
         , streaming-events >= 1.0
         , strict-tuple >= 0.1
+        , time >= 1.8
         , wai-extra >= 3.0
 
 executable cwtool

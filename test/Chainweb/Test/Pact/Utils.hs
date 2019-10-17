@@ -18,8 +18,14 @@
 module Chainweb.Test.Pact.Utils
 ( -- * Exceptions
   PactTestFailure(..)
+, ChainwebKeyPair
   -- * test data
-, someED25519Pair
+, sender00KeyPair
+, sender01KeyPair
+, allocation00KeyPair
+, allocation01KeyPair
+, allocation02KeyPair
+, allocation02KeyPair'
 , testPactFilesDir
 , testKeyPairs
 , adminData
@@ -149,26 +155,76 @@ instance Exception PactTestFailure
 -- ----------------------------------------------------------------------- --
 -- Keys
 
-testKeyPairs :: IO [SomeKeyPairCaps]
-testKeyPairs = do
-    let (pub, priv, addr, scheme) = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
-    mkKeyPairs [apiKP]
+type ChainwebKeyPair
+    = (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+
+testKeyPairs :: ChainwebKeyPair -> IO [SomeKeyPairCaps]
+testKeyPairs (pub, priv, addr, scheme) =
+    mkKeyPairs [ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing]
 
 testPactFilesDir :: FilePath
 testPactFilesDir = "test/pact/"
 
--- | note this is "sender00"'s key
-someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
-someED25519Pair =
+sender00KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+sender00KeyPair =
     ( PubBS $ getByteString
         "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
+
     , PrivBS $ getByteString
         "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
     , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
     , ED25519
     )
 
+sender01KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+sender01KeyPair =
+    ( PubBS $ getByteString
+        "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
+    , PrivBS $ getByteString
+        "2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7"
+    , "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
+    , ED25519
+    )
+
+allocation00KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation00KeyPair =
+    ( PubBS $ getByteString
+        "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , PrivBS $ getByteString
+        "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
+    , "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , ED25519
+    )
+
+allocation01KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation01KeyPair =
+    ( PubBS $ getByteString
+        "b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"
+    , PrivBS $ getByteString
+        "5dbbbd8b765b7d0cf8426d6992924b057c70a2138ecd4cf60cfcde643f304ea9"
+    , "b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"
+    , ED25519
+    )
+
+allocation02KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation02KeyPair =
+    ( PubBS $ getByteString
+        "e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"
+    , PrivBS $ getByteString
+        "45f026b7a6bb278ed4099136c13e842cdd80138ab7c5acd4a1f0e6c97d1d1e3c"
+    , "e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"
+    , ED25519
+    )
+
+allocation02KeyPair' :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
+allocation02KeyPair' =
+    ( PubBS $ getByteString
+        "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"
+    , PrivBS $ getByteString
+        "2f75b5d875dd7bf07cc1a6973232a9e53dc1d4ffde2bab0bbace65cd87e87f53"
+    , "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"
+    , ED25519
+    )
 -- ----------------------------------------------------------------------- --
 -- helper logic
 
@@ -188,7 +244,7 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap _ = id
 
 adminData :: IO (Maybe Value)
-adminData = fmap k testKeyPairs
+adminData = fmap k $ testKeyPairs sender00KeyPair
   where
     k ks = Just $ object
         [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
@@ -198,7 +254,7 @@ adminData = fmap k testKeyPairs
 goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
-    ks <- testKeyPairs
+    ks <- testKeyPairs sender00KeyPair
     mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
@@ -312,7 +368,6 @@ data PactTransaction = PactTransaction
   , _pactData :: Maybe Value
   } deriving (Eq, Show)
 
-
 evalPactServiceM :: TestPactCtx cas -> PactServiceM cas a -> IO a
 evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
     (a,s') <- runStateT (runReaderT pact (_testPactCtxEnv ctx)) s
@@ -340,7 +395,7 @@ testPactCtx v cid cdbv bhdb pdb = do
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-    spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 testPactCtxSQLite
@@ -363,7 +418,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
-    spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 -- | A test PactExecutionService for a single chain
@@ -476,7 +531,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
     start ios cdbv = do
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
-          spv = maybe noSPVSupport (\cdb -> pactSPV cdb logger) cdbv
+          spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
       bhdb <- bhdbIO
