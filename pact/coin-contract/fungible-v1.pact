@@ -56,7 +56,7 @@
            ]
   )
 
-  (defcap TRANSFER
+  (defcap TRANSFER:bool
     ( sender:string
       receiver:string
       amount:decimal
@@ -72,7 +72,7 @@
     receiver:string
     amount:decimal)
 
-  (defun TRANSFER-mgr
+  (defun TRANSFER-mgr:object{transfer-schema}
     ( managed:object{transfer-schema}
       requested:object{transfer-schema}
     )

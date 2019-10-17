@@ -17,14 +17,13 @@
     ]
 
   (implements fungible-v1)
-  (use fungible-v1)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
 
   (defschema coin-schema
     @doc "The coin contract token schema"
-    ;@model [ (invariant (>= balance 0.0)) ] ; FV problem
+    @model [ (invariant (>= balance 0.0)) ] ; FV problem
 
     balance:decimal
     guard:guard)
@@ -34,7 +33,36 @@
   ; --------------------------------------------------------------------------
   ; Capabilities
 
-  (defcap TRANSFER
+  (defcap GOVERNANCE ()
+    (enforce false "Enforce non-upgradeability"))
+
+  (defcap FUND_TX ()
+    "Magic capability to protect gas buy and redeem"
+    true)
+
+  (defcap COINBASE ()
+    "Magic capability to protect miner reward"
+    true)
+
+  (defcap GENESIS ()
+    "Magic capability constraining genesis transactions"
+    true)
+
+  (defcap ACCOUNT_GUARD (account)
+    "Lookup and enforce guards associated with an account"
+    (with-read coin-table account { "guard" := g }
+      (enforce-guard g)))
+
+  (defcap DEBIT (sender:string amount:decimal)
+    "Debit is protected by SENDER guard."
+    (enforce-guard (at 'guard (read coin-table sender)))
+    (enforce (!= sender "") "valid sender"))
+
+  (defcap CREDIT (receiver:string amount:decimal)
+    "Credit marker guard."
+    (enforce (!= receiver "") "valid receiver"))
+
+  (defcap TRANSFER:bool
     ( sender:string
       receiver:string
       amount:decimal
@@ -46,9 +74,9 @@
     (compose-capability (CREDIT receiver amount))
   )
 
-  (defun TRANSFER-mgr
-    ( managed:object{transfer-schema}
-      requested:object{transfer-schema}
+  (defun TRANSFER-mgr:object{fungible-v1.transfer-schema}
+    ( managed:object{fungible-v1.transfer-schema}
+      requested:object{fungible-v1.transfer-schema}
     )
 
     (enforce (= (at 'sender managed) (at 'sender requested)) "sender match")
@@ -59,37 +87,6 @@
       (enforce (>= rem 0.0) (format "TRANSFER exceeded for balance {}" bal))
       (+ { 'amount: rem } managed))
   )
-
-  (defcap DEBIT (sender:string amount:decimal)
-    "Debit is protected by SENDER guard."
-    (enforce-guard (at 'guard (read coin-table sender)))
-    (enforce (!= sender "") "valid sender")
-  )
-
-  (defcap CREDIT (receiver:string amount:decimal)
-    "Credit marker guard."
-    (enforce (!= receiver "") "valid receiver")
-  )
-
-  (defcap FUND_TX ()
-    "Magic capability to protect gas buy and redeem"
-    true)
-
-  (defcap ACCOUNT_GUARD (account)
-    "Lookup and enforce guards associated with an account"
-    (with-read coin-table account { "guard" := g }
-      (enforce-guard g)))
-
-  (defcap COINBASE ()
-    "Magic capability to protect miner reward"
-    true)
-
-  (defcap GENESIS ()
-    "Magic capability constraining genesis transactions"
-    true)
-
-  (defcap GOVERNANCE ()
-    true)
 
   ; --------------------------------------------------------------------------
   ; Constants
@@ -240,7 +237,7 @@
       )
     )
 
-  (defun details:object{account-details}
+  (defun details:object{fungible-v1.account-details}
     ( account:string )
 
     @doc "Get all of an account's info.  This includes the balance and the    \
@@ -472,7 +469,7 @@
         (debit sender amount)
 
         (let
-          ((teleport-details:object{transfer-schema}
+          ((teleport-details
             { "receiver" : receiver
             , "receiver-guard" : receiver-guard
             , "amount" : amount
