@@ -451,7 +451,8 @@ mainInfo = programInfoValidate
     validateChainwebNodeConfiguration
 
 -- | KILLSWITCH: The logic surrounding `txSilenceDates` here is to be removed in
--- a future version of Chainweb.
+-- a future version of Chainweb. This prevents the Node from even starting if
+-- past a specified date.
 --
 main :: IO ()
 main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do

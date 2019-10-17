@@ -265,7 +265,8 @@ validateOne cfg v badmap nw@(Time (TimeSpan now)) t h =
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
 
-    -- | KILLSWITCH: This is to be removed in a future version of Chainweb.
+    -- | KILLSWITCH: This is to be removed in a future version of Chainweb. This
+    -- prevents any transaction from entering the mempool.
     --
     transactionsEnabled :: Either InsertError ()
     transactionsEnabled = case txSilenceDates v of
