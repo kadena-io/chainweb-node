@@ -62,9 +62,11 @@ import Control.Error.Util (hush)
 import Control.Monad
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
+import Data.Char (isSpace)
 import Data.Generics.Product.Fields (field)
 import Data.Time.Clock.POSIX
 import Data.Tuple.Strict (T3(..), T2(..))
+import qualified Data.Text.Encoding as T
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
@@ -74,12 +76,14 @@ import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
 import RIO
 import RIO.List.Partial (head)
+import qualified Data.ByteString.Char8 as BC
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Text as T
 import RIO.Time (NominalDiffTime)
 import Servant.Client
 import qualified Streaming.Prelude as SP
+import qualified System.Path as Path
 import qualified System.Random.MWC as MWC
 import Text.Printf (printf)
 
@@ -117,9 +121,13 @@ data ClientArgs = ClientArgs
 -- | The top-level git-style CLI "command" which determines which mining
 -- paradigm to follow.
 --
-data Command = CPU CPUEnv | GPU
+data Command = CPU CPUEnv | GPU GPUEnv
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
+data GPUEnv = GPUEnv
+    { envMinerPath :: String
+    , envMinerArgs :: [String]
+    } deriving stock (Generic)
 
 data Env = Env
     { envGen :: !MWC.GenIO
@@ -138,11 +146,30 @@ pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> pUrl <*> pMiner 
 pCommand :: Parser Command
 pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
-    -- <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
+    <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
     )
 
--- gpuOpts :: Parser Command
--- gpuOpts = pure GPU
+pMinerPath :: Parser String
+pMinerPath = textOption
+    (long "miner-path" <> help "path to miner executable")
+
+pMinerArgs :: Parser [String]
+pMinerArgs = chop <$> pMinerArgs0
+  where
+    chop = map BC.unpack
+             . filter (not . BC.null)
+             . BC.splitWith isSpace
+             . T.encodeUtf8
+
+    pMinerArgs0 :: Parser T.Text
+    pMinerArgs0 = textOption
+        (long "miner-args" <> value "" <> help "extra miner arguments")
+
+pGpuEnv :: Parser GPUEnv
+pGpuEnv = GPUEnv <$> pMinerPath <*> pMinerArgs
+
+gpuOpts :: Parser Command
+gpuOpts = GPU <$> pGpuEnv
 
 cpuOpts :: Parser Command
 cpuOpts = CPU . CPUEnv <$> pCores
@@ -213,12 +240,12 @@ run = do
     logInfo "Starting Miner."
     env <- ask
     case cmd $ envArgs env of
-        GPU -> logError "GPU mining is not yet available."
+        GPU _ -> logError "GPU mining is not yet available."
         CPU _ -> getWork >>= traverse_ (mining (scheme env))
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-scheme env = case cmd $ envArgs env of CPU e -> cpu e; GPU -> gpu
+scheme env = case cmd $ envArgs env of CPU e -> cpu e; GPU e -> gpu e
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
@@ -344,5 +371,12 @@ cpu cpue tbytes hbytes = do
              1 -> Seq
              n -> ParN n
 
-gpu :: TargetBytes -> HeaderBytes -> RIO e HeaderBytes
-gpu _ h = pure h
+gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO e HeaderBytes
+gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
+    minerPath <- liftIO $ Path.makeAbsolute $ Path.fromFilePath mpath
+    e <- liftIO $ callExternalMiner minerPath margs False target blockbytes
+    case e of
+      Left err -> fail err    -- todo
+      Right (MiningResult nonceBytes _ _ _) -> do
+          let newBytes = nonceBytes <> B.drop 8 blockbytes
+          return $! HeaderBytes newBytes
