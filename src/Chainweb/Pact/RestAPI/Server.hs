@@ -88,6 +88,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
@@ -136,11 +137,12 @@ pactServer (cut, chain) =
     pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
+    v = FromSing (SChainwebVersion :: Sing v)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
 
     pactApiHandlers
-      = sendHandler logger mempool
+      = sendHandler logger v mempool
       :<|> pollHandler logger cut cid chain
       :<|> listenHandler logger cut cid chain
       :<|> localHandler logger cut cid chain
@@ -174,19 +176,23 @@ data PactCmdLog
 sendHandler
     :: Logger logger
     => logger
+    -> ChainwebVersion
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
     -> Handler RequestKeys
-sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
+sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case traverse validateCommand cmds of
-        Right enriched -> do
-            let txs = V.fromList $ NEL.toList enriched
-            -- If any of the txs in the batch fail validation, we reject them all.
-            liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-            liftIO (mempoolInsert mempool UncheckedInsert txs)
-            return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-        Left err -> failWith $ "Validation failed: " <> err
+    now <- liftIO getCurrentTimeIntegral
+    case txSilenceDates v of
+        Just (start, _) | now > start -> failWith "Transactions are disabled."
+        _ -> case traverse validateCommand cmds of
+            Right enriched -> do
+                let txs = V.fromList $ NEL.toList enriched
+                -- If any of the txs in the batch fail validation, we reject them all.
+                liftIO (mempoolInsertCheck mempool txs) >>= checkResult
+                liftIO (mempoolInsert mempool UncheckedInsert txs)
+                return $! RequestKeys $ NEL.map cmdToRequestKey enriched
+            Left err -> failWith $ "Validation failed: " <> err
   where
     failWith :: String -> ExceptT ServerError IO a
     failWith err = throwError $ err400 { errBody = BSL8.pack err }
