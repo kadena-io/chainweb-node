@@ -160,6 +160,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
+import Chainweb.Time (Micros, Time, getCurrentTimeIntegral)
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
@@ -616,9 +617,10 @@ runChainweb
     -> IO ()
 runChainweb cw = do
     logg Info "start chainweb node"
+    now <- getCurrentTimeIntegral
     concurrently_
         -- 1. Start serving Rest API
-        (serve (throttle (_chainwebThrottler cw) . httpLog))
+        (serve now (throttle (_chainwebThrottler cw) . httpLog))
         -- 2. Start Clients (with a delay of 500ms)
         (threadDelay 500000 >> clients)
   where
@@ -648,8 +650,17 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
-    mempoolsToServe = proj _chainResMempool
+    -- | KILLSWITCH: The logic here involving `txSilenceDates` here is to be
+    -- removed in a future version of Chain. This disables the Mempool API
+    -- entirely during the TX blackout period.
+    --
+    mempoolsToServe
+        :: ChainwebVersion
+        -> Time Micros
+        -> [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe v now = case txSilenceDates v of
+        Just (start, _) | now > start -> []
+        _ -> proj _chainResMempool
 
     chainP2pToServe :: [(NetworkId, PeerDb)]
     chainP2pToServe =
@@ -670,8 +681,8 @@ runChainweb cw = do
         (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
         $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
 
-    serve :: Middleware -> IO ()
-    serve = serveChainwebSocketTls
+    serve :: Time Micros -> Middleware -> IO ()
+    serve now mw = serveChainwebSocketTls
         serverSettings
         (_peerCertificateChain $ _peerResPeer $ _chainwebPeer cw)
         (_peerKey $ _peerResPeer $ _chainwebPeer cw)
@@ -680,13 +691,14 @@ runChainweb cw = do
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe
+            , _chainwebServerMempools = mempoolsToServe (_chainwebVersion cw) now
             , _chainwebServerPayloadDbs = payloadDbsToServe
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe
             }
         (_chainwebCoordinator cw)
         (_chainwebHeaderStream cw)
+        mw
 
     -- HTTP Request Logger
 
