@@ -98,7 +98,8 @@ data PactDbStatePersist = PactDbStatePersist
 
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
-   deriving (Eq,Show,Ord,Num,Real,Fractional,ToJSON,FromJSON)
+   deriving (Eq,Ord,Num,Real,Fractional,ToJSON,FromJSON)
+instance Show GasSupply where show (GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 

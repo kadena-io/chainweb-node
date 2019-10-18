@@ -224,17 +224,17 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       Right _ -> return ()
   where
     tid = Pact.ChainId "2"
+    ttl = 2 * 24 * 60 * 60
 
     mkTxBatch = do
       ks <- liftIO $ testKeyPairs sender00KeyPair
       t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
+      let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
       cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
       cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
-    txcode = show $
+    txcode = show
       [text|
          (coin.cross-chain-transfer
            'sender00
@@ -272,26 +272,26 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
     -- batch to test that gas for tx size discounted from the total gas supply
     batch1 <- mkTxBatch txcode1 A.Null 4
-    
+
     res0 <- run batch0 ExpectPactError
     res1 <- run batch1 ExpectPactError
 
     void $ liftIO $ step "when tx too big, gas pact error thrown"
     case res0 of
       Left e -> assertFailure $ "test failure for big tx with insuffient gas: " <> show e
-      Right cr -> assertEqual "expect gas error for big tx" (resultOf <$> cr) gasError0
+      Right cr -> assertEqual "expect gas error for big tx" gasError0 (resultOf <$> cr)
 
     void $ liftIO $ step "discounts initial gas charge from gas available for pact execution"
     case res1 of
       Left e -> assertFailure $ "test failure for discounting initial gas charge: " <> show e
-      Right cr -> assertEqual "expect gas error after discounting initial gas charge" (resultOf <$> cr) gasError1
+      Right cr -> assertEqual "expect gas error after discounting initial gas charge" gasError1 (resultOf <$> cr)
 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "tx too big"
+      Pact.PactError Pact.GasError def [] "Tx too big (3), limit 1"
     gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 0) exceeded: 2"
+      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 1) exceeded: 2"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair
@@ -306,51 +306,151 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
 allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
+
+    let testCaseStep = void . liftIO . step
+
     cenv <- fmap _getClientEnv nio
+    sid <- liftIO $ mkChainId v (0 :: Int)
 
-    -- batch with the initial release request
-    batch0 <- mkTxBatch txcode0 A.Null
-    -- batch with the account balance query
-    SubmitBatch batch1 <- mkTxBatch txcode1 A.Null
-    sid <- mkChainId v (0 :: Int)
+    step "positive allocation test: allocation00 release"
+    p <- flip runClientM cenv $ do
+      batch0 <- liftIO
+        $ mkSingletonBatch iot allocation00KeyPair tx0 n0
+        $ pm "allocation00"
 
-    r <- flip runClientM cenv $ do
-      void $ liftIO $ step "sendApiClient: submit allocation release request"
+      SubmitBatch batch1 <- liftIO
+        $ mkSingletonBatch iot allocation00KeyPair tx1 n1
+        $ pm "allocation00"
+
+      testCaseStep "sendApiClient: submit allocation release request"
       rks0 <- liftIO $ sending sid cenv batch0
 
-      void $ liftIO $ step "pollApiClient: polling for allocation key"
+      testCaseStep "pollApiClient: polling for allocation key"
       void $ liftIO $ polling sid cenv rks0 ExpectPactResult
 
-      void $ liftIO $ step "localApiClient: submit local account balance request"
+      testCaseStep "localApiClient: submit local account balance request"
       pactLocalApiClient v sid $ head (toList batch1)
 
-    case r of
+    case p of
       Left e -> assertFailure $ "test failure: " <> show e
       Right cr -> assertEqual "expect /local allocation balance" accountInfo (resultOf cr)
 
+
+    step "negative allocation test: allocation01 release"
+    q <- flip runClientM cenv $ do
+      batch0 <- liftIO
+        $ mkSingletonBatch iot allocation01KeyPair tx2 n2
+        $ pm "allocation01"
+
+      testCaseStep "sendApiClient: submit allocation release request"
+      rks <- liftIO $ sending sid cenv batch0
+
+      testCaseStep "pollApiClient: polling for allocation key"
+      PollResponses r <- liftIO $ polling sid cenv rks ExpectPactError
+      return $ toList r
+
+    case q of
+      Right [cr] -> case resultOf cr of
+        Left e -> assertBool "expect negative allocation test failure"
+          $ T.isInfixOf "Failure: Tx Failed: funds locked until \"2019-10-31T18:00:00Z\""
+          $ sshow e
+        _ -> assertFailure "unexpected pact result success in negative allocation test"
+      _ -> assertFailure "unexpected failure in negative allocation test"
+
+
+    step "positive key-rotation test: allocation2"
+    r <- flip runClientM cenv $ do
+
+      batch0 <- liftIO
+        $ mkSingletonBatch iot allocation02KeyPair tx3 n3
+        $ pm "allocation02"
+
+      testCaseStep "senderApiClient: submit keyset rotation request"
+      rks <- liftIO $ sending sid cenv batch0
+
+      testCaseStep "pollApiClient: polling for successful rotation"
+      void $ liftIO $ polling sid cenv rks ExpectPactResult
+
+      testCaseStep "senderApiClient: submit allocation release request"
+      batch1 <- liftIO
+        $ mkSingletonBatch iot allocation02KeyPair' tx4 n4
+        $ pm "allocation02"
+
+      rks' <- liftIO $ sending sid cenv batch1
+      testCaseStep "pollingApiClient: polling for successful release"
+      void $ liftIO $ polling sid cenv rks' ExpectPactResult
+
+      testCaseStep "localApiClient: retrieving account info for allocation02"
+      SubmitBatch batch2 <- liftIO
+        $ mkSingletonBatch iot allocation02KeyPair' tx5 n5
+        $ pm "allocation02"
+
+      pactLocalApiClient v sid $ head (toList batch2)
+
+    case r of
+      Left e -> assertFailure $ "test failure: " <> show e
+      Right cr -> assertEqual "expect /local allocation balance" accountInfo' (resultOf cr)
+
   where
+    n0 = Just "allocation-0"
+    n1 = Just "allocation-1"
+    n2 = Just "allocation-2"
+    n3 = Just "allocation-3"
+    n4 = Just "allocation-4"
+    n5 = Just "allocation-5"
+
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     accountInfo = Right
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 199999930.16)
-        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "sender00"))
+        [ (FieldKey "account", PLiteral $ LString "allocation00")
+        , (FieldKey "balance", PLiteral $ LDecimal 1099938.51) -- 1k + 1mm - gas
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
-    mkTxBatch code cdata = do
-      ks <- testKeyPairs sender00KeyPair
-      t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100000 0.01 ttl t
-      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
-      return $ SubmitBatch (pure cmd)
+    ttl = 2 * 24 * 60 * 60
+    pm t = Pact.PublicMeta (Pact.ChainId "0") t 100000 0.01 ttl
 
-    txcode0 = concat ["(coin.release-allocation ", "\"sender00\")"]
-    txcode1 = concat ["(coin.account-info ", "\"sender00\")"]
+    tx0 = PactTransaction "(coin.release-allocation \"allocation00\")" Nothing
+    tx1 = PactTransaction "(coin.details \"allocation00\")" Nothing
+    tx2 = PactTransaction "(coin.release-allocation \"allocation01\")" Nothing
+    tx3 =
+      let
+        c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
+        d = KeySet
+          [ "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a" ]
+          (Name $ BareName "keys-all" def)
+      in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
+    tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
+    tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
+
+    accountInfo' = Right
+      $ PObject
+      $ ObjectMap
+      $ M.fromList
+        [ (FieldKey "account", PLiteral $ LString "allocation02")
+        , (FieldKey "balance", PLiteral $ LDecimal 1099918.43) -- 1k + 1mm - gas
+        , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
+        ]
+
 
 -- -------------------------------------------------------------------------- --
 -- Utils
+
+mkSingletonBatch
+    :: IO (Time Integer)
+    -> ChainwebKeyPair
+    -> PactTransaction
+    -> Maybe String
+    -> (Pact.TxCreationTime -> Pact.PublicMeta)
+    -> IO SubmitBatch
+mkSingletonBatch iot kps (PactTransaction c d) nonce pmk = do
+    ks <- testKeyPairs kps
+    pm <- pmk . toTxCreationTime <$> iot
+    let dd = fromMaybe A.Null d
+    cmd <- liftIO $ mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
+    return $ SubmitBatch (cmd NEL.:| [])
 
 withRequestKeys
     :: IO (Time Integer)

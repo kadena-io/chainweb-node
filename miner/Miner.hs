@@ -59,10 +59,12 @@
 module Main ( main ) where
 
 import Control.Error.Util (hush)
+import Control.Monad
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
-import Data.Tuple.Strict (T3(..))
+import Data.Time.Clock.POSIX
+import Data.Tuple.Strict (T3(..), T2(..))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
@@ -75,9 +77,11 @@ import RIO.List.Partial (head)
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Text as T
+import RIO.Time (NominalDiffTime)
 import Servant.Client
 import qualified Streaming.Prelude as SP
 import qualified System.Random.MWC as MWC
+import Text.Printf (printf)
 
 #if ! MIN_VERSION_rio(0,1,9)
 import System.Exit (exitFailure)
@@ -118,14 +122,15 @@ data Command = CPU CPUEnv | GPU
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 
 data Env = Env
-    { gen :: !MWC.GenIO
-    , mgr :: !Manager
-    , log :: !LogFunc
-    , args :: !ClientArgs }
+    { envGen :: !MWC.GenIO
+    , envMgr :: !Manager
+    , envLog :: !LogFunc
+    , envArgs :: !ClientArgs
+    , envStats :: IORef Word64 }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
-    logFuncL = field @"log"
+    logFuncL = field @"envLog"
 
 pClientArgs :: Parser ClientArgs
 pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> pUrl <*> pMiner <*> pChainId
@@ -190,7 +195,8 @@ main = do
     withLogFunc lopts $ \logFunc -> do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
-        runRIO (Env g m logFunc cargs) run
+        stats <- newIORef 0
+        runRIO (Env g m logFunc cargs stats) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -206,13 +212,13 @@ run :: RIO Env ()
 run = do
     logInfo "Starting Miner."
     env <- ask
-    case cmd $ args env of
+    case cmd $ envArgs env of
         GPU -> logError "GPU mining is not yet available."
         CPU _ -> getWork >>= traverse_ (mining (scheme env))
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-scheme env = case cmd $ args env of CPU e -> cpu e; GPU -> gpu
+scheme env = case cmd $ envArgs env of CPU e -> cpu e; GPU -> gpu
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
@@ -249,25 +255,26 @@ getWork = do
     f :: Env -> IO (Either ClientError WorkBytes)
     f e = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
       where
-        a = args e
+        a = envArgs e
         v = version a
-        m = mgr e
+        m = envMgr e
         u = coordinator a
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
 mining :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes) -> WorkBytes -> RIO Env ()
 mining go wb = do
-    race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
+    !now <- liftIO getPOSIXTime
+    race updateSignal (go tbytes hbytes) >>= traverse_ (miningSuccess now)
     getWork >>= traverse_ (mining go)
   where
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
 
-    chain :: IO Utf8Builder
-    chain = ("Chain " <>) . display . chainIdInt @Int <$> runGet decodeChainId cbs
+    chain :: IO Int
+    chain = chainIdInt <$> runGet decodeChainId cbs
 
-    height :: IO Utf8Builder
-    height = display . _height <$> runGet decodeBlockHeight (B.take 8 $ B.drop 258 hbs)
+    height :: IO Word64
+    height = _height <$> runGet decodeBlockHeight (B.take 8 $ B.drop 258 hbs)
 
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
@@ -279,9 +286,9 @@ mining go wb = do
         f :: RIO Env ()
         f = do
             e <- ask
-            liftIO $ withEvents (req $ args e) (mgr e) (void . SP.head_ . SP.filter realEvent)
+            liftIO $ withEvents (req $ envArgs e) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
-            logDebug $ cid <> ": Current work was preempted."
+            logDebug . display . T.pack $ printf "Chain %d: Current work was preempted." cid
 
         -- TODO Formalize the signal content a bit more?
         realEvent :: ServerEvent -> Bool
@@ -302,29 +309,35 @@ mining go wb = do
     -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
     -- won the race instead, then the `go` call is automatically cancelled.
     --
-    miningSuccess :: HeaderBytes -> RIO Env ()
-    miningSuccess h = do
+    miningSuccess :: NominalDiffTime -> HeaderBytes -> RIO Env ()
+    miningSuccess before h = do
       e <- ask
-      let !v = version $ args e
-          !m = mgr e
-          !u = coordinator $ args e
+      !now <- liftIO getPOSIXTime
+      hashes <- readIORef (envStats e)
+      let !v = version $ envArgs e
+          !m = envMgr e
+          !u = coordinator $ envArgs e
+          !r = (fromIntegral hashes :: Double) / realToFrac (now - before) / 1000000
       cid <- liftIO chain
       hgh <- liftIO height
-      logInfo $ cid <> ": Mined block at Height " <> hgh <> "."
-      r <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
-      when (isLeft r) $ logWarn "Failed to submit new BlockHeader!"
+      logInfo . display . T.pack $
+          printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
+      res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
+      when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
 
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
     e <- ask
-    liftIO . fmap head . withScheduler comp $ \sch ->
+    T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
-            n <- Nonce <$> MWC.uniform (gen e)
-            new <- usePowHash (version $ args e) (\p -> mine p n tbytes) hbytes
+            n <- Nonce <$> MWC.uniform (envGen e)
+            new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
             terminateWith sch new
+    writeIORef (envStats e) ns
+    pure new
   where
     comp :: Comp
     comp = case cores cpue of

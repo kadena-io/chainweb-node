@@ -1176,4 +1176,3 @@ dfs g limit src trg = go 1 (HS.singleton src) src
         v <- toList $ g M.! n
         guard (not $ HS.member v visited)
         go (succ depth) (HS.insert v visited) v
-
