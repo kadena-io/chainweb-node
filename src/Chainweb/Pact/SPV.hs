@@ -56,6 +56,7 @@ import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
+import qualified Chainweb.Version as CW
 
 import Data.CAS
 
@@ -63,7 +64,6 @@ import Data.CAS
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.Runtime
 import Pact.Types.SPV
@@ -73,12 +73,12 @@ import Pact.Types.SPV
 --
 pactSPV
     :: forall cas
-    . MVar (CutDb cas)
+    . CW.ChainId
+      -- ^ chain id of the running pact service
+    -> MVar (CutDb cas)
       -- ^ handle into the cutdb
-    -> Logger
-      -- ^ pact service logger
     -> SPVSupport
-pactSPV cdbv l = SPVSupport (verifySPV cdbv l) (verifyCont cdbv)
+pactSPV cid cdbv = SPVSupport (verifySPV cid cdbv) (verifyCont cid cdbv)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
@@ -86,50 +86,48 @@ pactSPV cdbv l = SPVSupport (verifySPV cdbv l) (verifyCont cdbv)
 --
 verifySPV
     :: forall cas
-    . MVar (CutDb cas)
+    . CW.ChainId
+    -> MVar (CutDb cas)
       -- ^ handle into the cut db
-    -> Logger
-      -- ^ pact service logger
     -> Text
       -- ^ TXOUT or TXIN - defines the type of proof
       -- used in validation
     -> Object Name
       -- ^ the 'TransactionOutputProof' object to validate
     -> IO (Either Text (Object Name))
-verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
+verifySPV cid cdbv typ proof = readMVar cdbv >>= go typ proof
   where
     go s o cdb = case s of
       "TXOUT" -> case extractProof o of
-        Left !u -> return $! Left u
-        Right !t -> do
+        Left t -> return (Left t)
+        Right u
+          | (view outputProofChainId u) /= cid ->
+            internalError "cannot redeem spv proof on wrong target chain"
+          | otherwise -> do
 
+            -- SPV proof verification is a 3 step process:
+            --
+            --  1. verify spv tx output proof via chainweb spv api
+            --
+            --  2. Decode tx outputs to 'HashCommandResult'
+            --
+            --  3. Extract tx outputs as a pact object and return the
+            --  object.
 
-          -- SPV proof verification is a 3 step process:
-          --
-          --  1. verify spv tx output proof via chainweb spv api
-          --
-          --  2. Decode tx outputs to 'HashCommandResult'
-          --
-          --  3. Extract tx outputs as a pact object and return the
-          --  object.
+            TransactionOutput p <- verifyTransactionOutputProof cdb u
 
-          TransactionOutput p <- verifyTransactionOutputProof cdb t
+            q <- case decodeStrict' p :: Maybe HashCommandResult of
+              Nothing -> internalError "unable to decode spv transaction output"
+              Just cr -> return cr
 
-          q <- case decodeStrict' p :: Maybe HashCommandResult of
-            Nothing -> internalError "unable to decode spv transaction output"
-            Just cr -> return cr
+            r <- case _crResult q of
+              PactResult Left{} ->
+                return $! Left "invalid command result in tx output proof"
+              PactResult (Right v) -> case fromPactValue v of
+                TObject !j _ -> return $! Right j
+                _ -> return $ Left "spv-verified tx output has invalid type"
 
-          r <- case _crResult q of
-            PactResult (Left cr) -> do
-              logLog l "ERROR" $ show cr
-              return $! Left "invalid command result in tx output proof"
-            PactResult (Right v) -> case fromPactValue v of
-              TObject !j _ -> return $! Right j
-              k -> do
-                logLog l "ERROR" $ show k
-                return $ Left "verified tx output has invalid type"
-
-          return r
+            return r
 
       t -> return . Left $! "unsupported SPV types: " <> t
 
@@ -138,39 +136,42 @@ verifySPV cdbv l typ proof = readMVar cdbv >>= go typ proof
 --
 verifyCont
     :: forall cas
-    . MVar (CutDb cas)
+    . CW.ChainId
+    -> MVar (CutDb cas)
       -- ^ handle into the cut db
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont cdbv (ContProof cp) = do
+verifyCont cid cdbv (ContProof cp) = do
     cdb <- readMVar cdbv
     t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
-
     case decodeStrict' t of
-      Nothing -> internalError "unable to decode continuation transaction output"
-      Just u -> do
+      Nothing -> internalError "unable to decode continuation proof"
+      Just u
+        | (view outputProofChainId u) /= cid ->
+          internalError "cannot redeem continuation proof on wrong target chain"
+        | otherwise -> do
 
-        -- Cont proof verification is a 3 step process:
-        --
-        --  1. verify spv tx output proof via chainweb spv api
-        --
-        --  2. Decode tx outputs to 'HashCommandResult'
-        --
-        --  3. Extract continuation 'PactExec' from decoded result
-        --  and return the cont exec object
+          -- Cont proof verification is a 3 step process:
+          --
+          --  1. verify spv tx output proof via chainweb spv api
+          --
+          --  2. Decode tx outputs to 'HashCommandResult'
+          --
+          --  3. Extract continuation 'PactExec' from decoded result
+          --  and return the cont exec object
 
-        TransactionOutput p <- verifyTransactionOutputProof cdb u
+          TransactionOutput p <- verifyTransactionOutputProof cdb u
 
-        q <- case decodeStrict' p :: Maybe HashCommandResult of
-          Nothing -> internalError "unable to decode spv transaction output"
-          Just cr -> return cr
+          q <- case decodeStrict' p :: Maybe HashCommandResult of
+            Nothing -> internalError "unable to decode spv transaction output"
+            Just cr -> return cr
 
-        r <- case _crContinuation q of
-          Nothing -> return $! Left "no pact exec found in command result"
-          Just pe -> return $! Right pe
+          r <- case _crContinuation q of
+            Nothing -> return $! Left "no pact exec found in command result"
+            Just pe -> return $! Right pe
 
-        return r
+          return r
 
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --

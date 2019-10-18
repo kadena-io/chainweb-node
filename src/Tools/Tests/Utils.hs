@@ -93,6 +93,7 @@ module Tools.Tests.Utils
 , runSched
 , runRocks
 , runSchedRocks
+, withArgs
 ) where
 
 import Control.Concurrent
@@ -127,6 +128,7 @@ import Numeric.Natural
 import Servant.Client (BaseUrl(..), ClientEnv, Scheme(..), mkClientEnv)
 
 import System.Directory
+import System.Environment (withArgs)
 import System.IO.Temp
 import System.Random (randomIO)
 
@@ -354,6 +356,7 @@ header h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart h t'
+            :+: FeatureFlags 0
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h

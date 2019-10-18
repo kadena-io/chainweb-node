@@ -75,15 +75,18 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import Pact.Gas.Table (defaultGasConfig, tableGasModel)
+import Pact.Types.Continuation
+import Pact.Gas.Table
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
+import Pact.Types.Gas
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
+import Pact.Types.Term (DefType(..),ObjectMap(..))
 
 ------------------------------------------------------------------------------
 -- internal modules
@@ -146,12 +149,13 @@ initPactService
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir
-                nodeid resetDb =
-    initPactService' ver cid chainwebLogger (pactSPV cdbv) bhDb pdb dbDir
-                     nodeid resetDb $ do
-        initialPayloadState ver cid
-        serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid resetDb =
+    initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb go
+  where
+    spv :: P.SPVSupport
+    spv = pactSPV cid cdbv
+
+    go = initialPayloadState ver cid >> serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -159,7 +163,7 @@ initPactService'
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> (P.Logger -> P.SPVSupport)
+    -> P.SPVSupport
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
@@ -187,8 +191,8 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
                            initBlockState sqlenv logger
 
       let !rs = readRewards ver
-          gasModel = tableGasModel defaultGasConfig
-      let !pse = PactServiceEnv Nothing checkpointEnv (spv logger) def pdb
+          gasModel = tableGasModelNoSize defaultGasConfig -- TODO get sizing working
+      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
                                 bhDb rs gasModel
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where
@@ -511,7 +515,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                 pure valid
       where
         validations = [checkTimes]
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
     -- | Attempt to debit the Gas cost from the sender's "running balance".
     --
@@ -520,7 +524,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         | newBal < 0 = Nothing
         | otherwise = Just $ HM.adjust (const newBal) sender bs
       where
-        pm = P._pMeta . payloadObj $ P._cmdPayload tx
+        pm = P._pMeta . _payloadObj $ P._cmdPayload tx
         sender = P._pmSender pm
         P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
@@ -528,7 +532,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         newBal = bal - limitInCoin
 
     checkTimes :: ChainwebTransaction -> Bool
-    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
+    checkTimes = timingsCheck blockOriginationTime . fmap _payloadObj
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
@@ -548,7 +552,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                   Just (T2 b _) -> pure $ HM.insert sender b acc
       where
         sender :: Text
-        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
 
 
 validateChainwebTxsPreBlock
@@ -710,7 +714,7 @@ execLocal cmd = withDiscardedBatch $ do
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap payloadObj cmd)
+                _psPublicData _psSpvSupport (fmap _payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -877,7 +881,7 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes
-      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
+      . fmap (T.decodeUtf8 . SB.fromShort . _payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 
@@ -929,11 +933,9 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         !spv      = _psSpvSupport psEnv
         pactHash  = view P.cmdHash cmdIn
 
-    -- cvt from Command PayloadWithTexts to Command ((Payload PublicMeta ParsedCode)
-    let !cmd = payloadObj <$> cmdIn
     T2 !result mcache' <- liftIO $ if isGenesis
-        then applyGenesisCmd logger dbEnv pd spv cmd
-        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmd mcache
+        then applyGenesisCmd logger dbEnv pd spv (_payloadObj <$> cmdIn)
+        else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
@@ -1001,3 +1003,57 @@ findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
 
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
+
+-- | temporary gas model without sizing
+tableGasModelNoSize :: GasCostConfig -> GasModel
+tableGasModelNoSize gasConfig =
+  let run name ga = case ga of
+        GSelect mColumns -> case mColumns of
+          Nothing -> 1
+          Just [] -> 1
+          Just cs -> _gasCostConfig_selectColumnCost gasConfig * (fromIntegral (length cs))
+        GSortFieldLookup n ->
+          fromIntegral n * _gasCostConfig_sortFactor gasConfig
+        GConcatenation i j ->
+          fromIntegral (i + j) * _gasCostConfig_concatenationFactor gasConfig
+        GUnreduced ts -> case Map.lookup name (_gasCostConfig_primTable gasConfig) of
+          Just g -> g ts
+          Nothing -> error $ "Unknown primitive \"" <> T.unpack name <> "\" in determining cost of GUnreduced"
+        GPostRead r -> case r of
+          ReadData cols -> _gasCostConfig_readColumnCost gasConfig * fromIntegral (Map.size (_objectMap cols))
+          ReadKey _rowKey -> _gasCostConfig_readColumnCost gasConfig
+          ReadTxId -> _gasCostConfig_readColumnCost gasConfig
+          ReadModule _moduleName _mCode ->  _gasCostConfig_readColumnCost gasConfig
+          ReadInterface _moduleName _mCode ->  _gasCostConfig_readColumnCost gasConfig
+          ReadNamespace _ns ->  _gasCostConfig_readColumnCost gasConfig
+          ReadKeySet _ksName _ks ->  _gasCostConfig_readColumnCost gasConfig
+          ReadYield (Yield _obj _) -> _gasCostConfig_readColumnCost gasConfig * fromIntegral (Map.size (_objectMap _obj))
+        GWrite _w -> 1 {- case w of
+          WriteData _type key obj ->
+            (memoryCost key (_gasCostConfig_writeBytesCost gasConfig))
+            + (memoryCost obj (_gasCostConfig_writeBytesCost gasConfig))
+          WriteTable tableName -> (memoryCost tableName (_gasCostConfig_writeBytesCost gasConfig))
+          WriteModule _modName _mCode ->
+            (memoryCost _modName (_gasCostConfig_writeBytesCost gasConfig))
+            + (memoryCost _mCode (_gasCostConfig_writeBytesCost gasConfig))
+          WriteInterface _modName _mCode ->
+            (memoryCost _modName (_gasCostConfig_writeBytesCost gasConfig))
+            + (memoryCost _mCode (_gasCostConfig_writeBytesCost gasConfig))
+          WriteNamespace ns -> (memoryCost ns (_gasCostConfig_writeBytesCost gasConfig))
+          WriteKeySet ksName ks ->
+            (memoryCost ksName (_gasCostConfig_writeBytesCost gasConfig))
+            + (memoryCost ks (_gasCostConfig_writeBytesCost gasConfig))
+          WriteYield obj -> (memoryCost obj (_gasCostConfig_writeBytesCost gasConfig)) -}
+        GModuleMember _module -> _gasCostConfig_moduleMemberCost gasConfig
+        GModuleDecl _moduleName _mCode -> (_gasCostConfig_moduleCost gasConfig)
+        GUse _moduleName _mHash -> (_gasCostConfig_useModuleCost gasConfig)
+          -- The above seems somewhat suspect (perhaps cost should scale with the module?)
+        GInterfaceDecl _interfaceName _iCode -> (_gasCostConfig_interfaceCost gasConfig)
+        GUserApp t -> case t of
+          Defpact -> (_gasCostConfig_defPactCost gasConfig) * _gasCostConfig_functionApplicationCost gasConfig
+          _ -> _gasCostConfig_functionApplicationCost gasConfig
+  in GasModel
+      { gasModelName = "table"
+      , gasModelDesc = "table-based cost model"
+      , runGasModel = run
+      }

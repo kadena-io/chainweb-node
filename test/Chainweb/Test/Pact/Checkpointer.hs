@@ -22,7 +22,7 @@ import Data.Text (Text)
 import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
-import Pact.Interpreter (EvalResult(..), PactDbEnv(..))
+import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
@@ -180,14 +180,14 @@ checkpointerTest name initdata =
               runExec (PactDbEnv' pactdbenv) eData eCode = do
                   let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
                   execMsg <- buildExecParsedCode eData eCode
-                  applyExec' cmdenv def execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+                  applyExec' cmdenv defaultInterpreter execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
 
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
                       cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
-                  applyContinuation' cmdenv def contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+                  applyContinuation' cmdenv defaultInterpreter contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------

@@ -78,19 +78,22 @@ main = do
     putStrLn "Done."
   where
     otherChains =
-      [ (Development, "Development", [coinContract, devNGrants, devNs])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, devNGrants, devNs])
-      , (Testnet02, "Testnet", [ coinContract, prodNGrants, prodNs ])
+      [ (Development, "Development", [fungibleAsset, coinContract, devNGrants, devNs])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNGrants, devNs])
+      , (Testnet02, "Testnet", [ fungibleAsset, coinContract, prodNGrants, prodNs ])
       ]
 
     chain0 =
-      [ (Development, "Development", [coinContract, devNs, devAllocations, dev0Grants])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [coinContract, devNs, devAllocations, dev0Grants])
-      , (Testnet02, "Testnet", [coinContract, prodNs, prodAllocations, prod0Grants])
+      [ (Development, "Development", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
+      , (Testnet02, "Testnet", [fungibleAsset, coinContract, prodNs, prodAllocations, prod0Grants])
       ]
 
 coinContract :: FilePath
 coinContract = "pact/coin-contract/load-coin-contract.yaml"
+
+fungibleAsset :: FilePath
+fungibleAsset = "pact/coin-contract/load-fungible-asset.yaml"
 
 dev0Grants :: FilePath
 dev0Grants = "pact/genesis/testnet/grants0.yaml"
@@ -136,7 +139,7 @@ genPayloadModule v tag txFiles =
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger (const noSPVSupport)
+        payloadWO <- initPactService' v cid logger noSPVSupport
                          bhdb pdb Nothing Nothing False $
                          execNewGenesisBlock noMiner (V.fromList cwTxs)
 

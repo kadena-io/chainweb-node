@@ -19,7 +19,7 @@ import Data.IORef
 import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 import Data.Word
 
@@ -95,7 +95,7 @@ onRestart pdb bhdb r = do
     assertEqual "Invalid BlockHeight" 9 (_blockHeight b)
 
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess iot  = MemPoolAccess
+testMemPoolAccess iot = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
@@ -132,7 +132,7 @@ testMemPoolAccess iot  = MemPoolAccess
         code nonce = defModule (T.pack $ show nonce)
 
 dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-dupegenMemPoolAccess iot  = MemPoolAccess
+dupegenMemPoolAccess iot = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash _header
@@ -250,8 +250,8 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-     HeaderBytes newBytes  <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
-     newHeader <- runGet decodeBlockHeaderWithoutHash newBytes
+     T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
+     newHeader <- runGet decodeBlockHeaderWithoutHash new
 
      mv' <- r >>= validateBlock newHeader (toPayloadData payload)
 

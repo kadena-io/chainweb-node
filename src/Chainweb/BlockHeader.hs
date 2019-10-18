@@ -70,6 +70,11 @@ module Chainweb.BlockHeader
 , decodeEpochStartTime
 , epochStart
 
+-- * FeatureFlags
+, FeatureFlags(..)
+, encodeFeatureFlags
+, decodeFeatureFlags
+
 -- * POW Target
 , powTarget
 
@@ -87,6 +92,7 @@ module Chainweb.BlockHeader
 , blockPayloadHash
 , blockTarget
 , blockEpochStart
+, blockFlags
 , _blockPow
 , blockPow
 , _blockAdjacentChainIds
@@ -373,6 +379,27 @@ epochStart p (BlockCreationTime bt)
     | otherwise = _blockEpochStart p
 {-# INLINE epochStart #-}
 
+-- -----------------------------------------------------------------------------
+-- Feature Flags
+
+newtype FeatureFlags = FeatureFlags Word64
+    deriving stock (Show, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON)
+
+encodeFeatureFlags :: MonadPut m => FeatureFlags -> m ()
+encodeFeatureFlags (FeatureFlags ff) = putWord64le ff
+
+decodeFeatureFlags :: MonadGet m => m FeatureFlags
+decodeFeatureFlags = FeatureFlags <$> getWord64le
+
+instance IsMerkleLogEntry ChainwebHashTag FeatureFlags where
+    type Tag FeatureFlags = 'FeatureFlagsTag
+    toMerkleNode = encodeMerkleInputNode encodeFeatureFlags
+    fromMerkleNode = decodeMerkleInputNode decodeFeatureFlags
+    {-# INLINE toMerkleNode #-}
+    {-# INLINE fromMerkleNode #-}
+
 -- -------------------------------------------------------------------------- --
 -- Block Header
 
@@ -464,6 +491,10 @@ data BlockHeader :: Type where
             -- ranges of blocks. Each epoch is defined by the minimal block
             -- height of the blocks in the epoch.
 
+        , _blockFlags :: {-# UNPACK #-} !FeatureFlags
+            -- ^ An 8-byte bitmask reserved for the future addition of boolean
+            -- "feature flags".
+
         , _blockHash :: {-# UNPACK #-} !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
         }
@@ -522,6 +553,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
         , BlockHeight
         , ChainwebVersion
         , EpochStartTime
+        , FeatureFlags
         ]
     type MerkleLogBody BlockHeader = BlockHash
 
@@ -539,6 +571,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: _blockHeight bh
             :+: _blockChainwebVersion bh
             :+: _blockEpochStart bh
+            :+: _blockFlags bh
             :+: MerkleLogBody (blockHashRecordToVector $ _blockAdjacentHashes bh)
 
     fromLog l = BlockHeader
@@ -553,6 +586,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockHeight = height
             , _blockChainwebVersion = cwv
             , _blockEpochStart = es
+            , _blockFlags = flags
             , _blockAdjacentHashes = blockHashRecordFromVector cwv cid adjParents
             }
       where
@@ -566,6 +600,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: height
             :+: cwv
             :+: es
+            :+: flags
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
 
@@ -585,6 +620,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
+    encodeFeatureFlags (_blockFlags b)
 
 encodeBlockHeader
     :: MonadPut m
@@ -642,6 +678,7 @@ decodeBlockHeaderWithoutHash = do
     a8 <- decodeBlockHeight
     a9 <- decodeChainwebVersion
     a11 <- decodeEpochStartTime
+    a12 <- decodeFeatureFlags
     return
         $! fromLog
         $ newMerkleLog
@@ -655,6 +692,7 @@ decodeBlockHeaderWithoutHash = do
         :+: a8
         :+: a9
         :+: a11
+        :+: a12
         :+: MerkleLogBody (blockHashRecordToVector a3)
 
 -- | Decode a BlockHeader and trust the result
@@ -674,6 +712,7 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHeight
     <*> decodeChainwebVersion
     <*> decodeEpochStartTime
+    <*> decodeFeatureFlags
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
@@ -751,6 +790,7 @@ instance ToJSON (ObjectEncoded BlockHeader) where
         , "height" .= _blockHeight b
         , "chainwebVersion" .= _blockChainwebVersion b
         , "epochStart" .= _blockEpochStart b
+        , "featureFlags" .= _blockFlags b
         , "hash" .= _blockHash b
         ]
 
@@ -767,6 +807,7 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "height"
     <*> o .: "chainwebVersion"
     <*> o .: "epochStart"
+    <*> o .: "featureFlags"
     <*> o .: "hash"
 
 instance FromJSON (ObjectEncoded BlockHeader) where
@@ -822,6 +863,7 @@ newBlockHeader adj pay nonce t b = fromLog $ newMerkleLog
     :+: _blockHeight b + 1
     :+: v
     :+: epochStart b (BlockCreationTime t)
+    :+: FeatureFlags 0
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId b
