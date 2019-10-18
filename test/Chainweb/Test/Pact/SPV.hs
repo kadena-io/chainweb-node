@@ -317,7 +317,7 @@ txGenerator1 time pidv sid tid = do
 
     tx1Code =
       [text|
-        (coin.teleport-transfer
+        (coin.crosschain-transfer
           'sender00
           'sender01
           (read-keyset 'sender01-keyset)

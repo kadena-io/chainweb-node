@@ -144,13 +144,13 @@
   "cannot update a keyset for an existing account with wrong keyset"
   (credit 'stuart (read-keyset 'doug) 1.0))
 
-;; fund-tx should require FUND_TX capability in scope, and all funds should succeed
+;; fund-tx should require GAS capability in scope, and all funds should succeed
 ;; when available and reflect correct balances
 (expect-failure
  "fund-tx should fail when FUND-TX is not in scope"
  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
-(test-capability (FUND_TX))
+(test-capability (GAS))
 
 (expect-failure
   "FUND-TX fails for trivial or negative quantities"
@@ -179,7 +179,7 @@
 
 (commit-tx)
 
-;;; FUND_TX (gas buying) tests
+;;; GAS (gas buying) tests
 
 (begin-tx)
 
@@ -188,7 +188,7 @@
 (env-data { "fee" : 0.0, "emily" : ["keys1"], "doug": ["keys2"] })
 (env-keys ["keys1", "keys2"])
 
-(test-capability (FUND_TX))
+(test-capability (GAS))
 
 (test-capability (DEBIT "emily" 1.0))
 (test-capability (CREDIT "emily" 0.6))
@@ -214,7 +214,7 @@
 (env-data { "fee" : 0.4, "emily" : ["keys1"], "doug": ["keys2"], "will": ["keys4"] })
 (env-keys ["keys1", "keys2", "keys4"])
 
-(test-capability (FUND_TX))
+(test-capability (GAS))
 (test-capability (DEBIT "emily" 1.0))
 (test-capability (CREDIT "emily" 0.6))
 (test-capability (CREDIT "doug" 0.4))
@@ -325,18 +325,18 @@
 
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
-  (teleport-transfer 'emily "1" 'doug (read-keyset 'doug) 0.0))
+  (crosschain-transfer 'emily "1" 'doug (read-keyset 'doug) 0.0))
 
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
-  (teleport-transfer 'emily "1" 'doug (read-keyset 'doug) (- 1.0)))
+  (crosschain-transfer 'emily "1" 'doug (read-keyset 'doug) (- 1.0)))
 
 (expect
   "burn side of cross-chain transfers succeed"
   "success"
   (let
     ((p
-      (teleport-transfer 'emily 'doug (read-keyset 'doug) "1" 1.0)))
+      (crosschain-transfer 'emily 'doug (read-keyset 'doug) "1" 1.0)))
     "success"))
 
 ; make sure chain-id is enforced in the yield
@@ -432,20 +432,20 @@
    "bad transfer-create fails"
    (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
 
-;;teleport-transfer (step 0 only covered)
+;;crosschain-transfer (step 0 only covered)
 (pact-state true)
 
 (expect
-  "min teleport-transfer step 1 succeeds"
+  "min crosschain-transfer step 1 succeeds"
   "success"
   (let ((s "success"))
-    (teleport-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
+    (crosschain-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
     s))
 
 (pact-state true)
 (expect-failure
-  "bad teleport-transfer fails"
-  (teleport-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
+  "bad crosschain-transfer fails"
+  (crosschain-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
 
 ;;coinbase
 (test-capability (COINBASE))
@@ -459,7 +459,7 @@
   (coinbase 'doug (read-keyset 'doug) UNIT_BAD))
 
 ;;buy-gas
-(test-capability (FUND_TX))
+(test-capability (GAS))
 (expect
   "min buy-gas succeeds"
   "Write succeeded"

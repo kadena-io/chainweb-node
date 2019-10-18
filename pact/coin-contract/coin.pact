@@ -36,35 +36,37 @@
   (defcap GOVERNANCE ()
     (enforce false "Enforce non-upgradeability"))
 
-  (defcap FUND_TX ()
-    "Magic capability to protect gas buy and redeem"
+  (defcap GAS ()
+    "Magic + scoping capability to protect gas buy and redeem."
     true)
 
   (defcap COINBASE ()
-    "Magic capability to protect miner reward"
+    "Magic capability to protect miner reward."
     true)
 
   (defcap GENESIS ()
-    "Magic capability constraining genesis transactions"
+    "Magic capability constraining genesis transactions."
     true)
 
   (defcap DEBIT (sender:string amount:decimal)
-    "Capability for managing debiting operations"
+    "Nested capability for managing debiting operations. Should not \
+    \be explicitly scoped in signatures."
     (enforce-guard (at 'guard (read coin-table sender)))
     (enforce (!= sender "") "valid sender"))
 
   (defcap CREDIT (receiver:string amount:decimal)
-    "Capability for managing crediting operations"
+    "Nested capability for managing crediting operations. Should not \
+    \be explicitly scoped in signatures."
     (enforce (!= receiver "") "valid receiver"))
 
   (defcap TRANSFER:bool
     ( sender:string
       receiver:string
       amount:decimal
-    )
+      )
+    "Top-level capability for transfer operations."
     @managed TRANSFER-mgr
     (enforce (!= sender receiver) "same sender and receiver")
-    (enforce-unit amount)
     (enforce (> amount 0.0) "Positive amount")
     (compose-capability (DEBIT sender amount))
     (compose-capability (CREDIT receiver amount))
@@ -157,7 +159,7 @@
     (enforce-unit total)
     (enforce (> total 0.0) "gas supply must be a positive quantity")
 
-    (require-capability (FUND_TX))
+    (require-capability (GAS))
     (with-capability (DEBIT sender total)
       (debit sender total))
     )
@@ -173,11 +175,10 @@
              (property (valid-account miner))
            ]
 
-    (validate-account sender)
     (validate-account miner)
     (enforce-unit total)
 
-    (require-capability (FUND_TX))
+    (require-capability (GAS))
     (let*
       ((fee (read-decimal "fee"))
        (refund (- total fee)))
@@ -390,13 +391,13 @@
       ))
 
 
-  (defschema teleport-schema
+  (defschema crosschain-schema
     @doc "Schema for yielded value in cross-chain transfers"
     receiver:string
     receiver-guard:guard
     amount:decimal)
 
-  (defpact teleport-transfer:string
+  (defpact crosschain-transfer:string
     ( sender:string
       receiver:string
       receiver-guard:guard
@@ -428,12 +429,12 @@
         (debit sender amount)
 
         (let
-          ((teleport-details:object{teleport-schema}
+          ((crosschain-details:object{crosschain-schema}
             { "receiver" : receiver
             , "receiver-guard" : receiver-guard
             , "amount" : amount
             }))
-          (yield teleport-details target-chain)
+          (yield crosschain-details target-chain)
           )))
 
     (step
