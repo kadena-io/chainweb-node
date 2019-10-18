@@ -32,6 +32,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 import Control.Applicative
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch (throwM)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
@@ -47,7 +48,7 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Serialize (encode)
+import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import Data.String.Conv
@@ -76,7 +77,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Service.Types (internalError, PactException(..))
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -412,12 +413,13 @@ doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn = do
     -- first check if tablename already exists in pending queues
     m <- runMaybeT $ checkDbTableExists (Utf8 $ T.encodeUtf8 ttxt)
+    mbhHash <- getLatestBlock
     case m of
-      Nothing -> internalError $ dupMsg ttxt
+      Nothing -> throwM $ PactDuplicateTableError mbhHash ttxt
       Just () -> do
           -- then check if it is in the db
           cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
-          when cond $ internalError $ dupMsg ttxt
+          when cond $ throwM $ PactDuplicateTableError mbhHash ttxt
           modifyPendingData $ \(c, w, l, p) ->
               let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
                   !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
@@ -425,15 +427,25 @@ doCreateUserTable tn@(TableName ttxt) mn = do
               in t
 
   where
-    dupMsg tablename = "This table (" <> tablename <> ") already exists. We cannot allow duplicates."
-    inDb t = do
+    inDb t =
       callDb "doCreateUserTable" $ \db -> do
-        r <- qry db stmt [SText t] [RText]
+        r <- qry db tableLookupStmt [SText t] [RText]
         return $ case r of
           [[SText rname]] -> rname == t
           _ -> False
 
-    stmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    tableLookupStmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
+    getLatestBlock = callDb "doCreateUserTable (getLatestBlock)" $ \db -> do
+        r <- qry_ db qtext [RInt, RBlob] >>= mapM go
+        case r of
+          [] -> return Nothing
+          (!o:_) -> return $! Just o
+      where
+        qtext = "SELECT blockheight, hash FROM BlockHistory ORDER by blockheight DESC LIMIT 1"
+        go [SInt hgt, SBlob blob] =
+            let hash = either error id $ Data.Serialize.decode blob
+            in return $! (fromIntegral hgt, hash)
+        go _ = fail "impossible"
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn

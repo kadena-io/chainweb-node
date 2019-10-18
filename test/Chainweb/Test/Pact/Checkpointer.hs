@@ -370,28 +370,32 @@ checkpointerTest name initdata =
           runExec blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
           _cpSave _cpeCheckpointer hash08
 
-          next "Don't create the same table twice! (part 1)"
+          next "Don't create the same table twice in the same block"
           hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
           blockEnv10 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
 
           let h :: SomeException -> IO (Maybe String)
               h = const (return Nothing)
 
+
+          let expectException act = do
+                result <- (act >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
+                maybe (return ()) (flip assertBool False) result
+
           let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
-          void $ runExec blockEnv10 (Just tKeyset) tablecode
-          expectedException1 <- (runExec blockEnv10 (Just tKeyset) tablecode >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
-          maybe (return ()) (flip assertBool False) expectedException1
+          expectException $ do
+            void $ runExec blockEnv10 (Just tKeyset) tablecode
+            runExec blockEnv10 (Just tKeyset) tablecode
           _cpDiscard _cpeCheckpointer
 
-          next "Don't create the same table twice! (part 2)"
+          next "Don't create the same table twice in the same transaction."
 
           blockEnv10a <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
-          expectedException2 <- (runExec blockEnv10a (Just tKeyset) (tablecode <> tablecode) >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
-          maybe (return ()) (flip assertBool False)  expectedException2
+          expectException $ runExec blockEnv10a (Just tKeyset) (tablecode <> tablecode)
 
           _cpDiscard _cpeCheckpointer
 
-          next "Don't create the same table twice! (part 3)"
+          next "Don't create the same table twice over blocks."
 
           blockEnv10b <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
           void $ runExec blockEnv10b (Just tKeyset) tablecode
@@ -401,8 +405,7 @@ checkpointerTest name initdata =
           hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
 
           blockEnv11 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 10, hash09))
-          expectedException3 <- (runExec blockEnv11 (Just tKeyset) tablecode >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
-          maybe (return ()) (flip assertBool False) expectedException3
+          expectException $ runExec blockEnv11 (Just tKeyset) tablecode
 
           _cpSave _cpeCheckpointer hash10
 
