@@ -95,7 +95,7 @@
   (debit "a mathematical object X is best thought of in the context of a category surrounding it, and is determined by the network of relations it enjoys with all the objects of that category. Moreover, to understand X it might be more germane to deal directly with the functor representing it" 1.0))
 
 ; credit tests
-(test-capability (CREDIT "emily" 1.0))
+(test-capability (CREDIT "emily"))
 (credit 'emily (read-keyset 'emily) 1.0)
 
 (expect
@@ -115,7 +115,7 @@
   "cannot credit to poorly formatted accounts: max length"
   (credit "The aim of theory really is, to a great extent, that of systematically organizing past experience in such a way that the next generation, our students and their students and so on, will be able to absorb the essential aspects in as painless a way as possible, and this is the only way in which you can go on cumulatively building up any kind of scientific activity without eventually coming to a dead end." (read-keyset 'emily) 1.0))
 
-(test-capability (DEBIT "emily" 1.0))
+(test-capability (DEBIT "emily"))
 (debit 'emily 1.0)
 
 (expect
@@ -124,7 +124,7 @@
   (get-balance 'emily))
 
 ;; crediting non-existing accounts with guard should have supplied keys
-(test-capability (CREDIT "stuart" 1.0))
+(test-capability (CREDIT "stuart"))
 (credit 'stuart (read-keyset 'stuart) 1.0)
 
 (expect-failure
@@ -174,7 +174,7 @@
 ;; setup for next txs
 (env-data { "emily" : ["keys1"] })
 (env-keys ["keys1"])
-(test-capability (CREDIT "emily" 1.0))
+(test-capability (CREDIT "emily"))
 (credit "emily" (read-keyset "emily") 1.0)
 
 (commit-tx)
@@ -190,9 +190,9 @@
 
 (test-capability (FUND_TX))
 
-(test-capability (DEBIT "emily" 1.0))
-(test-capability (CREDIT "emily" 0.6))
-(test-capability (CREDIT "doug" 0.4))
+(test-capability (DEBIT "emily"))
+(test-capability (CREDIT "emily"))
+(test-capability (CREDIT "doug"))
 (fund-tx 'emily 'doug (read-keyset 'doug) 1.0)
 
 (expect
@@ -215,9 +215,9 @@
 (env-keys ["keys1", "keys2", "keys4"])
 
 (test-capability (FUND_TX))
-(test-capability (DEBIT "emily" 1.0))
-(test-capability (CREDIT "emily" 0.6))
-(test-capability (CREDIT "doug" 0.4))
+(test-capability (DEBIT "emily"))
+(test-capability (CREDIT "emily"))
+(test-capability (CREDIT "doug"))
 
 (coin.fund-tx 'emily 'doug (read-keyset 'doug) 1.0)
 
@@ -233,7 +233,7 @@
   (get-balance 'emily))
 
 ;; transfers should respect balances as intended
-(test-capability (CREDIT "emily" 1.0))
+(test-capability (CREDIT "emily"))
 (credit 'emily (read-keyset 'emily) 1.0)
 
 (expect-failure
@@ -420,8 +420,8 @@
   "TRANSFER capability fails when paid amount is exceeded"
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
 
-(test-capability (DEBIT "emily" UNIT_GOOD))
-(test-capability (CREDIT "doug" UNIT_GOOD))
+(test-capability (DEBIT "emily"))
+(test-capability (CREDIT "doug"))
 (test-capability (TRANSFER "emily" "doug" (* 2 UNIT_GOOD)))
 (expect
   "min transfer-create ok"

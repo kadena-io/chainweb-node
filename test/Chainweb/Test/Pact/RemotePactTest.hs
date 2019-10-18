@@ -62,6 +62,7 @@ import Test.Tasty.HUnit
 
 import Pact.ApiReq (mkExec)
 import Pact.Types.API
+import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import qualified Pact.Types.PactError as Pact
@@ -143,6 +144,9 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testGroup "genesis allocations"
                 [ allocationTest iot net ]
+              , after AllSucceed "genesis allocations" $
+                testGroup "caplist tests"
+                [ caplistTest iot net ]
               ]
     ]
 
@@ -227,7 +231,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     ttl = 2 * 24 * 60 * 60
 
     mkTxBatch = do
-      ks <- liftIO $ testKeyPairs sender00KeyPair
+      ks <- liftIO $ testKeyPairs sender00KeyPair Nothing
       t <- toTxCreationTime <$> iot
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
       cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
@@ -294,7 +298,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
       Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 1) exceeded: 2"
 
     mkTxBatch code cdata limit = do
-      ks <- testKeyPairs sender00KeyPair
+      ks <- testKeyPairs sender00KeyPair Nothing
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
@@ -303,6 +307,49 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
     txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
     txcode1 = txcode0 <> "(identity 1)"
+
+
+caplistTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step -> do
+
+    let testCaseStep = void . liftIO . step
+
+    cenv <- fmap _getClientEnv nio
+    sid <- liftIO $ mkChainId v (0 :: Int)
+
+    r <- flip runClientM cenv $ do
+      batch <- liftIO
+        $ mkSingletonBatch iot sender00KeyPair tx0 n0 (pm "sender00") clist
+
+      testCaseStep "send transfer request with caplist sender00 -> sender01"
+      rks <- liftIO $ sending sid cenv batch
+
+      testCaseStep "poll for transfer results"
+      PollResponses rs <- liftIO $ polling sid cenv rks ExpectPactResult
+
+      return rs
+
+    case r of
+      Left e -> print e >> return ()
+      Right t -> print t >> return ()
+
+  where
+    n0 = Just "transfer-clist0"
+    ttl = 2 * 24 * 60 * 60
+    pm t = Pact.PublicMeta (Pact.ChainId "0") t 100000 0.01 ttl
+
+    clist :: Maybe [SigCapability]
+    clist = Just $
+      [ mkCoinSig "FUND_TX" []
+      , mkCoinSig "TRANSFER"
+          [ PLiteral $ LString "sender00"
+          , PLiteral $ LString "sender01"
+          , PLiteral $ LDecimal 100.01
+          ]
+      ]
+
+    tx0 = PactTransaction "(coin.transfer \"sender00\" \"sender01\" 100.0)" Nothing
+
 
 allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
@@ -315,12 +362,10 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     step "positive allocation test: allocation00 release"
     p <- flip runClientM cenv $ do
       batch0 <- liftIO
-        $ mkSingletonBatch iot allocation00KeyPair tx0 n0
-        $ pm "allocation00"
+        $ mkSingletonBatch iot allocation00KeyPair tx0 n0 (pm "allocation00") Nothing
 
       SubmitBatch batch1 <- liftIO
-        $ mkSingletonBatch iot allocation00KeyPair tx1 n1
-        $ pm "allocation00"
+        $ mkSingletonBatch iot allocation00KeyPair tx1 n1 (pm "allocation00") Nothing
 
       testCaseStep "sendApiClient: submit allocation release request"
       rks0 <- liftIO $ sending sid cenv batch0
@@ -339,8 +384,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     step "negative allocation test: allocation01 release"
     q <- flip runClientM cenv $ do
       batch0 <- liftIO
-        $ mkSingletonBatch iot allocation01KeyPair tx2 n2
-        $ pm "allocation01"
+        $ mkSingletonBatch iot allocation01KeyPair tx2 n2 (pm "allocation01") Nothing
 
       testCaseStep "sendApiClient: submit allocation release request"
       rks <- liftIO $ sending sid cenv batch0
@@ -362,8 +406,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     r <- flip runClientM cenv $ do
 
       batch0 <- liftIO
-        $ mkSingletonBatch iot allocation02KeyPair tx3 n3
-        $ pm "allocation02"
+        $ mkSingletonBatch iot allocation02KeyPair tx3 n3 (pm "allocation02") Nothing
 
       testCaseStep "senderApiClient: submit keyset rotation request"
       rks <- liftIO $ sending sid cenv batch0
@@ -373,8 +416,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
       testCaseStep "senderApiClient: submit allocation release request"
       batch1 <- liftIO
-        $ mkSingletonBatch iot allocation02KeyPair' tx4 n4
-        $ pm "allocation02"
+        $ mkSingletonBatch iot allocation02KeyPair' tx4 n4 (pm "allocation02") Nothing
 
       rks' <- liftIO $ sending sid cenv batch1
       testCaseStep "pollingApiClient: polling for successful release"
@@ -382,8 +424,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
       testCaseStep "localApiClient: retrieving account info for allocation02"
       SubmitBatch batch2 <- liftIO
-        $ mkSingletonBatch iot allocation02KeyPair' tx5 n5
-        $ pm "allocation02"
+        $ mkSingletonBatch iot allocation02KeyPair' tx5 n5 (pm "allocation02") Nothing
 
       pactLocalApiClient v sid $ head (toList batch2)
 
@@ -444,9 +485,10 @@ mkSingletonBatch
     -> PactTransaction
     -> Maybe String
     -> (Pact.TxCreationTime -> Pact.PublicMeta)
+    -> Maybe [SigCapability]
     -> IO SubmitBatch
-mkSingletonBatch iot kps (PactTransaction c d) nonce pmk = do
-    ks <- testKeyPairs kps
+mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
+    ks <- testKeyPairs kps clist
     pm <- pmk . toTxCreationTime <$> iot
     let dd = fromMaybe A.Null d
     cmd <- liftIO $ mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
@@ -570,7 +612,7 @@ testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> IO Su
 testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
-    kps <- testKeyPairs sender00KeyPair
+    kps <- testKeyPairs sender00KeyPair Nothing
     c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
