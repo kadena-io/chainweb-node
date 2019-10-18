@@ -170,6 +170,15 @@ checkpointerTest name initdata =
         InMem -> let loggers = pactTestLogger False
           in withResource (initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer")) (const $ return ()) runTest
   where
+    h :: SomeException -> IO (Maybe String)
+    h = const (return Nothing)
+
+    expectException act = do
+        result <- (act >> return (Just msg)) `catch` h
+        maybe (return ()) (flip assertBool False) result
+      where
+        msg = "The table duplication somehow went through. Investigate this error."
+
     runTest :: IO CheckpointEnv -> TestTree
     runTest c = testCaseSteps name $ \next -> do
           (CheckpointEnv {..}) <-    c
@@ -374,18 +383,9 @@ checkpointerTest name initdata =
           hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
           blockEnv10 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
 
-          let h :: SomeException -> IO (Maybe String)
-              h = const (return Nothing)
-
-
-          let expectException act = do
-                result <- (act >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
-                maybe (return ()) (flip assertBool False) result
-
           let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
-          expectException $ do
-            void $ runExec blockEnv10 (Just tKeyset) tablecode
-            runExec blockEnv10 (Just tKeyset) tablecode
+          void $ runExec blockEnv10 (Just tKeyset) tablecode
+          expectException $ runExec blockEnv10 (Just tKeyset) tablecode
           _cpDiscard _cpeCheckpointer
 
           next "Don't create the same table twice in the same transaction."
