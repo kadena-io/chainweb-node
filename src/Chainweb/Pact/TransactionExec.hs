@@ -104,11 +104,11 @@ import Chainweb.Utils (sshow)
 magic_COINBASE :: CapSlot Capability
 magic_COINBASE = mkMagicCapSlot "COINBASE"
 
--- | "Magic" capability 'FUND_TX' used in the coin contract to
+-- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
 --
-magic_FUND_TX :: CapSlot Capability
-magic_FUND_TX = mkMagicCapSlot "FUND_TX"
+magic_GAS :: CapSlot Capability
+magic_GAS = mkMagicCapSlot "GAS"
 
 -- | "Magic" capability 'GENESIS' used in the coin contract to
 -- constrain genesis-only allocations
@@ -477,7 +477,7 @@ buyGas
 buyGas env cmd (Miner mid mks) supply mcache = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
-    initState = setModuleCache mcache $ initCapabilities [magic_FUND_TX]
+    initState = setModuleCache mcache $ initCapabilities [magic_GAS]
     interp = Interpreter $ \start end withRollback input ->
       withRollback $ start (run input) >>= end
     run input = do
@@ -559,7 +559,7 @@ redeemGas env cmd initialGas cmdResult gid prevLogs mcache = do
         fee        = gasFeeOf totalGas (gasPriceOf cmd)
         rk         = cmdToRequestKey cmd
         initState  = initStateInterpreter $ setModuleCache mcache
-          $ initCapabilities [magic_FUND_TX]
+          $ initCapabilities [magic_GAS]
     -- print ("\n\nREDEEM GAS:",rk,initialGas,_crGas cmdResult,fee, "\n\n")
     applyContinuation env initState rk (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs

@@ -340,7 +340,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     clist :: Maybe [SigCapability]
     clist = Just $
-      [ mkCoinSig "FUND_TX" []
+      [ mkCoinSig "GAS" []
       , mkCoinSig "TRANSFER"
           [ PLiteral $ LString "sender00"
           , PLiteral $ LString "sender01"

@@ -36,7 +36,7 @@
   (defcap GOVERNANCE ()
     (enforce false "Enforce non-upgradeability"))
 
-  (defcap FUND_TX ()
+  (defcap GAS ()
     "Magic capability to protect gas buy and redeem"
     true)
 
@@ -157,7 +157,7 @@
     (enforce-unit total)
     (enforce (> total 0.0) "gas supply must be a positive quantity")
 
-    (require-capability (FUND_TX))
+    (require-capability (GAS))
     (with-capability (DEBIT sender)
       (debit sender total))
     )
@@ -177,7 +177,7 @@
     (validate-account miner)
     (enforce-unit total)
 
-    (require-capability (FUND_TX))
+    (require-capability (GAS))
     (let*
       ((fee (read-decimal "fee"))
        (refund (- total fee)))

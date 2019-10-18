@@ -156,7 +156,7 @@
 
 (commit-tx)
 
-;; fund-tx should require FUND_TX capability in scope, and all funds should succeed
+;; fund-tx should require GAS capability in scope, and all funds should succeed
 ;; when available and reflect correct balances
 
 (begin-tx)
@@ -167,7 +167,7 @@
  "fund-tx should fail when FUND-TX is not in scope"
  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
-(test-capability (FUND_TX))
+(test-capability (GAS))
 
 (expect-failure
   "FUND-TX fails for trivial or negative quantities"
@@ -190,7 +190,7 @@
 
 (commit-tx)
 
-;;; FUND_TX (gas buying) tests
+;;; GAS (gas buying) tests
 
 (begin-tx)
 
@@ -205,7 +205,7 @@
 (env-data { "fee" : 0.0, "emily" : ["keys1"], "doug": ["keys2"] })
 (env-keys ["keys1", "keys2"])
 
-(test-capability (FUND_TX))
+(test-capability (GAS))
 
 (test-capability (DEBIT "emily"))
 (test-capability (CREDIT "emily"))
@@ -243,7 +243,7 @@
 (env-data { "fee" : 0.4, "emily" : ["keys1"], "doug": ["keys2"], "will": ["keys4"] })
 (env-keys ["keys1", "keys2", "keys4"])
 
-(test-capability (FUND_TX))
+(test-capability (GAS))
 (test-capability (DEBIT "emily"))
 (test-capability (CREDIT "emily"))
 (test-capability (CREDIT "doug"))
@@ -497,7 +497,7 @@
   (coinbase 'doug (read-keyset 'doug) UNIT_BAD))
 
 ;;buy-gas
-(test-capability (FUND_TX))
+(test-capability (GAS))
 (expect
   "min buy-gas succeeds"
   "Write succeeded"
