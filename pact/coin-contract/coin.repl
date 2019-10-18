@@ -357,18 +357,18 @@
 
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
-  (teleport-transfer 'emily "1" 'doug (read-keyset 'doug) 0.0))
+  (transfer-crosschain 'emily "1" 'doug (read-keyset 'doug) 0.0))
 
 (expect-failure
   "cross-chain transfers fail for trivial or negative quantities"
-  (teleport-transfer 'emily "1" 'doug (read-keyset 'doug) (- 1.0)))
+  (transfer-crosschain 'emily "1" 'doug (read-keyset 'doug) (- 1.0)))
 
 (expect
   "burn side of cross-chain transfers succeed"
   "success"
   (let
     ((p
-      (teleport-transfer 'emily 'doug (read-keyset 'doug) "1" 1.0)))
+      (transfer-crosschain 'emily 'doug (read-keyset 'doug) "1" 1.0)))
     "success"))
 
 ; make sure chain-id is enforced in the yield
@@ -470,20 +470,20 @@
    "bad transfer-create fails"
    (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
 
-;;teleport-transfer (step 0 only covered)
+;;transfer-crosschain (step 0 only covered)
 
 (expect
-  "min teleport-transfer step 1 succeeds"
+  "min transfer-crosschain step 1 succeeds"
   "success"
   (let ((s "success"))
-    (teleport-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
+    (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_GOOD)
     s))
 
 (pact-state true)
 
 (expect-failure
-  "bad teleport-transfer fails"
-  (teleport-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
+  "bad transfer-crosschain fails"
+  (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
 
 ;;coinbase
 (test-capability (COINBASE))

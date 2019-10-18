@@ -390,13 +390,13 @@
       ))
 
 
-  (defschema teleport-schema
+  (defschema crosschain-schema
     @doc "Schema for yielded value in cross-chain transfers"
     receiver:string
     receiver-guard:guard
     amount:decimal)
 
-  (defpact teleport-transfer:string
+  (defpact transfer-crosschain:string
     ( sender:string
       receiver:string
       receiver-guard:guard
@@ -428,12 +428,12 @@
         (debit sender amount)
 
         (let
-          ((teleport-details:object{teleport-schema}
+          ((crosschain-details:object{crosschain-schema}
             { "receiver" : receiver
             , "receiver-guard" : receiver-guard
             , "amount" : amount
             }))
-          (yield teleport-details target-chain)
+          (yield crosschain-details target-chain)
           )))
 
     (step
