@@ -413,13 +413,12 @@ doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
 doCreateUserTable tn@(TableName ttxt) mn = do
     -- first check if tablename already exists in pending queues
     m <- runMaybeT $ checkDbTableExists (Utf8 $ T.encodeUtf8 ttxt)
-    mbhHash <- getLatestBlock
     case m of
-      Nothing -> throwM $ PactDuplicateTableError mbhHash ttxt
+      Nothing -> throwM $ PactDuplicateTableError ttxt
       Just () -> do
           -- then check if it is in the db
           cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
-          when cond $ throwM $ PactDuplicateTableError mbhHash ttxt
+          when cond $ throwM $ PactDuplicateTableError ttxt
           modifyPendingData $ \(c, w, l, p) ->
               let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
                   !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
@@ -435,17 +434,6 @@ doCreateUserTable tn@(TableName ttxt) mn = do
           _ -> False
 
     tableLookupStmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
-    getLatestBlock = callDb "doCreateUserTable (getLatestBlock)" $ \db -> do
-        r <- qry_ db qtext [RInt, RBlob] >>= mapM go
-        case r of
-          [] -> return Nothing
-          (!o:_) -> return $! Just o
-      where
-        qtext = "SELECT blockheight, hash FROM BlockHistory ORDER by blockheight DESC LIMIT 1"
-        go [SInt hgt, SBlob blob] =
-            let hash = either error id $ Data.Serialize.decode blob
-            in return $! (fromIntegral hgt, hash)
-        go _ = fail "impossible"
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn

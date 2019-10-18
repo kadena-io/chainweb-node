@@ -46,7 +46,7 @@ data PactException
   | PactInternalError Text
   | NoBlockValidatedYet
   | TransactionValidationException [(PactHash, Text)]
-  | PactDuplicateTableError (Maybe (BlockHeight, BlockHash)) Text
+  | PactDuplicateTableError Text
   -- The last argument Text is the duplicate table name.
   deriving (Eq,Show,Generic)
 
