@@ -409,14 +409,31 @@ modifyPendingData f = do
       Nothing -> bsPendingBlock %= f
 
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
-doCreateUserTable tn@(TableName ttxt) mn =
-    modifyPendingData $ \(c, w, l, p) ->
-        let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
-            !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
-            !t = (c', w, l', p)
-        in t
+doCreateUserTable tn@(TableName ttxt) mn = do
+    -- first check if tablename already exists in pending queues
+    m <- runMaybeT $ checkDbTableExists (Utf8 $ T.encodeUtf8 ttxt)
+    case m of
+      Nothing -> internalError $ dupMsg ttxt
+      Just () -> do
+          cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
+          when cond $ internalError $ dupMsg ttxt
+          -- then check if it is in the db
+          modifyPendingData $ \(c, w, l, p) ->
+              let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
+                  !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
+                  !t = (c', w, l', p)
+              in t
 
   where
+    dupMsg tablename = "This table (" <> tablename <> ") already exists. We cannot allow duplicates."
+    inDb t = do
+      callDb "doCreateUserTable" $ \db -> do
+        r <- qry db stmt [SText t] [RText]
+        return $ case r of
+          [[SText rname]] -> rname == t
+          _ -> False
+
+    stmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn

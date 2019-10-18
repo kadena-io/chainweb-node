@@ -369,6 +369,24 @@ checkpointerTest name initdata =
           runExec blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
           _cpSave _cpeCheckpointer hash08
 
+          next "another regression test (part 1)"
+          hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
+          blockEnv10 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
+
+          let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
+          void $ runExec blockEnv10 (Just tKeyset) tablecode
+
+          _cpSave _cpeCheckpointer hash09
+
+          -- next "another regression test (part 2)"
+          -- _hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
+          -- blockEnv11 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 10, hash09))
+
+          -- void $ runExec blockEnv11 (Just tKeyset) tablecode
+
+          -- _cpDiscard _cpeCheckpointer
+
+
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
@@ -543,3 +561,28 @@ nativeLookup :: NativeDefName -> Maybe (Term Name)
 nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDefs of
   Just (Direct t) -> Just t
   _ -> Nothing
+
+tablecode :: Text
+tablecode = [text|
+(define-keyset 'table-admin-keyset
+  (read-keyset "test-keyset"))
+
+(module table-example 'table-admin-keyset
+
+  (defschema test-schema
+    content:string)
+
+  (deftable test-table:{test-schema})
+
+  (defun add-row (row:string content:string)
+    (insert test-table row {
+      "content": content
+      })
+  )
+  (defun read-table ()
+    (select test-table (constantly true))
+  )
+)
+
+(create-table test-table)
+|]
