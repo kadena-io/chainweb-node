@@ -404,7 +404,8 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 1099938.54) -- 1k + 1mm - gas
+        [ (FieldKey "account", PLiteral $ LString "allocation00")
+        , (FieldKey "balance", PLiteral $ LDecimal 1099938.51) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
@@ -412,7 +413,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     pm t = Pact.PublicMeta (Pact.ChainId "0") t 100000 0.01 ttl
 
     tx0 = PactTransaction "(coin.release-allocation \"allocation00\")" Nothing
-    tx1 = PactTransaction "(coin.account-info \"allocation00\")" Nothing
+    tx1 = PactTransaction "(coin.details \"allocation00\")" Nothing
     tx2 = PactTransaction "(coin.release-allocation \"allocation01\")" Nothing
     tx3 =
       let
@@ -422,13 +423,14 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
           (Name $ BareName "keys-all" def)
       in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
     tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
-    tx5 = PactTransaction "(coin.account-info \"allocation02\")" Nothing
+    tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
 
     accountInfo' = Right
       $ PObject
       $ ObjectMap
       $ M.fromList
-        [ (FieldKey "balance", PLiteral $ LDecimal 1099918.46) -- 1k + 1mm - gas
+        [ (FieldKey "account", PLiteral $ LString "allocation02")
+        , (FieldKey "balance", PLiteral $ LDecimal 1099918.43) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
         ]
 

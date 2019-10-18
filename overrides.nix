@@ -13,12 +13,6 @@ let # Working on getting this function upstreamed into nixpkgs, but
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
 
-      aeson = callHackageDirect {
-        pkg = "aeson";
-        ver = "1.4.3.0";
-        sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
-      };
-
       chainweb = enableCabalFlag (
         justStaticExecutables (enableDWARFDebugging super.chainweb)) "use_systemd";
 

@@ -56,6 +56,7 @@ import Chainweb.SPV
 import Chainweb.SPV.VerifyProof
 import Chainweb.TreeDB
 import Chainweb.Utils
+import qualified Chainweb.Version as CW
 
 import Data.CAS
 
@@ -67,9 +68,6 @@ import Pact.Types.PactValue
 import Pact.Types.Runtime
 import Pact.Types.SPV
 
--- internal chainweb modules
-
-import qualified Chainweb.Version as CW
 
 -- | Spv support for pact
 --
