@@ -415,9 +415,9 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     case m of
       Nothing -> internalError $ dupMsg ttxt
       Just () -> do
+          -- then check if it is in the db
           cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
           when cond $ internalError $ dupMsg ttxt
-          -- then check if it is in the db
           modifyPendingData $ \(c, w, l, p) ->
               let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
                   !l' = M.insertWith DL.append (TableName txlogKey) txlogs l

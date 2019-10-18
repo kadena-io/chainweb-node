@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Test.Pact.Checkpointer (tests) where
@@ -369,23 +370,41 @@ checkpointerTest name initdata =
           runExec blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
           _cpSave _cpeCheckpointer hash08
 
-          next "another regression test (part 1)"
+          next "Don't create the same table twice! (part 1)"
           hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
           blockEnv10 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
 
+          let h :: SomeException -> IO (Maybe String)
+              h = const (return Nothing)
+
           let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
           void $ runExec blockEnv10 (Just tKeyset) tablecode
+          expectedException1 <- (runExec blockEnv10 (Just tKeyset) tablecode >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
+          maybe (return ()) (flip assertBool False) expectedException1
+          _cpDiscard _cpeCheckpointer
+
+          next "Don't create the same table twice! (part 2)"
+
+          blockEnv10a <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
+          expectedException2 <- (runExec blockEnv10a (Just tKeyset) (tablecode <> tablecode) >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
+          maybe (return ()) (flip assertBool False)  expectedException2
+
+          _cpDiscard _cpeCheckpointer
+
+          next "Don't create the same table twice! (part 3)"
+
+          blockEnv10b <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
+          void $ runExec blockEnv10b (Just tKeyset) tablecode
 
           _cpSave _cpeCheckpointer hash09
 
-          -- next "another regression test (part 2)"
-          -- _hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
-          -- blockEnv11 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 10, hash09))
+          hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
 
-          -- void $ runExec blockEnv11 (Just tKeyset) tablecode
+          blockEnv11 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 10, hash09))
+          expectedException3 <- (runExec blockEnv11 (Just tKeyset) tablecode >> return (Just "The table duplication somehow went through. Investigate this error.")) `catch` h
+          maybe (return ()) (flip assertBool False) expectedException3
 
-          -- _cpDiscard _cpeCheckpointer
-
+          _cpSave _cpeCheckpointer hash10
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
