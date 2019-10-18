@@ -9,6 +9,11 @@
 ; HUGE GLARING TODO - pending FV fixes in Pact
 (verify 'coin)
 
+(commit-tx)
+
+;; Account creation and account details unit tests
+
+(begin-tx)
 (env-data { "emily" : ["keys1"], "doug": ["keys2"], "stuart": ["keys3"] })
 (env-keys ["keys1", "keys2", "keys3", "keys4"])
 (define-keyset 'emily (read-keyset "emily"))
@@ -57,8 +62,13 @@
   {"account" : "doug", "balance": 0.0, "guard": (read-keyset 'doug)}
   (details 'doug))
 
+(commit-tx)
 
 ;; credits + debits should succeed. Both should reflect the correct balance
+
+(begin-tx)
+
+(use coin)
 
 ; w/o capability
 (expect-failure
@@ -144,8 +154,15 @@
   "cannot update a keyset for an existing account with wrong keyset"
   (credit 'stuart (read-keyset 'doug) 1.0))
 
+(commit-tx)
+
 ;; fund-tx should require FUND_TX capability in scope, and all funds should succeed
 ;; when available and reflect correct balances
+
+(begin-tx)
+
+(use coin)
+
 (expect-failure
  "fund-tx should fail when FUND-TX is not in scope"
  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
@@ -171,12 +188,6 @@
   "Write succeeded"
   (redeem-gas "miner" (read-keyset "miner") "emily" 1.0))
 
-;; setup for next txs
-(env-data { "emily" : ["keys1"] })
-(env-keys ["keys1"])
-(test-capability (CREDIT "emily"))
-(credit "emily" (read-keyset "emily") 1.0)
-
 (commit-tx)
 
 ;;; FUND_TX (gas buying) tests
@@ -184,6 +195,12 @@
 (begin-tx)
 
 (use coin)
+
+;; setup for next txs
+(env-data { "emily" : ["keys1"] })
+(env-keys ["keys1"])
+(test-capability (CREDIT "emily"))
+(credit "emily" (read-keyset "emily") 1.0)
 
 (env-data { "fee" : 0.0, "emily" : ["keys1"], "doug": ["keys2"] })
 (env-keys ["keys1", "keys2"])
@@ -207,6 +224,18 @@
 
 (rollback-tx)
 
+;; credit to seed next tests
+(begin-tx)
+
+(env-data { "fee" : 0.4, "emily" : ["keys1"], "doug": ["keys2"], "will": ["keys4"] })
+(env-keys ["keys1", "keys2", "keys4"])
+
+(test-capability (coin.CREDIT "emily"))
+(coin.credit "emily" (read-keyset "emily") 1.0)
+
+(commit-tx)
+
+; Test capabilities interactions with transfers
 (begin-tx)
 
 (use coin)
@@ -248,10 +277,6 @@
   "roundtrip 1.0 transfer succeeds" "Write succeeded"
   (transfer 'emily 'doug 1.0))
 
-;(expect
-;  "roundtrip 1.0 transfer succeeds" "Write succeeded"
-;  (transfer 'doug 'emily 1.0))
-
 (expect-failure "emily->doug capability used up"
   (transfer 'emily 'doug 1.0))
 
@@ -289,6 +314,7 @@
 
 ;; coinbase should fail when 'COINBASE' capability is not in scope
 ;; and should magically create tokens for users and reflect correct balance
+
 (expect-failure
   "coinbase fails when capability is not in scope"
   (coinbase 'emily (read-keyset 'emily) 0.0))
@@ -319,7 +345,13 @@
   "coinbase should create accounts and credit them some amount"
   2.0 (get-balance 'stuart))
 
-(pact-state true)
+(commit-tx)
+
+;; test burn-creates on new chains
+
+(begin-tx)
+
+(use coin)
 (env-chain-data { "chain-id" : "0" })
 (env-hash (hash "burn-create"))
 
@@ -364,7 +396,7 @@
   "cross-chain transfer pact prevents double spends"
   (continue-pact 1 false (hash "burn-create")))
 
-;; account guard rotation
+; account guard rotation
 (expect
   "account info for 'emily uses 'emily keyset pre-rotation"
   "Account: 0.6 Guard: KeySet {keys: [keys1],pred: keys-all}"
@@ -372,7 +404,7 @@
     ((i (details 'emily)))
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
 
-;; account details will now feature rotated guard
+; account details will now feature rotated guard
 (rotate 'emily (read-keyset 'doug))
 (expect
   "account info for 'emily uses 'doug keyset after rotation"
@@ -380,7 +412,13 @@
   (let ((i (details 'emily)))
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
 
+(commit-tx)
+
 ;; cover enforce-unit
+
+(begin-tx)
+
+(use coin)
 (module T G
   (defcap G () true)
   (defconst UNIT_BAD 0.0000000000001)
@@ -433,7 +471,6 @@
    (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_BAD))
 
 ;;teleport-transfer (step 0 only covered)
-(pact-state true)
 
 (expect
   "min teleport-transfer step 1 succeeds"
@@ -443,6 +480,7 @@
     s))
 
 (pact-state true)
+
 (expect-failure
   "bad teleport-transfer fails"
   (teleport-transfer 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
