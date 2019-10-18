@@ -344,7 +344,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
       , mkCoinSig "TRANSFER"
           [ PLiteral $ LString "sender00"
           , PLiteral $ LString "sender01"
-          , PLiteral $ LDecimal 100.01
+          , PLiteral $ LDecimal 100.0
           ]
       ]
 
