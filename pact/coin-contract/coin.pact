@@ -36,7 +36,7 @@
   (defcap GOVERNANCE ()
     (enforce false "Enforce non-upgradeability"))
 
-  (defcap FUND_TX ()
+  (defcap GAS ()
     "Magic capability to protect gas buy and redeem"
     true)
 
@@ -48,12 +48,12 @@
     "Magic capability constraining genesis transactions"
     true)
 
-  (defcap DEBIT (sender:string amount:decimal)
+  (defcap DEBIT (sender:string)
     "Capability for managing debiting operations"
     (enforce-guard (at 'guard (read coin-table sender)))
     (enforce (!= sender "") "valid sender"))
 
-  (defcap CREDIT (receiver:string amount:decimal)
+  (defcap CREDIT (receiver:string)
     "Capability for managing crediting operations"
     (enforce (!= receiver "") "valid receiver"))
 
@@ -66,8 +66,8 @@
     (enforce (!= sender receiver) "same sender and receiver")
     (enforce-unit amount)
     (enforce (> amount 0.0) "Positive amount")
-    (compose-capability (DEBIT sender amount))
-    (compose-capability (CREDIT receiver amount))
+    (compose-capability (DEBIT sender))
+    (compose-capability (CREDIT receiver))
   )
 
   (defun TRANSFER-mgr:object{fungible-v1.transfer-schema}
@@ -157,8 +157,8 @@
     (enforce-unit total)
     (enforce (> total 0.0) "gas supply must be a positive quantity")
 
-    (require-capability (FUND_TX))
-    (with-capability (DEBIT sender total)
+    (require-capability (GAS))
+    (with-capability (DEBIT sender)
       (debit sender total))
     )
 
@@ -177,7 +177,7 @@
     (validate-account miner)
     (enforce-unit total)
 
-    (require-capability (FUND_TX))
+    (require-capability (GAS))
     (let*
       ((fee (read-decimal "fee"))
        (refund (- total fee)))
@@ -190,7 +190,7 @@
         "refund must be a non-negative quantity")
 
         ; directly update instead of credit
-      (with-capability (CREDIT sender refund)
+      (with-capability (CREDIT sender)
         (if (> refund 0.0)
           (with-read coin-table sender
             { "balance" := balance }
@@ -199,7 +199,7 @@
 
           "noop"))
 
-      (with-capability (CREDIT miner fee)
+      (with-capability (CREDIT miner)
         (if (> fee 0.0)
           (credit miner miner-guard fee)
           "noop"))
@@ -313,7 +313,7 @@
     (enforce-unit amount)
 
     (require-capability (COINBASE))
-    (with-capability (CREDIT account amount)
+    (with-capability (CREDIT account)
       (credit account account-guard amount))
     )
 
@@ -351,7 +351,7 @@
 
     (enforce-unit amount)
 
-    (require-capability (DEBIT account amount))
+    (require-capability (DEBIT account))
     (with-read coin-table account
       { "balance" := balance }
 
@@ -375,7 +375,7 @@
     (enforce (> amount 0.0) "credit amount must be positive")
     (enforce-unit amount)
 
-    (require-capability (CREDIT account amount))
+    (require-capability (CREDIT account))
     (with-default-read coin-table account
       { "balance" : 0.0, "guard" : guard }
       { "balance" := balance, "guard" := retg }
@@ -390,13 +390,13 @@
       ))
 
 
-  (defschema teleport-schema
+  (defschema crosschain-schema
     @doc "Schema for yielded value in cross-chain transfers"
     receiver:string
     receiver-guard:guard
     amount:decimal)
 
-  (defpact teleport-transfer:string
+  (defpact transfer-crosschain:string
     ( sender:string
       receiver:string
       receiver-guard:guard
@@ -410,7 +410,7 @@
            ]
 
     (step
-      (with-capability (DEBIT sender amount)
+      (with-capability (DEBIT sender)
 
         (validate-account sender)
         (validate-account receiver)
@@ -428,12 +428,12 @@
         (debit sender amount)
 
         (let
-          ((teleport-details:object{teleport-schema}
+          ((crosschain-details:object{crosschain-schema}
             { "receiver" : receiver
             , "receiver-guard" : receiver-guard
             , "amount" : amount
             }))
-          (yield teleport-details target-chain)
+          (yield crosschain-details target-chain)
           )))
 
     (step
@@ -444,7 +444,7 @@
         }
 
         ;; step 2 - credit create account on target chain
-        (with-capability (CREDIT receiver amount)
+        (with-capability (CREDIT receiver)
           (credit receiver receiver-guard amount))
         ))
     )
@@ -525,7 +525,7 @@
 
         (enforce-guard guard)
 
-        (with-capability (CREDIT account balance)
+        (with-capability (CREDIT account)
           (credit account guard balance)
 
           (update allocation-table account
