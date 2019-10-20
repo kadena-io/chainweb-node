@@ -16,30 +16,28 @@
           (<= (length account) 256)))
     ]
 
+  (implements fungible-v1)
+
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
 
   (defschema coin-schema
     @doc "The coin contract token schema"
-    ;@model [ (invariant (>= balance 0.0)) ] ; FV problem
+    @model [ (invariant (>= balance 0.0)) ]
 
     balance:decimal
     guard:guard)
 
   (deftable coin-table:{coin-schema})
 
-  (defschema transfer-schema
-    @doc "Schema for yielded value in cross-chain transfers"
-
-    create-account:string
-    create-account-guard:guard
-    quantity:decimal)
-
   ; --------------------------------------------------------------------------
   ; Capabilities
 
-  (defcap TRANSFER ()
-    "Autonomous capability to protect debit and credit actions"
+  (defcap GOVERNANCE ()
+    (enforce false "Enforce non-upgradeability"))
+
+  (defcap GAS ()
+    "Magic capability to protect gas buy and redeem"
     true)
 
   (defcap COINBASE ()
@@ -50,18 +48,41 @@
     "Magic capability constraining genesis transactions"
     true)
 
-  (defcap FUND_TX ()
-    "Magic capability to execute gas purchases and redemptions"
-    true)
+  (defcap DEBIT (sender:string)
+    "Capability for managing debiting operations"
+    (enforce-guard (at 'guard (read coin-table sender)))
+    (enforce (!= sender "") "valid sender"))
 
-  (defcap ACCOUNT_GUARD (account)
-    "Lookup and enforce guards associated with an account"
-    (with-read coin-table account { "guard" := g }
-      (enforce-guard g)))
+  (defcap CREDIT (receiver:string)
+    "Capability for managing crediting operations"
+    (enforce (!= receiver "") "valid receiver"))
 
-  (defcap GOVERNANCE ()
-    (enforce false "Enforce non-upgradeability except in the case of a hard fork"))
+  (defcap TRANSFER:bool
+    ( sender:string
+      receiver:string
+      amount:decimal
+    )
+    @managed TRANSFER-mgr
+    (enforce (!= sender receiver) "same sender and receiver")
+    (enforce-unit amount)
+    (enforce (> amount 0.0) "Positive amount")
+    (compose-capability (DEBIT sender))
+    (compose-capability (CREDIT receiver))
+  )
 
+  (defun TRANSFER-mgr:object{fungible-v1.transfer-schema}
+    ( managed:object{fungible-v1.transfer-schema}
+      requested:object{fungible-v1.transfer-schema}
+    )
+
+    (enforce (= (at 'sender managed) (at 'sender requested)) "sender match")
+    (enforce (= (at 'receiver managed) (at 'receiver requested)) "sender match")
+    (let* ((bal:decimal (at 'amount managed))
+           (amt:decimal (at 'amount requested))
+           (rem:decimal (- bal amt)))
+      (enforce (>= rem 0.0) (format "TRANSFER exceeded for balance {}" [bal]))
+      (+ { 'amount: rem } managed))
+  )
 
   ; --------------------------------------------------------------------------
   ; Constants
@@ -81,7 +102,7 @@
   ; --------------------------------------------------------------------------
   ; Utilities
 
-  (defun enforce-unit (amount:decimal)
+  (defun enforce-unit:bool (amount:decimal)
     @doc "Enforce minimum precision allowed for coin transactions"
 
     (enforce
@@ -136,8 +157,8 @@
     (enforce-unit total)
     (enforce (> total 0.0) "gas supply must be a positive quantity")
 
-    (require-capability (FUND_TX))
-    (with-capability (TRANSFER)
+    (require-capability (GAS))
+    (with-capability (DEBIT sender)
       (debit sender total))
     )
 
@@ -156,38 +177,37 @@
     (validate-account miner)
     (enforce-unit total)
 
-    (require-capability (FUND_TX))
-    (with-capability (TRANSFER)
-      (let* ((fee (read-decimal "fee"))
-             (refund (- total fee)))
+    (require-capability (GAS))
+    (let*
+      ((fee (read-decimal "fee"))
+       (refund (- total fee)))
 
-        (enforce-unit fee)
+      (enforce-unit fee)
+      (enforce (>= fee 0.0)
+        "fee must be a non-negative quantity")
 
-        (enforce (>= fee 0.0)
-          "fee must be a non-negative quantity")
-
-        (enforce (>= refund 0.0)
-          "refund must be a non-negative quantity")
+      (enforce (>= refund 0.0)
+        "refund must be a non-negative quantity")
 
         ; directly update instead of credit
+      (with-capability (CREDIT sender)
         (if (> refund 0.0)
           (with-read coin-table sender
             { "balance" := balance }
             (update coin-table sender
-              { "balance": (+ balance refund) })
-            )
-          "noop")
+              { "balance": (+ balance refund) }))
 
+          "noop"))
+
+      (with-capability (CREDIT miner)
         (if (> fee 0.0)
           (credit miner miner-guard fee)
-          "noop")
-        ))
+          "noop"))
+      )
+
     )
 
   (defun create-account:string (account:string guard:guard)
-    @doc "Create an account for ACCOUNT, with GUARD controlling access to the  \
-    \account."
-
     @model [ (property (valid-account account)) ]
 
     (validate-account account)
@@ -198,52 +218,41 @@
       })
     )
 
-  (defun account-balance:decimal (account:string)
-    @doc "Check an account's balance."
-
-    @model [ (property (valid-account account)) ]
-
-    (validate-account account)
-
+  (defun get-balance:decimal (account:string)
     (with-read coin-table account
       { "balance" := balance }
       balance
       )
     )
 
-  (defun account-info:object (account:string)
-    @doc "Get all of an account's info.  This includes the balance and the    \
-    \guard."
-
-    @model [ (property (valid-account account)) ]
-
-    (validate-account account)
-
-    (read coin-table account)
+  (defun details:object{fungible-v1.account-details}
+    ( account:string )
+    (with-read coin-table account
+      { "balance" := bal
+      , "guard" := g }
+      { "account" : account
+      , "balance" : bal
+      , "guard": g })
     )
 
-  (defun rotate-guard:string (account:string new-guard:guard)
-    @doc "Rotate guard associated with ACCOUNT"
-
-    @model [ (property (valid-account account)) ]
-
-    (validate-account account)
+  (defun rotate:string (account:string new-guard:guard)
 
     (with-read coin-table account
       { "guard" := old-guard }
 
       (enforce-guard old-guard)
+      (enforce-guard new-guard)
 
       (update coin-table account
         { "guard" : new-guard }
         )))
 
 
-  (defun transfer:string (sender:string receiver:string amount:decimal)
-    @doc "Transfer AMOUNT between accounts SENDER and RECEIVER on the same    \
-    \chain. This fails if either SENDER or RECEIVER does not exist.           \
-    \Create-on-transfer can be done using the 'transfer-and-create' function."
+  (defun precision:integer
+    ()
+    MINIMUM_PRECISION)
 
+  (defun transfer:string (sender:string receiver:string amount:decimal)
     @model [ (property conserves-mass)
              (property (> amount 0.0))
              (property (valid-account sender))
@@ -261,7 +270,7 @@
 
     (enforce-unit amount)
 
-    (with-capability (TRANSFER)
+    (with-capability (TRANSFER sender receiver amount)
       (debit sender amount)
       (with-read coin-table receiver
         { "guard" := g }
@@ -276,15 +285,7 @@
       receiver-guard:guard
       amount:decimal )
 
-    @doc "Transfer between accounts SENDER and RECEIVER on the same chain.    \
-    \This fails if the SENDER account does not exist. If the RECEIVER account \
-    \does not exist, it is created and associated with GUARD."
-
-    @model [ ;(property conserves-mass) ;; fails on missing row, FV problem
-            (property (> amount 0.0))
-            (property (valid-account sender))
-            (property (valid-account receiver))
-            (property (!= sender receiver)) ]
+    @model [ (property conserves-mass) ]
 
     (enforce (!= sender receiver)
       "sender cannot be the receiver of a transfer")
@@ -297,7 +298,7 @@
 
     (enforce-unit amount)
 
-    (with-capability (TRANSFER)
+    (with-capability (TRANSFER sender receiver amount)
       (debit sender amount)
       (credit receiver receiver-guard amount))
     )
@@ -312,7 +313,7 @@
     (enforce-unit amount)
 
     (require-capability (COINBASE))
-    (with-capability (TRANSFER)
+    (with-capability (CREDIT account)
       (credit account account-guard amount))
     )
 
@@ -350,15 +351,15 @@
 
     (enforce-unit amount)
 
-    (require-capability (TRANSFER))
-    (with-capability (ACCOUNT_GUARD account)
-      (with-read coin-table account
-        { "balance" := balance }
+    (require-capability (DEBIT account))
+    (with-read coin-table account
+      { "balance" := balance }
 
-        (enforce (<= amount balance) "Insufficient funds")
-        (update coin-table account
-          { "balance" : (- balance amount) }
-          )))
+      (enforce (<= amount balance) "Insufficient funds")
+
+      (update coin-table account
+        { "balance" : (- balance amount) }
+        ))
     )
 
 
@@ -374,7 +375,7 @@
     (enforce (> amount 0.0) "credit amount must be positive")
     (enforce-unit amount)
 
-    (require-capability (TRANSFER))
+    (require-capability (CREDIT account))
     (with-default-read coin-table account
       { "balance" : 0.0, "guard" : guard }
       { "balance" := balance, "guard" := retg }
@@ -388,71 +389,63 @@
         })
       ))
 
-  (defpact cross-chain-transfer
-    ( delete-account:string
-      create-chain-id:string
-      create-account:string
-      create-account-guard:guard
-      quantity:decimal )
 
-    @doc "Transfer QUANTITY coins from DELETE-ACCOUNT on current chain to           \
-         \CREATE-ACCOUNT on CREATE-CHAIN-ID. Target chain id must not be the        \
-         \current chain-id.                                                         \
-         \                                                                          \
-         \Step 1: Burn QUANTITY-many coins for DELETE-ACCOUNT on the current chain, \
-         \and produce an SPV receipt which may be manually redeemed for an SPV      \
-         \proof. Once a proof is obtained, the user may call 'create-coin' and      \
-         \consume the proof on CREATE-CHAIN-ID, crediting CREATE-ACCOUNT QUANTITY-  \
-         \many coins.                                                               \
-         \                                                                          \
-         \Step 2: Consume an SPV proof for a number of coins, and credit the        \
-         \account associated with the proof the quantify of coins burned on the     \
-         \source chain by the burn account. Note: must be called on the correct     \
-         \chain id as specified in the proof."
+  (defschema crosschain-schema
+    @doc "Schema for yielded value in cross-chain transfers"
+    receiver:string
+    receiver-guard:guard
+    amount:decimal)
 
-    @model [ (property (> quantity 0.0))
-             (property (!= create-chain-id ""))
-             (property (valid-account delete-account))
-             (property (valid-account create-account))
+  (defpact transfer-crosschain:string
+    ( sender:string
+      receiver:string
+      receiver-guard:guard
+      target-chain:string
+      amount:decimal )
+
+    @model [ (property (> amount 0.0))
+             (property (!= receiver ""))
+             (property (valid-account sender))
+             (property (valid-account receiver))
            ]
 
     (step
-      (with-capability (TRANSFER)
+      (with-capability (DEBIT sender)
 
-        (validate-account delete-account)
-        (validate-account create-account)
+        (validate-account sender)
+        (validate-account receiver)
 
-        (enforce (!= "" create-chain-id) "empty create-chain-id")
-        (enforce (!= (at 'chain-id (chain-data)) create-chain-id)
+        (enforce (!= "" target-chain) "empty target-chain")
+        (enforce (!= (at 'chain-id (chain-data)) target-chain)
           "cannot run cross-chain transfers to the same chain")
 
-        (enforce (> quantity 0.0)
+        (enforce (> amount 0.0)
           "transfer quantity must be positive")
 
-        (enforce-unit quantity)
+        (enforce-unit amount)
 
         ;; step 1 - debit delete-account on current chain
-        (debit delete-account quantity)
+        (debit sender amount)
 
         (let
-          ((retv:object{transfer-schema}
-            { "create-account" : create-account
-            , "create-account-guard" : create-account-guard
-            , "quantity" : quantity
+          ((crosschain-details:object{crosschain-schema}
+            { "receiver" : receiver
+            , "receiver-guard" : receiver-guard
+            , "amount" : amount
             }))
-          (yield retv create-chain-id)
+          (yield crosschain-details target-chain)
           )))
 
     (step
       (resume
-        { "create-account" := create-account
-        , "create-account-guard" := create-account-guard
-        , "quantity" := quantity
+        { "receiver" := receiver
+        , "receiver-guard" := receiver-guard
+        , "amount" := amount
         }
 
         ;; step 2 - credit create account on target chain
-        (with-capability (TRANSFER)
-          (credit create-account create-account-guard quantity))
+        (with-capability (CREDIT receiver)
+          (credit receiver receiver-guard amount))
         ))
     )
 
@@ -532,7 +525,7 @@
 
         (enforce-guard guard)
 
-        (with-capability (TRANSFER)
+        (with-capability (CREDIT account)
           (credit account guard balance)
 
           (update allocation-table account

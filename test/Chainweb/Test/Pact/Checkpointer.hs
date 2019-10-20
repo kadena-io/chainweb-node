@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Test.Pact.Checkpointer (tests) where
@@ -169,6 +170,15 @@ checkpointerTest name initdata =
         InMem -> let loggers = pactTestLogger False
           in withResource (initInMemoryCheckpointEnv loggers (newLogger loggers "inMemCheckpointer")) (const $ return ()) runTest
   where
+    h :: SomeException -> IO (Maybe String)
+    h = const (return Nothing)
+
+    expectException act = do
+        result <- (act >> return (Just msg)) `catch` h
+        maybe (return ()) (flip assertBool False) result
+      where
+        msg = "The table duplication somehow went through. Investigate this error."
+
     runTest :: IO CheckpointEnv -> TestTree
     runTest c = testCaseSteps name $ \next -> do
           (CheckpointEnv {..}) <-    c
@@ -369,6 +379,36 @@ checkpointerTest name initdata =
           runExec blockEnv09 Nothing "(m6.readTbl)" >>= \EvalResult{..} -> Right _erOutput @?= traverse toPactValue [tIntList [1,4]]
           _cpSave _cpeCheckpointer hash08
 
+          next "Don't create the same table twice in the same block"
+          hash09 <- BlockHash <$> merkleLogHash "0000000000000000000000000000009a"
+          blockEnv10 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
+
+          let tKeyset = object ["test-keyset" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
+          void $ runExec blockEnv10 (Just tKeyset) tablecode
+          expectException $ runExec blockEnv10 (Just tKeyset) tablecode
+          _cpDiscard _cpeCheckpointer
+
+          next "Don't create the same table twice in the same transaction."
+
+          blockEnv10a <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
+          expectException $ runExec blockEnv10a (Just tKeyset) (tablecode <> tablecode)
+
+          _cpDiscard _cpeCheckpointer
+
+          next "Don't create the same table twice over blocks."
+
+          blockEnv10b <- _cpRestore _cpeCheckpointer (Just (BlockHeight 9, hash08))
+          void $ runExec blockEnv10b (Just tKeyset) tablecode
+
+          _cpSave _cpeCheckpointer hash09
+
+          hash10 <- BlockHash <$> merkleLogHash "0000000000000000000000000000010a"
+
+          blockEnv11 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 10, hash09))
+          expectException $ runExec blockEnv11 (Just tKeyset) tablecode
+
+          _cpSave _cpeCheckpointer hash10
+
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
@@ -543,3 +583,28 @@ nativeLookup :: NativeDefName -> Maybe (Term Name)
 nativeLookup (NativeDefName n) = case HM.lookup (Name $ BareName n def) nativeDefs of
   Just (Direct t) -> Just t
   _ -> Nothing
+
+tablecode :: Text
+tablecode = [text|
+(define-keyset 'table-admin-keyset
+  (read-keyset "test-keyset"))
+
+(module table-example 'table-admin-keyset
+
+  (defschema test-schema
+    content:string)
+
+  (deftable test-table:{test-schema})
+
+  (defun add-row (row:string content:string)
+    (insert test-table row {
+      "content": content
+      })
+  )
+  (defun read-table ()
+    (select test-table (constantly true))
+  )
+)
+
+(create-table test-table)
+|]
