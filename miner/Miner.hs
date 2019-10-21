@@ -238,9 +238,7 @@ run :: RIO Env ()
 run = do
     logInfo "Starting Miner."
     env <- ask
-    case cmd $ envArgs env of
-        GPU _ -> getWork >>= traverse_ (mining (scheme env))
-        CPU _ -> getWork >>= traverse_ (mining (scheme env))
+    getWork >>= traverse_ (mining (scheme env))
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
