@@ -509,7 +509,6 @@ test-suite chainweb-tools-tests
     type: exitcode-stdio-1.0
     hs-source-dirs: test tools/txg
     main-is: ChainwebToolsTests.hs
-    other-modules:
     build-depends:
         -- internal
             chainweb
