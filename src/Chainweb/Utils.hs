@@ -1132,36 +1132,13 @@ withLink act = do
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple
 
--- | First projections for strict tuples
---
-sfst :: T2 a b -> a
-sfst (T2 a _) = a
-{-# INLINE sfst #-}
-
--- | Second projections for strict tuples
---
-ssnd :: T2 a b -> b
-ssnd (T2 _ b) = b
-{-# INLINE ssnd #-}
-
--- | Currying for functions of strict tuples
---
-scurry :: forall a b c. (T2 a b -> c) -> a -> b -> c
-scurry k a b = k (T2 a b)
-{-# INLINE scurry #-}
-
--- | Uncurrying for functions of strict tuples
---
-suncurry :: forall a b c. (a -> b -> c) -> T2 a b -> c
-suncurry k (T2 a b) = k a b
-{-# INLINE suncurry #-}
-
 suncurry3 :: (a -> b -> c -> d) -> T3 a b c -> d
 suncurry3 k (T3 a b c) = k a b c
 {-# INLINE suncurry3 #-}
 
 rwipe3 :: T3 a b c -> T2 b c
 rwipe3 (T3 _ b c) = T2 b c
+{-# INLINE rwipe3 #-}
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays
