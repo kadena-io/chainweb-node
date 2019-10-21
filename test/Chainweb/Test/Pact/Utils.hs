@@ -60,6 +60,8 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+-- * miscellaneous
+, ChainwebNetwork(..)
 ) where
 
 import Control.Concurrent.Async
@@ -87,6 +89,8 @@ import Data.Text.Encoding
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
+
+import Servant.Client
 
 import System.Directory
 import System.IO.Extra
@@ -628,3 +632,5 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
+
+newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
