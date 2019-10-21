@@ -457,6 +457,10 @@
 (expect-failure
   "TRANSFER capability fails when paid amount is exceeded"
   (transfer-create 'emily 'doug (read-keyset 'doug) UNIT_GOOD))
+(commit-tx)
+(begin-tx)
+(use coin)
+(use T)
 
 (test-capability (DEBIT "emily"))
 (test-capability (CREDIT "doug"))
