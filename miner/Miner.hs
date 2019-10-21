@@ -240,7 +240,7 @@ run = do
     logInfo "Starting Miner."
     env <- ask
     case cmd $ envArgs env of
-        GPU _ -> logError "GPU mining is not yet available."
+        GPU _ -> getWork >>= traverse_ (mining (scheme env))
         CPU _ -> getWork >>= traverse_ (mining (scheme env))
     liftIO exitFailure
 
@@ -371,12 +371,16 @@ cpu cpue tbytes hbytes = do
              1 -> Seq
              n -> ParN n
 
-gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO e HeaderBytes
+gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
     minerPath <- liftIO $ Path.makeAbsolute $ Path.fromFilePath mpath
+    stats <- asks envStats
     e <- liftIO $ callExternalMiner minerPath margs False target blockbytes
     case e of
-      Left err -> fail err    -- todo
-      Right (MiningResult nonceBytes _ _ _) -> do
+      Left err -> do
+          logError $ display $ T.pack $ "Error running miner" <> err
+          fail err
+      Right (MiningResult nonceBytes numNonces _ _) -> do
           let newBytes = nonceBytes <> B.drop 8 blockbytes
+          writeIORef stats numNonces
           return $! HeaderBytes newBytes

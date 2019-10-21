@@ -221,15 +221,16 @@ callExternalMiner
     -> IO (Either String MiningResult)
 callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
     minerPath <- toAbsoluteFilePath minerPath0
-    P.withCreateProcess (createProcess minerPath) go
+    let args = minerArgs ++ [targetHashStr]
+    P.withCreateProcess (createProcess minerPath args) go
   where
-    createProcess minerPath =
-        (P.proc minerPath $ minerArgs ++ [targetHashStr]) {
+    createProcess minerPath args =
+        (P.proc minerPath args) {
             P.std_in = P.CreatePipe,
             P.std_out = P.CreatePipe,
             P.std_err = P.CreatePipe
             }
-    targetHashStr = B.unpack target
+    targetHashStr = B.unpack $ B16.encode target
     go (Just hstdin) (Just hstdout) (Just hstderr) ph = do
         B.hPut hstdin blockBytes
         hClose hstdin
