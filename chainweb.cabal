@@ -585,6 +585,7 @@ executable cwtool
     hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream node test
     main-is: CwTool.hs
     other-modules:
+        Allocations
         Chain2Gexf
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
@@ -624,6 +625,7 @@ executable cwtool
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
+        , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.4.1
