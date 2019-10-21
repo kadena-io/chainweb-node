@@ -489,7 +489,7 @@ attemptBuyGas
     -> Miner
     -> Maybe BlockHash
     -> Vector (ChainwebTransaction, Uniqueness)
-    -> PactServiceM cas (Vector Bool)
+    -> PactServiceM cas (Vector (ChainwebTransaction, Uniqueness, Bool))
 attemptBuyGas cp miner nonGenesisParentHash txs = withDiscardedBatch $ do
   mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
   (bh, bhash) <- case mbLatestBlock of
@@ -524,9 +524,9 @@ attemptBuyGas cp miner nonGenesisParentHash txs = withDiscardedBatch $ do
         -> P.PactDbEnv a
         -> ModuleCache
         -> (ChainwebTransaction, Uniqueness)
-        -> PactServiceM cas Bool
-    runBuyGas _ _ _ (_, Duplicate) = return False
-    runBuyGas envM db mcache (tx, Unique) = do
+        -> PactServiceM cas (ChainwebTransaction, Uniqueness, Bool)
+    runBuyGas _ _ _ (tx, u@Duplicate) = return (tx, u, False)
+    runBuyGas envM db mcache (tx, u@Unique) = do
       let cmd = _payloadObj <$> tx
           gasPrice = gasPriceOf cmd
           gasLimit = fromIntegral $ gasLimitOf cmd
@@ -537,9 +537,9 @@ attemptBuyGas cp miner nonGenesisParentHash txs = withDiscardedBatch $ do
         buyGas buyGasEnv cmd miner supply mcache
 
       case buyGasResultE of
-        Left _ -> return False
-        Right (Left _) -> return False
-        Right _ -> return True
+        Left _ -> return (tx, u, False)
+        Right (Left _) -> return (tx, u, False)
+        Right _ -> return (tx, u, True)
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -563,21 +563,24 @@ validateChainwebTxs psEnv psState cp miner nonGenesisParentHash blockOrigination
     | otherwise = do
           let f t = let p = view P.cmdHash t
                     in (bool Unique Duplicate . isJust) <$> _cpLookupProcessedTx cp p
+          -- TODO miner attach: list of txs being validated could contain duplicates themselves
           dupecheckOks <- liftIO $ V.mapM f txs
           let txs' = V.zip txs dupecheckOks
-          debitGas txs' >> V.mapM validate txs'
+          debitGas txs' >>= \ts -> V.mapM validate ts
   where
-    validate :: (ChainwebTransaction, Uniqueness) -> IO Bool
-    validate (_, Duplicate) = pure False
-    validate (tx, Unique) = do
+    validate :: (ChainwebTransaction, Uniqueness, Bool) -> IO Bool
+    validate (_, Duplicate, _) = pure False
+    validate (tx, Unique, canBuyGas) = do
       let !valid = all ($ tx) validations
       pure valid
       where
-        validations = [checkTimes]
+        validations = [const canBuyGas, checkTimes]
 
     -- | Attempt to run buy gas for transactions
     --
-    debitGas :: Vector (ChainwebTransaction, Uniqueness) -> IO (Vector Bool)
+    debitGas
+      :: Vector (ChainwebTransaction, Uniqueness)
+      -> IO (Vector (ChainwebTransaction, Uniqueness, Bool))
     debitGas uniqueTxs = fst <$> runPactServiceM psState psEnv runGas
       where
         runGas = attemptBuyGas cp miner nonGenesisParentHash uniqueTxs
