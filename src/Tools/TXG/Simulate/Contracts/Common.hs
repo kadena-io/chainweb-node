@@ -189,7 +189,7 @@ makeMeta cid = do
         {
           CM._pmChainId = CM.ChainId $ toText cid
         , CM._pmSender = "sender00"
-        , CM._pmGasLimit = 1000
+        , CM._pmGasLimit = 10000
         , CM._pmGasPrice = 0.001
         , CM._pmTTL = 3600
         , CM._pmCreationTime = t

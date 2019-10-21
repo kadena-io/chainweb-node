@@ -46,6 +46,8 @@ data PactException
   | PactInternalError Text
   | NoBlockValidatedYet
   | TransactionValidationException [(PactHash, Text)]
+  | PactDuplicateTableError Text
+  -- The only argument Text is the duplicate table name.
   deriving (Eq,Show,Generic)
 
 instance ToJSON PactException

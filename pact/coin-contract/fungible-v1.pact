@@ -70,7 +70,7 @@
             ]
      )
 
-   (defpact teleport-transfer:string
+   (defpact transfer-crosschain:string
      ( sender:string
        receiver:string
        receiver-guard:guard

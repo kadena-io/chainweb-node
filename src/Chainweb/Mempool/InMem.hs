@@ -31,6 +31,7 @@ import Control.Monad (void, (<$!>))
 import Data.Aeson
 import Data.Bifunctor (bimap)
 import qualified Data.ByteString.Short as SB
+import Data.Decimal
 import Data.Foldable (foldl', foldlM)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -45,6 +46,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
+import Pact.Parse
 import Pact.Types.Gas (GasPrice(..))
 
 import Prelude hiding (init, lookup, pred)
@@ -251,6 +253,7 @@ validateOne
     -> Either InsertError t
 validateOne cfg badmap (Time (TimeSpan now)) t h =
     sizeOK
+    >> gasPriceRoundingCheck
     >> ttlCheck
     >> notInBadMap
     >> _inmemPreInsertPureChecks cfg t
@@ -263,6 +266,20 @@ validateOne cfg badmap (Time (TimeSpan now)) t h =
       where
         getSize = txGasLimit txcfg
         maxSize = _inmemTxBlockSizeLimit cfg
+
+    -- prop_tx_gas_rounding
+    gasPriceRoundingCheck :: Either InsertError ()
+    gasPriceRoundingCheck =
+        ebool_ (InsertErrorOther msg) (f (txGasPrice txcfg t))
+      where
+        f (GasPrice (ParsedDecimal d)) = decimalPlaces d <= 12
+        msg = mconcat
+            [ "This  transaction's gas price: "
+            , sshow (txGasPrice txcfg t)
+            , " is not correctly rounded."
+            , "It should be rounded to at most 12 decimal places."
+            ]
+
 
     -- prop_tx_ttl_arrival
     ttlCheck :: Either InsertError ()

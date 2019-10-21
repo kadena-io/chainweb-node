@@ -69,6 +69,11 @@ import qualified Pact.Types.ChainId as CI
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
+import Pact.Types.Capability
+import Pact.Types.Info (mkInfo)
+import Pact.Types.Names
+import Pact.Types.PactValue
+import Pact.Types.Exp (Literal(..))
 
 -- CHAINWEB
 import Chainweb.ChainId
@@ -195,10 +200,19 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
             case coinContractRequest of
               CoinCreateAccount account (Guard guardd) -> (account, guardd)
               CoinAccountBalance account -> acclookup account
-              CoinTransfer (SenderName sn) _ _ -> acclookup sn
-              CoinTransferAndCreate (SenderName acc) _ (Guard guardd) _ -> (acc, guardd)
+              CoinTransfer (SenderName sn) rcvr amt -> (mkTransferCaps rcvr amt) $ acclookup sn
+              CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> (mkTransferCaps rcvr amt) (acc, guardd)
       meta <- Sim.makeMetaWithSender sender cid
       (msg,) <$> createCoinContractRequest version meta ks coinContractRequest
+
+    mkTransferCaps :: ReceiverName -> Sim.Amount -> (Sim.Account, NonEmpty SomeKeyPairCaps) -> (Sim.Account, NonEmpty SomeKeyPairCaps)
+    mkTransferCaps (ReceiverName (Sim.Account r)) (Sim.Amount m) (s@(Sim.Account ss),ks) = (s, (caps <$) <$> ks)
+      where caps = [gas,tfr]
+            gas = SigCapability (QualifiedName "coin" "GAS" (mkInfo "coin.GAS")) []
+            tfr = SigCapability (QualifiedName "coin" "TRANSFER" (mkInfo "coin.TRANSFER"))
+                  [ PLiteral $ LString $ T.pack ss
+                  , PLiteral $ LString $ T.pack r
+                  , PLiteral $ LDecimal m]
 
     payments :: ChainwebVersion -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPairCaps) -> IO (Command Text)
     payments v cid paymentAccts = do
