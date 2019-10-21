@@ -13,18 +13,6 @@
     balance:decimal
     guard:guard)
 
-   (defschema transfer-schema
-    @doc "Schema for TRANSFER-mgr. Future pact will allow schema inferrence."
-    @model
-      [ (invariant (!= "" sender))
-        (invariant (!= "" receiver))
-        (invariant (!= sender receiver))
-        (invariant (> amount 0.0))
-      ]
-
-    sender:string
-    receiver:string
-    amount:decimal)
 
    ; ----------------------------------------------------------------------
    ; Caps
