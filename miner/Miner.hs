@@ -336,7 +336,7 @@ cpu cpue tbytes hbytes = do
             n <- Nonce <$> MWC.uniform (envGen e)
             new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
             terminateWith sch new
-    writeIORef (envStats e) ns
+    writeIORef (envStats e) $ ns * fromIntegral (cores cpue)
     pure new
   where
     comp :: Comp
