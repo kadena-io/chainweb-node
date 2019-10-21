@@ -12,7 +12,7 @@ extra-deps:
   - merkle-log-0.1.0.0
   - paths-0.2.0.0
   - streaming-events-1.0.0
-  - strict-tuple-0.1.2
+  - strict-tuple-0.1.3
   - yet-another-logger-0.3.1
 
   # --- Transitive Pact Dependencies --- #
