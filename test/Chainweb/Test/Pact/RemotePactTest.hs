@@ -72,6 +72,7 @@ import qualified Pact.Types.ChainMeta as Pact
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
+import Pact.Types.Info (mkInfo)
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Term
@@ -190,8 +191,8 @@ txgenTest batchsize iot nio = testCaseSteps "txgen tests" $ \step -> do
               case req of
                 CoinCreateAccount account (Guard guardd) -> (account, guardd)
                 CoinAccountBalance account -> acclookup account
-                CoinTransfer (SenderName sn) _ _ -> acclookup sn
-                CoinTransferAndCreate (SenderName acc) _ (Guard guardd) _ -> (acc, guardd)
+                CoinTransfer (SenderName sn) rcvr amt -> mkTransferCaps rcvr amt $ acclookup sn
+                CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> mkTransferCaps rcvr amt (acc, guardd)
         meta' <- makeMetaWithSender sender chain
         let meta = meta' { Pact._pmGasLimit = 10000 }
         createCoinContractRequest v meta ks req
@@ -203,6 +204,16 @@ txgenTest batchsize iot nio = testCaseSteps "txgen tests" $ \step -> do
               createCoinAccount v meta sender
         (coinKS, _coinAcc) <- unzip <$> traverse f coinAccountNames
         return $ buildGenAccountsKeysets (NEL.fromList coinAccountNames) (NEL.fromList coinKS)
+
+
+    mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty SomeKeyPairCaps) -> (Account, NonEmpty SomeKeyPairCaps)
+    mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss), ks) = (s, (caps <$) <$> ks)
+      where caps = [gas, tfr]
+            gas = SigCapability (QualifiedName "coin" "GAS" (mkInfo "coin.GAS")) []
+            tfr = SigCapability (QualifiedName "coin" "TRANSFER" (mkInfo "coin.TRANSFER"))
+                    [ PLiteral $ LString $ T.pack ss
+                    , PLiteral $ LString $ T.pack r
+                    , PLiteral $ LDecimal m]
 
     buildGenAccountsKeysets
       :: NonEmpty Account
