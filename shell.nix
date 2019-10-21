@@ -1,1 +1,1 @@
-(import ./project.nix {}).ghc.chainweb.env
+(import ./project.nix {}).shells.ghc
