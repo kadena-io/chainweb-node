@@ -66,7 +66,6 @@ import Data.Char (isSpace)
 import Data.Generics.Product.Fields (field)
 import Data.Time.Clock.POSIX
 import Data.Tuple.Strict (T3(..), T2(..))
-import qualified Data.Text.Encoding as T
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
@@ -363,7 +362,7 @@ cpu cpue tbytes hbytes = do
             n <- Nonce <$> MWC.uniform (envGen e)
             new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
             terminateWith sch new
-    writeIORef (envStats e) ns
+    writeIORef (envStats e) $ ns * fromIntegral (cores cpue)
     pure new
   where
     comp :: Comp
