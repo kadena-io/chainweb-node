@@ -479,9 +479,8 @@ buyGas env cmd (Miner mid mks) supply mcache = go
     sender = view (cmdPayload . pMeta . pmSender) cmd
     initState = setModuleCache mcache $ initCapabilities [magic_GAS]
     interp = Interpreter $ \start end withRollback input ->
-      withRollback $ start (run input) >>= end
+      withRollback (put initState >> start (run input) >>= end)
     run input = do
-      put initState
       findPayer >>= \r -> case r of
         Nothing -> input
         Just withPayerCap -> withPayerCap input
