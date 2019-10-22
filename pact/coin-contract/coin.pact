@@ -130,7 +130,7 @@
       (enforce
         (<= account-length MAXIMUM_ACCOUNT_LENGTH)
         (format
-          "Account name does not conform to the min length requirement: {}"
+          "Account name does not conform to the max length requirement: {}"
           [account]))
       )
   )
