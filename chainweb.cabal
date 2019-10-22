@@ -505,7 +505,7 @@ test-suite chainweb-tools-tests
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N2
+        -with-rtsopts=-N
     type: exitcode-stdio-1.0
     hs-source-dirs: test tools/txg
     main-is: ChainwebToolsTests.hs
