@@ -75,18 +75,18 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import Pact.Types.Continuation
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
+import Pact.Types.Continuation
 import Pact.Types.Gas
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
-import Pact.Types.Term (DefType(..),ObjectMap(..))
+import Pact.Types.Term (DefType(..), ObjectMap(..))
 
 ------------------------------------------------------------------------------
 -- internal modules
@@ -115,7 +115,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), txSilenceDates)
 import Data.CAS (casLookupM)
 
 
@@ -856,16 +856,26 @@ execValidateBlock
     => BlockHeader
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
-execValidateBlock currHeader plData =
-    -- TODO: are we actually validating the output hash here?
-    withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
-        !result <- playOneBlock currHeader plData pdbenv
-        return $! Save currHeader result
+execValidateBlock currHeader plData = do
+    -- KILLSWITCH: The logic here involving `txSilenceDates` is to be removed in
+    -- a future version of Chainweb. This rejects any non-genesis block which is
+    -- found to contain transactions.
+    --
+    now <- liftIO getCurrentTimeIntegral
+    case txSilenceDates (_blockChainwebVersion currHeader) of
+        Just (start, _) | now > start && not isGenesisBlock && not payloadIsEmpty ->
+            throwM $ BlockValidationFailure "Transactions are disabled."
+        _ -> do
+            -- TODO: are we actually validating the output hash here?
+            withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
+                !result <- playOneBlock currHeader plData pdbenv
+                return $! Save currHeader result
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
+    payloadIsEmpty = V.null $ _payloadDataTransactions plData
 
 
 execTransactions
