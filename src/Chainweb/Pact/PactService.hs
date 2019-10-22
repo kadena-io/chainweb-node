@@ -70,6 +70,7 @@ import System.LogLevel
 
 import Prelude hiding (lookup)
 
+
 ------------------------------------------------------------------------------
 -- external pact modules
 
@@ -118,6 +119,7 @@ import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 import Data.CAS (casLookupM)
+
 
 
 pactLogLevel :: String -> LogLevel
@@ -487,19 +489,17 @@ attemptBuyGas
     :: PayloadCas cas
     => Checkpointer
     -> Miner
-    -> Maybe BlockHash
     -> Vector (ChainwebTransaction, Uniqueness)
     -> PactServiceM cas (Vector (ChainwebTransaction, Uniqueness, Bool))
-attemptBuyGas cp miner nonGenesisParentHash txs = withDiscardedBatch $ do
+attemptBuyGas cp miner txs = withDiscardedBatch $ do
   mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
   (bh, bhash) <- case mbLatestBlock of
                      Nothing -> throwM NoBlockValidatedYet
                      (Just !p) -> return p
   let target = Just (succ bh, bhash)
   withCheckpointer target "validateChainwebTxs/attemptBuyGas" $ \(PactDbEnv' dbEnv) -> do
-      (T2 _ mcache) <- runCoinbase nonGenesisParentHash dbEnv miner
       psEnv <- ask
-      res <- mapM (runBuyGas psEnv dbEnv mcache) txs
+      res <- mapM (runBuyGas psEnv dbEnv mempty) txs
       return $! Discard res
   
   where
@@ -552,12 +552,11 @@ validateChainwebTxs
     -> PactServiceState
     -> Checkpointer
     -> Miner
-    -> Maybe BlockHash
     -> BlockCreationTime
     -> BlockHeight
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxs psEnv psState cp miner nonGenesisParentHash blockOriginationTime bh txs
+validateChainwebTxs psEnv psState cp miner blockOriginationTime bh txs
     | bh == 0 = pure $! V.replicate (V.length txs) True
     | V.null txs = pure V.empty
     | otherwise = do
@@ -567,6 +566,7 @@ validateChainwebTxs psEnv psState cp miner nonGenesisParentHash blockOrigination
           dupecheckOks <- liftIO $ V.mapM f txs
           let txs' = V.zip txs dupecheckOks
           debitGas txs' >>= \ts -> V.mapM validate ts
+          --balances txs' >>= newIORef >>= \bsr -> V.mapM (validate bsr) txs'
   where
     validate :: (ChainwebTransaction, Uniqueness, Bool) -> IO Bool
     validate (_, Duplicate, _) = pure False
@@ -583,7 +583,7 @@ validateChainwebTxs psEnv psState cp miner nonGenesisParentHash blockOrigination
       -> IO (Vector (ChainwebTransaction, Uniqueness, Bool))
     debitGas uniqueTxs = fst <$> runPactServiceM psState psEnv runGas
       where
-        runGas = attemptBuyGas cp miner nonGenesisParentHash uniqueTxs
+        runGas = attemptBuyGas cp miner uniqueTxs
 
     checkTimes :: ChainwebTransaction -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap _payloadObj
@@ -595,17 +595,16 @@ validateChainwebTxsPreBlock
     -> PactServiceState
     -> Checkpointer
     -> Miner
-    -> Maybe BlockHash
     -> BlockCreationTime
     -> BlockHeight
     -> BlockHash
     -> Vector ChainwebTransaction
     -> IO (Vector Bool)
-validateChainwebTxsPreBlock psEnv psState cp miner nonGenesisParentHash blockOriginationTime bh hash txs = do
+validateChainwebTxsPreBlock psEnv psState cp miner blockOriginationTime bh hash txs = do
     lb <- _cpGetLatestBlock cp
     when (Just (pred bh, hash) /= lb) $
         internalError "restore point is wrong, refusing to validate."
-    validateChainwebTxs psEnv psState cp miner nonGenesisParentHash blockOriginationTime bh txs
+    validateChainwebTxs psEnv psState cp miner blockOriginationTime bh txs
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
 -- associated with account name
@@ -689,7 +688,7 @@ execNewBlock mpAccess parentHeader miner creationTime = withDiscardedBatch $ do
         psEnv <- ask
         psState <- get
         -- prop_tx_ttl_newblock
-        let validate = validateChainwebTxsPreBlock psEnv psState cp miner (Just pHash) creationTime
+        let validate = validateChainwebTxsPreBlock psEnv psState cp miner creationTime
         newTrans <- liftIO $
             mpaGetBlock mpAccess validate bHeight pHash parentHeader
 
@@ -810,7 +809,7 @@ playOneBlock currHeader plData pdbenv = do
     psState <- get
     -- prop_tx_ttl_validate
     oks <- liftIO $
-           validateChainwebTxs psEnv psState cp miner (bool (Just bParent) Nothing isGenesisBlock) creationTime
+           validateChainwebTxs psEnv psState cp miner creationTime
                (_blockHeight currHeader) trans
     let mbad = V.elemIndex False oks
     case mbad of
