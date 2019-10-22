@@ -24,6 +24,6 @@ main =
     adj x = x
 
 toolsTestSuite :: RocksDb -> ScheduledTest
-toolsTestSuite rdb = testGroupSch "Chainweb Tools Tests"
-    $ schedule Sequential
-        [ Chainweb.Test.Tools.TXGen.tests rdb ]
+toolsTestSuite rdb =
+  ScheduledTest "Chainweb Tools Tests"
+  (Chainweb.Test.Tools.TXGen.tests rdb)

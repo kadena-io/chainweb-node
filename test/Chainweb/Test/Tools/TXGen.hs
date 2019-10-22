@@ -15,20 +15,13 @@ module Chainweb.Test.Tools.TXGen (tests) where
 import Control.Monad (replicateM, void)
 import Control.Monad.IO.Class
 
-import Data.Foldable
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
-import Data.Maybe
-import Data.String.Conv
-import qualified Data.Aeson as A
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 
 import Fake
-
-import GHC.Stack
 
 import Numeric.Natural
 
@@ -49,11 +42,9 @@ import Pact.Types.Names
 import Pact.Types.PactValue
 
 -- chainweb imports
-import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Test.Pact.RemotePactTest hiding (tests)
 import Chainweb.Test.Pact.Utils
-import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -66,26 +57,19 @@ import TXG.Simulate.Contracts.Common
 nNodes :: Natural
 nNodes = 1
 
-cid :: HasCallStack => ChainId
-cid = head . toList $ chainIds v
+-- cid :: HasCallStack => ChainId
+-- cid = head . toList $ chainIds v
 
 v :: ChainwebVersion
 v = FastTimedCPM petersonChainGraph
 
-tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "Chainweb.Test.Tools.TxGen"
-    [ withNodes rdb nNodes $ \net ->
-        withMVarResource 0 $ \iomvar ->
-        withTime $ \iot ->
-        testGroup "txgen tests" [
-            withRequestKeys iot iomvar net $ responseGolden net
-            , after AllSucceed "remote-golden" $
-              testGroup "txgen test" [txgenTest 1 iot net]
-            ]
-    ]
+tests :: RocksDb -> TestTree
+tests rdb =
+     withNodes rdb nNodes $ \net ->
+      withTime $ \iot -> txgenTest 1 iot net
 
 txgenTest :: Int -> IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-txgenTest batchsize iot nio = testCaseSteps "txgen tests" $ \step -> do
+txgenTest batchsize iot nio = testCaseSteps "txgen test steps" $ \step -> do
 
       cenv <- fmap _getClientEnv nio
       chain <- mkChainId v (0 :: Int)
@@ -144,11 +128,11 @@ txgenTest batchsize iot nio = testCaseSteps "txgen tests" $ \step -> do
       -> Map Account (NonEmpty SomeKeyPairCaps)
     buildGenAccountsKeysets accs cks = M.fromList $ NEL.toList $ NEL.zip accs cks
 
-responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
-responseGolden networkIO rksIO = golden "remote-golden" $ do
-    rks <- rksIO
-    cenv <- _getClientEnv <$> networkIO
-    PollResponses theMap <- polling cid cenv rks ExpectPactResult
-    let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
-                          (NEL.toList $ _rkRequestKeys rks)
-    return $! toS $! foldMap A.encode values
+-- responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
+-- responseGolden networkIO rksIO = golden "remote-golden" $ do
+--     rks <- rksIO
+--     cenv <- _getClientEnv <$> networkIO
+--     PollResponses theMap <- polling cid cenv rks ExpectPactResult
+--     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
+--                           (NEL.toList $ _rkRequestKeys rks)
+--     return $! toS $! foldMap A.encode values
