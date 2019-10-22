@@ -347,7 +347,7 @@ library
         , streaming-bytestring >= 0.1
         , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
-        , strict-tuple >= 0.1
+        , strict-tuple >= 0.1.3
         , string-conv >= 0.1
         , swagger2 >= 2.2
         , temporary >= 1.3
@@ -479,7 +479,7 @@ test-suite chainweb-tests
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , strict-concurrency >= 0.2
-        , strict-tuple >= 0.1
+        , strict-tuple >= 0.1.3
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9
@@ -572,7 +572,7 @@ executable chainweb-miner
         , servant-client >= 0.14
         , streaming >= 0.2
         , streaming-events >= 1.0
-        , strict-tuple >= 0.1
+        , strict-tuple >= 0.1.3
         , time >= 1.8
         , wai-extra >= 3.0
 

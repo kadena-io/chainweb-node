@@ -101,19 +101,19 @@ import Chainweb.Utils (sshow)
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
 --
-magic_COINBASE :: CapSlot Capability
+magic_COINBASE :: CapSlot UserCapability
 magic_COINBASE = mkMagicCapSlot "COINBASE"
 
--- | "Magic" capability 'FUND_TX' used in the coin contract to
+-- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
 --
-magic_FUND_TX :: CapSlot Capability
-magic_FUND_TX = mkMagicCapSlot "FUND_TX"
+magic_GAS :: CapSlot UserCapability
+magic_GAS = mkMagicCapSlot "GAS"
 
 -- | "Magic" capability 'GENESIS' used in the coin contract to
 -- constrain genesis-only allocations
 --
-magic_GENESIS :: CapSlot Capability
+magic_GENESIS :: CapSlot UserCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 -- | The main entry point to executing transactions. From here,
@@ -143,13 +143,10 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache = applyBuyGas
     cmd = _payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
-
     gasPrice = gasPriceOf cmd
     gasLimit = fromIntegral $ gasLimitOf cmd
     supply = gasFeeOf gasLimit gasPrice
-
     initialGas = initialGasOf (_cmdPayload cmdIn)
-
     nid = networkIdOf cmd
 
     naiveGasEnv = mkGasEnvOf cmd gasModel
@@ -164,58 +161,44 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache = applyBuyGas
       internalError e
 
     applyBuyGas = do
-
       buyGasResultE <- catchesPactError $! buyGas buyGasEnv cmd miner supply mcache
-
       case buyGasResultE of
-
         Left e1 -> fatal $ "tx failure for requestKey when buying gas: " <> tShow e1
         Right (Left e) -> fatal e
-
         Right (Right r) -> checkTooBigTx r $ applyPayload r
 
     checkTooBigTx (T3 _ buyGasLogs mcache') next
       | initialGas >= gasLimit = jsonErrorResult buyGasEnv requestKey
           (PactError GasError def [] $ "Tx too big (" <> pretty initialGas <> "), limit " <> pretty gasLimit)
           buyGasLogs gasLimit mcache' "Tx too big"
-
       | otherwise = next
 
     applyPayload (T3 pactId buyGasLogs mcache') = do
       let !payloadEnv = set ceGasEnv userGasEnv
                         $ set cePublicData pd' buyGasEnv
-
       -- initialize refstate with cached module definitions
       let st0 = initStateInterpreter $ setModuleCache mcache' def
-
       cmdResultE <- catchesPactError $!
         runPayload payloadEnv st0 cmd buyGasLogs managedNamespacePolicy
-
       case cmdResultE of
-
         Left e2 -> jsonErrorResult payloadEnv requestKey e2 buyGasLogs gasLimit mcache'
                    "tx failure for request key when running cmd"
         Right r -> applyRedeem pactId payloadEnv r
 
     applyRedeem pactId payloadEnv (T2 cmdResult !mcache'') = do
-
       let !redeemGasEnv = set ceGasEnv freeGasEnv payloadEnv
           cmdLogs = fromMaybe [] $ _crLogs cmdResult
       redeemResultE <- catchesPactError $!
                        redeemGas redeemGasEnv cmd initialGas cmdResult pactId cmdLogs mcache''
-
       case redeemResultE of
-
         Left e3 ->
           jsonErrorResult redeemGasEnv requestKey e3 cmdLogs (_crGas cmdResult) mcache''
           "tx failure for request key while redeeming gas"
-
         Right (T2 redeemResult !mcache''') -> do
-
           let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
               !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
-
           pure $! T2 finalResult $! mcache'''
+
 
 applyGenesisCmd
     :: Logger
@@ -362,11 +345,11 @@ runPayload
     -> [TxLog Value] -- log state
     -> NamespacePolicy
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-runPayload env initState c@Command{..} txLogs nsp = case _pPayload _cmdPayload of
+runPayload env interp c@Command{..} txLogs nsp = case _pPayload _cmdPayload of
     Exec pm ->
-      applyExec env initState (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
+      applyExec env interp (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
     Continuation ym ->
-      applyContinuation env initState (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
+      applyContinuation env interp (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
 
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
@@ -380,8 +363,8 @@ applyExec
     -> [TxLog Value]
     -> NamespacePolicy
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyExec env@CommandEnv{..} initState rk em senderSigs hsh prevLogs nsp = do
-    EvalResult{..} <- applyExec' env initState em senderSigs hsh nsp
+applyExec env@CommandEnv{..} interp rk em senderSigs hsh prevLogs nsp = do
+    EvalResult{..} <- applyExec' env interp em senderSigs hsh nsp
     -- applyExec enforces non-empty expression set so `last` ok
     return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
@@ -397,13 +380,13 @@ applyExec'
     -> Hash
     -> NamespacePolicy
     -> IO EvalResult
-applyExec' CommandEnv{..} initState (ExecMsg parsedCode execData) senderSigs hsh nsp = do
+applyExec' CommandEnv{..} interp (ExecMsg parsedCode execData) senderSigs hsh nsp = do
     -- fail if parsed code contains no expressions
     --
     when (null $ _pcExps parsedCode) $
       throwCmdEx "No expressions found"
 
-    er <- evalExec senderSigs initState evalEnv parsedCode
+    er <- evalExec senderSigs interp evalEnv parsedCode
 
     for_ (_erExec er) $ \PactExec{..} -> logLog _ceLogger "DEBUG"
       $ "applyExec: new pact added: "
@@ -431,8 +414,8 @@ applyContinuation
     -> [TxLog Value]
     -> NamespacePolicy
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyContinuation env@CommandEnv{..} initState rk cm senderSigs hsh prevLogs nsp = do
-    EvalResult{..} <- applyContinuation' env initState cm senderSigs hsh nsp
+applyContinuation env@CommandEnv{..} interp rk cm senderSigs hsh prevLogs nsp = do
+    EvalResult{..} <- applyContinuation' env interp cm senderSigs hsh nsp
     -- last safe here because cont msg is guaranteed one exp
 
     return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
@@ -449,8 +432,8 @@ applyContinuation'
     -> Hash
     -> NamespacePolicy
     -> IO EvalResult
-applyContinuation' CommandEnv{..} initState cm senderSigs hsh nsp =
-    evalContinuation senderSigs initState evalEnv cm
+applyContinuation' CommandEnv{..} interp cm senderSigs hsh nsp =
+    evalContinuation senderSigs interp evalEnv cm
   where
     step = _cmStep cm
     rollback = _cmRollback cm
@@ -461,7 +444,8 @@ applyContinuation' CommandEnv{..} initState cm senderSigs hsh nsp =
       _ceGasEnv nsp _ceSPVSupport _cePublicData
 
 initStateInterpreter :: EvalState -> Interpreter p
-initStateInterpreter s = defaultInterpreterState (const s)
+initStateInterpreter s = Interpreter $ \start end withRollback runInput ->
+    withRollback (put s >> start runInput >>= end)
 
 -- | Initial gas charged for transaction size
 --   ignoring the size of a continuation proof, if present
@@ -493,11 +477,10 @@ buyGas
 buyGas env cmd (Miner mid mks) supply mcache = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
-    initState = setModuleCache mcache $ initCapabilities [magic_FUND_TX]
+    initState = setModuleCache mcache $ initCapabilities [magic_GAS]
     interp = Interpreter $ \start end withRollback input ->
-      withRollback $ start (run input) >>= end
+      withRollback (put initState >> start (run input) >>= end)
     run input = do
-      put initState
       findPayer >>= \r -> case r of
         Nothing -> input
         Just withPayerCap -> withPayerCap input
@@ -535,7 +518,7 @@ _findPayer = runMaybeT go
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
-    sigPayerCap (UserCapability q@(QualifiedName m n _) as) | n == "GAS_PAYER" = Just (m,q,as)
+    sigPayerCap (SigCapability q@(QualifiedName m n _) as) | n == "GAS_PAYER" = Just (m,q,as)
     sigPayerCap _ = Nothing
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
@@ -575,7 +558,7 @@ redeemGas env cmd initialGas cmdResult gid prevLogs mcache = do
         fee        = gasFeeOf totalGas (gasPriceOf cmd)
         rk         = cmdToRequestKey cmd
         initState  = initStateInterpreter $ setModuleCache mcache
-          $ initCapabilities [magic_FUND_TX]
+          $ initCapabilities [magic_GAS]
     -- print ("\n\nREDEEM GAS:",rk,initialGas,_crGas cmdResult,fee, "\n\n")
     applyContinuation env initState rk (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
@@ -627,7 +610,7 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
 -- This is the way we inject the correct guards into the environment
 -- during Pact code execution
 --
-initCapabilities :: [CapSlot Capability] -> EvalState
+initCapabilities :: [CapSlot UserCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
@@ -639,12 +622,12 @@ setModuleCache = set (evalRefs . rsLoadedModules)
 
 -- | Builder for "magic" capabilities given a magic cap name
 --
-mkMagicCapSlot :: Text -> CapSlot Capability
+mkMagicCapSlot :: Text -> CapSlot UserCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
-    cap = UserCapability fqn []
+    cap = SigCapability fqn []
 {-# INLINABLE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
