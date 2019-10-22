@@ -376,8 +376,8 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     ttl = 2 * 24 * 60 * 60
     pm t = Pact.PublicMeta (Pact.ChainId "0") t 100000 0.01 ttl
 
-    resultOf (CommandResult _ _ (PactResult pr) g _ _ _) = (pr, g)
-    result0 = Just (Right (PLiteral (LString "Write succeeded")), Gas 6314)
+    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
+    result0 = Just (Right (PLiteral (LString "Write succeeded")))
 
     clist :: Maybe [SigCapability]
     clist = Just $
