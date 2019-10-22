@@ -38,7 +38,7 @@ import Chainweb.Pact.TransactionExec
 
 
 tests :: TestTree
-tests = testGroup "Coin Contract Unit Tests"
+tests = testGroup "Chainweb.Test.CoinContract"
   [ testGroup "Pact Command Parsing"
     [ testCase "Buy Gas" buyGas'
     , testCase "Coinbase" coinbase'

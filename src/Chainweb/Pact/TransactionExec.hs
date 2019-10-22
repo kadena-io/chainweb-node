@@ -101,19 +101,19 @@ import Chainweb.Utils (sshow)
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
 --
-magic_COINBASE :: CapSlot Capability
+magic_COINBASE :: CapSlot UserCapability
 magic_COINBASE = mkMagicCapSlot "COINBASE"
 
 -- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
 --
-magic_GAS :: CapSlot Capability
+magic_GAS :: CapSlot UserCapability
 magic_GAS = mkMagicCapSlot "GAS"
 
 -- | "Magic" capability 'GENESIS' used in the coin contract to
 -- constrain genesis-only allocations
 --
-magic_GENESIS :: CapSlot Capability
+magic_GENESIS :: CapSlot UserCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 -- | The main entry point to executing transactions. From here,
@@ -518,7 +518,7 @@ _findPayer = runMaybeT go
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
-    sigPayerCap (UserCapability q@(QualifiedName m n _) as) | n == "GAS_PAYER" = Just (m,q,as)
+    sigPayerCap (SigCapability q@(QualifiedName m n _) as) | n == "GAS_PAYER" = Just (m,q,as)
     sigPayerCap _ = Nothing
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
@@ -610,7 +610,7 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
 -- This is the way we inject the correct guards into the environment
 -- during Pact code execution
 --
-initCapabilities :: [CapSlot Capability] -> EvalState
+initCapabilities :: [CapSlot UserCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
@@ -622,12 +622,12 @@ setModuleCache = set (evalRefs . rsLoadedModules)
 
 -- | Builder for "magic" capabilities given a magic cap name
 --
-mkMagicCapSlot :: Text -> CapSlot Capability
+mkMagicCapSlot :: Text -> CapSlot UserCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
-    cap = UserCapability fqn []
+    cap = SigCapability fqn []
 {-# INLINABLE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
