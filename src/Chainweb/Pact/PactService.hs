@@ -61,7 +61,7 @@ import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..),T3(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -499,10 +499,14 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
   let target = Just (succ bh, bhash)
   withCheckpointer target "validateChainwebTxs/attemptBuyGas" $ \(PactDbEnv' dbEnv) -> do
       psEnv <- ask
-      res <- mapM (runBuyGas psEnv dbEnv mempty) txs
+      res <- V.fromList . ($ []) . sfst <$> V.foldM (f psEnv dbEnv) (T2 id mempty) txs
       return $! Discard res
   
   where
+    f psEnv dbEnv (T2 dl mcache) cmd = do
+      T2 !res mcache' <- runBuyGas psEnv dbEnv mcache cmd
+      pure $! T2 (dl . (res :)) mcache'
+
     createGasEnv
         :: PayloadCas cas
         => PactServiceEnv cas
@@ -524,8 +528,8 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         -> P.PactDbEnv a
         -> ModuleCache
         -> (ChainwebTransaction, Uniqueness)
-        -> PactServiceM cas (ChainwebTransaction, Uniqueness, Bool)
-    runBuyGas _ _ _ (tx, u@Duplicate) = return (tx, u, False)
+        -> PactServiceM cas (T2 (ChainwebTransaction, Uniqueness, Bool) ModuleCache)
+    runBuyGas _ _ mcache (tx, u@Duplicate) = return $ T2 (tx, u, False) mcache
     runBuyGas envM db mcache (tx, u@Unique) = do
       let cmd = _payloadObj <$> tx
           gasPrice = gasPriceOf cmd
@@ -537,9 +541,9 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         buyGas buyGasEnv cmd miner supply mcache
 
       case buyGasResultE of
-        Left _ -> return (tx, u, False)
-        Right (Left _) -> return (tx, u, False)
-        Right _ -> return (tx, u, True)
+        Left _ -> return $ T2 (tx, u, False) mcache
+        Right (Left _) -> return $ T2 (tx, u, False) mcache
+        Right (Right (T3 _ _ mcache')) -> return $ T2 (tx, u, True) mcache'
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -581,7 +585,7 @@ validateChainwebTxs psEnv psState cp miner blockOriginationTime bh txs
     debitGas
       :: Vector (ChainwebTransaction, Uniqueness)
       -> IO (Vector (ChainwebTransaction, Uniqueness, Bool))
-    debitGas uniqueTxs = fst <$> runPactServiceM psState psEnv runGas
+    debitGas uniqueTxs = fst <$!> runPactServiceM psState psEnv runGas
       where
         runGas = attemptBuyGas cp miner uniqueTxs
 
