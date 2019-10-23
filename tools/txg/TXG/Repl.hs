@@ -28,20 +28,26 @@ module TXG.Repl
   , chain
   , chain0
   , host
+  , verToChainId
+  , mkCmdStr
   , mkKey
   , mkKeyCombined
+  , mkPubMeta
   , k2g
   , mkGuard
   , mkGuardCombined
   , stockKey
   , mkKeyset
   , signedCode
+  , verToPactNetId
 
   , module Chainweb.ChainId
   , module Chainweb.Version
   , module Pact.Types.ChainMeta
   , module TXG.Simulate.Contracts.CoinContract
   ) where
+
+import Control.Lens hiding ((.=), from, to)
 
 import Data.Aeson
 import Data.ByteString (ByteString)
@@ -53,14 +59,19 @@ import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
+import Data.Time.Clock.POSIX
+
 import Text.Printf
 import Pact.ApiReq
+import Pact.Parse
 import Pact.Types.API
+import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Scheme
 import Pact.Types.Util
+
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.Version
@@ -154,3 +165,23 @@ mkKeyset p ks = object
   [ "pred" .= p
   , "keys" .= ks
   ]
+
+mkPubMeta :: ChainId -> IO PublicMeta
+mkPubMeta cid = do
+  current <- (round `fmap` getPOSIXTime) :: IO Integer
+  return $ defPubMeta
+    & set pmCreationTime (TxCreationTime (ParsedInteger current))
+    & set pmChainId (P.ChainId (chainIdToText cid))
+
+mkCmdStr :: PublicMeta -> ChainwebVersion -> String -> IO (Command Text)
+mkCmdStr meta ver str = do
+  cmd str Null meta [] (Just (verToPactNetId ver)) Nothing
+
+verToChainId :: ChainwebVersion -> ChainId
+verToChainId ver = foldr const err $ chainIds ver
+  where
+    err = error "Chainweb version has 0 chains"
+
+verToPactNetId :: ChainwebVersion -> P.NetworkId
+verToPactNetId cvw =
+  P.NetworkId $ T.pack $ show cvw
