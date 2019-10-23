@@ -76,7 +76,6 @@ import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
 import RIO.List.Partial (head)
 import qualified RIO.Text as T
-import RIO.Time (NominalDiffTime)
 import Servant.Client
 import qualified Streaming.Prelude as SP
 import qualified System.Path as Path
@@ -130,7 +129,8 @@ data Env = Env
     , envMgr :: !Manager
     , envLog :: !LogFunc
     , envArgs :: !ClientArgs
-    , envStats :: IORef Word64 }
+    , envHashes :: IORef Word64
+    , envSecs :: IORef Word64 }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
@@ -214,7 +214,8 @@ main = do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
         stats <- newIORef 0
-        runRIO (Env g m logFunc cargs stats) run
+        start <- newIORef 0
+        runRIO (Env g m logFunc cargs stats start) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -280,8 +281,7 @@ getWork = do
 --
 mining :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes) -> WorkBytes -> RIO Env ()
 mining go wb = do
-    !now <- liftIO getPOSIXTime
-    race updateSignal (go tbytes hbytes) >>= traverse_ (miningSuccess now)
+    race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
     getWork >>= traverse_ (mining go)
   where
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
@@ -325,15 +325,15 @@ mining go wb = do
     -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
     -- won the race instead, then the `go` call is automatically cancelled.
     --
-    miningSuccess :: NominalDiffTime -> HeaderBytes -> RIO Env ()
-    miningSuccess before h = do
+    miningSuccess :: HeaderBytes -> RIO Env ()
+    miningSuccess h = do
       e <- ask
-      !now <- liftIO getPOSIXTime
-      hashes <- readIORef (envStats e)
+      secs <- readIORef (envSecs e)
+      hashes <- readIORef (envHashes e)
       let !v = version $ envArgs e
           !m = envMgr e
           !u = coordinator $ envArgs e
-          !r = (fromIntegral hashes :: Double) / realToFrac (now - before) / 1000000
+          !r = (fromIntegral hashes :: Double) / fromIntegral secs / 1000000
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo . display . T.pack $
@@ -344,6 +344,7 @@ mining go wb = do
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
+    !start <- liftIO getPOSIXTime
     e <- ask
     T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
@@ -352,7 +353,9 @@ cpu cpue tbytes hbytes = do
             n <- Nonce <$> MWC.uniform (envGen e)
             new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
             terminateWith sch new
-    writeIORef (envStats e) $ ns * fromIntegral (cores cpue)
+    !end <- liftIO getPOSIXTime
+    modifyIORef' (envHashes e) $ \hashes -> ns * fromIntegral (cores cpue) + hashes
+    modifyIORef' (envSecs e) (\secs -> secs + ceiling (end - start))
     pure new
   where
     comp :: Comp
@@ -363,13 +366,15 @@ cpu cpue tbytes hbytes = do
 gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
     minerPath <- liftIO . Path.makeAbsolute . Path.fromFilePath $ T.unpack mpath
-    stats <- asks envStats
-    e <- liftIO $ callExternalMiner minerPath (map T.unpack margs) False target blockbytes
-    case e of
+    e <- ask
+    res <- liftIO $ callExternalMiner minerPath (map T.unpack margs) False target blockbytes
+    case res of
       Left err -> do
           logError . display . T.pack $ "Error running GPU miner: " <> err
           throwString err
-      Right (MiningResult nonceBytes numNonces _ _) -> do
+      Right (MiningResult nonceBytes numNonces hps _) -> do
           let newBytes = nonceBytes <> B.drop 8 blockbytes
-          writeIORef stats numNonces
+              secs = numNonces `div` hps
+          modifyIORef' (envHashes e) (+ numNonces)
+          modifyIORef' (envSecs e) (+ secs)
           return $! HeaderBytes newBytes
