@@ -495,7 +495,7 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
   mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
   (bh, bhash) <- case mbLatestBlock of
                      Nothing -> throwM NoBlockValidatedYet
-                     (Just !p) -> return p
+                     Just !p -> return p
   let target = Just (succ bh, bhash)
   withCheckpointer target "validateChainwebTxs/attemptBuyGas" $ \(PactDbEnv' dbEnv) -> do
       psEnv <- ask
@@ -529,8 +529,8 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         -> ModuleCache
         -> (ChainwebTransaction, Uniqueness)
         -> PactServiceM cas (T2 (ChainwebTransaction, Uniqueness, Bool) ModuleCache)
-    runBuyGas _ _ mcache (tx, u@Duplicate) = return $ T2 (tx, u, False) mcache
-    runBuyGas envM db mcache (tx, u@Unique) = do
+    runBuyGas _ _ mcache (tx, Duplicate) = return $ T2 (tx, Duplicate, False) mcache
+    runBuyGas envM db mcache (tx, Unique) = do
       let cmd = _payloadObj <$> tx
           gasPrice = gasPriceOf cmd
           gasLimit = fromIntegral $ gasLimitOf cmd
@@ -541,9 +541,9 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         buyGas buyGasEnv cmd miner supply mcache
 
       case buyGasResultE of
-        Left _ -> return $ T2 (tx, u, False) mcache
-        Right (Left _) -> return $ T2 (tx, u, False) mcache
-        Right (Right (T3 _ _ mcache')) -> return $ T2 (tx, u, True) mcache'
+        Left _ -> return $ T2 (tx, Unique, False) mcache
+        Right (Left _) -> return $ T2 (tx, Unique, False) mcache
+        Right (Right (T3 _ _ mcache')) -> return $ T2 (tx, Unique, True) mcache'
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -564,13 +564,13 @@ validateChainwebTxs psEnv psState cp miner blockOriginationTime bh txs
     | bh == 0 = pure $! V.replicate (V.length txs) True
     | V.null txs = pure V.empty
     | otherwise = do
-          let f t = let p = view P.cmdHash t
-                    in (bool Unique Duplicate . isJust) <$> _cpLookupProcessedTx cp p
+          let f t = do
+                uniqueness <- (bool Unique Duplicate . isJust) <$>
+                  _cpLookupProcessedTx cp (P._cmdHash t)
+                return (t, uniqueness)
           -- TODO miner attach: list of txs being validated could contain duplicates themselves
-          dupecheckOks <- liftIO $ V.mapM f txs
-          let txs' = V.zip txs dupecheckOks
+          txs' <- liftIO $ V.mapM f txs
           debitGas txs' >>= \ts -> V.mapM validate ts
-          --balances txs' >>= newIORef >>= \bsr -> V.mapM (validate bsr) txs'
   where
     validate :: (ChainwebTransaction, Uniqueness, Bool) -> IO Bool
     validate (_, Duplicate, _) = pure False
