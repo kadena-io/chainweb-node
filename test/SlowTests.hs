@@ -33,6 +33,4 @@ suite = testGroup "ChainwebSlowTests"
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
-    , Chainweb.Test.Pact.MinerRewards.tests Warn (FastTimedCPM petersonChainGraph)
-
     ]
