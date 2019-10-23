@@ -20,6 +20,7 @@ module Chainweb.Miner.Pact
   MinerId(..)
 , MinerKeys(..)
 , Miner(..)
+, MinerRewards(..)
   -- * Combinators
 , toMinerData
 , fromMinerData
@@ -28,6 +29,8 @@ module Chainweb.Miner.Pact
   -- * Optics
 , minerId
 , minerKeys
+, minerRewardHeights
+, minerRewards
   -- * Defaults
 , noMiner
 , defaultMiner
@@ -49,6 +52,7 @@ import Data.Default (Default(..))
 import Data.FileEmbed (embedFile)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
+import Data.List (sort)
 import Data.String (IsString)
 import Data.String.Conv (toS)
 import Data.Text (Text)
@@ -148,19 +152,35 @@ fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
 {-# INLINABLE fromMinerData #-}
 
+data MinerRewards = MinerRewards
+    { _minerRewards :: !(HashMap BlockHeight ParsedDecimal)
+      -- ^ The map of blockheight thresholds to miner rewards
+    , _minerRewardHeights :: !(Vector BlockHeight)
+      -- ^ A (sorted) vector of blockheights (head is most recent)
+    } deriving (Eq, Ord, Show, Generic)
+
+-- | A getter into the map of heights to rewards
+--
+minerRewards :: Getter MinerRewards (HashMap BlockHeight ParsedDecimal)
+minerRewards = to _minerRewards
+
+-- | A lens into the sorted vector of significant block heights pegged to a reward
+--
+minerRewardHeights :: Lens' MinerRewards (Vector BlockHeight)
+minerRewardHeights = lens _minerRewardHeights (\t b -> t { _minerRewardHeights = b })
+
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
 --
-readRewards :: HasChainGraph v => v -> HashMap BlockHeight ParsedDecimal
+readRewards :: HasChainGraph v => v -> MinerRewards
 readRewards v =
     case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
       Left e -> error
         $ "cannot construct miner reward map: "
         <> sshow e
-      Right vs -> HM.fromList
-        . V.toList
-        . V.map formatRow
-        $ vs
+      Right vs ->
+        let !rs = HM.fromList . V.toList . V.map formatRow $ vs
+        in MinerRewards rs (V.fromList . sort $! HM.keys rs)
   where
     formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
     formatRow (!a,!b) =

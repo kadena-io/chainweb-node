@@ -114,7 +114,6 @@ import Foreign.C.Types (CInt(..))
 import GHC.Generics
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Parse (ParsedDecimal(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import Pact.Types.ChainMeta (PublicData(..))
@@ -131,6 +130,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
+import Chainweb.Miner.Pact (MinerRewards(..))
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 
@@ -315,12 +315,12 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
-    , _psMinerRewards :: HashMap BlockHeight ParsedDecimal
     , _psGasModel :: GasModel
     }
 
 data PactServiceState = PactServiceState
-    {_psStateValidated :: Maybe BlockHeader
+    { _psStateValidated :: Maybe BlockHeader
+    , _psMinerRewards :: MinerRewards
     }
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)

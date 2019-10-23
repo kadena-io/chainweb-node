@@ -191,10 +191,9 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
                            initBlockState sqlenv logger
 
       let !rs = readRewards ver
-          gasModel = tableGasModelNoSize defaultGasConfig -- TODO get sizing working
-      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
-                                bhDb rs gasModel
-      evalStateT (runReaderT act pse) (PactServiceState Nothing)
+          !gasModel = tableGasModelNoSize defaultGasConfig
+      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb bhDb gasModel
+      evalStateT (runReaderT act pse) (PactServiceState Nothing rs)
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
@@ -616,18 +615,37 @@ readAccountGuard pdb account
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
--- in 500k steps
+-- at regular blockheight intervals.
+--
+-- See: 'rewards/miner_rewards.csv'
 --
 minerReward
     :: forall cas
     . BlockHeight -> PactServiceM cas P.ParsedDecimal
-minerReward bh = do
-    m <- view $ psMinerRewards . at (roundBy bh 500000)
-    case m of
+minerReward bh = use psMinerRewards >>= go
+  where
+    go (MinerRewards rewards q) = do
+      when (V.null q) err
+      let (!h, !t) = (V.unsafeHead q, V.unsafeTail t)
+      if bh <= h
+      then lookup_ h rewards
+      else modifyRewards t rewards
+
+    lookup_ h rs = case HM.lookup h rs of
       Nothing -> internalError
-          $ "block height outside of admissible range: "
-          <> sshow bh
+        $ "block height outside of admissible range: "
+        <> sshow bh
       Just r -> return r
+
+    modifyRewards q rs = do
+      when (V.null q) err
+      let !h = V.unsafeHead q
+      evaluate $ psMinerRewards . minerRewardHeights .= q
+      lookup_ h rs
+
+    err = internalError "block heights have been exhausted"
+
+
 {-# INLINABLE minerReward #-}
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
