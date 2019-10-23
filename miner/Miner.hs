@@ -21,7 +21,7 @@
 -- == Purpose and Expectations ==
 --
 -- This tool is a low-level, pull-based, independent, focusable, multicore CPU
--- miner for Chainweb. By this we mean:
+-- and GPU miner for Chainweb. By this we mean:
 --
 --   * low-level: The miner is not aware of how `BlockHeader`s are encoded into
 --     `ByteString`s, as indicated by an external spec. It does not know how to
@@ -53,18 +53,16 @@
 --     network which requires even progress across all chains.
 --
 --   * multicore: The miner uses 1 CPU core by default, but can use as many as
---     you indicate. GPU support will be added soon.
+--     you indicate. GPU support is also available.
 --
 
 module Main ( main ) where
 
 import Control.Error.Util (hush)
-import Control.Monad
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
-import Data.Char (isSpace)
 import Data.Generics.Product.Fields (field)
-import Data.Time.Clock.POSIX
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Tuple.Strict (T3(..), T2(..))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
@@ -74,10 +72,9 @@ import Network.Wai.EventSource (ServerEvent(..))
 import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
 import RIO
-import RIO.List.Partial (head)
-import qualified Data.ByteString.Char8 as BC
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
+import RIO.List.Partial (head)
 import qualified RIO.Text as T
 import RIO.Time (NominalDiffTime)
 import Servant.Client
@@ -124,8 +121,8 @@ data Command = CPU CPUEnv | GPU GPUEnv
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 data GPUEnv = GPUEnv
-    { envMinerPath :: String
-    , envMinerArgs :: [String]
+    { envMinerPath :: Text
+    , envMinerArgs :: [Text]
     } deriving stock (Generic)
 
 data Env = Env
@@ -148,21 +145,16 @@ pCommand = hsubparser
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
     )
 
-pMinerPath :: Parser String
+pMinerPath :: Parser Text
 pMinerPath = textOption
-    (long "miner-path" <> help "path to miner executable")
+    (long "miner-path" <> help "Path to chainweb-gpu-miner executable")
 
-pMinerArgs :: Parser [String]
-pMinerArgs = chop <$> pMinerArgs0
+pMinerArgs :: Parser [Text]
+pMinerArgs = T.words <$> pMinerArgs0
   where
-    chop = map BC.unpack
-             . filter (not . BC.null)
-             . BC.splitWith isSpace
-             . T.encodeUtf8
-
     pMinerArgs0 :: Parser T.Text
     pMinerArgs0 = textOption
-        (long "miner-args" <> value "" <> help "extra miner arguments")
+        (long "miner-args" <> value "" <> help "Extra miner arguments")
 
 pGpuEnv :: Parser GPUEnv
 pGpuEnv = GPUEnv <$> pMinerPath <*> pMinerArgs
@@ -370,13 +362,13 @@ cpu cpue tbytes hbytes = do
 
 gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
-    minerPath <- liftIO $ Path.makeAbsolute $ Path.fromFilePath mpath
+    minerPath <- liftIO . Path.makeAbsolute . Path.fromFilePath $ T.unpack mpath
     stats <- asks envStats
-    e <- liftIO $ callExternalMiner minerPath margs False target blockbytes
+    e <- liftIO $ callExternalMiner minerPath (map T.unpack margs) False target blockbytes
     case e of
       Left err -> do
-          logError $ display $ T.pack $ "Error running miner" <> err
-          fail err
+          logError . display . T.pack $ "Error running GPU miner: " <> err
+          throwString err
       Right (MiningResult nonceBytes numNonces _ _) -> do
           let newBytes = nonceBytes <> B.drop 8 blockbytes
           writeIORef stats numNonces
