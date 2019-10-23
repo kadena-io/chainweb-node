@@ -21,7 +21,7 @@
 -- == Purpose and Expectations ==
 --
 -- This tool is a low-level, pull-based, independent, focusable, multicore CPU
--- miner for Chainweb. By this we mean:
+-- and GPU miner for Chainweb. By this we mean:
 --
 --   * low-level: The miner is not aware of how `BlockHeader`s are encoded into
 --     `ByteString`s, as indicated by an external spec. It does not know how to
@@ -53,18 +53,16 @@
 --     network which requires even progress across all chains.
 --
 --   * multicore: The miner uses 1 CPU core by default, but can use as many as
---     you indicate. GPU support will be added soon.
+--     you indicate. GPU support is also available.
 --
 
 module Main ( main ) where
 
 import Control.Error.Util (hush)
-import Control.Monad
 import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
-import Data.Char (isSpace)
 import Data.Generics.Product.Fields (field)
-import Data.Time.Clock.POSIX
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Tuple.Strict (T3(..), T2(..))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
@@ -74,12 +72,10 @@ import Network.Wai.EventSource (ServerEvent(..))
 import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
 import RIO
-import RIO.List.Partial (head)
-import qualified Data.ByteString.Char8 as BC
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
+import RIO.List.Partial (head)
 import qualified RIO.Text as T
-import RIO.Time (NominalDiffTime)
 import Servant.Client
 import qualified Streaming.Prelude as SP
 import qualified System.Path as Path
@@ -124,8 +120,8 @@ data Command = CPU CPUEnv | GPU GPUEnv
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 data GPUEnv = GPUEnv
-    { envMinerPath :: String
-    , envMinerArgs :: [String]
+    { envMinerPath :: Text
+    , envMinerArgs :: [Text]
     } deriving stock (Generic)
 
 data Env = Env
@@ -133,7 +129,8 @@ data Env = Env
     , envMgr :: !Manager
     , envLog :: !LogFunc
     , envArgs :: !ClientArgs
-    , envStats :: IORef Word64 }
+    , envHashes :: IORef Word64
+    , envSecs :: IORef Word64 }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
@@ -148,21 +145,16 @@ pCommand = hsubparser
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
     )
 
-pMinerPath :: Parser String
+pMinerPath :: Parser Text
 pMinerPath = textOption
-    (long "miner-path" <> help "path to miner executable")
+    (long "miner-path" <> help "Path to chainweb-gpu-miner executable")
 
-pMinerArgs :: Parser [String]
-pMinerArgs = chop <$> pMinerArgs0
+pMinerArgs :: Parser [Text]
+pMinerArgs = T.words <$> pMinerArgs0
   where
-    chop = map BC.unpack
-             . filter (not . BC.null)
-             . BC.splitWith isSpace
-             . T.encodeUtf8
-
     pMinerArgs0 :: Parser T.Text
     pMinerArgs0 = textOption
-        (long "miner-args" <> value "" <> help "extra miner arguments")
+        (long "miner-args" <> value "" <> help "Extra miner arguments")
 
 pGpuEnv :: Parser GPUEnv
 pGpuEnv = GPUEnv <$> pMinerPath <*> pMinerArgs
@@ -222,7 +214,8 @@ main = do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
         stats <- newIORef 0
-        runRIO (Env g m logFunc cargs stats) run
+        start <- newIORef 0
+        runRIO (Env g m logFunc cargs stats start) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -288,8 +281,7 @@ getWork = do
 --
 mining :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes) -> WorkBytes -> RIO Env ()
 mining go wb = do
-    !now <- liftIO getPOSIXTime
-    race updateSignal (go tbytes hbytes) >>= traverse_ (miningSuccess now)
+    race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
     getWork >>= traverse_ (mining go)
   where
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
@@ -333,15 +325,15 @@ mining go wb = do
     -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
     -- won the race instead, then the `go` call is automatically cancelled.
     --
-    miningSuccess :: NominalDiffTime -> HeaderBytes -> RIO Env ()
-    miningSuccess before h = do
+    miningSuccess :: HeaderBytes -> RIO Env ()
+    miningSuccess h = do
       e <- ask
-      !now <- liftIO getPOSIXTime
-      hashes <- readIORef (envStats e)
+      secs <- readIORef (envSecs e)
+      hashes <- readIORef (envHashes e)
       let !v = version $ envArgs e
           !m = envMgr e
           !u = coordinator $ envArgs e
-          !r = (fromIntegral hashes :: Double) / realToFrac (now - before) / 1000000
+          !r = (fromIntegral hashes :: Double) / fromIntegral secs / 1000000
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo . display . T.pack $
@@ -352,6 +344,7 @@ mining go wb = do
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
+    !start <- liftIO getPOSIXTime
     e <- ask
     T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
@@ -360,7 +353,9 @@ cpu cpue tbytes hbytes = do
             n <- Nonce <$> MWC.uniform (envGen e)
             new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
             terminateWith sch new
-    writeIORef (envStats e) $ ns * fromIntegral (cores cpue)
+    !end <- liftIO getPOSIXTime
+    modifyIORef' (envHashes e) $ \hashes -> ns * fromIntegral (cores cpue) + hashes
+    modifyIORef' (envSecs e) (\secs -> secs + ceiling (end - start))
     pure new
   where
     comp :: Comp
@@ -370,14 +365,16 @@ cpu cpue tbytes hbytes = do
 
 gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
-    minerPath <- liftIO $ Path.makeAbsolute $ Path.fromFilePath mpath
-    stats <- asks envStats
-    e <- liftIO $ callExternalMiner minerPath margs False target blockbytes
-    case e of
+    minerPath <- liftIO . Path.makeAbsolute . Path.fromFilePath $ T.unpack mpath
+    e <- ask
+    res <- liftIO $ callExternalMiner minerPath (map T.unpack margs) False target blockbytes
+    case res of
       Left err -> do
-          logError $ display $ T.pack $ "Error running miner" <> err
-          fail err
-      Right (MiningResult nonceBytes numNonces _ _) -> do
+          logError . display . T.pack $ "Error running GPU miner: " <> err
+          throwString err
+      Right (MiningResult nonceBytes numNonces hps _) -> do
           let newBytes = nonceBytes <> B.drop 8 blockbytes
-          writeIORef stats numNonces
+              secs = numNonces `div` hps
+          modifyIORef' (envHashes e) (+ numNonces)
+          modifyIORef' (envSecs e) (+ secs)
           return $! HeaderBytes newBytes
