@@ -390,11 +390,12 @@ validateHashes pwo bHeader =
         prevHash = _blockPayloadHash bHeader
     in if newHash == prevHash
         then Right pwo
-        else Left $ BlockValidationFailure $ toS $
-            "Hash from Pact execution: " ++ show newHash ++
-            " does not match the previously stored hash: " ++ show prevHash ++
-            ". Payload with outputs: " ++ show pwo
-
+        else Left $ BlockValidationFailure $ A.object
+            [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
+            , "actual" A..= newHash
+            , "expected" A..= prevHash
+            , "payloadWithOutputs" A..= pwo
+            ]
 
 -- | Restore the checkpointer and prepare the execution of a block.
 --
