@@ -13,6 +13,7 @@ import qualified TXG
 import qualified Standalone
 import qualified TestMiner
 import qualified TxStream
+import qualified CheckpointerDBChecksum
 
 main :: IO ()
 main = do
@@ -81,6 +82,10 @@ topLevelCommands =
       "test-miner"
       "Test an external miner"
       TestMiner.main
+  , CommandSpec
+      "db-checksum"
+      "Generate a checksum of all the checkpointer database tables in a block (or range of blocks)"
+      CheckpointerDBChecksum.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()
