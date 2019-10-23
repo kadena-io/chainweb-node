@@ -626,7 +626,7 @@ minerReward bh = use psMinerRewards >>= go
   where
     go (MinerRewards rewards q) = do
       when (V.null q) err
-      let (!h, !t) = (V.unsafeHead q, V.unsafeTail t)
+      let (!h, !t) = (V.unsafeHead q, V.unsafeTail q)
       if bh <= h
       then lookup_ h rewards
       else modifyRewards t rewards
