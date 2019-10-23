@@ -16,6 +16,7 @@ import Control.Exception.Safe (tryAny)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Builder
+import Data.Int
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Serialize
@@ -47,9 +48,9 @@ type TableName = ByteString
 type TableContents = ByteString
 
 -- this will produce both the raw bytes for all of the tables concatenated
--- together, and the raw bytes of each individual table
-work :: Args -> FilePath -> IO (Builder, Map TableName TableContents)
-work _args sqlitefile = withSQLiteConnection sqlitefile chainwebPragmas False (runReaderT go)
+-- together, and the raw bytes of each individual table (this is over a single chain)
+work :: Args -> FilePath -> BlockHeight -> IO (Builder, Map TableName TableContents)
+work _args sqlitefile limit = withSQLiteConnection sqlitefile chainwebPragmas False (runReaderT go)
   where
     go = do
         names <- getTableNames
@@ -61,18 +62,29 @@ work _args sqlitefile = withSQLiteConnection sqlitefile chainwebPragmas False (r
         return ((mappend entiredb (byteString bytes)), (M.insert name bytes m))
 
     getTblContents db = \case
-        "TransactionIndex" -> qry_ db tistmt [RBlob, RInt]
-        "BlockHistory" -> qry_ db bhstmt [RInt, RBlob, RInt]
-        "VersionedTableCreation" -> qry_ db vtcstmt [RText, RInt]
-        "VersionedTableMutation" -> qry_ db vtmstmt [RText, RInt]
-        t -> qry_ db (usertablestmt t) [RText, RInt, RBlob]
+        "TransactionIndex" -> qry db tistmt [SInt $ fromIntegral limit] [RBlob, RInt]
+        "BlockHistory" -> qry db bhstmt [SInt $ fromIntegral limit] [RInt, RBlob, RInt]
+        "VersionedTableCreation" -> qry db vtcstmt [SInt $ fromIntegral limit] [RText, RInt]
+        "VersionedTableMutation" -> qry db vtmstmt [SInt $ fromIntegral limit] [RText, RInt]
+        t -> do
+          txid <- getEndingTxId limit db
+          qry db (usertablestmt t) [SInt txid] [RText, RInt, RBlob]
 
-    tistmt = "SELECT * FROM TransactionIndex ORDER BY blockheight DESC;"
-    bhstmt = "SELECT * FROM BlockHistory ORDER BY blockheight, endingtxid, hash DESC;"
-    vtcstmt = "SELECT * FROM VersionedTableCreation ORDER BY createBlockheight DESC;"
-    vtmstmt = "SELECt * FROM VersionedTableMutation ORDER BY blockheight DESC;"
+    getEndingTxId :: BlockHeight -> Database -> IO Int64
+    getEndingTxId bh db = do
+        r <- qry db stmt [SInt $ fromIntegral bh] [RInt]
+        case r of
+          [[SInt txid]] -> return txid
+          _ -> error "Cannot find ending txid."
+      where
+        stmt = "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
+
+    tistmt = "SELECT * FROM TransactionIndex ORDER BY blockheight DESC WHERE blockheight <= ?;"
+    bhstmt = "SELECT * FROM BlockHistory ORDER BY blockheight, endingtxid, hash DESC WHERE blockheight <= ?;"
+    vtcstmt = "SELECT * FROM VersionedTableCreation ORDER BY createBlockheight DESC WHERE createBlockheight <= ?;"
+    vtmstmt = "SELECt * FROM VersionedTableMutation ORDER BY blockheight DESC WHERE blockheight <= ?;"
     usertablestmt tbl =
-      "SELECT * FROM [" <> Utf8 tbl <> "] ORDER BY txid DESC ORDER BY rowkey ASC;"
+      "SELECT * FROM [" <> Utf8 tbl <> "] ORDER BY txid DESC ORDER BY rowkey ASC WHERE txid <= ?;"
 
 builderToFile :: FilePath -> Builder -> IO ()
 builderToFile fp builder =
