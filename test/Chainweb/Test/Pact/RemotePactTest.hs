@@ -141,9 +141,9 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 testCase "trivial /local check" $
                 localTest iot net
-              , after AllSucceed "remote spv" $
-                testGroup "gas for tx size"
-                [ txTooBigGasTest iot net ]
+             -- , after AllSucceed "remote spv" $
+             --   testGroup "gas for tx size"
+             --   [ txTooBigGasTest iot net ]
               , after AllSucceed "remote spv" $
                 testGroup "genesis allocations"
                 [ allocationTest iot net ]
@@ -264,8 +264,8 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= tid
         ]
 
-txTooBigGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
+_txTooBigGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+_txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     sid <- mkChainId v (0 :: Int)
 
@@ -490,7 +490,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099938.51) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1099999.4) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
@@ -515,7 +515,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099918.43) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1099999.31) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
         ]
 

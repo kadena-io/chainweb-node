@@ -327,6 +327,7 @@ library
         , pact >= 2.6
         , paths >= 0.2
         , pem >=0.2
+        , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -642,6 +643,7 @@ executable chainweb-miner
 
         -- external
         , base >= 4.11 && < 5
+        , bytestring >= 0.10
         , connection >= 0.2
         , errors >= 2.3
         , generic-lens >= 1.2
@@ -650,6 +652,7 @@ executable chainweb-miner
         , http-types >= 0.12
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
+        , paths >= 0.2
         , retry >= 0.7
         , rio >= 0.1.5
         , scheduler >= 1.4.1
@@ -666,7 +669,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
         Chain2Gexf
@@ -736,6 +739,7 @@ executable cwtool
         , pact >= 2.6
         , paths >= 0.2
         , pretty-simple >= 2.1
+        , process >= 1.5
         , primitive >= 0.6
         , random >= 1.1
         , resourcet >= 1.2
