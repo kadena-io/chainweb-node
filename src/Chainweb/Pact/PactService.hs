@@ -640,7 +640,7 @@ minerReward bh = use psMinerRewards >>= go
     modifyRewards q rs = do
       when (V.null q) err
       let !h = V.unsafeHead q
-      evaluate $ psMinerRewards . minerRewardHeights .= q
+      psMinerRewards . minerRewardHeights .= q
       lookup_ h rs
 
     err = internalError "block heights have been exhausted"
