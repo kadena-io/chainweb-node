@@ -21,6 +21,9 @@ module Chainweb.Test.Pact.RemotePactTest
 ( tests
 , withNodes
 , withRequestKeys
+, polling
+, sending
+, PollingExpectation(..)
 ) where
 
 import Control.Concurrent hiding (newMVar, putMVar, readMVar, modifyMVar)
@@ -630,8 +633,6 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
 --------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
 --------------------------------------------------------------------------------
-
-newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
 
 withNodes
     :: RocksDb

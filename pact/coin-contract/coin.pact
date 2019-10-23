@@ -62,7 +62,7 @@
       receiver:string
       amount:decimal
     )
-    @managed TRANSFER-mgr
+    @managed amount TRANSFER-mgr
     (enforce (!= sender receiver) "same sender and receiver")
     (enforce-unit amount)
     (enforce (> amount 0.0) "Positive amount")
@@ -70,18 +70,15 @@
     (compose-capability (CREDIT receiver))
   )
 
-  (defun TRANSFER-mgr:object{fungible-v1.transfer-schema}
-    ( managed:object{fungible-v1.transfer-schema}
-      requested:object{fungible-v1.transfer-schema}
+  (defun TRANSFER-mgr:decimal
+    ( managed:decimal
+      requested:decimal
     )
 
-    (enforce (= (at 'sender managed) (at 'sender requested)) "sender match")
-    (enforce (= (at 'receiver managed) (at 'receiver requested)) "sender match")
-    (let* ((bal:decimal (at 'amount managed))
-           (amt:decimal (at 'amount requested))
-           (rem:decimal (- bal amt)))
-      (enforce (>= rem 0.0) (format "TRANSFER exceeded for balance {}" [bal]))
-      (+ { 'amount: rem } managed))
+    (let ((newbal (- managed requested)))
+      (enforce (>= newbal 0.0)
+        (format "TRANSFER exceeded for balance {}" [managed]))
+      newbal)
   )
 
   ; --------------------------------------------------------------------------
@@ -133,7 +130,7 @@
       (enforce
         (<= account-length MAXIMUM_ACCOUNT_LENGTH)
         (format
-          "Account name does not conform to the min length requirement: {}"
+          "Account name does not conform to the max length requirement: {}"
           [account]))
       )
   )
