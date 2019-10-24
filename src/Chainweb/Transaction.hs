@@ -10,7 +10,7 @@
 module Chainweb.Transaction
   ( ChainwebTransaction
   , HashableTrans(..)
-  , PayloadWithText(..)
+  , PayloadWithText
   , chainwebPayloadCodec
   , gasLimitOf
   , gasPriceOf
@@ -18,6 +18,8 @@ module Chainweb.Transaction
   , creationTimeOf
   , mkPayloadWithText
   , modifyPayloadWithText
+  , payloadBytes
+  , payloadObj
   ) where
 
 import Control.DeepSeq
@@ -51,6 +53,14 @@ data PayloadWithText = PayloadWithText
     }
     deriving (Show, Eq, Generic)
     deriving anyclass (NFData)
+
+
+payloadBytes :: PayloadWithText -> SB.ShortByteString
+payloadBytes = _payloadBytes
+
+payloadObj :: PayloadWithText -> Payload PublicMeta ParsedCode
+payloadObj = _payloadObj
+
 
 mkPayloadWithText :: Payload PublicMeta ParsedCode -> PayloadWithText
 mkPayloadWithText p = PayloadWithText {
