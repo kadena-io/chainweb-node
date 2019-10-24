@@ -75,18 +75,18 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import Pact.Types.Continuation
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.Command as P
+import Pact.Types.Continuation
 import Pact.Types.Gas
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
-import Pact.Types.Term (DefType(..),ObjectMap(..))
+import Pact.Types.Term (DefType(..), ObjectMap(..))
 
 ------------------------------------------------------------------------------
 -- internal modules
@@ -390,11 +390,12 @@ validateHashes pwo bHeader =
         prevHash = _blockPayloadHash bHeader
     in if newHash == prevHash
         then Right pwo
-        else Left $ BlockValidationFailure $ toS $
-            "Hash from Pact execution: " ++ show newHash ++
-            " does not match the previously stored hash: " ++ show prevHash ++
-            ". Payload with outputs: " ++ show pwo
-
+        else Left $ BlockValidationFailure $ A.object
+            [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
+            , "actual" A..= newHash
+            , "expected" A..= prevHash
+            , "payloadWithOutputs" A..= pwo
+            ]
 
 -- | Restore the checkpointer and prepare the execution of a block.
 --
@@ -515,7 +516,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                 pure valid
       where
         validations = [checkTimes]
-        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
 
     -- | Attempt to debit the Gas cost from the sender's "running balance".
     --
@@ -524,7 +525,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         | newBal < 0 = Nothing
         | otherwise = Just $ HM.adjust (const newBal) sender bs
       where
-        pm = P._pMeta . _payloadObj $ P._cmdPayload tx
+        pm = P._pMeta . payloadObj $ P._cmdPayload tx
         sender = P._pmSender pm
         P.GasLimit (P.ParsedInteger limit) = P._pmGasLimit pm
         P.GasPrice (P.ParsedDecimal price) = P._pmGasPrice pm
@@ -532,7 +533,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
         newBal = bal - limitInCoin
 
     checkTimes :: ChainwebTransaction -> Bool
-    checkTimes = timingsCheck blockOriginationTime . fmap _payloadObj
+    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
 
     -- | The balances of all /relevant/ accounts in this group of Transactions.
     -- TXs which are missing an entry in the `HM.HashMap` should not be
@@ -552,7 +553,7 @@ validateChainwebTxs dbEnv cp blockOriginationTime bh txs
                   Just (T2 b _) -> pure $ HM.insert sender b acc
       where
         sender :: Text
-        sender = P._pmSender . P._pMeta . _payloadObj $ P._cmdPayload tx
+        sender = P._pmSender . P._pMeta . payloadObj $ P._cmdPayload tx
 
 
 validateChainwebTxsPreBlock
@@ -714,7 +715,7 @@ execLocal cmd = withDiscardedBatch $ do
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap _payloadObj cmd)
+                _psPublicData _psSpvSupport (fmap payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -881,7 +882,7 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes
-      . fmap (T.decodeUtf8 . SB.fromShort . _payloadBytes)
+      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 
@@ -934,7 +935,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         pactHash  = view P.cmdHash cmdIn
 
     T2 !result mcache' <- liftIO $ if isGenesis
-        then applyGenesisCmd logger dbEnv pd spv (_payloadObj <$> cmdIn)
+        then applyGenesisCmd logger dbEnv pd spv (payloadObj <$> cmdIn)
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
     cp <- getCheckpointer
