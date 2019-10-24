@@ -74,13 +74,13 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import Pact.Types.Continuation
 import Pact.Gas (freeGasEnv)
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
+import Pact.Types.Continuation
 import Pact.Types.Gas
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
@@ -88,7 +88,7 @@ import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.Server as P
 import qualified Pact.Types.SPV as P
-import Pact.Types.Term (DefType(..),ObjectMap(..))
+import Pact.Types.Term (DefType(..), ObjectMap(..))
 
 ------------------------------------------------------------------------------
 -- internal modules
@@ -534,7 +534,7 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         -> PactServiceM cas (T2 ModuleCache BuyGasValidation)
     runBuyGas _ _ mcache (T2 tx Duplicate) = return $ T2 mcache (T3 tx Duplicate BuyGasFailed)
     runBuyGas envM db mcache (T2 tx Unique) = do
-        let cmd = _payloadObj <$> tx
+        let cmd = payloadObj <$> tx
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
             supply = gasFeeOf gasLimit gasPrice
@@ -594,8 +594,7 @@ validateChainwebTxs psEnv psState cp miner blockOriginationTime bh txs
         runGas = attemptBuyGas cp miner uniqueTxs
 
     checkTimes :: ChainwebTransaction -> Bool
-    checkTimes = timingsCheck blockOriginationTime . fmap _payloadObj
-
+    checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
 
 validateChainwebTxsPreBlock
     :: PayloadCas cas
@@ -761,7 +760,7 @@ execLocal cmd = withDiscardedBatch $ do
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap _payloadObj cmd)
+                _psPublicData _psSpvSupport (fmap payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -931,7 +930,7 @@ execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes
-      . fmap (T.decodeUtf8 . SB.fromShort . _payloadBytes)
+      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
     paired = V.zipWith (curry $ first cmdBSToTx) ctxs
 
 
@@ -984,7 +983,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         pactHash  = view P.cmdHash cmdIn
 
     T2 !result mcache' <- liftIO $ if isGenesis
-        then applyGenesisCmd logger dbEnv pd spv (_payloadObj <$> cmdIn)
+        then applyGenesisCmd logger dbEnv pd spv (payloadObj <$> cmdIn)
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
     cp <- getCheckpointer

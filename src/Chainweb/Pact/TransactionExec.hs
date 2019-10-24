@@ -1,11 +1,11 @@
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -61,7 +61,7 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
-import Data.Decimal (Decimal,roundTo)
+import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import Data.Maybe
@@ -70,7 +70,7 @@ import Data.Tuple.Strict (T2(..), T3(..))
 
 -- internal Pact modules
 
-import Pact.Eval (lookupModule,liftTerm,resolveRef)
+import Pact.Eval (liftTerm, lookupModule, resolveRef)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
@@ -140,7 +140,7 @@ applyCmd
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache = applyBuyGas
   where
-    cmd = _payloadObj <$> cmdIn
+    cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     gasPrice = gasPriceOf cmd
@@ -297,7 +297,7 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
   let cmdEnv = CommandEnv Nothing Local dbEnv logger freeGasEnv pd' spv nid
 
   exec <- case _pPayload _cmdPayload of
-    Exec !pm -> return pm
+    (Exec !pm) -> return pm
     _ -> throwCmdEx "local continuations not supported"
 
   !r <- catchesPactError $!
@@ -456,10 +456,10 @@ initialGasOf cmd = gasFee
     feePerByte :: Decimal = 0.01
 
     contProofSize =
-      case _pPayload (_payloadObj cmd) of
+      case _pPayload (payloadObj cmd) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
         _ -> 0
-    txSize = SB.length (_payloadBytes cmd) - contProofSize
+    txSize = SB.length (payloadBytes cmd) - contProofSize
     gasFee = round $ fromIntegral txSize * feePerByte
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
