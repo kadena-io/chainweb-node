@@ -1,18 +1,24 @@
 {-# LANGUAGE BangPatterns         #-}
+{-# LANGUAGE DataKinds            #-}
 {-# LANGUAGE DeriveAnyClass       #-}
 {-# LANGUAGE DeriveGeneric        #-}
+{-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE StandaloneDeriving   #-}
+{-# LANGUAGE TypeApplications     #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module CheckpointerDBChecksum where
 
+import Configuration.Utils hiding (action, encode, Error, Lens', (<.>))
+
 import Control.Monad.Reader
 import Control.Exception.Safe (tryAny)
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 import Data.ByteString.Builder
 import qualified Data.HashSet as HashSet
 import Data.Int
@@ -38,18 +44,37 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (callDb)
 import Chainweb.Pact.Service.Types
+import Chainweb.Utils hiding (check)
 
 main :: IO ()
-main = putStrLn "Yay, compiles!"
+main = runWithConfiguration mainInfo $ \args -> do
+    (entiredb, tables) <- work args
+    case _getAllTables args of
+        True -> do
+          builderToFile (_entireDBOutputFile args) entiredb
+          -- run sha1 on file
+          putStrLn "working on this"
+        False -> do
+          void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
+          -- run sha1 on file
+          putStrLn "working on this"
+
+    putStrLn "All done"
+  where
+    go :: String -> ByteString -> ByteString -> IO ()
+    go dir tablename tablebytes = B.writeFile (dir <> "/" <> toS tablename) tablebytes
+
 
 type TableName = ByteString
 type TableContents = ByteString
 
 -- this will produce both the raw bytes for all of the tables concatenated
 -- together, and the raw bytes of each individual table (this is over a single chain)
-work :: Args -> BlockHeight -> BlockHeight -> IO (Builder, Map TableName TableContents)
-work args low high = withSQLiteConnection (aFilePath args) chainwebPragmas False (runReaderT go)
+work :: Args -> IO (Builder, Map TableName TableContents)
+work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runReaderT go)
   where
+    low = _startBlockHeight args
+    high = _endBlockHeight args
     go = do
         let systemtables = foldr ((.).(:)) id
               [ "BlockHistory"
@@ -61,7 +86,8 @@ work args low high = withSQLiteConnection (aFilePath args) chainwebPragmas False
               , "[SYS:Namespaces]"
               , "[SYS:Pacts]"
               ]
-        names <- systemtables <$> getUserTables (aStartBlockHeight args) (aEndBlockHeight args)
+
+        names <- systemtables <$> getUserTables low high
         callDb "getting rows" $ \db -> liftIO $ foldM (collect db) (mempty, mempty) names
 
     collect db (entiredb,  m) name = do
@@ -148,12 +174,101 @@ getUserTables low high = callDb "getUserTables" $ \db -> liftIO $ do
         tableErrMsg tbl = "This is table " <> tbl <> " is listed in VersionedTableCreation but is not actually in the database."
 
 data Args = Args
-   {  aFilePath   :: FilePath
-   , aStartBlockHeight :: BlockHeight
-   , aEndBlockHeight :: BlockHeight
-   }
+   {  _sqliteFile   :: FilePath
+   , _startBlockHeight :: BlockHeight
+   , _endBlockHeight :: BlockHeight
+   , _entireDBOutputFile :: FilePath
+   , _tablesOutputLocation :: String
+   , _getAllTables :: Bool
+   } deriving (Show, Generic)
+
+sqliteFile :: Functor f => (FilePath -> f FilePath) -> Args -> f Args
+sqliteFile f s = (\u -> s { _sqliteFile = u }) <$> f (_sqliteFile s)
+
+startBlockHeight :: Functor f => (BlockHeight -> f BlockHeight) -> Args -> f Args
+startBlockHeight f s = (\u -> s { _startBlockHeight = u }) <$> f (_startBlockHeight s)
+
+endBlockHeight :: Functor f => (BlockHeight -> f BlockHeight) -> Args -> f Args
+endBlockHeight f s = (\u -> s { _endBlockHeight = u }) <$> f (_endBlockHeight s)
+
+entireDBOutputFile :: Functor f => (FilePath -> f FilePath) -> Args -> f Args
+entireDBOutputFile f s = (\u -> s { _entireDBOutputFile = u }) <$> f (_entireDBOutputFile s)
+
+tablesOutputLocation :: Functor f => (String -> f String) -> Args -> f Args
+tablesOutputLocation f s = (\u -> s { _tablesOutputLocation = u }) <$> f (_tablesOutputLocation s)
+
+getAllTables :: Functor f => (Bool -> f Bool) -> Args -> f Args
+getAllTables f s = (\u -> s { _getAllTables = u }) <$> f (_getAllTables s)
+
+instance ToJSON Args where
+  toJSON o = object
+      [ "sqliteFile"          .= _sqliteFile o
+      , "startBlockHeight"    .= _startBlockHeight o
+      , "endBlockHeight"      .= _endBlockHeight o
+      , "entireDBOutputFile"  .= _entireDBOutputFile o
+      , "tablesOutputLocation" .= _tablesOutputLocation o
+      , "_tablesOutputLocation" .= _tablesOutputLocation o
+      , "_getAllTables" .= _getAllTables o
+      ]
+
+instance FromJSON (Args -> Args) where
+    parseJSON = withObject "Args" $ \o -> id
+      <$< sqliteFile          ..: "sqliteFile"          % o
+      <*< startBlockHeight    ..: "startBlockHeight"    % o
+      <*< endBlockHeight      ..: "endBlockHeight"      % o
+      <*< entireDBOutputFile  ..: "entireDBOutputFile"  % o
+      <*< tablesOutputLocation ..: "tablesOutputLocation" % o
+      <*< getAllTables ..: "getAllTables" % o
+
+argsParser :: MParser Args
+argsParser = id
+  <$< sqliteFile .:: textOption
+      % long "The sqlite file"
+      <> metavar "FILE"
+      <> help "Pact sqlite file"
+  <*< startBlockHeight .:: option auto
+    % long "Starting blockheight"
+    <> metavar "BlockHeight"
+  <*< endBlockHeight .:: option auto
+    % long "LastBlockheight"
+    <> metavar "BlockHeight"
+    <> help "Last blockheight"
+  <*< entireDBOutputFile .:: option auto
+    % long "outputDBFile"
+    <> metavar "FILE"
+    <> help "Location to dump the sha1 checksum of some portion (limited by some range of blocks) of the database"
+  <*< tablesOutputLocation .:: option auto
+    % long "tablesOutputLocation"
+    <> metavar "DIRECTORY"
+    <> help "Directory where sha1 checksums of each individual table will be stored."
+  <*< getAllTables .:: option auto
+    % long "getAllTables"
+    <> metavar "BOOL"
+    <> help "Flag to decide whether to get hash of all tables or individual hashes of each table."
+
+
+defaultArgs :: Args
+defaultArgs =
+    Args
+        {
+            _sqliteFile = error "There seems to be no good default for this field."
+          , _startBlockHeight = 0
+          , _endBlockHeight = error "There seems to be no good default for this field."
+          , _entireDBOutputFile = error "There seems to be no good default for this field."
+          , _tablesOutputLocation = error "There seems to be no good default for this field."
+          , _getAllTables = True
+        }
+
+mainInfo :: ProgramInfo Args
+mainInfo =
+    programInfo
+    "CheckpointerDBChecksum"
+    argsParser
+    defaultArgs
 
 deriving instance Generic SType
 deriving instance Serialize SType
 deriving instance Generic Utf8
 deriving instance Serialize Utf8
+
+deriving instance Read BlockHeight
