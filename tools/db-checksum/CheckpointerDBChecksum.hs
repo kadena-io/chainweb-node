@@ -35,6 +35,8 @@ import Data.Digest.Pure.SHA
 
 import GHC.Generics
 
+import System.Directory
+
 -- pact imports
 import Pact.Types.SQLite
 
@@ -50,19 +52,25 @@ main = runWithConfiguration mainInfo $ \args -> do
     (entiredb, tables) <- work args
     case _getAllTables args of
         True -> do
-          putStrLn "----------Computing \"entire\" db----------"
-          let !checksum = sha1 $ toLazyByteString entiredb
-          Binary.encodeFile (_entireDBOutputFile args) checksum
+            putStrLn "----------Computing \"entire\" db----------"
+            let !checksum = sha1 $ toLazyByteString entiredb
+            exists <- doesFileExist $ _entireDBOutputFile args
+            -- Just rewrite the file. Let's not do anything complicated here.
+            when exists $ removeFile $ _entireDBOutputFile args
+            Binary.encodeFile (_entireDBOutputFile args) checksum
         False -> do
-          putStrLn "----------Computing tables----------"
-          void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
+            putStrLn "----------Computing tables----------"
+            let dir = _tablesOutputLocation args
+            createDirectoryIfMissing True dir
+            files <- getDirectoryContents dir
+            mapM_ (\file -> removeFile (dir <> "/" <> file)) files
+            void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
     putStrLn "----------All done----------"
   where
     go :: String -> ByteString -> ByteString -> IO ()
     go dir tablename tablebytes = do
-      let !checksum = sha1 $ toS tablebytes
-      Binary.encodeFile (dir <> "/" <> toS tablename) checksum
-
+        let !checksum = sha1 $ toS tablebytes
+        Binary.encodeFile (dir <> "/" <> toS tablename) checksum
 
 type TableName = ByteString
 type TableContents = ByteString
@@ -87,27 +95,28 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
               ]
 
         names <- systemtables <$> getUserTables low high
-        callDb "getting rows" $ \db -> liftIO $ foldM (collect db) (mempty, mempty) names
+        foldM collect (mempty, mempty) names
 
-    collect db (entiredb,  m) name = do
-        rows <- getTblContents db name
+    collect (entiredb,  m) name = do
+        rows <- getTblContents name
         let !bytes = encode rows
         return (mappend entiredb (byteString bytes), M.insert name bytes m)
 
-    getTblContents db = \case
-        "TransactionIndex" -> qry db tistmt (SInt . fromIntegral <$> [low, high]) [RBlob, RInt]
-        "BlockHistory" -> qry db bhstmt (SInt . fromIntegral <$> [low, high]) [RInt, RBlob, RInt]
-        "VersionedTableCreation" -> qry db vtcstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
-        "VersionedTableMutation" -> qry db vtmstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
-        t -> do
-            lowtxid <- getActualStartingTxId low db
-            hightxid <- getActualEndingTxId high db
-            qry db (usertablestmt t) (SInt <$> [lowtxid, hightxid]) [RText, RInt, RBlob]
+    getTblContents = \case
+        "TransactionIndex" -> callDb "TransactionIndex" $ \db -> qry db tistmt (SInt . fromIntegral <$> [low, high]) [RBlob, RInt]
+        "BlockHistory" -> callDb "BlockHistory" $ \db -> qry db bhstmt (SInt . fromIntegral <$> [low, high]) [RInt, RBlob, RInt]
+        "VersionedTableCreation" -> callDb "VersionedTableCreation" $ \db -> qry db vtcstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
+        "VersionedTableMutation" -> callDb "VersionedTableMutation" $ \db -> qry db vtmstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
+        t ->do
+            lowtxid <- callDb "starting txid" $ \db -> getActualStartingTxId low db
+            hightxid <- callDb "last txid" $ \db -> getActualEndingTxId high db
+            callDb ("on table " <> toS t) $ \db ->
+                qry db (usertablestmt t) (SInt <$> [lowtxid, hightxid]) [RText, RInt, RBlob]
 
     getActualStartingTxId :: BlockHeight -> Database -> IO Int64
     getActualStartingTxId bh db =
         if bh == 0 then return 0 else do
-            r <- qry db stmt [SInt $ pred $ fromIntegral bh] [RInt]
+            r <- qry db stmt [SInt $ max 0 $ pred $ fromIntegral bh] [RInt]
             case r of
                 [[SInt txid]] -> return $ succ txid
                 _ -> error "Cannot find starting txid."
@@ -124,44 +133,33 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
       where
         stmt = "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
 
-    tistmt = "SELECT * FROM TransactionIndex ORDER BY blockheight,txhash DESC WHERE blockheight >= ? AND blockheight <= ?;"
-    bhstmt = "SELECT * FROM BlockHistory ORDER BY blockheight, endingtxid, hash DESC WHERE blockheight >= ? AND blockheight <= ?;"
-    vtcstmt = "SELECT * FROM VersionedTableCreation ORDER BY createBlockheight, tablename DESC WHERE createBlockheight >= ? AND createBlockheight <= ?;"
-    vtmstmt = "SELECt * FROM VersionedTableMutation ORDER BY blockheight, tablename DESC WHERE blockheight >= ? AND blockheight <= ?;"
-    usertablestmt tbl =
-      "SELECT * FROM [" <> Utf8 tbl <> "] ORDER BY txid DESC ORDER BY rowkey ASC WHERE txid > ? AND txid <= ?;"
+    tistmt = "SELECT * FROM TransactionIndex WHERE blockheight >= ? AND blockheight <= ? ORDER BY blockheight,txhash DESC;"
+    bhstmt = "SELECT * FROM BlockHistory WHERE blockheight >= ? AND blockheight <= ? ORDER BY blockheight, endingtxid, hash DESC;"
+    vtcstmt = "SELECT * FROM VersionedTableCreation WHERE createBlockheight >= ? AND createBlockheight <= ? ORDER BY createBlockheight, tablename DESC;"
+    vtmstmt = "SELECT * FROM VersionedTableMutation WHERE blockheight >= ? AND blockheight <= ? ORDER BY blockheight, tablename DESC;"
+    usertablestmt = \case
+      "[SYS:KeySets]" -> "SELECT * FROM [SYS:KeySets] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      "[SYS:Modules]" -> "SELECT * FROM [SYS:Modules] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      "[SYS:Namespaces]" -> "SELECT * FROM [SYS:Namespaces] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      "[SYS:Pacts]" -> "SELECT * FROM [SYS:Pacts] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      tbl -> "SELECT * FROM [" <> Utf8 tbl <> "] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
 
--- builderToFile :: FilePath -> Builder -> IO ()
--- builderToFile fp builder =
---     withFile fp WriteMode $ \handle -> do
---         hSetBinaryMode handle True
---         hSetBuffering handle (BlockBuffering (Just blockSize))
---         hPutBuilder handle builder
---   where
---     blockSize = 80 -- This is a made up number. Change if necessary
-
--- this function is not necessary
-{-
-bytestringToFile :: FilePath -> ByteString -> IO ()
-bytestringToFile fp bytestring = B.writeFile fp bytestring
--}
-
-callDb :: Text -> (Database -> ReaderT SQLiteEnv IO a) -> ReaderT SQLiteEnv IO a
+callDb :: Text -> (Database -> IO a) -> ReaderT SQLiteEnv IO a
 callDb callerName action = do
     c <- asks _sConn
-    tryAny (action c) >>= \case
+    tryAny (liftIO $ action c) >>= \case
       Left err -> internalError $ "callDb (" <> callerName <> "): " <> toS (show err)
       Right r -> return r
 
 getUserTables :: BlockHeight -> BlockHeight -> ReaderT SQLiteEnv IO [ByteString]
-getUserTables low high = callDb "getUserTables" $ \db -> liftIO $ do
+getUserTables low high = callDb "getUserTables" $ \db -> do
     usertables <- fmap toByteString . concat <$> qry db stmt (SInt . fromIntegral <$> [low, high]) [RText]
     check db usertables
     return usertables
   where
     toByteString (SText (Utf8 bytestring)) = bytestring
     toByteString _ = error "impossible case"
-    stmt = "SELECT DISTINCT tablename FROM VersionedTableCreation ORDER BY tablename DESC WHERE createBlockheight >= ? AND createBlockheight <= ?;"
+    stmt = "SELECT DISTINCT tablename FROM VersionedTableCreation WHERE createBlockheight >= ? AND createBlockheight <= ? ORDER BY tablename DESC;"
     check db tbls = do
         r <- HashSet.fromList . fmap toByteString . concat <$> qry_ db alltables [RText]
         when (HashSet.null r) $ internalError errMsg
@@ -206,8 +204,7 @@ instance ToJSON Args where
       , "endBlockHeight"      .= _endBlockHeight o
       , "entireDBOutputFile"  .= _entireDBOutputFile o
       , "tablesOutputLocation" .= _tablesOutputLocation o
-      , "_tablesOutputLocation" .= _tablesOutputLocation o
-      , "_getAllTables" .= _getAllTables o
+      , "getAllTables" .= _getAllTables o
       ]
 
 instance FromJSON (Args -> Args) where
@@ -250,11 +247,11 @@ defaultArgs :: Args
 defaultArgs =
     Args
         {
-            _sqliteFile = error "There seems to be no good default for this field."
+            _sqliteFile = "no-known-file"
           , _startBlockHeight = 0
-          , _endBlockHeight = error "There seems to be no good default for this field."
-          , _entireDBOutputFile = error "There seems to be no good default for this field."
-          , _tablesOutputLocation = error "There seems to be no good default for this field."
+          , _endBlockHeight = 5
+          , _entireDBOutputFile = "dboutput.hash"
+          , _tablesOutputLocation = "dboutputhashes"
           , _getAllTables = True
         }
 

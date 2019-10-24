@@ -1,0 +1,8 @@
+tablesOutputLocation: dboutputhashes
+getAllTables: true
+endBlockHeight: 5
+sqliteFile: ../pact-v1-chain-8.sqlite
+startBlockHeight: 0
+entireDBOutputFile: dboutput.hash
+
+
