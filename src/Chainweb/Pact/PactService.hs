@@ -425,7 +425,6 @@ validateHashes bHeader pwo pData =
         ,("TransactionsHash", (A.toJSON prevTransactionsHash), (A.toJSON newTransactionsHash))
         ,("OutputsHash", (A.toJSON prevOutputsHash), (A.toJSON newOutputsHash))]
 
-
 -- | Restore the checkpointer and prepare the execution of a block.
 --
 -- The use of 'withCheckpointer' is safer and should be preferred where possible.
