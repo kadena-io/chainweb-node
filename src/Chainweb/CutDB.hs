@@ -343,15 +343,8 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
-    processor queue cutVar = do
-        logg Debug "starting cut processor"
+    processor queue cutVar = runForever logfun "CutDB" $
         processCuts logfun headerStore payloadStore cutHashesStore queue cutVar
-            `catches`
-                [ Handler $ \(e :: SomeAsyncException) -> throwM e
-                , Handler $ \(e :: SomeException) ->
-                    logg Error $ "CutDB failed: " <> sshow e
-                ]
-        processor queue cutVar
 
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
