@@ -43,4 +43,4 @@ rewardsTest = testCaseSteps "rewards" $ \step -> do
 
     step "block heights exceeding thresholds change"
     ParsedDecimal c <- k 87601
-    assertEqual "max threshold miner reward is 2.297878" 2.297878
+    assertEqual "max threshold miner reward is 2.297878" 2.297878 c
