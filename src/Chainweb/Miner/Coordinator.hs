@@ -162,12 +162,23 @@ chainChoice c choice = case choice of
       new <- randomChainId c
       bool (pure new) (loop cid) $ new == cid
 
+-- | KILLSWITCH: This extra logic involving `txSilenceDates` is to be removed in
+-- a future version of Chainweb. It prevents this Node from generating any new
+-- Cuts after a specified date.
+--
+publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
+publish lf ms cdb bh = do
+    now <- getCurrentTimeIntegral
+    case txSilenceDates $ _chainwebVersion bh of
+        Just end | now > end -> pure ()
+        _ -> publish' lf ms cdb bh
+
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and
 -- publishes the result to the `Cut` network.
 --
-publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
-publish lf (MiningState ms) cdb bh = do
+publish' :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
+publish' lf (MiningState ms) cdb bh = do
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
