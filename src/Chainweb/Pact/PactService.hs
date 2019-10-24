@@ -949,16 +949,17 @@ toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do
-    let !transSeq = _payloadDataTransactions plData
-    let !transList = toList transSeq
-    let !bytes = _transactionBytes <$!> transList
-    let !eithers = toCWTransaction <$!> bytes
-    -- Note: if any transactions fail to convert, the final validation hash
-    -- will fail to match the one computed during newBlock
-    let theRights = rights eithers
-    return $! V.fromList theRights
+    unless (null theLefts) $ do
+        throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
+            <> (T.intercalate ". " $ T.pack <$> theLefts)
+    return $! V.fromList (rights eithers)
   where
     toCWTransaction bs = codecDecode chainwebPayloadCodec bs
+    !transSeq = _payloadDataTransactions plData
+    !transList = toList transSeq
+    !bytes = _transactionBytes <$!> transList
+    !eithers = toCWTransaction <$!> bytes
+    theLefts = lefts eithers
 
 execLookupPactTxs
     :: PayloadCas cas
