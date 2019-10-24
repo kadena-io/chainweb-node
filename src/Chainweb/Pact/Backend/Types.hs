@@ -74,6 +74,7 @@ module Chainweb.Pact.Backend.Types
     , PactServiceEnv(..)
     , PactServiceState(..)
     , PactServiceM
+    , runPactServiceM
 
     , PactServiceException(..)
 
@@ -324,6 +325,14 @@ data PactServiceState = PactServiceState
     }
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
+
+runPactServiceM
+    :: (PayloadCas cas)
+    => PactServiceState
+    -> PactServiceEnv cas
+    -> PactServiceM cas a
+    -> IO (a, PactServiceState)
+runPactServiceM s env action = runStateT (runReaderT action env) s
 
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
