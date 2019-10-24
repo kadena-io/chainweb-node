@@ -11,6 +11,7 @@ import qualified RunNodes
 import qualified SlowTests
 import qualified TXG
 import qualified Standalone
+import qualified TestMiner
 import qualified TxStream
 
 main :: IO ()
@@ -76,6 +77,10 @@ topLevelCommands =
       "tx-list"
       "List all transactions in a chain starting with the most recent block"
       TxStream.main
+  , CommandSpec
+      "test-miner"
+      "Test an external miner"
+      TestMiner.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()

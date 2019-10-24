@@ -1,4 +1,4 @@
-resolver: lts-14.8
+resolver: lts-14.11
 
 ghc-options: {"$locals": -ddump-to-file -ddump-hi -funclutter-valid-hole-fits -fmax-relevant-binds=0}
 
@@ -25,7 +25,6 @@ extra-deps:
   # --- Forced Upgrades --- #
   - generic-lens-1.2.0.0  # For generic newtype unwrapping
   - tls-1.5.2
-  - warp-tls-3.2.8        # To match `tls-1.5`
 
   # --- Custom Pins --- #
   - github: kadena-io/pact

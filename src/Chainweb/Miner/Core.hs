@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -18,16 +19,27 @@ module Chainweb.Miner.Core
   , TargetBytes(..)
   , ChainBytes(..)
   , WorkBytes(..), workBytes, unWorkBytes
+  , MiningResult(..)
   , usePowHash
   , mine
+  , fastCheckTarget
+  , injectNonce
+  , callExternalMiner
   ) where
+
+import qualified Control.Concurrent.Async as Async
+import Control.Monad
+import Control.Monad.Trans
+import Control.Monad.Trans.Except
 
 import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
 import Data.Bifunctor (second)
 import qualified Data.ByteArray as BA
-import qualified Data.ByteString as B
+import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Char8 as B
+import Data.Char (isSpace)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -38,6 +50,11 @@ import Foreign.Ptr (Ptr, castPtr)
 import Foreign.Storable (peekElemOff, poke)
 
 import Servant.API
+
+import System.Exit
+import System.IO (hClose)
+import System.Path
+import qualified System.Process as P
 
 -- internal modules
 
@@ -147,44 +164,112 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
             hashInternalFinalize ctxPtr $ castPtr pow
     {-# INLINE hash #-}
 
-    -- | `injectNonce` makes low-level assumptions about the byte layout of a
-    -- hashed `BlockHeader`. If that layout changes, this functions need to be
-    -- updated. The assumption allows us to iterate on new nonces quickly.
-    --
-    injectNonce :: Nonce -> Ptr Word8 -> IO ()
-    injectNonce (Nonce n) buf = poke (castPtr buf) n
-    {-# INLINE injectNonce #-}
+-- | `injectNonce` makes low-level assumptions about the byte layout of a
+-- hashed `BlockHeader`. If that layout changes, this functions need to be
+-- updated. The assumption allows us to iterate on new nonces quickly.
+--
+injectNonce :: Nonce -> Ptr Word8 -> IO ()
+injectNonce (Nonce n) buf = poke (castPtr buf) n
+{-# INLINE injectNonce #-}
 
-    -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers
-    -- in little endian encoding, hence we compare against the target from the
-    -- end of the bytes first, then move toward the front 8 bytes at a time.
-    --
-    fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
-    fastCheckTarget !trgPtr !powPtr =
-        fastCheckTargetN 3 trgPtr powPtr >>= \case
+
+-- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers in
+-- little endian encoding, hence we compare against the target from the end of
+-- the bytes first, then move toward the front 8 bytes at a time.
+fastCheckTarget :: Ptr Word64 -> Ptr Word64 -> IO Bool
+fastCheckTarget !trgPtr !powPtr =
+    fastCheckTargetN 3 trgPtr powPtr >>= \case
+        LT -> return False
+        GT -> return True
+        EQ -> fastCheckTargetN 2 trgPtr powPtr >>= \case
             LT -> return False
             GT -> return True
-            EQ -> fastCheckTargetN 2 trgPtr powPtr >>= \case
+            EQ -> fastCheckTargetN 1 trgPtr powPtr >>= \case
                 LT -> return False
                 GT -> return True
-                EQ -> fastCheckTargetN 1 trgPtr powPtr >>= \case
+                EQ -> fastCheckTargetN 0 trgPtr powPtr >>= \case
                     LT -> return False
                     GT -> return True
-                    EQ -> fastCheckTargetN 0 trgPtr powPtr >>= \case
-                        LT -> return False
-                        GT -> return True
-                        EQ -> return True
-    {-# INLINE fastCheckTarget #-}
+                    EQ -> return True
+{-# INLINE fastCheckTarget #-}
 
-    -- | Recall that `peekElemOff` acts like `drop` for the size of the type in
-    -- question. Here, this is `Word64`. Since our hash is treated as a
-    -- `Word256`, each @n@ knocks off a `Word64`'s worth of bytes, and there
-    -- would be 4 such sections (64 * 4 = 256).
-    --
-    -- This must never be called for @n >= 4@.
-    --
-    fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
-    fastCheckTargetN n trgPtr powPtr = compare
-        <$> peekElemOff trgPtr n
-        <*> peekElemOff powPtr n
-    {-# INLINE fastCheckTargetN #-}
+-- | Recall that `peekElemOff` acts like `drop` for the size of the type in
+-- question. Here, this is `Word64`. Since our hash is treated as a `Word256`,
+-- each @n@ knocks off a `Word64`'s worth of bytes, and there would be 4 such
+-- sections (64 * 4 = 256).
+--
+-- This must never be called for @n >= 4@.
+fastCheckTargetN :: Int -> Ptr Word64 -> Ptr Word64 -> IO Ordering
+fastCheckTargetN n trgPtr powPtr = compare
+    <$> peekElemOff trgPtr n
+    <*> peekElemOff powPtr n
+{-# INLINE fastCheckTargetN #-}
+
+data MiningResult = MiningResult
+  { _mrNonceBytes :: !B.ByteString
+  , _mrNumNoncesTried :: !Word64
+  , _mrEstimatedHashesPerSec :: !Word64
+  , _mrStderr :: B.ByteString
+  }
+
+callExternalMiner
+    :: Path Absolute            -- ^ miner path
+    -> [String]                 -- ^ miner extra args
+    -> Bool                     -- ^ save stderr?
+    -> B.ByteString             -- ^ target hash
+    -> B.ByteString             -- ^ block bytes
+    -> IO (Either String MiningResult)
+callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
+    minerPath <- toAbsoluteFilePath minerPath0
+    let args = minerArgs ++ [targetHashStr]
+    P.withCreateProcess (createProcess minerPath args) go
+  where
+    createProcess minerPath args =
+        (P.proc minerPath args) {
+            P.std_in = P.CreatePipe,
+            P.std_out = P.CreatePipe,
+            P.std_err = P.CreatePipe
+            }
+    targetHashStr = B.unpack $ B16.encode target
+    go (Just hstdin) (Just hstdout) (Just hstderr) ph = do
+        B.hPut hstdin blockBytes
+        hClose hstdin
+        Async.withAsync (B.hGetContents hstdout) $ \stdoutThread ->
+          Async.withAsync (errThread hstderr) $ \stderrThread ->
+          runExceptT $ do
+            code <- liftIO $ P.waitForProcess ph
+            (outbytes, errbytes) <- liftIO ((,) <$> Async.wait stdoutThread
+                                                <*> Async.wait stderrThread)
+            if (code /= ExitSuccess)
+              then let msg = concat [
+                         "Got error from miner. Stderr was: ",
+                         B.unpack errbytes
+                         ]
+                   in throwE msg
+              else do
+                let parts = B.splitWith isSpace outbytes
+                nonceB16 <- case parts of
+                              [] -> throwE ("expected nonce from miner, got: "
+                                            ++ B.unpack outbytes)
+                              (a:_) -> return a
+                let (numHashes, rate) =
+                      case parts of
+                        (_:a:b:_) -> (read (B.unpack a), read (B.unpack b))
+                        _ -> (0, 0)
+
+                -- reverse -- we want little-endian
+                let nonceBytes = B.reverse $ fst $ B16.decode nonceB16
+                when (B.length nonceBytes /= 8) $ throwE "process returned short nonce"
+                return $ MiningResult nonceBytes numHashes rate errbytes
+    go _ _ _ _ = fail "impossible: process is opened with CreatePipe in/out/err"
+
+    slurp h = act
+      where
+        act = do
+            b <- B.hGet h 4000
+            if B.null b then return "stderr not saved" else act
+
+    errThread = if saveStderr
+                  then B.hGetContents
+                  else slurp
+

@@ -19,7 +19,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 
 import Data.Aeson
-import Data.Text (Text, pack)
+import Data.Text (Text, pack, unpack)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 
@@ -39,16 +39,20 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
+import Chainweb.Utils (encodeToText)
 
 
 data PactException
-  = BlockValidationFailure Text
+  = BlockValidationFailure Value
   | PactInternalError Text
   | NoBlockValidatedYet
   | TransactionValidationException [(PactHash, Text)]
   | PactDuplicateTableError Text
   -- The only argument Text is the duplicate table name.
-  deriving (Eq,Show,Generic)
+  deriving (Eq,Generic)
+
+instance Show PactException where
+    show = unpack . encodeToText
 
 instance ToJSON PactException
 instance FromJSON PactException

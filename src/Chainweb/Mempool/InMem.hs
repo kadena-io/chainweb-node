@@ -65,18 +65,12 @@ import Chainweb.Time
 import Chainweb.Utils
 
 ------------------------------------------------------------------------------
-toPriority :: GasPrice -> GasLimit -> T2 (Down GasPrice) GasLimit
-toPriority r s = T2 (Down r) s
-{-# INLINE toPriority #-}
-
-------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
 compareOnGasPrice txcfg a b = compare aa bb
   where
-    getGL = txGasLimit txcfg
     getGP = txGasPrice txcfg
-    !aa = toPriority (getGP a) (getGL a)
-    !bb = toPriority (getGP b) (getGL b)
+    !aa = Down $ getGP a
+    !bb = Down $ getGP b
 {-# INLINE compareOnGasPrice #-}
 
 ------------------------------------------------------------------------------
