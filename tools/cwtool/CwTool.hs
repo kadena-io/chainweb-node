@@ -84,7 +84,8 @@ topLevelCommands =
       TestMiner.main
   , CommandSpec
       "db-checksum"
-      "Generate a checksum of all the checkpointer database tables in a block (or range of blocks)"
+      "Generate a checksum of all the checkpointer database tables between\
+      \\n an inclusive range of blocks."
       CheckpointerDBChecksum.main
   ]
 
