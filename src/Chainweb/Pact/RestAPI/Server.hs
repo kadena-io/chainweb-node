@@ -172,7 +172,7 @@ data PactCmdLog
   deriving (Show, Generic, ToJSON, NFData)
 
 
--- | KILLSWITCH: The logic here involving `txSilenceDates` is to be removed in a
+-- | KILLSWITCH: The logic here involving `txSilenceEndDate` is to be removed in a
 -- future version of Chainweb. This prevents any "real" Pact transactions from
 -- being submitted to the system.
 --
@@ -185,7 +185,7 @@ sendHandler
     -> Handler RequestKeys
 sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case txSilenceDates v of
+    case txSilenceEndDate v of
         Just _ -> failWith "Transactions are disabled until December 5"
         _ -> case traverse validateCommand cmds of
             Right enriched -> do

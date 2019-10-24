@@ -451,7 +451,7 @@ mainInfo = programInfoValidate
     (defaultChainwebNodeConfiguration Testnet02)
     validateChainwebNodeConfiguration
 
--- | KILLSWITCH: The logic surrounding `txSilenceDates` here is to be removed in
+-- | KILLSWITCH: The logic surrounding `txSilenceEndDate` here is to be removed in
 -- a future version of Chainweb. This prevents the Node from even starting if
 -- past a specified date.
 --
@@ -459,7 +459,7 @@ main :: IO ()
 main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     now <- getCurrentTimeIntegral
-    case txSilenceDates v of
+    case txSilenceEndDate v of
         Just end | now > end -> do
             putStrLn "Transactions are now possible - please update your Chainweb binary."
             exitFailure

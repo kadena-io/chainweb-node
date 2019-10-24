@@ -162,14 +162,14 @@ chainChoice c choice = case choice of
       new <- randomChainId c
       bool (pure new) (loop cid) $ new == cid
 
--- | KILLSWITCH: This extra logic involving `txSilenceDates` is to be removed in
+-- | KILLSWITCH: This extra logic involving `txSilenceEndDate` is to be removed in
 -- a future version of Chainweb. It prevents this Node from generating any new
 -- Cuts after a specified date.
 --
 publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish lf ms cdb bh = do
     now <- getCurrentTimeIntegral
-    case txSilenceDates $ _chainwebVersion bh of
+    case txSilenceEndDate $ _chainwebVersion bh of
         Just end | now > end -> pure ()
         _ -> publish' lf ms cdb bh
 

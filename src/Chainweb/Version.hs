@@ -40,7 +40,7 @@ module Chainweb.Version
 , MinAdjustment(..)
 , minAdjust
 -- ** Date-based Transaction Disabling
-, txSilenceDates
+, txSilenceEndDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -117,7 +117,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
-import Chainweb.Time (Micros, Seconds(..), Time)
+import Chainweb.Time (Micros, Seconds(..), Time(..), TimeSpan(..))
 import Chainweb.Utils
 
 import Data.Singletons
@@ -565,15 +565,16 @@ window Development = Just $ WindowWidth 120
 window Testnet02 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
 
-txSilenceDates :: ChainwebVersion -> Maybe (Time Micros)
-txSilenceDates Test{} = Nothing
-txSilenceDates TimedConsensus{} = Nothing
-txSilenceDates PowConsensus{} = Nothing
-txSilenceDates TimedCPM{} = Nothing
-txSilenceDates FastTimedCPM{} = Nothing
-txSilenceDates Development = Nothing
-txSilenceDates Testnet02 = Nothing
-txSilenceDates Mainnet01 = Nothing -- TODO
+txSilenceEndDate :: ChainwebVersion -> Maybe (Time Micros)
+txSilenceEndDate Test{} = Nothing
+txSilenceEndDate TimedConsensus{} = Nothing
+txSilenceEndDate PowConsensus{} = Nothing
+txSilenceEndDate TimedCPM{} = Nothing
+txSilenceEndDate FastTimedCPM{} = Nothing
+txSilenceEndDate Development = Nothing
+txSilenceEndDate Testnet02 = Nothing
+-- Thursday, 2019 December 12, 12:00 AM
+txSilenceEndDate Mainnet01 = Just . Time $ TimeSpan 1576108800000000
 
 -- | The minimum factor of change that a single application of `adjust` must
 -- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,

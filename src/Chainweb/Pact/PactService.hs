@@ -117,7 +117,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), txSilenceDates)
+import Chainweb.Version (ChainwebVersion(..), txSilenceEndDate)
 import Data.CAS (casLookupM)
 
 
@@ -945,7 +945,7 @@ execValidateBlock currHeader plData = do
     isGenesisBlock = isGenesisBlockHeader currHeader
 
 validateSilenceDates :: MonadThrow m => BlockHeader -> PayloadData -> m ()
-validateSilenceDates bh plData = case txSilenceDates (_blockChainwebVersion bh) of
+validateSilenceDates bh plData = case txSilenceEndDate (_blockChainwebVersion bh) of
     Just end | end > blockTime && not isGenesisBlock && not payloadIsEmpty ->
         throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded bh
     _ -> pure ()

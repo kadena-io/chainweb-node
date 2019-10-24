@@ -63,7 +63,7 @@ import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, txSilenceDates)
+import Chainweb.Version (ChainwebVersion, txSilenceEndDate)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -266,7 +266,7 @@ validateOne cfg v badmap (Time (TimeSpan now)) t h =
     -- prevents any transaction from entering the mempool.
     --
     transactionsEnabled :: Either InsertError ()
-    transactionsEnabled = case txSilenceDates v of
+    transactionsEnabled = case txSilenceEndDate v of
         Just _ -> Left InsertErrorTransactionsDisabled
         _ -> pure ()
 
