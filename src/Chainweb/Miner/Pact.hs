@@ -57,6 +57,7 @@ import Data.String (IsString)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import Data.Vector as V
+import Data.Word
 
 import Options.Applicative
 
@@ -181,7 +182,7 @@ readRewards v =
         let !rs = HM.fromList . V.toList . V.map formatRow $ vs
         in MinerRewards rs (V.fromList . sort $! HM.keys rs)
   where
-    formatRow :: (Integer, Double) -> (BlockHeight, ParsedDecimal)
+    formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
     formatRow (!a,!b) =
       let
         !n = v ^. chainGraph . to (int . order)

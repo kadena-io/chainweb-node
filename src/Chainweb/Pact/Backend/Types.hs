@@ -74,6 +74,7 @@ module Chainweb.Pact.Backend.Types
     , PactServiceEnv(..)
     , PactServiceState(..)
     , PactServiceM
+    , runPactServiceM
 
     , PactServiceException(..)
 
@@ -316,14 +317,22 @@ data PactServiceEnv cas = PactServiceEnv
     , _psPdb :: !(PayloadDb cas)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
-    }
-
-data PactServiceState = PactServiceState
-    { _psStateValidated :: !(Maybe BlockHeader)
     , _psMinerRewards :: !MinerRewards
     }
 
+newtype PactServiceState = PactServiceState
+    { _psStateValidated :: Maybe BlockHeader
+    }
+
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
+
+runPactServiceM
+    :: (PayloadCas cas)
+    => PactServiceState
+    -> PactServiceEnv cas
+    -> PactServiceM cas a
+    -> IO (a, PactServiceState)
+runPactServiceM s env action = runStateT (runReaderT action env) s
 
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess

@@ -192,8 +192,8 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
       let !rs = readRewards ver
           !gasModel = tableGasModelNoSize defaultGasConfig
-      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb bhDb gasModel
-      evalStateT (runReaderT act pse) (PactServiceState Nothing rs)
+      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb bhDb gasModel rs
+      evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
@@ -621,29 +621,16 @@ readAccountGuard pdb account
 -- See: 'rewards/miner_rewards.csv'
 --
 minerReward
-    :: forall cas
-    . BlockHeight -> PactServiceM cas P.ParsedDecimal
-minerReward bh = use psMinerRewards >>= go
+    :: MinerRewards
+    -> BlockHeight
+    -> IO P.ParsedDecimal
+minerReward (MinerRewards rs q) bh =
+    case V.find ((<=) bh) q of
+      Nothing -> err
+      Just h -> case HM.lookup h rs of
+        Nothing -> err
+        Just v -> return v
   where
-    go (MinerRewards rewards q) = do
-      when (V.null q) err
-      let (!h, !t) = (V.unsafeHead q, V.unsafeTail q)
-      if bh <= h
-      then lookup_ h rewards
-      else modifyRewards t rewards
-
-    lookup_ h rs = case HM.lookup h rs of
-      Nothing -> internalError
-        $ "block height outside of admissible range: "
-        <> sshow bh
-      Just r -> return r
-
-    modifyRewards q rs = do
-      when (V.null q) err
-      let !h = V.unsafeHead q
-      psMinerRewards . minerRewardHeights .= q
-      lookup_ h rs
-
     err = internalError "block heights have been exhausted"
 
 
@@ -916,8 +903,9 @@ runCoinbase (Just parentHash) dbEnv miner = do
     let !pd = _psPublicData psEnv
         !logger = _cpeLogger . _psCheckpointEnv $ psEnv
         !bh = BlockHeight $ P._pdBlockHeight pd
+        !rs = _psMinerRewards psEnv
 
-    reward <- minerReward bh
+    reward <- liftIO $ minerReward rs bh
     T2 cr mc <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
     return $! T2 (toHashCommandResult cr) mc
 
