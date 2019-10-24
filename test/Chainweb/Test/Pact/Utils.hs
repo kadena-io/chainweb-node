@@ -60,6 +60,7 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+, WithPactCtxSQLite
 -- * miscellaneous
 , ChainwebNetwork(..)
 ) where
@@ -522,13 +523,15 @@ freeSQLiteResource (del,sqlenv) = do
   void $ close_v2 $ _sConn sqlenv
   del
 
+type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
+
 withPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
   -> Maybe (MVar (CutDb cas))
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)
-  -> ((forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestTree)
+  -> (WithPactCtxSQLite cas -> TestTree)
   -> TestTree
 withPactCtxSQLite v cutDB bhdbIO pdbIO f =
   withResource

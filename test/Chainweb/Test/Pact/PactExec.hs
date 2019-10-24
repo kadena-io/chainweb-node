@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
@@ -20,6 +21,9 @@ module Chainweb.Test.Pact.PactExec
 
 import Data.Aeson
 import Data.CAS.RocksDB (RocksDb)
+import Data.Decimal
+import Data.Default
+import Data.List
 import Data.String.Conv (toS)
 import Data.Text (Text, pack)
 import qualified Data.Vector as V
@@ -44,9 +48,15 @@ import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
-import Pact.Types.Command (CommandResult(..), PactResult(..))
+import Pact.Types.Capability
+import Pact.Types.Command
+import Pact.Types.Exp
+import Pact.Types.Names
+import Pact.Types.PactValue
+import Pact.Types.Pretty
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -62,6 +72,7 @@ tests = ScheduledTest label $
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
+            , execTxsTest ctx "testTfrNoGas" testTfrNoGas
             ]
     , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
@@ -77,8 +88,11 @@ tests = ScheduledTest label $
     killPdb _ = return ()
     cid = someChainId testVersion
 
+
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
+
+type RunTest a = IO (TestResponse a) -> ScheduledTest
 
 -- | A test request is comprised of a list of commands, a textual discription,
 -- and an test runner function, that turns an IO acttion that produces are
@@ -87,17 +101,19 @@ tests = ScheduledTest label $
 data TestRequest = TestRequest
     { _trCmds :: ![TestSource]
     , _trDisplayStr :: !String
-    , _trEval :: !(IO TestResponse -> ScheduledTest)
+    , _trEval :: !(RunTest TestSource)
     }
 
 data TestSource = File FilePath | Code String
   deriving (Show, Generic, ToJSON)
 
-data TestResponse = TestResponse
-    { _trOutputs :: ![(TestSource, HashCommandResult)]
+data TestResponse a = TestResponse
+    { _trOutputs :: ![(a, HashCommandResult)]
     , _trCoinBaseOutput :: !HashCommandResult
     }
     deriving (Generic, ToJSON)
+
+type TxsTest = (IO (V.Vector ChainwebTransaction), TestResponse String -> Assertion)
 
 -- -------------------------------------------------------------------------- --
 -- sample data
@@ -143,11 +159,32 @@ testReq6 = TestRequest
     , _trDisplayStr = "Transfers from one account to another"
     }
 
+
+pString :: Text -> PactValue
+pString = PLiteral . LString
+pDecimal :: Decimal -> PactValue
+pDecimal = PLiteral . LDecimal
+
+testTfrNoGas :: TxsTest
+testTfrNoGas = (txs,test)
+  where
+    txs = ks >>= \ks' ->
+      mkTestExecTransactions "sender00" "0" ks' "testTfrNoGas" 10000 0.01 1000000 0 $
+      V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
+    ks = testKeyPairs sender00KeyPair $ Just
+      [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
+      ]
+    test (TestResponse outs _) = case outs of
+      [(_,cr0)] -> case _crResult cr0 of
+        PactResult (Right pv) -> assertFailure $ "Expected failure but got success: " ++ show pv
+        PactResult (Left e) -> assertSatisfies "Expected missing (GAS) failure" e ((isInfixOf "(GAS)").show)
+      _ -> assertFailure $ "Unexpected result list: " ++ show outs
+
 -- -------------------------------------------------------------------------- --
 -- Utils
 
 execTest
-    :: (forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a)
+    :: WithPactCtxSQLite cas
     -> TestRequest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
@@ -162,6 +199,25 @@ execTest runPact request = _trEval request $ do
   where
     k d c = PactTransaction c d
 
+
+
+execTxsTest
+    :: WithPactCtxSQLite cas
+    -> String
+    -> TxsTest
+    -> ScheduledTest
+execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
+  where
+    go = do
+      trans <- trans'
+      results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
+      let outputs = V.toList $ snd <$> _transactionPairs results
+          tcode = _pNonce . payloadObj . _cmdPayload
+          inputs = map (showPretty . tcode) $ V.toList trans
+      return $ TestResponse
+        (zip inputs outputs)
+        (_transactionCoinbase results)
+
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)
 getPactCode (File filePath) = pack <$> readFile' (testPactFilesDir ++ filePath)
@@ -171,14 +227,15 @@ checkSuccessOnly cr = case _crResult cr of
   PactResult (Right _) -> return ()
   r -> assertFailure $ "Failure status returned: " ++ show r
 
-checkSuccessOnly' :: String -> IO TestResponse -> ScheduledTest
+checkSuccessOnly' :: String -> IO (TestResponse TestSource) -> ScheduledTest
 checkSuccessOnly' msg f = testCaseSch msg $ f >>= \case
     TestResponse res@(_:_) _ -> checkSuccessOnly (snd $ last res)
     TestResponse res _ -> fail (show res) -- TODO
 
+
 -- | A test runner for golden tests.
 --
-fileCompareTxLogs :: String -> IO TestResponse -> ScheduledTest
+fileCompareTxLogs :: String -> IO (TestResponse TestSource) -> ScheduledTest
 fileCompareTxLogs label respIO = goldenSch label $ do
     resp <- respIO
     return $ toS $ Y.encode
