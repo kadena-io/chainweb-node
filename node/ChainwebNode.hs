@@ -460,7 +460,7 @@ main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     now <- getCurrentTimeIntegral
     case txSilenceDates v of
-        Just (_, end) | now > end -> do
+        Just end | now > end -> do
             putStrLn "Transactions are now possible - please update your Chainweb binary."
             exitFailure
         _ -> withNodeLogger (_nodeConfigLog conf) v $ node conf
