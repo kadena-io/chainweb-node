@@ -54,7 +54,7 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
 import Data.Either
-import Data.Foldable (toList)
+import Data.Foldable (foldl', toList)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing)
 import Data.String.Conv (toS)
@@ -246,7 +246,7 @@ initializeCoinContract v cid pwo = do
     genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
     unless genesisExists $ do
         txs <- execValidateBlock genesisHeader inputPayloadData
-        bitraverse_ throwM pure $ validateHashes txs genesisHeader
+        bitraverse_ throwM pure $ validateHashes genesisHeader txs inputPayloadData
   where
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
@@ -285,7 +285,7 @@ serviceRequests memPoolAccess reqQ = do
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne' "execValidateBlock"
                         _valResultVar
-                        (flip validateHashes _valBlockHeader)
+                        (flip (validateHashes _valBlockHeader) _valPayloadData)
                         (execValidateBlock _valBlockHeader _valPayloadData)
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
@@ -385,20 +385,45 @@ toPayloadWithOutputs mi ts =
 
 
 validateHashes
-    :: PayloadWithOutputs
-    -> BlockHeader
+    :: BlockHeader
+    -> PayloadWithOutputs
+    -> PayloadData
     -> Either PactException PayloadWithOutputs
-validateHashes pwo bHeader =
-    let newHash = _payloadWithOutputsPayloadHash pwo
-        prevHash = _blockPayloadHash bHeader
-    in if newHash == prevHash
-        then Right pwo
-        else Left $ BlockValidationFailure $ A.object
-            [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
-            , "actual" A..= newHash
-            , "expected" A..= prevHash
-            , "payloadWithOutputs" A..= pwo
-            ]
+validateHashes bHeader pwo pData =
+    if newHash == prevHash
+    then Right pwo
+    else Left $ BlockValidationFailure $ A.object
+         [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
+         , "actual" A..= newHash
+         , "expected" A..= prevHash
+         , "payloadWithOutputs" A..= pwo
+         , "otherMismatchs" A..= mismatchs
+         ]
+    where
+      newHash = _payloadWithOutputsPayloadHash pwo
+      newTransactions = V.map fst (_payloadWithOutputsTransactions pwo)
+      newMiner = _payloadWithOutputsMiner pwo
+      newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
+      newOutputsHash = _payloadWithOutputsOutputsHash pwo
+
+      prevHash = _blockPayloadHash bHeader
+      prevTransactions = _payloadDataTransactions pData
+      prevMiner = _payloadDataMiner pData
+      prevTransactionsHash = _payloadDataTransactionsHash pData
+      prevOutputsHash = _payloadDataOutputsHash pData
+
+      checkComponents acc (desc,expect,actual) = bool ((errorMsg desc expect actual) : acc) acc (expect == actual)
+      errorMsg desc expect actual = A.object
+        [ "message" A..= ("Mismatched " <> desc :: T.Text)
+        , "actual" A..= actual
+        , "expected" A..= expect
+        ]
+      mismatchs = foldl' checkComponents []
+        [("Transactions", (A.toJSON prevTransactions), (A.toJSON newTransactions))
+        ,("Miner", (A.toJSON prevMiner), (A.toJSON newMiner))
+        ,("TransactionsHash", (A.toJSON prevTransactionsHash), (A.toJSON newTransactionsHash))
+        ,("OutputsHash", (A.toJSON prevOutputsHash), (A.toJSON newOutputsHash))]
+      
 
 -- | Restore the checkpointer and prepare the execution of a block.
 --
