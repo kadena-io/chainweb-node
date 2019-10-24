@@ -36,6 +36,7 @@ module Chainweb.Test.Pact.Utils
 , goldenTestTransactions
 , mkTestExecTransactions
 , mkTestContTransaction
+, mkCoinSig
 , pactTestLogger
 , withMVarResource
 , withTime
@@ -59,6 +60,8 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+-- * miscellaneous
+, ChainwebNetwork(..)
 ) where
 
 import Control.Concurrent.Async
@@ -87,6 +90,8 @@ import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
 
+import Servant.Client
+
 import System.Directory
 import System.IO.Extra
 import System.LogLevel
@@ -98,12 +103,15 @@ import Test.Tasty
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
 import Pact.Parse
+import Pact.Types.Capability
 import Pact.Types.ChainId
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Gas
 import Pact.Types.Logger
+import Pact.Types.Names
+import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime (PactId)
 import Pact.Types.SPV
@@ -158,9 +166,9 @@ instance Exception PactTestFailure
 type ChainwebKeyPair
     = (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 
-testKeyPairs :: ChainwebKeyPair -> IO [SomeKeyPairCaps]
-testKeyPairs (pub, priv, addr, scheme) =
-    mkKeyPairs [ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing]
+testKeyPairs :: ChainwebKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
+testKeyPairs (pub, priv, addr, scheme) clist =
+    mkKeyPairs [ApiKeyPair priv (Just pub) (Just addr) (Just scheme) clist]
 
 testPactFilesDir :: FilePath
 testPactFilesDir = "test/pact/"
@@ -244,7 +252,7 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap _ = id
 
 adminData :: IO (Maybe Value)
-adminData = fmap k $ testKeyPairs sender00KeyPair
+adminData = fmap k $ testKeyPairs sender00KeyPair Nothing
   where
     k ks = Just $ object
         [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
@@ -254,7 +262,7 @@ adminData = fmap k $ testKeyPairs sender00KeyPair
 goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
-    ks <- testKeyPairs sender00KeyPair
+    ks <- testKeyPairs sender00KeyPair Nothing
     mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
@@ -354,6 +362,9 @@ pactTestLogger showAll = initLoggers putStrLn f def
     f _ b "INFO" d | not showAll = doLog (\_ -> return ()) b "INFO" d
     f _ b "DDL" d | not showAll = doLog (\_ -> return ()) b "DDL" d
     f a b c d = doLog a b c d
+
+mkCoinSig :: Text -> [PactValue] -> SigCapability
+mkCoinSig n ps = SigCapability (QualifiedName (ModuleName "coin" Nothing) n def) ps
 
 -- -------------------------------------------------------------------------- --
 -- Test Pact Execution Context
@@ -621,3 +632,5 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
+
+newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
