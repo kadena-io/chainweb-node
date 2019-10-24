@@ -17,8 +17,8 @@ import Configuration.Utils hiding (action, encode, Error, Lens', (<.>))
 import Control.Monad.Reader
 import Control.Exception.Safe (tryAny)
 
+import qualified Data.Binary as Binary
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as B
 import Data.ByteString.Builder
 import qualified Data.HashSet as HashSet
 import Data.Int
@@ -31,10 +31,9 @@ import Data.Text (Text)
 
 import Database.SQLite3.Direct as SQ3
 
-import GHC.Generics
-import GHC.IO.Handle
+import Data.Digest.Pure.SHA
 
-import System.IO
+import GHC.Generics
 
 -- pact imports
 import Pact.Types.SQLite
@@ -51,18 +50,18 @@ main = runWithConfiguration mainInfo $ \args -> do
     (entiredb, tables) <- work args
     case _getAllTables args of
         True -> do
-          builderToFile (_entireDBOutputFile args) entiredb
-          -- run sha1 on file
-          putStrLn "working on this"
+          putStrLn "----------Computing \"entire\" db----------"
+          let !checksum = sha1 $ toLazyByteString entiredb
+          Binary.encodeFile (_entireDBOutputFile args) checksum
         False -> do
+          putStrLn "----------Computing tables----------"
           void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
-          -- run sha1 on file
-          putStrLn "working on this"
-
-    putStrLn "All done"
+    putStrLn "----------All done----------"
   where
     go :: String -> ByteString -> ByteString -> IO ()
-    go dir tablename tablebytes = B.writeFile (dir <> "/" <> toS tablename) tablebytes
+    go dir tablename tablebytes = do
+      let !checksum = sha1 $ toS tablebytes
+      Binary.encodeFile (dir <> "/" <> toS tablename) checksum
 
 
 type TableName = ByteString
@@ -132,14 +131,14 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
     usertablestmt tbl =
       "SELECT * FROM [" <> Utf8 tbl <> "] ORDER BY txid DESC ORDER BY rowkey ASC WHERE txid > ? AND txid <= ?;"
 
-builderToFile :: FilePath -> Builder -> IO ()
-builderToFile fp builder =
-    withFile fp WriteMode $ \handle -> do
-        hSetBinaryMode handle True
-        hSetBuffering handle (BlockBuffering (Just blockSize))
-        hPutBuilder handle builder
-  where
-    blockSize = 80 -- This is a made up number. Change if necessary
+-- builderToFile :: FilePath -> Builder -> IO ()
+-- builderToFile fp builder =
+--     withFile fp WriteMode $ \handle -> do
+--         hSetBinaryMode handle True
+--         hSetBuffering handle (BlockBuffering (Just blockSize))
+--         hPutBuilder handle builder
+--   where
+--     blockSize = 80 -- This is a made up number. Change if necessary
 
 -- this function is not necessary
 {-
