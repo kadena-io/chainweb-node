@@ -88,7 +88,6 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
-import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
@@ -173,6 +172,10 @@ data PactCmdLog
   deriving (Show, Generic, ToJSON, NFData)
 
 
+-- | KILLSWITCH: The logic here involving `txSilenceDates` is to be removed in a
+-- future version of Chainweb. This prevents any "real" Pact transactions from
+-- being submitted to the system.
+--
 sendHandler
     :: Logger logger
     => logger
@@ -182,9 +185,8 @@ sendHandler
     -> Handler RequestKeys
 sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    now <- liftIO getCurrentTimeIntegral
     case txSilenceDates v of
-        Just (start, _) | now > start -> failWith "Transactions are disabled until December 5"
+        Just _ -> failWith "Transactions are disabled until December 5"
         _ -> case traverse validateCommand cmds of
             Right enriched -> do
                 let txs = V.fromList $ NEL.toList enriched

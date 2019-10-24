@@ -170,7 +170,7 @@ publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish lf ms cdb bh = do
     now <- getCurrentTimeIntegral
     case txSilenceDates $ _chainwebVersion bh of
-        Just (_, end) | now > end -> pure ()
+        Just end | now > end -> pure ()
         _ -> publish' lf ms cdb bh
 
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote

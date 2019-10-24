@@ -251,7 +251,7 @@ validateOne
     -> t
     -> TransactionHash
     -> Either InsertError t
-validateOne cfg v badmap nw@(Time (TimeSpan now)) t h =
+validateOne cfg v badmap (Time (TimeSpan now)) t h =
     transactionsEnabled
     >> sizeOK
     >> gasPriceRoundingCheck
@@ -267,7 +267,7 @@ validateOne cfg v badmap nw@(Time (TimeSpan now)) t h =
     --
     transactionsEnabled :: Either InsertError ()
     transactionsEnabled = case txSilenceDates v of
-        Just (start, _) | start < nw -> Left InsertErrorTransactionsDisabled
+        Just _ -> Left InsertErrorTransactionsDisabled
         _ -> pure ()
 
     sizeOK :: Either InsertError ()

@@ -555,7 +555,7 @@ window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet02 = Just $ WindowWidth 120
 
-txSilenceDates :: ChainwebVersion -> Maybe (Time Micros, Time Micros)
+txSilenceDates :: ChainwebVersion -> Maybe (Time Micros)
 txSilenceDates Test{} = Nothing
 txSilenceDates TimedConsensus{} = Nothing
 txSilenceDates PowConsensus{} = Nothing

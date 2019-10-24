@@ -77,7 +77,7 @@ workHandler
 workHandler mr v mcid m = do
     now <- liftIO getCurrentTimeIntegral
     case txSilenceDates v of
-        Just (_, end) | now > end ->
+        Just end | now > end ->
             throwM err400 { errBody = "Node is out of date - please upgrade."}
         _ -> do
             MiningState ms <- liftIO . readTVarIO $ _coordState mr

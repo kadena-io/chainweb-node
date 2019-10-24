@@ -860,7 +860,7 @@ execValidateBlock
 execValidateBlock currHeader plData = do
     let !now = _bct $ _blockCreationTime currHeader
     case txSilenceDates (_blockChainwebVersion currHeader) of
-        Just (_, end) | end > now && not isGenesisBlock && not payloadIsEmpty ->
+        Just end | end > now && not isGenesisBlock && not payloadIsEmpty ->
             throwM $ BlockValidationFailure "Transactions are disabled until December 5."
         _ -> do
             -- TODO: are we actually validating the output hash here?
