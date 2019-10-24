@@ -39,6 +39,8 @@ module Chainweb.Version
 , window
 , MinAdjustment(..)
 , minAdjust
+-- ** Date-based Transaction Disabling
+, txSilenceDates
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -115,7 +117,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
-import Chainweb.Time (Seconds(..))
+import Chainweb.Time (Micros, Seconds(..), Time)
 import Chainweb.Utils
 
 import Data.Singletons
@@ -553,6 +555,15 @@ window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet02 = Just $ WindowWidth 120
 
+txSilenceDates :: ChainwebVersion -> Maybe (Time Micros)
+txSilenceDates Test{} = Nothing
+txSilenceDates TimedConsensus{} = Nothing
+txSilenceDates PowConsensus{} = Nothing
+txSilenceDates TimedCPM{} = Nothing
+txSilenceDates FastTimedCPM{} = Nothing
+txSilenceDates Development = Nothing
+txSilenceDates Testnet02 = Nothing
+
 -- | The minimum factor of change that a single application of `adjust` must
 -- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
 -- this value should be above \(e = 2.71828\cdots\).
@@ -571,4 +582,3 @@ minAdjust FastTimedCPM{} = Nothing
 -- See `adjust` for motivation.
 minAdjust Development = Just $ MinAdjustment 1
 minAdjust Testnet02 = Just $ MinAdjustment 1
-
