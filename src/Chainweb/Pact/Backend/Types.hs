@@ -310,17 +310,17 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 
 data PactServiceEnv cas = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
-    , _psCheckpointEnv :: ! CheckpointEnv
+    , _psCheckpointEnv :: !CheckpointEnv
     , _psSpvSupport :: !SPVSupport
     , _psPublicData :: !PublicData
-    , _psPdb :: PayloadDb cas
-    , _psBlockHeaderDb :: BlockHeaderDb
+    , _psPdb :: !PayloadDb cas
+    , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
     }
 
 data PactServiceState = PactServiceState
-    { _psStateValidated :: Maybe BlockHeader
-    , _psMinerRewards :: MinerRewards
+    { _psStateValidated :: !(Maybe BlockHeader)
+    , _psMinerRewards :: !MinerRewards
     }
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
