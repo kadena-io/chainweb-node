@@ -61,7 +61,7 @@ import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Tuple.Strict (T2(..),T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -117,7 +117,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..), txSilenceDates)
 import Data.CAS (casLookupM)
 
 
@@ -529,7 +529,7 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         psEnv <- ask
         res <- V.fromList . ($ []) . sfst <$> V.foldM (f psEnv dbEnv) (T2 id mempty) txs
         return $! Discard res
-  
+
   where
     f psEnv dbEnv (T2 dl mcache) cmd = do
         T2 mcache' !res <- runBuyGas psEnv dbEnv mcache cmd
@@ -930,8 +930,9 @@ execValidateBlock
     => BlockHeader
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
-execValidateBlock currHeader plData =
+execValidateBlock currHeader plData = do
     -- TODO: are we actually validating the output hash here?
+    validateSilenceDates currHeader plData
     withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
         !result <- playOneBlock currHeader plData pdbenv
         return $! Save currHeader result
@@ -941,6 +942,15 @@ execValidateBlock currHeader plData =
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
 
+validateSilenceDates :: MonadThrow m => BlockHeader -> PayloadData -> m ()
+validateSilenceDates bh plData = case txSilenceDates (_blockChainwebVersion bh) of
+    Just end | end > blockTime && not isGenesisBlock && not payloadIsEmpty ->
+        throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded bh
+    _ -> pure ()
+  where
+    blockTime = _bct $ _blockCreationTime bh
+    payloadIsEmpty = V.null $ _payloadDataTransactions plData
+    isGenesisBlock = isGenesisBlockHeader bh
 
 execTransactions
     :: Maybe BlockHash
