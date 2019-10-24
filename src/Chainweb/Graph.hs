@@ -236,7 +236,7 @@ size = (`div` 2) . G.size . _chainGraphGraph
     -- than @(`div` 2) . G.size@, because the former computes the symmetric
     -- closure of the graph, while the latter assumes symmetry.
 
--- | The 'order' of the graph refers to the number of /verticies/ |V| of a given
+-- | The 'order' of the graph refers to the number of /vertices/ |V| of a given
 -- graph.
 --
 order :: ChainGraph -> Natural
