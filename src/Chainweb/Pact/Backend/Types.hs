@@ -313,7 +313,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psCheckpointEnv :: !CheckpointEnv
     , _psSpvSupport :: !SPVSupport
     , _psPublicData :: !PublicData
-    , _psPdb :: !PayloadDb cas
+    , _psPdb :: !(PayloadDb cas)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
     }
