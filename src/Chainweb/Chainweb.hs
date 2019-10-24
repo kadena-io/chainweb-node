@@ -432,7 +432,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     --
     checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     checkMetadata tx = do
-        let !pay = _payloadObj . P._cmdPayload $ tx
+        let !pay = payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
             sigs = length (P._cmdSigs tx)
             ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
