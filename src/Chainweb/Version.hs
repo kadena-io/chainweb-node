@@ -573,8 +573,8 @@ txSilenceEndDate TimedCPM{} = Nothing
 txSilenceEndDate FastTimedCPM{} = Nothing
 txSilenceEndDate Development = Nothing
 txSilenceEndDate Testnet02 = Nothing
--- Thursday, 2019 December 12, 12:00 AM
-txSilenceEndDate Mainnet01 = Just . Time $ TimeSpan 1576108800000000
+-- Thursday, 2019 December 5, 12:00 AM
+txSilenceEndDate Mainnet01 = Just . Time $ TimeSpan 1575504000000000
 
 -- | The minimum factor of change that a single application of `adjust` must
 -- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
