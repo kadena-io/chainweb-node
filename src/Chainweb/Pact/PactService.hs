@@ -61,7 +61,7 @@ import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Tuple.Strict (T2(..),T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -504,7 +504,7 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         psEnv <- ask
         res <- V.fromList . ($ []) . sfst <$> V.foldM (f psEnv dbEnv) (T2 id mempty) txs
         return $! Discard res
-  
+
   where
     f psEnv dbEnv (T2 dl mcache) cmd = do
         T2 mcache' !res <- runBuyGas psEnv dbEnv mcache cmd
@@ -906,22 +906,26 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
-    let !now = _bct $ _blockCreationTime currHeader
-    case txSilenceDates (_blockChainwebVersion currHeader) of
-        Just end | end > now && not isGenesisBlock && not payloadIsEmpty ->
-            throwM $ BlockValidationFailure "Transactions are disabled until December 5."
-        _ -> do
-            -- TODO: are we actually validating the output hash here?
-            withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
-                !result <- playOneBlock currHeader plData pdbenv
-                return $! Save currHeader result
+    -- TODO: are we actually validating the output hash here?
+    validateSilenceDates currHeader plData
+    withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
+        !result <- playOneBlock currHeader plData pdbenv
+        return $! Save currHeader result
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
-    payloadIsEmpty = V.null $ _payloadDataTransactions plData
 
+validateSilenceDates :: MonadThrow m => BlockHeader -> PayloadData -> m ()
+validateSilenceDates bh plData = case txSilenceDates (_blockChainwebVersion bh) of
+    Just end | end > blockTime && not isGenesisBlock && not payloadIsEmpty ->
+        throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded bh
+    _ -> pure ()
+  where
+    blockTime = _bct $ _blockCreationTime bh
+    payloadIsEmpty = V.null $ _payloadDataTransactions plData
+    isGenesisBlock = isGenesisBlockHeader bh
 
 execTransactions
     :: Maybe BlockHash

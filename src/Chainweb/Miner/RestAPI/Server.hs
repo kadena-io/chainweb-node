@@ -62,7 +62,7 @@ import Data.Singletons
 
 ---
 
--- | KILLSWITCH: The logic here involing `txSilenceDates` is to be removed in a
+-- | KILLSWITCH: The logic here involving `txSilenceDates` is to be removed in a
 -- future version of Chainweb. This logic errors on remote requests for new
 -- mining work, such that this Node can no longer meaningfully participate in
 -- mining.
