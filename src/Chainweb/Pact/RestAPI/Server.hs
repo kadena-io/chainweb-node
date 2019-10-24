@@ -184,7 +184,7 @@ sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     now <- liftIO getCurrentTimeIntegral
     case txSilenceDates v of
-        Just (start, _) | now > start -> failWith "Transactions are disabled."
+        Just (start, _) | now > start -> failWith "Transactions are disabled until December 5"
         _ -> case traverse validateCommand cmds of
             Right enriched -> do
                 let txs = V.fromList $ NEL.toList enriched

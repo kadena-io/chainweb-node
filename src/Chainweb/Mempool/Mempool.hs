@@ -211,7 +211,7 @@ instance Show InsertError
     show InsertErrorMetadataMismatch =
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
-    show InsertErrorTransactionsDisabled = "Transactions are disabled"
+    show InsertErrorTransactionsDisabled = "Transactions are disabled until December 5"
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
 instance Exception InsertError

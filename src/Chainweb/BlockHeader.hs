@@ -282,7 +282,7 @@ instance FromJSON Nonce where
 -- -------------------------------------------------------------------------- --
 -- Block Creation Time
 
-newtype BlockCreationTime = BlockCreationTime (Time Micros)
+newtype BlockCreationTime = BlockCreationTime { _bct :: (Time Micros) }
     deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)

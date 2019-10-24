@@ -858,14 +858,10 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
-    -- KILLSWITCH: The logic here involving `txSilenceDates` is to be removed in
-    -- a future version of Chainweb. This rejects any non-genesis block which is
-    -- found to contain transactions.
-    --
-    now <- liftIO getCurrentTimeIntegral
+    let !now = _bct $ _blockCreationTime currHeader
     case txSilenceDates (_blockChainwebVersion currHeader) of
-        Just (start, _) | now > start && not isGenesisBlock && not payloadIsEmpty ->
-            throwM $ BlockValidationFailure "Transactions are disabled."
+        Just (_, end) | end > now && not isGenesisBlock && not payloadIsEmpty ->
+            throwM $ BlockValidationFailure "Transactions are disabled until December 5."
         _ -> do
             -- TODO: are we actually validating the output hash here?
             withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
