@@ -48,6 +48,7 @@ data PactException
   | NoBlockValidatedYet
   | TransactionValidationException [(PactHash, Text)]
   | PactDuplicateTableError Text
+  | TransactionDecodeFailure Text
   -- The only argument Text is the duplicate table name.
   deriving (Eq,Generic)
 
