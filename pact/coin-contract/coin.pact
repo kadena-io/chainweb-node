@@ -138,6 +138,18 @@
   ; --------------------------------------------------------------------------
   ; Coin Contract
 
+  (defun gas-only ()
+    "Predicate for gas-only user guards."
+    (require-capability (GAS)))
+
+  (defun gas-guard (guard:guard)
+    "Predicate for gas + single key user guards"
+    (enforce-one
+      "Enforce either the presence of a GAS cap or keyset"
+      [ (gas-only)
+        (enforce-guard guard)
+      ]))
+
   (defun buy-gas:string (sender:string total:decimal)
     @doc "This function describes the main 'gas buy' operation. At this point \
     \MINER has been chosen from the pool, and will be validated. The SENDER   \
