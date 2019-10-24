@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 module Chainweb.Test.Pact.RewardsTest
 ( tests
 ) where
@@ -8,19 +9,16 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Control.Lens
+import Control.Monad.Reader
+import Control.Monad.State.Strict
 
-import Data.Foldable
 import qualified Data.Vector as V
-
 import Pact.Parse
 
-import Chainweb.BlockHeader.Genesis
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
-import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
-import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Version
 
@@ -28,24 +26,16 @@ import Chainweb.Version
 v :: ChainwebVersion
 v = FastTimedCPM petersonChainGraph
 
-cid :: ChainId
-cid = head . toList $ chainIds v
-
-
 tests :: ScheduledTest
 tests = ScheduledTest "Chainweb.Test.Pact.RewardsTest" $
     testGroup "Miner Rewards Unit Tests"
       [ rewardsTest
       ]
-    where
-      bhdbIO rocksIO = do
-        rdb <- rocksIO
-        testBlockHeaderDb rdb $ genesisBlockHeader v cid
 
-      killPdb _ = return ()
 
 rewardsTest :: TestTree
 rewardsTest = testCaseSteps "rewards" $ \step -> do
+
     step "block heights below initial threshold"
     ParsedDecimal a <- k $ minerReward 0
     assertEqual "initial miner reward is 2.304523" 2.304523 a
@@ -65,3 +55,10 @@ rewardsTest = testCaseSteps "rewards" $ \step -> do
     assertEqual "block height reaches new threshold, minimum height changes" bh 175200
 
     return ()
+
+  where
+    t = error ""
+    rs = readRewards v
+    pse = PactServiceEnv t t t t t t t
+    pst = PactServiceState Nothing rs
+    k act = evalStateT (runReaderT act pse) pst

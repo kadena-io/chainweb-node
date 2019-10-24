@@ -310,12 +310,12 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 
 data PactServiceEnv cas = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
-    , _psCheckpointEnv :: !CheckpointEnv
+    , _psCheckpointEnv :: ! CheckpointEnv
     , _psSpvSupport :: !SPVSupport
     , _psPublicData :: !PublicData
     , _psPdb :: PayloadDb cas
     , _psBlockHeaderDb :: BlockHeaderDb
-    , _psGasModel :: GasModel
+    , _psGasModel :: !GasModel
     }
 
 data PactServiceState = PactServiceState

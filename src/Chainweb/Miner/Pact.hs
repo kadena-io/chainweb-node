@@ -63,7 +63,7 @@ import Options.Applicative
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeight(..))
-import Chainweb.Graph (HasChainGraph(..), size)
+import Chainweb.Graph (HasChainGraph(..), order)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
@@ -184,7 +184,7 @@ readRewards v =
     formatRow :: (Integer, Double) -> (BlockHeight, ParsedDecimal)
     formatRow (!a,!b) =
       let
-        !n = v ^. chainGraph . to (int . size)
+        !n = v ^. chainGraph . to (int . order)
         !m = fromRational $ toRational b
       in (BlockHeight $ int a, ParsedDecimal $ roundTo 8 (m / n))
 
