@@ -338,8 +338,9 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
         Just t -> return t
 
     idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
-      Left e -> throwError $ err400
-        { errBody = "Internal error: Index lookup for hash failed: " <> sshow e }
+      Left e -> toErr
+        $ "Internal error: Index lookup for hash failed: "
+        <> sshow e
       Right i -> return i
 
     tid <- chainIdFromText ptid

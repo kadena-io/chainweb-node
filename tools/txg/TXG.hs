@@ -69,6 +69,11 @@ import qualified Pact.Types.ChainId as CI
 import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
+import Pact.Types.Capability
+import Pact.Types.Info (mkInfo)
+import Pact.Types.Names
+import Pact.Types.PactValue
+import Pact.Types.Exp (Literal(..))
 
 -- CHAINWEB
 import Chainweb.ChainId
@@ -92,6 +97,8 @@ import qualified Chainweb.Logging.Config as U
 import Utils.Logging
 import qualified Utils.Logging.Config as U
 
+import Chainweb.Mempool.RestAPI
+import Chainweb.Mempool.Mempool
 ---
 
 generateDelay :: MonadIO m => TXG m Int
@@ -193,10 +200,19 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
             case coinContractRequest of
               CoinCreateAccount account (Guard guardd) -> (account, guardd)
               CoinAccountBalance account -> acclookup account
-              CoinTransfer (SenderName sn) _ _ -> acclookup sn
-              CoinTransferAndCreate (SenderName acc) _ (Guard guardd) _ -> (acc, guardd)
+              CoinTransfer (SenderName sn) rcvr amt -> (mkTransferCaps rcvr amt) $ acclookup sn
+              CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> (mkTransferCaps rcvr amt) (acc, guardd)
       meta <- Sim.makeMetaWithSender sender cid
       (msg,) <$> createCoinContractRequest version meta ks coinContractRequest
+
+    mkTransferCaps :: ReceiverName -> Sim.Amount -> (Sim.Account, NonEmpty SomeKeyPairCaps) -> (Sim.Account, NonEmpty SomeKeyPairCaps)
+    mkTransferCaps (ReceiverName (Sim.Account r)) (Sim.Amount m) (s@(Sim.Account ss),ks) = (s, (caps <$) <$> ks)
+      where caps = [gas,tfr]
+            gas = SigCapability (QualifiedName "coin" "GAS" (mkInfo "coin.GAS")) []
+            tfr = SigCapability (QualifiedName "coin" "TRANSFER" (mkInfo "coin.TRANSFER"))
+                  [ PLiteral $ LString $ T.pack ss
+                  , PLiteral $ LString $ T.pack r
+                  , PLiteral $ LDecimal m]
 
     payments :: ChainwebVersion -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPairCaps) -> IO (Command Text)
     payments v cid paymentAccts = do
@@ -432,6 +448,17 @@ singleTransaction args host (SingleTX c cid)
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
 
+
+inMempool :: Args -> HostAddress -> (ChainId, [TransactionHash]) -> IO ()
+inMempool args host (cid, txhashes)
+    | not . HS.member cid . chainIds $ nodeVersion args =
+      putStrLn "Invalid target ChainId" >> exitWith (ExitFailure 1)
+    | otherwise = do
+        (TXGConfig _ _ ce v _ _) <- mkTXGConfig Nothing args host
+        runClientM (isMempoolMember v cid txhashes) ce >>= \case
+          Left e -> print e >> exitWith (ExitFailure 1)
+          Right res -> pPrintNoColor res
+
 -- If we want package information in txg logs the following list should be
 -- populated with the respective information from the PkgInfo module.
 --
@@ -486,6 +513,8 @@ work cfg = do
           $ rk
         SingleTransaction stx -> liftIO $
           singleTransaction cfg host stx
+        MempoolMember req -> liftIO $ inMempool cfg host req
+
 
 main :: IO ()
 main = runWithConfiguration mainInfo $ \config -> do
@@ -559,3 +588,30 @@ listen version chainid = go
 --         SomeChainIdT (_ :: Proxy cid) ->
 --           let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
 --           in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
+
+isMempoolMember :: ChainwebVersion -> ChainId -> [TransactionHash] -> ClientM [Bool]
+isMempoolMember version chainid = go
+  where
+    _ :<|> go :<|> _ :<|> _ = genapiMempool version chainid
+
+
+genapiMempool version chainid =
+  case someChainwebVersionVal version of
+    SomeChainwebVersionT (_ :: Proxy cv) ->
+      case someChainIdVal chainid of
+        SomeChainIdT (_ :: Proxy cid) -> client (Proxy :: Proxy (MempoolApi cv cid))
+
+---------------------------
+-- FOR DEBUGGING IN GHCI --
+---------------------------
+{-
+_genapi3 :: ChainwebVersion -> ChainId -> Text
+_genapi3 version chainid =
+  case someChainwebVersionVal version of
+    SomeChainwebVersionT (_ :: Proxy cv) ->
+      case someChainIdVal chainid of
+        SomeChainIdT (_ :: Proxy cid) ->
+          -- client (Proxy :: Proxy (MempoolApi cv cid))
+          let p = (Proxy :: Proxy (MempoolMemberApi cv cid))
+          in toUrlPiece $ safeLink (Proxy :: (Proxy (MempoolApi cv cid))) p
+-}

@@ -101,13 +101,13 @@ createCoinContractRequest v meta ks request =
         let theData = Null
             theCode =
               printf
-              "(coin.account-balance \"%s\")"
+              "(coin.get-balance \"%s\")"
               account
         mkExec theCode theData meta (NEL.toList ks) (Just $ NetworkId $ toText v) Nothing
       CoinTransferAndCreate (SenderName (Account sn)) (ReceiverName (Account rn)) (Guard guard) (Amount amount) -> do
         let theCode =
               printf
-              "(coin.transfer-and-create \"%s\" \"%s\" (read-keyset \"%s\") %f)"
+              "(coin.transfer-create \"%s\" \"%s\" (read-keyset \"%s\") %f)"
               sn
               rn
               ("receiver-guard" :: String)

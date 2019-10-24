@@ -13,12 +13,6 @@ let # Working on getting this function upstreamed into nixpkgs, but
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
 
-      aeson = callHackageDirect {
-        pkg = "aeson";
-        ver = "1.4.3.0";
-        sha256 = "13lim8vv78m9lhn7qfjswg7ax825gn0v75gcb80hckxawgk8zxc1";
-      };
-
       chainweb = enableCabalFlag (
         justStaticExecutables (enableDWARFDebugging super.chainweb)) "use_systemd";
 
@@ -113,6 +107,12 @@ let # Working on getting this function upstreamed into nixpkgs, but
         pkg = "warp-tls";
         ver = "3.2.8";
         sha256 = "0bf6gnyz9pq57y3hgv1xpfi1cnsda0wrwyd18zmh2220hxmvda71";
+      };
+
+      strict-tuple = callHackageDirect {
+        pkg = "strict-tuple";
+        ver = "0.1.3";
+        sha256 = "1vg0m27phd6yf0pszcy2c2wbqx509fr9gacn34yja521z17cxd8z";
       };
 
     };

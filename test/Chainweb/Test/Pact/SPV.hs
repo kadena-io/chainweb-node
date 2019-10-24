@@ -299,7 +299,7 @@ txGenerator1 time pidv sid tid = do
             readIORef ref1 >>= \case
               True -> return mempty
               False -> do
-                ks <- testKeyPairs sender00KeyPair
+                ks <- testKeyPairs sender00KeyPair Nothing
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
@@ -317,11 +317,11 @@ txGenerator1 time pidv sid tid = do
 
     tx1Code =
       [text|
-        (coin.cross-chain-transfer
+        (coin.transfer-crosschain
           'sender00
-          (read-msg 'target-chain-id)
           'sender01
           (read-keyset 'sender01-keyset)
+          (read-msg 'target-chain-id)
           1.0)
         |]
 
@@ -357,7 +357,7 @@ txGenerator2 time cdbv pidv sid tid bhe = do
                 let pcid = Pact.ChainId (chainIdToText tid)
                     proof = Just . ContProof . B64U.encode . toStrict . Aeson.encode . toJSON $ q
 
-                ks <- testKeyPairs sender00KeyPair
+                ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
@@ -382,7 +382,7 @@ txGenerator3 time cdbv pidv sid tid bhe = do
                 let pcid = Pact.ChainId (chainIdToText sid)
                     proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
-                ks <- testKeyPairs sender00KeyPair
+                ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
@@ -403,7 +403,7 @@ txGenerator4 time _cdbv pidv _ tid _ = do
 
                 let pcid = Pact.ChainId (chainIdToText tid)
 
-                ks <- testKeyPairs sender00KeyPair
+                ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
@@ -430,7 +430,7 @@ txGenerator5 time cdbv pidv sid tid bhe = do
                 let pcid = Pact.ChainId (chainIdToText sid)
                     proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
-                ks <- testKeyPairs sender00KeyPair
+                ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
                 mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null

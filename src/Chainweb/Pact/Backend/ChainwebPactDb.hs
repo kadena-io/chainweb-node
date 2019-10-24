@@ -32,6 +32,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 import Control.Applicative
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch (throwM)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
@@ -47,7 +48,7 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Serialize (encode)
+import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import Data.String.Conv
@@ -76,7 +77,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Service.Types (internalError, PactException(..))
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -409,14 +410,30 @@ modifyPendingData f = do
       Nothing -> bsPendingBlock %= f
 
 doCreateUserTable :: TableName -> ModuleName -> BlockHandler SQLiteEnv ()
-doCreateUserTable tn@(TableName ttxt) mn =
-    modifyPendingData $ \(c, w, l, p) ->
-        let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
-            !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
-            !t = (c', w, l', p)
-        in t
+doCreateUserTable tn@(TableName ttxt) mn = do
+    -- first check if tablename already exists in pending queues
+    m <- runMaybeT $ checkDbTableExists (Utf8 $ T.encodeUtf8 ttxt)
+    case m of
+      Nothing -> throwM $ PactDuplicateTableError ttxt
+      Just () -> do
+          -- then check if it is in the db
+          cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
+          when cond $ throwM $ PactDuplicateTableError ttxt
+          modifyPendingData $ \(c, w, l, p) ->
+              let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
+                  !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
+                  !t = (c', w, l', p)
+              in t
 
   where
+    inDb t =
+      callDb "doCreateUserTable" $ \db -> do
+        r <- qry db tableLookupStmt [SText t] [RText]
+        return $ case r of
+          [[SText rname]] -> rname == t
+          _ -> False
+
+    tableLookupStmt = "SELECT name FROM sqlite_master WHERE type='table' and name=?;"
     txlogKey = "SYS:usertables"
     stn = asString tn
     uti = UserTableInfo mn
