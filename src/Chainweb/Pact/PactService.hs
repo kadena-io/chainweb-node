@@ -243,7 +243,7 @@ initializeCoinContract v cid pwo = do
     genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
     unless genesisExists $ do
         txs <- execValidateBlock genesisHeader inputPayloadData
-        bitraverse_ throwM pure $ validateHashes txs genesisHeader
+        bitraverse_ throwM pure $ validateHashes genesisHeader txs inputPayloadData
   where
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
@@ -282,7 +282,7 @@ serviceRequests memPoolAccess reqQ = do
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 tryOne' "execValidateBlock"
                         _valResultVar
-                        (flip validateHashes _valBlockHeader)
+                        (flip (validateHashes _valBlockHeader) _valPayloadData)
                         (execValidateBlock _valBlockHeader _valPayloadData)
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
@@ -382,18 +382,37 @@ toPayloadWithOutputs mi ts =
 
 
 validateHashes
-    :: PayloadWithOutputs
-    -> BlockHeader
+    :: BlockHeader
+    -> PayloadWithOutputs
+    -> PayloadData
     -> Either PactException PayloadWithOutputs
-validateHashes pwo bHeader =
+validateHashes bHeader pwo pData =
     let newHash = _payloadWithOutputsPayloadHash pwo
+        newTransactions = V.map fst (_payloadWithOutputsTransactions pwo)
+        newMiner = _payloadWithOutputsMiner pwo
+        newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
+        newOutputsHash = _payloadWithOutputsOutputsHash pwo
+
         prevHash = _blockPayloadHash bHeader
+        prevTransactions = _payloadDataTransactions pData
+        prevMiner = _payloadDataMiner pData
+        prevTransactionsHash = _payloadDataTransactionsHash pData
+        prevOutputsHash = _payloadDataOutputsHash pData
+
+        checkComponents desc expect actual = bool (errorMsg desc expect actual) "" (expect == actual)
+        errorMsg desc expect actual = "Expected " <> desc <> " "
+          <> show expect <> ", but received " <> show actual <> ": "
+        mismatchs = (checkComponents "Transactions" prevTransactions newTransactions) <>
+          (checkComponents "Miner" prevMiner newMiner) <>
+          (checkComponents "TransactionsHash" prevTransactionsHash newTransactionsHash) <>
+          (checkComponents "OutputsHash" prevOutputsHash newOutputsHash)
+
     in if newHash == prevHash
         then Right pwo
         else Left $ BlockValidationFailure $ toS $
             "Hash from Pact execution: " ++ show newHash ++
             " does not match the previously stored hash: " ++ show prevHash ++
-            ". Payload with outputs: " ++ show pwo
+            ". Payload with outputs: " ++ show pwo ++ ": " ++ mismatchs
 
 
 -- | Restore the checkpointer and prepare the execution of a block.
