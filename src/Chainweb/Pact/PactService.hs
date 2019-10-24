@@ -530,7 +530,6 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         psEnv <- ask
         res <- V.fromList . ($ []) . sfst <$> V.foldM (f psEnv dbEnv) (T2 id mempty) txs
         return $! Discard res
-
   where
     f psEnv dbEnv (T2 dl mcache) cmd = do
         T2 mcache' !res <- runBuyGas psEnv dbEnv mcache cmd
@@ -683,7 +682,6 @@ readAccountGuard
     -> IO (Maybe (P.Guard (P.Term P.Name)))
 readAccountGuard pdb account
     = fmap ssnd <$> readCoinAccount pdb account
-
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
