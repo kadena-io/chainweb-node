@@ -90,6 +90,8 @@ genesisTime FastTimedCPM{} = BlockCreationTime epoch
 genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
 -- Tuesday, 2019 February 26, 10:55 AM
 genesisTime Testnet02 = BlockCreationTime . Time $ TimeSpan 1563388117613832
+-- TODO
+genesisTime Mainnet01 = BlockCreationTime . Time $ TimeSpan undefined
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -115,6 +117,9 @@ genesisBlockPayload Development cid = case chainIdInt @Int cid of
 
 -- Production Instances
 genesisBlockPayload Testnet02 cid = case chainIdInt @Int cid of
+    0 -> PN0.payloadBlock
+    _ -> PNN.payloadBlock
+genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
     0 -> PN0.payloadBlock
     _ -> PNN.payloadBlock
 

@@ -737,6 +737,7 @@ runChainweb cw = do
             FastTimedCPM{} -> enabled c
             Development -> enabled c
             Testnet02 -> enabled c
+            Mainnet01 -> enabled c
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"

@@ -234,6 +234,8 @@ initialPayloadState v@Development cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
 initialPayloadState v@Testnet02 cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
+initialPayloadState v@Mainnet01 cid =
+    initializeCoinContract v cid $ genesisBlockPayload v cid
 
 initializeCoinContract
     :: forall cas. PayloadCas cas
@@ -423,7 +425,7 @@ validateHashes bHeader pwo pData =
         ,("Miner", (A.toJSON prevMiner), (A.toJSON newMiner))
         ,("TransactionsHash", (A.toJSON prevTransactionsHash), (A.toJSON newTransactionsHash))
         ,("OutputsHash", (A.toJSON prevOutputsHash), (A.toJSON newOutputsHash))]
-      
+
 
 -- | Restore the checkpointer and prepare the execution of a block.
 --
