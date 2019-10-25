@@ -63,8 +63,8 @@ flag ed25519
 flag debug
     description:
         Enable various debugging features
-    default: False
-    manual:True
+    default: True
+    manual: True
 
 common debugging-flags
     if flag(debug)
