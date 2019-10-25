@@ -72,6 +72,7 @@ common debugging-flags
             -g
         cpp-options:
             -DDEBUG_MULTINODE_TEST=1
+            -DDEBUG_PAYLOAD_OUTPUTS
 
 common warning-flags
     ghc-options:
