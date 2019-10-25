@@ -196,6 +196,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorOversized
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
+                 | InsertErrorTransactionsDisabled
                  | InsertErrorOther Text
   deriving (Generic, Eq)
 
@@ -210,6 +211,7 @@ instance Show InsertError
     show InsertErrorMetadataMismatch =
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
+    show InsertErrorTransactionsDisabled = "Transactions are disabled until December 5"
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
 instance Exception InsertError
@@ -307,10 +309,10 @@ chainwebTransactionConfig = TransactionConfig chainwebPayloadCodec
     txmeta
 
   where
-    getGasPrice = gasPriceOf . fmap _payloadObj
-    getGasLimit = gasLimitOf . fmap _payloadObj
-    getTimeToLive = timeToLiveOf . fmap _payloadObj
-    getCreationTime = creationTimeOf . fmap _payloadObj
+    getGasPrice = gasPriceOf . fmap payloadObj
+    getGasLimit = gasLimitOf . fmap payloadObj
+    getTimeToLive = timeToLiveOf . fmap payloadObj
+    getCreationTime = creationTimeOf . fmap payloadObj
     commandHash c = let (H.Hash !h) = H.toUntypedHash $ _cmdHash c
                     in TransactionHash $! SB.toShort $ h
     txmeta t =

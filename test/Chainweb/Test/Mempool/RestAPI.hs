@@ -71,7 +71,7 @@ newTestServer = mask_ $ do
         f xs
 
     server inMemCfg inmemMv envMv restore =
-        InMem.withInMemoryMempool inMemCfg $ \inmem -> do
+        InMem.withInMemoryMempool inMemCfg version $ \inmem -> do
             putMVar inmemMv inmem
             restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
                 putMVar envMv env

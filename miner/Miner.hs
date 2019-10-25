@@ -333,7 +333,7 @@ mining go wb = do
       let !v = version $ envArgs e
           !m = envMgr e
           !u = coordinator $ envArgs e
-          !r = (fromIntegral hashes :: Double) / fromIntegral secs / 1000000
+          !r = (fromIntegral hashes :: Double) / max 1 (fromIntegral secs) / 1000000
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo . display . T.pack $
@@ -374,7 +374,7 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
           throwString err
       Right (MiningResult nonceBytes numNonces hps _) -> do
           let newBytes = nonceBytes <> B.drop 8 blockbytes
-              secs = numNonces `div` hps
+              secs = numNonces `div` max 1 hps
           modifyIORef' (envHashes e) (+ numNonces)
           modifyIORef' (envSecs e) (+ secs)
           return $! HeaderBytes newBytes
