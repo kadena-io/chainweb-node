@@ -62,7 +62,7 @@ main = runWithConfiguration mainInfo $ \args -> do
             putStrLn "----------Computing tables----------"
             let dir = _tablesOutputLocation args
             createDirectoryIfMissing True dir
-            files <- getDirectoryContents dir
+            files <- listDirectory dir
             mapM_ (\file -> removeFile (dir <> "/" <> file)) files
             void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
     putStrLn "----------All done----------"
