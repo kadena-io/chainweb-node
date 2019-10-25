@@ -83,19 +83,21 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
     low = _startBlockHeight args
     high = _endBlockHeight args
     go = do
-        let systemtables = foldr ((.).(:)) id
-              [ "BlockHistory"
-              , "VersionedTableCreation"
-              , "VersionedTableMutation"
-              , "TransactionIndex"
-              , "[SYS:KeySets]"
-              , "[SYS:Modules]"
-              , "[SYS:Namespaces]"
-              , "[SYS:Pacts]"
-              ]
-
-        names <- systemtables <$> getUserTables low high
+        names <- todl systemtables <$> getUserTables low high
         foldM collect (mempty, mempty) names
+
+    todl = foldr ((.).(:)) id
+
+    systemtables =
+      [ "BlockHistory"
+      , "VersionedTableCreation"
+      , "VersionedTableMutation"
+      , "TransactionIndex"
+      , "[SYS:KeySets]"
+      , "[SYS:Modules]"
+      , "[SYS:Namespaces]"
+      , "[SYS:Pacts]"
+      ]
 
     collect (entiredb,  m) name = do
         rows <- getTblContents name
@@ -103,15 +105,27 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
         return (mappend entiredb (byteString bytes), M.insert name bytes m)
 
     getTblContents = \case
-        "TransactionIndex" -> callDb "TransactionIndex" $ \db -> qry db tistmt (SInt . fromIntegral <$> [low, high]) [RBlob, RInt]
-        "BlockHistory" -> callDb "BlockHistory" $ \db -> qry db bhstmt (SInt . fromIntegral <$> [low, high]) [RInt, RBlob, RInt]
-        "VersionedTableCreation" -> callDb "VersionedTableCreation" $ \db -> qry db vtcstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
-        "VersionedTableMutation" -> callDb "VersionedTableMutation" $ \db -> qry db vtmstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
-        t ->do
-            lowtxid <- callDb "starting txid" $ \db -> getActualStartingTxId low db
-            hightxid <- callDb "last txid" $ \db -> getActualEndingTxId high db
+        "TransactionIndex" ->
+          callDb "TransactionIndex" $ \db ->
+            qry db tistmt (SInt . fromIntegral <$> [low, high]) [RBlob, RInt]
+        "BlockHistory" ->
+          callDb "BlockHistory" $ \db ->
+            qry db bhstmt (SInt . fromIntegral <$> [low, high]) [RInt, RBlob, RInt]
+        "VersionedTableCreation" ->
+          callDb "VersionedTableCreation" $ \db ->
+            qry db vtcstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
+        "VersionedTableMutation" ->
+          callDb "VersionedTableMutation" $ \db ->
+            qry db vtmstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
+        t -> do
+            lowtxid <-
+              callDb "starting txid" $ \db ->
+                getActualStartingTxId low db
+            hightxid <-
+              callDb "last txid" $ \db ->
+                getActualEndingTxId high db
             callDb ("on table " <> toS t) $ \db ->
-                qry db (usertablestmt t) (SInt <$> [lowtxid, hightxid]) [RText, RInt, RBlob]
+              qry db (usertablestmt t) (SInt <$> [lowtxid, hightxid]) [RText, RInt, RBlob]
 
     getActualStartingTxId :: BlockHeight -> Database -> IO Int64
     getActualStartingTxId bh db =
@@ -119,7 +133,7 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
             r <- qry db stmt [SInt $ max 0 $ pred $ fromIntegral bh] [RInt]
             case r of
                 [[SInt txid]] -> return $ succ txid
-                _ -> error "Cannot find starting txid."
+                _ -> internalError "Cannot find starting txid."
       where
         stmt = "SELECT endingtxid FROM BlockHistory WHERE blockheight  = ?;"
 
@@ -129,20 +143,40 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
             r <- qry db stmt [SInt $ fromIntegral bh] [RInt]
             case r of
                 [[SInt txid]] -> return txid
-                _ -> error "Cannot find ending txid."
+                _ -> internalError "Cannot find ending txid."
       where
-        stmt = "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
+        stmt = "SELECT endingtxid FROM BlockHistory \
+               \WHERE blockheight = ?;"
 
-    tistmt = "SELECT * FROM TransactionIndex WHERE blockheight >= ? AND blockheight <= ? ORDER BY blockheight,txhash DESC;"
-    bhstmt = "SELECT * FROM BlockHistory WHERE blockheight >= ? AND blockheight <= ? ORDER BY blockheight, endingtxid, hash DESC;"
-    vtcstmt = "SELECT * FROM VersionedTableCreation WHERE createBlockheight >= ? AND createBlockheight <= ? ORDER BY createBlockheight, tablename DESC;"
-    vtmstmt = "SELECT * FROM VersionedTableMutation WHERE blockheight >= ? AND blockheight <= ? ORDER BY blockheight, tablename DESC;"
+    tistmt = "SELECT * FROM TransactionIndex\
+             \ WHERE blockheight >= ? \
+             \AND blockheight <= ? \
+             \ORDER BY blockheight,txhash DESC;"
+    bhstmt = "SELECT * FROM BlockHistory \
+             \WHERE blockheight >= ? AND blockheight <= ? \
+             \ORDER BY blockheight, endingtxid, hash DESC;"
+    vtcstmt = "SELECT * FROM VersionedTableCreation \
+              \WHERE createBlockheight >= ? AND createBlockheight <= ? \
+              \ORDER BY createBlockheight, tablename DESC;"
+    vtmstmt = "SELECT * FROM VersionedTableMutation\
+              \ WHERE blockheight >= ? AND blockheight <= ? \
+              \ORDER BY blockheight, tablename DESC;"
     usertablestmt = \case
-      "[SYS:KeySets]" -> "SELECT * FROM [SYS:KeySets] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
-      "[SYS:Modules]" -> "SELECT * FROM [SYS:Modules] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
-      "[SYS:Namespaces]" -> "SELECT * FROM [SYS:Namespaces] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
-      "[SYS:Pacts]" -> "SELECT * FROM [SYS:Pacts] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
-      tbl -> "SELECT * FROM [" <> Utf8 tbl <> "] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      "[SYS:KeySets]" -> "SELECT * FROM [SYS:KeySets] \
+                         \WHERE txid > ? AND txid <= ? \
+                         \ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      "[SYS:Modules]" -> "SELECT * FROM [SYS:Modules] \
+                         \WHERE txid > ? AND txid <= ? \
+                         \ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      "[SYS:Namespaces]" -> "SELECT * FROM [SYS:Namespaces] \
+                            \WHERE txid > ? AND txid <= ? \
+                            \ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      "[SYS:Pacts]" -> "SELECT * FROM [SYS:Pacts] \
+                       \WHERE txid > ? AND txid <= ? \
+                       \ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
+      tbl -> "SELECT * FROM ["
+        <> Utf8 tbl
+        <> "] WHERE txid > ? AND txid <= ? ORDER BY txid DESC, rowkey ASC, rowdata ASC;"
 
 callDb :: Text -> (Database -> IO a) -> ReaderT SQLiteEnv IO a
 callDb callerName action = do
@@ -153,25 +187,35 @@ callDb callerName action = do
 
 getUserTables :: BlockHeight -> BlockHeight -> ReaderT SQLiteEnv IO [ByteString]
 getUserTables low high = callDb "getUserTables" $ \db -> do
-    usertables <- fmap toByteString . concat <$> qry db stmt (SInt . fromIntegral <$> [low, high]) [RText]
+    usertables <-
+      (traverse toByteString . concat) <$> qry db stmt (SInt . fromIntegral <$> [low, high]) [RText]
+      >>= eInternalError
+
     check db usertables
     return usertables
   where
-    toByteString (SText (Utf8 bytestring)) = bytestring
-    toByteString _ = error "impossible case"
-    stmt = "SELECT DISTINCT tablename FROM VersionedTableCreation WHERE createBlockheight >= ? AND createBlockheight <= ? ORDER BY tablename DESC;"
+    eInternalError = either internalError return
+    toByteString (SText (Utf8 bytestring)) = Right bytestring
+    toByteString _ = Left ("impossible case" :: Text)
+    stmt = "SELECT DISTINCT tablename FROM VersionedTableCreation\
+           \ WHERE createBlockheight >= ? AND createBlockheight <= ? \
+           \ORDER BY tablename DESC;"
+    check :: Database -> [ByteString] -> IO ()
     check db tbls = do
-        r <- HashSet.fromList . fmap toByteString . concat <$> qry_ db alltables [RText]
+        r <-
+          fmap HashSet.fromList . traverse toByteString . concat <$> qry_ db alltables [RText]
+          >>= eInternalError
+
         when (HashSet.null r) $ internalError errMsg
         let res = getFirst $ foldMap (\tbl -> First $ if HashSet.member tbl r then Nothing else Just tbl) tbls
         maybe (return ()) (internalError . tableErrMsg . toS) res
       where
         errMsg = "Somehow there are no tables in this connection. This should be an impossible case."
         alltables = "SELECT name FROM sqlite_master WHERE type='table';"
-        tableErrMsg tbl = "This is table " <> tbl <> " is listed in VersionedTableCreation but is not actually in the database."
+        tableErrMsg tbl = "This table " <> tbl <> " is listed in VersionedTableCreation but is not actually in the database."
 
 data Args = Args
-   {  _sqliteFile   :: FilePath
+   {  _sqliteFile :: FilePath
    , _startBlockHeight :: BlockHeight
    , _endBlockHeight :: BlockHeight
    , _entireDBOutputFile :: FilePath
@@ -199,20 +243,20 @@ getAllTables f s = (\u -> s { _getAllTables = u }) <$> f (_getAllTables s)
 
 instance ToJSON Args where
   toJSON o = object
-      [ "sqliteFile"          .= _sqliteFile o
-      , "startBlockHeight"    .= _startBlockHeight o
-      , "endBlockHeight"      .= _endBlockHeight o
-      , "entireDBOutputFile"  .= _entireDBOutputFile o
+      [ "sqliteFile" .= _sqliteFile o
+      , "startBlockHeight" .= _startBlockHeight o
+      , "endBlockHeight" .= _endBlockHeight o
+      , "entireDBOutputFile" .= _entireDBOutputFile o
       , "tablesOutputLocation" .= _tablesOutputLocation o
       , "getAllTables" .= _getAllTables o
       ]
 
 instance FromJSON (Args -> Args) where
     parseJSON = withObject "Args" $ \o -> id
-      <$< sqliteFile          ..: "sqliteFile"          % o
-      <*< startBlockHeight    ..: "startBlockHeight"    % o
-      <*< endBlockHeight      ..: "endBlockHeight"      % o
-      <*< entireDBOutputFile  ..: "entireDBOutputFile"  % o
+      <$< sqliteFile ..: "sqliteFile" % o
+      <*< startBlockHeight ..: "startBlockHeight" % o
+      <*< endBlockHeight ..: "endBlockHeight" % o
+      <*< entireDBOutputFile ..: "entireDBOutputFile" % o
       <*< tablesOutputLocation ..: "tablesOutputLocation" % o
       <*< getAllTables ..: "getAllTables" % o
 
@@ -246,8 +290,7 @@ argsParser = id
 defaultArgs :: Args
 defaultArgs =
     Args
-        {
-            _sqliteFile = "no-known-file"
+        { _sqliteFile = "no-known-file"
           , _startBlockHeight = 0
           , _endBlockHeight = 5
           , _entireDBOutputFile = "dboutput.hash"
