@@ -36,6 +36,7 @@ someNodeInfoServer v =
 data NodeInfo = NodeInfo
   {
     nodeVersion :: ChainwebVersion
+  , nodeApiVersion :: Text
   , nodeChains :: [Text]
   } deriving (Generic)
 
@@ -46,6 +47,7 @@ nodeInfoHandler :: ChainwebVersion -> Server NodeInfoApi
 nodeInfoHandler v = return
   NodeInfo
   { nodeVersion = v
+  , nodeApiVersion = prettyApiVersion
   , nodeChains = (chainIdToText <$> (toList $ chainIds v))
   }
 
