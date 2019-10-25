@@ -55,6 +55,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (foldl', toList)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing)
 import Data.String.Conv (toS)
@@ -196,7 +197,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
       let !rs = readRewards ver
           gasModel = tableGasModelNoSize defaultGasConfig -- TODO get sizing working
       let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
-                                bhDb rs gasModel
+                                bhDb gasModel rs
       evalStateT (runReaderT act pse) (PactServiceState Nothing)
   where
     loggers = pactLoggers chainwebLogger
@@ -426,7 +427,6 @@ validateHashes bHeader pwo pData =
         ,("TransactionsHash", (A.toJSON prevTransactionsHash), (A.toJSON newTransactionsHash))
         ,("OutputsHash", (A.toJSON prevOutputsHash), (A.toJSON newOutputsHash))]
 
-
 -- | Restore the checkpointer and prepare the execution of a block.
 --
 -- The use of 'withCheckpointer' is safer and should be preferred where possible.
@@ -531,7 +531,6 @@ attemptBuyGas cp miner txs = withDiscardedBatch $ do
         psEnv <- ask
         res <- V.fromList . ($ []) . sfst <$> V.foldM (f psEnv dbEnv) (T2 id mempty) txs
         return $! Discard res
-
   where
     f psEnv dbEnv (T2 dl mcache) cmd = do
         T2 mcache' !res <- runBuyGas psEnv dbEnv mcache cmd
@@ -687,19 +686,23 @@ readAccountGuard pdb account
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
--- in 500k steps
+-- at regular blockheight intervals.
+--
+-- See: 'rewards/miner_rewards.csv'
 --
 minerReward
-    :: forall cas
-    . BlockHeight -> PactServiceM cas P.ParsedDecimal
-minerReward bh = do
-    m <- view $ psMinerRewards . at (roundBy bh 500000)
-    case m of
-      Nothing -> internalError
-          $ "block height outside of admissible range: "
-          <> sshow bh
-      Just r -> return r
-{-# INLINABLE minerReward #-}
+    :: MinerRewards
+    -> BlockHeight
+    -> IO P.ParsedDecimal
+minerReward (MinerRewards rs q) bh =
+    case V.find ((<=) bh) q of
+      Nothing -> err
+      Just h -> case HM.lookup h rs of
+        Nothing -> err
+        Just v -> return v
+  where
+    err = internalError "block heights have been exhausted"
+{-# INLINE minerReward #-}
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -983,8 +986,9 @@ runCoinbase (Just parentHash) dbEnv miner = do
     let !pd = _psPublicData psEnv
         !logger = _cpeLogger . _psCheckpointEnv $ psEnv
         !bh = BlockHeight $ P._pdBlockHeight pd
+        !rs = _psMinerRewards psEnv
 
-    reward <- minerReward bh
+    reward <- liftIO $! minerReward rs bh
     T2 cr mc <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
     return $! T2 (toHashCommandResult cr) mc
 

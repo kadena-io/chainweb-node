@@ -227,12 +227,18 @@ adjsOfVertex g a = HS.map (Adj (_chainId a)) $ adjacentChainIds g a
 -- -------------------------------------------------------------------------- --
 -- Properties
 
+-- | The 'size' of the graph refers to the number of /edges/ |E| of a given
+-- graph.
+--
 size :: ChainGraph -> Natural
 size = (`div` 2) . G.size . _chainGraphGraph
     -- A chaingraph is guaranteed to be symmetric. @G.symSize@ is less efficient
     -- than @(`div` 2) . G.size@, because the former computes the symmetric
     -- closure of the graph, while the latter assumes symmetry.
 
+-- | The 'order' of the graph refers to the number of /vertices/ |V| of a given
+-- graph.
+--
 order :: ChainGraph -> Natural
 order = G.order . _chainGraphGraph
 
