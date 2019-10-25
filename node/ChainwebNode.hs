@@ -68,6 +68,7 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 
 import System.Directory
+import System.Exit (exitFailure)
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -90,6 +91,7 @@ import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Utils.Watchdog (notifyReady, withWatchdog)
@@ -449,7 +451,16 @@ mainInfo = programInfoValidate
     (defaultChainwebNodeConfiguration Testnet02)
     validateChainwebNodeConfiguration
 
+-- | KILLSWITCH: The logic surrounding `txSilenceDates` here is to be removed in
+-- a future version of Chainweb. This prevents the Node from even starting if
+-- past a specified date.
+--
 main :: IO ()
-main = withWatchdog $ runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
+main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
-    withNodeLogger (_nodeConfigLog conf) v $ node conf
+    now <- getCurrentTimeIntegral
+    case txSilenceDates v of
+        Just end | now > end -> do
+            putStrLn "Transactions are now possible - please update your Chainweb binary."
+            exitFailure
+        _ -> withNodeLogger (_nodeConfigLog conf) v $ node conf

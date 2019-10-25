@@ -678,3 +678,46 @@
 (expect
   "brandon has 10 coins released to his account in coin contract"
   10.0 (get-balance 'brandon))
+
+(commit-tx)
+
+(begin-tx)
+
+(use coin)
+
+(expect-failure
+  "gas-only fails without the presence of GAS"
+  "not granted: (coin.GAS)"
+  (gas-only))
+
+(expect-failure
+  "gas-guard fails when GAS is not present"
+  "Failure: Tx Failed: Enforce either the presence of a GAS cap or keyset"
+  (gas-guard (keyset-ref-guard "emily")))
+
+(test-capability (GAS))
+
+(expect
+  "gas-only succeeds with the presence of GAS"
+  true
+  (gas-only))
+
+(expect
+  "gas-guard succeeds when one of Gas or keyset are present"
+  true
+  (gas-guard (keyset-ref-guard "emily")))
+
+(commit-tx)
+
+(begin-tx)
+
+(use coin)
+
+(env-data { "bez" : ["bez"] })
+(env-keys ["bez"])
+(define-keyset "bez" (read-keyset "bez"))
+
+(expect
+  "gas-guard succeeds when GAS not present, but keyset is"
+  true
+  (gas-guard (keyset-ref-guard "bez")))
