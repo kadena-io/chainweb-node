@@ -79,9 +79,11 @@ tests = ScheduledTest label $
             ]
     , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
-      -- next one is by itself because it fails and therefore messes up cp state
+      -- failures mess up cp state so run alone
     , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
-      \ctx -> _schTest $ execTxsTest ctx "testTfrNoGas" testTfrNoGas
+      \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
+    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+      \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
 
     ]
   where
@@ -172,8 +174,12 @@ pString = PLiteral . LString
 pDecimal :: Decimal -> PactValue
 pDecimal = PLiteral . LDecimal
 
-testTfrNoGas :: TxsTest
-testTfrNoGas = (txs,test)
+assertResultFail :: HasCallStack => String -> String -> Either String (TestResponse String) -> Assertion
+assertResultFail msg expectErr (Left e) = assertSatisfies msg e ((isInfixOf expectErr).show)
+assertResultFail msg _ (Right _) = assertFailure $ msg
+
+testTfrNoGasFails :: TxsTest
+testTfrNoGasFails = (txs,assertResultFail "Expected missing (GAS) failure" "Keyset failure")
   where
     txs = ks >>= \ks' ->
       mkTestExecTransactions "sender00" "0" ks' "testTfrNoGas" 10000 0.01 1000000 0 $
@@ -181,14 +187,12 @@ testTfrNoGas = (txs,test)
     ks = testKeyPairs sender00KeyPair $ Just
       [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
       ]
-    test (Left e) = assertSatisfies "Expected missing (GAS) failure" e ((isInfixOf "Keyset failure").show)
-    test (Right _) = assertFailure $ "Expected failure but got success"
 
 testTfrGas :: TxsTest
 testTfrGas = (txs,test)
   where
     txs = ks >>= \ks' ->
-      mkTestExecTransactions "sender00" "0" ks' "testTfrNoGas" 10000 0.01 1000000 0 $
+      mkTestExecTransactions "sender00" "0" ks' "testTfrGas" 10000 0.01 1000000 0 $
       V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
     ks = testKeyPairs sender00KeyPair $ Just
       [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
@@ -198,6 +202,15 @@ testTfrGas = (txs,test)
     test (Right (TestResponse outs _)) = case map (_crResult . snd) outs of
       [PactResult (Right pv)] -> assertEqual "transfer succeeds" (pString "Write succeeded") pv
       r -> assertFailure $ "Expected single result, got: " ++ show r
+
+testBadSenderFails :: TxsTest
+testBadSenderFails = (txs,assertResultFail "Expected failure on bad sender"
+                             "row not found: some-unknown-sender")
+  where
+    txs = ks >>= \ks' ->
+      mkTestExecTransactions "some-unknown-sender" "0" ks' "testBadSenderFails" 10000 0.01 1000000 0 $
+      V.fromList [PactTransaction "(+ 1 2)" Nothing]
+    ks = testKeyPairs sender00KeyPair Nothing
 
 
 -- -------------------------------------------------------------------------- --
