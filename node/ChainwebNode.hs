@@ -345,8 +345,7 @@ withNodeLogger
 withNodeLogger logConfig v f = runManaged $ do
 
     -- This manager is used only for logging backends
-    mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
-    mgrHttps <- liftIO $ HTTPS.newTlsManager
+    mgr <- liftIO HTTPS.newTlsManager
 
     -- Base Backend
     baseBackend <- managed
@@ -362,7 +361,7 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
+    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr amberdataConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
