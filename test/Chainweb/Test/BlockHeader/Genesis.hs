@@ -37,6 +37,7 @@ tests :: TestTree
 tests = testGroup "Chainweb.Test.BlockHeader.Genesis" $ map blockHash
     [ Development
     , Testnet02
+    , Mainnet01
     ]
 
 blockHashes :: HM.HashMap ChainId BlockHeader -> BL.ByteString
