@@ -14,6 +14,7 @@ module Chainweb.RestAPI.NodeInfo where
 
 import Data.Aeson
 import Data.Foldable
+import qualified Data.HashSet as HashSet
 import Data.Text (Text)
 import Data.Swagger.Schema
 
@@ -38,6 +39,7 @@ data NodeInfo = NodeInfo
     nodeVersion :: ChainwebVersion
   , nodeApiVersion :: Text
   , nodeChains :: [Text]
+  , nodeNumberOfChains :: !Int
   } deriving (Generic)
 
 instance ToJSON NodeInfo
@@ -49,6 +51,7 @@ nodeInfoHandler v = return
   { nodeVersion = v
   , nodeApiVersion = prettyApiVersion
   , nodeChains = (chainIdToText <$> (toList $ chainIds v))
+  , nodeNumberOfChains = HashSet.size $ chainIds v
   }
 
 deriving instance ToSchema NodeInfo
