@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -73,6 +74,7 @@ module Chainweb.Pact.Backend.Types
       -- * pact service monad + types
     , PactServiceEnv(..)
     , PactServiceState(..)
+    , newPactServiceState
     , PactServiceM
     , runPactServiceM
 
@@ -84,6 +86,9 @@ module Chainweb.Pact.Backend.Types
     , psSpvSupport
     , psPublicData
     , psStateValidated
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+    , psStateResultCache
+#endif
     , psPdb
     , psBlockHeaderDb
     , psMinerRewards
@@ -104,7 +109,7 @@ import Data.DList (DList)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
-import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 
@@ -133,6 +138,9 @@ import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Miner.Pact (MinerRewards(..))
 import Chainweb.Payload.PayloadStore.Types
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+import Chainweb.Payload
+#endif
 import Chainweb.Transaction
 
 
@@ -193,7 +201,7 @@ data SQLiteDeltaKey = SQLiteDeltaKey
 
 -- | A map from table name to a list of 'TxLog' entries. This is maintained in
 -- 'BlockState' and is cleared upon pact transaction commit.
-type TxLogMap = Map TableName (DList (TxLog Value))
+type TxLogMap = Map.Map TableName (DList (TxLog Value))
 
 -- | Between a @restore..save@ bracket, we also need to record which tables
 -- were created during this block (so the necessary @CREATE TABLE@ statements
@@ -320,9 +328,24 @@ data PactServiceEnv cas = PactServiceEnv
     , _psMinerRewards :: !MinerRewards
     }
 
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+data PactServiceState = PactServiceState
+    { _psStateValidated :: Maybe BlockHeader
+    , _psStateResultCache :: !(Map.Map (BlockHeight, BlockHash) PayloadWithOutputs)
+    }
+#else
 newtype PactServiceState = PactServiceState
     { _psStateValidated :: Maybe BlockHeader
     }
+#endif
+
+
+newPactServiceState :: PactServiceState
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+newPactServiceState = PactServiceState Nothing mempty
+#else
+newPactServiceState = PactServiceState Nothing
+#endif
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
 

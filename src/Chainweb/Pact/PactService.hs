@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -36,6 +37,7 @@ module Chainweb.Pact.PactService
     , initPactService'
     , minerReward
     ) where
+
 ------------------------------------------------------------------------------
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -56,7 +58,7 @@ import Data.Default (def)
 import Data.Either
 import Data.Foldable (foldl', toList)
 import qualified Data.HashMap.Strict as HM
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
@@ -120,7 +122,6 @@ import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), txSilenceEndDate)
 import Data.CAS (casLookupM)
-
 
 
 pactLogLevel :: String -> LogLevel
@@ -198,7 +199,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
           gasModel = tableGasModelNoSize defaultGasConfig -- TODO get sizing working
       let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
                                 bhDb gasModel rs
-      evalStateT (runReaderT act pse) (PactServiceState Nothing)
+      evalStateT (runReaderT act pse) newPactServiceState
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
@@ -249,7 +250,7 @@ initializeCoinContract v cid pwo = do
     genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
     unless genesisExists $ do
         txs <- execValidateBlock genesisHeader inputPayloadData
-        bitraverse_ throwM pure $ validateHashes genesisHeader txs inputPayloadData
+        bitraverse_ throwM pure $ validateHashes genesisHeader txs Nothing inputPayloadData
   where
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
@@ -259,6 +260,13 @@ initializeCoinContract v cid pwo = do
 
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
+
+lookupExpectedOutputs :: BlockHeight -> BlockHash -> PactServiceM m (Maybe PayloadWithOutputs)
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+lookupExpectedOutputs h p = preuse $ psStateResultCache . ix (h, p)
+#else
+lookupExpectedOutputs _ _ = return Nothing
+#endif
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
@@ -286,9 +294,10 @@ serviceRequests memPoolAccess reqQ = do
                         _newCreationTime
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
+                eo <- lookupExpectedOutputs (_blockHeight _valBlockHeader) (_blockParent _valBlockHeader)
                 tryOne' "execValidateBlock"
                         _valResultVar
-                        (flip (validateHashes _valBlockHeader) _valPayloadData)
+                        (\o -> validateHashes _valBlockHeader o eo _valPayloadData)
                         (execValidateBlock _valBlockHeader _valPayloadData)
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
@@ -360,6 +369,15 @@ serviceRequests memPoolAccess reqQ = do
             put $! s'
             return $! r
 
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+cacheResult
+    :: (BlockHeight, BlockHash)
+    -> PayloadWithOutputs
+    -> PactServiceM m ()
+cacheResult idx@(curHeight, _) r = psStateResultCache
+    %= Map.dropWhileAntitone ((<= curHeight - 10) . fst) . Map.insert idx r
+#endif
+
 toTransactionBytes :: P.Command Text -> Transaction
 toTransactionBytes cwTrans =
     let plBytes = encodeToByteString cwTrans
@@ -390,9 +408,10 @@ toPayloadWithOutputs mi ts =
 validateHashes
     :: BlockHeader
     -> PayloadWithOutputs
+    -> (Maybe PayloadWithOutputs)
     -> PayloadData
     -> Either PactException PayloadWithOutputs
-validateHashes bHeader pwo pData =
+validateHashes bHeader pwo expectedOutputs pData =
     if newHash == prevHash
     then Right pwo
     else Left $ BlockValidationFailure $ A.object
@@ -401,6 +420,7 @@ validateHashes bHeader pwo pData =
          , "expected" A..= prevHash
          , "payloadWithOutputs" A..= pwo
          , "otherMismatchs" A..= mismatchs
+         , "expectedOutputs" A..= maybe A.Null A.toJSON expectedOutputs
          ]
     where
       newHash = _payloadWithOutputsPayloadHash pwo
@@ -733,6 +753,9 @@ execNewBlock mpAccess parentHeader miner creationTime = withDiscardedBatch $ do
         results <- withBlockData parentHeader $
             execTransactions (Just pHash) miner newTrans pdbenv
 
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+        cacheResult (bHeight, pHash) (toPayloadWithOutputs miner results)
+#endif
         return $! Discard (toPayloadWithOutputs miner results)
   where
     pHeight = _blockHeight parentHeader
@@ -940,6 +963,9 @@ execValidateBlock currHeader plData = do
     validateSilenceDates currHeader plData
     withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
         !result <- playOneBlock currHeader plData pdbenv
+#ifdef DEBUG_PAYLOAD_OUTPUTS
+        cacheResult (bHeight, bParent) result
+#endif
         return $! Save currHeader result
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
