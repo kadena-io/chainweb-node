@@ -13,18 +13,6 @@
     balance:decimal
     guard:guard)
 
-   (defschema transfer-schema
-    @doc "Schema for TRANSFER-mgr. Future pact will allow schema inferrence."
-    @model
-      [ (invariant (!= "" sender))
-        (invariant (!= "" receiver))
-        (invariant (!= sender receiver))
-        (invariant (> amount 0.0))
-      ]
-
-    sender:string
-    receiver:string
-    amount:decimal)
 
    ; ----------------------------------------------------------------------
    ; Caps
@@ -36,17 +24,16 @@
      )
      @doc " Managed capability sealing AMOUNT for transfer from SENDER to \
           \ RECEIVER. Permits any number of transfers up to AMOUNT."
-     @managed TRANSFER-mgr
+     @managed amount TRANSFER-mgr
      )
 
-   (defun TRANSFER-mgr:object{transfer-schema}
-     ( managed:object{transfer-schema}
-       requested:object{transfer-schema}
+   (defun TRANSFER-mgr:decimal
+     ( managed:decimal
+       requested:decimal
      )
-     @doc " Manages TRANSFER capability. REQUESTED should match MANAGED on \
-          \ sender and receiver. AMOUNT should be validated against managed, \
-          \ and linearly managed such that a request for 1.0 amount on a 3.0 \
-          \ managed quantity emits MANAGED with updated amount 2.0."
+     @doc " Manages TRANSFER AMOUNT linearly, \
+          \ such that a request for 1.0 amount on a 3.0 \
+          \ managed quantity emits updated amount 2.0."
      )
 
    ; ----------------------------------------------------------------------

@@ -432,7 +432,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     --
     checkMetadata :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     checkMetadata tx = do
-        let !pay = _payloadObj . P._cmdPayload $ tx
+        let !pay = payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
             sigs = length (P._cmdSigs tx)
             ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
@@ -648,8 +648,16 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
-    mempoolsToServe = proj _chainResMempool
+    -- | KILLSWITCH: The logic here involving `txSilenceDates` here is to be
+    -- removed in a future version of Chain. This disables the Mempool API
+    -- entirely during the TX blackout period.
+    --
+    mempoolsToServe
+        :: ChainwebVersion
+        -> [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe v = case txSilenceDates v of
+        Just _ -> []
+        _ -> proj _chainResMempool
 
     chainP2pToServe :: [(NetworkId, PeerDb)]
     chainP2pToServe =
@@ -680,7 +688,7 @@ runChainweb cw = do
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe
+            , _chainwebServerMempools = mempoolsToServe (_chainwebVersion cw)
             , _chainwebServerPayloadDbs = payloadDbsToServe
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe

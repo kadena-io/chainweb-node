@@ -60,6 +60,8 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+-- * miscellaneous
+, ChainwebNetwork(..)
 ) where
 
 import Control.Concurrent.Async
@@ -87,6 +89,8 @@ import Data.Text.Encoding
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
+
+import Servant.Client
 
 import System.Directory
 import System.IO.Extra
@@ -396,7 +400,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -419,7 +423,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -548,7 +552,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
@@ -628,3 +632,5 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
+
+newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
