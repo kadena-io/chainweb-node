@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 -- |
@@ -13,7 +14,11 @@
 -- Generate allocations payloads
 --
 module Allocations
-( AllocationEntry(..)
+( -- * Allocation generation
+  generateAllocations
+
+  -- * Allocation data
+, AllocationEntry(..)
 , AllocationTx(..)
 , mkAllocationTx
 
@@ -25,7 +30,7 @@ module Allocations
 
 , readAllocations
 , readAllocationKeys
---, readCoinbases
+, readCoinbases
 
 , rawAllocations
 , rawAllocationKeys
@@ -35,22 +40,63 @@ module Allocations
 
 import GHC.Generics
 
-import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
-import Data.Default
 import Data.FileEmbed (embedFile)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
+import qualified Data.Text.IO as T
 import Data.Vector (Vector)
+import qualified Data.Vector as V
 
-import Pact.Types.Names
-import Pact.Types.Term (KeySet(..), PublicKey(..))
+-- import NeatInterpolation
+
+-- import System.Directory
 
 import Chainweb.Utils
 
+
+-- -------------------------------------------------------------------- --
+-- Tx gen
+
+generateAllocations :: IO ()
+generateAllocations = T.writeFile (prefix "coinbase") coinbases
+    >> T.writeFile (prefix "keys") keys
+    >> T.writeFile (prefix "allocations") allocations
+  where
+    allocations = toYaml "mainnet-allocations" readAllocations
+    keys = toYaml "mainnet-keys" readAllocationKeys
+    coinbases = toYaml "mainnet-coinbase" readCoinbases
+
+    prefix t = "pact/genesis/mainnet/mainnet_" <> t <> ".yaml"
+
+genTxs
+    :: forall a b
+    . CSV.FromRecord a
+    => (a -> b)
+    -> ByteString
+    -> Vector b
+genTxs f bs = case CSV.decode CSV.HasHeader (toS bs) of
+    Left e -> error
+      $ "cannot construct genesis allocations: "
+      <> sshow e
+    Right as -> fmap f as
+
+readAllocations :: Vector AllocationTx
+readAllocations = genTxs mkAllocationTx rawAllocations
+
+readAllocationKeys :: Vector AllocationKeyTx
+readAllocationKeys = genTxs mkAllocationKeyTx rawAllocationKeys
+
+readCoinbases :: Vector CoinbaseTx
+readCoinbases = genTxs mkCoinbaseTx rawCoinbases
+
+-- -------------------------------------------------------------------- --
+-- Allocation/Key/Coinbase data
+
+class Show a => YamlFormat a where
+  toYaml :: Text -> Vector a -> Text
 
 data AllocationKeys = AllocationKeys
     { _allocKeysName :: Text
@@ -62,13 +108,25 @@ instance CSV.FromRecord AllocationKeys
 
 data AllocationKeyTx = AllocationKeyTx
     { _allocationKeyTx :: Text
-    , _allocationKeyData :: Value
+    , _allocationKeyData :: Text
     } deriving (Eq, Show)
+
+instance YamlFormat AllocationKeyTx where
+    toYaml nonce vs = T.concat
+      [ "code: |-\n"
+      , V.foldl1' (<>) (fmap f vs)
+      , "\ndata:\n"
+      , V.foldl1' (<>) (fmap g vs)
+      , "nonce: " <> nonce
+      , "keyPairs: []"
+      ]
+      where
+        f tx = "  " <> _allocationKeyTx tx <> "\n"
+        g tx = "  " <> _allocationKeyData tx <> "\n"
 
 mkAllocationKeyTx :: AllocationKeys -> AllocationKeyTx
 mkAllocationKeyTx (AllocationKeys n p ks) = AllocationKeyTx tx d
   where
-    ks' = fmap (PublicKey . T.encodeUtf8) . read @([Text]) $ show ks
     tx = T.concat
       [ "(define-keyset "
       , "\"" <> n <> "\" "
@@ -77,8 +135,11 @@ mkAllocationKeyTx (AllocationKeys n p ks) = AllocationKeyTx tx d
       , ")"
       ]
 
-    d = object
-      [ n .= (KeySet ks' (Name $ BareName p def))
+    d = T.concat
+      [ "\"" <> n <> "\": { "
+      , "keys: " <> "[" <> ks <> "], "
+      , "pred: \"" <> p <> "\""
+      , " }"
       ]
 
 data AllocationEntry = AllocationEntry
@@ -96,6 +157,16 @@ data AllocationTx = AllocationTx
     , _allocationTxChain :: Text
     } deriving (Eq, Show)
 
+instance YamlFormat AllocationTx where
+    toYaml nonce vs = T.concat
+      [ "code: |-\n"
+      , V.foldl1' (<>) (fmap f vs)
+      , "nonce: " <> nonce
+      , "keyPairs: []"
+      ]
+      where
+        f tx = "  " <> _allocationTx tx <> "\n"
+
 mkAllocationTx :: AllocationEntry -> AllocationTx
 mkAllocationTx (AllocationEntry n t ksn a c) = AllocationTx tx c
   where
@@ -110,32 +181,54 @@ mkAllocationTx (AllocationEntry n t ksn a c) = AllocationTx tx c
 
 data CoinbaseEntry = CoinbaseEntry
     { _coinbaseAccount :: Text
+    , _coinbaseRefname :: Text
     , _coinbaseAmount :: Double
-    , _coinbaseChain :: Text
     } deriving (Eq, Ord, Show, Generic)
 
 instance CSV.FromRecord CoinbaseEntry
 
-readAllocations :: Vector AllocationTx
-readAllocations = case CSV.decode CSV.NoHeader (toS rawAllocations) of
-    Left e -> error $ "cannot construct allocations list" <> sshow e
-    Right as -> fmap mkAllocationTx as
+newtype CoinbaseTx = CoinbaseTx
+    { _coinbaseTx :: Text
+    } deriving (Eq, Show)
 
-readAllocationKeys :: Vector AllocationKeyTx
-readAllocationKeys = case CSV.decode CSV.NoHeader (toS rawAllocationKeys) of
-    Left e -> error $ "cannot construct allocation key list" <> sshow e
-    Right as -> fmap mkAllocationKeyTx as
+instance YamlFormat CoinbaseTx where
+    toYaml nonce vs = T.concat
+      [ "code: |-\n"
+      , V.foldl1' (<>) (fmap f vs)
+      , "nonce: " <> nonce <> "\n"
+      , "keyPairs: []"
+      ]
+      where
+        f tx = "  " <> _coinbaseTx tx <> "\n"
 
--- readCoinbases :: Vector CoinbaseEntry
--- readCoinbases = case CSV.decode CSV.NoHeader (toS rawCoinbases) of
---     Left e -> error $ "cannot construct mainnet coinbase list" <> sshow e
---     Right as -> undefined --fmap mkCoinbaseTx as
+mkCoinbaseTx :: CoinbaseEntry -> CoinbaseTx
+mkCoinbaseTx (CoinbaseEntry n a k) = CoinbaseTx tx
+    where
+      tx = T.concat
+        [ "(coin.coinbase "
+        , "\"" <> n <>"\" "
+        , "(keyset-ref-guard \"" <> a <> "\") "
+        , sshow k
+        , ")"
+        ]
+
+-- -------------------------------------------------------------------- --
+-- Raw file bytes
+
+_mainnet_allocations :: FilePath
+_mainnet_allocations = "rewards/mainnet_allocations.csv"
+
+_mainnet_keys :: FilePath
+_mainnet_keys = "rewards/mainnet_keys.csv"
+
+_mainnet_coinbase :: FilePath
+_mainnet_coinbase = "rewards/mainnet_coinbase.csv"
 
 rawAllocations :: ByteString
-rawAllocations = $(embedFile "rewards/allocations.csv")
+rawAllocations = $(embedFile "rewards/mainnet_allocations.csv")
 
 rawAllocationKeys :: ByteString
-rawAllocationKeys = $(embedFile "rewards/allocation_keys.csv")
+rawAllocationKeys = $(embedFile "rewards/mainnet_keys.csv")
 
 rawCoinbases :: ByteString
 rawCoinbases = $(embedFile "rewards/mainnet_coinbase.csv")
