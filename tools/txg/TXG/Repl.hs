@@ -51,6 +51,7 @@ import Control.Lens hiding ((.=), from, to)
 
 import Data.Aeson
 import Data.ByteString (ByteString)
+import Data.ByteString.Random
 import Data.Decimal
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
@@ -61,7 +62,9 @@ import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Time.Clock.POSIX
 
+import Test.RandomStrings
 import Text.Printf
+
 import Pact.ApiReq
 import Pact.Parse
 import Pact.Types.API
@@ -185,3 +188,16 @@ verToChainId ver = foldr const err $ chainIds ver
 verToPactNetId :: ChainwebVersion -> P.NetworkId
 verToPactNetId cvw =
   P.NetworkId $ T.pack $ show cvw
+
+{-
+randomCmds ::
+
+randomStringsLen
+:: (Int -> IO String) -- random string generator, eg. randomString randomAlpha
+-> (Int, Int) --  range for string length
+-> Int -- list length
+-> IO [String]
+
+randomStringsLen (randomString' randomASCII (3%4) (1%8)) (10,30) 100
+Returns a list of 100 strings that are between 10 and 30 characters, with 34 of them being alphabetical and 18 of those being upper-case.
+-}
