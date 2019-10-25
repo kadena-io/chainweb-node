@@ -6,6 +6,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- |
 -- Module: Chainweb.Test.Pact
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -19,6 +21,7 @@ module Chainweb.Test.Pact.PactExec
 ( tests
 ) where
 
+import Control.Monad.Catch
 import Data.Aeson
 import Data.CAS.RocksDB (RocksDb)
 import Data.Decimal
@@ -72,10 +75,14 @@ tests = ScheduledTest label $
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
-            , execTxsTest ctx "testTfrNoGas" testTfrNoGas
+            , execTxsTest ctx "testTfrGas" testTfrGas
             ]
     , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
+      -- next one is by itself because it fails and therefore messes up cp state
+    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+      \ctx -> _schTest $ execTxsTest ctx "testTfrNoGas" testTfrNoGas
+
     ]
   where
     bhdbIO :: IO RocksDb -> IO BlockHeaderDb
@@ -113,7 +120,7 @@ data TestResponse a = TestResponse
     }
     deriving (Generic, ToJSON)
 
-type TxsTest = (IO (V.Vector ChainwebTransaction), TestResponse String -> Assertion)
+type TxsTest = (IO (V.Vector ChainwebTransaction), Either String (TestResponse String) -> Assertion)
 
 -- -------------------------------------------------------------------------- --
 -- sample data
@@ -174,11 +181,24 @@ testTfrNoGas = (txs,test)
     ks = testKeyPairs sender00KeyPair $ Just
       [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
       ]
-    test (TestResponse outs _) = case outs of
-      [(_,cr0)] -> case _crResult cr0 of
-        PactResult (Right pv) -> assertFailure $ "Expected failure but got success: " ++ show pv
-        PactResult (Left e) -> assertSatisfies "Expected missing (GAS) failure" e ((isInfixOf "(GAS)").show)
-      _ -> assertFailure $ "Unexpected result list: " ++ show outs
+    test (Left e) = assertSatisfies "Expected missing (GAS) failure" e ((isInfixOf "Keyset failure").show)
+    test (Right _) = assertFailure $ "Expected failure but got success"
+
+testTfrGas :: TxsTest
+testTfrGas = (txs,test)
+  where
+    txs = ks >>= \ks' ->
+      mkTestExecTransactions "sender00" "0" ks' "testTfrNoGas" 10000 0.01 1000000 0 $
+      V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
+    ks = testKeyPairs sender00KeyPair $ Just
+      [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
+      , SigCapability (QualifiedName "coin" "GAS" def) []
+      ]
+    test (Left e) = assertFailure $ "Expected success, got: " ++ show e
+    test (Right (TestResponse outs _)) = case map (_crResult . snd) outs of
+      [PactResult (Right pv)] -> assertEqual "transfer succeeds" (pString "Write succeeded") pv
+      r -> assertFailure $ "Expected single result, got: " ++ show r
+
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -210,13 +230,16 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
-      let outputs = V.toList $ snd <$> _transactionPairs results
-          tcode = _pNonce . payloadObj . _cmdPayload
-          inputs = map (showPretty . tcode) $ V.toList trans
-      return $ TestResponse
-        (zip inputs outputs)
-        (_transactionCoinbase results)
+      results' <- try $ runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
+      case results' of
+        Right results -> Right <$> do
+          let outputs = V.toList $ snd <$> _transactionPairs results
+              tcode = _pNonce . payloadObj . _cmdPayload
+              inputs = map (showPretty . tcode) $ V.toList trans
+          return $ TestResponse
+            (zip inputs outputs)
+            (_transactionCoinbase results)
+        Left (e :: SomeException) -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)

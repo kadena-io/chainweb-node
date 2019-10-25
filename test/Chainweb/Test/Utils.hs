@@ -728,10 +728,10 @@ assertSatisfies
   -> a
   -> (a -> Bool)
   -> Assertion
-assertSatisfies msg value pred
+assertSatisfies msg value predf
   | result = assertEqual msg True result
-  | otherwise = assertFailure $ msg ++ show value
-  where result = pred value
+  | otherwise = assertFailure $ msg ++ ": " ++ show value
+  where result = predf value
 
 -- -------------------------------------------------------------------------- --
 -- Golden Testing
