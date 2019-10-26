@@ -1,0 +1,3 @@
+code: |-
+  (coin.create-allocation-account "PS_C8_1417" (time "2025-10-01T00:00:00Z") "PS_C8" 666666.67)
+nonce: mainnet-allocations-8keyPairs: []

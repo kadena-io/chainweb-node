@@ -63,14 +63,20 @@ import Chainweb.Utils
 -- Tx gen
 
 generateAllocations :: IO ()
-generateAllocations = T.writeFile (prefix "coinbase") coinbases
-    >> T.writeFile (prefix "keys") keys
-    >> traverse_ (T.writeFile (prefix "allocations")) allocations
+generateAllocations = allocations
+    >> keys
+    >> coinbases
   where
-    allocations = flip fmap readAllocations $ \as ->
-      toYaml ("mainnet-allocations-" <> _allocationTxChain (V.head as)) as
-    keys = toYaml "mainnet-keysets" readAllocationKeys
-    coinbases = toYaml "mainnet-coinbase" readCoinbases
+    allocations = for_ readAllocations $ \as -> do
+      let cid = _allocationTxChain $ V.head as
+      let ys = toYaml ("mainnet-allocations-" <> cid) as
+      T.writeFile (prefix $ "keysets" <> T.unpack cid) ys
+
+    keys = T.writeFile (prefix "keys") $
+      toYaml "mainnet-keysets" readAllocationKeys
+
+    coinbases = T.writeFile (prefix "allocations") $
+      toYaml "mainnet-coinbase" readCoinbases
 
     prefix t = "pact/genesis/mainnet/mainnet_" <> t <> ".yaml"
 

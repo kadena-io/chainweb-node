@@ -1,4 +1,4 @@
-﻿Keyset Name,"Predicate Function (keys-1, keys-2, keys-all)",Public Keys (as a Haskell List)
+Keyset Name,"Predicate Function (keys-1, keys-2, keys-all)",Public Keys (as a Haskell List)
 Emily,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 SA <1>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 SA <2>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
@@ -14,7 +14,7 @@ SA <11>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14
 SA <12>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 SA <13>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 SA <14>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
-SA <15>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
+SA <15> ,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 SA <16>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 SA <17>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 SA <18>,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
@@ -81,4 +81,4 @@ Coinlist Global Accredited,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046
 FTS_C1,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 CS_C2,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
 MM_C0,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]
-ST_C1,,
+ST_C1,keys-all,[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]

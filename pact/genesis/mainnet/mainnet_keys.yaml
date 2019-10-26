@@ -166,5 +166,5 @@ data:
   "FTS_C1": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
   "CS_C2": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
   "MM_C0": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
-  "ST_C1": { keys: [], pred: "" }
+  "ST_C1": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
 nonce: mainnet-keysetskeyPairs: []
