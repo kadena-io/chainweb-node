@@ -43,6 +43,8 @@ import GHC.Generics
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
 import Data.FileEmbed (embedFile)
+import Data.Foldable
+import Data.List (groupBy)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -63,10 +65,11 @@ import Chainweb.Utils
 generateAllocations :: IO ()
 generateAllocations = T.writeFile (prefix "coinbase") coinbases
     >> T.writeFile (prefix "keys") keys
-    >> T.writeFile (prefix "allocations") allocations
+    >> traverse_ (T.writeFile (prefix "allocations")) allocations
   where
-    allocations = toYaml "mainnet-allocations" readAllocations
-    keys = toYaml "mainnet-keys" readAllocationKeys
+    allocations = flip fmap readAllocations $ \as ->
+      toYaml ("mainnet-allocations-" <> _allocationTxChain (V.head as)) as
+    keys = toYaml "mainnet-keysets" readAllocationKeys
     coinbases = toYaml "mainnet-coinbase" readCoinbases
 
     prefix t = "pact/genesis/mainnet/mainnet_" <> t <> ".yaml"
@@ -83,8 +86,12 @@ genTxs f bs = case CSV.decode CSV.HasHeader (toS bs) of
       <> sshow e
     Right as -> fmap f as
 
-readAllocations :: Vector AllocationTx
-readAllocations = genTxs mkAllocationTx rawAllocations
+readAllocations :: Vector (Vector AllocationTx)
+readAllocations = V.fromList txs
+  where
+    as = toList $ genTxs mkAllocationTx rawAllocations
+    txs = fmap V.fromList $ groupBy go as
+    go a b = _allocationTxChain a == _allocationTxChain b
 
 readAllocationKeys :: Vector AllocationKeyTx
 readAllocationKeys = genTxs mkAllocationKeyTx rawAllocationKeys
@@ -96,7 +103,7 @@ readCoinbases = genTxs mkCoinbaseTx rawCoinbases
 -- Allocation/Key/Coinbase data
 
 class Show a => YamlFormat a where
-  toYaml :: Text -> Vector a -> Text
+    toYaml :: Text -> Vector a -> Text
 
 data AllocationKeys = AllocationKeys
     { _allocKeysName :: Text
@@ -215,20 +222,11 @@ mkCoinbaseTx (CoinbaseEntry n a k) = CoinbaseTx tx
 -- -------------------------------------------------------------------- --
 -- Raw file bytes
 
-_mainnet_allocations :: FilePath
-_mainnet_allocations = "rewards/mainnet_allocations.csv"
-
-_mainnet_keys :: FilePath
-_mainnet_keys = "rewards/mainnet_keys.csv"
-
-_mainnet_coinbase :: FilePath
-_mainnet_coinbase = "rewards/mainnet_coinbase.csv"
-
 rawAllocations :: ByteString
 rawAllocations = $(embedFile "rewards/mainnet_allocations.csv")
 
 rawAllocationKeys :: ByteString
-rawAllocationKeys = $(embedFile "rewards/mainnet_keys.csv")
+rawAllocationKeys = $(embedFile "rewards/mainnet_keysets.csv")
 
 rawCoinbases :: ByteString
 rawCoinbases = $(embedFile "rewards/mainnet_coinbase.csv")
