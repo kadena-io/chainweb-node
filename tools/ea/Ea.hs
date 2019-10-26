@@ -71,27 +71,45 @@ import Pact.Types.SPV (noSPVSupport)
 
 main :: IO ()
 main = do
-    for_ chain0 $ \(v, tag, txs) -> do
-        printf "Generating special Genesis Payload for %s on Chain 0...\n" $ show v
-        genPayloadModule v (tag <> "0") txs
-    for_ otherChains $ \(v, tag, txs) -> do
-        printf "Generating Genesis Payload for %s on all other Chains...\n" $ show v
-        genPayloadModule v (tag <> "N") txs
+    generateAllocations
+
+    go "0" chain0
+    go "1" $ chainN mainAllocations1
+    go "2" $ chainN mainAllocations2
+    go "3" $ chainN mainAllocations3
+    go "4" $ chainN mainAllocations4
+    go "5" $ chainN mainAllocations5
+    go "6" $ chainN mainAllocations6
+    go "7" $ chainN mainAllocations7
+    go "8" $ chainN mainAllocations8
+    go "9" $ chainN mainAllocations9
+
     putStrLn "Done."
   where
-    otherChains =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (Testnet02, "Testnet", [ fungibleAsset, coinContract, prodNGrants, prodNs ])
-      , (Mainnet01, "Mainnet", [ fungibleAsset, coinContract, prodNs, mainKeysets, mainCoinbases ])
-      ]
+    cc = [fungibleAsset, coinContract]
+    devDefaults = cc <> [devNs]
+    prodDefaults = cc <> [prodNs]
+    mainnetDefaults = cc <> [prodNs, mainKeysets, mainCoinbases]
 
     chain0 =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (Testnet02, "Testnet", [fungibleAsset, coinContract, prodNs, prodAllocations, prod0Grants])
-      , (Mainnet01, "Mainnet"
+      [ (Development, "Development", devDefaults <> [dev0Grants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [dev0Grants])
+      , (Testnet02, "Testnet", prodDefaults <> [prodAllocations, prod0Grants])
+      , (Mainnet01, "Mainnet", mainnetDefaults <> [mainAllocations0])
       ]
+
+    chainN a =
+      [ (Development, "Development",  devDefaults <> [devNGrants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [devNGrants])
+      , (Testnet02, "Testnet", prodDefaults <> [prodNGrants])
+      , (Mainnet01, "Mainnet", mainnetDefaults <> [a])
+      ]
+
+    go cid cs = for_ cs $ \(v, tag, txs) -> do
+        printf ("Generating Genesis Payload for %s on Chain " <> cid <> "0...\n") $ show v
+        genPayloadModule v (tag <> cid) txs
+
+
 
 coinContract :: FilePath
 coinContract = "pact/coin-contract/load-coin-contract.yaml"

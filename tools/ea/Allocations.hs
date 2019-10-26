@@ -51,12 +51,7 @@ import qualified Data.Text.IO as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
--- import NeatInterpolation
-
--- import System.Directory
-
 import Chainweb.Utils
-
 
 -- -------------------------------------------------------------------- --
 -- Tx gen
