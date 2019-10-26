@@ -1,3 +1,0 @@
-code: |-
-  (coin.create-allocation-account "PS_C3_1412" (time "2025-10-01T00:00:00Z") "PS_C3" 666666.67)
-nonce: mainnet-allocations-3keyPairs: []

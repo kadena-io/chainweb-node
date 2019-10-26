@@ -1,3 +1,0 @@
-code: |-
-  (coin.create-allocation-account "PS_C7_1416" (time "2025-10-01T00:00:00Z") "PS_C7" 666666.67)
-nonce: mainnet-allocations-7keyPairs: []
