@@ -92,8 +92,8 @@ main = do
     mainnetDefaults = cc <> [prodNs, mainKeysets, mainCoinbases]
 
     chain0 =
-      [ (Development, "Development", devDefaults <> [dev0Grants])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [dev0Grants])
+      [ (Development, "Development", devDefaults <> [devAllocations, dev0Grants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [devAllocations, dev0Grants])
       , (Testnet02, "Testnet", prodDefaults <> [prodAllocations, prod0Grants])
       , (Mainnet01, "Mainnet", mainnetDefaults <> [mainAllocations0])
       ]
