@@ -140,7 +140,6 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.HostAddress
 import Chainweb.Utils hiding (check)
 
 import Data.LogMessage
@@ -586,18 +585,21 @@ elasticSearchBatchDelayMs = 1000
 withElasticsearchBackend
     :: ToJSON a
     => HTTP.Manager
-    -> HostAddress
     -> T.Text
+        -- ^ Server URL
+    -> T.Text
+        -- ^ Index Name
     -> [(T.Text, T.Text)]
-        -- Scope that are included only with remote backends. In chainweb-node
+        -- ^ Scope that are included only with remote backends. In chainweb-node
         -- this is used for package info data.
     -> (Backend a -> IO b)
     -> IO b
 withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
+    req <- HTTP.parseUrlThrow (T.unpack esServer)
     i <- curIxName
-    createIndex i
+    createIndex req i
     queue <- newTBQueueIO 2000
-    withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor queue)) $ \_ -> do
+    withAsync (runForever errorLogFun "Utils.Logging.withElasticsearchBackend" (processor req queue)) $ \_ -> do
         inner $ \a -> atomically (writeTBQueue queue a)
 
   where
@@ -612,7 +614,7 @@ withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
     -- `_bulk` request every second or when the batch size is 1000 messages,
     -- whatever happens first.
     --
-    processor queue = do
+    processor req queue = do
         i <- curIxName
 
         -- ensure that there is at least one transaction in every batch
@@ -624,9 +626,9 @@ withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
         -- Fill the batch
         (remaining, batch) <- go i elasticSearchBatchSize (indexAction i h) timer
 
-        createIndex i
+        createIndex req i
         errorLogFun Info $ "send " <> sshow (elasticSearchBatchSize - remaining) <> " messages"
-        void $ HTTP.httpLbs (putBulgLog batch) mgr
+        void $ HTTP.httpLbs (putBulgLog req batch) mgr
       where
         getNextAction timer = atomically $ isTimeout `orElse` fill
           where
@@ -638,37 +640,32 @@ withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
             Nothing -> return (remaining, batch)
             Just x -> go i (remaining - 1) (batch <> indexAction i x) timer
 
-    createIndex i =
-        void $ HTTP.httpLbs (putIndex i) { HTTP.method = "HEAD"} mgr
+    createIndex req i =
+        void $ HTTP.httpLbs (putIndex req i) { HTTP.method = "HEAD"} mgr
             `catch` \case
-                (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) ->
-                    HTTP.httpLbs (putIndex i) mgr
+                (HTTP.HttpExceptionRequest _ (HTTP.StatusCodeException _ _)) -> do
+                    errorLogFun Error $ "Index creation failed for index " <> i <> ". Retrying ..."
+                    HTTP.httpLbs (putIndex req i) mgr
                 ex -> throwM ex
 
-    putIndex i = HTTP.defaultRequest
+    putIndex req i = req
         { HTTP.method = "PUT"
-        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
-        , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 i
+        , HTTP.path = HTTP.path req <> T.encodeUtf8 i
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         }
 
-    _putLog i a = HTTP.defaultRequest
+    _putLog req i a = req
         { HTTP.method = "POST"
-        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
-        , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = T.encodeUtf8 i <> "/_doc"
+        , HTTP.path = HTTP.path req <> T.encodeUtf8 i <> "/_doc"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 3000000
         , HTTP.requestHeaders = [("content-type", "application/json")]
         , HTTP.requestBody = HTTP.RequestBodyLBS $ encode $ JsonLogMessage a
         }
 
-    putBulgLog a = HTTP.defaultRequest
+    putBulgLog req a = req
         { HTTP.method = "POST"
-        , HTTP.host = hostnameBytes (_hostAddressHost esServer)
-        , HTTP.port = int (_hostAddressPort esServer)
-        , HTTP.path = "/_bulk"
+        , HTTP.path = HTTP.path req <> "/_bulk"
         , HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
         , HTTP.requestHeaders = [("content-type", "application/x-ndjson")]
         , HTTP.requestBody = HTTP.RequestBodyLBS $ BB.toLazyByteString a

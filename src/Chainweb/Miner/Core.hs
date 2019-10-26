@@ -110,6 +110,7 @@ usePowHash TimedCPM{} f = f $ Proxy @Blake2s_256
 usePowHash FastTimedCPM{} f = f $ Proxy @Blake2s_256
 usePowHash Development f = f $ Proxy @Blake2s_256
 usePowHash Testnet02 f = f $ Proxy @Blake2s_256
+usePowHash Mainnet01 f = f $ Proxy @Blake2s_256
 
 -- | This Miner makes low-level assumptions about the chainweb protocol. It may
 -- break if the protocol changes.
@@ -272,4 +273,3 @@ callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
     errThread = if saveStderr
                   then B.hGetContents
                   else slurp
-

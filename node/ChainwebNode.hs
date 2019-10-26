@@ -345,8 +345,7 @@ withNodeLogger
 withNodeLogger logConfig v f = runManaged $ do
 
     -- This manager is used only for logging backends
-    mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
-    mgrHttps <- liftIO $ HTTPS.newTlsManager
+    mgr <- liftIO HTTPS.newTlsManager
 
     -- Base Backend
     baseBackend <- managed
@@ -362,7 +361,7 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
+    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr amberdataConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
@@ -451,7 +450,7 @@ mainInfo = programInfoValidate
     (defaultChainwebNodeConfiguration Testnet02)
     validateChainwebNodeConfiguration
 
--- | KILLSWITCH: The logic surrounding `txSilenceDates` here is to be removed in
+-- | KILLSWITCH: The logic surrounding `txSilenceEndDate` here is to be removed in
 -- a future version of Chainweb. This prevents the Node from even starting if
 -- past a specified date.
 --
@@ -459,7 +458,7 @@ main :: IO ()
 main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     now <- getCurrentTimeIntegral
-    case txSilenceDates v of
+    case txSilenceEndDate v of
         Just end | now > end -> do
             putStrLn "Transactions are now possible - please update your Chainweb binary."
             exitFailure
