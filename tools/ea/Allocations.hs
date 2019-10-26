@@ -127,7 +127,7 @@ instance YamlFormat AllocationKeyTx where
       , V.foldl1' (<>) (fmap f vs)
       , "\ndata:\n"
       , V.foldl1' (<>) (fmap g vs)
-      , "nonce: " <> nonce
+      , "nonce: " <> nonce <> "\n"
       , "keyPairs: []"
       ]
       where
