@@ -10,6 +10,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -115,7 +116,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
-import Chainweb.Time (Micros, Seconds(..), Time(..), TimeSpan(..))
+import Chainweb.Time
 import Chainweb.Utils
 
 import Data.Singletons
@@ -571,5 +572,4 @@ txSilenceEndDate TimedCPM{} = Nothing
 txSilenceEndDate FastTimedCPM{} = Nothing
 txSilenceEndDate Development = Nothing
 txSilenceEndDate Testnet02 = Nothing
--- Thursday, 2019 December 5, 12:00 AM
-txSilenceEndDate Mainnet01 = Just . Time $ TimeSpan 1575504000000000
+txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]

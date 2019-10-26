@@ -49,7 +49,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
-import Chainweb.Time (Time(..), TimeSpan(..), epoch)
+import Chainweb.Time
 import Chainweb.Version
 
 ---
@@ -86,12 +86,9 @@ genesisTime TimedConsensus{} = BlockCreationTime epoch
 genesisTime PowConsensus{} = BlockCreationTime epoch
 genesisTime TimedCPM{} = BlockCreationTime epoch
 genesisTime FastTimedCPM{} = BlockCreationTime epoch
--- Thursday, 2019 July 17, 11:28 AM
-genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
--- Tuesday, 2019 February 26, 10:55 AM
-genesisTime Testnet02 = BlockCreationTime . Time $ TimeSpan 1563388117613832
--- Thursday, 2019 October 24, 2:51 PM
-genesisTime Mainnet01 = BlockCreationTime . Time $ TimeSpan 1571953886444848
+genesisTime Development = BlockCreationTime [timeMicrosQQ| 2019-07-17T11:28:00.0 |]
+genesisTime Testnet02 = BlockCreationTime [timeMicrosQQ| 2019-02-26T10:55:00.0 |]
+genesisTime Mainnet01 = BlockCreationTime [timeMicrosQQ| 2019-10-24T14:51:00.0 |]
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
