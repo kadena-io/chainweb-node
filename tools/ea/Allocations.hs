@@ -43,8 +43,7 @@ import GHC.Generics
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
 import Data.FileEmbed (embedFile)
-import Data.Foldable
-import Data.List (groupBy)
+import qualified Data.Map.Strict as M
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -67,9 +66,8 @@ generateAllocations = allocations
     >> keys
     >> coinbases
   where
-    allocations = for_ readAllocations $ \as -> do
-      let cid = _allocationTxChain $ V.head as
-      let ys = toYaml ("mainnet-allocations-" <> cid) as
+    allocations = flip M.traverseWithKey readAllocations $ \cid txs -> do
+      let ys = toYaml ("mainnet-allocations-" <> cid) txs
       T.writeFile (prefix $ "allocations" <> T.unpack cid) ys
 
     keys = T.writeFile (prefix "keysets") $
@@ -92,12 +90,16 @@ genTxs f bs = case CSV.decode CSV.HasHeader (toS bs) of
       <> sshow e
     Right as -> fmap f as
 
-readAllocations :: Vector (Vector AllocationTx)
-readAllocations = V.fromList txs
+readAllocations :: M.Map Text (Vector AllocationTx)
+readAllocations = txMap
   where
-    as = toList $ genTxs mkAllocationTx rawAllocations
-    txs = fmap V.fromList $ groupBy go as
-    go a b = _allocationTxChain a == _allocationTxChain b
+    txMap = V.foldl' go mempty $ genTxs mkAllocationTx rawAllocations
+    go m a =
+      let
+        cid = _allocationTxChain a
+      in case M.lookup cid m of
+        Just v -> M.insert cid (V.cons a v) m
+        Nothing -> M.insert cid (V.singleton a) m
 
 readAllocationKeys :: Vector AllocationKeyTx
 readAllocationKeys = genTxs mkAllocationKeyTx rawAllocationKeys
@@ -174,7 +176,7 @@ instance YamlFormat AllocationTx where
     toYaml nonce vs = T.concat
       [ "code: |-\n"
       , V.foldl1' (<>) (fmap f vs)
-      , "nonce: " <> nonce
+      , "nonce: " <> nonce <> "\n"
       , "keyPairs: []"
       ]
       where

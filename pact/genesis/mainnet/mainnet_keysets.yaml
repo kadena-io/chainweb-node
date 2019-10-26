@@ -14,7 +14,7 @@ code: |-
   (define-keyset "SA <12>" (read-keyset "SA <12>"))
   (define-keyset "SA <13>" (read-keyset "SA <13>"))
   (define-keyset "SA <14>" (read-keyset "SA <14>"))
-  (define-keyset "SA <15> " (read-keyset "SA <15> "))
+  (define-keyset "SA <15>" (read-keyset "SA <15>"))
   (define-keyset "SA <16>" (read-keyset "SA <16>"))
   (define-keyset "SA <17>" (read-keyset "SA <17>"))
   (define-keyset "SA <18>" (read-keyset "SA <18>"))
@@ -99,7 +99,7 @@ data:
   "SA <12>": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
   "SA <13>": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
   "SA <14>": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
-  "SA <15> ": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
+  "SA <15>": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
   "SA <16>": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
   "SA <17>": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
   "SA <18>": { keys: [[9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6]], pred: "keys-all" }
