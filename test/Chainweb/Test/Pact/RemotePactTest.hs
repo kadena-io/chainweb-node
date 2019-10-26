@@ -330,7 +330,7 @@ invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $
           return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
     -- batch with incorrect sender
-    batch0 <- mkBadGasTxBatch "(+ 1 2)" "sender00" sender00KeyPair Nothing
+    batch0 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
     res0 <- catches (Right <$> run batch0 ExpectPactResult)
       [ Handler (\(e :: PactTestFailure) -> return $ Left e) ]
 
