@@ -152,7 +152,7 @@ mkAllocationKeyTx (AllocationKeys n p ks) = AllocationKeyTx tx d
 
     d = T.concat
       [ "\"" <> n <> "\": { "
-      , "keys: " <> ks <> ", "
+      , "keys: [\"" <> (T.init (T.tail ks)) <> "\"], "
       , "pred: \"" <> p <> "\""
       , " }"
       ]
