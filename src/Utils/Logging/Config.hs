@@ -63,7 +63,6 @@ import System.Logger.Backend.ColorOption
 
 -- internal modules
 
-import Chainweb.HostAddress
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------------- --
@@ -118,7 +117,7 @@ data HandleConfig
     = StdOut
     | StdErr
     | FileHandle FilePath
-    | ElasticSearch HostAddress
+    | ElasticSearch T.Text
     deriving (Show, Eq, Ord, Generic)
 
 instance NFData HandleConfig
@@ -128,19 +127,19 @@ handleConfigFromText x = case CI.mk x of
     "stdout" -> return StdOut
     "stderr" -> return StdErr
     _ | CI.mk (T.take 5 x) == "file:" -> return $ FileHandle (T.unpack (T.drop 5 x))
-    _ | CI.mk (T.take 3 x) == "es:" -> ElasticSearch <$> fromText (T.drop 3 x)
+    _ | CI.mk (T.take 3 x) == "es:" -> return $ ElasticSearch (T.drop 3 x)
     e -> configFromTextErr e
 
   where configFromTextErr e =
           throwM $ DecodeException $ "unexpected logger handle value: "
           <> fromString (show e)
-          <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<HOST>:<PORT>\""
+          <> ", expected \"stdout\", \"stderr\", \"file:<FILENAME>\", or \"es:<URL>\""
 
 handleConfigToText :: HandleConfig -> T.Text
 handleConfigToText StdOut = "stdout"
 handleConfigToText StdErr = "stderr"
 handleConfigToText (FileHandle f) = "file:" <> T.pack f
-handleConfigToText (ElasticSearch f) = "es:" <> toText f
+handleConfigToText (ElasticSearch f) = "es:" <> f
 
 instance HasTextRepresentation HandleConfig where
     toText = handleConfigToText
@@ -168,7 +167,7 @@ pHandleConfig_
     -> OptionParser HandleConfig
 pHandleConfig_ prefix = option textReader
     % long (T.unpack prefix <> "log-handle")
-    <> metavar "stdout|stderr|file:<FILENAME>|es:<HOST>:<PORT>"
+    <> metavar "stdout|stderr|file:<FILENAME>|es:<URL>"
     <> help "handle where the logs are written"
 
 -- -------------------------------------------------------------------------- --
