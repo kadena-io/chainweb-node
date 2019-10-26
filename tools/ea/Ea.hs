@@ -71,18 +71,28 @@ import Pact.Types.SPV (noSPVSupport)
 
 main :: IO ()
 main = do
+
+    -- Convert csv mainnet data to pact request yamls
+
     generateAllocations
 
-    go "0" chain0
-    go "1" $ chainN mainAllocations1
-    go "2" $ chainN mainAllocations2
-    go "3" $ chainN mainAllocations3
-    go "4" $ chainN mainAllocations4
-    go "5" $ chainN mainAllocations5
-    go "6" $ chainN mainAllocations6
-    go "7" $ chainN mainAllocations7
-    go "8" $ chainN mainAllocations8
-    go "9" $ chainN mainAllocations9
+    -- test payloads on chain 0 and N
+
+    go0 chain0
+    goN chainN
+
+    -- mainnet payloads on chains 0 through 10
+
+    goM "0" $ mainnetN mainAllocations0
+    goM "1" $ mainnetN mainAllocations1
+    goM "2" $ mainnetN mainAllocations2
+    goM "3" $ mainnetN mainAllocations3
+    goM "4" $ mainnetN mainAllocations4
+    goM "5" $ mainnetN mainAllocations5
+    goM "6" $ mainnetN mainAllocations6
+    goM "7" $ mainnetN mainAllocations7
+    goM "8" $ mainnetN mainAllocations8
+    goM "9" $ mainnetN mainAllocations9
 
     putStrLn "Done."
   where
@@ -95,19 +105,29 @@ main = do
       [ (Development, "Development", devDefaults <> [devAllocations, dev0Grants])
       , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [devAllocations, dev0Grants])
       , (Testnet02, "Testnet", prodDefaults <> [prodAllocations, prod0Grants])
-      , (Mainnet01, "Mainnet", mainnetDefaults <> [mainAllocations0])
       ]
 
-    chainN a =
+    chainN =
       [ (Development, "Development",  devDefaults <> [devNGrants])
       , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [devNGrants])
       , (Testnet02, "Testnet", prodDefaults <> [prodNGrants])
-      , (Mainnet01, "Mainnet", mainnetDefaults <> [a])
       ]
 
-    go cid cs = for_ cs $ \(v, tag, txs) -> do
-        printf ("Generating Genesis Payload for %s on Chain " <> T.unpack cid <> "...\n") $ show v
+    mainnetN a =
+      [ (Mainnet01, "Mainnet", mainnetDefaults <> [a])
+      ]
+
+    go0 cs = for_ cs $ \(v, tag, txs) -> do
+        printf ("Generating Genesis Payload for %s on Chain 0...\n") $ show v
+        genPayloadModule v (tag <> "0") txs
+
+    goM cid cs = for_ cs $ \(v, tag, txs) -> do
+        printf ("Generate Mainnet Genesis Payload for %s on Chain " <> T.unpack cid <> "...\n") $ show v
         genPayloadModule v (tag <> cid) txs
+
+    goN cs = for_ cs $ \(v, tag, txs) -> do
+        printf ("Generating Genesis Payload for %s on all other chains...\n") $ show v
+        genPayloadModule v (tag <> "N") txs
 
 
 

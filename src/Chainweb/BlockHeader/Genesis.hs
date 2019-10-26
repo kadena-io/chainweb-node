@@ -37,25 +37,9 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
-import qualified Chainweb.BlockHeader.Genesis.Development1Payload as DN1
-import qualified Chainweb.BlockHeader.Genesis.Development2Payload as DN2
-import qualified Chainweb.BlockHeader.Genesis.Development3Payload as DN3
-import qualified Chainweb.BlockHeader.Genesis.Development4Payload as DN4
-import qualified Chainweb.BlockHeader.Genesis.Development5Payload as DN5
-import qualified Chainweb.BlockHeader.Genesis.Development6Payload as DN6
-import qualified Chainweb.BlockHeader.Genesis.Development7Payload as DN7
-import qualified Chainweb.BlockHeader.Genesis.Development8Payload as DN8
-import qualified Chainweb.BlockHeader.Genesis.Development9Payload as DN9
+import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM1Payload as TN1
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM2Payload as TN2
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM3Payload as TN3
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM4Payload as TN4
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM5Payload as TN5
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM6Payload as TN6
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM7Payload as TN7
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM8Payload as TN8
-import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM9Payload as TN9
+import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
 import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
 import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
 import qualified Chainweb.BlockHeader.Genesis.Mainnet2Payload as MN2
@@ -67,15 +51,7 @@ import qualified Chainweb.BlockHeader.Genesis.Mainnet7Payload as MN7
 import qualified Chainweb.BlockHeader.Genesis.Mainnet8Payload as MN8
 import qualified Chainweb.BlockHeader.Genesis.Mainnet9Payload as MN9
 import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
-import qualified Chainweb.BlockHeader.Genesis.Testnet1Payload as PN1
-import qualified Chainweb.BlockHeader.Genesis.Testnet2Payload as PN2
-import qualified Chainweb.BlockHeader.Genesis.Testnet3Payload as PN3
-import qualified Chainweb.BlockHeader.Genesis.Testnet4Payload as PN4
-import qualified Chainweb.BlockHeader.Genesis.Testnet5Payload as PN5
-import qualified Chainweb.BlockHeader.Genesis.Testnet6Payload as PN6
-import qualified Chainweb.BlockHeader.Genesis.Testnet7Payload as PN7
-import qualified Chainweb.BlockHeader.Genesis.Testnet8Payload as PN8
-import qualified Chainweb.BlockHeader.Genesis.Testnet9Payload as PN9
+import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph
@@ -138,57 +114,21 @@ genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
 genesisBlockPayload TimedCPM{} cid = case chainIdInt @Int cid of
     0 -> TN0.payloadBlock
-    1 -> TN1.payloadBlock
-    2 -> TN2.payloadBlock
-    3 -> TN3.payloadBlock
-    4 -> TN4.payloadBlock
-    5 -> TN5.payloadBlock
-    6 -> TN6.payloadBlock
-    7 -> TN7.payloadBlock
-    8 -> TN8.payloadBlock
-    9 -> TN9.payloadBlock
-    _ -> error "peterson graph only supports a maximum of 10 chains - please review"
+    _ -> TNN.payloadBlock
 
 genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
     0 -> TN0.payloadBlock
-    1 -> TN1.payloadBlock
-    2 -> TN2.payloadBlock
-    3 -> TN3.payloadBlock
-    4 -> TN4.payloadBlock
-    5 -> TN5.payloadBlock
-    6 -> TN6.payloadBlock
-    7 -> TN7.payloadBlock
-    8 -> TN8.payloadBlock
-    9 -> TN9.payloadBlock
-    _ -> error "peterson graph only supports a maximum of 10 chains - please review"
+    _ -> TNN.payloadBlock
 
 -- Development Instances
 genesisBlockPayload Development cid = case chainIdInt @Int cid of
     0 -> DN0.payloadBlock
-    1 -> DN1.payloadBlock
-    2 -> DN2.payloadBlock
-    3 -> DN3.payloadBlock
-    4 -> DN4.payloadBlock
-    5 -> DN5.payloadBlock
-    6 -> DN6.payloadBlock
-    7 -> DN7.payloadBlock
-    8 -> DN8.payloadBlock
-    9 -> DN9.payloadBlock
-    _ -> error "peterson graph only supports a maximum of 10 chains - please review"
+    _ -> DNN.payloadBlock
 
 -- Production Instances
 genesisBlockPayload Testnet02 cid = case chainIdInt @Int cid of
     0 -> PN0.payloadBlock
-    1 -> PN1.payloadBlock
-    2 -> PN2.payloadBlock
-    3 -> PN3.payloadBlock
-    4 -> PN4.payloadBlock
-    5 -> PN5.payloadBlock
-    6 -> PN6.payloadBlock
-    7 -> PN7.payloadBlock
-    8 -> PN8.payloadBlock
-    9 -> PN9.payloadBlock
-    _ -> error "peterson graph only supports a maximum of 10 chains - please review"
+    _ -> PNN.payloadBlock
 
 genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
     0 -> MN0.payloadBlock

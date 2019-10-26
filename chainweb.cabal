@@ -120,35 +120,11 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
-        , Chainweb.BlockHeader.Genesis.Development1Payload
-        , Chainweb.BlockHeader.Genesis.Development2Payload
-        , Chainweb.BlockHeader.Genesis.Development3Payload
-        , Chainweb.BlockHeader.Genesis.Development4Payload
-        , Chainweb.BlockHeader.Genesis.Development5Payload
-        , Chainweb.BlockHeader.Genesis.Development6Payload
-        , Chainweb.BlockHeader.Genesis.Development7Payload
-        , Chainweb.BlockHeader.Genesis.Development8Payload
-        , Chainweb.BlockHeader.Genesis.Development9Payload
+        , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM1Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM2Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM3Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM4Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM5Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM6Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM7Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM8Payload
-        , Chainweb.BlockHeader.Genesis.FastTimedCPM9Payload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
         , Chainweb.BlockHeader.Genesis.Testnet0Payload
-        , Chainweb.BlockHeader.Genesis.Testnet1Payload
-        , Chainweb.BlockHeader.Genesis.Testnet2Payload
-        , Chainweb.BlockHeader.Genesis.Testnet3Payload
-        , Chainweb.BlockHeader.Genesis.Testnet4Payload
-        , Chainweb.BlockHeader.Genesis.Testnet5Payload
-        , Chainweb.BlockHeader.Genesis.Testnet6Payload
-        , Chainweb.BlockHeader.Genesis.Testnet7Payload
-        , Chainweb.BlockHeader.Genesis.Testnet8Payload
-        , Chainweb.BlockHeader.Genesis.Testnet9Payload
+        , Chainweb.BlockHeader.Genesis.TestnetNPayload
         , Chainweb.BlockHeader.Genesis.Mainnet0Payload
         , Chainweb.BlockHeader.Genesis.Mainnet1Payload
         , Chainweb.BlockHeader.Genesis.Mainnet2Payload
@@ -804,7 +780,6 @@ executable cwtool
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
         , text >= 1.2
-        , thyme
         , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
