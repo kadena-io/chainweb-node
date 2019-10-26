@@ -129,6 +129,7 @@ library
         , Chainweb.BlockHeader.Genesis.Development7Payload
         , Chainweb.BlockHeader.Genesis.Development8Payload
         , Chainweb.BlockHeader.Genesis.Development9Payload
+        , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM1Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM2Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM3Payload
