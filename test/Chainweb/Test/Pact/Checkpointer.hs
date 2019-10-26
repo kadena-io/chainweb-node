@@ -30,6 +30,7 @@ import Pact.Native (nativeDefs)
 import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
+import Pact.Types.Command (CommandResult(..))
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
@@ -437,7 +438,7 @@ checkpointerTest name initdata =
               ttl = 2 * 24 * 60 * 60
               pd = PublicData (PublicMeta (Pact.ChainId "0") "sender00" 100000 0.1 ttl txtime) 11 blockTime (sshow hash09)
           case blockEnv12 of
-            PactDbEnv' dbenv -> void $ applyCoinbase _cpeLogger dbenv defaultMiner reward pd hash09
+            PactDbEnv' dbenv -> (_crTxId . sfst) <$> applyCoinbase _cpeLogger dbenv defaultMiner reward pd hash09 >>= assertEqual "coinbase txid" (Just 19)
           _cpDiscard _cpeCheckpointer
 
 
