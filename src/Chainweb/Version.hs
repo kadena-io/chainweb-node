@@ -37,6 +37,8 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
+-- ** Date-based Transaction Disabling
+, txSilenceDates
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -113,7 +115,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
-import Chainweb.Time (Seconds(..))
+import Chainweb.Time (Micros, Seconds(..), Time)
 import Chainweb.Utils
 
 import Data.Singletons
@@ -550,3 +552,12 @@ window FastTimedCPM{} = Nothing
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet02 = Just $ WindowWidth 120
+
+txSilenceDates :: ChainwebVersion -> Maybe (Time Micros)
+txSilenceDates Test{} = Nothing
+txSilenceDates TimedConsensus{} = Nothing
+txSilenceDates PowConsensus{} = Nothing
+txSilenceDates TimedCPM{} = Nothing
+txSilenceDates FastTimedCPM{} = Nothing
+txSilenceDates Development = Nothing
+txSilenceDates Testnet02 = Nothing

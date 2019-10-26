@@ -76,6 +76,7 @@ module Chainweb.Test.Utils
 , assertExpectation
 , assertGe
 , assertLe
+, assertSatisfies
 
 -- * Golden Tests
 , golden
@@ -719,6 +720,18 @@ assertGe msg actual expected = assertBool msg_
     msg_ = T.unpack msg
         <> ", expected: >= " <> show (getExpected expected)
         <> ", actual: " <> show (getActual actual)
+
+-- | Assert that predicate holds.
+assertSatisfies
+  :: Show a
+  => String
+  -> a
+  -> (a -> Bool)
+  -> Assertion
+assertSatisfies msg value predf
+  | result = assertEqual msg True result
+  | otherwise = assertFailure $ msg ++ ": " ++ show value
+  where result = predf value
 
 -- -------------------------------------------------------------------------- --
 -- Golden Testing

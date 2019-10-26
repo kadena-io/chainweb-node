@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+
 -- |
 -- Module: Chainweb.Miner.RestAPI.Server
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -51,6 +52,7 @@ import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils (runGet, suncurry3)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -60,18 +62,29 @@ import Data.Singletons
 
 ---
 
+-- | KILLSWITCH: The logic here involving `txSilenceDates` is to be removed in a
+-- future version of Chainweb. This logic errors on remote requests for new
+-- mining work, such that this Node can no longer meaningfully participate in
+-- mining.
+--
 workHandler
     :: Logger l
     => MiningCoordination l cas
+    -> ChainwebVersion
     -> Maybe ChainId
     -> Miner
     -> Handler WorkBytes
-workHandler mr mcid m = do
-    MiningState ms <- liftIO . readTVarIO $ _coordState mr
-    when (M.size ms > _coordLimit mr) $ do
-        liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-        throwM err503 { errBody = "Too many work requests" }
-    liftIO $ workHandler' mr mcid m
+workHandler mr v mcid m = do
+    now <- liftIO getCurrentTimeIntegral
+    case txSilenceDates v of
+        Just end | now > end ->
+            throwM err400 { errBody = "Node is out of date - please upgrade."}
+        _ -> do
+            MiningState ms <- liftIO . readTVarIO $ _coordState mr
+            when (M.size ms > _coordLimit mr) $ do
+                liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
+                throwM err503 { errBody = "Too many work requests" }
+            liftIO $ workHandler' mr mcid m
 
 workHandler'
     :: forall l cas
@@ -129,12 +142,13 @@ miningServer
     :: forall l cas (v :: ChainwebVersionT)
     .  Logger l
     => MiningCoordination l cas
+    -> ChainwebVersion
     -> Server (MiningApi v)
-miningServer mr =
-    workHandler mr
+miningServer mr v =
+    workHandler mr v
     :<|> liftIO . solvedHandler mr
     :<|> updatesHandler (_coordCutDb mr)
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
-someMiningServer (FromSing (SChainwebVersion :: Sing v)) mr =
-    SomeServer (Proxy @(MiningApi v)) $ miningServer mr
+someMiningServer v@(FromSing (SChainwebVersion :: Sing vT)) mr =
+    SomeServer (Proxy @(MiningApi vT)) $ miningServer mr v
