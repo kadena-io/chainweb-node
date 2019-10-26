@@ -49,6 +49,8 @@ import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
+import Allocations
+
 import Chainweb.BlockHeaderDB
 import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
@@ -81,12 +83,14 @@ main = do
       [ (Development, "Development", [fungibleAsset, coinContract, devNGrants, devNs])
       , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNGrants, devNs])
       , (Testnet02, "Testnet", [ fungibleAsset, coinContract, prodNGrants, prodNs ])
+      , (Mainnet01, "Mainnet", [ fungibleAsset, coinContract, prodNs, mainKeysets, mainCoinbases ])
       ]
 
     chain0 =
       [ (Development, "Development", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
       , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
       , (Testnet02, "Testnet", [fungibleAsset, coinContract, prodNs, prodAllocations, prod0Grants])
+      , (Mainnet01, "Mainnet"
       ]
 
 coinContract :: FilePath
@@ -118,6 +122,42 @@ devAllocations = "pact/genesis/testnet/allocations.yaml"
 
 prodAllocations :: FilePath
 prodAllocations = "pact/genesis/prodnet/allocations.yaml"
+
+mainAllocations0 :: FilePath
+mainAllocations0 = "pact/genesis/mainnet/mainnet_allocations0.yaml"
+
+mainAllocations1 :: FilePath
+mainAllocations1 = "pact/genesis/mainnet/mainnet_allocations1.yaml"
+
+mainAllocations2 :: FilePath
+mainAllocations2 = "pact/genesis/mainnet/mainnet_allocations2.yaml"
+
+mainAllocations3 :: FilePath
+mainAllocations3 = "pact/genesis/mainnet/mainnet_allocations3.yaml"
+
+mainAllocations4 :: FilePath
+mainAllocations4 = "pact/genesis/mainnet/mainnet_allocations4.yaml"
+
+mainAllocations5 :: FilePath
+mainAllocations5 = "pact/genesis/mainnet/mainnet_allocations5.yaml"
+
+mainAllocations6 :: FilePath
+mainAllocations6 = "pact/genesis/mainnet/mainnet_allocations6.yaml"
+
+mainAllocations7 :: FilePath
+mainAllocations7 = "pact/genesis/mainnet/mainnet_allocations7.yaml"
+
+mainAllocations8 :: FilePath
+mainAllocations8 = "pact/genesis/mainnet/mainnet_allocations8.yaml"
+
+mainAllocations9 :: FilePath
+mainAllocations9 = "pact/genesis/mainnet/mainnet_allocations9.yaml"
+
+mainKeysets :: FilePath
+mainKeysets = "pact/genesis/mainnet/mainnet_keysets.yaml"
+
+mainCoinbases :: FilePath
+mainCoinbases = "pact/genesis/mainnet/mainnet_coinbases.yaml"
 
 ---------------------
 -- Payload Generation
