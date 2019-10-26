@@ -31,6 +31,12 @@ extra-source-files:
 
     rewards/miner_rewards.csv
 
+    -- genesis allocations csvs
+
+    rewards/mainnet_keysets.csv
+    rewards/mainnet_allocations.csv
+    rewards/mainnet_coinbase.csv
+
     -- pact test data
 
     pact/coin-contract/coin.repl
@@ -115,10 +121,20 @@ library
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
         , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
-        , Chainweb.BlockHeader.Genesis.Testnet0Payload
-        , Chainweb.BlockHeader.Genesis.TestnetNPayload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
+        , Chainweb.BlockHeader.Genesis.Testnet0Payload
+        , Chainweb.BlockHeader.Genesis.TestnetNPayload
+        , Chainweb.BlockHeader.Genesis.Mainnet0Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet1Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet2Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet3Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet4Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet5Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet6Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet7Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet8Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet9Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -675,6 +691,7 @@ executable cwtool
     hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
+        Allocations
         Chain2Gexf
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
@@ -714,6 +731,7 @@ executable cwtool
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
+        , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.4.1
@@ -721,6 +739,8 @@ executable cwtool
         , data-default >= 0.7
         , deepseq >= 1.4
         , directory >= 1.3
+        , file-embed
+        , filepath
         , errors >= 2.3
         , exceptions >= 0.8
         , fake >= 0.1.1.1
@@ -753,6 +773,7 @@ executable cwtool
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
+        , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9

@@ -49,6 +49,8 @@ import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
+import Allocations
+
 import Chainweb.BlockHeaderDB
 import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
@@ -69,25 +71,65 @@ import Pact.Types.SPV (noSPVSupport)
 
 main :: IO ()
 main = do
-    for_ chain0 $ \(v, tag, txs) -> do
-        printf "Generating special Genesis Payload for %s on Chain 0...\n" $ show v
-        genPayloadModule v (tag <> "0") txs
-    for_ otherChains $ \(v, tag, txs) -> do
-        printf "Generating Genesis Payload for %s on all other Chains...\n" $ show v
-        genPayloadModule v (tag <> "N") txs
+
+    -- Convert csv mainnet data to pact request yamls
+
+    generateAllocations
+
+    -- test payloads on chain 0 and N
+
+    go0 chain0
+    goN chainN
+
+    -- mainnet payloads on chains 0 through 10
+
+    goM "0" $ mainnetN mainAllocations0
+    goM "1" $ mainnetN mainAllocations1
+    goM "2" $ mainnetN mainAllocations2
+    goM "3" $ mainnetN mainAllocations3
+    goM "4" $ mainnetN mainAllocations4
+    goM "5" $ mainnetN mainAllocations5
+    goM "6" $ mainnetN mainAllocations6
+    goM "7" $ mainnetN mainAllocations7
+    goM "8" $ mainnetN mainAllocations8
+    goM "9" $ mainnetN mainAllocations9
+
     putStrLn "Done."
   where
-    otherChains =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (Testnet02, "Testnet", [ fungibleAsset, coinContract, prodNGrants, prodNs ])
-      ]
+    cc = [fungibleAsset, coinContract]
+    devDefaults = cc <> [devNs]
+    prodDefaults = cc <> [prodNs]
+    mainnetDefaults = cc <> [prodNs, mainKeysets, mainCoinbases]
 
     chain0 =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (Testnet02, "Testnet", [fungibleAsset, coinContract, prodNs, prodAllocations, prod0Grants])
+      [ (Development, "Development", devDefaults <> [devAllocations, dev0Grants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [devAllocations, dev0Grants])
+      , (Testnet02, "Testnet", prodDefaults <> [prodAllocations, prod0Grants])
       ]
+
+    chainN =
+      [ (Development, "Development",  devDefaults <> [devNGrants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", devDefaults <> [devNGrants])
+      , (Testnet02, "Testnet", prodDefaults <> [prodNGrants])
+      ]
+
+    mainnetN a =
+      [ (Mainnet01, "Mainnet", mainnetDefaults <> [a])
+      ]
+
+    go0 cs = for_ cs $ \(v, tag, txs) -> do
+        printf ("Generating Genesis Payload for %s on Chain 0...\n") $ show v
+        genPayloadModule v (tag <> "0") txs
+
+    goM cid cs = for_ cs $ \(v, tag, txs) -> do
+        printf ("Generate Mainnet Genesis Payload for %s on Chain " <> T.unpack cid <> "...\n") $ show v
+        genPayloadModule v (tag <> cid) txs
+
+    goN cs = for_ cs $ \(v, tag, txs) -> do
+        printf ("Generating Genesis Payload for %s on all other chains...\n") $ show v
+        genPayloadModule v (tag <> "N") txs
+
+
 
 coinContract :: FilePath
 coinContract = "pact/coin-contract/load-coin-contract.yaml"
@@ -118,6 +160,42 @@ devAllocations = "pact/genesis/testnet/allocations.yaml"
 
 prodAllocations :: FilePath
 prodAllocations = "pact/genesis/prodnet/allocations.yaml"
+
+mainAllocations0 :: FilePath
+mainAllocations0 = "pact/genesis/mainnet/mainnet_allocations0.yaml"
+
+mainAllocations1 :: FilePath
+mainAllocations1 = "pact/genesis/mainnet/mainnet_allocations1.yaml"
+
+mainAllocations2 :: FilePath
+mainAllocations2 = "pact/genesis/mainnet/mainnet_allocations2.yaml"
+
+mainAllocations3 :: FilePath
+mainAllocations3 = "pact/genesis/mainnet/mainnet_allocations3.yaml"
+
+mainAllocations4 :: FilePath
+mainAllocations4 = "pact/genesis/mainnet/mainnet_allocations4.yaml"
+
+mainAllocations5 :: FilePath
+mainAllocations5 = "pact/genesis/mainnet/mainnet_allocations5.yaml"
+
+mainAllocations6 :: FilePath
+mainAllocations6 = "pact/genesis/mainnet/mainnet_allocations6.yaml"
+
+mainAllocations7 :: FilePath
+mainAllocations7 = "pact/genesis/mainnet/mainnet_allocations7.yaml"
+
+mainAllocations8 :: FilePath
+mainAllocations8 = "pact/genesis/mainnet/mainnet_allocations8.yaml"
+
+mainAllocations9 :: FilePath
+mainAllocations9 = "pact/genesis/mainnet/mainnet_allocations9.yaml"
+
+mainKeysets :: FilePath
+mainKeysets = "pact/genesis/mainnet/mainnet_keysets.yaml"
+
+mainCoinbases :: FilePath
+mainCoinbases = "pact/genesis/mainnet/mainnet_coinbases.yaml"
 
 ---------------------
 -- Payload Generation
