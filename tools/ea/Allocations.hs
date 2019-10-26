@@ -68,7 +68,7 @@ generateAllocations = allocations
     keys = T.writeFile (prefix "keysets") $
       toYaml "mainnet-keysets" readAllocationKeys
 
-    coinbases = T.writeFile (prefix "coinbase") $
+    coinbases = T.writeFile (prefix "coinbases") $
       toYaml "mainnet-coinbase" readCoinbases
 
     prefix t = "pact/genesis/mainnet/mainnet_" <> t <> ".yaml"
