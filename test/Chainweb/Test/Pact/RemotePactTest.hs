@@ -139,19 +139,19 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 sendValidationTest iot net
               , after AllSucceed "remote spv" $
-                testCase "trivial /local check" $
+                testCase "trivialLocalCheck" $
                 localTest iot net
               , after AllSucceed "remote spv" $
-                testGroup "gas for tx size"
+                testGroup "gasForTxSize"
                 [ txTooBigGasTest iot net ]
               , after AllSucceed "remote spv" $
-                testGroup "genesis allocations"
+                testGroup "genesisAllocations"
                 [ allocationTest iot net ]
               , after AllSucceed "genesis allocations" $
-                testGroup "caplist tests"
+                testGroup "caplistTests"
                 [ caplistTest iot net ]
               , after AllSucceed "caplist tests" $
-                testGroup "gas buying errors"
+                testGroup "gasBuyingErrors"
                 [ invalidBuyGasTest iot net ]
               ]
     ]
@@ -301,7 +301,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "Tx too big (3), limit 1"
     gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 1) exceeded: 2"
+      Pact.PactError Pact.GasError def [] "Gas limit (1) exceeded: 2"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair Nothing

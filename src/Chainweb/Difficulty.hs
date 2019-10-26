@@ -413,60 +413,12 @@ decodeHashTarget = HashTarget <$!> decodePowHashNat
 -- expectations. For now, however, `Rational` is stable for a Haskell-only
 -- environment.
 --
--- === Adjustment Minimums
---
--- Spikes in /HashRate/ may occur as the mining network grows and shrinks. To
--- ensure that adjustment does not occur too quickly or with too much
--- granularity, we enforce a "minimum factor of change" ( \(Z\) ) for `adjust`.
--- If `adjust` notices that the change for the given window is not large enough,
--- then it will not occur. The overall pattern of difficulty then becomes less
--- of a rippling pond, and more of a series of plateaus with distinct jumps.
--- Analysis has been shown that \(Z\) should be greater than a factor of
--- \(e = 2.71828\cdots\) (/source needed/). See also `minAdjust`.
---
 adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Micros -> HashTarget -> HashTarget
-adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget
-    -- Intent: When increasing the difficulty (thereby lowering the target
-    -- toward 0), the target must decrease by at least some minimum threshold
-    -- (usually 3x) to be accepted.
-    | nat newTarget <= (nat oldTarget `div` minAdj) = newTarget
-
-    -- Intent: When decreasing the difficulty (thereby raising the target toward
-    -- `maxTarget`), ensure that the new target increases by at least some
-    -- minimum threshold.
-    | nat newTarget >= (nat oldTarget * minAdj)
-      && nat oldTarget <= (nat maxTarget `div` minAdj) = newTarget
-
-    -- Intent: The target did not change enough - do not alter it!
-    | otherwise = oldTarget
-
-    -- DEBUGGING --
-    -- Uncomment the following to get a live view of difficulty adjustment. You
-    -- will have to readd a few imports, and also uncomment a few helper
-    -- functions below.
-
-    -- when (_blockChainId bh' == testChainId 0) $ do
-    --     printf "\n=== CHAIN:%s\n=== HEIGHT:%s\n=== AVG:%f\n=== RATE:%d\n=== OLD DIFF:%f\n=== NEW DIFF:%f\n=== ORIGINAL:%s\n=== ADJUSTED:%s\n=== ACCEPTED:%s\n"
-    --         (show $ _blockChainId bh')
-    --         (show $ _blockHeight bh')
-    --         (floating avg)
-    --         blockRate
-    --         (floating oldDiff)
-    --         (floating newDiff)
-    --         (targetBits $ _blockTarget bh')
-    --         (targetBits newTarget)
-    --         (targetBits actual)
-    --     hFlush stdout
+adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget = newTarget
   where
     br :: Natural
     br = case blockRate ver of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
-
-    minAdj :: PowHashNat
-    minAdj = case minAdjust ver of
-        Just (MinAdjustment n) -> int n
-        Nothing -> error $ "adjust: Difficulty adjustment attempted on non-POW chainweb: " <> show ver
+        BlockRate (Seconds n) -> int n
 
     -- The average time in seconds that it took to mine each block in
     -- the given window.
@@ -486,9 +438,6 @@ adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget
 
     newTarget :: HashTarget
     newTarget = difficultyToTargetR newDiff
-
-    nat :: HashTarget -> PowHashNat
-    nat (HashTarget n) = n
 
 -- -------------------------------------------------------------------------- --
 -- Properties

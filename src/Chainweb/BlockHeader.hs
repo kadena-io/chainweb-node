@@ -322,7 +322,7 @@ decodeEpochStartTime :: MonadGet m => m EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
 -- | During the first epoch after genesis there are 10 extra difficulty
--- adjustments. This is to account for rapidly changing total hash power in this
+-- adjustments. This is to account for rapidly changing total hash power in the
 -- early stages of the network.
 --
 effectiveWindow :: BlockHeader -> Maybe WindowWidth
@@ -345,7 +345,25 @@ isLastInEpoch h = case effectiveWindow h of
         | otherwise -> False
 {-# INLINE isLastInEpoch #-}
 
--- | Compute the POW target for a new BlockHeader
+-- | If it is discovered that the last DA occured significantly in the past, we
+-- assume that a large amount of hash power has suddenly dropped out of the
+-- network. Thus we must perform Emergency Difficulty Adjustment to avoid
+-- stalling the chain.
+--
+slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
+slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
+  where
+    EpochStartTime es = _blockEpochStart p
+    BlockRate s = blockRate (_blockChainwebVersion p)
+    WindowWidth ww = fromJuste $ window (_blockChainwebVersion p)
+
+    expected :: Seconds
+    expected = s * int ww
+
+    actual :: Seconds
+    actual = timeSpanToSeconds $ ct .-. es
+
+-- | Compute the POW target for a new BlockHeader.
 --
 powTarget
     :: BlockHeader
@@ -354,10 +372,10 @@ powTarget
         -- ^ block creation time of new block
     -> HashTarget
         -- ^ POW target of new block
-powTarget p (BlockCreationTime bt) = case effectiveWindow p of
+powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
     Nothing -> maxTarget
     Just w
-        | isLastInEpoch p ->
+        | isLastInEpoch p || slowEpoch p bct ->
             adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
         | otherwise -> _blockTarget p
   where

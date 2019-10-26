@@ -100,6 +100,7 @@ import Chainweb.Payload.RestAPI
 import Chainweb.Payload.RestAPI.Server
 import Chainweb.RestAPI.Health
 import Chainweb.RestAPI.NetworkID
+import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV.RestAPI.Server
 import Chainweb.Utils
@@ -144,6 +145,7 @@ emptyChainwebServerDbs = ChainwebServerDbs
 someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
     <> someHealthCheckApi
+    <> someNodeInfoApi
     <> someBlockHeaderDbApis v chains
     <> somePayloadApis v chains
     <> someP2pApis v cs
@@ -207,6 +209,7 @@ someChainwebServer
 someChainwebServer v dbs mr (HeaderStream hs) =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
+        <> someNodeInfoServer v
         <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
         <> maybe mempty (someSpvServers v) (_chainwebServerCutDb dbs)
         <> somePayloadServers v (_chainwebServerPayloadDbs dbs)

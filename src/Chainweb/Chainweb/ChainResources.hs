@@ -178,6 +178,7 @@ withChainResources v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir 
         FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
         Testnet02 -> mkPactExecutionService requestQ
+        Mainnet01 -> mkPactExecutionService requestQ
 
 -- -------------------------------------------------------------------------- --
 -- Mempool sync.

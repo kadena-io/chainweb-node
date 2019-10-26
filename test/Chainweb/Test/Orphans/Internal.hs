@@ -65,6 +65,7 @@ instance Arbitrary ChainwebVersion where
         , FastTimedCPM petersonChainGraph
         , Development
         , Testnet02
+        , Mainnet01
         ]
 
 instance Arbitrary MerkleLogHash where
