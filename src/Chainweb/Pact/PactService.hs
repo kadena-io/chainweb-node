@@ -528,7 +528,7 @@ attemptBuyGas cp miner nonGenesisParentHash txs = withDiscardedBatch $ do
     let target = Just (succ bh, bhash)
     withCheckpointer target "attemptBuyGas" $ \(PactDbEnv' dbEnv) -> do
         psEnv <- ask
-        --T2 _ mc <- runCoinbase nonGenesisParentHash dbEnv miner
+        T2 _ _mc <- runCoinbase nonGenesisParentHash dbEnv miner
         res <- V.fromList . ($ []) . sfst <$> V.foldM (f psEnv dbEnv) (T2 id mempty) txs
         return $! Discard res
 

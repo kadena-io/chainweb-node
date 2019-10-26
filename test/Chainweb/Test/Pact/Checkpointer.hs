@@ -19,21 +19,25 @@ import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text.IO as T
+import Data.Time.Clock.POSIX
 
 import NeatInterpolation (text)
 
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
+import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
-import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
-import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.SPV (noSPVSupport)
+import Pact.Types.Server (CommandEnv(..))
+import qualified Pact.Types.Hash as H
+import qualified Pact.Types.ChainId as Pact
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -48,10 +52,13 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Miner.Pact
 import Chainweb.Pact.TransactionExec
-    (applyContinuation', applyExec', buildExecParsedCode)
+    (applyCoinbase, applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Time
+import Chainweb.Utils
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
@@ -197,6 +204,7 @@ checkpointerTest name initdata =
                   let contMsg = ContMsg pactId step False Null Nothing
                       cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
                   applyContinuation' cmdenv defaultInterpreter contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------
@@ -408,6 +416,30 @@ checkpointerTest name initdata =
           expectException $ runExec blockEnv11 (Just tKeyset) tablecode
 
           _cpSave _cpeCheckpointer hash10
+
+          next "Testing attemptBuyGas workflow."
+
+          -- Load coin contract... this is weird to do.
+
+          fungible <- T.readFile "pact/coin-contract/fungible-v1.pact"
+          coinContract <- T.readFile "pact/coin-contract/coin.pact"
+
+          let minerKeyset = object ["miner" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
+          blockEnv12 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 11, hash10))
+          void $ runExec blockEnv12 Nothing fungible
+          void $ runExec blockEnv12 Nothing coinContract
+          void $ runExec blockEnv12 (Just minerKeyset) "(define-keyset \"miner\")"
+
+          txtime <- toTxCreationTime <$> getCurrentTimeIntegral
+          blockTime <- round . (* 1000000) <$> getPOSIXTime
+
+          let reward = ParsedDecimal 42
+              ttl = 2 * 24 * 60 * 60
+              pd = PublicData (PublicMeta (Pact.ChainId "0") "sender00" 100000 0.1 ttl txtime) 11 blockTime (sshow hash09)
+          case blockEnv12 of
+            PactDbEnv' dbenv -> void $ applyCoinbase _cpeLogger dbenv defaultMiner reward pd hash09
+          _cpDiscard _cpeCheckpointer
+
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
