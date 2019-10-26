@@ -21,6 +21,7 @@ module Chainweb.Test.Pact.PactExec
 ( tests
 ) where
 
+import Control.Lens (view, _1)
 import Control.Monad.Catch
 import Data.Aeson
 import Data.CAS.RocksDB (RocksDb)
@@ -76,6 +77,7 @@ tests = ScheduledTest label $
             , execTest ctx testReq4
             , execTest ctx testReq5
             , execTxsTest ctx "testTfrGas" testTfrGas
+            , execTxsTest ctx "testGasPayer" testGasPayer
             ]
     , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
@@ -173,10 +175,20 @@ pString :: Text -> PactValue
 pString = PLiteral . LString
 pDecimal :: Decimal -> PactValue
 pDecimal = PLiteral . LDecimal
+pInteger :: Integer -> PactValue
+pInteger = PLiteral . LInteger
 
 assertResultFail :: HasCallStack => String -> String -> Either String (TestResponse String) -> Assertion
 assertResultFail msg expectErr (Left e) = assertSatisfies msg e ((isInfixOf expectErr).show)
 assertResultFail msg _ (Right _) = assertFailure $ msg
+
+checkResultSuccess :: HasCallStack => ([PactResult] -> Assertion) -> Either String (TestResponse String) -> Assertion
+checkResultSuccess _ (Left e) = assertFailure $ "Expected success, got: " ++ show e
+checkResultSuccess test (Right (TestResponse outs _)) = test $ map (_crResult . snd) outs
+
+checkPactResultSuccess :: HasCallStack => String -> PactResult -> (PactValue -> Assertion) -> Assertion
+checkPactResultSuccess _ (PactResult (Right pv)) test = test pv
+checkPactResultSuccess msg (PactResult (Left e)) _ = assertFailure $ msg ++ ": expected tx success, got " ++ show e
 
 testTfrNoGasFails :: TxsTest
 testTfrNoGasFails = (txs,assertResultFail "Expected missing (GAS) failure" "Keyset failure")
@@ -189,7 +201,7 @@ testTfrNoGasFails = (txs,assertResultFail "Expected missing (GAS) failure" "Keys
       ]
 
 testTfrGas :: TxsTest
-testTfrGas = (txs,test)
+testTfrGas = (txs,checkResultSuccess test)
   where
     txs = ks >>= \ks' ->
       mkTestExecTransactions "sender00" "0" ks' "testTfrGas" 10000 0.01 1000000 0 $
@@ -198,10 +210,8 @@ testTfrGas = (txs,test)
       [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
       , SigCapability (QualifiedName "coin" "GAS" def) []
       ]
-    test (Left e) = assertFailure $ "Expected success, got: " ++ show e
-    test (Right (TestResponse outs _)) = case map (_crResult . snd) outs of
-      [PactResult (Right pv)] -> assertEqual "transfer succeeds" (pString "Write succeeded") pv
-      r -> assertFailure $ "Expected single result, got: " ++ show r
+    test [PactResult (Right pv)] = assertEqual "transfer succeeds" (pString "Write succeeded") pv
+    test r = assertFailure $ "Expected single result, got: " ++ show r
 
 testBadSenderFails :: TxsTest
 testBadSenderFails = (txs,assertResultFail "Expected failure on bad sender"
@@ -211,6 +221,56 @@ testBadSenderFails = (txs,assertResultFail "Expected failure on bad sender"
       mkTestExecTransactions "some-unknown-sender" "0" ks' "testBadSenderFails" 10000 0.01 1000000 0 $
       V.fromList [PactTransaction "(+ 1 2)" Nothing]
     ks = testKeyPairs sender00KeyPair Nothing
+
+testGasPayer :: TxsTest
+testGasPayer = (txs,checkResultSuccess test)
+  where
+    loadCode = do
+      -- setup is all signed by sender01
+      -- load impl, operate is sender01
+      let operateKs = Just $ object
+            [ "gas-payer-operate" .= [ view _1 sender01KeyPair ] ]
+      impl <- (`PactTransaction` operateKs) <$>
+        getPactCode (File "../../pact/gas-payer/gas-payer-v1-reference.pact")
+      let
+        -- setup gas user sender00 with 100.0 balance
+        sender00ks = Just $ object
+          [ "sender00" .= [ view _1 sender00KeyPair ] ]
+        setupUser = PactTransaction
+          "(gas-payer-v1-reference.fund-user \"sender00\" (read-keyset \"sender00\") 100.0)"
+          sender00ks
+        -- transfer-create gas-payer by funding from sender01
+        fundGasAcct = PactTransaction
+          "(coin.transfer-create \"sender01\" \"gas-payer\" (gas-payer-v1-reference.create-gas-payer-guard) 100.0)"
+          Nothing
+      -- sign with sender01 and caps for transfer, gas
+      ks <- testKeyPairs sender01KeyPair $ Just
+        [ SigCapability (QualifiedName "coin" "TRANSFER" def)
+          [pString "sender01",pString "gas-payer",pDecimal 100.0]
+        , SigCapability (QualifiedName "coin" "GAS" def) []
+        , SigCapability (QualifiedName (ModuleName "gas-payer-v1-reference" (Just "user")) "FUND_USER" def) []
+        ]
+      mkTestExecTransactions "sender01" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
+        V.fromList [impl,setupUser,fundGasAcct]
+
+    runPaidTx = do
+      ks <- testKeyPairs sender00KeyPair $ Just
+        [ SigCapability (QualifiedName (ModuleName "gas-payer-v1-reference" (Just "user")) "GAS_PAYER" def)
+          [pString "sender00",pInteger 10000,pDecimal 0.01] ]
+      mkTestExecTransactions "gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
+        V.fromList [PactTransaction "(+ 1 2)" Nothing]
+
+    txs = do
+      l <- loadCode
+      r <- runPaidTx
+      return $! l <> r
+
+    test [impl,setupUser,fundGasAcct,paidTx] = do
+      checkPactResultSuccess "impl" impl $ assertEqual "impl" (pString "TableCreated")
+      checkPactResultSuccess "setupUser" setupUser $ assertEqual "setupUser" (pString "Write succeeded")
+      checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct" (pString "Write succeeded")
+      checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
+    test r = assertFailure $ "Expected 5 results, got: " ++ show r
 
 
 -- -------------------------------------------------------------------------- --

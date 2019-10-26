@@ -78,15 +78,21 @@ main = do
     putStrLn "Done."
   where
     otherChains =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (Testnet02, "Testnet", [ fungibleAsset, coinContract, prodNGrants, prodNs ])
+      [ (Development, "Development",
+         [fungibleAsset, coinContract, gasPayer, devNGrants, devNs])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM",
+         [fungibleAsset, coinContract, gasPayer, devNGrants, devNs])
+      , (Testnet02, "Testnet",
+         [ fungibleAsset, coinContract, gasPayer, prodNGrants, prodNs ])
       ]
 
     chain0 =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (Testnet02, "Testnet", [fungibleAsset, coinContract, prodNs, prodAllocations, prod0Grants])
+      [ (Development, "Development",
+         [fungibleAsset, coinContract, gasPayer, devNs, devAllocations, dev0Grants])
+      , (FastTimedCPM petersonChainGraph, "FastTimedCPM",
+         [fungibleAsset, coinContract, gasPayer, devNs, devAllocations, dev0Grants])
+      , (Testnet02, "Testnet",
+         [fungibleAsset, coinContract, gasPayer, prodNs, prodAllocations, prod0Grants])
       ]
 
 coinContract :: FilePath
@@ -94,6 +100,9 @@ coinContract = "pact/coin-contract/load-coin-contract.yaml"
 
 fungibleAsset :: FilePath
 fungibleAsset = "pact/coin-contract/load-fungible-asset.yaml"
+
+gasPayer :: FilePath
+gasPayer = "pact/gas-payer/load-gas-payer.yaml"
 
 dev0Grants :: FilePath
 dev0Grants = "pact/genesis/testnet/grants0.yaml"
