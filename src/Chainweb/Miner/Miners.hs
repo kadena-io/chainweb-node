@@ -93,8 +93,7 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 
     meanBlockTime :: Double
     meanBlockTime = case blockRate v of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show v
+        BlockRate (Seconds n) -> int n
 
     work :: BlockHeader -> IO BlockHeader
     work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh

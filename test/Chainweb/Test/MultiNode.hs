@@ -423,8 +423,7 @@ expectedBlockCount v (Seconds seconds) = round ebc
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "expectedBlockCount: ChainwebVersion with no BlockRate given: " <> show v
+        BlockRate (Seconds n) -> int n
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
 lowerStats v (Seconds seconds) = Stats
@@ -440,8 +439,7 @@ lowerStats v (Seconds seconds) = Stats
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "lowerStats: ChainwebVersion with no BlockRate given: " <> show v
+        BlockRate (Seconds n) -> int n
 
 upperStats :: ChainwebVersion -> Seconds -> Stats
 upperStats v (Seconds seconds) = Stats
@@ -457,5 +455,4 @@ upperStats v (Seconds seconds) = Stats
 
     br :: Natural
     br = case blockRate v of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "upperStats: ChainwebVersion with no BlockRate given: " <> show v
+        BlockRate (Seconds n) -> int n
