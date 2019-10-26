@@ -37,8 +37,6 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
-, MinAdjustment(..)
-, minAdjust
 -- ** Date-based Transaction Disabling
 , txSilenceDates
 
@@ -523,20 +521,20 @@ newtype BlockRate = BlockRate Seconds
 -- number of seconds we expect to pass while a miner mines on various chains,
 -- eventually succeeding on one.
 --
-blockRate :: ChainwebVersion -> Maybe BlockRate
-blockRate Test{} = Nothing
-blockRate TimedConsensus{} = Just $ BlockRate 4
-blockRate PowConsensus{} = Just $ BlockRate 10
-blockRate TimedCPM{} = Just $ BlockRate 4
+blockRate :: ChainwebVersion -> BlockRate
+blockRate Test{} = BlockRate 0
+blockRate TimedConsensus{} = BlockRate 4
+blockRate PowConsensus{} = BlockRate 10
+blockRate TimedCPM{} = BlockRate 4
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate FastTimedCPM{} = Just $ BlockRate 1
-blockRate Development = Just $ BlockRate 30
+blockRate FastTimedCPM{} = BlockRate 1
+blockRate Development = BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Testnet02 = Just $ BlockRate 30
+blockRate Testnet02 = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
--- algorithm seen in `hashTarget`.
+-- algorithm seen in `adjust`.
 --
 newtype WindowWidth = WindowWidth Natural
 
@@ -563,22 +561,3 @@ txSilenceDates TimedCPM{} = Nothing
 txSilenceDates FastTimedCPM{} = Nothing
 txSilenceDates Development = Nothing
 txSilenceDates Testnet02 = Nothing
-
--- | The minimum factor of change that a single application of `adjust` must
--- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
--- this value should be above \(e = 2.71828\cdots\).
---
-newtype MinAdjustment = MinAdjustment Natural
-
--- | The Proof-of-Work `MinAdjustment` for each `ChainwebVersion`. For chainwebs
--- that do not expect to perform POW, this should be `Nothing`.
---
-minAdjust :: ChainwebVersion -> Maybe MinAdjustment
-minAdjust Test{} = Nothing
-minAdjust TimedConsensus{} = Nothing
-minAdjust PowConsensus{} = Just $ MinAdjustment 1
-minAdjust TimedCPM{} = Nothing
-minAdjust FastTimedCPM{} = Nothing
--- See `adjust` for motivation.
-minAdjust Development = Just $ MinAdjustment 1
-minAdjust Testnet02 = Just $ MinAdjustment 1
