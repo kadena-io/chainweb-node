@@ -1,4 +1,4 @@
 code: |-
-  (coin.coinbase "Emily" (keyset-ref-guard "Emily") 1000000.0)
+  (coin.coinbase "Kadena" (keyset-ref-guard "Kadena") 10000000.0)
 nonce: mainnet-coinbase
 keyPairs: []

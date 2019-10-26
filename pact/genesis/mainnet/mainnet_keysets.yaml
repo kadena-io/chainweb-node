@@ -1,4 +1,5 @@
 code: |-
+  (define-keyset "Kadena" (read-keyset "Kadena"))
   (define-keyset "Emily" (read-keyset "Emily"))
   (define-keyset "SA <1>" (read-keyset "SA <1>"))
   (define-keyset "SA <2>" (read-keyset "SA <2>"))
@@ -84,6 +85,7 @@ code: |-
   (define-keyset "ST_C1" (read-keyset "ST_C1"))
 
 data:
+  "Kadena": { keys: ["9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6"], pred: "keys-all" }
   "Emily": { keys: ["9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6"], pred: "keys-all" }
   "SA <1>": { keys: ["9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6"], pred: "keys-all" }
   "SA <2>": { keys: ["9a45ebe41b1ee9dc646f66f188582cf199da8e5f046b2b610b4884ec4f3e14d6"], pred: "keys-all" }

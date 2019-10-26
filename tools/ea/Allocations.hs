@@ -220,7 +220,7 @@ mkCoinbaseTx (CoinbaseEntry n a k) = CoinbaseTx tx
         [ "(coin.coinbase "
         , "\"" <> n <>"\" "
         , "(keyset-ref-guard \"" <> a <> "\") "
-        , sshow k
+        , T.pack $ T.printf "%f" k
         , ")"
         ]
 
