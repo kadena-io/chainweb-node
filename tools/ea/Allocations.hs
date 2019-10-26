@@ -70,9 +70,9 @@ generateAllocations = allocations
     allocations = for_ readAllocations $ \as -> do
       let cid = _allocationTxChain $ V.head as
       let ys = toYaml ("mainnet-allocations-" <> cid) as
-      T.writeFile (prefix $ "keysets" <> T.unpack cid) ys
+      T.writeFile (prefix $ "allocations" <> T.unpack cid) ys
 
-    keys = T.writeFile (prefix "keys") $
+    keys = T.writeFile (prefix "keysets") $
       toYaml "mainnet-keysets" readAllocationKeys
 
     coinbases = T.writeFile (prefix "allocations") $
