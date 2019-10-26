@@ -208,6 +208,26 @@ prodEnv key sender c = Env
     , _envTtl = 600
     }
 
+mainEnv
+    :: T.Text
+        -- secret key in hex encoding
+    -> T.Text
+        -- sender account
+    -> Int
+        -- chain
+    -> Env
+mainEnv key sender c = Env
+    { _envVersion = Mainnet01
+    , _envChain = cid Mainnet01 c
+    , _envNode = unsafeHostAddressFromText "fr1.chainweb.com:443"
+    , _envManager = mgr
+    , _envKeys = either (error . show) (\a -> [(a,[])]) $ plainSecret key
+    , _envSender = sender
+    , _envGasLimit = 1000
+    , _envGasPrice = 0.001
+    , _envTtl = 600
+    }
+
 cid
     :: (HasChainwebVersion v, Integral i)
     => v
