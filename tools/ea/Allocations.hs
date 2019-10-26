@@ -51,6 +51,8 @@ import qualified Data.Text.IO as T
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
+import qualified Text.Printf as T
+
 import Chainweb.Utils
 
 -- -------------------------------------------------------------------- --
@@ -185,7 +187,7 @@ mkAllocationTx (AllocationEntry n t ksn a c) = AllocationTx tx c
       , "\"" <> n <> "\" "
       , "(time \"" <> t <> "\") "
       , "\"" <> ksn <> "\" "
-      , sshow a
+      , T.pack $ T.printf "%f" a -- unpack scientific notation
       , ")"
       ]
 
