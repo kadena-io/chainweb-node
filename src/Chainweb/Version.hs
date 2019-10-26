@@ -10,6 +10,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -38,7 +39,7 @@ module Chainweb.Version
 , WindowWidth(..)
 , window
 -- ** Date-based Transaction Disabling
-, txSilenceDates
+, txSilenceEndDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -115,7 +116,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
-import Chainweb.Time (Micros, Seconds(..), Time)
+import Chainweb.Time
 import Chainweb.Utils
 
 import Data.Singletons
@@ -219,6 +220,7 @@ data ChainwebVersion
     -- PRODUCTION INSTANCES
     -----------------------
     | Testnet02
+    | Mainnet01
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
@@ -247,11 +249,13 @@ chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Development = 0x00000001
 chainwebVersionId Testnet02 = 0x00000004
+chainwebVersionId Mainnet01 = 0x00000005
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromChainwebVersionId 0x00000001 = Development
 fromChainwebVersionId 0x00000004 = Testnet02
+fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
@@ -282,6 +286,7 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Development = "development"
 chainwebVersionToText Testnet02 = "testnet02"
+chainwebVersionToText Mainnet01 = "mainnet01"
 chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
 
@@ -292,6 +297,7 @@ chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "development" = pure Development
 chainwebVersionFromText "testnet02" = pure Testnet02
+chainwebVersionFromText "mainnet01" = pure Mainnet01
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
         Just v -> pure v
@@ -322,6 +328,7 @@ chainwebVersions = HM.fromList $
     <> f FastTimedCPM "fastTimedCPM"
     <> [ ("development", Development)
        , ("testnet02", Testnet02)
+       , ("mainnet01", Mainnet01)
        ]
   where
     f v p = map (\(k, g) -> (p <> k, v g)) pairs
@@ -391,6 +398,8 @@ testVersionToCode FastTimedCPM{} = 0x80000004
 testVersionToCode Development =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Testnet02 =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
+testVersionToCode Mainnet01 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
@@ -504,6 +513,7 @@ chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph (FastTimedCPM g) = g
 chainwebVersionGraph Development = petersonChainGraph
 chainwebVersionGraph Testnet02 = petersonChainGraph
+chainwebVersionGraph Mainnet01 = petersonChainGraph
 
 instance HasChainGraph ChainwebVersion where
     _chainGraph = chainwebVersionGraph
@@ -526,11 +536,11 @@ blockRate Test{} = BlockRate 0
 blockRate TimedConsensus{} = BlockRate 4
 blockRate PowConsensus{} = BlockRate 10
 blockRate TimedCPM{} = BlockRate 4
--- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate FastTimedCPM{} = BlockRate 1
-blockRate Development = BlockRate 30
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
+blockRate Development = BlockRate 30
 blockRate Testnet02 = BlockRate 30
+blockRate Mainnet01 = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -552,12 +562,14 @@ window FastTimedCPM{} = Nothing
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet02 = Just $ WindowWidth 120
+window Mainnet01 = Just $ WindowWidth 120
 
-txSilenceDates :: ChainwebVersion -> Maybe (Time Micros)
-txSilenceDates Test{} = Nothing
-txSilenceDates TimedConsensus{} = Nothing
-txSilenceDates PowConsensus{} = Nothing
-txSilenceDates TimedCPM{} = Nothing
-txSilenceDates FastTimedCPM{} = Nothing
-txSilenceDates Development = Nothing
-txSilenceDates Testnet02 = Nothing
+txSilenceEndDate :: ChainwebVersion -> Maybe (Time Micros)
+txSilenceEndDate Test{} = Nothing
+txSilenceEndDate TimedConsensus{} = Nothing
+txSilenceEndDate PowConsensus{} = Nothing
+txSilenceEndDate TimedCPM{} = Nothing
+txSilenceEndDate FastTimedCPM{} = Nothing
+txSilenceEndDate Development = Nothing
+txSilenceEndDate Testnet02 = Nothing
+txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]

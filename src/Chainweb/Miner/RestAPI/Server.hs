@@ -62,7 +62,7 @@ import Data.Singletons
 
 ---
 
--- | KILLSWITCH: The logic here involving `txSilenceDates` is to be removed in a
+-- | KILLSWITCH: The logic here involving `txSilenceEndDate` is to be removed in a
 -- future version of Chainweb. This logic errors on remote requests for new
 -- mining work, such that this Node can no longer meaningfully participate in
 -- mining.
@@ -76,7 +76,7 @@ workHandler
     -> Handler WorkBytes
 workHandler mr v mcid m = do
     now <- liftIO getCurrentTimeIntegral
-    case txSilenceDates v of
+    case txSilenceEndDate v of
         Just end | now > end ->
             throwM err400 { errBody = "Node is out of date - please upgrade."}
         _ -> do
