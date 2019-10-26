@@ -726,6 +726,7 @@ runChainweb cw = do
     mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
 
     -- Decide whether to enable the mempool sync clients
+    -- | KILLSWITCH: Reenable the mempool sync for Mainnet.
     mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
@@ -737,7 +738,7 @@ runChainweb cw = do
             FastTimedCPM{} -> enabled c
             Development -> enabled c
             Testnet02 -> enabled c
-            Mainnet01 -> enabled c
+            Mainnet01 -> disabled
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"
