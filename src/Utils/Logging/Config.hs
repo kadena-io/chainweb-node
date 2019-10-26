@@ -51,6 +51,7 @@ import Configuration.Utils.Validation
 import Control.DeepSeq
 import Control.Lens.TH
 import Control.Monad.Catch
+import Control.Monad.Error.Class
 import Control.Monad.Writer (tell)
 
 import qualified Data.CaseInsensitive as CI
@@ -58,6 +59,8 @@ import Data.String
 import qualified Data.Text as T
 
 import GHC.Generics
+
+import qualified Network.HTTP.Client as HTTP
 
 import System.Logger.Backend.ColorOption
 
@@ -150,6 +153,10 @@ instance HasTextRepresentation HandleConfig where
 
 validateHandleConfig :: ConfigValidation HandleConfig l
 validateHandleConfig (FileHandle filepath) = validateFileWritable "file handle" filepath
+validateHandleConfig (ElasticSearch urlText) = case HTTP.parseRequest (T.unpack urlText) of
+    Left e -> throwError $ "failed to parse URL for ElasticSearch logging backend handle: " <> sshow e
+    Right _ -> return ()
+
 validateHandleConfig _ = return ()
 
 instance ToJSON HandleConfig where
