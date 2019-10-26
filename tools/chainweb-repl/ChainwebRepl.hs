@@ -302,11 +302,11 @@ instance Show PactDecimal where
 
 accountInfo :: Env -> T.Text -> IO PactValue
 accountInfo env account = do
-    result <$> local env noData ("(coin.account-info " <> sshow account <> ")")
+    result <$> local env noData ("(coin.details" <> sshow account <> ")")
 
 accountBalance :: Env -> T.Text -> IO PactValue
 accountBalance env account = do
-    result <$> local env noData ("(coin.account-balance " <> sshow account <> ")")
+    result <$> local env noData ("(coin.get-balance " <> sshow account <> ")")
 
 accountExists :: Env -> T.Text -> IO Bool
 accountExists env acc = do
