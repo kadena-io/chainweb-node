@@ -137,9 +137,9 @@ doReadRow d k =
         => Utf8
         -> SQLitePendingData
         -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInPendingData (Utf8 rowkey) (_, m, _, _) = do
+    lookupInPendingData (Utf8 rowkey) p = do
         let deltaKey = SQLiteDeltaKey tableNameBS rowkey
-        ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey m)
+        ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey (_pendingWrites p))
         if null ddata
             -- should be impossible, but we'll check this case
             then mzero
@@ -163,11 +163,9 @@ doReadRow d k =
 
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
 checkDbTableExists tableName = do
-    pd <- lift getPendingData
-    let checkOne (s, _, _, _) = do
-            let b = HashSet.member tableNameBS s
-            when b mzero
-    mapM_ checkOne pd
+    pds <- lift getPendingData
+    forM_ pds $ \p ->
+        when (HashSet.member tableNameBS (_pendingTableCreation p)) mzero
   where
     (Utf8 tableNameBS) = tableName
 
@@ -207,7 +205,7 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     delta = SQLiteRowDelta tn txid key vs
     deltaKey = SQLiteDeltaKey tn key
 
-    modf (a, m, l, p) = (a, upd m, l, p)
+    modf = over pendingWrites upd
     {- "const" is used here because prefer the latest update of the rowkey for
     the current transaction  -}
     upd = HashMap.insertWith const deltaKey (DL.singleton delta)
@@ -334,9 +332,9 @@ doKeys d = do
 
     tn = domainTableName d
     tnS = toS tn
-    collect (_, m, _, _) =
+    collect p =
         let flt k _ = _dkTable k == tnS
-        in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt m
+        in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
@@ -370,13 +368,13 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 
     tnS = toS tn
-    collect (_, m, _, _) =
+    collect p =
         let flt k _ = _dkTable k == tnS
             txids = DL.toList $
                     fmap _deltaTxId $
                     DL.concat $
                     HashMap.elems $
-                    HashMap.filterWithKey flt m
+                    HashMap.filterWithKey flt (_pendingWrites p)
         in filter (> _tid) txids
 {-# INLINE doTxIds #-}
 
@@ -391,13 +389,11 @@ recordTxLog tt d k v = do
     -- are we in a tx?
     mptx <- use bsPendingTx
     case mptx of
-      Nothing -> modify' (over bsPendingBlock upd)
-      (Just _) -> modify' (over (bsPendingTx . _Just) upd)
+      Nothing -> bsPendingBlock . pendingTxLogMap %= upd
+      (Just _) -> bsPendingTx . _Just . pendingTxLogMap %= upd
 
   where
-    upd (a, b, m, p) = let !m' = M.insertWith DL.append tt txlogs m
-                           !t = (a, b, m', p)
-                       in t
+    upd = M.insertWith DL.append tt txlogs
     txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
 
 modifyPendingData
@@ -419,12 +415,9 @@ doCreateUserTable tn@(TableName ttxt) mn = do
           -- then check if it is in the db
           cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
           when cond $ throwM $ PactDuplicateTableError ttxt
-          modifyPendingData $ \(c, w, l, p) ->
-              let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
-                  !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
-                  !t = (c', w, l', p)
-              in t
-
+          modifyPendingData
+            $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 ttxt))
+            . over pendingTxLogMap (M.insertWith DL.append (TableName txlogKey) txlogs)
   where
     inDb t =
       callDb "doCreateUserTable" $ \db -> do
@@ -452,8 +445,8 @@ doCommit = use bsMode >>= \mm -> case mm of
               modify' (over bsTxId succ)
               -- merge pending tx into block data
               pending <- use bsPendingTx
-              modify' (over bsPendingBlock $ merge pending)
-              (_, _, blockLogs, _) <- use bsPendingBlock
+              bsPendingBlock %= merge pending
+              blockLogs <- use $ bsPendingBlock . pendingTxLogMap
               bsPendingTx .= Nothing
               resetTemp
               return blockLogs
@@ -461,15 +454,16 @@ doCommit = use bsMode >>= \mm -> case mm of
         return $! concat $ fmap (reverse . DL.toList) txrs
   where
     merge Nothing a = a
-    merge (Just (creationsA, writesA, logsA, _)) (creationsB, writesB, _, idx) =
-        let creations = HashSet.union creationsA creationsB
-            mergeW a b = let aa = take 1 $ DL.toList a
-                         in case aa of
-                              [] -> b
-                              (x:_) -> DL.cons x b
-            writes = HashMap.unionWith mergeW writesA writesB
-            logs = logsA
-        in (creations, writes, logs, idx)
+    merge (Just a) b = SQLitePendingData
+        { _pendingTableCreation = HashSet.union (_pendingTableCreation a) (_pendingTableCreation b)
+        , _pendingWrites = HashMap.unionWith mergeW  (_pendingWrites a) (_pendingWrites b)
+        , _pendingTxLogMap = _pendingTxLogMap a
+        , _pendingSuccessfulTxs = _pendingSuccessfulTxs b
+        }
+
+    mergeW a b = case take 1 (DL.toList a) of
+        [] -> b
+        (x:_) -> DL.cons x b
 
 {-# INLINE doCommit #-}
 
@@ -498,7 +492,7 @@ resetTemp :: BlockHandler SQLiteEnv ()
 resetTemp = do
     bsMode .= Nothing
     -- clear out txlog entries
-    modify' (over bsPendingBlock $ \(a, b, _, p) -> (a, b, mempty, p))
+    bsPendingBlock . pendingTxLogMap .= mempty
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
@@ -520,10 +514,9 @@ doGetTxLog d txid = do
     readFromPending = do
         ptx <- maybe [] (:[]) <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let pendingWrites = map (\(_, a, _, _) -> a) (ptx ++ [pb])
         let deltas = concat $
-                     map (takeHead . DL.toList) $
-                     concatMap HashMap.elems pendingWrites
+                map (takeHead . DL.toList) $
+                concatMap HashMap.elems $ _pendingWrites <$> (ptx ++ [pb])
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
@@ -573,15 +566,12 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
 indexPactTransaction :: ByteString -> BlockHandler SQLiteEnv ()
-indexPactTransaction h = modify' (over bsPendingBlock upd)
-  where
-    upd (a, b, c, !d) = let !d' = HashSet.insert h d
-                            !t = (a, b, c, d')
-                        in t
+indexPactTransaction h = bsPendingBlock . pendingSuccessfulTxs %= HashSet.insert h
+
 
 indexPendingPactTransactions :: BlockHandler SQLiteEnv ()
 indexPendingPactTransactions = do
-    txs <- (\(_, _, _, a) -> a) <$> gets _bsPendingBlock
+    txs <- _pendingSuccessfulTxs <$> gets _bsPendingBlock
     dbIndexTransactions txs
 
   where
