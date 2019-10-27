@@ -572,4 +572,4 @@ txSilenceEndDate TimedCPM{} = Nothing
 txSilenceEndDate FastTimedCPM{} = Nothing
 txSilenceEndDate Development = Nothing
 txSilenceEndDate Testnet02 = Nothing
-txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
+txSilenceEndDate Mainnet01 = Nothing
