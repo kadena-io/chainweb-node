@@ -96,7 +96,7 @@ main = do
 
     putStrLn "Done."
   where
-    cc = [fungibleAsset, coinContract]
+    cc = [fungibleAsset, coinContract, gasPayer]
     devDefaults = cc <> [devNs]
     prodDefaults = cc <> [prodNs]
     mainnetDefaults = cc <> [prodNs, mainKeysets, mainCoinbases]
@@ -136,6 +136,9 @@ coinContract = "pact/coin-contract/load-coin-contract.yaml"
 
 fungibleAsset :: FilePath
 fungibleAsset = "pact/coin-contract/load-fungible-asset.yaml"
+
+gasPayer :: FilePath
+gasPayer = "pact/gas-payer/load-gas-payer.yaml"
 
 dev0Grants :: FilePath
 dev0Grants = "pact/genesis/testnet/grants0.yaml"

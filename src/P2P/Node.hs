@@ -96,9 +96,7 @@ import Chainweb.Version
 
 import Data.LogMessage
 
-#if MIN_VERSION_servant(0,16,0)
 import Network.X509.SelfSigned
-#endif
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
@@ -335,18 +333,11 @@ syncFromPeer node info = runClientM sync env >>= \case
     -- databased. This allows to implement reputation management, gray-, and
     -- black listing.
     --
-#if MIN_VERSION_servant(0,16,0)
     isCertMismatch (ConnectionError e) = case fromException e of
         Just x
             | isCertificateMismatchException x -> True
         _ -> False
     isCertMismatch _ = False
-#else
-    isCertMismatch (ConnectionError e)
-        | T.isInfixOf "CertificateUnknown" e = True
-        | otherwise = False
-    isCertMismatch _ = False
-#endif
 
 -- -------------------------------------------------------------------------- --
 -- Sample Peer from PeerDb

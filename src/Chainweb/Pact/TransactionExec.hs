@@ -64,13 +64,14 @@ import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
+import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
 import Data.Tuple.Strict (T2(..), T3(..))
 
 -- internal Pact modules
 
-import Pact.Eval (liftTerm, lookupModule, resolveRef)
+import Pact.Eval (liftTerm, lookupModule)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
@@ -491,7 +492,7 @@ buyGas env cmd (Miner mid mks) supply mcache = go
     go = do
 
       buyGasCmd <- mkBuyGasCmd mid mks sender supply
-      -- print ("\n\nBUY GAS:",supply, "\n\n")
+
       result <- applyExec' env interp buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
@@ -503,16 +504,12 @@ buyGas env cmd (Miner mid mks) supply mcache = go
         Just pe -> return $! Right $ T3 (GasId $ _pePactId pe) (_erLogs result) mcache'
 
 findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
-findPayer = return Nothing -- disabled until tested
-
-_findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
-_findPayer = runMaybeT go
+findPayer = runMaybeT go
   where
     go = do
       (m,qn,as) <- MaybeT findPayerCap
       pMod <- MaybeT $ lookupModule qn m
-      MaybeT $ return $ validateMod pMod
-      capRef <- MaybeT $ resolveRef qn (QName qn)
+      capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
       return $ runCap (getInfo qn) capRef as
 
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
@@ -523,8 +520,9 @@ _findPayer = runMaybeT go
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
 
-    validateMod (ModuleData (MDModule (Module {..})) _) | gasPayerIface `elem` _mInterfaces = Just ()
-    validateMod _ = Nothing
+    lookupIfaceModRef (QualifiedName _ n _) (ModuleData (MDModule (Module {..})) refs)
+      | gasPayerIface `elem` _mInterfaces = HM.lookup n refs
+    lookupIfaceModRef _ _ = Nothing
 
     mkApp i r as = App (TVar r i) (map (liftTerm . fromPactValue) as) i
 
@@ -559,7 +557,7 @@ redeemGas env cmd initialGas cmdResult gid prevLogs mcache = do
         rk         = cmdToRequestKey cmd
         initState  = initStateInterpreter $ setModuleCache mcache
           $ initCapabilities [magic_GAS]
-    -- print ("\n\nREDEEM GAS:",rk,initialGas,_crGas cmdResult,fee, "\n\n")
+
     applyContinuation env initState rk (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
       managedNamespacePolicy

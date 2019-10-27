@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -14,10 +13,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-
-#ifndef MIN_VERSION_servant_client
-#define MIN_VERSION_servant_client(a,b,c) 1
-#endif
 
 -- |
 -- Module: Chainweb.Sync.WebBlockHeaderStore.Types

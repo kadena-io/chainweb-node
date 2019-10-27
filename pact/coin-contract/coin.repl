@@ -189,6 +189,19 @@
  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
 (test-capability (GAS))
+(env-keys [])
+
+(expect-failure
+  "fund-tx fails without signature"
+  "Keyset failure"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(env-sigs [{"key": "keys1", "caps": [(TRANSFER "emily" "doug" 1.0)]}])
+
+(expect-failure
+  "fund-tx fails for no gas cap"
+  "Keyset failure"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
 (expect-failure
   "fund-tx fails for trivial or negative quantities"
@@ -200,9 +213,37 @@
   "positive"
   (fund-tx 'emily 'doug (read-keyset 'doug) (- 1.0)))
 
+(env-sigs [{"key": "keys1", "caps": [(GAS)]}])
+
 (expect-failure
   "fund-tx fails for insufficient funds"
   "Insufficient funds"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(env-keys ["keys1"])
+(test-capability (CREDIT "emily"))
+(credit "emily" (read-keyset "emily") 3.0)
+
+(expect
+  "fund-tx succeeds with gas cap"
+  "Write succeeded"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(pact-state true)
+
+(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0)]}])
+
+(expect
+  "fund-tx succeeds with gas cap and other cap"
+  "Write succeeded"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(pact-state true)
+
+(env-keys ["keys1"])
+(expect
+  "fund-tx succeeds with no caps"
+  "Write succeeded"
   (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
 (env-data { "fee" : 1.0 , "miner" : ["miner"] })

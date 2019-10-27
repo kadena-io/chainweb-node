@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -552,20 +551,16 @@ seekStreamSet k (Just (Exclusive s))
 
 prop_seekLimitStream_limit :: [Int] -> Natural -> Property
 prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
     & cover 1 (i == len l) "limit == length of stream"
     & cover 1 (i == 0) "limit == 0"
     & cover 1 (length l == 0) "length of stream == 0"
-#endif
   where
     actual = runIdentity . S.toList $ seekLimitStream id Nothing (Just (Limit i)) (S.each l)
     expected = take (int i) l :> (i, Eos (i >= len l))
 
 prop_seekLimitStream_id :: [Int] -> Property
 prop_seekLimitStream_id l = actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
     & cover 1 (length l == 0) "len l == 0"
-#endif
   where
     actual = runIdentity $ S.toList $ seekLimitStream id Nothing Nothing (S.each l)
     expected = l :> (len l, Eos True)

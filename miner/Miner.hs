@@ -93,9 +93,6 @@ import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-#if !MIN_VERSION_servant_client(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.Utils (textOption, toText, runGet)
 import Chainweb.Version
 
@@ -259,11 +256,7 @@ getWork = do
 
     bad :: ClientError -> RIO Env ()
     bad (ConnectionError _) = logWarn "Could not connect to the Node."
-#if !MIN_VERSION_servant_client(0,16,0)
-    bad (FailureResponse r) = logWarn $ c <> " from Node: " <> m
-#else
     bad (FailureResponse _ r) = logWarn $ c <> " from Node: " <> m
-#endif
       where
         c = display . statusCode $ responseStatusCode r
         m = displayBytesUtf8 . BL.toStrict $ responseBody r
