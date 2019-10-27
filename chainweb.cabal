@@ -353,11 +353,11 @@ library
         , safeio >= 0.0
         , safe-exceptions >= 0.1
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
-        , servant-server >= 0.14
-        , servant-swagger >= 1.1
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
+        , servant-server >= 0.16
+        , servant-swagger >= 1.1.7.1
         , stm >= 2.4
         , stm-chans
         , stopwatch >= 0.1
@@ -491,9 +491,9 @@ test-suite chainweb-tests
         , retry >= 0.7
         , scheduler >= 1.4
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
@@ -575,9 +575,9 @@ test-suite chainweb-tools-tests
         , retry >= 0.7
         , scheduler >= 1.4
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
@@ -675,7 +675,7 @@ executable chainweb-miner
         , retry >= 0.7
         , rio >= 0.1.5
         , scheduler >= 1.4.1
-        , servant-client >= 0.14
+        , servant-client >= 0.16
         , streaming >= 0.2
         , streaming-events >= 1.0
         , strict-tuple >= 0.1.3
@@ -766,9 +766,9 @@ executable cwtool
         , primitive >= 0.6
         , random >= 1.1
         , resourcet >= 1.2
-        , servant >= 0.14.1
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , shelly >= 1.8
         , stm
         , streaming >= 0.2.2

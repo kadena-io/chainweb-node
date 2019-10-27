@@ -80,9 +80,6 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
-#if !MIN_VERSION_servant(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.Utils
 import Chainweb.Version
 

@@ -41,10 +41,6 @@ import GHC.Generics
 import Servant.Client
 import Servant.Client.Core
 
-#if ! MIN_VERSION_servant_server(0,16,0)
-type ClientError = ServantError
-#endif
-
 -- -------------------------------------------------------------------------- --
 -- Run Modified Client
 
@@ -80,19 +76,8 @@ instance RunClient ClientM_ where
         liftIO $ _modRes e res
     {-# INLINE runRequest #-}
 
-#if MIN_VERSION_servant_server(0,16,0)
     throwClientError = throwError
     {-# INLINE throwClientError #-}
-#elif MIN_VERSION_servant_server(0,15,0)
-    throwServantError = throwError
-    {-# INLINE throwServantError #-}
-#else
-    throwServantError = throwError
-    {-# INLINE throwServantError #-}
-
-    streamingRequest = error "ClientM_ doesn't support legacy servant streaming"
-    {-# INLINE streamingRequest #-}
-#endif
 
 -- | Locally overwrite 'Request's made the inner computation.
 --
