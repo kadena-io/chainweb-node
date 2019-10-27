@@ -32,7 +32,7 @@ import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.Async (Concurrently(..), runConcurrently)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (TVar, modifyTVar', newTVarIO, readTVar)
 import Control.Lens (over)
@@ -47,12 +47,13 @@ import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator
-    (MiningState(..), MiningStats(..), PrevTime(..))
+    (CachedPayloads(..), MiningState(..), MiningStats(..), PrevTime(..))
 import Chainweb.Miner.Miners
+import Chainweb.Miner.Pact (Miner)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (EnableConfig(..), int, runForever)
+import Chainweb.Utils (EnableConfig(..), int, runForever, thd)
 import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
@@ -68,27 +69,43 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
-    , _coord503s :: IORef Int }
+    , _coord503s :: !(IORef Int)
+    , _coordMiners :: !(TVar CachedPayloads)
+      -- ^ "Blessed" miners who have payloads pre-cached for fast work request
+      -- turn-around.
+    }
 
 withMiningCoordination
     :: Logger logger
     => logger
     -> Bool
+    -> [Miner]
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
     -> IO a
-withMiningCoordination logger enabled cutDb inner
+withMiningCoordination logger enabled miners cutDb inner
     | not enabled = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
+        m <- foob miners >>= newTVarIO
         c <- newIORef 0
-        fmap snd . concurrently (prune t c) $ inner . Just $ MiningCoordination
-            { _coordLogger = logger
-            , _coordCutDb = cutDb
-            , _coordState = t
-            , _coordLimit = 2500
-            , _coord503s = c }
+        fmap thd . runConcurrently $ (,,)
+            <$> Concurrently (prune t c)
+            <*> Concurrently (cachePayloads m)
+            <*> Concurrently (inner . Just $ MiningCoordination
+                { _coordLogger = logger
+                , _coordCutDb = cutDb
+                , _coordState = t
+                , _coordLimit = 2500
+                , _coord503s = c
+                , _coordMiners = m })
   where
+    foob :: [Miner] -> IO CachedPayloads
+    foob = undefined
+
+    cachePayloads :: TVar CachedPayloads -> IO ()
+    cachePayloads = undefined
+
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
         let !d = 300000000  -- 5 minutes

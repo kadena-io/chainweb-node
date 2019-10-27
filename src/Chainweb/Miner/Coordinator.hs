@@ -23,6 +23,7 @@
 module Chainweb.Miner.Coordinator
   ( -- * Types
     MiningState(..)
+  , CachedPayloads(..)
   , MiningStats(..)
   , PrevTime(..)
   , ChainChoice(..)
@@ -84,6 +85,9 @@ newtype MiningState =
     MiningState (M.Map BlockPayloadHash (T3 Miner PrevTime PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
+
+newtype CachedPayloads =
+    CachePayloads (M.Map Miner (M.Map ChainId PayloadWithOutputs))
 
 -- | For logging during `MiningState` manipulation.
 --

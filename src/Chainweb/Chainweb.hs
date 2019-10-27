@@ -111,7 +111,7 @@ import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
 import Data.These (These(..))
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), sfst)
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
@@ -542,9 +542,12 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             synchronizePactDb cs mCutDb
             logg Info "finished synchronizing Pact DBs"
 
+            let coord = _configCoordinator conf
+                mins  = _configBlessedMiners conf
+
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
+                withMiningCoordination mLogger coord mins mCutDb $ \mc ->
                     withMinerResources mLogger mConf mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
