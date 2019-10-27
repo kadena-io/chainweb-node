@@ -1,14 +1,9 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
-
-#ifndef MIN_VERSION_servant_client
-#define MIN_VERSION_servant_client(a,b,c) 1
-#endif
 
 -- |
 -- Module: Chainweb.Miner.Miners

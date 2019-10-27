@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -45,9 +44,6 @@ import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI
 import Chainweb.Version
-#if !MIN_VERSION_servant(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 
 import TXG.Simulate.Contracts.CoinContract
 import TXG.Simulate.Contracts.HelloWorld

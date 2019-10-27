@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -41,9 +40,6 @@ import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId (ChainId)
-#if ! MIN_VERSION_servant(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging

@@ -115,8 +115,7 @@ library
     autogen-modules:
         Paths_chainweb
     exposed-modules:
-          BackCompat.Test.QuickCheck
-        , Chainweb.BlockHash
+          Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
@@ -284,7 +283,7 @@ library
 
     build-depends:
           Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , QuickCheck-GenT >=0.2
         , aeson >= 1.4.3
         , aeson-pretty >= 0.8
@@ -353,11 +352,11 @@ library
         , safeio >= 0.0
         , safe-exceptions >= 0.1
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
-        , servant-server >= 0.14
-        , servant-swagger >= 1.1
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
+        , servant-server >= 0.16
+        , servant-swagger >= 1.1.7.1
         , stm >= 2.4
         , stm-chans
         , stopwatch >= 0.1
@@ -367,7 +366,7 @@ library
         , strict-concurrency >= 0.2
         , strict-tuple >= 0.1.3
         , string-conv >= 0.1
-        , swagger2 >= 2.2
+        , swagger2 >= 2.4
         , template-haskell >= 2.14
         , temporary >= 1.3
         , text >= 1.2
@@ -453,7 +452,7 @@ test-suite chainweb-tests
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.11 && < 5
@@ -491,9 +490,9 @@ test-suite chainweb-tests
         , retry >= 0.7
         , scheduler >= 1.4
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
@@ -535,7 +534,7 @@ test-suite chainweb-tools-tests
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , async >= 2.2
         , attoparsec >= 0.13
@@ -575,9 +574,9 @@ test-suite chainweb-tools-tests
         , retry >= 0.7
         , scheduler >= 1.4
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
@@ -675,7 +674,7 @@ executable chainweb-miner
         , retry >= 0.7
         , rio >= 0.1.5
         , scheduler >= 1.4.1
-        , servant-client >= 0.14
+        , servant-client >= 0.16
         , streaming >= 0.2
         , streaming-events >= 1.0
         , strict-tuple >= 0.1.3
@@ -721,7 +720,7 @@ executable cwtool
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4
         , aeson-pretty >= 0.8
         , async >= 2.2
@@ -766,9 +765,9 @@ executable cwtool
         , primitive >= 0.6
         , random >= 1.1
         , resourcet >= 1.2
-        , servant >= 0.14.1
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , shelly >= 1.8
         , stm
         , streaming >= 0.2.2

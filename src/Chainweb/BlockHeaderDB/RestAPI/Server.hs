@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE KindSignatures #-}
@@ -101,11 +100,7 @@ checkKey !db !k = liftIO (lookup db k) >>= \case
     Just _ -> pure k
 
 err404Msg :: ToJSON msg  => msg -> ServerError
-#if MIN_VERSION_servant(0,16,0)
 err404Msg msg = ServerError
-#else
-err404Msg msg = ServantErr
-#endif
     { errHTTPCode = 404
     , errReasonPhrase = "Not Found"
     , errBody = encode msg

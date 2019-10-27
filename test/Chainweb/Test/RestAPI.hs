@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -48,9 +47,6 @@ import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
 import Chainweb.RestAPI
-#if ! MIN_VERSION_servant(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
@@ -86,11 +82,7 @@ missingKey db = key . head . testBlockHeadersWithNonce (Nonce 34523) <$> genesis
 -- Response Predicates
 
 isErrorCode :: Int -> Either ClientError a -> Bool
-#if MIN_VERSION_servant(0,16,0)
 isErrorCode code (Left (FailureResponse _ Response { responseStatusCode = status}))
-#else
-isErrorCode code (Left (FailureResponse Response { responseStatusCode = status}))
-#endif
     | statusCode status == code = True
 isErrorCode _ _ = False
 
