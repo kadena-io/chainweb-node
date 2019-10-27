@@ -272,11 +272,9 @@ seekFiniteStreamToPage k next limit = finiteStreamToPage k limit
 
 prop_streamToPage_limit :: [Int] -> Limit -> Property
 prop_streamToPage_limit l i = i <= len l ==> actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
     & cover 1 (i == len l) "limit == length of stream"
     & cover 1 (i == 0) "limit == 0"
     & cover 1 (length l == 0) "length of stream == 0"
-#endif
   where
     s = S.each l
     is = take (int i) l
@@ -285,9 +283,7 @@ prop_streamToPage_limit l i = i <= len l ==> actual === expected
 
 prop_streamToPage_id :: [Int] -> Property
 prop_streamToPage_id l = actual === expected
-#if MIN_VERSION_QuickCheck(2,12,0)
     & cover 1 (length l == 0) "len l == 0"
-#endif
   where
     s = S.each l
     actual = runIdentity $ finiteStreamToPage id Nothing s

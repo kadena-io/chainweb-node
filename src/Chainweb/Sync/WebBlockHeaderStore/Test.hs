@@ -101,7 +101,6 @@ testAsyncFib n = do
 
     gc
 
-#if MIN_VERSION_QuickCheck(2,12,0)
     -- Here we miss-use quick checks coverage mechanism for testing a
     -- a distribution of the test restults.
 
@@ -117,7 +116,6 @@ testAsyncFib n = do
 
     casSize <- run $ fromIntegral <$> CAS.size cas
     monitor $ cover 1 (casSize == max 1 n - 1) "expected cas size"
-#endif
 
     -- assert that result is correct
     assert (r == fibs !! fromIntegral n)
