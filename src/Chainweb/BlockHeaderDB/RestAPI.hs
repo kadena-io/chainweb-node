@@ -334,7 +334,7 @@ headerApi = Proxy
 type HeaderPutApi_
     = "header"
     :> ReqBody '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
-    :> PutNoContent '[JSON] NoContent
+    :> PutNoContent
 
 -- | @PUT \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --

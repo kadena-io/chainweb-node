@@ -73,7 +73,7 @@ peerGetApi = Proxy
 type PeerPutApi_
     = "peer"
     :> ReqBody '[JSON] PeerInfo
-    :> PutNoContent '[JSON] NoContent
+    :> PutNoContent
 
 type PeerPutApi (v :: ChainwebVersionT) (n :: NetworkIdT)
     = 'ChainwebEndpoint v :> 'NetworkEndpoint n :> Reassoc PeerPutApi_
