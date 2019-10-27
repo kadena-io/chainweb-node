@@ -1,4 +1,4 @@
-resolver: lts-14.11
+resolver: lts-14.12
 
 ghc-options: {"$locals": -ddump-to-file -ddump-hi -funclutter-valid-hole-fits -fmax-relevant-binds=0}
 
@@ -28,6 +28,6 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: d2891d3c115be00c94afe73a5757967b5d923960
+    commit: 7e3f4545c852dbd9fbd4af720074292f1407aced
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
