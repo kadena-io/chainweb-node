@@ -1,6 +1,6 @@
 {
-  pactRef ? "d2891d3c115be00c94afe73a5757967b5d923960"
-, pactSha ? "1lbykfap59hv3wannnmv6d64hi88hz27nlv68ygr55l494i2m28d"
+  pactRef ? "7e3f4545c852dbd9fbd4af720074292f1407aced"
+, pactSha ? "1k1x07q3cbppzlx02j16x9h1lpd23cmbzr6h18qvmxw85v0gzakl"
 }:
 
 let
@@ -8,9 +8,10 @@ pactSrc = builtins.fetchTarball {
   url = "https://github.com/kadena-io/pact/archive/${pactRef}.tar.gz";
   sha256 = pactSha;
 };
+pactProj = "${pactSrc}/project.nix";
 
 in
-  (import pactSrc {}).rp.project ({ pkgs, hackGet, ... }:
+  (import pactProj {}).rp.project ({ pkgs, hackGet, ... }:
 let
 
 gitignoreSrc = pkgs.fetchFromGitHub {
