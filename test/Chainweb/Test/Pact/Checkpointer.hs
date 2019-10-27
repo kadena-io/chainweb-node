@@ -431,42 +431,51 @@ checkpointerTest name initdata =
 
           next "Testing attemptBuyGas workflow."
 
-          -- Load coin contract... this is weird to do.
+          let attemptBuyGas blockenv prevhash = do fungible <- T.readFile "pact/coin-contract/fungible-v1.pact"
+                                                   coinContract <- T.readFile "pact/coin-contract/coin.pact"
 
-          fungible <- T.readFile "pact/coin-contract/fungible-v1.pact"
-          coinContract <- T.readFile "pact/coin-contract/coin.pact"
+                                                   let minerKeyset = object ["miner" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
+                                                   void $ runExec blockenv Nothing fungible
+                                                   void $ runExec blockenv Nothing coinContract
+                                                   void $ runExec blockenv (Just minerKeyset) "(define-keyset \"miner\")"
 
-          let minerKeyset = object ["miner" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
+                                                   txtime <- toTxCreationTime <$> getCurrentTimeIntegral
+                                                   blockTime <- round . (* 1000000) <$> getPOSIXTime
+
+                                                   let reward = ParsedDecimal 42
+                                                       ttl = 2 * 24 * 60 * 60
+                                                       pd = PublicData (PublicMeta (Pact.ChainId "0") "sender00" 100000 0.1 ttl txtime) 11 blockTime (sshow prevhash)
+
+
+                                                   SubmitBatch txs' <- mkBadGasTxBatch "(+1 2)" "invalid-sender" sender00KeyPair Nothing txtime ttl
+
+                                                   txs <- case  traverse validateCommand txs' of
+                                                            Right enriched -> return $ V.fromList $ NEL.toList enriched
+                                                            Left err -> assertFailure (show err)
+
+                                                   let f dbenv (T2 dl mcache) cmd = do
+                                                         T2 mcache' !res <- runBuyGas (MockPactServiceEnv pd _cpeLogger) defaultMiner dbenv mcache cmd
+                                                         pure $! T2 (dl . (res :)) mcache'
+
+                                                   case blockenv of
+                                                     PactDbEnv' dbenv -> do
+                                                       T2 cr mc <- applyCoinbase _cpeLogger dbenv defaultMiner reward pd prevhash
+                                                       assertEqual "coinbase txid" (Just 19) (_crTxId cr)
+                                                       void $ V.foldM (f dbenv) (T2 id mc) txs
+
           blockEnv12 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 11, hash10))
-          void $ runExec blockEnv12 Nothing fungible
-          void $ runExec blockEnv12 Nothing coinContract
-          void $ runExec blockEnv12 (Just minerKeyset) "(define-keyset \"miner\")"
 
-          txtime <- toTxCreationTime <$> getCurrentTimeIntegral
-          blockTime <- round . (* 1000000) <$> getPOSIXTime
+          attemptBuyGas blockEnv12 hash10
 
-          let reward = ParsedDecimal 42
-              ttl = 2 * 24 * 60 * 60
-              pd = PublicData (PublicMeta (Pact.ChainId "0") "sender00" 100000 0.1 ttl txtime) 11 blockTime (sshow hash09)
-
-          -- sender00KeyPair Nothing
-
-          SubmitBatch txs' <- mkBadGasTxBatch "(+1 2)" "invalid-sender" sender00KeyPair Nothing txtime ttl
-
-          txs <- case  traverse validateCommand txs' of
-                Right enriched -> return $ V.fromList $ NEL.toList enriched
-                Left err -> assertFailure (show err)
-
-          let f dbenv (T2 dl mcache) cmd = do
-                T2 mcache' !res <- runBuyGas (MockPactServiceEnv pd _cpeLogger) defaultMiner dbenv mcache cmd
-                pure $! T2 (dl . (res :)) mcache'
-
-          case blockEnv12 of
-            PactDbEnv' dbenv -> do
-                T2 cr mc <- applyCoinbase _cpeLogger dbenv defaultMiner reward pd hash09
-                assertEqual "coinbase txid" (Just 19) (_crTxId cr)
-                void $ V.foldM (f dbenv) (T2 id mc) txs
           _cpDiscard _cpeCheckpointer
+
+          hash11 <- BlockHash <$> merkleLogHash "0000000000000000000000000000011a"
+
+          blockEnv12a <- _cpRestore _cpeCheckpointer (Just (BlockHeight 11, hash10))
+
+          attemptBuyGas blockEnv12a hash10
+
+          _cpSave _cpeCheckpointer hash11
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
