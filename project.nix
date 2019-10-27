@@ -10,7 +10,7 @@ pactSrc = builtins.fetchTarball {
 };
 
 in
-  (import pactSrc {}).rp.project ({ pkgs, ... }:
+  (import pactSrc {}).rp.project ({ pkgs, hackGet, ... }:
 let
 
 gitignoreSrc = pkgs.fetchFromGitHub {
@@ -23,7 +23,7 @@ inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
 
 in {
     name = "chainweb";
-    overrides = import ./overrides.nix pactSrc pkgs;
+    overrides = import ./overrides.nix pactSrc pkgs hackGet;
 
     packages = {
       chainweb = gitignoreSource ./.;
