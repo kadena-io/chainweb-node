@@ -1,6 +1,6 @@
 {
-  pactRef ? "2db55e8053651876c6908dd4165e400f9d9943cc"
-, pactSha ? "1hp33bd34m0dg3q00hza5dmrlp6rkzh5xq0kv3ap9sw0s1jy8zgj"
+  pactRef ? "d2891d3c115be00c94afe73a5757967b5d923960"
+, pactSha ? "1lbykfap59hv3wannnmv6d64hi88hz27nlv68ygr55l494i2m28d"
 }:
 
 let
@@ -10,7 +10,7 @@ pactSrc = builtins.fetchTarball {
 };
 
 in
-  (import pactSrc {}).rp.project ({ pkgs, ... }:
+  (import pactSrc {}).rp.project ({ pkgs, hackGet, ... }:
 let
 
 gitignoreSrc = pkgs.fetchFromGitHub {
@@ -23,7 +23,7 @@ inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
 
 in {
     name = "chainweb";
-    overrides = import ./overrides.nix pactSrc pkgs;
+    overrides = import ./overrides.nix pactSrc pkgs hackGet;
 
     packages = {
       chainweb = gitignoreSource ./.;

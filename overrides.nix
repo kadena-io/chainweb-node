@@ -1,4 +1,4 @@
-pactSrc: pkgs: self: super: with pkgs.haskell.lib;
+pactSrc: pkgs: hackGet: self: super: with pkgs.haskell.lib;
 let # Working on getting this function upstreamed into nixpkgs, but
     # this actually gets things directly from hackage and doesn't
     # depend on the state of nixpkgs.  Should allow us to have fewer
@@ -118,4 +118,4 @@ let # Working on getting this function upstreamed into nixpkgs, but
     };
 in
 
-(import "${pactSrc}/overrides.nix" pkgs self super) // ourOverrides
+(import "${pactSrc}/overrides.nix" pkgs hackGet self super) // ourOverrides

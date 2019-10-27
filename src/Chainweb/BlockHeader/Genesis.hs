@@ -40,6 +40,16 @@ import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
+import qualified Chainweb.BlockHeader.Genesis.Mainnet0Payload as MN0
+import qualified Chainweb.BlockHeader.Genesis.Mainnet1Payload as MN1
+import qualified Chainweb.BlockHeader.Genesis.Mainnet2Payload as MN2
+import qualified Chainweb.BlockHeader.Genesis.Mainnet3Payload as MN3
+import qualified Chainweb.BlockHeader.Genesis.Mainnet4Payload as MN4
+import qualified Chainweb.BlockHeader.Genesis.Mainnet5Payload as MN5
+import qualified Chainweb.BlockHeader.Genesis.Mainnet6Payload as MN6
+import qualified Chainweb.BlockHeader.Genesis.Mainnet7Payload as MN7
+import qualified Chainweb.BlockHeader.Genesis.Mainnet8Payload as MN8
+import qualified Chainweb.BlockHeader.Genesis.Mainnet9Payload as MN9
 import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
 import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.Crypto.MerkleLog
@@ -49,7 +59,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Pact.Types (emptyPayload)
 import Chainweb.Payload
-import Chainweb.Time (Time(..), TimeSpan(..), epoch)
+import Chainweb.Time
 import Chainweb.Version
 
 ---
@@ -86,10 +96,9 @@ genesisTime TimedConsensus{} = BlockCreationTime epoch
 genesisTime PowConsensus{} = BlockCreationTime epoch
 genesisTime TimedCPM{} = BlockCreationTime epoch
 genesisTime FastTimedCPM{} = BlockCreationTime epoch
--- Thursday, 2019 July 17, 11:28 AM
-genesisTime Development = BlockCreationTime . Time $ TimeSpan 1563388117613832
--- Tuesday, 2019 February 26, 10:55 AM
-genesisTime Testnet02 = BlockCreationTime . Time $ TimeSpan 1563388117613832
+genesisTime Development = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+genesisTime Testnet02 = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+genesisTime Mainnet01 = BlockCreationTime [timeMicrosQQ| 2019-10-24T21:51:26.444848 |]
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -103,7 +112,10 @@ genesisBlockPayload :: ChainwebVersion -> ChainId -> PayloadWithOutputs
 genesisBlockPayload Test{} _ = emptyPayload
 genesisBlockPayload TimedConsensus{} _ = emptyPayload
 genesisBlockPayload PowConsensus{} _ = emptyPayload
-genesisBlockPayload TimedCPM{} _ = TNN.payloadBlock
+genesisBlockPayload TimedCPM{} cid = case chainIdInt @Int cid of
+    0 -> TN0.payloadBlock
+    _ -> TNN.payloadBlock
+
 genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
     0 -> TN0.payloadBlock
     _ -> TNN.payloadBlock
@@ -117,6 +129,19 @@ genesisBlockPayload Development cid = case chainIdInt @Int cid of
 genesisBlockPayload Testnet02 cid = case chainIdInt @Int cid of
     0 -> PN0.payloadBlock
     _ -> PNN.payloadBlock
+
+genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
+    0 -> MN0.payloadBlock
+    1 -> MN1.payloadBlock
+    2 -> MN2.payloadBlock
+    3 -> MN3.payloadBlock
+    4 -> MN4.payloadBlock
+    5 -> MN5.payloadBlock
+    6 -> MN6.payloadBlock
+    7 -> MN7.payloadBlock
+    8 -> MN8.payloadBlock
+    9 -> MN9.payloadBlock
+    _ -> error "peterson graph only supports a maximum of 10 chains - please review"
 
 -- | A block chain is globally uniquely identified by its genesis hash.
 -- Internally, we use the 'ChainwebVersion' value and the 'ChainId'

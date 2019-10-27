@@ -55,7 +55,7 @@ checkMinerOutput
     -> ByteString      -- ^ target, in hex format
     -> ByteString      -- ^ source header
     -> IO (Bool, ByteString)
-checkMinerOutput nonceB targetHex blockBytes0 = do
+checkMinerOutput nonceB targetBytes blockBytes0 = do
     B.unsafeUseAsCString hashBytes $ \hashPtr ->
       B.unsafeUseAsCString targetBytes $ \targetPtr -> do
         ok <- fastCheckTarget (castPtr targetPtr) (castPtr hashPtr)
@@ -63,7 +63,6 @@ checkMinerOutput nonceB targetHex blockBytes0 = do
   where
     !blockBytes = nonceB <> B.drop 8 blockBytes0
     hashBytes = SB.fromShort $ powHashBytes $ powHash Testnet02 blockBytes
-    targetBytes = fst $ B16.decode targetHex
 
 makeBlock :: IO ByteString
 makeBlock = MWC.withSystemRandom $ \gen -> do
@@ -79,9 +78,9 @@ genOneBlockAndTest targetZeroes minerPath0 = do
     blockBytes <- makeBlock
     t1 <- getTime Monotonic
     (MiningResult nonceBytes _ _ errBytes) <-
-        either fail return =<< callExternalMiner minerPath [] True targetHex blockBytes
+        either fail return =<< callExternalMiner minerPath [] True targetBytes blockBytes
     t2 <- getTime Monotonic
-    (ok, outHashBytes) <- checkMinerOutput nonceBytes targetHex blockBytes
+    (ok, outHashBytes) <- checkMinerOutput nonceBytes targetBytes blockBytes
     if ok then reportOK (t2 - t1) else failHash nonceBytes outHashBytes errBytes
   where
     reportOK t = do
@@ -92,7 +91,9 @@ genOneBlockAndTest targetZeroes minerPath0 = do
               " seconds.\n"
               ]
         B.hPutStr stderr msg
+
     targetHex = makeTarget targetZeroes
+    targetBytes = fst $ B16.decode targetHex
 
     failHash nonceBytes outHashBytes errBytes = do
         B.hPutStr stderr $ mconcat [

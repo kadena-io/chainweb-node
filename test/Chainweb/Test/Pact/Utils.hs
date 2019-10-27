@@ -60,6 +60,7 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+, WithPactCtxSQLite
 -- * miscellaneous
 , ChainwebNetwork(..)
 ) where
@@ -400,7 +401,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -423,7 +424,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -522,13 +523,15 @@ freeSQLiteResource (del,sqlenv) = do
   void $ close_v2 $ _sConn sqlenv
   del
 
+type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
+
 withPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
   -> Maybe (MVar (CutDb cas))
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)
-  -> ((forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a) -> TestTree)
+  -> (WithPactCtxSQLite cas -> TestTree)
   -> TestTree
 withPactCtxSQLite v cutDB bhdbIO pdbIO f =
   withResource
@@ -552,7 +555,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb rs (constGasModel 0))
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
