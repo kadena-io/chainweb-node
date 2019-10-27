@@ -51,6 +51,7 @@ module Chainweb.Chainweb
 , configNodeId
 , configChainwebVersion
 , configMiner
+, configBlessedMiners
 , configCoordinator
 , configHeaderStream
 , configReintroTxs
@@ -152,6 +153,7 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
+import Chainweb.Miner.Pact (Miner)
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Pact.Utils (fromPactChainId)
@@ -201,6 +203,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
     , _configMiner :: !(EnableConfig MinerConfig)
+    , _configBlessedMiners :: ![Miner]
     , _configCoordinator :: !Bool
     , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
@@ -229,6 +232,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
     , _configMiner = defaultEnableConfig defaultMinerConfig
+    , _configBlessedMiners = []
     , _configCoordinator = False
     , _configHeaderStream = False
     , _configReintroTxs = True
@@ -246,6 +250,7 @@ instance ToJSON ChainwebConfiguration where
         [ "chainwebVersion" .= _configChainwebVersion o
         , "nodeId" .= _configNodeId o
         , "miner" .= _configMiner o
+        , "blessedMiners" .= _configBlessedMiners o
         , "miningCoordination" .= _configCoordinator o
         , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
@@ -263,6 +268,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
         <*< configMiner %.: "miner" % o
+        <*< configBlessedMiners ..: "blessedMiners" % o
         <*< configCoordinator ..: "miningCoordination" % o
         <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
