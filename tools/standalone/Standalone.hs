@@ -73,6 +73,8 @@ import Chainweb.Logger
 import Chainweb.Logging.Config
 import Chainweb.Logging.Miner
 import Chainweb.Mempool.InMemTypes (MempoolStats(..))
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Time
@@ -222,6 +224,9 @@ makeLenses ''StandaloneConfiguration
 defaultStandaloneConfiguration :: ChainwebVersion -> StandaloneConfiguration
 defaultStandaloneConfiguration v = StandaloneConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
+        & configMiner . enableConfigEnabled .~ True
+        & configMiner . enableConfigConfig . configMinimumBlockHeight .~ 0
+        & configMiner . enableConfigConfig . configMinerInfo .~ noMiner
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Just "standalonedbs/"

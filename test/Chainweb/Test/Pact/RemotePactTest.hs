@@ -84,6 +84,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
@@ -756,7 +757,10 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
+    & set (configMiner . enableConfigEnabled) True
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
+    & set (configMiner . enableConfigConfig . configMinimumBlockHeight) 0
+    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
 
