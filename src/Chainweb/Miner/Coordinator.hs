@@ -49,7 +49,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2, T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -142,11 +142,18 @@ newWork choice miner pact tcp c = do
     case getAdjacentParents c p of
         Nothing -> newWork (TriedLast cid) miner pact tcp c
         Just adjParents -> do
-            -- Fetch a Pact Transaction payload. This is an expensive call
-            -- that shouldn't be repeated.
+            -- Fetch creation time and payload.
             --
-            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-            payload <- _pactNewBlock pact miner p creationTime
+            CachedPayloads cached <- readTVarIO tcp
+            T2 payload creationTime <- case M.lookup miner cached >>= M.lookup cid of
+                Just pt -> pure pt
+                Nothing -> do
+                    -- Fetch a Pact Transaction payload. This is an expensive call
+                    -- that shouldn't be repeated.
+                    --
+                    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+                    payload <- _pactNewBlock pact miner p creationTime
+                    pure $ T2 payload creationTime
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
