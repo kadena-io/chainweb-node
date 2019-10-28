@@ -45,10 +45,10 @@ import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockCreationTime(..), BlockHeader)
+import Chainweb.BlockHeader (BlockCreationTime(..), BlockHeader(..))
 import Chainweb.ChainId (_chainId)
 import Chainweb.Cut (Cut, _cutMap)
-import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, _cutStm)
+import Chainweb.CutDB (CutDb, awaitNewCut, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator
@@ -136,11 +136,9 @@ withMiningCoordination logger ver enabled miners cdb inner
 
     cachePayloads :: TVar CachedPayloads -> Cut -> IO ()
     cachePayloads tcp old = do
-        new <- atomically $ _cutStm cdb
-        let oldChains = HM.keysSet $ _cutMap old
-            newChains = HM.keysSet $ _cutMap new
-            difChains = HS.toList  $ HS.difference newChains oldChains
-            parents   = map (\cid -> new ^?! ixg cid) difChains
+        new <- awaitNewCut cdb old
+        let oldMap  = _cutMap old
+            parents = HM.elems $ HM.filterWithKey (h oldMap) $ _cutMap new
         CachedPayloads cached <- readTVarIO tcp
         newCached <- M.traverseWithKey (g parents) cached
         atomically . writeTVar tcp $ CachedPayloads newCached
@@ -155,6 +153,11 @@ withMiningCoordination logger ver enabled miners cdb inner
             -- `union` is left-biased, and so prefers items from the first Map
             -- when duplicate keys are encountered.
             pure $ M.union news pays
+
+        h :: HM.HashMap ChainId BlockHeader -> ChainId -> BlockHeader -> Bool
+        h olds cid b = case HM.lookup cid olds of
+            Nothing -> False
+            Just bold -> _blockHeight bold < _blockHeight b
 
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
