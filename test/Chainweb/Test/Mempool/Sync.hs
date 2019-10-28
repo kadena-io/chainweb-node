@@ -20,12 +20,14 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty
 ------------------------------------------------------------------------------
+import Chainweb.Graph (singletonChainGraph)
 import Chainweb.Mempool.InMem
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
 import Chainweb.Utils (Codec(..))
+import Chainweb.Version (ChainwebVersion(..))
 ------------------------------------------------------------------------------
 
 
@@ -38,7 +40,7 @@ tests = testGroup "Chainweb.Mempool.sync"
     wf f = do
         mv <- newMVar (pure . V.map Right)
         let cfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMv mv)
-        withInMemoryMempool cfg $ f mv
+        withInMemoryMempool cfg (Test singletonChainGraph) $ f mv
 
     checkMv :: MVar (t -> IO b) -> t -> IO b
     checkMv mv xs = do
@@ -73,7 +75,7 @@ propSync
     -> MempoolBackend MockTx
     -> IO (Either String ())
 propSync (txs, missing, later) _ localMempool' =
-    withInMemoryMempool testInMemCfg $ \remoteMempool -> do
+    withInMemoryMempool testInMemCfg (Test singletonChainGraph) $ \remoteMempool -> do
         mempoolInsert localMempool' CheckedInsert txsV
         mempoolInsert remoteMempool CheckedInsert txsV
         mempoolInsert remoteMempool CheckedInsert missingV

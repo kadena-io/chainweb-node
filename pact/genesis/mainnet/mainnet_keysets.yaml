@@ -1,0 +1,173 @@
+code: |-
+  (define-keyset "Kadena" (read-keyset "Kadena"))
+  (define-keyset "Emily" (read-keyset "Emily"))
+  (define-keyset "SA <1>" (read-keyset "SA <1>"))
+  (define-keyset "SA <2>" (read-keyset "SA <2>"))
+  (define-keyset "SA <3>" (read-keyset "SA <3>"))
+  (define-keyset "SA <4>" (read-keyset "SA <4>"))
+  (define-keyset "SA <5>" (read-keyset "SA <5>"))
+  (define-keyset "SA <6>" (read-keyset "SA <6>"))
+  (define-keyset "SA <7>" (read-keyset "SA <7>"))
+  (define-keyset "SA <8>" (read-keyset "SA <8>"))
+  (define-keyset "SA <9>" (read-keyset "SA <9>"))
+  (define-keyset "SA <10>" (read-keyset "SA <10>"))
+  (define-keyset "SA <11>" (read-keyset "SA <11>"))
+  (define-keyset "SA <12>" (read-keyset "SA <12>"))
+  (define-keyset "SA <13>" (read-keyset "SA <13>"))
+  (define-keyset "SA <14>" (read-keyset "SA <14>"))
+  (define-keyset "SA <15>" (read-keyset "SA <15>"))
+  (define-keyset "SA <16>" (read-keyset "SA <16>"))
+  (define-keyset "SA <17>" (read-keyset "SA <17>"))
+  (define-keyset "SA <18>" (read-keyset "SA <18>"))
+  (define-keyset "SA <19>" (read-keyset "SA <19>"))
+  (define-keyset "SA <20>" (read-keyset "SA <20>"))
+  (define-keyset "SB <1>" (read-keyset "SB <1>"))
+  (define-keyset "SB <2>" (read-keyset "SB <2>"))
+  (define-keyset "SB <3>" (read-keyset "SB <3>"))
+  (define-keyset "SB <4>" (read-keyset "SB <4>"))
+  (define-keyset "SB <5>" (read-keyset "SB <5>"))
+  (define-keyset "SB <6>" (read-keyset "SB <6>"))
+  (define-keyset "SB <7>" (read-keyset "SB <7>"))
+  (define-keyset "SB <8>" (read-keyset "SB <8>"))
+  (define-keyset "SB <9>" (read-keyset "SB <9>"))
+  (define-keyset "SB <10>" (read-keyset "SB <10>"))
+  (define-keyset "SB <11>" (read-keyset "SB <11>"))
+  (define-keyset "SB <12>" (read-keyset "SB <12>"))
+  (define-keyset "SB <13>" (read-keyset "SB <13>"))
+  (define-keyset "SB <14>" (read-keyset "SB <14>"))
+  (define-keyset "SB <15>" (read-keyset "SB <15>"))
+  (define-keyset "SB <16>" (read-keyset "SB <16>"))
+  (define-keyset "SB <17>" (read-keyset "SB <17>"))
+  (define-keyset "SB <18>" (read-keyset "SB <18>"))
+  (define-keyset "SB <19>" (read-keyset "SB <19>"))
+  (define-keyset "SB <20>" (read-keyset "SB <20>"))
+  (define-keyset "SB <21>" (read-keyset "SB <21>"))
+  (define-keyset "SB <22>" (read-keyset "SB <22>"))
+  (define-keyset "SB <23>" (read-keyset "SB <23>"))
+  (define-keyset "SB <24>" (read-keyset "SB <24>"))
+  (define-keyset "SB <25>" (read-keyset "SB <25>"))
+  (define-keyset "SB <26>" (read-keyset "SB <26>"))
+  (define-keyset "SB <27>" (read-keyset "SB <27>"))
+  (define-keyset "SB <28>" (read-keyset "SB <28>"))
+  (define-keyset "SB <29>" (read-keyset "SB <29>"))
+  (define-keyset "SB <30>" (read-keyset "SB <30>"))
+  (define-keyset "SB <31>" (read-keyset "SB <31>"))
+  (define-keyset "SB <32>" (read-keyset "SB <32>"))
+  (define-keyset "SB <33>" (read-keyset "SB <33>"))
+  (define-keyset "SB <34>" (read-keyset "SB <34>"))
+  (define-keyset "SB <35>" (read-keyset "SB <35>"))
+  (define-keyset "SB <36>" (read-keyset "SB <36>"))
+  (define-keyset "SB <37>" (read-keyset "SB <37>"))
+  (define-keyset "SB <38>" (read-keyset "SB <38>"))
+  (define-keyset "SB <39>" (read-keyset "SB <39>"))
+  (define-keyset "SB <40>" (read-keyset "SB <40>"))
+  (define-keyset "SB <41>" (read-keyset "SB <41>"))
+  (define-keyset "SB <42>" (read-keyset "SB <42>"))
+  (define-keyset "SB <43>" (read-keyset "SB <43>"))
+  (define-keyset "SB <44>" (read-keyset "SB <44>"))
+  (define-keyset "SB <45>" (read-keyset "SB <45>"))
+  (define-keyset "SB <46>" (read-keyset "SB <46>"))
+  (define-keyset "PS_C0" (read-keyset "PS_C0"))
+  (define-keyset "PS_C1" (read-keyset "PS_C1"))
+  (define-keyset "PS_C2" (read-keyset "PS_C2"))
+  (define-keyset "PS_C3" (read-keyset "PS_C3"))
+  (define-keyset "PS_C4" (read-keyset "PS_C4"))
+  (define-keyset "PS_C5" (read-keyset "PS_C5"))
+  (define-keyset "PS_C6" (read-keyset "PS_C6"))
+  (define-keyset "PS_C7" (read-keyset "PS_C7"))
+  (define-keyset "PS_C8" (read-keyset "PS_C8"))
+  (define-keyset "PS_C9" (read-keyset "PS_C9"))
+  (define-keyset "Coinlist Non-US Retail" (read-keyset "Coinlist Non-US Retail"))
+  (define-keyset "Coinlist Global Accredited" (read-keyset "Coinlist Global Accredited"))
+  (define-keyset "FTS_C1" (read-keyset "FTS_C1"))
+  (define-keyset "CS_C2" (read-keyset "CS_C2"))
+  (define-keyset "MM_C0" (read-keyset "MM_C0"))
+  (define-keyset "ST_C1" (read-keyset "ST_C1"))
+
+data:
+  "Kadena": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "Emily": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <1>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <2>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <3>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <4>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <5>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <6>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <7>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <8>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <9>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <10>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <11>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <12>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <13>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <14>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <15>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <16>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <17>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <18>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <19>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SA <20>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <1>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <2>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <3>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <4>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <5>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <6>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <7>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <8>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <9>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <10>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <11>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <12>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <13>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <14>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <15>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <16>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <17>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <18>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <19>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <20>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <21>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <22>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <23>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <24>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <25>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <26>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <27>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <28>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <29>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <30>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <31>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <32>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <33>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <34>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <35>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <36>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <37>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <38>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <39>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <40>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <41>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <42>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <43>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <44>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <45>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "SB <46>": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C0": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C1": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C2": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C3": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C4": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C5": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C6": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C7": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C8": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "PS_C9": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "Coinlist Non-US Retail": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "Coinlist Global Accredited": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "FTS_C1": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "CS_C2": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "MM_C0": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "ST_C1": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+nonce: mainnet-keysets
+keyPairs: []

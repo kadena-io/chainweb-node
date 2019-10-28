@@ -131,7 +131,8 @@ doSave dbenv hash = runBlockEnv dbenv $ do
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
     runPending bh = do
-        (newTables, writes, _, _) <- use bsPendingBlock
+        newTables <- use $ bsPendingBlock . pendingTableCreation
+        writes <- use $ bsPendingBlock . pendingWrites
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
         callDb "save" $ backendWriteUpdateBatch bh writeV

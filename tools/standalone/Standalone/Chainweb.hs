@@ -112,7 +112,7 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
     withBlockHeaderDb rdb v cid $ \cdb -> do
         pexMv <- newEmptyMVar
         let mempoolCfg = mempoolCfg0 pexMv
-        Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg $ \mempool -> do
+        Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
             -- placing mempool access shim here
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
@@ -166,9 +166,8 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
         TimedCPM{} -> mkPactExecutionService requestQ
         FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
-        -- Testnet00 -> mkPactExecutionService requestQ
-        -- Testnet01 -> mkPactExecutionService requestQ
         Testnet02 -> mkPactExecutionService requestQ
+        Mainnet01 -> mkPactExecutionService requestQ
 
 withChainwebInternalStandalone
     :: Logger logger

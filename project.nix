@@ -1,6 +1,6 @@
 {
-  pactRef ? "2db55e8053651876c6908dd4165e400f9d9943cc"
-, pactSha ? "1hp33bd34m0dg3q00hza5dmrlp6rkzh5xq0kv3ap9sw0s1jy8zgj"
+  pactRef ? "7e3f4545c852dbd9fbd4af720074292f1407aced"
+, pactSha ? "1k1x07q3cbppzlx02j16x9h1lpd23cmbzr6h18qvmxw85v0gzakl"
 }:
 
 let
@@ -8,9 +8,10 @@ pactSrc = builtins.fetchTarball {
   url = "https://github.com/kadena-io/pact/archive/${pactRef}.tar.gz";
   sha256 = pactSha;
 };
+pactProj = "${pactSrc}/project.nix";
 
 in
-  (import pactSrc {}).rp.project ({ pkgs, ... }:
+  (import pactProj {}).rp.project ({ pkgs, hackGet, ... }:
 let
 
 gitignoreSrc = pkgs.fetchFromGitHub {
@@ -23,7 +24,7 @@ inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
 
 in {
     name = "chainweb";
-    overrides = import ./overrides.nix pactSrc pkgs;
+    overrides = import ./overrides.nix pactSrc pkgs hackGet;
 
     packages = {
       chainweb = gitignoreSource ./.;

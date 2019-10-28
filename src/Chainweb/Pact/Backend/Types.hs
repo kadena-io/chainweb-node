@@ -45,7 +45,11 @@ module Chainweb.Pact.Backend.Types
     , SQLiteDeltaKey(..)
     , SQLitePendingTableCreations
     , SQLitePendingWrites
-    , SQLitePendingData
+    , SQLitePendingData(..)
+    , pendingTableCreation
+    , pendingWrites
+    , pendingTxLogMap
+    , pendingSuccessfulTxs
     , emptySQLitePendingData
 
     , BlockState(..)
@@ -74,6 +78,7 @@ module Chainweb.Pact.Backend.Types
     , PactServiceEnv(..)
     , PactServiceState(..)
     , PactServiceM
+    , runPactServiceM
 
     , PactServiceException(..)
 
@@ -114,7 +119,6 @@ import Foreign.C.Types (CInt(..))
 import GHC.Generics
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Parse (ParsedDecimal(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import Pact.Types.ChainMeta (PublicData(..))
@@ -131,6 +135,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
+import Chainweb.Miner.Pact (MinerRewards(..))
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 
@@ -209,11 +214,15 @@ type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-type SQLitePendingData = ( SQLitePendingTableCreations
-                         , SQLitePendingWrites
-                         , TxLogMap
-                         , SQLitePendingSuccessfulTxs
-                         )
+data SQLitePendingData = SQLitePendingData
+    { _pendingTableCreation :: !SQLitePendingTableCreations
+    , _pendingWrites :: !SQLitePendingWrites
+    , _pendingTxLogMap :: !TxLogMap
+    , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
+    }
+    deriving (Show)
+
+makeLenses ''SQLitePendingData
 
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
@@ -233,7 +242,7 @@ data BlockState = BlockState
     deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = (mempty, mempty, mempty, mempty)
+emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState :: BlockState
 initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
@@ -313,17 +322,25 @@ data PactServiceEnv cas = PactServiceEnv
     , _psCheckpointEnv :: !CheckpointEnv
     , _psSpvSupport :: !SPVSupport
     , _psPublicData :: !PublicData
-    , _psPdb :: PayloadDb cas
-    , _psBlockHeaderDb :: BlockHeaderDb
-    , _psMinerRewards :: HashMap BlockHeight ParsedDecimal
-    , _psGasModel :: GasModel
+    , _psPdb :: !(PayloadDb cas)
+    , _psBlockHeaderDb :: !BlockHeaderDb
+    , _psGasModel :: !GasModel
+    , _psMinerRewards :: !MinerRewards
     }
 
-data PactServiceState = PactServiceState
-    {_psStateValidated :: Maybe BlockHeader
+newtype PactServiceState = PactServiceState
+    { _psStateValidated :: Maybe BlockHeader
     }
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
+
+runPactServiceM
+    :: (PayloadCas cas)
+    => PactServiceState
+    -> PactServiceEnv cas
+    -> PactServiceM cas a
+    -> IO (a, PactServiceState)
+runPactServiceM s env action = runStateT (runReaderT action env) s
 
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess

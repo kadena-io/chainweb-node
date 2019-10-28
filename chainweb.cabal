@@ -31,6 +31,12 @@ extra-source-files:
 
     rewards/miner_rewards.csv
 
+    -- genesis allocations csvs
+
+    rewards/mainnet_keysets.csv
+    rewards/mainnet_allocations.csv
+    rewards/mainnet_coinbase.csv
+
     -- pact test data
 
     pact/coin-contract/coin.repl
@@ -109,16 +115,25 @@ library
     autogen-modules:
         Paths_chainweb
     exposed-modules:
-          BackCompat.Test.QuickCheck
-        , Chainweb.BlockHash
+          Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
         , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
-        , Chainweb.BlockHeader.Genesis.Testnet0Payload
-        , Chainweb.BlockHeader.Genesis.TestnetNPayload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
+        , Chainweb.BlockHeader.Genesis.Testnet0Payload
+        , Chainweb.BlockHeader.Genesis.TestnetNPayload
+        , Chainweb.BlockHeader.Genesis.Mainnet0Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet1Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet2Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet3Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet4Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet5Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet6Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet7Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet8Payload
+        , Chainweb.BlockHeader.Genesis.Mainnet9Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.RestAPI
@@ -180,6 +195,7 @@ library
         , Chainweb.RestAPI
         , Chainweb.RestAPI.Health
         , Chainweb.RestAPI.NetworkID
+        , Chainweb.RestAPI.NodeInfo
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
         , Chainweb.SPV
@@ -267,7 +283,7 @@ library
 
     build-depends:
           Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , QuickCheck-GenT >=0.2
         , aeson >= 1.4.3
         , aeson-pretty >= 0.8
@@ -336,11 +352,11 @@ library
         , safeio >= 0.0
         , safe-exceptions >= 0.1
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
-        , servant-server >= 0.14
-        , servant-swagger >= 1.1
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
+        , servant-server >= 0.16
+        , servant-swagger >= 1.1.7.1
         , stm >= 2.4
         , stm-chans
         , stopwatch >= 0.1
@@ -350,7 +366,8 @@ library
         , strict-concurrency >= 0.2
         , strict-tuple >= 0.1.3
         , string-conv >= 0.1
-        , swagger2 >= 2.2
+        , swagger2 >= 2.4
+        , template-haskell >= 2.14
         , temporary >= 1.3
         , text >= 1.2
         , these >= 1 && < 1.1
@@ -411,6 +428,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
+        Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
         Chainweb.Test.Pact.RemotePactTest
@@ -434,7 +452,7 @@ test-suite chainweb-tests
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , async >= 2.2
         , base >= 4.11 && < 5
@@ -472,9 +490,9 @@ test-suite chainweb-tests
         , retry >= 0.7
         , scheduler >= 1.4
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
@@ -516,7 +534,7 @@ test-suite chainweb-tools-tests
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , async >= 2.2
         , attoparsec >= 0.13
@@ -556,9 +574,9 @@ test-suite chainweb-tools-tests
         , retry >= 0.7
         , scheduler >= 1.4
         , semialign >= 1
-        , servant >= 0.14
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
@@ -656,7 +674,7 @@ executable chainweb-miner
         , retry >= 0.7
         , rio >= 0.1.5
         , scheduler >= 1.4.1
-        , servant-client >= 0.14
+        , servant-client >= 0.16
         , streaming >= 0.2
         , streaming-events >= 1.0
         , strict-tuple >= 0.1.3
@@ -672,6 +690,7 @@ executable cwtool
     hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
+        Allocations
         Chain2Gexf
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
@@ -701,7 +720,7 @@ executable cwtool
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.10
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4
         , aeson-pretty >= 0.8
         , async >= 2.2
@@ -711,6 +730,7 @@ executable cwtool
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
+        , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.4.1
@@ -718,6 +738,8 @@ executable cwtool
         , data-default >= 0.7
         , deepseq >= 1.4
         , directory >= 1.3
+        , file-embed
+        , filepath
         , errors >= 2.3
         , exceptions >= 0.8
         , fake >= 0.1.1.1
@@ -743,13 +765,14 @@ executable cwtool
         , primitive >= 0.6
         , random >= 1.1
         , resourcet >= 1.2
-        , servant >= 0.14.1
-        , servant-client >= 0.14
-        , servant-client-core >= 0.14
+        , servant >= 0.16
+        , servant-client >= 0.16
+        , servant-client-core >= 0.16
         , shelly >= 1.8
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
+        , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
         , tasty-hunit >= 0.9

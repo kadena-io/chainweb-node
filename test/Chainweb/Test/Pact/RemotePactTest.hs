@@ -139,17 +139,20 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "remote spv" $
                 sendValidationTest iot net
               , after AllSucceed "remote spv" $
-                testCase "trivial /local check" $
+                testCase "trivialLocalCheck" $
                 localTest iot net
               , after AllSucceed "remote spv" $
-                testGroup "gas for tx size"
+                testGroup "gasForTxSize"
                 [ txTooBigGasTest iot net ]
               , after AllSucceed "remote spv" $
-                testGroup "genesis allocations"
+                testGroup "genesisAllocations"
                 [ allocationTest iot net ]
               , after AllSucceed "genesis allocations" $
-                testGroup "caplist tests"
+                testGroup "caplistTests"
                 [ caplistTest iot net ]
+              , after AllSucceed "caplist tests" $
+                testGroup "gasBuyingErrors"
+                [ invalidBuyGasTest iot net ]
               ]
     ]
 
@@ -298,7 +301,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "Tx too big (3), limit 1"
     gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (ParsedInteger 1) exceeded: 2"
+      Pact.PactError Pact.GasError def [] "Gas limit (1) exceeded: 2"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair Nothing
@@ -310,6 +313,41 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
     txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
     txcode1 = txcode0 <> "(identity 1)"
+
+
+invalidBuyGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $ \step -> do
+    cenv <- fmap _getClientEnv nio
+    sid <- mkChainId v (0 :: Int)
+
+    let run batch expectation = flip runClientM cenv $ do
+          void $ liftIO $ step "sendApiClient: submit transaction"
+          rks <- liftIO $ sending sid cenv batch
+
+          void $ liftIO $ step "pollApiClient: polling for request key"
+          (PollResponses resp) <- liftIO $ polling sid cenv rks expectation
+
+          return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
+
+    -- batch with incorrect sender
+    batch0 <- mkBadGasTxBatch "(+ 1 2)" "some-unknown-sender" sender00KeyPair Nothing
+    res0 <- catches (Right <$> run batch0 ExpectPactResult)
+      [ Handler (\(e :: PactTestFailure) -> return $ Left e) ]
+
+    void $ liftIO $ step "tx signed with incorrect sender should fail buy gas validation"
+    case res0 of
+      Left (PollingFailure s) -> assertEqual "tx with incorrect sender" "polling check failed" s
+      Left e -> assertFailure $ "test failure for tx with incorrect sender: " <> show e
+      Right cr -> assertFailure $ "test failure for tx with incorrect sender: " <> show cr
+
+  where
+    mkBadGasTxBatch code senderName senderKeyPair capList = do
+      ks <- testKeyPairs senderKeyPair capList
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
+      cmd <- liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      return $ SubmitBatch (pure cmd)
 
 
 caplistTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -330,16 +368,19 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
       testCaseStep "poll for transfer results"
       PollResponses rs <- liftIO $ polling sid cenv rks ExpectPactResult
 
-      return rs
+      return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) rs)
 
     case r of
-      Left e -> print e >> return ()
-      Right t -> print t >> return ()
+      Left e -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
+      Right t -> assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> t)
 
   where
     n0 = Just "transfer-clist0"
     ttl = 2 * 24 * 60 * 60
     pm t = Pact.PublicMeta (Pact.ChainId "0") t 100000 0.01 ttl
+
+    resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
+    result0 = Just (Right (PLiteral (LString "Write succeeded")))
 
     clist :: Maybe [SigCapability]
     clist = Just $

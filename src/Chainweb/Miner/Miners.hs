@@ -1,14 +1,9 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
-
-#ifndef MIN_VERSION_servant_client
-#define MIN_VERSION_servant_client(a,b,c) 1
-#endif
 
 -- |
 -- Module: Chainweb.Miner.Miners
@@ -93,8 +88,7 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 
     meanBlockTime :: Double
     meanBlockTime = case blockRate v of
-        Just (BlockRate (Seconds n)) -> int n
-        Nothing -> error $ "No BlockRate available for given ChainwebVersion: " <> show v
+        BlockRate (Seconds n) -> int n
 
     work :: BlockHeader -> IO BlockHeader
     work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh

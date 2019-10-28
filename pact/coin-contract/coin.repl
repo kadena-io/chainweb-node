@@ -189,6 +189,19 @@
  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
 (test-capability (GAS))
+(env-keys [])
+
+(expect-failure
+  "fund-tx fails without signature"
+  "Keyset failure"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(env-sigs [{"key": "keys1", "caps": [(TRANSFER "emily" "doug" 1.0)]}])
+
+(expect-failure
+  "fund-tx fails for no gas cap"
+  "Keyset failure"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
 (expect-failure
   "fund-tx fails for trivial or negative quantities"
@@ -200,9 +213,37 @@
   "positive"
   (fund-tx 'emily 'doug (read-keyset 'doug) (- 1.0)))
 
+(env-sigs [{"key": "keys1", "caps": [(GAS)]}])
+
 (expect-failure
   "fund-tx fails for insufficient funds"
   "Insufficient funds"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(env-keys ["keys1"])
+(test-capability (CREDIT "emily"))
+(credit "emily" (read-keyset "emily") 3.0)
+
+(expect
+  "fund-tx succeeds with gas cap"
+  "Write succeeded"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(pact-state true)
+
+(env-sigs [{"key": "keys1", "caps": [(GAS),(TRANSFER "emily" "doug" 1.0)]}])
+
+(expect
+  "fund-tx succeeds with gas cap and other cap"
+  "Write succeeded"
+  (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
+
+(pact-state true)
+
+(env-keys ["keys1"])
+(expect
+  "fund-tx succeeds with no caps"
+  "Write succeeded"
   (fund-tx 'emily 'doug (read-keyset 'doug) 1.0))
 
 (env-data { "fee" : 1.0 , "miner" : ["miner"] })
@@ -678,3 +719,46 @@
 (expect
   "brandon has 10 coins released to his account in coin contract"
   10.0 (get-balance 'brandon))
+
+(commit-tx)
+
+(begin-tx)
+
+(use coin)
+
+(expect-failure
+  "gas-only fails without the presence of GAS"
+  "not granted: (coin.GAS)"
+  (gas-only))
+
+(expect-failure
+  "gas-guard fails when GAS is not present"
+  "Failure: Tx Failed: Enforce either the presence of a GAS cap or keyset"
+  (gas-guard (keyset-ref-guard "emily")))
+
+(test-capability (GAS))
+
+(expect
+  "gas-only succeeds with the presence of GAS"
+  true
+  (gas-only))
+
+(expect
+  "gas-guard succeeds when one of Gas or keyset are present"
+  true
+  (gas-guard (keyset-ref-guard "emily")))
+
+(commit-tx)
+
+(begin-tx)
+
+(use coin)
+
+(env-data { "bez" : ["bez"] })
+(env-keys ["bez"])
+(define-keyset "bez" (read-keyset "bez"))
+
+(expect
+  "gas-guard succeeds when GAS not present, but keyset is"
+  true
+  (gas-guard (keyset-ref-guard "bez")))
