@@ -144,6 +144,7 @@ withMiningCoordination logger ver enabled miners cdb inner
         CachedPayloads cached <- readTVarIO tcp
         newCached <- M.traverseWithKey (g parents) cached
         atomically . writeTVar tcp $ CachedPayloads newCached
+        cachePayloads tcp new
       where
         g :: [BlockHeader]
           -> Miner
