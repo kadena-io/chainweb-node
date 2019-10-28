@@ -244,7 +244,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
               nonce
-              creationTime
+              (BlockCreationTime creationTime)
               parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
