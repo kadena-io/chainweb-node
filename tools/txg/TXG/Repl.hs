@@ -36,6 +36,9 @@ module TXG.Repl
   , k2g
   , mkGuard
   , mkGuardCombined
+  , pollResponse
+  , randomCmd
+  , sendWithPoll
   , stockKey
   , mkKeyset
   , signedCode
@@ -56,11 +59,15 @@ import Data.Decimal
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
+import           Data.Ratio
 import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Time.Clock.POSIX
+
+
+import Servant.Client
 
 import Test.RandomStrings
 import Text.Printf
@@ -189,15 +196,21 @@ verToPactNetId :: ChainwebVersion -> P.NetworkId
 verToPactNetId cvw =
   P.NetworkId $ T.pack $ show cvw
 
-{-
-randomCmds ::
+pollResponse :: Network -> Either ClientError RequestKeys -> IO ()
+pollResponse _nw (Left err) = putStrLn $ "There was a failure in the send: " ++ show err
+pollResponse nw (Right rks) = do
+  pollResp <- poll nw rks
+  case pollResp of
+    Left err -> putStrLn $ "Poll error: " ++ show err
+    Right pollResponses -> putStrLn $ show pollResponses
 
-randomStringsLen
-:: (Int -> IO String) -- random string generator, eg. randomString randomAlpha
--> (Int, Int) --  range for string length
--> Int -- list length
--> IO [String]
+sendWithPoll :: Network -> Either ClientError RequestKeys -> IO ()
+sendWithPoll _nw (Left err) = putStrLn $ "Listen failure: " ++ show err
+sendWithPoll _nw (Right prs) = putStrLn $ show prs
 
-randomStringsLen (randomString' randomASCII (3%4) (1%8)) (10,30) 100
-Returns a list of 100 strings that are between 10 and 30 characters, with 34 of them being alphabetical and 18 of those being upper-case.
--}
+randomCmd :: PublicMeta -> ChainwebVersion -> IO (Command Text)
+randomCmd meta ver = do
+  -- 100 strings, w/ lengths 10 to 30, 34 alphabetical and 18 of those upper-case.
+  rands <- randomStringsLen (randomString' randomASCII (3%4) (1%8)) (10, 30) 100
+  let someWords = "(" ++ unwords rands ++ ")"
+  mkCmdStr meta ver someWords
