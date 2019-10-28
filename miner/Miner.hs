@@ -9,6 +9,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Main
@@ -136,6 +137,7 @@ data Env = Env
     , envArgs :: !ClientArgs
     , envHashes :: IORef Word64
     , envSecs :: IORef Word64
+    , envSuccessInitTime :: IORef Int
     , envUrls :: MVar (NESeq BaseUrl) }
     deriving stock (Generic)
 
@@ -222,7 +224,8 @@ main = do
         stats <- newIORef 0
         start <- newIORef 0
         mUrls <- newMVar (NES.fromList . NEL.fromList $ coordinators cargs)
-        runRIO (Env g m logFunc cargs stats start mUrls) run
+        successStart <- newIORef 0
+        runRIO (Env g m logFunc cargs stats start successStart mUrls) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -287,18 +290,25 @@ getWork = do
         v = version a
         m = envMgr e
         runUrl baseurl = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m baseurl Nothing)
-        withCurrentUrl runner = withMVar (envUrls e) $  \urls -> runner (NES.head urls)
-        withNextUrl runner = modifyMVar (envUrls e) $ \urls -> do
-            let urls' = rotate urls
-            (,) urls' <$> runner (NES.head urls')
+        withCurrentUrl runner = withMVar (envUrls e) $ runner . NES.head
+        withNextUrl runner = modifyMVar (envUrls e) $ \(rotate -> newUrls) -> (,) newUrls <$> runner (NES.head newUrls)
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
 mining :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes) -> WorkBytes -> RIO Env ()
 mining go wb = do
-    race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
+    race updateSignal (go tbytes hbytes) >>= traverse_ (miningSuccess >=> (const updateSuccessTime))
     getWork >>= traverse_ (mining go)
   where
+    updateSuccessTime :: RIO Env ()
+    updateSuccessTime = do
+      t <- truncate <$> liftIO getPOSIXTime
+      tref <- asks envSuccessInitTime
+      void $ atomicModifyIORef' tref ((,) <*> id . (t -))
+      successTime <- readIORef tref
+      logInfo
+        ("This was block was successfully mined in " <> (display $ T.pack $ show successTime) <> " seconds.")
+
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
 
     chain :: IO Int
