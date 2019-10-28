@@ -20,7 +20,6 @@ module Chainweb.Miner.Config
 , MinerCount(..)
 , configTestMiners
 , configMinerInfo
-, configMinimumBlockHeight
 , defaultMinerConfig
 , validateMinerConfig
 , pMinerConfig
@@ -43,9 +42,7 @@ import Pact.Types.Term (KeySet(..))
 
 -- internal modules
 
-import Chainweb.BlockHeader
-import Chainweb.Miner.Pact (Miner(..), MinerKeys(..))
-import Chainweb.Utils
+import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), minerId)
 
 ---
 
@@ -57,7 +54,6 @@ makeLenses ''MinerCount
 data MinerConfig = MinerConfig
     { _configTestMiners :: !MinerCount
     , _configMinerInfo :: !Miner
-    , _configMinimumBlockHeight :: !BlockHeight
     }
     deriving (Show, Eq, Generic)
 
@@ -68,7 +64,6 @@ defaultMinerConfig = MinerConfig
     { _configTestMiners = MinerCount 10
         -- hidden configuration option that is only used in testing
     , _configMinerInfo = invalidMiner
-    , _configMinimumBlockHeight = 1200
     }
   where
     invalidMiner = Miner
@@ -81,7 +76,6 @@ defaultMinerConfig = MinerConfig
 instance ToJSON MinerConfig where
     toJSON o = object
         [ "minerInfo" .= _configMinerInfo o
-        , "minimumBlockHeight" .= _configMinimumBlockHeight o
         ]
 
 instance FromJSON (MinerConfig -> MinerConfig) where
@@ -89,7 +83,6 @@ instance FromJSON (MinerConfig -> MinerConfig) where
     parseJSON = withObject "MinerConfig" $ \o -> id
         <$< (configTestMiners . minerCount) ..: "testMiners" % o
         <*< configMinerInfo ..: "minerInfo" % o
-        <*< configMinimumBlockHeight ..: "minimumBlockHeight" % o
 
 -- TODO Options for parsing `Miner` on the command line.
 --
@@ -100,15 +93,9 @@ pMinerConfig = id
         <> short 'm'
         <> hidden
         <> internal
-    <*< configMinimumBlockHeight .:: fmap (int @Int) % option auto
-        % long "minimum-mining-height"
-        <> short 'm'
-        <> help "minimum block height for mining"
 
 validateMinerConfig :: ConfigValidation MinerConfig l
 validateMinerConfig c =
-    when (mid == "")
-        $ throwError "Mining is enabled but not miner id is configured"
-  where
-    Miner mid _keys = _configMinerInfo c
+    when (view (configMinerInfo . minerId) c == "")
+        $ throwError "Mining is enabled but no miner id is configured"
 

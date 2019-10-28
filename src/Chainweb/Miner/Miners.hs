@@ -95,23 +95,17 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: LogFunction -> ChainwebVersion -> Miner -> BlockHeight -> CutDb cas -> IO ()
-localPOW lf v m minHeight cdb = runForever lf "Chainweb.Miner.Miners.localPOW" go
+localPOW :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
+localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
-    go :: IO ()
-    go = do
+    loop :: IO a
+    loop = do
         c <- _cut cdb
         T3 p bh pl <- newWork Anything m pact c
-        if _blockHeight bh < minHeight
-            then () <$ awaitNewCut cdb c
-            else do
-                let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
-                race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
-                    Left _ -> return ()
-                    Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> return ()
-                        -- TODO: remove awaitNewCut. We'll probably don't want to mine
-                        -- on the same parent twice (would that be an issue?). So we should just
-                        -- continue on another chain.
+        let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
+        race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
+            Left _ -> loop
+            Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb

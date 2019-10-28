@@ -163,4 +163,4 @@ runMiner v mr = case window v of
         localTest lf v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = localPOW lf v (_configMinerInfo conf) (_configMinimumBlockHeight conf) cdb
+    powMiner = localPOW lf v (_configMinerInfo conf) cdb

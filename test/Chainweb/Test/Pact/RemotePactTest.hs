@@ -759,7 +759,6 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigSessionTimeout) 60
     & set (configMiner . enableConfigEnabled) True
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
-    & set (configMiner . enableConfigConfig . configMinimumBlockHeight) 0
     & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True

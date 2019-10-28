@@ -154,7 +154,6 @@ config v n nid = defaultChainwebConfiguration v
     & set (configMiner . enableConfigEnabled) True
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
-    & set (configMiner . enableConfigConfig . configMinimumBlockHeight) 0
     & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
 
     & set configReintroTxs True

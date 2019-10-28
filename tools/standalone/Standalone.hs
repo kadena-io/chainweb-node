@@ -225,7 +225,6 @@ defaultStandaloneConfiguration :: ChainwebVersion -> StandaloneConfiguration
 defaultStandaloneConfiguration v = StandaloneConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
         & configMiner . enableConfigEnabled .~ True
-        & configMiner . enableConfigConfig . configMinimumBlockHeight .~ 0
         & configMiner . enableConfigConfig . configMinerInfo .~ noMiner
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
