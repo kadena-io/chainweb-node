@@ -518,13 +518,11 @@ type BuyGasValidation = T3 ChainwebTransaction Uniqueness AbleToBuyGas
 attemptBuyGas
     :: PayloadCas cas
     => Miner
-    -> Maybe BlockHash
     -> PactDbEnv'
     -> Vector (T2 ChainwebTransaction Uniqueness)
     -> PactServiceM cas (Vector BuyGasValidation)
-attemptBuyGas miner nonGenesisParentHash (PactDbEnv' dbEnv) txs = do
+attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         psEnv <- ask
-        T2 _ _mc <- runCoinbase nonGenesisParentHash dbEnv miner
         V.fromList . ($ []) . sfst <$> V.foldM (f psEnv) (T2 id mempty) txs
 
   where
@@ -708,7 +706,7 @@ execNewBlock mpAccess parentHeader miner creationTime =
       let runDebitGas :: RunGas
           runDebitGas txs = fst <$!> runPactServiceM psState psEnv runGas
             where
-              runGas = attemptBuyGas miner (Just pHash) pdbenv txs
+              runGas = attemptBuyGas miner pdbenv txs
           validate bhi _bha txs = do
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
