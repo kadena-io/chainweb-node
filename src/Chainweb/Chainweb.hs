@@ -60,6 +60,7 @@ module Chainweb.Chainweb
 , configBlockGasLimit
 , defaultChainwebConfiguration
 , pChainwebConfiguration
+, validateChainwebConfiguration
 
 -- * Chainweb Resources
 , Chainweb(..)
@@ -227,11 +228,15 @@ instance HasChainGraph ChainwebConfiguration where
     _chainGraph = _chainGraph . _chainwebVersion
     {-# INLINE _chainGraph #-}
 
+validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
+validateChainwebConfiguration c = do
+    validateEnableConfig validateMinerConfig (_configMiner c)
+
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
-    , _configMiner = defaultEnableConfig defaultMinerConfig
+    , _configMiner = EnableConfig False defaultMinerConfig
     , _configBlessedMiners = []
     , _configCoordinator = False
     , _configHeaderStream = False
