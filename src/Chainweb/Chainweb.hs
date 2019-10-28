@@ -547,7 +547,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger coord mins mCutDb $ \mc ->
+                withMiningCoordination mLogger v coord mins mCutDb $ \mc ->
                     withMinerResources mLogger mConf mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb

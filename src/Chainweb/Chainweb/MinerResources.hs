@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -26,24 +27,25 @@ module Chainweb.Chainweb.MinerResources
   ) where
 
 import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as M
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Concurrently(..), runConcurrently)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (TVar, modifyTVar', newTVarIO, readTVar)
-import Control.Lens (over)
+import Control.Lens (over, view, (^?!))
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockCreationTime(..))
-import Chainweb.CutDB (CutDb)
+import Chainweb.BlockHeader (BlockCreationTime(..), BlockHeader)
+import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator
@@ -52,9 +54,12 @@ import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
+import Chainweb.Sync.WebBlockHeaderStore (PactExecutionService, _pactNewBlock)
+import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStorePact)
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (EnableConfig(..), int, runForever, thd)
-import Chainweb.Version (ChainwebVersion(..), window)
+import Chainweb.Utils (EnableConfig(..), int, ixg, runForever, thd)
+import Chainweb.Version (ChainId, ChainwebVersion(..), chainIds, window)
+import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
@@ -78,30 +83,51 @@ data MiningCoordination logger cas = MiningCoordination
 withMiningCoordination
     :: Logger logger
     => logger
+    -> ChainwebVersion
     -> Bool
     -> [Miner]
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
     -> IO a
-withMiningCoordination logger enabled miners cutDb inner
+withMiningCoordination logger ver enabled miners cdb inner
     | not enabled = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
-        m <- foob miners >>= newTVarIO
+        m <- initialPayloads miners >>= newTVarIO
         c <- newIORef 0
         fmap thd . runConcurrently $ (,,)
             <$> Concurrently (prune t c)
             <*> Concurrently (cachePayloads m)
             <*> Concurrently (inner . Just $ MiningCoordination
                 { _coordLogger = logger
-                , _coordCutDb = cutDb
+                , _coordCutDb = cdb
                 , _coordState = t
                 , _coordLimit = 2500
                 , _coord503s = c
                 , _coordMiners = m })
   where
-    foob :: [Miner] -> IO CachedPayloads
-    foob = undefined
+    cids :: [ChainId]
+    cids = HS.toList $ chainIds ver
+
+    pact :: PactExecutionService
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+
+    initialPayloads :: [Miner] -> IO CachedPayloads
+    initialPayloads ms = do
+        cut <- (\c -> map (\cid -> (cid, c ^?! ixg cid)) cids) <$> _cut cdb
+        CachedPayloads . M.fromList <$> traverse (\m -> (m,) <$> fromCut m cut) ms
+
+    fromCut
+      :: Miner
+      -> [(ChainId, BlockHeader)]
+      -> IO (M.Map ChainId (T2 PayloadWithOutputs BlockCreationTime))
+    fromCut m cut = M.fromList <$> traverse (\(cid, bh) -> (cid,) <$> getPayload m bh) cut
+
+    getPayload :: Miner -> BlockHeader -> IO (T2 PayloadWithOutputs BlockCreationTime)
+    getPayload m parent = do
+        creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+        payload <- _pactNewBlock pact m parent creationTime
+        pure $ T2 payload creationTime
 
     cachePayloads :: TVar CachedPayloads -> IO ()
     cachePayloads = undefined

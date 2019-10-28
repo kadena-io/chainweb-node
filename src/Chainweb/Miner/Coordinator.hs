@@ -48,7 +48,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
 import qualified Data.Text as T
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2, T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -87,7 +87,7 @@ newtype MiningState =
     deriving newtype (Semigroup, Monoid)
 
 newtype CachedPayloads =
-    CachePayloads (M.Map Miner (M.Map ChainId PayloadWithOutputs))
+    CachedPayloads (M.Map Miner (M.Map ChainId (T2 PayloadWithOutputs BlockCreationTime)))
 
 -- | For logging during `MiningState` manipulation.
 --
@@ -143,8 +143,8 @@ newWork choice miner pact c = do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.
             --
-            creationTime <- getCurrentTimeIntegral
-            payload <- _pactNewBlock pact miner p (BlockCreationTime creationTime)
+            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+            payload <- _pactNewBlock pact miner p creationTime
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
