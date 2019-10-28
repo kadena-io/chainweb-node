@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -15,39 +14,26 @@ import Control.Lens hiding ((.=))
 import Control.Monad.Reader
 
 import Data.Aeson (Value(..), object, toJSON, (.=))
-import Data.ByteString (ByteString)
 import Data.Default (def)
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
-import qualified Data.List.NonEmpty as NEL
-import Data.Tuple.Strict
 import Data.Text (Text)
-import qualified Data.Text.IO as T
-import Data.Text.Encoding
-import Data.Time.Clock.POSIX
-import qualified Data.Vector as V
 
 import NeatInterpolation (text)
 
-import Pact.ApiReq
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
-import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
-import Pact.Types.API
-import Pact.Types.Capability
-import Pact.Types.Command (Command(..), CommandResult(..), Payload(..), ProcessedCommand(..), verifyCommand)
-import Pact.Types.Logger (newLogger, Logger)
+import qualified Pact.Types.Hash as H
+import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
-import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.Server (CommandEnv(..))
-import qualified Pact.Types.Hash as H
-import qualified Pact.Types.ChainId as Pact
+import Pact.Types.SPV (noSPVSupport)
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -62,15 +48,10 @@ import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Miner.Pact
 import Chainweb.Pact.TransactionExec
-    (applyCoinbase, applyContinuation', applyExec', buildExecParsedCode, buyGas, gasFeeOf, publicMetaOf)
-import Chainweb.Pact.Types
+    (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Time
-import Chainweb.Transaction
-import Chainweb.Utils
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
@@ -216,7 +197,6 @@ checkpointerTest name initdata =
                   let contMsg = ContMsg pactId step False Null Nothing
                       cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
                   applyContinuation' cmdenv defaultInterpreter contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
-
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------
@@ -428,112 +408,6 @@ checkpointerTest name initdata =
           expectException $ runExec blockEnv11 (Just tKeyset) tablecode
 
           _cpSave _cpeCheckpointer hash10
-
-          next "Testing attemptBuyGas workflow."
-
-          let attemptBuyGas blockenv prevhash = do
-                fungible <- T.readFile "pact/coin-contract/fungible-v1.pact"
-                coinContract <- T.readFile "pact/coin-contract/coin.pact"
-
-                let minerKeyset = object ["miner" .= object ["keys" .= ([] :: [Text]), "pred" .= String ">="]]
-                void $ runExec blockenv Nothing fungible
-                void $ runExec blockenv Nothing coinContract
-                void $ runExec blockenv (Just minerKeyset) "(define-keyset \"miner\")"
-
-                txtime <- toTxCreationTime <$> getCurrentTimeIntegral
-                blockTime <- round . (* 1000000) <$> getPOSIXTime
-
-                let reward = ParsedDecimal 42
-                    ttl = 2 * 24 * 60 * 60
-                    pd = PublicData (PublicMeta (Pact.ChainId "0") "sender00" 100000 0.1 ttl txtime) 11 blockTime (sshow prevhash)
-
-
-                SubmitBatch txs' <- mkBadGasTxBatch "(+1 2)" "invalid-sender" sender00KeyPair Nothing txtime ttl
-
-                txs <- case  traverse validateCommand txs' of
-                         Right enriched -> return $ V.fromList $ NEL.toList enriched
-                         Left err -> assertFailure (show err)
-
-                let f dbenv (T2 dl mcache) cmd = do
-                      T2 mcache' !res <- runBuyGas (MockPactServiceEnv pd _cpeLogger) defaultMiner dbenv mcache cmd
-                      pure $! T2 (dl . (res :)) mcache'
-
-                case blockenv of
-                  PactDbEnv' dbenv -> do
-                    T2 cr mc <- applyCoinbase _cpeLogger dbenv defaultMiner reward pd prevhash
-                    assertEqual "coinbase txid" (Just 19) (_crTxId cr)
-                    void $ V.foldM (f dbenv) (T2 id mc) txs
-
-          blockEnv12 <- _cpRestore _cpeCheckpointer (Just (BlockHeight 11, hash10))
-
-          attemptBuyGas blockEnv12 hash10
-
-          _cpDiscard _cpeCheckpointer
-
-          hash11 <- BlockHash <$> merkleLogHash "0000000000000000000000000000011a"
-
-          blockEnv12a <- _cpRestore _cpeCheckpointer (Just (BlockHeight 11, hash10))
-
-          attemptBuyGas blockEnv12a hash10
-
-          _cpSave _cpeCheckpointer hash11
-
-validateCommand :: Command Text -> Either String ChainwebTransaction
-validateCommand cmdText = case verifyCommand cmdBS of
-    ProcSucc cmd -> Right (mkPayloadWithText <$> cmd)
-    ProcFail err -> Left err
-  where
-    cmdBS :: Command ByteString
-    cmdBS = encodeUtf8 <$> cmdText
-
-mkBadGasTxBatch :: String -> Text -> ChainwebKeyPair -> Maybe [SigCapability] -> TxCreationTime -> TTLSeconds -> IO SubmitBatch
-mkBadGasTxBatch code senderName senderKeyPair capList txtime ttl = do
-  ks <- testKeyPairs senderKeyPair capList
-  let pm = PublicMeta (ChainId "0") senderName 100000 0.01 ttl txtime
-  let cmd (n :: Int) = liftIO $ mkExec code Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
-  cmds <- mapM cmd (0 NEL.:| [1..5])
-  return $ SubmitBatch cmds
-
-
-data AbleToBuyGas = BuyGasFailed | BuyGasPassed
-
--- we don't care about uniqueness right now
-type BuyGasValidation = T2 ChainwebTransaction AbleToBuyGas
-
-data MockPactServiceEnv = MockPactServiceEnv
-  { _publicData :: PublicData
-  , __logger :: Logger
-  }
-
-createGasEnv :: MockPactServiceEnv -> PactDbEnv a -> Command (Payload PublicMeta ParsedCode) -> CommandEnv a
-createGasEnv mock db cmd =
-    CommandEnv Nothing Transactional db logger freeGasEnv publicData spv nid
-  where
-    !spv = noSPVSupport
-    !nid = Nothing
-    !publicData = set pdPublicMeta (publicMetaOf cmd) (_publicData mock)
-    !logger = __logger mock
-
-
--- TODO: should we assume uniqueness here
-runBuyGas :: MockPactServiceEnv -> Miner -> PactDbEnv a -> ModuleCache -> ChainwebTransaction -> IO (T2 ModuleCache BuyGasValidation)
-runBuyGas envM miner db mcache tx = do
-    let cmd = payloadObj <$> tx
-        gasPrice = gasPriceOf cmd
-        gasLimit = fromIntegral $ gasLimitOf cmd
-        supply = gasFeeOf gasLimit gasPrice
-        buyGasEnv = createGasEnv envM db cmd
-
-    buyGasResultE <- catchesPactError $!
-      buyGas buyGasEnv cmd miner supply mcache
-
-    case buyGasResultE of
-        Left _ ->
-            return (T2 mcache (T2 tx BuyGasFailed))
-        Right (Left _) ->
-            return (T2 mcache (T2 tx BuyGasFailed))
-        Right (Right (T3 _ _ newmcache)) ->
-            return (T2 newmcache (T2 tx BuyGasPassed))
 
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
