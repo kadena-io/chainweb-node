@@ -58,5 +58,6 @@ code: |-
   (coin.create-allocation-account "PS_C4_842" (time "2021-02-01T00:00:00Z") "PS_C4" 333333.33)
   (coin.create-allocation-account "PS_C4_829" (time "2021-01-01T00:00:00Z") "PS_C4" 333333.33)
   (coin.create-allocation-account "PS_C4_817" (time "2020-12-01T00:00:00Z") "PS_C4" 333333.33)
+  (coin.create-allocation-account "Emily" (time "1900-12-01T00:00:00Z") "Emily" 100000.0)
 nonce: mainnet-allocations-4
 keyPairs: []
