@@ -442,7 +442,7 @@ doCommit = use bsMode >>= \mm -> case mm of
     Just m -> do
         txrs <- if m == Transactional
           then do
-              bsTxId %= succ
+              modify' (over bsTxId succ)
               -- merge pending tx into block data
               pending <- use bsPendingTx
               bsPendingBlock %= merge pending
