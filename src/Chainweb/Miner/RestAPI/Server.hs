@@ -95,7 +95,7 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork (maybe Anything Suggestion mcid) m pact c
+    T3 p bh pl <- newWork (maybe Anything Suggestion mcid) m pact (_coordMiners mr) c
     let !phash = _blockPayloadHash bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert phash $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh

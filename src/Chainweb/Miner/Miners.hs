@@ -28,6 +28,7 @@ import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
+import Control.Concurrent.STM.TVar (TVar)
 import Control.Lens (view)
 
 import Numeric.Natural (Natural)
@@ -63,17 +64,18 @@ import Data.LogMessage (LogFunction)
 localTest
     :: LogFunction
     -> ChainwebVersion
+    -> TVar CachedPayloads
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
+localTest lf v tcp m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Anything m pact c
+        T3 p bh pl <- newWork Anything m pact tcp c
         let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
@@ -95,13 +97,19 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
-localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
+localPOW
+    :: LogFunction
+    -> ChainwebVersion
+    -> TVar CachedPayloads
+    -> Miner
+    -> CutDb cas
+    -> IO ()
+localPOW lf v tcp m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Anything m pact c
+        T3 p bh pl <- newWork Anything m pact tcp c
         let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop

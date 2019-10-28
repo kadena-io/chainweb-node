@@ -203,7 +203,10 @@ runMiner v mr = case window v of
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        localTest lf v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
+        tcp <- newTVarIO $ CachedPayloads mempty
+        localTest lf v tcp (_configMinerInfo conf) cdb gen (_configTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = localPOW lf v (_configMinerInfo conf) cdb
+    powMiner = do
+        tcp <- newTVarIO $ CachedPayloads mempty
+        localPOW lf v tcp (_configMinerInfo conf) cdb
