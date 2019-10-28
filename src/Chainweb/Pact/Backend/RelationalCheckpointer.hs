@@ -124,9 +124,9 @@ doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
     height <- gets _bsBlockHeight
     runPending height
-    commitSavepoint Block
     nextTxId <- gets _bsTxId
     blockHistoryInsert height hash nextTxId
+    commitSavepoint Block
     clearPendingTxState
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
