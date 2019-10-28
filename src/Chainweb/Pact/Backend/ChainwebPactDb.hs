@@ -63,7 +63,7 @@ import Prelude hiding (concat, log)
 -- pact
 
 import Pact.Persist
-import Pact.PersistPactDb hiding (db,_logger)
+import Pact.PersistPactDb hiding (db)
 import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.Persistence
@@ -486,8 +486,7 @@ doBegin m = do
     bsMode .= Just m
     bsPendingTx .= Just emptySQLitePendingData
     case m of
-        Transactional ->
-          Just <$> use bsTxId
+        Transactional -> Just <$> use bsTxId
         Local -> pure Nothing
 {-# INLINE doBegin #-}
 
