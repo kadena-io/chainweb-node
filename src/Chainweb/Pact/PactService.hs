@@ -616,22 +616,6 @@ skipDebitGas :: RunGas
 skipDebitGas = return . fmap (\(T2 a b) -> (T3 a b BuyGasPassed))
 
 
-validateChainwebTxsPreBlock
-    :: Checkpointer
-    -> BlockCreationTime
-    -> RunGas
-    -> BlockHeight
-    -> BlockHash
-    -> Vector ChainwebTransaction
-    -> IO (Vector Bool)
-validateChainwebTxsPreBlock cp blockOriginationTime runGas bh hash txs = do
-    lb <- _cpGetLatestBlock cp
-    when (Just (pred bh, hash) /= lb) $
-        internalError "restore point is wrong, refusing to validate."
-    liftIO $ putStrLn $ "validateChainwebTxsPreBlock/" ++ show (V.length txs) ++ "/height="
-      ++ show bh ++ "/hash=" ++ show hash
-    validateChainwebTxs cp blockOriginationTime bh txs runGas
-
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
 -- associated with account name
 --
@@ -709,44 +693,48 @@ execNewBlock
     -> PactServiceM cas PayloadWithOutputs
 execNewBlock mpAccess parentHeader miner creationTime =
   do
-    updateMP
-    newTrans <- withDiscardedBatch $ withCheckpointerRewind (Just (bHeight, pHash)) "preBlock" $ \pdbenv -> do
+    updateMempool
+    withDiscardedBatch $ do
+      rewindTo target
+      newTrans <- withCheckpointer target "preBlock" doPreBlock
+      withCheckpointer target "execNewBlock" (doNewBlock newTrans)
+
+  where
+
+    doPreBlock pdbenv = do
       cp <- getCheckpointer
       psEnv <- ask
       psState <- get
-      logit ("PACT","preBlock",bHeight)
       let runDebitGas :: RunGas
           runDebitGas txs = fst <$!> runPactServiceM psState psEnv runGas
             where
               runGas = attemptBuyGas miner (Just pHash) pdbenv txs
-          validate = validateChainwebTxsPreBlock cp creationTime runDebitGas
-      liftIO $ fmap Discard $
+          validate bhi _bha txs = do
+            -- note that here we previously were doing a validation
+            -- that target == cpGetLatestBlock
+            -- which we determined was unnecessary and was a db hit
+            validateChainwebTxs cp creationTime bhi txs runDebitGas
+      liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
-    withDiscardedBatch $ withCheckpointerRewind (Just (bHeight, pHash)) "execNewBlock" $ \pdbenv -> do
+
+    doNewBlock newTrans pdbenv = do
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
-
-        -- prop_tx_ttl_newblock
-
-        logit ("PACT","newBlock",bHeight)
 
         -- locally run 'execTransactions' with updated blockheight data
         results <- withBlockData parentHeader $
             execTransactions (Just pHash) miner newTrans pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
-            header = (show $ _payloadWithOutputsPayloadHash pwo) ++ "height=" ++ show bHeight ++ "/hash=" ++ show pHash
-        liftIO $ when (V.length newTrans == 0)
-          (putStrLn $ header ++ "/execNewBlock/coinbase-output " ++ show (_transactionCoinbase results))
-        liftIO $ when (V.length newTrans == 0)
-          (putStrLn $ header ++ "/execNewBlock/transactions-output " ++ show (_transactionPairs results))
         return $! Discard pwo
-  where
+
     pHeight = _blockHeight parentHeader
     pHash = _blockHash parentHeader
+    target = Just (bHeight, pHash)
     bHeight = succ pHeight
-    updateMP = liftIO $ do
+
+    updateMempool = liftIO $ do
       mpaProcessFork mpAccess parentHeader
       mpaSetLastHeader mpAccess parentHeader
 
@@ -840,9 +828,6 @@ withBlockData bhe action = locally psPublicData go action
       , P._pdPrevBlockHash = toText ph
       }
 
-logit :: Show a => a -> PactServiceM cas ()
-logit a = view (psCheckpointEnv . cpeLogger) >>= \l -> liftIO $ P.logLog l "ERROR" ("logit: " ++ show a)
-
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
 playOneBlock
@@ -852,13 +837,10 @@ playOneBlock
     -> PactDbEnv'
     -> PactServiceM cas PayloadWithOutputs
 playOneBlock currHeader plData pdbenv = do
-    logit ("PACT","playOneBlock",(_blockHeight currHeader))
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
-    psEnv <- ask
-    psState <- get
     -- prop_tx_ttl_validate
     oks <- liftIO $
            validateChainwebTxs cp creationTime
@@ -873,14 +855,6 @@ playOneBlock currHeader plData pdbenv = do
     -- transactions are now successfully validated.
     !results <- go miner trans
     psStateValidated .= Just currHeader
-    let !pwo = toPayloadWithOutputs miner results
-        isHashMismatch = not $ (_payloadWithOutputsPayloadHash pwo) == (_payloadDataPayloadHash plData)
-        header = (show $ _payloadWithOutputsPayloadHash pwo) ++ "height=" ++ show (_blockHeight currHeader)
-          ++ "/hash=" ++ show bParent
-    liftIO $ when (isHashMismatch)
-      (putStrLn $ header ++ "playOneBlock/coinbase-output " ++ show (_transactionCoinbase results))
-    liftIO $ when (isHashMismatch)
-      (putStrLn $ header ++ "playOneBlock/transactions-output " ++ show (_transactionPairs results))
 
     return $! toPayloadWithOutputs miner results
 

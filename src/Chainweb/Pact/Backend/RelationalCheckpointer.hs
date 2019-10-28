@@ -96,7 +96,6 @@ type Db = MVar (BlockEnv SQLiteEnv)
 
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
 doRestore dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
-    logit ("doRestore",bh)
     clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
     beginSavepoint Block
@@ -118,14 +117,12 @@ doRestore dbenv Nothing = runBlockEnv dbenv $ do
         exec_ db "DELETE FROM VersionedTableMutation;"
         exec_ db "DELETE FROM TransactionIndex;"
     beginSavepoint Block
-    logit ("BLOCK","doRestoreInitial")
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
     height <- gets _bsBlockHeight
-    logit ("BLOCK","doSave",height)
     runPending height
     nextTxId <- gets _bsTxId
     blockHistoryInsert height hash nextTxId
@@ -162,7 +159,6 @@ doSave dbenv hash = runBlockEnv dbenv $ do
 --
 doDiscard :: Db -> IO ()
 doDiscard dbenv = runBlockEnv dbenv $ do
-    logit ("BLOCK","doDiscard")
     clearPendingTxState
     rollbackSavepoint Block
 

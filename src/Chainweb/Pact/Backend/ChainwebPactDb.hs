@@ -27,7 +27,6 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , backendWriteUpdateBatch
 , createUserTable
 , vacuumDb
-  , logit
 ) where
 
 import Control.Applicative
@@ -441,13 +440,9 @@ doCreateUserTable tn@(TableName ttxt) mn = do
     txlogs = DL.singleton (TxLog txlogKey stn (toJSON uti))
 {-# INLINE doCreateUserTable #-}
 
-logit :: Show a => a -> BlockHandler SQLiteEnv ()
-logit a = asks _logger >>= \l -> liftIO $ logLog l "ERROR" ("logit: " ++ show a)
-
 doRollback :: BlockHandler SQLiteEnv ()
 doRollback = do
-  logit ("TX","doRollback")
-  resetTemp
+  bsMode .= Nothing
   bsPendingTx .= Nothing
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
@@ -456,7 +451,6 @@ doCommit = use bsMode >>= \mm -> case mm of
     Just m -> do
         txrs <- if m == Transactional
           then do
-              use bsTxId >>= \t -> logit ("TX","doCommit",succ t)
               modify' (over bsTxId succ)
               -- merge pending tx into block data
               pending <- use bsPendingTx
@@ -498,8 +492,7 @@ doBegin m = do
     bsMode .= Just m
     bsPendingTx .= Just emptySQLitePendingData
     case m of
-        Transactional -> do
-          use bsTxId >>= \t -> logit ("TX","doBegin",t)
+        Transactional ->
           Just <$> use bsTxId
         Local -> pure Nothing
 {-# INLINE doBegin #-}
@@ -563,8 +556,7 @@ unwrap :: Utf8 -> BS.ByteString
 unwrap (Utf8 str) = str
 
 blockHistoryInsert :: BlockHeight -> BlockHash -> TxId -> BlockHandler SQLiteEnv ()
-blockHistoryInsert bh hsh t = do
-    logit ("BLOCK","blockHistoryInsert",t,bh)
+blockHistoryInsert bh hsh t =
     callDb "blockHistoryInsert" $ \db ->
         exec' db stmt [ SInt (fromIntegral bh)
                    , SBlob (Data.Serialize.encode hsh)
@@ -701,7 +693,6 @@ handlePossibleRewind bRestore hsh = do
               "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
               [SInt (fromIntegral bCurrent)]
               [RInt]
-        logit ("BLOCK","newChildBlock",bCurrent,txid)
         assign bsTxId (fromIntegral txid)
         return $ fromIntegral txid
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"
@@ -714,7 +705,6 @@ handlePossibleRewind bRestore hsh = do
             droppedtbls <- dropTablesAtRewind bh db
             vacuumTablesAtRewind bh endingtx droppedtbls db
         deleteHistory bh
-        logit ("BLOCK","rewindBlock",bh,endingtx)
         assign bsTxId endingtx
         clearTxIndex
         return endingtx
