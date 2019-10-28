@@ -260,7 +260,6 @@ getWork = do
     -- anything, then there's no point in continuing to wait.
     --
     policy :: Int -> Int -> RetryPolicy
-    -- policy = exponentialBackoff 500000 <> limitRetries 7
     -- There has to be a cleaner way to do this.
     policy base theLimit = retryPolicy $ \RetryStatus { rsIterNumber = n } ->
       Just $! base `boundedMult` boundedPow 2 (mod n (theLimit + 1))
@@ -290,7 +289,7 @@ getWork = do
         runUrl baseurl = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m baseurl Nothing)
         withCurrentUrl runner = withMVar (envUrls e) $  \urls -> runner (NES.head urls)
         withNextUrl runner = modifyMVar (envUrls e) $ \urls -> do
-            let urls' = _rotate urls
+            let urls' = rotate urls
             (,) urls' <$> runner (NES.head urls')
 
 -- | A supervisor thread that listens for new work and manages mining threads.
@@ -402,8 +401,8 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
 --------------------------------------------------------------------------------
 
 -- | O(1). The head value is moved to the end.
-_rotate :: NESeq a -> NESeq a
-_rotate (h :<|| rest) = rest :||> h
+rotate :: NESeq a -> NESeq a
+rotate (h :<|| rest) = rest :||> h
 
 -- | Same as '*' on 'Int' but it maxes out at @'maxBound' :: 'Int'@ or
 -- @'minBound' :: 'Int'@ rather than rolling over
