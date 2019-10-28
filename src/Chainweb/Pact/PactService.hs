@@ -593,7 +593,7 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
                 <$> _cpLookupProcessedTx cp (P._cmdHash t)
               return $! T2 t uniqueness
         txs' <- liftIO $ V.mapM f txs
-        doBuyGas txs' >>= \ts -> V.mapM validate ts
+        doBuyGas txs' >>= V.mapM validate
   where
     validate :: T3 ChainwebTransaction Uniqueness AbleToBuyGas -> IO Bool
     validate (T3 _ Duplicate _) = pure False
