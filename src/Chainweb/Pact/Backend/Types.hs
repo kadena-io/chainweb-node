@@ -45,7 +45,11 @@ module Chainweb.Pact.Backend.Types
     , SQLiteDeltaKey(..)
     , SQLitePendingTableCreations
     , SQLitePendingWrites
-    , SQLitePendingData
+    , SQLitePendingData(..)
+    , pendingTableCreation
+    , pendingWrites
+    , pendingTxLogMap
+    , pendingSuccessfulTxs
     , emptySQLitePendingData
 
     , BlockState(..)
@@ -210,11 +214,15 @@ type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-type SQLitePendingData = ( SQLitePendingTableCreations
-                         , SQLitePendingWrites
-                         , TxLogMap
-                         , SQLitePendingSuccessfulTxs
-                         )
+data SQLitePendingData = SQLitePendingData
+    { _pendingTableCreation :: !SQLitePendingTableCreations
+    , _pendingWrites :: !SQLitePendingWrites
+    , _pendingTxLogMap :: !TxLogMap
+    , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
+    }
+    deriving (Show)
+
+makeLenses ''SQLitePendingData
 
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
@@ -234,7 +242,7 @@ data BlockState = BlockState
     deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = (mempty, mempty, mempty, mempty)
+emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState :: BlockState
 initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
