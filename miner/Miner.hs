@@ -3,8 +3,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -59,11 +61,17 @@
 module Main ( main ) where
 
 import Control.Error.Util (hush)
-import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
+-- import Control.Retry (RetryStatus(..), RetryPolicy, exponentialBackoff, limitRetries, retrying, retryPolicy,)
+import Control.Retry (RetryStatus(..), RetryPolicy, retrying, retryPolicy,)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
+import qualified Data.List.NonEmpty as NEL (fromList)
+import Data.Sequence.NonEmpty (NESeq(..))
+import qualified Data.Sequence.NonEmpty as NES
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Tuple.Strict (T3(..), T2(..))
+import GHC.Prim
+import GHC.Types(Int(I#))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
@@ -105,7 +113,7 @@ data ClientArgs = ClientArgs
     { cmd :: !Command
     , version :: !ChainwebVersion
     , ll :: !LogLevel
-    , coordinator :: !BaseUrl
+    , coordinators :: ![BaseUrl]
     , miner :: !Miner
     , chainid :: !(Maybe ChainId) }
     deriving stock (Generic)
@@ -127,14 +135,15 @@ data Env = Env
     , envLog :: !LogFunc
     , envArgs :: !ClientArgs
     , envHashes :: IORef Word64
-    , envSecs :: IORef Word64 }
+    , envSecs :: IORef Word64
+    , envUrls :: MVar (NESeq BaseUrl) }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
     logFuncL = field @"envLog"
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> pUrl <*> pMiner <*> pChainId
+pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> some pUrl <*> pMiner <*> pChainId
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -212,7 +221,8 @@ main = do
         m <- newManager (mkManagerSettings ss Nothing)
         stats <- newIORef 0
         start <- newIORef 0
-        runRIO (Env g m logFunc cargs stats start) run
+        mUrls <- newMVar (NES.fromList . NEL.fromList $ coordinators cargs)
+        runRIO (Env g m logFunc cargs stats start mUrls) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -240,15 +250,20 @@ getWork :: RIO Env (Maybe WorkBytes)
 getWork = do
     logDebug "Attempting to fetch new work from the remote Node"
     e <- ask
-    m <- retrying policy (const warn) $ const (liftIO $ f e)
+    m <- retrying (policy 500000 limit) (const warn) (liftIO . f e)
     when (isLeft m) $ logError "Failed to fetch work!"
     pure $ hush m
   where
+    limit = 7
+
     -- | If we wait longer than the average block time and still can't get
     -- anything, then there's no point in continuing to wait.
     --
-    policy :: RetryPolicy
-    policy = exponentialBackoff 500000 <> limitRetries 7
+    policy :: Int -> Int -> RetryPolicy
+    -- policy = exponentialBackoff 500000 <> limitRetries 7
+    -- There has to be a cleaner way to do this.
+    policy base theLimit = retryPolicy $ \RetryStatus { rsIterNumber = n } ->
+      Just $! base `boundedMult` boundedPow 2 (mod n (theLimit + 1))
 
     warn :: Either ClientError WorkBytes -> RIO Env Bool
     warn (Right _) = pure False
@@ -262,13 +277,21 @@ getWork = do
         m = displayBytesUtf8 . BL.toStrict $ responseBody r
     bad _ = logError "Something truly bad has happened."
 
-    f :: Env -> IO (Either ClientError WorkBytes)
-    f e = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
+    f :: Env -> RetryStatus -> IO (Either ClientError WorkBytes)
+    f e r =
+      case divMod (rsIterNumber r) limit of
+        (0,_) -> withCurrentUrl runUrl
+        (_, 0) -> withNextUrl runUrl
+        _ -> withCurrentUrl runUrl
       where
         a = envArgs e
         v = version a
         m = envMgr e
-        u = coordinator a
+        runUrl baseurl = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m baseurl Nothing)
+        withCurrentUrl runner = withMVar (envUrls e) $  \urls -> runner (NES.head urls)
+        withNextUrl runner = modifyMVar (envUrls e) $ \urls -> do
+            let urls' = _rotate urls
+            (,) urls' <$> runner (NES.head urls')
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
@@ -295,7 +318,8 @@ mining go wb = do
         f :: RIO Env ()
         f = do
             e <- ask
-            liftIO $ withEvents (req $ envArgs e) (envMgr e) (void . SP.head_ . SP.filter realEvent)
+            withMVar (envUrls e) $ \urls ->
+                liftIO $ withEvents (req (NES.head urls) $ envArgs e) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
             logDebug . display . T.pack $ printf "Chain %d: Current work was preempted." cid
 
@@ -305,11 +329,11 @@ mining go wb = do
         realEvent _ = False
 
         -- TODO This is an uncomfortable URL hardcoding.
-        req :: ClientArgs -> Request
-        req a = defaultRequest
-            { host = encodeUtf8 . T.pack . baseUrlHost $ coordinator a
+        req :: BaseUrl -> ClientArgs -> Request
+        req u a = defaultRequest
+            { host = encodeUtf8 . T.pack . baseUrlHost $ u
             , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"
-            , port = baseUrlPort $ coordinator a
+            , port = baseUrlPort u
             , secure = True
             , method = "GET"
             , requestBody = RequestBodyBS cbs }
@@ -325,13 +349,13 @@ mining go wb = do
       hashes <- readIORef (envHashes e)
       let !v = version $ envArgs e
           !m = envMgr e
-          !u = coordinator $ envArgs e
           !r = (fromIntegral hashes :: Double) / max 1 (fromIntegral secs) / 1000000
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo . display . T.pack $
           printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
-      res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
+      res <- withMVar (envUrls e) $ \urls ->
+        liftIO . runClientM (solvedClient v h) $ ClientEnv m (NES.head urls) Nothing
       when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
 
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
@@ -371,3 +395,37 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
           modifyIORef' (envHashes e) (+ numNonces)
           modifyIORef' (envSecs e) (+ secs)
           return $! HeaderBytes newBytes
+
+
+--------------------------------------------------------------------------------
+-- Utils
+--------------------------------------------------------------------------------
+
+-- | O(1). The head value is moved to the end.
+_rotate :: NESeq a -> NESeq a
+_rotate (h :<|| rest) = rest :||> h
+
+-- | Same as '*' on 'Int' but it maxes out at @'maxBound' :: 'Int'@ or
+-- @'minBound' :: 'Int'@ rather than rolling over
+boundedMult :: Int -> Int -> Int
+boundedMult i@(I# i#) j@(I# j#) = case mulIntMayOflo# i# j# of
+  0# -> I# (i# *# j#)
+  _ | signum i * signum j < 0 -> minBound
+    | otherwise -> maxBound
+
+-- | Same as '^' on 'Int' but it maxes out at @'maxBound' :: 'Int'@ or
+-- @'MinBound' :: 'Int'@ rather than rolling over
+boundedPow :: Int -> Int -> Int
+boundedPow x0 y0
+  | y0 < 0 = error "Negative exponent"
+  | y0 == 0 = 1
+  | otherwise = f x0 y0
+  where
+    f x y
+      | even y = f (x `boundedMult` x) (y `quot` 2)
+      | y == 1 = x
+      | otherwise = g (x `boundedMult` x) ((y - 1) `quot` 2) x
+    g x y z
+      | even y = g (x `boundedMult` x) (y `quot` 2) z
+      | y == 1 = x `boundedMult` z
+      | otherwise = g (x `boundedMult` x) ((y - 1) `quot` 2) (x `boundedMult` z)
