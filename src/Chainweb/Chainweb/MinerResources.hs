@@ -27,6 +27,7 @@ module Chainweb.Chainweb.MinerResources
   ) where
 
 import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as M
@@ -36,7 +37,7 @@ import qualified Data.Vector as V
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Concurrently(..), runConcurrently)
 import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', newTVarIO, readTVar)
+import Control.Concurrent.STM.TVar
 import Control.Lens (over, view, (^?!))
 
 import System.LogLevel (LogLevel(..))
@@ -45,7 +46,9 @@ import qualified System.Random.MWC as MWC
 -- internal modules
 
 import Chainweb.BlockHeader (BlockCreationTime(..), BlockHeader)
-import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut)
+import Chainweb.ChainId (_chainId)
+import Chainweb.Cut (Cut, _cutMap)
+import Chainweb.CutDB (CutDb, cutDbPayloadStore, _cut, _cutStm)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config (MinerConfig(..))
 import Chainweb.Miner.Coordinator
@@ -92,12 +95,13 @@ withMiningCoordination
 withMiningCoordination logger ver enabled miners cdb inner
     | not enabled = inner Nothing
     | otherwise = do
+        cut <- _cut cdb
         t <- newTVarIO mempty
-        m <- initialPayloads miners >>= newTVarIO
+        m <- initialPayloads cut miners >>= newTVarIO
         c <- newIORef 0
         fmap thd . runConcurrently $ (,,)
             <$> Concurrently (prune t c)
-            <*> Concurrently (cachePayloads m)
+            <*> Concurrently (cachePayloads m cut)
             <*> Concurrently (inner . Just $ MiningCoordination
                 { _coordLogger = logger
                 , _coordCutDb = cdb
@@ -112,10 +116,11 @@ withMiningCoordination logger ver enabled miners cdb inner
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
-    initialPayloads :: [Miner] -> IO CachedPayloads
-    initialPayloads ms = do
-        cut <- (\c -> map (\cid -> (cid, c ^?! ixg cid)) cids) <$> _cut cdb
-        CachedPayloads . M.fromList <$> traverse (\m -> (m,) <$> fromCut m cut) ms
+    initialPayloads :: Cut -> [Miner] -> IO CachedPayloads
+    initialPayloads cut ms =
+        CachedPayloads . M.fromList <$> traverse (\m -> (m,) <$> fromCut m pairs) ms
+      where
+        pairs = map (\cid -> (cid, cut ^?! ixg cid)) cids
 
     fromCut
       :: Miner
@@ -129,8 +134,26 @@ withMiningCoordination logger ver enabled miners cdb inner
         payload <- _pactNewBlock pact m parent creationTime
         pure $ T2 payload creationTime
 
-    cachePayloads :: TVar CachedPayloads -> IO ()
-    cachePayloads = undefined
+    cachePayloads :: TVar CachedPayloads -> Cut -> IO ()
+    cachePayloads tcp old = do
+        new <- atomically $ _cutStm cdb
+        let oldChains = HM.keysSet $ _cutMap old
+            newChains = HM.keysSet $ _cutMap new
+            difChains = HS.toList  $ HS.difference newChains oldChains
+            parents   = map (\cid -> new ^?! ixg cid) difChains
+        CachedPayloads cached <- readTVarIO tcp
+        newCached <- M.traverseWithKey (g parents) cached
+        atomically . writeTVar tcp $ CachedPayloads newCached
+      where
+        g :: [BlockHeader]
+          -> Miner
+          -> M.Map ChainId (T2 PayloadWithOutputs BlockCreationTime)
+          -> IO (M.Map ChainId (T2 PayloadWithOutputs BlockCreationTime))
+        g ps miner pays = do
+            news <- M.fromList <$> traverse (\p -> (_chainId p,) <$> getPayload miner p) ps
+            -- `union` is left-biased, and so prefers items from the first Map
+            -- when duplicate keys are encountered.
+            pure $ M.union news pays
 
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
