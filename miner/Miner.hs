@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -80,6 +81,7 @@ import Network.HTTP.Types.Status (Status(..))
 import Network.Wai.EventSource (ServerEvent(..))
 import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
+import qualified Prelude
 import RIO
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
@@ -105,24 +107,29 @@ import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
 import Chainweb.Utils (textOption, toText, runGet)
 import Chainweb.Version
 
+import Pact.Types.Crypto
+import Pact.Types.Util
+
 --------------------------------------------------------------------------------
 -- CLI
 
 -- | Result of parsing commandline flags.
 --
-data ClientArgs = ClientArgs
-    { cmd :: !Command
-    , version :: !ChainwebVersion
+data ClientArgs' = ClientArgs'
+    { version :: !ChainwebVersion
     , ll :: !LogLevel
     , coordinators :: ![BaseUrl]
     , miner :: !Miner
     , chainid :: !(Maybe ChainId) }
     deriving stock (Generic)
 
+data ClientArgs = ClientArgs { cmd :: !Command, clientargs' :: !(Maybe ClientArgs')}
+  deriving stock (Generic)
+
 -- | The top-level git-style CLI "command" which determines which mining
 -- paradigm to follow.
 --
-data Command = CPU CPUEnv | GPU GPUEnv
+data Command = CPU CPUEnv | GPU GPUEnv | Keys
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 data GPUEnv = GPUEnv
@@ -134,7 +141,8 @@ data Env = Env
     { envGen :: !MWC.GenIO
     , envMgr :: !Manager
     , envLog :: !LogFunc
-    , envArgs :: !ClientArgs
+    , envCmd :: !Command
+    , envArgs :: !ClientArgs'
     , envHashes :: IORef Word64
     , envSecs :: IORef Word64
     , envSuccessInitTime :: IORef Int
@@ -144,13 +152,22 @@ data Env = Env
 instance HasLogFunc Env where
     logFuncL = field @"envLog"
 
+
+pClientArgs' :: Parser ClientArgs'
+pClientArgs' = ClientArgs' <$> pVersion <*> pLog <*> some pUrl <*> pMiner <*> pChainId
+
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> some pUrl <*> pMiner <*> pChainId
+pClientArgs = ($) <$> fmap go pCommand <*> (Just <$> pClientArgs')
+  where
+    go = \case
+      Keys -> const $ ClientArgs Keys Nothing
+      other -> ClientArgs other
 
 pCommand :: Parser Command
 pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
+    <> command "keys" (info keysOpts (progDesc "Generate public/private key pair"))
     )
 
 pMinerPath :: Parser Text
@@ -172,6 +189,12 @@ gpuOpts = GPU <$> pGpuEnv
 
 cpuOpts :: Parser Command
 cpuOpts = CPU . CPUEnv <$> pCores
+
+keysOpts :: Parser Command
+keysOpts = pure Keys
+  -- where
+    -- go :: Parser Text
+    -- go = option auto (long "keys"  <> help "Generate Key Pair")
 
 pCores :: Parser Word16
 pCores = option auto
@@ -216,16 +239,20 @@ pChainId = optional $ textOption
 
 main :: IO ()
 main = do
-    cargs <- execParser opts
-    lopts <- setLogMinLevel (ll cargs) . setLogUseLoc False <$> logOptionsHandle stderr True
-    withLogFunc lopts $ \logFunc -> do
-        g <- MWC.createSystemRandom
-        m <- newManager (mkManagerSettings ss Nothing)
-        stats <- newIORef 0
-        start <- newIORef 0
-        mUrls <- newMVar (NES.fromList . NEL.fromList $ coordinators cargs)
-        successStart <- newIORef 0
-        runRIO (Env g m logFunc cargs stats start successStart mUrls) run
+    execParser opts >>= \case
+      ClientArgs Keys Nothing -> genKeys >> exitSuccess
+      ClientArgs Keys _ -> Prelude.putStrLn "You shouldn't reach this case." >> exitFailure
+      ClientArgs _ Nothing -> Prelude.putStrLn "You shouldn't reach this case." >> exitFailure
+      ClientArgs c (Just cargs) -> do
+        lopts <- setLogMinLevel (ll cargs) . setLogUseLoc False <$> logOptionsHandle stderr True
+        withLogFunc lopts $ \logFunc -> do
+          g <- MWC.createSystemRandom
+          m <- newManager (mkManagerSettings ss Nothing)
+          stats <- newIORef 0
+          start <- newIORef 0
+          mUrls <- newMVar (NES.fromList . NEL.fromList $ coordinators cargs)
+          successStart <- newIORef 0
+          runRIO (Env g m logFunc c cargs stats start successStart mUrls) run
   where
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -239,13 +266,22 @@ main = do
 
 run :: RIO Env ()
 run = do
-    logInfo "Starting Miner."
     env <- ask
+    logInfo "Starting Miner."
     getWork >>= traverse_ (mining (scheme env))
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-scheme env = case cmd $ envArgs env of CPU e -> cpu e; GPU e -> gpu e
+scheme env = case envCmd env of CPU e -> cpu e; GPU e -> gpu e; Keys -> fail msg
+  where
+    msg = "Imposible: You shouldn't reach this case."
+
+genKeys :: IO ()
+genKeys = do
+    kp <- genKeyPair defaultScheme
+    Prelude.putStrLn $ "public: " ++ T.unpack (toB16Text $ getPublic kp)
+    Prelude.putStrLn $ "secret: " ++ T.unpack (toB16Text $ getPrivate kp)
+
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
@@ -338,7 +374,7 @@ mining go wb = do
         realEvent _ = False
 
         -- TODO This is an uncomfortable URL hardcoding.
-        req :: BaseUrl -> ClientArgs -> Request
+        req :: BaseUrl -> ClientArgs' -> Request
         req u a = defaultRequest
             { host = encodeUtf8 . T.pack . baseUrlHost $ u
             , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"

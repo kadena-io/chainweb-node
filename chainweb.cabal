@@ -672,6 +672,7 @@ executable chainweb-miner
         , nonempty-containers >= 0.1
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
+        , pact >= 2.6
         , paths >= 0.2
         , retry >= 0.7
         , rio >= 0.1.5
