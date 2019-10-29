@@ -31,12 +31,6 @@ extra-source-files:
 
     rewards/miner_rewards.csv
 
-    -- genesis allocations csvs
-
-    rewards/mainnet_keysets.csv
-    rewards/mainnet_allocations.csv
-    rewards/mainnet_coinbase.csv
-
     -- pact test data
 
     pact/coin-contract/coin.repl
