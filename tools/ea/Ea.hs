@@ -99,7 +99,7 @@ main = do
     cc = [fungibleAsset, coinContract, gasPayer]
     devDefaults = cc <> [devNs]
     prodDefaults = cc <> [prodNs]
-    mainnetDefaults = cc <> [prodNs, mainKeysets, mainCoinbases, testAllocations]
+    mainnetDefaults = cc <> [prodNs, testAllocations]
 
     chain0 =
       [ (Development, "Development", devDefaults <> [devAllocations, dev0Grants])
