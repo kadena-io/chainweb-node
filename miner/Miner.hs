@@ -10,7 +10,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Main
@@ -68,15 +67,14 @@ import Data.Generics.Product.Fields (field)
 import qualified Data.List.NonEmpty as NEL (fromList)
 import qualified Data.Sequence.NonEmpty as NES
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Data.Tuple.Strict (T3(..), T2(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client hiding (responseBody, Proxy(..))
+import Network.HTTP.Client hiding (Proxy(..), responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.HTTP.Types.Status (Status(..))
 import Network.Wai.EventSource (ServerEvent(..))
 import Network.Wai.EventSource.Streaming (withEvents)
 import Options.Applicative
-import qualified Prelude
 import RIO
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
@@ -89,7 +87,7 @@ import qualified System.Random.MWC as MWC
 import Text.Printf (printf)
 
 #if ! MIN_VERSION_rio(0,1,9)
-import System.Exit (exitFailure, exitSuccess)
+import System.Exit (exitFailure)
 #endif
 
 -- internal modules
@@ -100,7 +98,7 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
 import Chainweb.RestAPI.NodeInfo (NodeInfo(..), NodeInfoApi)
-import Chainweb.Utils (textOption, toText, runGet)
+import Chainweb.Utils (runGet, textOption, toText)
 import Chainweb.Version
 
 import Pact.Types.Crypto
@@ -214,38 +212,38 @@ pChainId = optional $ textOption
 main :: IO ()
 main = do
     execParser opts >>= \case
-      Keys -> genKeys >> exitSuccess
-      cmd@(CPU _ cargs) -> work cmd cargs
-      cmd@(GPU _ cargs) -> work cmd cargs
+        Keys -> genKeys
+        cmd@(CPU _ cargs) -> work cmd cargs >> exitFailure
+        cmd@(GPU _ cargs) -> work cmd cargs >> exitFailure
   where
-    work cmd cargs = do
-        lopts <- setLogMinLevel (ll cargs) . setLogUseLoc False <$> logOptionsHandle stderr True
-        withLogFunc lopts $ \logFunc -> do
-          g <- MWC.createSystemRandom
-          m <- newManager (mkManagerSettings ss Nothing)
-          stats <- newIORef 0
-          start <- newIORef 0
-          let retrieveVersion baseurl = do
-                v <- getInfo m baseurl
-                return $ T2 baseurl <$> v
-          euvs <- sequence <$> traverse retrieveVersion (coordinators cargs)
-          case euvs of
-            Left e -> throwM $ Prelude.userError $ show e
+    opts :: ParserInfo Command
+    opts = info (pCommand <**> helper)
+        (fullDesc <> progDesc "The Official Chainweb Mining Client")
+
+work :: Command -> ClientArgs -> IO ()
+work cmd cargs = do
+    lopts <- setLogMinLevel (ll cargs) . setLogUseLoc False <$> logOptionsHandle stderr True
+    withLogFunc lopts $ \logFunc -> do
+        g <- MWC.createSystemRandom
+        m <- newManager (mkManagerSettings ss Nothing)
+        stats <- newIORef 0
+        start <- newIORef 0
+        euvs <- sequence <$> traverse (nodeVer m) (coordinators cargs)
+        case euvs of
+            Left e -> throwString $ show e
             Right results -> do
-              mUrls <- newIORef . NES.fromList $ NEL.fromList results
-              successStart <- newIORef 0
-              runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
+                mUrls <- newIORef . NES.fromList $ NEL.fromList results
+                successStart <- newIORef 0
+                runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
+  where
+    nodeVer :: Manager -> BaseUrl -> IO (Either ClientError (T2 BaseUrl ChainwebVersion))
+    nodeVer m baseurl = (T2 baseurl <$>) <$> getInfo m baseurl
 
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
     --
     ss :: TLSSettings
     ss = TLSSettingsSimple True True True
-
-    opts :: ParserInfo Command
-    opts = info (pCommand <**> helper)
-        (fullDesc <> progDesc "The Official Chainweb Mining Client")
-
 
 getInfo :: Manager -> BaseUrl -> IO (Either ClientError ChainwebVersion)
 getInfo m url = fmap nodeVersion <$> runClientM (client (Proxy @NodeInfoApi)) cenv
@@ -260,16 +258,16 @@ run = do
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-scheme env = case envCmd env of CPU e _ -> cpu e; GPU e _ -> gpu e; Keys -> fail msg
-  where
-    msg = "Imposible: You shouldn't reach this case."
+scheme env = case envCmd env of
+    CPU e _ -> cpu e
+    GPU e _ -> gpu e
+    Keys -> error "Impossible: You shouldn't reach this case."
 
 genKeys :: IO ()
 genKeys = do
     kp <- genKeyPair defaultScheme
-    Prelude.putStrLn $ "public: " ++ T.unpack (toB16Text $ getPublic kp)
-    Prelude.putStrLn $ "secret: " ++ T.unpack (toB16Text $ getPrivate kp)
-
+    printf "public: %s\n" (T.unpack . toB16Text $ getPublic kp)
+    printf "private: %s\n" (T.unpack . toB16Text $ getPrivate kp)
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
@@ -420,7 +418,6 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
           modifyIORef' (envHashes e) (+ numNonces)
           modifyIORef' (envSecs e) (+ secs)
           return $! HeaderBytes newBytes
-
 
 --------------------------------------------------------------------------------
 -- Utils
