@@ -3,8 +3,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -58,14 +61,14 @@
 
 module Main ( main ) where
 
-import Control.Error.Util (hush)
-import Control.Retry (RetryPolicy, exponentialBackoff, limitRetries, retrying)
+import Control.Retry
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
-import Data.Time.Clock.POSIX (getPOSIXTime)
-import Data.Tuple.Strict (T3(..), T2(..))
+import qualified Data.List.NonEmpty as NEL
+import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
+import Data.Tuple.Strict (T2(..), T3(..))
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client hiding (responseBody)
+import Network.HTTP.Client hiding (Proxy(..), responseBody)
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.HTTP.Types.Status (Status(..))
 import Network.Wai.EventSource (ServerEvent(..))
@@ -93,8 +96,12 @@ import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-import Chainweb.Utils (textOption, toText, runGet)
+import Chainweb.RestAPI.NodeInfo (NodeInfo(..), NodeInfoApi)
+import Chainweb.Utils (runGet, textOption, toText)
 import Chainweb.Version
+
+import Pact.Types.Crypto
+import Pact.Types.Util
 
 --------------------------------------------------------------------------------
 -- CLI
@@ -102,10 +109,8 @@ import Chainweb.Version
 -- | Result of parsing commandline flags.
 --
 data ClientArgs = ClientArgs
-    { cmd :: !Command
-    , version :: !ChainwebVersion
-    , ll :: !LogLevel
-    , coordinator :: !BaseUrl
+    { ll :: !LogLevel
+    , coordinators :: ![BaseUrl]
     , miner :: !Miner
     , chainid :: !(Maybe ChainId) }
     deriving stock (Generic)
@@ -113,9 +118,10 @@ data ClientArgs = ClientArgs
 -- | The top-level git-style CLI "command" which determines which mining
 -- paradigm to follow.
 --
-data Command = CPU CPUEnv | GPU GPUEnv
+data Command = CPU CPUEnv ClientArgs | GPU GPUEnv ClientArgs | Keys
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
+
 data GPUEnv = GPUEnv
     { envMinerPath :: Text
     , envMinerArgs :: [Text]
@@ -125,21 +131,25 @@ data Env = Env
     { envGen :: !MWC.GenIO
     , envMgr :: !Manager
     , envLog :: !LogFunc
+    , envCmd :: !Command
     , envArgs :: !ClientArgs
     , envHashes :: IORef Word64
-    , envSecs :: IORef Word64 }
+    , envSecs :: IORef Word64
+    , envLastSuccess :: IORef POSIXTime
+    , envUrls :: IORef (NEL.NonEmpty (T2 BaseUrl ChainwebVersion)) }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
     logFuncL = field @"envLog"
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pCommand <*> pVersion <*> pLog <*> pUrl <*> pMiner <*> pChainId
+pClientArgs = ClientArgs <$> pLog <*> some pUrl <*> pMiner <*> pChainId
 
 pCommand :: Parser Command
 pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
+    <> command "keys" (info keysOpts (progDesc "Generate public/private key pair"))
     )
 
 pMinerPath :: Parser Text
@@ -157,23 +167,18 @@ pGpuEnv :: Parser GPUEnv
 pGpuEnv = GPUEnv <$> pMinerPath <*> pMinerArgs
 
 gpuOpts :: Parser Command
-gpuOpts = GPU <$> pGpuEnv
+gpuOpts = liftA2 GPU pGpuEnv pClientArgs
 
 cpuOpts :: Parser Command
-cpuOpts = CPU . CPUEnv <$> pCores
+cpuOpts = liftA2 (CPU . CPUEnv) pCores pClientArgs
+
+keysOpts :: Parser Command
+keysOpts = pure Keys
 
 pCores :: Parser Word16
 pCores = option auto
     (long "cores" <> metavar "COUNT" <> value 1
      <> help "Number of CPU cores to use (default: 1)")
-
-pVersion :: Parser ChainwebVersion
-pVersion = textOption
-    (long "version" <> metavar "VERSION" <> value defv
-     <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
-  where
-    defv :: ChainwebVersion
-    defv = Testnet02
 
 pLog :: Parser LogLevel
 pLog = option (eitherReader l)
@@ -205,34 +210,63 @@ pChainId = optional $ textOption
 
 main :: IO ()
 main = do
-    cargs <- execParser opts
+    execParser opts >>= \case
+        Keys -> genKeys
+        cmd@(CPU _ cargs) -> work cmd cargs >> exitFailure
+        cmd@(GPU _ cargs) -> work cmd cargs >> exitFailure
+  where
+    opts :: ParserInfo Command
+    opts = info (pCommand <**> helper)
+        (fullDesc <> progDesc "The Official Chainweb Mining Client")
+
+work :: Command -> ClientArgs -> IO ()
+work cmd cargs = do
     lopts <- setLogMinLevel (ll cargs) . setLogUseLoc False <$> logOptionsHandle stderr True
     withLogFunc lopts $ \logFunc -> do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
-        stats <- newIORef 0
-        start <- newIORef 0
-        runRIO (Env g m logFunc cargs stats start) run
+        euvs <- sequence <$> traverse (nodeVer m) (coordinators cargs)
+        case euvs of
+            Left e -> throwString $ show e
+            Right results -> do
+                mUrls <- newIORef $ NEL.fromList results
+                stats <- newIORef 0
+                start <- newIORef 0
+                successStart <- getPOSIXTime >>= newIORef
+                runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
   where
+    nodeVer :: Manager -> BaseUrl -> IO (Either ClientError (T2 BaseUrl ChainwebVersion))
+    nodeVer m baseurl = (T2 baseurl <$>) <$> getInfo m baseurl
+
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
     --
     ss :: TLSSettings
     ss = TLSSettingsSimple True True True
 
-    opts :: ParserInfo ClientArgs
-    opts = info (pClientArgs <**> helper)
-        (fullDesc <> progDesc "The Official Chainweb Mining Client")
+getInfo :: Manager -> BaseUrl -> IO (Either ClientError ChainwebVersion)
+getInfo m url = fmap nodeVersion <$> runClientM (client (Proxy @NodeInfoApi)) cenv
+  where
+    cenv = ClientEnv m url Nothing
 
 run :: RIO Env ()
 run = do
-    logInfo "Starting Miner."
     env <- ask
+    logInfo "Starting Miner."
     getWork >>= traverse_ (mining (scheme env))
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-scheme env = case cmd $ envArgs env of CPU e -> cpu e; GPU e -> gpu e
+scheme env = case envCmd env of
+    CPU e _ -> cpu e
+    GPU e _ -> gpu e
+    Keys -> error "Impossible: You shouldn't reach this case."
+
+genKeys :: IO ()
+genKeys = do
+    kp <- genKeyPair defaultScheme
+    printf "public:  %s\n" (T.unpack . toB16Text $ getPublic kp)
+    printf "private: %s\n" (T.unpack . toB16Text $ getPrivate kp)
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
@@ -240,9 +274,14 @@ getWork :: RIO Env (Maybe WorkBytes)
 getWork = do
     logDebug "Attempting to fetch new work from the remote Node"
     e <- ask
-    m <- retrying policy (const warn) $ const (liftIO $ f e)
-    when (isLeft m) $ logError "Failed to fetch work!"
-    pure $ hush m
+    retrying policy (const warn) (const . liftIO $ f e) >>= \case
+        Left _ -> do
+            logWarn "Failed to fetch work! Switching nodes..."
+            urls <- readIORef $ envUrls e
+            case NEL.nonEmpty $ NEL.tail urls of
+                Nothing -> logError "No nodes left!" >> pure Nothing
+                Just rest -> writeIORef (envUrls e) rest >> getWork
+        Right bs -> pure $ Just bs
   where
     -- | If we wait longer than the average block time and still can't get
     -- anything, then there's no point in continuing to wait.
@@ -263,12 +302,12 @@ getWork = do
     bad _ = logError "Something truly bad has happened."
 
     f :: Env -> IO (Either ClientError WorkBytes)
-    f e = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
+    f e = do
+        T2 u v <- NEL.head <$> readIORef (envUrls e)
+        runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
       where
         a = envArgs e
-        v = version a
         m = envMgr e
-        u = coordinator a
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
@@ -295,7 +334,8 @@ mining go wb = do
         f :: RIO Env ()
         f = do
             e <- ask
-            liftIO $ withEvents (req $ envArgs e) (envMgr e) (void . SP.head_ . SP.filter realEvent)
+            u <- NEL.head <$> readIORef (envUrls e)
+            liftIO $ withEvents (req u) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
             logDebug . display . T.pack $ printf "Chain %d: Current work was preempted." cid
 
@@ -305,11 +345,11 @@ mining go wb = do
         realEvent _ = False
 
         -- TODO This is an uncomfortable URL hardcoding.
-        req :: ClientArgs -> Request
-        req a = defaultRequest
-            { host = encodeUtf8 . T.pack . baseUrlHost $ coordinator a
-            , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"
-            , port = baseUrlPort $ coordinator a
+        req :: T2 BaseUrl ChainwebVersion -> Request
+        req (T2 u v) = defaultRequest
+            { host = encodeUtf8 . T.pack . baseUrlHost $ u
+            , path = "chainweb/0.0/" <> encodeUtf8 (toText v) <> "/mining/updates"
+            , port = baseUrlPort u
             , secure = True
             , method = "GET"
             , requestBody = RequestBodyBS cbs }
@@ -323,15 +363,18 @@ mining go wb = do
       e <- ask
       secs <- readIORef (envSecs e)
       hashes <- readIORef (envHashes e)
-      let !v = version $ envArgs e
-          !m = envMgr e
-          !u = coordinator $ envArgs e
+      before <- readIORef (envLastSuccess e)
+      now <- liftIO getPOSIXTime
+      writeIORef (envLastSuccess e) now
+      let !m = envMgr e
           !r = (fromIntegral hashes :: Double) / max 1 (fromIntegral secs) / 1000000
+          !d = ceiling (now - before) :: Int
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo . display . T.pack $
-          printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
-      res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m u Nothing
+          printf "Chain %d: Mined block at Height %d. (%.2f MH/s - %ds since last)" cid hgh r d
+      T2 url v <- NEL.head <$> readIORef (envUrls e)
+      res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m url Nothing
       when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
 
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
@@ -339,12 +382,13 @@ cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
     !start <- liftIO getPOSIXTime
     e <- ask
+    T2 _ v <- NEL.head <$> readIORef (envUrls e)
     T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
             n <- Nonce <$> MWC.uniform (envGen e)
-            new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
+            new <- usePowHash v (\p -> mine p n tbytes) hbytes
             terminateWith sch new
     !end <- liftIO getPOSIXTime
     modifyIORef' (envHashes e) $ \hashes -> ns * fromIntegral (cores cpue) + hashes
