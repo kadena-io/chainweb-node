@@ -99,7 +99,7 @@ main = do
     cc = [fungibleAsset, coinContract, gasPayer]
     devDefaults = cc <> [devNs, testnetAllocations, testnetKeysets]
     prodDefaults = cc <> [prodNs, testnetAllocations, testnetKeysets]
-    mainnetDefaults = cc <> [prodNs, mainnetKeysets]
+    mainnetDefaults = cc <> [mainNs, mainnetKeysets]
 
     chain0 =
       [ (Development, "Development", devDefaults <> [devAllocations, dev0Grants])
@@ -157,6 +157,9 @@ devNs = "pact/genesis/testnet/ns.yaml"
 
 prodNs :: FilePath
 prodNs = "pact/genesis/prodnet/ns.yaml"
+
+mainNs :: FilePath
+mainNs = "pact/genesis/mainnet/ns.yaml"
 
 devAllocations :: FilePath
 devAllocations = "pact/genesis/testnet/allocations.yaml"
