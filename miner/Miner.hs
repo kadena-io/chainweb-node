@@ -65,7 +65,7 @@ import Control.Retry
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
 import qualified Data.List.NonEmpty as NEL
-import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Tuple.Strict (T2(..), T3(..))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (Proxy(..), responseBody)
@@ -135,7 +135,7 @@ data Env = Env
     , envArgs :: !ClientArgs
     , envHashes :: IORef Word64
     , envSecs :: IORef Word64
-    , envSuccessInitTime :: IORef Int
+    , envLastSuccess :: IORef POSIXTime
     , envUrls :: IORef (NEL.NonEmpty (T2 BaseUrl ChainwebVersion)) }
     deriving stock (Generic)
 
@@ -225,14 +225,14 @@ work cmd cargs = do
     withLogFunc lopts $ \logFunc -> do
         g <- MWC.createSystemRandom
         m <- newManager (mkManagerSettings ss Nothing)
-        stats <- newIORef 0
-        start <- newIORef 0
         euvs <- sequence <$> traverse (nodeVer m) (coordinators cargs)
         case euvs of
             Left e -> throwString $ show e
             Right results -> do
                 mUrls <- newIORef $ NEL.fromList results
-                successStart <- newIORef 0
+                stats <- newIORef 0
+                start <- newIORef 0
+                successStart <- getPOSIXTime >>= newIORef
                 runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
   where
     nodeVer :: Manager -> BaseUrl -> IO (Either ClientError (T2 BaseUrl ChainwebVersion))
@@ -313,17 +313,9 @@ getWork = do
 --
 mining :: (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes) -> WorkBytes -> RIO Env ()
 mining go wb = do
-    race updateSignal (go tbytes hbytes) >>= traverse_ (miningSuccess >=> (const updateSuccessTime))
+    race updateSignal (go tbytes hbytes) >>= traverse_ miningSuccess
     getWork >>= traverse_ (mining go)
   where
-    updateSuccessTime :: RIO Env ()
-    updateSuccessTime = do
-      t <- truncate <$> liftIO getPOSIXTime
-      tref <- asks envSuccessInitTime
-      successTime <- atomicModifyIORef' tref ((,) <*> id . (t -))
-      logInfo $
-        "This block was successfully mined in " <> (display $ T.pack $ show successTime) <> " seconds."
-
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
 
     chain :: IO Int
@@ -371,12 +363,16 @@ mining go wb = do
       e <- ask
       secs <- readIORef (envSecs e)
       hashes <- readIORef (envHashes e)
+      before <- readIORef (envLastSuccess e)
+      now <- liftIO getPOSIXTime
+      writeIORef (envLastSuccess e) now
       let !m = envMgr e
           !r = (fromIntegral hashes :: Double) / max 1 (fromIntegral secs) / 1000000
+          !d = ceiling (now - before) :: Int
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo . display . T.pack $
-          printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
+          printf "Chain %d: Mined block at Height %d. (%.2f MH/s - %ds since last)" cid hgh r d
       T2 url v <- NEL.head <$> readIORef (envUrls e)
       res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m url Nothing
       when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
