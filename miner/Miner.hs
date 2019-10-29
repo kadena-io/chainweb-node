@@ -63,7 +63,6 @@
 module Main ( main ) where
 
 import Control.Error.Util (hush)
--- import Control.Retry (RetryStatus(..), RetryPolicy, exponentialBackoff, limitRetries, retrying, retryPolicy,)
 import Control.Retry (RetryStatus(..), RetryPolicy, retrying, retryPolicy,)
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
@@ -75,7 +74,7 @@ import Data.Tuple.Strict (T3(..), T2(..))
 import GHC.Prim
 import GHC.Types(Int(I#))
 import Network.Connection (TLSSettings(..))
-import Network.HTTP.Client hiding (responseBody)
+import Network.HTTP.Client hiding (responseBody, Proxy(..))
 import Network.HTTP.Client.TLS (mkManagerSettings)
 import Network.HTTP.Types.Status (Status(..))
 import Network.Wai.EventSource (ServerEvent(..))
@@ -104,6 +103,7 @@ import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
+import Chainweb.RestAPI.NodeInfo (NodeInfo(..), NodeInfoApi)
 import Chainweb.Utils (textOption, toText, runGet)
 import Chainweb.Version
 
@@ -116,8 +116,8 @@ import Pact.Types.Util
 -- | Result of parsing commandline flags.
 --
 data ClientArgs = ClientArgs
-    { version :: !ChainwebVersion
-    , ll :: !LogLevel
+    {
+      ll :: !LogLevel
     , coordinators :: ![BaseUrl]
     , miner :: !Miner
     , chainid :: !(Maybe ChainId) }
@@ -143,14 +143,14 @@ data Env = Env
     , envHashes :: IORef Word64
     , envSecs :: IORef Word64
     , envSuccessInitTime :: IORef Int
-    , envUrls :: MVar (NESeq BaseUrl) }
+    , envUrls :: MVar (NESeq (T2 BaseUrl ChainwebVersion)) }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
     logFuncL = field @"envLog"
 
 pClientArgs :: Parser ClientArgs
-pClientArgs = ClientArgs <$> pVersion <*> pLog <*> some pUrl <*> pMiner <*> pChainId
+pClientArgs = ClientArgs <$> pLog <*> some pUrl <*> pMiner <*> pChainId
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -181,22 +181,11 @@ cpuOpts = liftA2 (CPU . CPUEnv) pCores pClientArgs
 
 keysOpts :: Parser Command
 keysOpts = pure Keys
-  -- where
-    -- go :: Parser Text
-    -- go = option auto (long "keys"  <> help "Generate Key Pair")
 
 pCores :: Parser Word16
 pCores = option auto
     (long "cores" <> metavar "COUNT" <> value 1
      <> help "Number of CPU cores to use (default: 1)")
-
-pVersion :: Parser ChainwebVersion
-pVersion = textOption
-    (long "version" <> metavar "VERSION" <> value defv
-     <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
-  where
-    defv :: ChainwebVersion
-    defv = Testnet02
 
 pLog :: Parser LogLevel
 pLog = option (eitherReader l)
@@ -240,9 +229,16 @@ main = do
           m <- newManager (mkManagerSettings ss Nothing)
           stats <- newIORef 0
           start <- newIORef 0
-          mUrls <- newMVar (NES.fromList . NEL.fromList $ coordinators cargs)
-          successStart <- newIORef 0
-          runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
+          let retrieveVersion baseurl = do
+                v <- getInfo m baseurl
+                return $ T2 baseurl <$> v
+          euvs <- sequence <$> traverse retrieveVersion (coordinators cargs)
+          case euvs of
+            Left e -> throwM $ Prelude.userError $ show e
+            Right results -> do
+              mUrls <- newMVar (NES.fromList . NEL.fromList $ results)
+              successStart <- newIORef 0
+              runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
 
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
@@ -253,6 +249,12 @@ main = do
     opts :: ParserInfo Command
     opts = info (pCommand <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")
+
+
+getInfo :: Manager -> BaseUrl -> IO (Either ClientError ChainwebVersion)
+getInfo m url = fmap nodeVersion <$> runClientM (client (Proxy @NodeInfoApi)) cenv
+  where
+    cenv = ClientEnv m url Nothing
 
 run :: RIO Env ()
 run = do
@@ -306,16 +308,15 @@ getWork = do
     bad _ = logError "Something truly bad has happened."
 
     f :: Env -> RetryStatus -> IO (Either ClientError WorkBytes)
-    f e r =
+    f e r = do
       case divMod (rsIterNumber r) limit of
         (0,_) -> withCurrentUrl runUrl
         (_, 0) -> withNextUrl runUrl
         _ -> withCurrentUrl runUrl
       where
         a = envArgs e
-        v = version a
         m = envMgr e
-        runUrl baseurl = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m baseurl Nothing)
+        runUrl (T2 baseurl v) = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m baseurl Nothing)
         withCurrentUrl runner = withMVar (envUrls e) $ runner . NES.head
         withNextUrl runner = modifyMVar (envUrls e) $ \(rotate -> newUrls) -> (,) newUrls <$> runner (NES.head newUrls)
 
@@ -330,10 +331,9 @@ mining go wb = do
     updateSuccessTime = do
       t <- truncate <$> liftIO getPOSIXTime
       tref <- asks envSuccessInitTime
-      void $ atomicModifyIORef' tref ((,) <*> id . (t -))
-      successTime <- readIORef tref
-      logInfo
-        ("This was block was successfully mined in " <> (display $ T.pack $ show successTime) <> " seconds.")
+      successTime <- atomicModifyIORef' tref ((,) <*> id . (t -))
+      logInfo $
+        "This block was successfully mined in " <> (display $ T.pack $ show successTime) <> " seconds."
 
     T3 (ChainBytes cbs) tbytes hbytes@(HeaderBytes hbs) = unWorkBytes wb
 
@@ -354,7 +354,7 @@ mining go wb = do
         f = do
             e <- ask
             withMVar (envUrls e) $ \urls ->
-                liftIO $ withEvents (req (NES.head urls) $ envArgs e) (envMgr e) (void . SP.head_ . SP.filter realEvent)
+                liftIO $ withEvents (req (NES.head urls)) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
             logDebug . display . T.pack $ printf "Chain %d: Current work was preempted." cid
 
@@ -364,10 +364,10 @@ mining go wb = do
         realEvent _ = False
 
         -- TODO This is an uncomfortable URL hardcoding.
-        req :: BaseUrl -> ClientArgs -> Request
-        req u a = defaultRequest
+        req :: T2 BaseUrl ChainwebVersion -> Request
+        req (T2 u v) = defaultRequest
             { host = encodeUtf8 . T.pack . baseUrlHost $ u
-            , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"
+            , path = "chainweb/0.0/" <> encodeUtf8 (toText v) <> "/mining/updates"
             , port = baseUrlPort u
             , secure = True
             , method = "GET"
@@ -382,15 +382,15 @@ mining go wb = do
       e <- ask
       secs <- readIORef (envSecs e)
       hashes <- readIORef (envHashes e)
-      let !v = version $ envArgs e
-          !m = envMgr e
+      let !m = envMgr e
           !r = (fromIntegral hashes :: Double) / max 1 (fromIntegral secs) / 1000000
       cid <- liftIO chain
       hgh <- liftIO height
       logInfo . display . T.pack $
           printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
-      res <- withMVar (envUrls e) $ \urls ->
-        liftIO . runClientM (solvedClient v h) $ ClientEnv m (NES.head urls) Nothing
+      res <- withMVar (envUrls e) $ \urls -> do
+        let T2 url v = NES.head urls
+        liftIO . runClientM (solvedClient v h) $ ClientEnv m url Nothing
       when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
 
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
@@ -403,7 +403,11 @@ cpu cpue tbytes hbytes = do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
             n <- Nonce <$> MWC.uniform (envGen e)
-            new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes) hbytes
+            -- new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes)
+            -- hbytes
+            new <- withMVar (envUrls e) $ \urls -> do
+              let T2 _ v = NES.head urls
+              usePowHash v (\p -> mine p n tbytes) hbytes
             terminateWith sch new
     !end <- liftIO getPOSIXTime
     modifyIORef' (envHashes e) $ \hashes -> ns * fromIntegral (cores cpue) + hashes
