@@ -44,6 +44,7 @@ import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
 import Data.FileEmbed (embedFile)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -113,7 +114,9 @@ class Show a => YamlFormat a where
 data AllocationKeys = AllocationKeys
     { _allocKeysName :: Text
     , _allocKeysPred :: Text
-    , _allocKeyset :: Text
+    , _allocKey1 :: Text
+    , _allocKey2 :: Text
+    , _allocKey3 :: Text
     } deriving (Eq, Ord, Show, Generic)
 
 instance CSV.FromRecord AllocationKeys
@@ -137,7 +140,7 @@ instance YamlFormat AllocationKeyTx where
         g tx = "  " <> _allocationKeyData tx <> "\n"
 
 mkAllocationKeyTx :: AllocationKeys -> AllocationKeyTx
-mkAllocationKeyTx (AllocationKeys n p ks) = AllocationKeyTx tx d
+mkAllocationKeyTx (AllocationKeys n p k1 k2 k3) = AllocationKeyTx tx d
   where
     tx = T.concat
       [ "(define-keyset "
@@ -149,7 +152,7 @@ mkAllocationKeyTx (AllocationKeys n p ks) = AllocationKeyTx tx d
 
     d = T.concat
       [ "\"" <> n <> "\": { "
-      , "keys: " <> ks <> ", "
+      , "keys: " <> show [show k1, showk2, showk3] <> ", "
       , "pred: \"" <> p <> "\""
       , " }"
       ]
