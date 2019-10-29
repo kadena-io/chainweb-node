@@ -11,6 +11,7 @@ import Control.Monad.IO.Class
 
 import qualified Data.ByteString.Short as SB
 import Data.CAS.RocksDB
+import Data.Foldable (toList)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
@@ -50,10 +51,12 @@ import Data.LogMessage
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 tests db h0 = testGroupSch "mempool-consensus-quickcheck-tests"
     [ testProperty "valid-transactions-source" (prop_validTxSource db h0)
-    , testProperty "no-orphaned-txs" (prop_noOrphanedTxs db h0) ]
+    , testProperty "no-orphaned-txs" (prop_noOrphanedTxs db h0)
+    , testProperty "test-processfork-filter" (prop_noOldCrap db h0)
+    ]
 
 ----------------------------------------------------------------------------------------------------
--- | Poperty: All transactions returned by processFork (for re-introduction to the mempool) come from
+-- | Property: All transactions returned by processFork (for re-introduction to the mempool) come from
 --   the old fork and are not represented in the new fork blocks
 prop_validTxSource
     :: BlockHeaderDb
@@ -65,6 +68,7 @@ prop_validTxSource db genBlock = monadicIO $ do
 
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
                                     fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
+                                    (const True)
     let reIntroTrans = HS.fromList $ V.toList reIntroTransV
 
     assert $ (reIntroTrans `isSubsetOf` fiOldForkTrans)
@@ -101,10 +105,32 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
 
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
                                     fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
+                                    (const True)
     let reIntroTrans = HS.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `HS.difference` fiNewForkTrans
 
     assert $ expectedTrans `isSubsetOf` reIntroTrans
+
+
+----------------------------------------------------------------------------------------------------
+-- Tests filtering within processFork'.
+prop_noOldCrap
+    :: BlockHeaderDb
+    -> BlockHeader
+    -> Property
+prop_noOldCrap db genBlock = monadicIO $ do
+    -- tests filtering, in theory on age
+    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
+    ForkInfo{..} <- genFork db mapRef genBlock
+    pre (length fiOldForkTrans > 0)
+    let badtx = head $ toList fiOldForkTrans
+    let badFilter = (/= badtx)
+    (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
+                                    fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
+                                    badFilter
+    let reIntroTrans = HS.fromList $ V.toList reIntroTransV
+    assert $ not $ HS.member badtx reIntroTrans
+
 
 ----------------------------------------------------------------------------------------------------
 data ForkInfo = ForkInfo
