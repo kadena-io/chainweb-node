@@ -99,7 +99,7 @@ main = do
     cc = [fungibleAsset, coinContract, gasPayer]
     devDefaults = cc <> [devNs]
     prodDefaults = cc <> [prodNs]
-    mainnetDefaults = cc <> [prodNs, testAllocations]
+    mainnetDefaults = cc <> [prodNs, mainnetKeysets]
 
     chain0 =
       [ (Development, "Development", devDefaults <> [devAllocations, dev0Grants])
@@ -194,8 +194,14 @@ mainAllocations8 = "pact/genesis/mainnet/mainnet_allocations8.yaml"
 mainAllocations9 :: FilePath
 mainAllocations9 = "pact/genesis/mainnet/mainnet_allocations9.yaml"
 
-testAllocations :: FilePath
-testAllocations = "pact/genesis/mainnet/test-allocations.yaml"
+_testnetKeysets :: FilePath
+_testnetKeysets = "pact/genesis/mainnet/testnet_keysets.yaml"
+
+mainnetKeysets :: FilePath
+mainnetKeysets = "pact/genesis/mainnet/mainnet_keysets.yaml"
+
+_testAllocations :: FilePath
+_testAllocations = "pact/genesis/mainnet/test-allocations.yaml"
 
 ---------------------
 -- Payload Generation
