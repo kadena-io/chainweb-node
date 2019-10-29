@@ -17,6 +17,8 @@ module Chainweb.Mempool.InMem
     -- * Low-level create/destroy functions
   , makeInMemPool
   , newInMemMempoolData
+
+  , validateOne
   ) where
 
 ------------------------------------------------------------------------------

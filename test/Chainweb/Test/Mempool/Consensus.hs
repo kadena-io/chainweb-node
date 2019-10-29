@@ -65,6 +65,7 @@ prop_validTxSource db genBlock = monadicIO $ do
 
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
                                     fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
+                                    (const True)
     let reIntroTrans = HS.fromList $ V.toList reIntroTransV
 
     assert $ (reIntroTrans `isSubsetOf` fiOldForkTrans)
@@ -101,6 +102,7 @@ prop_noOrphanedTxs db genBlock = monadicIO $ do
 
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
                                     fiNewHeader (Just fiOldHeader) (lookupFunc mapRef)
+                                    (const True)
     let reIntroTrans = HS.fromList $ V.toList reIntroTransV
     let expectedTrans = fiOldForkTrans `HS.difference` fiNewForkTrans
 

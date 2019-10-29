@@ -35,6 +35,8 @@ import qualified Data.Vector as V
 
 import GHC.Generics
 
+import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
+
 import System.LogLevel
 
 ------------------------------------------------------------------------------
@@ -43,6 +45,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -102,10 +105,25 @@ processFork
     -> BlockHeader
     -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
+    now <- getCurrentTimeIntegral
     lastHeader <- readIORef lastHeaderRef
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
+                           (checkTTL now)
+
     return (V.map unHashable a, V.map unHashable b)
+  where
+    getTimeToLive = timeToLiveOf . fmap payloadObj
+    getCreationTime = creationTimeOf . fmap payloadObj
+    toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+
+    maxDuration = 2 * 24 * 60 * 60 + 1
+    checkTTL now (HashableTrans t) =
+        let (TxCreationTime ct0) = getCreationTime t
+            ct = toMicros ct0
+            (TTLSeconds ttl) = getTimeToLive t
+            endTime = toMicros (ct0 + min maxDuration ttl)
+        in ct < now && now < endTime && ct < endTime
 
 ------------------------------------------------------------------------------
 -- called directly from some unit tests...
@@ -116,8 +134,9 @@ processFork'
     -> BlockHeader
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (HashSet x))
+    -> (x -> Bool)
     -> IO (V.Vector x, V.Vector x)
-processFork' logFun db newHeader lastHeaderM plLookup =
+processFork' logFun db newHeader lastHeaderM plLookup flt =
     maybe (return (V.empty, V.empty)) go lastHeaderM
   where
     go lastHeader = do
@@ -128,7 +147,8 @@ processFork' logFun db newHeader lastHeaderM plLookup =
         -- before re-introducing the transactions from the losing fork (aka
         -- oldBlocks), filter out any transactions that have been included in
         -- the winning fork (aka newBlocks):
-        let !results = V.fromList $ HS.toList
+        let !results = V.fromList $ filter flt
+                                  $ HS.toList
                                   $ oldTrans `HS.difference` newTrans
         let !deletes = V.fromList $ HS.toList newTrans
 
