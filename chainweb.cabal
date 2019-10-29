@@ -663,13 +663,13 @@ executable chainweb-miner
         , base >= 4.11 && < 5
         , bytestring >= 0.10
         , connection >= 0.2
-        , errors >= 2.3
         , generic-lens >= 1.2
         , http-client >= 0.5
         , http-client-tls >= 0.3
         , http-types >= 0.12
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
+        , pact >= 2.6
         , paths >= 0.2
         , retry >= 0.7
         , rio >= 0.1.5
