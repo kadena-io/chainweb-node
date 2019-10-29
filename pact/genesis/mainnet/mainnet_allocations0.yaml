@@ -83,7 +83,6 @@ code: |-
   (define-keyset "CS2_C0" (read-keyset "CS2_C0"))
   (define-keyset "ST_C1" (read-keyset "ST_C1"))
 
-  (coin.create-allocation-account "COINBASE" (time "COINBASE") "COINBASE" 1.46)
   (coin.create-allocation-account "PS_C0_1419" (time "2025-11-01T00:00:00Z") "PS_C0" 666666.67)
   (coin.create-allocation-account "PS_C0_1409" (time "2025-10-01T00:00:00Z") "PS_C0" 333333.33)
   (coin.create-allocation-account "PS_C0_1399" (time "2025-09-01T00:00:00Z") "PS_C0" 333333.33)
