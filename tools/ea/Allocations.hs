@@ -41,7 +41,6 @@ import GHC.Generics
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
 import Data.FileEmbed (embedFile)
-import Data.Functor (void)
 import qualified Data.Map.Strict as M
 import Data.String.Conv (toS)
 import Data.Text (Text)
@@ -58,13 +57,22 @@ import Chainweb.Utils
 -- Tx gen
 
 generateAllocations :: IO ()
-generateAllocations = void allocations
+generateAllocations
+    = allocations
+    >> mainKeysets
+    >> testKeysets
   where
-    allocations = flip M.traverseWithKey readAllocations $ \cid txs -> do
-      let ys = toYaml cid readMainnetKeys txs
-      T.writeFile (prefix $ "allocations" <> T.unpack cid) ys
+    mainKeysets = T.writeFile (prefix $ "mainnet_keysets") $
+      keysToYaml "mainnet-keysets" readMainnetKeys
 
-    prefix t = "pact/genesis/mainnet/mainnet_" <> t <> ".yaml"
+    testKeysets = T.writeFile (prefix $ "testnet_keysets") $
+      keysToYaml "testnet-keysets" readTestnetKeys
+
+    allocations = flip M.traverseWithKey readAllocations $ \cid txs -> do
+      let ys = allocToYaml cid txs
+      T.writeFile (prefix $ "mainnet_allocations" <> T.unpack cid) ys
+
+    prefix t = "pact/genesis/mainnet/" <> t <> ".yaml"
 
 genTxs
     :: forall a b
@@ -79,24 +87,32 @@ genTxs f bs = case CSV.decode CSV.HasHeader (toS bs) of
     Right as -> fmap f as
 
 
-toYaml :: Text -> Vector AllocationKeyTx -> Vector AllocationTx -> Text
-toYaml cid ks as = T.concat
+keysToYaml :: Text -> Vector AllocationKeyTx -> Text
+keysToYaml nonce ks = T.concat
     [ "code: |-\n"
     , go f ks
-    , "\n"
-    , go g as
     , "\ndata:\n"
-    , go h ks
-    , "\nnonce: " <> "mainnet-genesis-" <> cid
+    , go g ks
+    , "\nnonce: " <> nonce
     , "\nkeyPairs: []\n"
     ]
   where
     go k = V.foldl1' (<>) . V.map k
     wrap tx = "  " <> tx <> "\n"
-
     f = wrap . _allocationKeyTx
-    g = wrap . _allocationTx
-    h = wrap . _allocationKeyData
+    g = wrap . _allocationKeyData
+
+allocToYaml :: Text -> Vector AllocationTx -> Text
+allocToYaml cid as = T.concat
+    [ "code: |-\n"
+    , go f as
+    , "\nnonce: " <> "mainnet-genesis-allocations" <> cid
+    , "\nkeyPairs: []\n"
+    ]
+  where
+    go k = V.foldl1' (<>) . V.map k
+    wrap tx = "  " <> tx <> "\n"
+    f = wrap . _allocationTx
 
 
 readAllocations :: M.Map Text (Vector AllocationTx)
