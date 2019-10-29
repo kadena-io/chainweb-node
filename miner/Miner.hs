@@ -94,7 +94,7 @@ import qualified System.Random.MWC as MWC
 import Text.Printf (printf)
 
 #if ! MIN_VERSION_rio(0,1,9)
-import System.Exit (exitFailure)
+import System.Exit (exitFailure, exitSuccess)
 #endif
 
 -- internal modules
