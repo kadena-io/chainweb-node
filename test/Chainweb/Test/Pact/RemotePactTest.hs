@@ -84,6 +84,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
@@ -330,7 +331,7 @@ invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $
           return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
     -- batch with incorrect sender
-    batch0 <- mkBadGasTxBatch "(+ 1 2)" "some-unknown-sender" sender00KeyPair Nothing
+    batch0 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
     res0 <- catches (Right <$> run batch0 ExpectPactResult)
       [ Handler (\(e :: PactTestFailure) -> return $ Left e) ]
 
@@ -346,8 +347,9 @@ invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
-      cmd <- liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just "0")
-      return $ SubmitBatch (pure cmd)
+      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
+      cmds <- mapM cmd (0 NEL.:| [1..5])
+      return $ SubmitBatch cmds
 
 
 caplistTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -756,7 +758,9 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
+    & set (configMiner . enableConfigEnabled) True
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
+    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
 
