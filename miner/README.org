@@ -144,6 +144,8 @@ results.
 Things to note:
 
 - You can dedicate as many cores to parallel mining as you want with ~--cores~.
+- If specifying the number of cores, the ~--cores~ flag must follow directly after the ~cpu~ flag.
+- When ~--cores~ is omitted during CPU mining, then the number of cores used will default to 1. 
 - You can only communicate with one Node at a time.
 - As stated above, your declared account must be owned by you, or your rewards
   will likely be lost.
