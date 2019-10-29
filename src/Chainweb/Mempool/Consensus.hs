@@ -15,6 +15,7 @@ module Chainweb.Mempool.Consensus
 , mkMempoolConsensus
 , processFork
 , processFork'
+, processForkCheckTTL
 , ReintroducedTxsLog (..)
 ) where
 
@@ -35,13 +36,12 @@ import qualified Data.Vector as V
 
 import GHC.Generics
 
-import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
-
 import System.LogLevel
 
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -54,8 +54,8 @@ import Data.CAS
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 ------------------------------------------------------------------------------
-data MempoolConsensus t = MempoolConsensus
-    { mpcMempool :: !(MempoolBackend t)
+data MempoolConsensus = MempoolConsensus
+    { mpcMempool :: !(MempoolBackend ChainwebTransaction)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
     , mpcProcessFork
           :: LogFunction
@@ -81,10 +81,10 @@ instance Exception MempoolException
 ------------------------------------------------------------------------------
 mkMempoolConsensus
     :: PayloadCas cas
-    => MempoolBackend t
+    => MempoolBackend ChainwebTransaction
     -> BlockHeaderDb
     -> Maybe (PayloadDb cas)
-    -> IO (MempoolConsensus t)
+    -> IO MempoolConsensus
 mkMempoolConsensus mempool blockHeaderDb payloadStore = do
     lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
 
@@ -109,21 +109,16 @@ processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
     lastHeader <- readIORef lastHeaderRef
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
-                           (checkTTL now)
-
+                           (processForkCheckTTL now)
     return (V.map unHashable a, V.map unHashable b)
-  where
-    getTimeToLive = timeToLiveOf . fmap payloadObj
-    getCreationTime = creationTimeOf . fmap payloadObj
-    toMicros = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
 
-    maxDuration = 2 * 24 * 60 * 60 + 1
-    checkTTL now (HashableTrans t) =
-        let (TxCreationTime ct0) = getCreationTime t
-            ct = toMicros ct0
-            (TTLSeconds ttl) = getTimeToLive t
-            endTime = toMicros (ct0 + min maxDuration ttl)
-        in ct < now && now < endTime && ct < endTime
+
+------------------------------------------------------------------------------
+processForkCheckTTL :: Time Micros -> HashableTrans PayloadWithText -> Bool
+processForkCheckTTL now (HashableTrans t) =
+    either (const False) (const True) $
+    txTTLCheck chainwebTransactionConfig now t
+
 
 ------------------------------------------------------------------------------
 -- called directly from some unit tests...
