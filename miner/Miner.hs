@@ -115,7 +115,7 @@ import Pact.Types.Util
 
 -- | Result of parsing commandline flags.
 --
-data ClientArgs' = ClientArgs'
+data ClientArgs = ClientArgs
     { version :: !ChainwebVersion
     , ll :: !LogLevel
     , coordinators :: ![BaseUrl]
@@ -123,13 +123,10 @@ data ClientArgs' = ClientArgs'
     , chainid :: !(Maybe ChainId) }
     deriving stock (Generic)
 
-data ClientArgs = ClientArgs { cmd :: !Command, clientargs' :: !(Maybe ClientArgs')}
-  deriving stock (Generic)
-
 -- | The top-level git-style CLI "command" which determines which mining
 -- paradigm to follow.
 --
-data Command = CPU CPUEnv | GPU GPUEnv | Keys
+data Command = CPU CPUEnv ClientArgs | GPU GPUEnv ClientArgs | Keys
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 data GPUEnv = GPUEnv
@@ -142,7 +139,7 @@ data Env = Env
     , envMgr :: !Manager
     , envLog :: !LogFunc
     , envCmd :: !Command
-    , envArgs :: !ClientArgs'
+    , envArgs :: !ClientArgs
     , envHashes :: IORef Word64
     , envSecs :: IORef Word64
     , envSuccessInitTime :: IORef Int
@@ -152,16 +149,8 @@ data Env = Env
 instance HasLogFunc Env where
     logFuncL = field @"envLog"
 
-
-pClientArgs' :: Parser ClientArgs'
-pClientArgs' = ClientArgs' <$> pVersion <*> pLog <*> some pUrl <*> pMiner <*> pChainId
-
 pClientArgs :: Parser ClientArgs
-pClientArgs = ($) <$> fmap go pCommand <*> (Just <$> pClientArgs')
-  where
-    go = \case
-      Keys -> const $ ClientArgs Keys Nothing
-      other -> ClientArgs other
+pClientArgs = ClientArgs <$> pVersion <*> pLog <*> some pUrl <*> pMiner <*> pChainId
 
 pCommand :: Parser Command
 pCommand = hsubparser
@@ -185,10 +174,10 @@ pGpuEnv :: Parser GPUEnv
 pGpuEnv = GPUEnv <$> pMinerPath <*> pMinerArgs
 
 gpuOpts :: Parser Command
-gpuOpts = GPU <$> pGpuEnv
+gpuOpts = liftA2 GPU pGpuEnv pClientArgs
 
 cpuOpts :: Parser Command
-cpuOpts = CPU . CPUEnv <$> pCores
+cpuOpts = liftA2 (CPU . CPUEnv) pCores pClientArgs
 
 keysOpts :: Parser Command
 keysOpts = pure Keys
@@ -240,10 +229,11 @@ pChainId = optional $ textOption
 main :: IO ()
 main = do
     execParser opts >>= \case
-      ClientArgs Keys Nothing -> genKeys >> exitSuccess
-      ClientArgs Keys _ -> Prelude.putStrLn "You shouldn't reach this case." >> exitFailure
-      ClientArgs _ Nothing -> Prelude.putStrLn "You shouldn't reach this case." >> exitFailure
-      ClientArgs c (Just cargs) -> do
+      Keys -> genKeys >> exitSuccess
+      cmd@(CPU _ cargs) -> work cmd cargs
+      cmd@(GPU _ cargs) -> work cmd cargs
+  where
+    work cmd cargs = do
         lopts <- setLogMinLevel (ll cargs) . setLogUseLoc False <$> logOptionsHandle stderr True
         withLogFunc lopts $ \logFunc -> do
           g <- MWC.createSystemRandom
@@ -252,16 +242,16 @@ main = do
           start <- newIORef 0
           mUrls <- newMVar (NES.fromList . NEL.fromList $ coordinators cargs)
           successStart <- newIORef 0
-          runRIO (Env g m logFunc c cargs stats start successStart mUrls) run
-  where
+          runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
+
     -- | This allows this code to accept the self-signed certificates from
     -- `chainweb-node`.
     --
     ss :: TLSSettings
     ss = TLSSettingsSimple True True True
 
-    opts :: ParserInfo ClientArgs
-    opts = info (pClientArgs <**> helper)
+    opts :: ParserInfo Command
+    opts = info (pCommand <**> helper)
         (fullDesc <> progDesc "The Official Chainweb Mining Client")
 
 run :: RIO Env ()
@@ -272,7 +262,7 @@ run = do
     liftIO exitFailure
 
 scheme :: Env -> (TargetBytes -> HeaderBytes -> RIO Env HeaderBytes)
-scheme env = case envCmd env of CPU e -> cpu e; GPU e -> gpu e; Keys -> fail msg
+scheme env = case envCmd env of CPU e _ -> cpu e; GPU e _ -> gpu e; Keys -> fail msg
   where
     msg = "Imposible: You shouldn't reach this case."
 
@@ -374,7 +364,7 @@ mining go wb = do
         realEvent _ = False
 
         -- TODO This is an uncomfortable URL hardcoding.
-        req :: BaseUrl -> ClientArgs' -> Request
+        req :: BaseUrl -> ClientArgs -> Request
         req u a = defaultRequest
             { host = encodeUtf8 . T.pack . baseUrlHost $ u
             , path = "chainweb/0.0/" <> encodeUtf8 (toText $ version a) <> "/mining/updates"
