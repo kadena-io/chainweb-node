@@ -667,7 +667,6 @@ executable chainweb-miner
         , http-client >= 0.5
         , http-client-tls >= 0.3
         , http-types >= 0.12
-        , nonempty-containers >= 0.1
         , mwc-random >= 0.13
         , optparse-applicative >= 0.14
         , pact >= 2.6

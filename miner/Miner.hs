@@ -64,8 +64,7 @@ module Main ( main ) where
 import Control.Retry
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
-import qualified Data.List.NonEmpty as NEL (fromList)
-import qualified Data.Sequence.NonEmpty as NES
+import qualified Data.List.NonEmpty as NEL
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Tuple.Strict (T2(..), T3(..))
 import Network.Connection (TLSSettings(..))
@@ -137,7 +136,7 @@ data Env = Env
     , envHashes :: IORef Word64
     , envSecs :: IORef Word64
     , envSuccessInitTime :: IORef Int
-    , envUrls :: IORef (NES.NESeq (T2 BaseUrl ChainwebVersion)) }
+    , envUrls :: IORef (NEL.NonEmpty (T2 BaseUrl ChainwebVersion)) }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
@@ -232,7 +231,7 @@ work cmd cargs = do
         case euvs of
             Left e -> throwString $ show e
             Right results -> do
-                mUrls <- newIORef . NES.fromList $ NEL.fromList results
+                mUrls <- newIORef $ NEL.fromList results
                 successStart <- newIORef 0
                 runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
   where
@@ -266,7 +265,7 @@ scheme env = case envCmd env of
 genKeys :: IO ()
 genKeys = do
     kp <- genKeyPair defaultScheme
-    printf "public: %s\n" (T.unpack . toB16Text $ getPublic kp)
+    printf "public:  %s\n" (T.unpack . toB16Text $ getPublic kp)
     printf "private: %s\n" (T.unpack . toB16Text $ getPrivate kp)
 
 -- | Attempt to get new work while obeying a sane retry policy.
@@ -278,8 +277,10 @@ getWork = do
     retrying policy (const warn) (const . liftIO $ f e) >>= \case
         Left _ -> do
             logWarn "Failed to fetch work! Switching nodes..."
-            atomicModifyIORef' (envUrls e) (\s -> (rotate s, ()))
-            getWork
+            urls <- readIORef $ envUrls e
+            case NEL.nonEmpty $ NEL.tail urls of
+                Nothing -> logError "No nodes left!" >> pure Nothing
+                Just rest -> writeIORef (envUrls e) rest >> getWork
         Right bs -> pure $ Just bs
   where
     -- | If we wait longer than the average block time and still can't get
@@ -302,7 +303,7 @@ getWork = do
 
     f :: Env -> IO (Either ClientError WorkBytes)
     f e = do
-        T2 u v <- NES.head <$> readIORef (envUrls e)
+        T2 u v <- NEL.head <$> readIORef (envUrls e)
         runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
       where
         a = envArgs e
@@ -341,7 +342,7 @@ mining go wb = do
         f :: RIO Env ()
         f = do
             e <- ask
-            u <- NES.head <$> readIORef (envUrls e)
+            u <- NEL.head <$> readIORef (envUrls e)
             liftIO $ withEvents (req u) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
             logDebug . display . T.pack $ printf "Chain %d: Current work was preempted." cid
@@ -376,7 +377,7 @@ mining go wb = do
       hgh <- liftIO height
       logInfo . display . T.pack $
           printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
-      T2 url v <- NES.head <$> readIORef (envUrls e)
+      T2 url v <- NEL.head <$> readIORef (envUrls e)
       res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m url Nothing
       when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
 
@@ -385,7 +386,7 @@ cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
     !start <- liftIO getPOSIXTime
     e <- ask
-    T2 _ v <- NES.head <$> readIORef (envUrls e)
+    T2 _ v <- NEL.head <$> readIORef (envUrls e)
     T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
@@ -418,11 +419,3 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
           modifyIORef' (envHashes e) (+ numNonces)
           modifyIORef' (envSecs e) (+ secs)
           return $! HeaderBytes newBytes
-
---------------------------------------------------------------------------------
--- Utils
---------------------------------------------------------------------------------
-
--- | O(1). The head value is moved to the end.
-rotate :: NES.NESeq a -> NES.NESeq a
-rotate (h NES.:<|| rest) = rest NES.:||> h
