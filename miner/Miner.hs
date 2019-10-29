@@ -62,17 +62,13 @@
 
 module Main ( main ) where
 
-import Control.Error.Util (hush)
-import Control.Retry (RetryStatus(..), RetryPolicy, retrying, retryPolicy,)
+import Control.Retry
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Generics.Product.Fields (field)
 import qualified Data.List.NonEmpty as NEL (fromList)
-import Data.Sequence.NonEmpty (NESeq(..))
 import qualified Data.Sequence.NonEmpty as NES
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Tuple.Strict (T3(..), T2(..))
-import GHC.Prim
-import GHC.Types(Int(I#))
 import Network.Connection (TLSSettings(..))
 import Network.HTTP.Client hiding (responseBody, Proxy(..))
 import Network.HTTP.Client.TLS (mkManagerSettings)
@@ -116,8 +112,7 @@ import Pact.Types.Util
 -- | Result of parsing commandline flags.
 --
 data ClientArgs = ClientArgs
-    {
-      ll :: !LogLevel
+    { ll :: !LogLevel
     , coordinators :: ![BaseUrl]
     , miner :: !Miner
     , chainid :: !(Maybe ChainId) }
@@ -129,6 +124,7 @@ data ClientArgs = ClientArgs
 data Command = CPU CPUEnv ClientArgs | GPU GPUEnv ClientArgs | Keys
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
+
 data GPUEnv = GPUEnv
     { envMinerPath :: Text
     , envMinerArgs :: [Text]
@@ -143,7 +139,7 @@ data Env = Env
     , envHashes :: IORef Word64
     , envSecs :: IORef Word64
     , envSuccessInitTime :: IORef Int
-    , envUrls :: MVar (NESeq (T2 BaseUrl ChainwebVersion)) }
+    , envUrls :: IORef (NES.NESeq (T2 BaseUrl ChainwebVersion)) }
     deriving stock (Generic)
 
 instance HasLogFunc Env where
@@ -236,7 +232,7 @@ main = do
           case euvs of
             Left e -> throwM $ Prelude.userError $ show e
             Right results -> do
-              mUrls <- newMVar (NES.fromList . NEL.fromList $ results)
+              mUrls <- newIORef . NES.fromList $ NEL.fromList results
               successStart <- newIORef 0
               runRIO (Env g m logFunc cmd cargs stats start successStart mUrls) run
 
@@ -281,19 +277,18 @@ getWork :: RIO Env (Maybe WorkBytes)
 getWork = do
     logDebug "Attempting to fetch new work from the remote Node"
     e <- ask
-    m <- retrying (policy 500000 limit) (const warn) (liftIO . f e)
-    when (isLeft m) $ logError "Failed to fetch work!"
-    pure $ hush m
+    retrying policy (const warn) (const . liftIO $ f e) >>= \case
+        Left _ -> do
+            logWarn "Failed to fetch work! Switching nodes..."
+            atomicModifyIORef' (envUrls e) (\s -> (rotate s, ()))
+            getWork
+        Right bs -> pure $ Just bs
   where
-    limit = 7
-
     -- | If we wait longer than the average block time and still can't get
     -- anything, then there's no point in continuing to wait.
     --
-    policy :: Int -> Int -> RetryPolicy
-    -- There has to be a cleaner way to do this.
-    policy base theLimit = retryPolicy $ \RetryStatus { rsIterNumber = n } ->
-      Just $! base `boundedMult` boundedPow 2 (mod n (theLimit + 1))
+    policy :: RetryPolicy
+    policy = exponentialBackoff 500000 <> limitRetries 7
 
     warn :: Either ClientError WorkBytes -> RIO Env Bool
     warn (Right _) = pure False
@@ -307,18 +302,13 @@ getWork = do
         m = displayBytesUtf8 . BL.toStrict $ responseBody r
     bad _ = logError "Something truly bad has happened."
 
-    f :: Env -> RetryStatus -> IO (Either ClientError WorkBytes)
-    f e r = do
-      case divMod (rsIterNumber r) limit of
-        (0,_) -> withCurrentUrl runUrl
-        (_, 0) -> withNextUrl runUrl
-        _ -> withCurrentUrl runUrl
+    f :: Env -> IO (Either ClientError WorkBytes)
+    f e = do
+        T2 u v <- NES.head <$> readIORef (envUrls e)
+        runClientM (workClient v (chainid a) $ miner a) (ClientEnv m u Nothing)
       where
         a = envArgs e
         m = envMgr e
-        runUrl (T2 baseurl v) = runClientM (workClient v (chainid a) $ miner a) (ClientEnv m baseurl Nothing)
-        withCurrentUrl runner = withMVar (envUrls e) $ runner . NES.head
-        withNextUrl runner = modifyMVar (envUrls e) $ \(rotate -> newUrls) -> (,) newUrls <$> runner (NES.head newUrls)
 
 -- | A supervisor thread that listens for new work and manages mining threads.
 --
@@ -353,8 +343,8 @@ mining go wb = do
         f :: RIO Env ()
         f = do
             e <- ask
-            withMVar (envUrls e) $ \urls ->
-                liftIO $ withEvents (req (NES.head urls)) (envMgr e) (void . SP.head_ . SP.filter realEvent)
+            u <- NES.head <$> readIORef (envUrls e)
+            liftIO $ withEvents (req u) (envMgr e) (void . SP.head_ . SP.filter realEvent)
             cid <- liftIO chain
             logDebug . display . T.pack $ printf "Chain %d: Current work was preempted." cid
 
@@ -388,9 +378,8 @@ mining go wb = do
       hgh <- liftIO height
       logInfo . display . T.pack $
           printf "Chain %d: Mined block at Height %d. (%.2f MH/s)" cid hgh r
-      res <- withMVar (envUrls e) $ \urls -> do
-        let T2 url v = NES.head urls
-        liftIO . runClientM (solvedClient v h) $ ClientEnv m url Nothing
+      T2 url v <- NES.head <$> readIORef (envUrls e)
+      res <- liftIO . runClientM (solvedClient v h) $ ClientEnv m url Nothing
       when (isLeft res) $ logWarn "Failed to submit new BlockHeader!"
 
 cpu :: CPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
@@ -398,16 +387,13 @@ cpu cpue tbytes hbytes = do
     logDebug "Mining a new Block"
     !start <- liftIO getPOSIXTime
     e <- ask
+    T2 _ v <- NES.head <$> readIORef (envUrls e)
     T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
         replicateWork (fromIntegral $ cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
             n <- Nonce <$> MWC.uniform (envGen e)
-            -- new <- usePowHash (version $ envArgs e) (\p -> mine p n tbytes)
-            -- hbytes
-            new <- withMVar (envUrls e) $ \urls -> do
-              let T2 _ v = NES.head urls
-              usePowHash v (\p -> mine p n tbytes) hbytes
+            new <- usePowHash v (\p -> mine p n tbytes) hbytes
             terminateWith sch new
     !end <- liftIO getPOSIXTime
     modifyIORef' (envHashes e) $ \hashes -> ns * fromIntegral (cores cpue) + hashes
@@ -441,30 +427,5 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
 --------------------------------------------------------------------------------
 
 -- | O(1). The head value is moved to the end.
-rotate :: NESeq a -> NESeq a
-rotate (h :<|| rest) = rest :||> h
-
--- | Same as '*' on 'Int' but it maxes out at @'maxBound' :: 'Int'@ or
--- @'minBound' :: 'Int'@ rather than rolling over
-boundedMult :: Int -> Int -> Int
-boundedMult i@(I# i#) j@(I# j#) = case mulIntMayOflo# i# j# of
-  0# -> I# (i# *# j#)
-  _ | signum i * signum j < 0 -> minBound
-    | otherwise -> maxBound
-
--- | Same as '^' on 'Int' but it maxes out at @'maxBound' :: 'Int'@ or
--- @'MinBound' :: 'Int'@ rather than rolling over
-boundedPow :: Int -> Int -> Int
-boundedPow x0 y0
-  | y0 < 0 = error "Negative exponent"
-  | y0 == 0 = 1
-  | otherwise = f x0 y0
-  where
-    f x y
-      | even y = f (x `boundedMult` x) (y `quot` 2)
-      | y == 1 = x
-      | otherwise = g (x `boundedMult` x) ((y - 1) `quot` 2) x
-    g x y z
-      | even y = g (x `boundedMult` x) (y `quot` 2) z
-      | y == 1 = x `boundedMult` z
-      | otherwise = g (x `boundedMult` x) ((y - 1) `quot` 2) (x `boundedMult` z)
+rotate :: NES.NESeq a -> NES.NESeq a
+rotate (h NES.:<|| rest) = rest NES.:||> h

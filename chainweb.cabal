@@ -663,9 +663,7 @@ executable chainweb-miner
         , base >= 4.11 && < 5
         , bytestring >= 0.10
         , connection >= 0.2
-        , errors >= 2.3
         , generic-lens >= 1.2
-        , ghc-prim >= 0.5
         , http-client >= 0.5
         , http-client-tls >= 0.3
         , http-types >= 0.12
