@@ -2,7 +2,12 @@ name: Build and publish application binaries
 
 on:
   push:
-
+    branches: 
+    - "master"
+    - "github-ci"
+    paths:
+    - ".github/workflows/**"
+    
 jobs:
   build:
     name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
@@ -108,7 +113,9 @@ jobs:
         EOF
     - name: Sync from dist cache
       if: matrix.distcache == 'true'
-      run: eval $SYNC_FROM_DIST_CACHE
+      run: |
+        eval $SYNC_FROM_DIST_CACHE
+        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*
       continue-on-error: true
 
     # Build
