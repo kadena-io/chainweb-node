@@ -98,7 +98,7 @@ genesisTime TimedCPM{} = BlockCreationTime epoch
 genesisTime FastTimedCPM{} = BlockCreationTime epoch
 genesisTime Development = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 genesisTime Testnet02 = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-genesisTime Mainnet01 = BlockCreationTime [timeMicrosQQ| 2019-10-24T21:51:26.444848 |]
+genesisTime Mainnet01 = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
