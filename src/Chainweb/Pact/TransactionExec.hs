@@ -51,14 +51,16 @@ module Chainweb.Pact.TransactionExec
 , mkMagicCapSlot
 ) where
 
-import Control.Lens hiding ((.=))
+import Control.Lens
 import Control.Monad (when)
 import Control.Monad.Catch (Exception(..))
-import Control.Monad.State (put)
+import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 
 
-import Data.Aeson
+import Data.Aeson hiding ((.=))
+import qualified Data.Aeson as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
@@ -94,7 +96,7 @@ import Pact.Types.SPV
 import Chainweb.BlockHash
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Pact.Types (GasId(..), GasSupply(..), ModuleCache)
+import Chainweb.Pact.Types
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
 
@@ -197,7 +199,7 @@ applyCmd logger pactDbEnv miner gasModel pd spv cmdIn mcache = applyBuyGas
           "tx failure for request key while redeeming gas"
         Right (T2 redeemResult !mcache''') -> do
           let !redeemLogs = fromMaybe [] $ _crLogs redeemResult
-              !finalResult = over (crLogs . _Just) (<> redeemLogs) cmdResult
+              !finalResult = crLogs . _Just <>~ redeemLogs $ cmdResult
           pure $! T2 finalResult $! mcache'''
 
 
@@ -293,7 +295,6 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
       requestKey = cmdToRequestKey cmd
       nid = networkIdOf cmd
 
-
   let cmdEnv = CommandEnv Nothing Local dbEnv logger freeGasEnv pd' spv nid
 
   exec <- case _pPayload _cmdPayload of
@@ -312,91 +313,104 @@ applyLocal logger dbEnv pd spv cmd@Command{..} = do
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
-    :: CommandEnv a
-    -> RequestKey
+    :: RequestKey
     -> PactError
-    -> [TxLog Value]
     -> Gas
-    -> ModuleCache
     -> String
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-jsonErrorResult cmdEnv reqKey err txLogs gas mcache msg = do
-    logErrorRequestKey (_ceLogger cmdEnv) reqKey err msg
-    return $! T2 (CommandResult reqKey Nothing (PactResult (Left err))
-      gas (Just txLogs) Nothing Nothing) mcache
+    -> TransactionM p (CommandResult [TxLog Value])
+jsonErrorResult rk err gas msg = do
+    l <- view ceLogger
+    logs <- use transactionLogs
+    mcache <- use transactionCache
+
+    liftIO $! logErrorRequestKey l rk err msg
+
+    return $! CommandResult rk Nothing (PactResult (Left err))
+      gas (Just logs) Nothing Nothing
 
 jsonErrorResult'
-    :: CommandEnv a
-    -> RequestKey
+    :: RequestKey
     -> PactError
-    -> [TxLog Value]
     -> Gas
     -> String
-    -> IO (CommandResult [TxLog Value])
-jsonErrorResult' cmdEnv reqKey err txLogs gas msg = do
-    logErrorRequestKey (_ceLogger cmdEnv) reqKey err msg
-    return $! CommandResult reqKey Nothing (PactResult (Left err))
-      gas (Just txLogs) Nothing Nothing
+    -> TransactionM p (CommandResult [TxLog Value])
+jsonErrorResult' rk err gas msg = do
+    l <- view ceLogger
+    logs <- use transactionLogs
+    mcache <- use transactionCache
+
+    liftIO $! logErrorRequestKey l rk err msg
+    return $! CommandResult rk Nothing (PactResult (Left err))
+      gas (Just logs) Nothing Nothing
 
 runPayload
-    :: CommandEnv p
-    -> Interpreter p
+    :: Interpreter p
     -> Command (Payload PublicMeta ParsedCode)
-    -> [TxLog Value] -- log state
     -> NamespacePolicy
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-runPayload env interp c@Command{..} txLogs nsp = case _pPayload _cmdPayload of
+    -> TransactionM p (CommandResult [TxLog Value])
+runPayload interp cmd nsp = case payload of
     Exec pm ->
-      applyExec env interp (cmdToRequestKey c) pm (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
+      applyExec interp rk pm signers chash nsp
     Continuation ym ->
-      applyContinuation env interp (cmdToRequestKey c) ym (_pSigners _cmdPayload) (toUntypedHash _cmdHash) txLogs nsp
+      applyContinuation interp rk ym signers chash nsp
+  where
+    rk = cmdToRequestKey cmd
+    signers = _pSigners $ _cmdPayload cmd
+    chash = toUntypedHash $ _cmdHash cmd
+    payload = _pPayload $ _cmdPayload cmd
 
 -- | Execute an 'ExecMsg' and Return the result with module cache
 --
 applyExec
-    :: CommandEnv p
-    -> Interpreter p
+    :: Interpreter p
     -> RequestKey
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
-    -> [TxLog Value]
     -> NamespacePolicy
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyExec env@CommandEnv{..} interp rk em senderSigs hsh prevLogs nsp = do
-    EvalResult{..} <- applyExec' env interp em senderSigs hsh nsp
+    -> TransactionM p (CommandResult [TxLog Value])
+applyExec interp rk em senderSigs hsh nsp = do
+    EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
+
+    -- set log state + concat logs
+    transactionLogs <>= _erLogs
+    logs <- use transactionLogs
+
+    -- set cache state
+    transactionCache .= _erLoadedModules
+
     -- applyExec enforces non-empty expression set so `last` ok
-    return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
-      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
+    return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+      _erGas (Just logs) _erExec Nothing
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
 -- wrapping it up in a JSON result.
 --
 applyExec'
-    :: CommandEnv p
-    -> Interpreter p
+    :: Interpreter p
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> IO EvalResult
-applyExec' CommandEnv{..} interp (ExecMsg parsedCode execData) senderSigs hsh nsp = do
+    -> TransactionM p EvalResult
+applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp = do
     -- fail if parsed code contains no expressions
     --
     when (null $ _pcExps parsedCode) $
       throwCmdEx "No expressions found"
 
-    er <- evalExec senderSigs interp evalEnv parsedCode
+    cenv <- ask
+    er <- liftIO $! evalExec senderSigs interp (evalEnv cenv) parsedCode
 
-    for_ (_erExec er) $ \PactExec{..} -> logLog _ceLogger "DEBUG"
+    liftIO $! for_ (_erExec er) $ \pe -> logLog (_ceLogger cenv) "DEBUG"
       $ "applyExec: new pact added: "
-      <> show (_pePactId, _peStep, _peYield, _peExecuted)
+      <> show (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
 
     return er
   where
-    evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
-      (MsgData execData Nothing hsh) initRefStore _ceGasEnv
-      nsp _ceSPVSupport _cePublicData
+    evalEnv c = setupEvalEnv (_ceDbEnv c) (_ceEntity c) (_ceMode c)
+      (MsgData execData Nothing hsh) initRefStore (_ceGasEnv c)
+      nsp (_ceSPVSupport c) (_cePublicData c)
 
 managedNamespacePolicy :: NamespacePolicy
 managedNamespacePolicy = SmartNamespacePolicy False
@@ -405,62 +419,48 @@ managedNamespacePolicy = SmartNamespacePolicy False
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
-    :: CommandEnv p
-    -> Interpreter p
+    :: Interpreter p
     -> RequestKey
     -> ContMsg
     -> [Signer]
     -> Hash
-    -> [TxLog Value]
     -> NamespacePolicy
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyContinuation env@CommandEnv{..} interp rk cm senderSigs hsh prevLogs nsp = do
-    EvalResult{..} <- applyContinuation' env interp cm senderSigs hsh nsp
-    -- last safe here because cont msg is guaranteed one exp
+    -> TransactionM p (CommandResult [TxLog Value])
+applyContinuation interp rk cm senderSigs hsh nsp = do
+    EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
 
-    return $! T2 (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
-      _erGas (Just $ prevLogs <> _erLogs) _erExec Nothing) _erLoadedModules -- TODO add perf metadata
+    -- set log state + concat logs
+    transactionLogs <>= _erLogs
+    logs <- use transactionLogs
+
+    -- set cache state
+    transactionCache .= _erLoadedModules
+
+    -- last safe here because cont msg is guaranteed one exp
+    return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+      _erGas (Just logs) _erExec Nothing)
 
 -- | Execute a 'ContMsg' and return just eval result, not wrapped in a
 -- 'CommandResult' wrapper
 --
 applyContinuation'
-    :: CommandEnv p
-    -> Interpreter p
+    :: Interpreter p
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
-    -> IO EvalResult
-applyContinuation' CommandEnv{..} interp cm senderSigs hsh nsp =
-    evalContinuation senderSigs interp evalEnv cm
+    -> TransactionM p EvalResult
+applyContinuation' interp cm senderSigs hsh nsp = do
+    cenv <- ask
+    liftIO $! evalContinuation senderSigs interp (evalEnv cenv) cm
   where
     step = _cmStep cm
     rollback = _cmRollback cm
     pid = _cmPactId cm
     pactStep = Just $ PactStep step rollback pid Nothing
-    evalEnv = setupEvalEnv _ceDbEnv _ceEntity _ceMode
+    evalEnv c = setupEvalEnv (_ceDbEnv c) (_ceEntity c) (_ceMode c)
       (MsgData (_cmData cm) pactStep hsh) initRefStore
-      _ceGasEnv nsp _ceSPVSupport _cePublicData
-
-initStateInterpreter :: EvalState -> Interpreter p
-initStateInterpreter s = Interpreter $ \start end withRollback runInput ->
-    withRollback (put s >> start runInput >>= end)
-
--- | Initial gas charged for transaction size
---   ignoring the size of a continuation proof, if present
---
-initialGasOf :: PayloadWithText -> Gas
-initialGasOf cmd = gasFee
-  where
-    feePerByte :: Decimal = 0.01
-
-    contProofSize =
-      case _pPayload (payloadObj cmd) of
-        Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
-        _ -> 0
-    txSize = SB.length (payloadBytes cmd) - contProofSize
-    gasFee = round $ fromIntegral txSize * feePerByte
+      (_ceGasEnv c) nsp (_ceSPVSupport c) (_cePublicData c)
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')
@@ -468,18 +468,16 @@ initialGasOf cmd = gasFee
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
 buyGas
-    :: CommandEnv p
-    -> Command (Payload PublicMeta ParsedCode)
+    :: Command (Payload PublicMeta ParsedCode)
     -> Miner
     -> GasSupply
-    -> ModuleCache
-    -> IO (Either Text (T3 GasId [TxLog Value] ModuleCache))
-buyGas env cmd (Miner mid mks) supply mcache = go
+    -> TransactionM p (Either Text GasId)
+buyGas cmd (Miner mid mks) supply = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
-    initState = setModuleCache mcache $ initCapabilities [magic_GAS]
-    interp = Interpreter $ \start end withRollback input ->
-      withRollback (put initState >> start (run input) >>= end)
+    initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
+    interp mc = Interpreter $ \start end withRollback input ->
+      withRollback (put (initState mc) >> start (run input) >>= end)
     run input = do
       findPayer >>= \r -> case r of
         Nothing -> input
@@ -489,24 +487,24 @@ buyGas env cmd (Miner mid mks) supply mcache = go
     bgHash = Hash (chash <> "-buygas")
 
     go = do
+      mcache <- use transactionCache
+      buyGasCmd <- liftIO $! mkBuyGasCmd mid mks sender supply
 
-      buyGasCmd <- mkBuyGasCmd mid mks sender supply
-
-      result <- applyExec' env interp buyGasCmd
+      result <- applyExec' (interp mcache) buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
-      let !mcache' = _erLoadedModules result
+      transactionCache .= (_erLoadedModules result)
 
       case _erExec result of
         Nothing -> return $!
           Left "buyGas: Internal error - empty continuation"
-        Just pe -> return $! Right $ T3 (GasId $ _pePactId pe) (_erLogs result) mcache'
+        Just pe -> do
+          transactionLogs <>= _erLogs result
+          return $! Right $ GasId (_pePactId pe)
 
-findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
-findPayer = runMaybeT go
-  where
-    go = do
-      (m,qn,as) <- MaybeT findPayerCap
+    findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
+    findPayer = runMaybeT $ do
+      (!m,!qn,!as) <- MaybeT findPayerCap
       pMod <- MaybeT $ lookupModule qn m
       capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
       return $ runCap (getInfo qn) capRef as
@@ -514,7 +512,8 @@ findPayer = runMaybeT go
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
-    sigPayerCap (SigCapability q@(QualifiedName m n _) as) | n == "GAS_PAYER" = Just (m,q,as)
+    sigPayerCap (SigCapability q@(QualifiedName m n _) as)
+      | n == "GAS_PAYER" = Just (m,q,as)
     sigPayerCap _ = Nothing
 
     gasPayerIface = ModuleName "gas-payer-v1" Nothing
@@ -542,28 +541,27 @@ findPayer = runMaybeT go
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
 redeemGas
-    :: CommandEnv p
-    -> Command (Payload PublicMeta ParsedCode)
-    -> Gas
+    :: Command (Payload PublicMeta ParsedCode)
+    -> Gas             -- ^ total gas usage from command payload
     -> CommandResult a -- ^ result from the user command payload
     -> GasId           -- ^ result of the buy-gas continuation
-    -> [TxLog Value]   -- ^ previous txlogs
-    -> ModuleCache
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-redeemGas env cmd initialGas cmdResult gid prevLogs mcache = do
-    let totalGas   = initialGas + _crGas cmdResult
-        fee        = gasFeeOf totalGas (gasPriceOf cmd)
-        rk         = cmdToRequestKey cmd
-        initState  = initStateInterpreter $ setModuleCache mcache
-          $ initCapabilities [magic_GAS]
+    -> TransactionM p (CommandResult [TxLog Value])
+redeemGas cmd initialGas cmdResult gid = do
+    mcache <- use transactionCache
 
-    applyContinuation env initState rk (redeemGasCmd fee gid)
-      (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd) prevLogs
+    applyContinuation (initState mcache) rk (redeemGasCmd fee gid)
+      (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
-
   where
+    totalGas = initialGas + _crGas cmdResult
+    fee = gasFeeOf totalGas (gasPriceOf cmd)
+    rk = cmdToRequestKey cmd
+    initState mc = initStateInterpreter
+      $ setModuleCache mc
+      $ initCapabilities [magic_GAS]
+
     redeemGasCmd fee (GasId pid) =
-      ContMsg pid 1 False (object [ "fee" .= fee ]) Nothing
+      ContMsg pid 1 False (object [ "fee" A..= fee ]) Nothing
 
 -- | Build the 'coin-contract.buygas' command
 --
@@ -583,8 +581,8 @@ mkBuyGasCmd (MinerId mid) (MinerKeys ks) sender total =
       ]
   where
     buyGasData = Just $ object
-      [ "miner-keyset" .= ks
-      , "total" .= total
+      [ "miner-keyset" A..= ks
+      , "total" A..= total
       ]
 {-# INLINABLE mkBuyGasCmd #-}
 
@@ -598,10 +596,13 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
       ]
   where
     coinbaseData = Just $ object
-      [ "miner-keyset" .= ks
-      , "reward" .= reward
+      [ "miner-keyset" A..= ks
+      , "reward" A..= reward
       ]
 {-# INLINABLE mkCoinbaseCmd #-}
+
+-- ---------------------------------------------------------------------------- --
+-- Utilities
 
 -- | Initialize a fresh eval state with magic capabilities.
 -- This is the way we inject the correct guards into the environment
@@ -611,11 +612,34 @@ initCapabilities :: [CapSlot UserCapability] -> EvalState
 initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
+initStateInterpreter :: EvalState -> Interpreter p
+initStateInterpreter s = Interpreter $ \start end withRollback runInput ->
+    withRollback (put s >> start runInput >>= end)
+
+-- | Initial gas charged for transaction size
+--   ignoring the size of a continuation proof, if present
+--
+initialGasOf :: PayloadWithText -> Gas
+initialGasOf cmd = gasFee
+  where
+    feePerByte :: Decimal = 0.01
+
+    contProofSize =
+      case _pPayload (payloadObj cmd) of
+        Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
+        _ -> 0
+    txSize = SB.length (payloadBytes cmd) - contProofSize
+    gasFee = round $ fromIntegral txSize * feePerByte
+{-# INLINE initialGasOf #-}
+
+-- | Set the module cache of a pact 'EvalState'
+--
 setModuleCache
   :: ModuleCache
   -> EvalState
   -> EvalState
 setModuleCache = set (evalRefs . rsLoadedModules)
+{-# INLINE setModuleCache #-}
 
 -- | Builder for "magic" capabilities given a magic cap name
 --
@@ -625,7 +649,7 @@ mkMagicCapSlot c = CapSlot CapCallStack cap []
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn c def
     cap = SigCapability fqn []
-{-# INLINABLE mkMagicCapSlot #-}
+{-# INLINE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
 -- parameter is for any possible environmental data that needs to go into
@@ -645,19 +669,19 @@ buildExecParsedCode value code = maybe (go Null) go value
 --
 mkGasEnvOf :: Command (Payload PublicMeta c) -> GasModel -> GasEnv
 mkGasEnvOf cmd gasModel = GasEnv (gasLimitOf cmd) (gasPriceOf cmd) gasModel
-{-# INLINABLE mkGasEnvOf #-}
+{-# INLINE mkGasEnvOf #-}
 
 -- | Retrieve public metadata from a command
 --
 publicMetaOf :: Command (Payload PublicMeta c) -> PublicMeta
 publicMetaOf = _pMeta . _cmdPayload
-{-# INLINABLE publicMetaOf #-}
+{-# INLINE publicMetaOf #-}
 
 -- | Retrieve the optional Network identifier from a command
 --
 networkIdOf :: Command (Payload a b) -> Maybe NetworkId
 networkIdOf = _pNetworkId . _cmdPayload
-{-# INLINEABLE networkIdOf #-}
+{-# INLINE networkIdOf #-}
 
 -- | Calculate the gas fee (pact-generate gas cost * user-specified gas price),
 -- rounding to the nearest stu.
@@ -666,7 +690,7 @@ gasFeeOf :: Gas -> GasPrice -> GasSupply
 gasFeeOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
   where
     gs = toCoinUnit ((fromIntegral gas) * gp)
-{-# INLINABLE gasFeeOf #-}
+{-# INLINE gasFeeOf #-}
 
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
@@ -680,7 +704,10 @@ logDebugRequestKey l k reason = logLog l "DEBUG" $ reason <> ": " <> show k
 --
 logErrorRequestKey
     :: Exception e
-    => Logger -> RequestKey -> e -> String -> IO ()
+    => Logger
+    -> RequestKey
+    -> e
+    -> String -> IO ()
 logErrorRequestKey l k e reason = logLog l "ERROR" $ reason
     <> ": " <> show k
     <> ": " <> show e

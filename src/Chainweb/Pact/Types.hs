@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
-
+{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -22,8 +22,20 @@ module Chainweb.Pact.Types
   , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
+
+    -- * Transaction State
+  , TransactionState(..)
+  , transactionGasEnv
+  , transactionLogs
+  , transactionCache
+
+    -- * Transaction Execution Monad
+  , TransactionM(..)
+  , runTransactionM
+  , execTransactionM
+  , evalTransactionM
+
     -- * types
-  , TransactionM
   , ModuleCache
   , HashCommandResult
     -- * optics
@@ -38,7 +50,10 @@ module Chainweb.Pact.Types
 
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
+import Control.Monad.Fail
 import Control.Monad.Reader
+import Control.Monad.State.Strict
+
 
 import Data.Aeson
 import Data.HashMap.Strict
@@ -49,8 +64,10 @@ import Data.Vector (Vector)
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
 import Pact.Types.Exp
+import Pact.Types.Gas
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
+import Pact.Types.Persistence
 import Pact.Types.Runtime (ModuleData)
 import Pact.Types.Server (CommandEnv)
 import Pact.Types.Term (ModuleName, PactId(..), Ref)
@@ -95,6 +112,7 @@ data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
     , _pdbspPactDbState :: !PactDbState
     }
+makeLenses ''PactDbStatePersist
 
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
@@ -103,6 +121,73 @@ instance Show GasSupply where show (GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 
-type TransactionM p a = ReaderT (CommandEnv p) IO a
+data TransactionState = TransactionState
+    { _transactionGasEnv :: GasEnv
+    , _transactionCache :: ModuleCache
+    , _transactionLogs :: [TxLog Value]
+    }
 
-makeLenses ''PactDbStatePersist
+makeLenses ''TransactionState
+
+-- | The transaction monad used in transaction execute. The reader
+-- environment is the a Pact command env, writer is a list of json-ified
+-- tx logs, and transaction state consists of a module cache, gas env,
+-- and log values.
+--
+newtype TransactionM db a = TransactionM
+    { _runTransactionM
+        :: ReaderT (CommandEnv db) (StateT TransactionState IO) a
+    } deriving
+      ( Functor, Applicative, Monad
+      , MonadReader (CommandEnv db)
+      , MonadState TransactionState
+      , MonadThrow, MonadCatch, MonadMask
+      , MonadIO
+      , MonadFail
+      )
+
+-- | Run a 'TransactionM' computation given some initial
+-- reader and state values, returning the full range of
+-- results including final computed value, state, and
+-- writer values.
+--
+runTransactionM
+    :: forall db a
+    . CommandEnv db
+      -- ^ initial reader env
+    -> TransactionState
+      -- ^ initial state
+    -> TransactionM db a
+      -- ^ computation to execute
+    -> IO (a, TransactionState)
+runTransactionM cenv txst act
+    = runStateT (runReaderT (_runTransactionM act) cenv) txst
+
+-- | Run a 'TransactionM' computation given some initial
+-- reader and state values, discarding the final state.
+--
+evalTransactionM
+    :: forall db a
+    . CommandEnv db
+      -- ^ initial reader env
+    -> TransactionState
+      -- ^ initial state
+    -> TransactionM db a
+    -> IO a
+evalTransactionM cenv txst act
+    = evalStateT (runReaderT (_runTransactionM act) cenv) txst
+
+-- | Run a 'TransactionM' computation given some initial
+-- reader and state values, discarding the final value.
+--
+execTransactionM
+    :: forall p a
+    . CommandEnv p
+      -- ^ initial reader env
+    -> TransactionState
+      -- ^ initial state
+    -> TransactionM p a
+      -- ^ computation to execute
+    -> IO TransactionState
+execTransactionM cenv txst act
+    = execStateT (runReaderT (_runTransactionM act) cenv) txst
