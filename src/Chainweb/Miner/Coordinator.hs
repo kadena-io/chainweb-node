@@ -185,7 +185,8 @@ publish' lf (MiningState ms) cdb bh = do
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
         T3 m p pl <- M.lookup phash ms ?? "BlockHeader given with no associated Payload"
-        unless (prop_block_pow bh) . hoistEither $ Left "Invalid POW hash given!"
+        unless (prop_block_pow bh) . hoistEither $
+            Left $ "Invalid POW hash given for nonce: " <> sshow (_blockNonce bh)
         let !miner = m ^. minerId . _Unwrapped
         c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
         lift $ do
