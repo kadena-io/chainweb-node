@@ -118,7 +118,7 @@ data ClientArgs = ClientArgs
 -- | The top-level git-style CLI "command" which determines which mining
 -- paradigm to follow.
 --
-data Command = CPU CPUEnv ClientArgs | GPU GPUEnv ClientArgs | Keys
+data Command = CPU CPUEnv ClientArgs | GPU GPUEnv ClientArgs | Keys | Balance
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 
@@ -150,6 +150,7 @@ pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
     <> command "keys" (info keysOpts (progDesc "Generate public/private key pair"))
+    <> command "get-balance" (info balanceOpts (progDesc "Check miner's balance"))
     )
 
 pMinerPath :: Parser Text
@@ -174,6 +175,9 @@ cpuOpts = liftA2 (CPU . CPUEnv) pCores pClientArgs
 
 keysOpts :: Parser Command
 keysOpts = pure Keys
+
+balanceOpts :: Parser Command
+balanceOpts = pure Balance
 
 pCores :: Parser Word16
 pCores = option auto
@@ -212,6 +216,7 @@ main :: IO ()
 main = do
     execParser opts >>= \case
         Keys -> genKeys
+        cmd@Balance -> getBalance cmd
         cmd@(CPU _ cargs) -> work cmd cargs >> exitFailure
         cmd@(GPU _ cargs) -> work cmd cargs >> exitFailure
   where
@@ -267,6 +272,11 @@ genKeys = do
     kp <- genKeyPair defaultScheme
     printf "public:  %s\n" (T.unpack . toB16Text $ getPublic kp)
     printf "private: %s\n" (T.unpack . toB16Text $ getPrivate kp)
+
+
+getBalance :: Command -> IO ()
+getBalance = do
+  undefined
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
