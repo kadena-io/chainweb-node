@@ -55,6 +55,7 @@ import Pact.Types.Gas (GasPrice(..))
 
 import Chainweb.BlockHash
 import Chainweb.Mempool.Mempool
+import Chainweb.Time (Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 
 ------------------------------------------------------------------------------
@@ -80,8 +81,10 @@ remoteTests withMempool = map ($ withMempool) [
 genNonEmpty :: PropertyM IO [MockTx]
 genNonEmpty = do
     xs <- pick arbitrary
+    now@(Time (TimeSpan nowmicros)) <- liftIO Time.getCurrentTimeIntegral
+    let meta = TransactionMetadata now (Time (TimeSpan (nowmicros + 60*60*1000000)))
     pre (not $ null xs)
-    return xs
+    return $ map (\x -> x { mockMeta=meta }) xs
 
 genTwoSets :: PropertyM IO ([MockTx], [MockTx])
 genTwoSets = do
@@ -112,7 +115,7 @@ instance Arbitrary MockTx where
   arbitrary = MockTx
       <$> chooseAny
       <*> arbitraryGasPrice
-      <*> pure mockBlockGasLimit
+      <*> pure (mockBlockGasLimit - 1)
       <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
@@ -295,7 +298,7 @@ propGetPending txs0 _ mempool = runExceptT $ do
     onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    insert v = mempoolInsert mempool UncheckedInsert $ V.fromList v
 
 propHighWater
     :: ([MockTx], [MockTx])
@@ -325,7 +328,7 @@ propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     txdata = sort $ map hash txs1
     hash = txHasher $ mempoolTxConfig mempool
     getPending = mempoolGetPendingTransactions mempool
-    insert txs = mempoolInsert mempool CheckedInsert $ V.fromList txs
+    insert txs = mempoolInsert mempool UncheckedInsert $ V.fromList txs
 
 
 uniq :: Eq a => [a] -> [a]
