@@ -654,6 +654,7 @@ executable chainweb-miner
           chainweb
 
         -- external
+        , aeson-pretty >= 0.8
         , base >= 4.11 && < 5
         , bytestring >= 0.10
         , connection >= 0.2

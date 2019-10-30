@@ -62,6 +62,7 @@ module Main ( main ) where
 
 import Control.Retry
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
+import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.Generics.Product.Fields (field)
 import qualified Data.List.NonEmpty as NEL
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
@@ -77,6 +78,7 @@ import RIO
 import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
 import RIO.List.Partial (head)
+import qualified RIO.Map as M
 import qualified RIO.Text as T
 import Servant.Client
 import qualified Streaming.Prelude as SP
@@ -259,8 +261,9 @@ scheme env = case envCmd env of
 genKeys :: IO ()
 genKeys = do
     kp <- genKeyPair defaultScheme
-    printf "public:  %s\n" (T.unpack . toB16Text $ getPublic kp)
-    printf "private: %s\n" (T.unpack . toB16Text $ getPrivate kp)
+    let publ = toB16Text $ getPublic kp
+        priv = toB16Text $ getPrivate kp
+    BL.putStrLn . encodePretty $ M.fromList [("public" :: Text, publ), ("private", priv)]
 
 -- | Attempt to get new work while obeying a sane retry policy.
 --
