@@ -144,7 +144,6 @@ jobs:
         mkdir -p dist-newstyle/artifacts/applications
         mkdir -p dist-newstyle/artifacts/docs
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/build/*/{chainweb-miner,chainweb-node} dist-newstyle/artifacts/applications
-        cp -r dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/doc/html/chainweb* dist-newstyle/artifacts/docs
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:
