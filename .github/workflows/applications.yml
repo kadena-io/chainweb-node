@@ -1,7 +1,6 @@
 name: Build and publish application binaries
 
 on:
-  pull_request:
   push:
     branches: 
     - "master"
