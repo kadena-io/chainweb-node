@@ -19,7 +19,6 @@ import Test.Tasty.HUnit
 import Control.Concurrent (readMVar)
 
 import Data.Aeson
-import Data.Default (def)
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
 import Data.Text
@@ -28,8 +27,8 @@ import Data.Text
 
 import Pact.Repl
 import Pact.Repl.Types
-import Pact.Types.Names
 import Pact.Types.Runtime
+
 
 -- internal chainweb modules
 
@@ -86,9 +85,9 @@ sender0 :: Text
 sender0 = "sender"
 
 minerKeys0 :: MinerKeys
-minerKeys0 = MinerKeys $ KeySet
+minerKeys0 = MinerKeys $ mkKeySet
   ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-  (Name $ BareName "default" def)
+  "default"
 
 minerId0 :: MinerId
 minerId0 = MinerId "default miner"
