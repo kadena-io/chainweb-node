@@ -29,6 +29,7 @@ module TXG.Repl
   , chain0
   , host
   , verToChainId
+  , listenResponse
   , mkCmdStr
   , mkKey
   , mkKeyCombined
@@ -38,7 +39,6 @@ module TXG.Repl
   , mkGuardCombined
   , pollResponse
   , randomCmd
-  , sendWithPoll
   , stockKey
   , mkKeyset
   , signedCode
@@ -53,7 +53,6 @@ module TXG.Repl
 import Control.Exception
 import Control.Lens hiding ((.=), from, to)
 
--- import qualified Data.Aeson.Parser as AP (Parser)
 import Data.Aeson.Types (Parser)
 import Data.Aeson
 import Data.ByteString (ByteString)
@@ -228,9 +227,16 @@ pollResponse nw (Right rks) = do
     Left err -> putStrLn $ "Poll error: " ++ show err
     Right pollResponses -> putStrLn $ show pollResponses
 
-sendWithPoll :: Network -> Either ClientError RequestKeys -> IO ()
-sendWithPoll _nw (Left err) = putStrLn $ "Listen failure: " ++ show err
-sendWithPoll _nw (Right prs) = putStrLn $ show prs
+listenResponse :: Network -> Either ClientError RequestKeys -> IO ()
+listenResponse _nw (Left err) = putStrLn $ "There was a failure in the send: " ++ show err
+listenResponse nw (Right (RequestKeys (k :| []))) = do
+  listResp <- listen nw k
+  case listResp of
+    Left err -> putStrLn $ "Listen error: " ++ show err
+    Right listenResp -> putStrLn $ show listenResp
+-- listenResponse nw (Right (RequestKeys (rk :| rks))) =
+listenResponse _nw (Right _r) =
+  putStrLn $ "Listen can only be used with a single request key"
 
 randomCmd :: PublicMeta -> ChainwebVersion -> IO (Command Text)
 randomCmd meta ver = do
@@ -239,3 +245,34 @@ randomCmd meta ver = do
   let someWords = "(" ++ unwords rands ++ ")"
   kps <- sampleKeyPairCaps
   mkCmdStr meta ver kps someWords
+
+-- **************************************************
+-- Temp paste into Repl.hs if doing many code reloads:
+-- TODO: remove this before commit
+-- **************************************************
+_hostAddr :: HostAddress
+_hostAddr = host "us1.tn1.chainweb.com"
+
+_ver :: ChainwebVersion
+_ver = Development
+
+_cid :: ChainId
+_cid = verToChainId _ver
+
+_nw :: Network
+_nw = Network _ver _hostAddr _cid
+
+_metaIO :: IO PublicMeta
+_metaIO = mkPubMeta _cid
+
+_cmd1IO :: IO (Command Text)
+_cmd1IO = do
+  meta <- _metaIO
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps "(+ 1 1)"
+
+_cmd2IO :: IO (Command Text)
+_cmd2IO = do
+  meta <- _metaIO
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps "(+ 2 2)"
