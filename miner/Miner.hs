@@ -4,7 +4,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -149,8 +148,7 @@ pCommand :: Parser Command
 pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
-    <> command "keys" (info keysOpts (progDesc "Generate public/private key pair"))
-    )
+    <> command "keys" (info (pure Keys) (progDesc "Generate public/private key pair")))
 
 pMinerPath :: Parser Text
 pMinerPath = textOption
@@ -167,13 +165,10 @@ pGpuEnv :: Parser GPUEnv
 pGpuEnv = GPUEnv <$> pMinerPath <*> pMinerArgs
 
 gpuOpts :: Parser Command
-gpuOpts = liftA2 GPU pGpuEnv pClientArgs
+gpuOpts = GPU <$> pGpuEnv <*> pClientArgs
 
 cpuOpts :: Parser Command
-cpuOpts = liftA2 (CPU . CPUEnv) pCores pClientArgs
-
-keysOpts :: Parser Command
-keysOpts = pure Keys
+cpuOpts = (CPU . CPUEnv) <$> pCores <*> pClientArgs
 
 pCores :: Parser Word16
 pCores = option auto
@@ -209,11 +204,10 @@ pChainId = optional $ textOption
 -- Work
 
 main :: IO ()
-main = do
-    execParser opts >>= \case
-        Keys -> genKeys
-        cmd@(CPU _ cargs) -> work cmd cargs >> exitFailure
-        cmd@(GPU _ cargs) -> work cmd cargs >> exitFailure
+main = execParser opts >>= \case
+    Keys -> genKeys
+    cmd@(CPU _ cargs) -> work cmd cargs
+    cmd@(GPU _ cargs) -> work cmd cargs
   where
     opts :: ParserInfo Command
     opts = info (pCommand <**> helper)
