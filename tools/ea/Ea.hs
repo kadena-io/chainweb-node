@@ -122,7 +122,7 @@ main = do
         genPayloadModule v (tag <> "0") txs
 
     goM cid cs = for_ cs $ \(v, tag, txs) -> do
-        printf ("Generate Mainnet Genesis Payload for %s on Chain " <> T.unpack cid <> "...\n") $ show v
+        printf ("Generating Genesis Payload for %s on Chain " <> T.unpack cid <> "...\n") $ show v
         genPayloadModule v (tag <> cid) txs
 
     goN cs = for_ cs $ \(v, tag, txs) -> do
