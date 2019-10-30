@@ -59,7 +59,7 @@ withPactService
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> MempoolConsensus ChainwebTransaction
+    -> MempoolConsensus
     -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
@@ -114,7 +114,7 @@ pactQueueSize = 2000
 
 pactMemPoolAccess
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> MemPoolAccess
 pactMemPoolAccess mpc logger = MemPoolAccess
@@ -125,7 +125,7 @@ pactMemPoolAccess mpc logger = MemPoolAccess
 
 pactMemPoolGetBlock
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> (MempoolPreBlockCheck ChainwebTransaction
             -> BlockHeight
@@ -143,7 +143,7 @@ pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
 
 pactProcessFork
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> (BlockHeader -> IO ())
 pactProcessFork mpc theLogger bHeader = do
@@ -166,7 +166,7 @@ pactProcessFork mpc theLogger bHeader = do
 
 pactMempoolSetLastHeader
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> (BlockHeader -> IO ())
 pactMempoolSetLastHeader mpc _theLogger bHeader = do
