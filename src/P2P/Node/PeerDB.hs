@@ -30,6 +30,7 @@ module P2P.Node.PeerDB
 , SuccessiveFailures(..)
 , AddedTime(..)
 , ActiveSessionCount(..)
+, HostAddressIdx
 
 -- * Peer Entry
 , PeerEntry(..)
