@@ -83,9 +83,11 @@ import Control.Monad ((<$!>))
 import Control.Monad.STM
 
 import Data.Aeson
+import Data.Bits
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable (foldl')
 import qualified Data.Foldable as F
+import Data.Hashable
 import Data.IxSet.Typed
 import qualified Data.Set as S
 import Data.Time.Clock
@@ -98,6 +100,8 @@ import Prelude hiding (null)
 
 import System.IO.SafeWrite
 import System.IO.Temp
+import System.IO.Unsafe
+import System.Random
 
 import Test.QuickCheck (Arbitrary(..), Property, ioProperty, property, (===))
 
@@ -175,8 +179,21 @@ instance Arbitrary PeerEntry where
 -- -------------------------------------------------------------------------- --
 -- Peer Entry Set
 
+pdNonce :: Int
+pdNonce = unsafePerformIO randomIO
+{-# NOINLINE  pdNonce #-}
+
+newtype HostAddressIdx = HostAddressIdx Int
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (ToJSON, FromJSON, Arbitrary, NFData)
+
+hostAddressIdx :: HostAddress -> HostAddressIdx
+hostAddressIdx = HostAddressIdx . xor pdNonce . hash
+{-# INLINE hostAddressIdx #-}
+
 type PeerEntryIxs =
-    '[ HostAddress
+    '[ HostAddressIdx
+    , HostAddress
         -- a primary index
     , Maybe PeerId
         -- unique index in the 'Just' values, but not in the 'Nothing' values
@@ -188,6 +205,7 @@ type PeerEntryIxs =
 
 instance Indexable PeerEntryIxs PeerEntry where
     indices = ixList
+        (ixFun $ \e -> [hostAddressIdx $ _peerAddr $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerAddr $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerId $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerEntrySuccessiveFailures e])
