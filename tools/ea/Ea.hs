@@ -97,9 +97,9 @@ main = do
     putStrLn "Done."
   where
     cc = [fungibleAsset, coinContract, gasPayer]
-    devDefaults = cc <> [devNs]
-    prodDefaults = cc <> [prodNs]
-    mainnetDefaults = cc <> [prodNs, mainKeysets, mainCoinbases]
+    devDefaults = cc <> [devNs, testnetAllocations, testnetKeysets]
+    prodDefaults = cc <> [prodNs, testnetAllocations, testnetKeysets]
+    mainnetDefaults = cc <> [mainNs, mainnetKeysets]
 
     chain0 =
       [ (Development, "Development", devDefaults <> [devAllocations, dev0Grants])
@@ -158,6 +158,9 @@ devNs = "pact/genesis/testnet/ns.yaml"
 prodNs :: FilePath
 prodNs = "pact/genesis/prodnet/ns.yaml"
 
+mainNs :: FilePath
+mainNs = "pact/genesis/mainnet/ns.yaml"
+
 devAllocations :: FilePath
 devAllocations = "pact/genesis/testnet/allocations.yaml"
 
@@ -194,11 +197,14 @@ mainAllocations8 = "pact/genesis/mainnet/mainnet_allocations8.yaml"
 mainAllocations9 :: FilePath
 mainAllocations9 = "pact/genesis/mainnet/mainnet_allocations9.yaml"
 
-mainKeysets :: FilePath
-mainKeysets = "pact/genesis/mainnet/mainnet_keysets.yaml"
+testnetKeysets :: FilePath
+testnetKeysets = "pact/genesis/mainnet/testnet_keysets.yaml"
 
-mainCoinbases :: FilePath
-mainCoinbases = "pact/genesis/mainnet/mainnet_coinbases.yaml"
+mainnetKeysets :: FilePath
+mainnetKeysets = "pact/genesis/mainnet/mainnet_keysets.yaml"
+
+testnetAllocations :: FilePath
+testnetAllocations = "pact/genesis/mainnet/test-allocations.yaml"
 
 ---------------------
 -- Payload Generation

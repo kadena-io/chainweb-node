@@ -46,7 +46,9 @@ tests = testGroup "Chainweb.Test.CoinContract"
     , testCase "Build Exec without Data" buildExecWithoutData
     ]
   , testGroup "Pact Code Unit Tests"
-    [ testCase "Coin Contract Repl Tests" ccReplTests
+    [ testCase "Coin Contract Repl Tests" (ccReplTests "pact/coin-contract/coin.repl")
+    , testCase "Ns Repl Tests" (ccReplTests "pact/namespaces/ns.repl")
+    , testCase "Payer Repl Tests" (ccReplTests "pact/gas-payer/gas-payer-v1.repl")
     ]
   ]
 
@@ -64,8 +66,8 @@ buildExecWithoutData :: Assertion
 buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 
 
-ccReplTests :: Assertion
-ccReplTests = do
+ccReplTests :: FilePath -> Assertion
+ccReplTests ccFile = do
     (r, rst) <- execScript' (Script False ccFile) ccFile
     either fail (\_ -> execRepl rst) r
   where
@@ -90,6 +92,3 @@ minerKeys0 = MinerKeys $ KeySet
 
 minerId0 :: MinerId
 minerId0 = MinerId "default miner"
-
-ccFile :: String
-ccFile = "pact/coin-contract/coin.repl"

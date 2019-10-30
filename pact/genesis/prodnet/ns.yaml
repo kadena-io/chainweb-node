@@ -2,7 +2,8 @@ codeFile: ../../namespaces/ns.pact
 data:
   ns-admin-keyset: ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
   ns-operate-keyset: ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"]
+  ns-genesis-keyset:
+    keys: []
+    pred: "="
 nonce: load-ns-prodnet-sender00
-keyPairs:
-  - public: 368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca
-    secret: 251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898
+keyPairs: []
