@@ -513,88 +513,88 @@ test-suite chainweb-tests
         cpp-options: -dWITH_ED25519=1
 
 
-test-suite chainweb-tools-tests
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-    type: exitcode-stdio-1.0
-    hs-source-dirs: test tools/txg
-    main-is: ChainwebToolsTests.hs
-    build-depends:
-        -- internal
-            chainweb
+-- test-suite chainweb-tools-tests
+--     import: warning-flags, debugging-flags
+--     default-language: Haskell2010
+--     ghc-options:
+--         -threaded
+--         -with-rtsopts=-N
+--     type: exitcode-stdio-1.0
+--     hs-source-dirs: test tools/txg
+--     main-is: ChainwebToolsTests.hs
+--     build-depends:
+--         -- internal
+--             chainweb
 
-        -- external
-        , Decimal >= 0.4.2
-        , QuickCheck >= 2.12.6
-        , aeson >= 1.4.3
-        , async >= 2.2
-        , attoparsec >= 0.13
-        , base >= 4.11 && < 5
-        , base16-bytestring >= 0.1
-        , base64-bytestring >= 1.0
-        , bytes >= 0.15
-        , bytestring >= 0.10
-        , chainweb-storage >= 0.1
-        , connection >=0.2
-        , containers >= 0.5
-        , data-default >=0.7
-        , data-ordlist >= 0.4.7
-        , deepseq >= 1.4
-        , directory >= 1.2
-        , exceptions
-        , extra >= 1.6
-        , fake >= 0.1.1.1
-        , file-embed >= 0.0
-        , hashable >= 1.2
-        , http-client >= 0.5
-        , http-types >= 0.12
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , mtl >= 2.2
-        , neat-interpolation >= 0.3
-        , network >= 2.6
-        , http-client-tls >=0.3
-        , pact >= 2.6
-        , paths >= 0.2
-        , quickcheck-instances >= 0.3
-        , random >= 1.1
-        , random-bytestring >= 0.1
-        , reflection >= 2.1
-        , resource-pool >= 0.2
-        , resourcet >= 1.2
-        , retry >= 0.7
-        , scheduler >= 1.4
-        , semialign >= 1
-        , servant >= 0.16
-        , servant-client >= 0.16
-        , servant-client-core >= 0.16
-        , string-conv >= 0.1
-        , stm
-        , streaming >= 0.2.2
-        , streaming-commons >= 0.2
-        , strict-concurrency >= 0.2
-        , strict-tuple >= 0.1.3
-        , tasty >= 1.0
-        , tasty-golden >= 2.3
-        , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.9
-        , temporary >= 1.3
-        , text >=1.2
-        , these >= 1 && < 1.1
-        , time >= 1.8
-        , transformers >= 0.5
-        , unordered-containers >= 0.2
-        , vector >= 0.12
-        , wai >= 3.2
-        , warp >= 3.2
-        , warp-tls >= 3.2.7
-        , yaml >= 0.11
+--         -- external
+--         , Decimal >= 0.4.2
+--         , QuickCheck >= 2.12.6
+--         , aeson >= 1.4.3
+--         , async >= 2.2
+--         , attoparsec >= 0.13
+--         , base >= 4.11 && < 5
+--         , base16-bytestring >= 0.1
+--         , base64-bytestring >= 1.0
+--         , bytes >= 0.15
+--         , bytestring >= 0.10
+--         , chainweb-storage >= 0.1
+--         , connection >=0.2
+--         , containers >= 0.5
+--         , data-default >=0.7
+--         , data-ordlist >= 0.4.7
+--         , deepseq >= 1.4
+--         , directory >= 1.2
+--         , exceptions
+--         , extra >= 1.6
+--         , fake >= 0.1.1.1
+--         , file-embed >= 0.0
+--         , hashable >= 1.2
+--         , http-client >= 0.5
+--         , http-types >= 0.12
+--         , lens >= 4.16
+--         , loglevel >= 0.1
+--         , mtl >= 2.2
+--         , neat-interpolation >= 0.3
+--         , network >= 2.6
+--         , http-client-tls >=0.3
+--         , pact >= 2.6
+--         , paths >= 0.2
+--         , quickcheck-instances >= 0.3
+--         , random >= 1.1
+--         , random-bytestring >= 0.1
+--         , reflection >= 2.1
+--         , resource-pool >= 0.2
+--         , resourcet >= 1.2
+--         , retry >= 0.7
+--         , scheduler >= 1.4
+--         , semialign >= 1
+--         , servant >= 0.16
+--         , servant-client >= 0.16
+--         , servant-client-core >= 0.16
+--         , string-conv >= 0.1
+--         , stm
+--         , streaming >= 0.2.2
+--         , streaming-commons >= 0.2
+--         , strict-concurrency >= 0.2
+--         , strict-tuple >= 0.1.3
+--         , tasty >= 1.0
+--         , tasty-golden >= 2.3
+--         , tasty-hunit >= 0.9
+--         , tasty-quickcheck >= 0.9
+--         , temporary >= 1.3
+--         , text >=1.2
+--         , these >= 1 && < 1.1
+--         , time >= 1.8
+--         , transformers >= 0.5
+--         , unordered-containers >= 0.2
+--         , vector >= 0.12
+--         , wai >= 3.2
+--         , warp >= 3.2
+--         , warp-tls >= 3.2.7
+--         , yaml >= 0.11
 
-    if flag(ed25519)
-        cpp-options: -dWITH_ED25519=1
+--     if flag(ed25519)
+--         cpp-options: -dWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
