@@ -40,8 +40,8 @@ network:
 ## Linux Users
 
 Download the binaries:
- - Chainweb-node Testnet binary: [chainweb-node-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v3/chainweb-node-testnet-v3-ubuntu-18.04)
- - Chainweb miner Testnet binary: [chainweb-miner-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/download/testnet-v3/chainweb-miner-testnet-v3-ubuntu-18.04)
+ - Chainweb-node Testnet binary: [chainweb-node-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/tag/testnet-v3)
+ - Chainweb miner Testnet binary: [chainweb-miner-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/tag/testnet-v3)
 
 You will need to install rocksdb with the following command:
 
@@ -149,13 +149,13 @@ Chainweb has many configuration options. Although there are command-line flags
 for all of them, in practice we use a config file:
 
 ```bash
-chainweb-node --print-config > config.yaml
+./chainweb-node --print-config > config.yaml
 ```
 
 Then, to run a node:
 
 ```bash
-chainweb-node --config-file=config.yaml
+./chainweb-node --config-file=config.yaml
 ```
 
 This will run a local Node on your machine, and you will see a flurry of
