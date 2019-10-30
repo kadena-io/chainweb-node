@@ -52,8 +52,11 @@ module TXG.Repl
 
 import Control.Lens hiding ((.=), from, to)
 
+-- import qualified Data.Aeson.Parser as AP (Parser)
+import Data.Aeson.Types (Parser)
 import Data.Aeson
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Random
 import Data.Decimal
 import Data.List.NonEmpty (NonEmpty(..))
@@ -73,6 +76,7 @@ import Test.RandomStrings
 import Text.Printf
 
 import Pact.ApiReq
+import Pact.GasModel.Utils
 import Pact.Parse
 import Pact.Types.API
 import qualified Pact.Types.ChainId as P
@@ -183,9 +187,27 @@ mkPubMeta cid = do
     & set pmCreationTime (TxCreationTime (ParsedInteger current))
     & set pmChainId (P.ChainId (chainIdToText cid))
 
-mkCmdStr :: PublicMeta -> ChainwebVersion -> String -> IO (Command Text)
-mkCmdStr meta ver str = do
-  cmd str Null meta [] (Just (verToPactNetId ver)) Nothing
+samplePublic :: Text
+samplePublic = "9e9197120d52ce4b85e52d5e12d14d581a7246ee8f64f6056b9b8a373606501e"
+
+sampleSecret :: Text
+sampleSecret = "cd2fa28ffe7a2f3252f62cf9b2e375160779542b902d4c4f35f3c04c099410eb"
+
+sampleKeyPairCaps :: IO [SomeKeyPairCaps]
+sampleKeyPairCaps = do
+  s' <- eitherDie $ parseB16TextOnly sampleSecret
+  p' <- eitherDie $ parseB16TextOnly samplePublic
+  let apiKP = ApiKeyPair
+        { _akpSecret = PrivBS s'
+        , _akpPublic = Just (PubBS p')
+        , _akpAddress = Nothing
+        , _akpScheme = Nothing
+        , _akpCaps = Nothing }
+  mkKeyPairs [apiKP]
+
+mkCmdStr :: PublicMeta -> ChainwebVersion -> [SomeKeyPairCaps] -> String -> IO (Command Text)
+mkCmdStr meta ver kps str = do
+  cmd str Null meta kps (Just (verToPactNetId ver)) Nothing
 
 verToChainId :: ChainwebVersion -> ChainId
 verToChainId ver = foldr const err $ chainIds ver
@@ -208,9 +230,37 @@ sendWithPoll :: Network -> Either ClientError RequestKeys -> IO ()
 sendWithPoll _nw (Left err) = putStrLn $ "Listen failure: " ++ show err
 sendWithPoll _nw (Right prs) = putStrLn $ show prs
 
-randomCmd :: PublicMeta -> ChainwebVersion -> IO (Command Text)
+randomCmd :: PublicMeta -> ChainwebVersion -> IO (Parser (Command Text))
 randomCmd meta ver = do
   -- 100 strings, w/ lengths 10 to 30, 34 alphabetical and 18 of those upper-case.
   rands <- randomStringsLen (randomString' randomASCII (3%4) (1%8)) (10, 30) 100
   let someWords = "(" ++ unwords rands ++ ")"
-  mkCmdStr meta ver someWords
+  kps <- return sampleKeyPairCaps
+
+
+  mkCmdStr meta ver kps someWords
+
+-- **************************************************
+-- Temp paste into Repl.hs if doing many code reloads:
+-- TODO: remove this before commit
+-- **************************************************
+_hostAddr :: HostAddress
+_hostAddr = host "us1.tn1.chainweb.com"
+
+_ver :: ChainwebVersion
+_ver = Development
+
+_cid :: ChainId
+_cid = verToChainId _ver
+
+_nw :: Network
+_nw = Network _ver _hostAddr _cid
+
+_metaIO :: IO PublicMeta
+_metaIO = mkPubMeta _cid
+
+_aCmdIO :: IO (Command Text)
+_aCmdIO = do
+  meta <- _metaIO
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps "(+ 1 1)"
