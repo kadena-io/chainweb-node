@@ -31,14 +31,11 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Except (throwError)
 
-import Data.Default
-
 import GHC.Generics (Generic)
 
 import Numeric.Natural (Natural)
 
-import Pact.Types.Names
-import Pact.Types.Term (KeySet(..))
+import Pact.Types.Term (mkKeySet)
 
 -- internal modules
 
@@ -66,9 +63,7 @@ defaultMinerConfig = MinerConfig
     , _configMinerInfo = invalidMiner
     }
   where
-    invalidMiner = Miner
-        ""
-        (MinerKeys (KeySet [] (Name $ BareName "keys-all" def)))
+    invalidMiner = Miner "" (MinerKeys $ mkKeySet [] "keys-all")
 
 -- configTestMiner is only used for testing and hidden from the output
 -- of --printConfig
@@ -98,4 +93,3 @@ validateMinerConfig :: ConfigValidation MinerConfig l
 validateMinerConfig c =
     when (view (configMinerInfo . minerId) c == "")
         $ throwError "Mining is enabled but no miner id is configured"
-

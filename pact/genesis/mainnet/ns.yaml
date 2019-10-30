@@ -15,6 +15,7 @@ data:
       - 56ff9e5c1b5ec3e98172a76aa3cdc03d3ec664f147267fd99eee4dd09763c853
       - 1d062c51850de34ac86e47a70bcbdb68441b530074f8abb51978f6ac1717d5ef
       - 7d08eec6c9e52dd39ec8cd29d71b2742aba033482d4a8da2aeeb5e14928f18d6
+    pred: keys-2
   ns-genesis-keyset:
     keys: []
     pred: "="

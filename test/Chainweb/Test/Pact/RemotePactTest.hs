@@ -71,7 +71,6 @@ import qualified Pact.Types.ChainMeta as Pact
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
-import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Term
 
@@ -257,9 +256,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 
     txdata =
       -- sender00 keyset
-      let ks = KeySet
-            [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-            (Name $ BareName "keys-all" def)
+      let ks = mkKeySet
+            ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
+            "keys-all"
       in A.object
         [ "sender01-keyset" A..= ks
         , "target-chain-id" A..= tid
@@ -505,9 +504,9 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     tx3 =
       let
         c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
-        d = KeySet
-          [ "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a" ]
-          (Name $ BareName "keys-all" def)
+        d = mkKeySet
+          ["0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"]
+          "keys-all"
       in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
     tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
     tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
