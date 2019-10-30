@@ -64,6 +64,8 @@ send
     -> IO (Either ClientError RequestKeys)
 send (Network v h cid) xs = do
     cenv <- genClientEnv h
+    putStrLn $ "Sending: version=" ++ show v ++ ", cid=" ++ show cid ++ ", SubmitBatch=" ++ show (SubmitBatch(NEL.fromList xs))
+
     runClientM (sendClient v cid (SubmitBatch (NEL.fromList xs))) cenv
 
 poll
@@ -162,8 +164,8 @@ defPubMeta = def
     & set pmChainId "0"
     & set pmSender "sender00"
     & set pmGasLimit 1000
-    & set pmGasPrice 0.00000000001
-    & set pmTTL 3600
+    & set pmGasPrice 0.0000001
+    & set pmTTL 28800
 
 api version chainid =
     case someChainwebVersionVal version of
