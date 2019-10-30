@@ -126,10 +126,14 @@ defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
 defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
     , _nodeConfigLog = defaultLogConfig
-        & logConfigLogger . L.loggerConfigThreshold .~ L.Info
+        & logConfigLogger . L.loggerConfigThreshold .~ level
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
     }
+  where
+    level = case v of
+        Mainnet01 -> L.Warn
+        _ -> L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
@@ -448,7 +452,7 @@ mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Testnet02)
+    (defaultChainwebNodeConfiguration Mainnet01)
     validateChainwebNodeConfiguration
 
 -- | KILLSWITCH: The logic surrounding `txSilenceEndDate` here is to be removed in
