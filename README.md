@@ -36,6 +36,8 @@ network:
  - eu2.testnet.chainweb.com
  - ap1.testnet.chainweb.com
  - ap2.testnet.chainweb.com
+ 
+ You can find the bootstrap nodes of the public Chainweb Mainnet: [here](https://github.com/kadena-io/chainweb-node/wiki)
 
 ## Linux Users
 
