@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      0.2
+version:      1.0
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -10,7 +10,7 @@ license:      BSD-3-Clause
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
-copyright:    Copyright (C) 2018 Kadena LLC
+copyright:    Copyright (C) 2019 Kadena LLC
 category:     Blockchain, Currency, Bitcoin
 build-type:   Custom
 
