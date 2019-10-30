@@ -35,8 +35,9 @@ import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 
 import Control.DeepSeq (NFData)
-import Control.Error.Util ((!?), (??))
+import Control.Error.Util (hoistEither, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
+import Control.Monad (unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
 
@@ -60,6 +61,7 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation (prop_block_pow)
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -183,6 +185,7 @@ publish' lf (MiningState ms) cdb bh = do
     let !phash = _blockPayloadHash bh
     res <- runExceptT $ do
         T3 m p pl <- M.lookup phash ms ?? "BlockHeader given with no associated Payload"
+        unless (prop_block_pow bh) . hoistEither $ Left "Invalid POW hash given!"
         let !miner = m ^. minerId . _Unwrapped
         c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
         lift $ do
