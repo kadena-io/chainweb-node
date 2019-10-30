@@ -9,8 +9,8 @@ let
     chainwebStatic = doStrip (justStaticExecutables
                      (if skipTests then dontCheck chainwebDrv else chainwebDrv));
 in
-  let testnetConfig = pkgs.copyPathToStore config/testnet.yaml; 
-      mainnetConfig = pkgs.copyPathToStore config/mainnet.yaml;
+  let testnetConfig = pkgs.copyPathToStore config/defaultTestnetNode.yaml;
+      mainnetConfig = pkgs.copyPathToStore config/defaultMainnetNode.yaml;
       baseImage = pkgs.dockerTools.buildImage {
         name = "chainweb-base";
         tag = "latest";
@@ -28,6 +28,8 @@ in
           WorkingDir = "/home";
         };
         extraCommands = ''
+          #!/bin/sh
+
           mkdir ./config
           cp ${testnetConfig} ./config/testnet.yaml
           cp ${mainnetConfig} ./config/mainnet.yaml
