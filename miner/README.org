@@ -141,7 +141,7 @@ results.
   ./chainweb-miner cpu --cores=4 --node=<trusted-node>:443 --miner-account=<you> --miner-key=<your-public-key>
 #+end_src
 
-The list of trusted nodes can be found [[https://github.com/kadena-io/chainweb-node#chainweb-bootstrap-nodes][here]]
+The list of trusted nodes can be found [[https://github.com/kadena-io/chainweb-node/wiki][here]]
 
 Things to note:
 
