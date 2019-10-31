@@ -174,7 +174,7 @@ chainChoice tchains choice = case choice of
 nextChainId :: TVar [ChainId] -> IO ChainId
 nextChainId tchains = atomically $ do
     cids <- readTVar tchains
-    writeTVar tchains $ tail cids
+    writeTVar tchains $! tail cids
     pure $ head cids
 
 -- | KILLSWITCH: This extra logic involving `txSilenceEndDate` is to be removed in

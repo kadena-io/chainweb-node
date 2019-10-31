@@ -341,6 +341,7 @@ library
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
+        , random-shuffle >= 0.0.4
         , reflection >= 2.1
         , resourcet >= 1.2
         , safeio >= 0.0

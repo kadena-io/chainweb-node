@@ -40,6 +40,7 @@ import Control.Lens (over)
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
+import System.Random.Shuffle (shuffleM)
 
 -- internal modules
 
@@ -84,7 +85,7 @@ withMiningCoordination logger enabled cutDb inner
     | otherwise = do
         ms <- newTVarIO mempty
         ec <- newIORef 0
-        cs <- newTVarIO . cycle . HS.toList $ chainIds cutDb
+        cs <- shuffleM (HS.toList $ chainIds cutDb) >>= newTVarIO . cycle
         fmap snd . concurrently (prune ms ec) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
