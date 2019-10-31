@@ -383,14 +383,7 @@ applyExec
     -> TransactionM p (CommandResult [TxLog Value])
 applyExec interp rk em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
-
-    -- set log state + concat logs
-    transactionLogs <>= _erLogs
     logs <- use transactionLogs
-
-    -- set cache state
-    transactionCache .= _erLoadedModules
-
     -- applyExec enforces non-empty expression set so `last` ok
     return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing
@@ -408,6 +401,7 @@ applyExec'
 applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
+
       cenv <- ask
       genv <- use transactionGasEnv
 
@@ -417,6 +411,10 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       liftIO $! for_ (_erExec er) $ \pe -> logLog (_ceLogger cenv) "DEBUG"
         $ "applyExec: new pact added: "
         <> show (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
+
+      -- set log + cache updates
+      transactionLogs <>= (_erLogs er)
+      transactionCache .= (_erLoadedModules er)
 
       return er
   where
@@ -440,14 +438,7 @@ applyContinuation
     -> TransactionM p (CommandResult [TxLog Value])
 applyContinuation interp rk cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
-
-    -- set log state + concat logs
-    transactionLogs <>= _erLogs
     logs <- use transactionLogs
-
-    -- set cache state
-    transactionCache .= _erLoadedModules
-
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing)
@@ -467,7 +458,13 @@ applyContinuation' interp cm senderSigs hsh nsp = do
     genv <- use transactionGasEnv
 
     let eenv = evalEnv cenv genv
-    liftIO $! evalContinuation senderSigs interp eenv cm
+    er <- liftIO $! evalContinuation senderSigs interp eenv cm
+
+    -- set log + cache updates
+    transactionLogs <>= (_erLogs er)
+    transactionCache .= (_erLoadedModules er)
+
+    return er
   where
     step = _cmStep cm
     rollback = _cmRollback cm
@@ -508,13 +505,10 @@ buyGas cmd (Miner mid mks) supply = go
       result <- applyExec' (interp mcache) buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
-      transactionCache .= (_erLoadedModules result)
-
       case _erExec result of
         Nothing -> return $!
           Left "buyGas: Internal error - empty continuation"
         Just pe -> do
-          transactionLogs <>= _erLogs result
           return $! Right $ GasId (_pePactId pe)
 
     findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
