@@ -74,7 +74,7 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Anything m pact c
+        T3 p bh pl <- newWork lf Anything m pact c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
             ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
@@ -104,7 +104,7 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Anything m pact c
+        T3 p bh pl <- newWork lf Anything m pact c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
             ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
