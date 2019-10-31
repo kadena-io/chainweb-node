@@ -48,6 +48,7 @@ import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService (execTransactions)
+import Chainweb.Pact.TransactionExec (EnforceCoinbaseFailure(..))
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
