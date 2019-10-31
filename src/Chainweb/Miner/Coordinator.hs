@@ -48,7 +48,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
 import qualified Data.Text as T
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -82,8 +82,8 @@ import Data.LogMessage (JsonLog(..), LogFunction)
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
 --
-newtype MiningState =
-    MiningState (M.Map BlockPayloadHash (T3 Miner PrevTime PayloadWithOutputs))
+newtype MiningState = MiningState
+    (M.Map (T2 BlockCreationTime BlockPayloadHash) (T3 Miner PrevTime PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -186,11 +186,12 @@ publish' :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish' lf (MiningState ms) cdb bh = do
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
+        !bct = _blockCreationTime bh
     res <- runExceptT $ do
         -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
         -- Payload we know about, reject it.
         --
-        T3 m p pl <- M.lookup phash ms ?? "BlockHeader given with no associated Payload"
+        T3 m p pl <- M.lookup (T2 bct phash) ms ?? "BlockHeader given with no associated Payload"
 
         let !miner = m ^. minerId . _Unwrapped
             !nonce = _blockNonce bh
