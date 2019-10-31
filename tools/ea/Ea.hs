@@ -101,9 +101,12 @@ mkPayloads = traverse_ mkPayload
 --
 mkPayload :: Genesis -> IO ()
 mkPayload (Genesis v tag cid c k a ns) = do
-    printf ("Generating Genesis Payload for %s on Chain " <> show cid <> "...\n") $ show v
+    printf ("Generating Genesis Payload for %s on " <> show_ cid <> "...\n") $ show v
     genPayloadModule v (tag <> sshow cid) txs
   where
+    show_ = \case
+      N -> "all chains"
+      n -> "Chain " <> show n
     -- coin contract genesis txs
     cc = [fungibleAsset, coinContract, gasPayer]
     -- final tx list.

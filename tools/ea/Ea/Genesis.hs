@@ -4,6 +4,7 @@
 module Ea.Genesis
 ( -- * Genesis tx data
   Genesis(..)
+, GChainId(..)
 
   -- * Devnet Genesis Txs
 , development0
@@ -147,19 +148,19 @@ developmentN = development0
     & coinbase .~ (Just devNGrants)
 
 devNs :: FilePath
-devNs = "pact/genesis/devnet/development/ns.yaml"
+devNs = "pact/genesis/ns.yaml"
 
 devKeysets :: FilePath
-devKeysets = "pact/genesis/devnet/development/keysets.yaml"
+devKeysets = "pact/genesis/devnet/keysets.yaml"
 
 dev0Grants :: FilePath
-dev0Grants = "pact/genesis/devnet/development/grants0.yaml"
+dev0Grants = "pact/genesis/devnet/grants0.yaml"
 
 devNGrants :: FilePath
-devNGrants = "pact/genesis/devnet/development/grantsN.yaml"
+devNGrants = "pact/genesis/devnet/grantsN.yaml"
 
 devAllocations :: FilePath
-devAllocations = "pact/genesis/devnet/development/allocations.yaml"
+devAllocations = "pact/genesis/devnet/allocations.yaml"
 
 
 -- ---------------------------------------------------------------------- --
@@ -182,19 +183,19 @@ fastTimedCPMN = fastTimedCPM0
     & coinbase .~ (Just fastNGrants)
 
 fastNs :: FilePath
-fastNs = "pact/genesis/devnet/fasttimedCPM/ns.yaml"
+fastNs = "pact/genesis/ns.yaml"
 
 fastKeysets :: FilePath
-fastKeysets = "pact/genesis/devnet/fasttimedCPM/keysets.yaml"
+fastKeysets = "pact/genesis/devnet/keysets.yaml"
 
 fast0Grants :: FilePath
-fast0Grants = "pact/genesis/devnet/fasttimedCPM/grants0.yaml"
+fast0Grants = "pact/genesis/devnet/grants0.yaml"
 
 fastNGrants :: FilePath
-fastNGrants = "pact/genesis/devnet/fasttimedCPM/grantsN.yaml"
+fastNGrants = "pact/genesis/devnet/grantsN.yaml"
 
 fastAllocations :: FilePath
-fastAllocations = "pact/genesis/devnet/fasttimedCPM/allocations.yaml"
+fastAllocations = "pact/genesis/devnet/allocations.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Testnet
@@ -222,7 +223,7 @@ testNGrants :: FilePath
 testNGrants = "pact/genesis/testnet/grantsN.yaml"
 
 testNs :: FilePath
-testNs = "pact/genesis/testnet/ns.yaml"
+testNs = "pact/genesis/ns.yaml"
 
 testnetAllocations :: FilePath
 testnetAllocations = "pact/genesis/testnet/allocations.yaml"
