@@ -213,7 +213,6 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
 
           return $! T2 fr mcache
 
-
 applyGenesisCmd
     :: Logger
       -- ^ Pact logger
@@ -248,7 +247,6 @@ applyGenesisCmd logger dbEnv pd spv cmd =
           liftIO $ logDebugRequestKey logger rk "successful genesis tx for request key"
           return $ T2 (r { _crGas = 0 }) mempty
 
-
 applyCoinbase
     :: Logger
       -- ^ Pact logger
@@ -265,7 +263,6 @@ applyCoinbase
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph =
     evalTransactionM cenv def go
-    -- cmd env with permissive gas model
   where
     cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport Nothing
     interp = initStateInterpreter $ initCapabilities [magic_COINBASE]
@@ -292,8 +289,6 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph =
            (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
            (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing)
            (_erLoadedModules er)
-
-
 
 applyLocal
     :: Logger
@@ -328,8 +323,6 @@ applyLocal logger dbEnv pd spv cmd =
       case cr of
         Left e -> jsonErrorResult' rk e 0 "applyLocal"
         Right r -> return $! r { _crMetaData = Just (toJSON pd') }
-
-
 
 -- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
@@ -729,7 +722,8 @@ logErrorRequestKey
     => Logger
     -> RequestKey
     -> e
-    -> String -> IO ()
+    -> String
+    -> IO ()
 logErrorRequestKey l k e reason = logLog l "ERROR" $ reason
     <> ": " <> show k
     <> ": " <> show e
