@@ -30,12 +30,15 @@ import Numeric.Natural
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.Time
 
 data NewMinedBlock = NewMinedBlock
     { _minedBlockHeader :: !(ObjectEncoded BlockHeader)
     , _minedBlockTrans :: {-# UNPACK #-} !Word
     , _minedBlockSize :: {-# UNPACK #-} !Word   -- ^ Bytes
     , _minedHashAttempts :: !Natural
-    , _minedBlockMiner :: Text }
+    , _minedBlockMiner :: !Text
+    , _minedBlockDiscoveredAt :: !(Time Micros)
+    }
     deriving (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
