@@ -26,6 +26,7 @@ module Chainweb.Chainweb.MinerResources
   ) where
 
 import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict (T3(..))
@@ -53,7 +54,7 @@ import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
 import Chainweb.Utils (EnableConfig(..), int, runForever)
-import Chainweb.Version (ChainwebVersion(..), window)
+import Chainweb.Version (ChainId, ChainwebVersion(..), chainIds, window)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
@@ -68,7 +69,8 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
-    , _coord503s :: IORef Int }
+    , _coord503s :: IORef Int
+    , _coordChains :: TVar [ChainId] }
 
 withMiningCoordination
     :: Logger logger
@@ -80,14 +82,16 @@ withMiningCoordination
 withMiningCoordination logger enabled cutDb inner
     | not enabled = inner Nothing
     | otherwise = do
-        t <- newTVarIO mempty
-        c <- newIORef 0
-        fmap snd . concurrently (prune t c) $ inner . Just $ MiningCoordination
+        ms <- newTVarIO mempty
+        ec <- newIORef 0
+        cs <- newTVarIO . cycle . HS.toList $ chainIds cutDb
+        fmap snd . concurrently (prune ms ec) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
-            , _coordState = t
+            , _coordState = ms
             , _coordLimit = 2500
-            , _coord503s = c }
+            , _coord503s = ec
+            , _coordChains = cs }
   where
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
