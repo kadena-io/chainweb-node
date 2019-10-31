@@ -28,15 +28,6 @@ run their Chainweb node.
 
 ## Chainweb Bootstrap Nodes
 You can find the bootstrap nodes of the public Chainweb Mainnet: [here](https://github.com/kadena-io/chainweb-node/wiki)
-
-Below are the addresses of the Bootstrap nodes of the public Chainweb Testnet
-network:
- - us1.testnet.chainweb.com
- - us2.testnet.chainweb.com
- - eu1.testnet.chainweb.com
- - eu2.testnet.chainweb.com
- - ap1.testnet.chainweb.com
- - ap2.testnet.chainweb.com
  
 ## Linux Users
 
