@@ -76,6 +76,8 @@ import Chainweb.Version
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
+import Utils.Logging.Trace (trace)
+
 -- -------------------------------------------------------------------------- --
 -- Miner
 
@@ -106,12 +108,13 @@ data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
-    :: ChainChoice
+    :: LogFunction
+    -> ChainChoice
     -> Miner
     -> PactExecutionService
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork choice miner pact c = do
+newWork logFun choice miner pact c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -136,13 +139,14 @@ newWork choice miner pact c = do
     -- TODO Consider instead some maximum amount of retries?
     --
     case getAdjacentParents c p of
-        Nothing -> newWork (TriedLast cid) miner pact c
+        Nothing -> newWork logFun (TriedLast cid) miner pact c
         Just adjParents -> do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.
             --
             creationTime <- getCurrentTimeIntegral
-            payload <- _pactNewBlock pact miner p (BlockCreationTime creationTime)
+            payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
+                (_pactNewBlock pact miner p (BlockCreationTime creationTime))
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
