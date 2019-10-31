@@ -441,7 +441,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     case q of
       Right [cr] -> case resultOf cr of
         Left e -> assertBool "expect negative allocation test failure"
-          $ T.isInfixOf "Failure: Tx Failed: funds locked until \"2019-10-31T18:00:00Z\""
+          $ T.isInfixOf "Failure: Tx Failed: funds locked until \"2020-10-31T18:00:00Z\""
           $ sshow e
         _ -> assertFailure "unexpected pact result success in negative allocation test"
       _ -> assertFailure "unexpected failure in negative allocation test"

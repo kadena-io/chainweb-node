@@ -3,10 +3,7 @@ name: Build and publish application binaries
 on:
   push:
     branches: 
-    - "master"
-    - "github-ci"
-    paths:
-    - ".github/workflows/**"
+    - master
     
 jobs:
   build:

@@ -5,6 +5,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -91,7 +92,8 @@ import System.Exit (exitFailure)
 
 -- internal modules
 
-import Chainweb.BlockHeader (Nonce(..), decodeBlockHeight, _height)
+import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation (prop_block_pow)
 import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
@@ -401,7 +403,7 @@ cpu cpue tbytes hbytes = do
              n -> ParN n
 
 gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
-gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
+gpu ge@(GPUEnv mpath margs) t@(TargetBytes target) h@(HeaderBytes blockbytes) = do
     minerPath <- liftIO . Path.makeAbsolute . Path.fromFilePath $ T.unpack mpath
     e <- ask
     res <- liftIO $ callExternalMiner minerPath (map T.unpack margs) False target blockbytes
@@ -412,6 +414,15 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
       Right (MiningResult nonceBytes numNonces hps _) -> do
           let newBytes = nonceBytes <> B.drop 8 blockbytes
               secs = numNonces `div` max 1 hps
-          modifyIORef' (envHashes e) (+ numNonces)
-          modifyIORef' (envSecs e) (+ secs)
-          return $! HeaderBytes newBytes
+
+          -- FIXME Consider removing this check if during later benchmarking it
+          -- proves to be an issue.
+          bh <- runGet decodeBlockHeaderWithoutHash newBytes
+
+          if | not (prop_block_pow bh) -> do
+                 logError "Bad nonce returned from GPU!"
+                 gpu ge t h
+             | otherwise -> do
+                 modifyIORef' (envHashes e) (+ numNonces)
+                 modifyIORef' (envSecs e) (+ secs)
+                 pure $! HeaderBytes newBytes
