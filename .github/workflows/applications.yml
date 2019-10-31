@@ -1,0 +1,158 @@
+name: Build and publish application binaries
+
+on:
+  push:
+    branches: 
+    - master
+    
+jobs:
+  build:
+    name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ['8.6.5', '8.8.1']
+        cabal: ['3.0']
+        os: ['ubuntu-18.04', 'macOS-10.14']
+        cabalcache: ['true']
+        distcache: ['true']
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+      
+      # Cabal Cache
+      CABAL_CACHE: ./tmp/bin/cabal-cache
+      CABAL_CACHE_BUCKET: kadena-cabal-cache
+      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
+      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
+
+      # Dist Cache
+      DIST_CACHE_BUCKET: kadena-cabal-cache
+      SYNC_TO_DIST_CACHE: aws s3 sync dist-newstyle "s3://kadena-cabal-cache/dist/${{ matrix.os }}/${{ matrix.ghc }}/dist-newstyle"
+      SYNC_FROM_DIST_CACHE: aws s3 sync "s3://kadena-cabal-cache/dist/${{ matrix.os }}/${{ matrix.ghc }}/dist-newstyle" dist-newstyle && rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/setup
+
+      # Aritfacts
+      ARTIFACT_BUCKET: kadena-cabal-cache
+
+    steps:
+    # Setup
+    - name: Checkout repository
+      uses: actions/checkout@v1
+    - name: Install cabal-cache
+      if: matrix.cabalcache == 'true'
+      run: |
+        [[ "${{ matrix.os }}" =~ ubuntu ]] && OS="linux" || OS="osx"
+        mkdir -p "./tmp/bin"
+        curl -Ls "https://github.com/haskell-works/cabal-cache/releases/download/v1.0.1.1/cabal-cache_x86_64_${OS}.tar.gz" | tar -xzC "./tmp/bin/"
+    - name: Install Haskell (macOS)
+      if: contains(matrix.os, 'macOS')
+      run: |
+        curl -sL https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --paths.d --ghc-alias=${{ matrix.ghc }} --cabal-alias=3.0.0.0 install ghc-${{ matrix.ghc }} cabal-install-3.0.0.0
+        ln -s /opt/cabal/3.0.0.0 /opt/cabal/3.0
+    - name: Set GHC and Cabal version 
+      uses: actions/setup-haskell@v1
+      with:
+         ghc-version: ${{ matrix.ghc }}
+         cabal-version: ${{ matrix.cabal }}
+    - name: Install non-Haskell dependencies (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
+      run: sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3
+    - name: Install non-Haskell dependencies (macOS)
+      if: contains(matrix.os, 'mac')
+      run: |
+        brew update
+        brew install z3 
+        brew install sqlite 
+        brew install rocksdb
+        brew install awscli
+    - name: Append cabal.project
+      run: |
+        cat >> cabal.project <<EOF
+        documentation: false
+        package chainweb
+          documentation: false
+          ghc-options: -j
+        package pact
+          documentation: false
+          ghc-options: -j
+        EOF
+    - name: Append cabal.project (only ghc-8.8.1)
+      if: matrix.ghc == '8.8.1'
+      run: |
+        cat >> cabal.project <<EOF
+        package chainweb
+          ghc-options: -Wwarn
+          ghc-options: -fwrite-ide-info
+          ghc-options: -hiedir ./dist-newstyle/hie
+          haddock-options: --optghc=-Wwarn
+        package pact
+          ghc-options: -Wwarn
+          haddock-options: --optghc=-Wwarn
+        source-repository-package
+          type: git
+          location: http://github.com/larskuhtz/ixset-typed.git
+          tag: 335c8e31d39be873a429fc9814060bf928ad0ee9
+        source-repository-package
+          type: git
+          location: http://github.com/osa1/data-dword.git
+          tag: 573d7b5fdd3635ade9bc1cf8fd88a1bf8059f78f
+        allow-newer:
+          compactable:base
+          fake:*
+          ixset-typed:safecopy
+          ixset-typed:template-haskell
+          pact:*
+          paths:*
+          safecopy:template-haskell
+          strict-tuple:base
+          token-bucket:base
+        EOF
+    - name: Sync from dist cache
+      if: matrix.distcache == 'true'
+      run: |
+        eval $SYNC_FROM_DIST_CACHE
+        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*
+      continue-on-error: true
+
+    # Build
+    - name: Update package database
+      run: cabal v2-update
+    - name: Configure build
+      if: matrix.distcache == 'false'
+      run: cabal v2-configure
+    - name: Sync from cabal cache
+      if: matrix.cabalcache == 'true'
+      run: eval $SYNC_FROM_CACHE
+    - name: Install build dependencies
+      run: cabal v2-build --only-dependencies
+    - name: Build
+      run: cabal v2-build chainweb-node chainweb-miner
+    - name: Sync dist cache
+      if: always() && (matrix.distcache == 'true')
+      run: eval $SYNC_TO_DIST_CACHE
+    - name: Sync cabal cache
+      if: always() && (matrix.cabalcache == 'true')
+      run: eval $SYNC_TO_CACHE
+
+    # Publish Artifacts
+    - name: Prepare artifacts
+      run: |
+        mkdir -p dist-newstyle/artifacts/applications
+        mkdir -p dist-newstyle/artifacts/docs
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/build/*/{chainweb-miner,chainweb-node} dist-newstyle/artifacts/applications
+    - name: Publish applications
+      uses: actions/upload-artifact@v1
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: dist-newstyle/artifacts/applications
+
+    - name: Publish applications to S3
+      run: |
+        export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
+        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
+        tar -C ./dist-newstyle/artifacts/applications/ -czf $BINFILE chainweb-node chainweb-miner
+        aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/
+        aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$BINFILE --acl public-read
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$LATEST_BINFILE --acl public-read
