@@ -26,6 +26,8 @@ module Chainweb.BlockHeader.Validation
 -- * Validation functions
 , validateBlockHeader
 , validateBlockHeaderM
+, validateIntrinsicM
+, validateInductiveM
 , isValidBlockHeader
 , validateIntrinsic
 , validateInductive
@@ -205,6 +207,8 @@ isEphemeral failures
 -- | Validate properties of the block header, throwing an exception detailing
 -- the failures if any.
 --
+-- This doesn't include checks for
+--
 -- * MissingPayload
 -- * MissingParent
 -- * IncorrectPayloadHash
@@ -223,7 +227,39 @@ validateBlockHeaderM t p e = unless (null $ failures)
   where
     failures = validateBlockHeader t p e
 
+-- | Validate intrinsic properties of the block header, throwing an exception detailing
+-- the failures if any.
+--
+validateIntrinsicM
+    :: MonadThrow m
+    => Time Micros
+        -- ^ The current clock time
+    -> BlockHeader
+        -- ^ The block header to be checked
+    -> m ()
+validateIntrinsicM t e = unless (null $ failures)
+    $ throwM (ValidationFailure Nothing e failures)
+  where
+    failures = validateIntrinsic t e
+
+-- | Validate inductive properties of the block header, throwing an exception detailing
+-- the failures if any.
+--
+validateInductiveM
+    :: MonadThrow m
+    => BlockHeader
+        -- ^ parent block header. The genesis header is considered its own parent.
+    -> BlockHeader
+        -- ^ The block header to be checked
+    -> m ()
+validateInductiveM p e = unless (null $ failures)
+    $ throwM (ValidationFailure Nothing e failures)
+  where
+    failures = validateInductive p e
+
 -- | Check whether a BlockHeader satisfies all validaiton properties.
+--
+-- This doesn't include checks for
 --
 -- * MissingPayload
 -- * MissingParent
