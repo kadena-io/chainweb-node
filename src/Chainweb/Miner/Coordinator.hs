@@ -34,6 +34,7 @@ module Chainweb.Miner.Coordinator
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 
+import Control.Concurrent.STM.TVar (TVar)
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistEither, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
@@ -109,12 +110,13 @@ data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 --
 newWork
     :: LogFunction
+    -> TVar [ChainId]
     -> ChainChoice
     -> Miner
     -> PactExecutionService
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork logFun choice miner pact c = do
+newWork logFun tchains choice miner pact c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -139,7 +141,7 @@ newWork logFun choice miner pact c = do
     -- TODO Consider instead some maximum amount of retries?
     --
     case getAdjacentParents c p of
-        Nothing -> newWork logFun (TriedLast cid) miner pact c
+        Nothing -> newWork logFun tchains (TriedLast cid) miner pact c
         Just adjParents -> do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.

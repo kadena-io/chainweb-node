@@ -163,8 +163,11 @@ runMiner v mr = case window v of
 
     testMiner :: IO ()
     testMiner = do
+        cs <- newTVarIO . cycle . HS.toList $ chainIds cdb
         gen <- MWC.createSystemRandom
-        localTest lf v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
+        localTest lf cs v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = localPOW lf v (_configMinerInfo conf) cdb
+    powMiner = do
+        cs <- newTVarIO . cycle . HS.toList $ chainIds cdb
+        localPOW lf cs v (_configMinerInfo conf) cdb

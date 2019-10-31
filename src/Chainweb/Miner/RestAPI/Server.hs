@@ -95,12 +95,15 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork (logFunction $ _coordLogger mr) (maybe Anything Suggestion mcid) m pact c
+    T3 p bh pl <- newWork (logFunction $ _coordLogger mr) chains choice m pact c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
+    chains = _coordChains mr
+    choice = maybe Anything Suggestion mcid
+
     cdb :: CutDb cas
     cdb = _coordCutDb mr
 
