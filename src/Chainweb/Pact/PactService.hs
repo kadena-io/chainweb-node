@@ -723,7 +723,7 @@ execNewBlock mpAccess parentHeader miner creationTime =
         -- locally run 'execTransactions' with updated blockheight data
         -- Reject bad coinbase transactions in new block.
         results <- withBlockData parentHeader $
-            execTransactions (Just pHash) miner newTrans pdbenv (EnforceCoinbaseFailure True)
+            execTransactions (Just pHash) miner newTrans (EnforceCoinbaseFailure True) pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -772,7 +772,7 @@ execNewGenesisBlock
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
         -- Reject bad coinbase txs in genesis.
-        results <- execTransactions Nothing miner newTrans pdbenv (EnforceCoinbaseFailure True)
+        results <- execTransactions Nothing miner newTrans (EnforceCoinbaseFailure True) pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal
@@ -876,12 +876,12 @@ playOneBlock currHeader plData pdbenv = do
     go m txs =
       if isGenesisBlock
       -- reject bad coinbase in genesis
-      then execTransactions Nothing m txs pdbenv (EnforceCoinbaseFailure True)
+      then execTransactions Nothing m txs (EnforceCoinbaseFailure True) pdbenv
       else do
         bhDb <- asks _psBlockHeaderDb
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         -- allow bad coinbase in validate
-        withBlockData ph $! execTransactions (Just bParent) m txs pdbenv (EnforceCoinbaseFailure False)
+        withBlockData ph $! execTransactions (Just bParent) m txs (EnforceCoinbaseFailure False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -961,10 +961,10 @@ execTransactions
     :: Maybe BlockHash
     -> Miner
     -> Vector ChainwebTransaction
-    -> PactDbEnv'
     -> EnforceCoinbaseFailure
+    -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) enfCBFail = do
+execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
     T2 coinOut mc <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
