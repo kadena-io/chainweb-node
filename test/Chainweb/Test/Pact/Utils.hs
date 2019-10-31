@@ -572,7 +572,7 @@ mkKeyset p ks = object
   ]
 
 stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+stockKeyFile = $(embedFile "pact/genesis/devnet/fasttimedCPM/keys.yaml")
 
 -- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair

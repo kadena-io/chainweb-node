@@ -168,5 +168,5 @@ data:
   "CS2_C0": { keys: ["9a2a12ba791909a2b5e92ab3366f60f4689e5331ef285b704efa3fd83bc959f4","7bcf78f09e64e37fe4705d5abb3735496f31f04d347c138f5dd3f4ee2683a952","f54e9f2d81be422a02adb0a172f89752fc3e5f9dae435208776bd5d83a2f6f24"], pred: "keys-2" }
   "ST_C1": { keys: ["ccf6fa1fd32e58b0405f169ffb455a1a0434cfaff5b8549862821ff6b551d5b3","af818a5e8672ab93b085987b942e87aa52ff6c81bffafaf3437c01c8a41a6fa8","8746831c5580950e74aef86659c6f8f1acb7215067ed91d11fe691945f9c8b1e"], pred: "keys-2" }
 
-nonce: testnet-keysets
+nonce: testnet-keysets-0
 keyPairs: []
