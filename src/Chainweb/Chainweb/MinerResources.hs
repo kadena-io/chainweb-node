@@ -69,9 +69,19 @@ data MiningCoordination logger cas = MiningCoordination
     { _coordLogger :: !logger
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
+      -- ^ Tracks Payloads associated with candidate `BlockHeader`s that have
+      -- been sent to remote clients for mining.
     , _coordLimit :: !Int
+      -- ^ An upper limit on how many work requests can be made to this node in
+      -- a 5 minute period.
     , _coord503s :: IORef Int
-    , _coordChains :: TVar [ChainId] }
+      -- ^ The number of 503 errors which have been sent due to surpassing the
+      -- `_coordLimit`.
+    , _coordChains :: TVar [ChainId]
+      -- ^ An infinite cycling of the `ChainId`s available to the current
+      -- `ChainwebVersion`. Shuffled so as to differ from other nodes. Used to
+      -- mining work evenly across chains.
+    }
 
 withMiningCoordination
     :: Logger logger
