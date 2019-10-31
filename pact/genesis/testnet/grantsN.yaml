@@ -48,5 +48,5 @@ data:
   tony: ["727360c32e08812ff5f04cb1e75cd9c0ba6b72684088616010af411d0f14c54a"]
   viv: ["23d4b4e8cb303feebcafa930731d4b8913695bd0d92c3b5359506519cebf156a"]
   will: ["830ad773510ab0f5a0d4564b7b31d2b0b1ba7fd5a116f66598a1c63cc2142fd5"]
-nonce: prodnet-grants-N
+nonce: testnet-grants-N
 keyPairs: []
