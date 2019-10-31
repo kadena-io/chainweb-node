@@ -32,6 +32,7 @@ module Chainweb.Pact.Types
     -- * Transaction Execution Monad
   , TransactionM(..)
   , runTransactionM
+  , runTransactionM_
   , execTransactionM
   , evalTransactionM
 
@@ -56,11 +57,14 @@ import Control.Monad.State.Strict
 
 
 import Data.Aeson
+import Data.Default
 import Data.HashMap.Strict
+import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 -- internal pact modules
 
+import Pact.Gas
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
 import Pact.Types.Exp
@@ -121,6 +125,8 @@ instance Show GasSupply where show (GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 
+-- | Transaction execution state
+--
 data TransactionState = TransactionState
     { _transactionGasEnv :: GasEnv
     , _transactionCache :: ModuleCache
@@ -128,6 +134,9 @@ data TransactionState = TransactionState
     }
 
 makeLenses ''TransactionState
+
+instance Default TransactionState where
+    def = TransactionState freeGasEnv mempty mempty
 
 -- | The transaction monad used in transaction execute. The reader
 -- environment is the a Pact command env, writer is a list of json-ified
@@ -148,8 +157,7 @@ newtype TransactionM db a = TransactionM
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, returning the full range of
--- results including final computed value, state, and
--- writer values.
+-- results
 --
 runTransactionM
     :: forall db a
@@ -162,6 +170,23 @@ runTransactionM
     -> IO (a, TransactionState)
 runTransactionM cenv txst act
     = runStateT (runReaderT (_runTransactionM act) cenv) txst
+
+-- | Run a 'TransactionM' computation given some initial
+-- reader and state values, returning the full range of
+-- results in a strict tuple
+--
+runTransactionM_
+    :: forall db a
+    . CommandEnv db
+      -- ^ initial reader env
+    -> TransactionState
+      -- ^ initial state
+    -> TransactionM db a
+      -- ^ computation to execute
+    -> IO (T2 a TransactionState)
+runTransactionM_ cenv txst act
+    = view (from _T2)
+    <$> runStateT (runReaderT (_runTransactionM act) cenv) txst
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, discarding the final state.

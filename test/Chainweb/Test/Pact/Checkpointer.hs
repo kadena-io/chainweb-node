@@ -50,6 +50,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
+import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 
@@ -189,14 +190,21 @@ checkpointerTest name initdata =
               runExec (PactDbEnv' pactdbenv) eData eCode = do
                   let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
                   execMsg <- buildExecParsedCode eData eCode
-                  applyExec' cmdenv defaultInterpreter execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+
+                  let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+
+                  evalTransactionM cmdenv def $
+                    applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
 
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
                       cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
-                  applyContinuation' cmdenv defaultInterpreter contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+                  let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+                  evalTransactionM cmdenv def $
+                    applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
+
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------
