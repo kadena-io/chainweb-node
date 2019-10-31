@@ -72,10 +72,6 @@ import Pact.Types.SPV (noSPVSupport)
 main :: IO ()
 main = do
 
-    -- Convert csv mainnet data to pact request yamls
-
-    generateAllocations
-
     -- test payloads on chain 0 and N
 
     go0 chain0
