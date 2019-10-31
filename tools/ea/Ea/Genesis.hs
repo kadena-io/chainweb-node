@@ -136,7 +136,7 @@ development0 = Genesis
     , _tag = "Development"
     , _txChainId = Zero
     , _coinbase = Just dev0Grants
-    , _keysets = Nothing
+    , _keysets = Just devKeysets
     , _allocations = Just devAllocations
     , _namespaces = Just devNs
     }
@@ -148,6 +148,9 @@ developmentN = development0
 
 devNs :: FilePath
 devNs = "pact/genesis/devnet/development/ns.yaml"
+
+devKeysets :: FilePath
+devKeysets = "pact/genesis/devnet/development/keysets.yaml"
 
 dev0Grants :: FilePath
 dev0Grants = "pact/genesis/devnet/development/grants0.yaml"
@@ -168,7 +171,7 @@ fastTimedCPM0 = Genesis
     , _tag = "FastTimedCPM"
     , _txChainId = Zero
     , _coinbase = Just fast0Grants
-    , _keysets = Nothing
+    , _keysets = Just fastKeysets
     , _allocations = Just fastAllocations
     , _namespaces = Just fastNs
     }
@@ -181,6 +184,9 @@ fastTimedCPMN = fastTimedCPM0
 fastNs :: FilePath
 fastNs = "pact/genesis/devnet/fasttimedCPM/ns.yaml"
 
+fastKeysets :: FilePath
+fastKeysets = "pact/genesis/devnet/fasttimedCPM/keysets.yaml"
+
 fast0Grants :: FilePath
 fast0Grants = "pact/genesis/devnet/fasttimedCPM/grants0.yaml"
 
@@ -188,7 +194,7 @@ fastNGrants :: FilePath
 fastNGrants = "pact/genesis/devnet/fasttimedCPM/grantsN.yaml"
 
 fastAllocations :: FilePath
-fastAllocations = "pact/genesis/devnet/fasttimedCPM/test_allocations.yaml"
+fastAllocations = "pact/genesis/devnet/fasttimedCPM/allocations.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Testnet
@@ -219,10 +225,10 @@ testNs :: FilePath
 testNs = "pact/genesis/testnet/ns.yaml"
 
 testnetAllocations :: FilePath
-testnetAllocations = "pact/genesis/testnet/test_allocations.yaml"
+testnetAllocations = "pact/genesis/testnet/allocations.yaml"
 
 testnetKeysets :: FilePath
-testnetKeysets = "pact/genesis/testnet/testnet_keysets.yaml"
+testnetKeysets = "pact/genesis/testnet/keysets.yaml"
 
 -- ---------------------------------------------------------------------- --
 -- Mainnet

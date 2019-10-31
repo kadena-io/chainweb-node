@@ -23,7 +23,7 @@ code: |-
   (coin.coinbase "tony" (read-keyset "tony") 500.0)
   (coin.coinbase "viv" (read-keyset "viv") 500.0)
   (coin.coinbase "will" (read-keyset "will") 500.0)
-
+  (coin.coinbase "Kadena" (keyset-ref-guard "Kadena") 10000000.0)
 data:
   anagha: ["0d8dcae3b6fd805c552ea3bca93d9787624311f784f992be3a1ecd446102ccd9"]
   anastasia: ["1ec74de724b3c700737d99906aba48dbed6b90140bbc64133c558571b18883c3"]
