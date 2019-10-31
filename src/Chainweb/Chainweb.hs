@@ -718,7 +718,7 @@ runChainweb cw = do
     cutPeerDb = _peerResDb $ _cutResPeer $ _chainwebCutResources cw
 
     miner :: [IO ()]
-    miner = maybe [] (\m -> [ runMiner (_chainwebVersion cw) m ]) $ _chainwebMiner cw
+    miner = maybe [] (\m -> [ runMiner m ]) $ _chainwebMiner cw
 
     -- Configure Clients
 

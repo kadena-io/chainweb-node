@@ -70,13 +70,12 @@ import Data.Singletons
 workHandler
     :: Logger l
     => MiningCoordination l cas
-    -> ChainwebVersion
     -> Maybe ChainId
     -> Miner
     -> Handler WorkBytes
-workHandler mr v mcid m = do
+workHandler mr mcid m = do
     now <- liftIO getCurrentTimeIntegral
-    case txSilenceEndDate v of
+    case txSilenceEndDate . _chainwebVersion $ _coordCutDb mr of
         Just end | now > end ->
             throwM err400 { errBody = "Node is out of date - please upgrade."}
         _ -> do
@@ -147,13 +146,12 @@ miningServer
     :: forall l cas (v :: ChainwebVersionT)
     .  Logger l
     => MiningCoordination l cas
-    -> ChainwebVersion
     -> Server (MiningApi v)
-miningServer mr v =
-    workHandler mr v
+miningServer mr =
+    workHandler mr
     :<|> liftIO . solvedHandler mr
     :<|> updatesHandler (_coordCutDb mr)
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
-someMiningServer v@(FromSing (SChainwebVersion :: Sing vT)) mr =
-    SomeServer (Proxy @(MiningApi vT)) $ miningServer mr v
+someMiningServer (FromSing (SChainwebVersion :: Sing vT)) mr =
+    SomeServer (Proxy @(MiningApi vT)) $ miningServer mr

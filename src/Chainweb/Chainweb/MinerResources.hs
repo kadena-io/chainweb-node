@@ -54,7 +54,7 @@ import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
 import Chainweb.Utils (EnableConfig(..), int, runForever)
-import Chainweb.Version (ChainId, ChainwebVersion(..), chainIds, window)
+import Chainweb.Version
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
@@ -145,10 +145,9 @@ runMiner
     :: forall logger cas
     .  Logger logger
     => PayloadCas cas
-    => ChainwebVersion
-    -> MinerResources logger cas
+    => MinerResources logger cas
     -> IO ()
-runMiner v mr = case window v of
+runMiner mr = case window (_chainwebVersion $ _minerResCutDb mr) of
     Nothing -> testMiner
     Just _ -> powMiner
   where
@@ -165,9 +164,9 @@ runMiner v mr = case window v of
     testMiner = do
         cs <- newTVarIO . cycle . HS.toList $ chainIds cdb
         gen <- MWC.createSystemRandom
-        localTest lf cs v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
+        localTest lf cs (_configMinerInfo conf) cdb gen (_configTestMiners conf)
 
     powMiner :: IO ()
     powMiner = do
         cs <- newTVarIO . cycle . HS.toList $ chainIds cdb
-        localPOW lf cs v (_configMinerInfo conf) cdb
+        localPOW lf cs (_configMinerInfo conf) cdb

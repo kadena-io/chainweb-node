@@ -65,13 +65,12 @@ import Data.LogMessage (LogFunction)
 localTest
     :: LogFunction
     -> TVar [ChainId]
-    -> ChainwebVersion
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf tchains v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
+localTest lf tchains m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
     loop :: IO a
     loop = do
@@ -81,6 +80,8 @@ localTest lf tchains v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.l
             !bct = _blockCreationTime bh
             ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
+
+    v = _chainwebVersion cdb
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
@@ -100,8 +101,8 @@ localTest lf tchains v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.l
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: LogFunction -> TVar [ChainId] -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
-localPOW lf tchains v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
+localPOW :: LogFunction -> TVar [ChainId] -> Miner -> CutDb cas -> IO ()
+localPOW lf tchains m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
     loop :: IO a
     loop = do
@@ -113,6 +114,8 @@ localPOW lf tchains v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loo
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
+
+    v = _chainwebVersion cdb
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
