@@ -222,12 +222,15 @@ publish' lf (MiningState ms) cdb bh = do
             let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                         _payloadWithOutputsTransactions pl
 
+            now <- getCurrentTimeIntegral
             pure . JsonLog $ NewMinedBlock
-                (ObjectEncoded bh)
-                (int . V.length $ _payloadWithOutputsTransactions pl)
-                (int bytes)
-                (estimatedHashes p bh)
-                miner
+                { _minedBlockHeader = ObjectEncoded bh
+                , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pl
+                , _minedBlockSize = int bytes
+                , _minedHashAttempts = estimatedHashes p bh
+                , _minedBlockMiner = miner
+                , _minedBlockDiscoveredAt = now
+                }
     either (lf @T.Text Info) (lf Info) res
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
