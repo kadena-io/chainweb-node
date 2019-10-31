@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -10,8 +9,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
- {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Module: Standalone
@@ -24,7 +23,7 @@
 --
 module Standalone where
 
-import Configuration.Utils hiding (disabled, Error)
+import Configuration.Utils hiding (Error, disabled)
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -36,12 +35,12 @@ import Control.Monad.Managed
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.PQueue
-import Data.Typeable
 import qualified Data.TaskMap as TM
 import qualified Data.Text as T
+import Data.Typeable
 
-import GHC.Stats
 import GHC.Generics hiding (to)
+import GHC.Stats
 
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
@@ -204,7 +203,7 @@ runChainweb' cw = do
 
   where
     logg = logFunctionText $ _chainwebLogger cw
-    miner = maybe go (\m -> runMiner (_chainwebVersion cw) m) $ _chainwebMiner cw
+    miner = maybe go (\m -> runMiner m) $ _chainwebMiner cw
         where
           go = do
             logg Warn "No miner configured. Starting consensus without mining."

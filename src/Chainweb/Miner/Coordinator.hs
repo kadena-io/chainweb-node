@@ -34,7 +34,8 @@ module Chainweb.Miner.Coordinator
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 
-import Control.Concurrent.STM.TVar (TVar)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TVar (TVar, readTVar, writeTVar)
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistEither, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
@@ -120,7 +121,7 @@ newWork logFun tchains choice miner pact c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
-    cid <- chainChoice c choice
+    cid <- chainChoice tchains choice
 
     -- The parent block the mine on. Any given chain will always
     -- contain at least a genesis block, so this otherwise naughty
@@ -159,16 +160,22 @@ newWork logFun tchains choice miner pact c = do
 
             pure $ T3 (PrevTime $ _blockCreationTime p) header payload
 
-chainChoice :: Cut -> ChainChoice -> IO ChainId
-chainChoice c choice = case choice of
-    Anything -> randomChainId c
+chainChoice :: TVar [ChainId] -> ChainChoice -> IO ChainId
+chainChoice tchains choice = case choice of
+    Anything -> nextChainId tchains
     Suggestion cid -> pure cid
     TriedLast cid -> loop cid
   where
     loop :: ChainId -> IO ChainId
     loop cid = do
-      new <- randomChainId c
+      new <- nextChainId tchains
       bool (pure new) (loop cid) $ new == cid
+
+nextChainId :: TVar [ChainId] -> IO ChainId
+nextChainId tchains = atomically $ do
+    cids <- readTVar tchains
+    writeTVar tchains $ tail cids
+    pure $ head cids
 
 -- | KILLSWITCH: This extra logic involving `txSilenceEndDate` is to be removed in
 -- a future version of Chainweb. It prevents this Node from generating any new
