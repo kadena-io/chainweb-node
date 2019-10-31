@@ -38,7 +38,7 @@ import Servant.Server
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
+import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeader)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
 import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
@@ -111,7 +111,7 @@ solvedHandler
     :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> IO NoContent
 solvedHandler mr (HeaderBytes hbytes) = do
     ms <- readTVarIO tms
-    bh <- runGet decodeBlockHeaderWithoutHash hbytes
+    bh <- runGet decodeBlockHeader hbytes
     publish lf ms (_coordCutDb mr) bh
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh

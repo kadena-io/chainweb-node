@@ -119,7 +119,7 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     work bh = do
         let T3 _ tbytes hbytes = transferableBytes bh
         T2 (HeaderBytes new) _ <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
-        runGet decodeBlockHeaderWithoutHash new
+        runGet decodeBlockHeader new
 
 -- | Can be piped to `workBytes` for a form suitable to use with
 -- `Chainweb.Miner.RestAPI.MiningApi_`.
