@@ -721,8 +721,9 @@ execNewBlock mpAccess parentHeader miner creationTime =
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- locally run 'execTransactions' with updated blockheight data
+        -- Reject bad coinbase transactions in new block.
         results <- withBlockData parentHeader $
-            execTransactions (Just pHash) miner newTrans pdbenv
+            execTransactions (Just pHash) miner newTrans (EnforceCoinbaseFailure True) pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -770,7 +771,8 @@ execNewGenesisBlock
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
-        results <- execTransactions Nothing miner newTrans pdbenv
+        -- Reject bad coinbase txs in genesis.
+        results <- execTransactions Nothing miner newTrans (EnforceCoinbaseFailure True) pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal
@@ -873,11 +875,13 @@ playOneBlock currHeader plData pdbenv = do
 
     go m txs =
       if isGenesisBlock
-      then execTransactions Nothing m txs pdbenv
+      -- reject bad coinbase in genesis
+      then execTransactions Nothing m txs (EnforceCoinbaseFailure True) pdbenv
       else do
         bhDb <- asks _psBlockHeaderDb
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
-        withBlockData ph $! execTransactions (Just bParent) m txs pdbenv
+        -- allow bad coinbase in validate
+        withBlockData ph $! execTransactions (Just bParent) m txs (EnforceCoinbaseFailure False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -957,10 +961,11 @@ execTransactions
     :: Maybe BlockHash
     -> Miner
     -> Vector ChainwebTransaction
+    -> EnforceCoinbaseFailure
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHash miner ctxs (PactDbEnv' pactdbenv) = do
-    T2 coinOut mc <- runCoinbase nonGenesisParentHash pactdbenv miner
+execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
+    T2 coinOut mc <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
@@ -974,9 +979,10 @@ runCoinbase
     :: Maybe BlockHash
     -> P.PactDbEnv p
     -> Miner
+    -> EnforceCoinbaseFailure
     -> PactServiceM cas (T2 HashCommandResult ModuleCache)
-runCoinbase Nothing _ _ = return $ T2 noCoinbase mempty
-runCoinbase (Just parentHash) dbEnv miner = do
+runCoinbase Nothing _ _ _ = return $ T2 noCoinbase mempty
+runCoinbase (Just parentHash) dbEnv miner enfCBFail = do
     psEnv <- ask
 
     let !pd = _psPublicData psEnv
@@ -985,7 +991,7 @@ runCoinbase (Just parentHash) dbEnv miner = do
         !rs = _psMinerRewards psEnv
 
     reward <- liftIO $! minerReward rs bh
-    T2 cr mc <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash
+    T2 cr mc <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash enfCBFail
     return $! T2 (toHashCommandResult cr) mc
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
