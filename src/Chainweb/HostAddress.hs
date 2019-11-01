@@ -85,6 +85,7 @@ module Chainweb.HostAddress
 , pHostname
 , isReservedHostname
 , isPrivateHostname
+, isLocalIp
 
 -- * HostAddresses
 , HostAddress(..)
@@ -128,7 +129,7 @@ import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
 import Data.Hashable (Hashable(..))
-import qualified Net.IPv4 as IP
+import Data.IP
 import qualified Data.List as L
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
@@ -369,9 +370,7 @@ broadcast = HostnameIPv4 "255.255.255.255"
 {-# INLINE broadcast #-}
 
 isPrivateHostname :: Hostname -> Bool
-isPrivateHostname (HostnameIPv4 ip) = case IP.decodeUtf8 (CI.original ip) of
-    Nothing -> error "internal invariant violated in Chainweb.Hostaddress.isPrivateHostName"
-    Just ipv4 -> IP.private ipv4
+isPrivateHostname (HostnameIPv4 ip) = isPrivateIp (read $ B8.unpack $ CI.original ip)
 isPrivateHostname h
     | h == localhost = True
     | h == localhostIPv4 = True
@@ -379,10 +378,35 @@ isPrivateHostname h
     | otherwise = False
 
 isReservedHostname :: Hostname -> Bool
-isReservedHostname (HostnameIPv4 ip) = case IP.decodeUtf8 (CI.original ip) of
-    Nothing -> error "internal invariant violated in Chainweb.Hostaddress.isPrivateHostName"
-    Just ipv4 -> IP.reserved ipv4
+isReservedHostname (HostnameIPv4 ip) = isReservedIp (read $ B8.unpack $ CI.original ip)
 isReservedHostname h = isPrivateHostname h
+
+isLocalIp :: IPv4 -> Bool
+isLocalIp ip =
+    isMatchedTo ip $ makeAddrRange (toIPv4 [127,0,0,0]) 8
+
+isPrivateIp :: IPv4 -> Bool
+isPrivateIp ip = any id
+    [ isMatchedTo ip $ makeAddrRange (toIPv4 [10,0,0,0]) 8
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [172,16,0,0]) 12
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,168,0,0]) 16
+    ]
+
+isReservedIp :: IPv4 -> Bool
+isReservedIp ip = any id
+    [ isMatchedTo ip $ makeAddrRange (toIPv4 [0,0,0,0]) 8
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [100,64,0,0]) 10
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [169,254,0,0]) 16
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,0,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,2,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,88,99,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,18,0,0]) 15
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [198,51,100,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [203,0,113,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [224,0,0,0]) 4
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [240,0,0,0]) 4
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [255,255,255,255]) 32
+    ]
 
 hostnameBytes :: Hostname -> B8.ByteString
 hostnameBytes (HostnameName b) = CI.original b

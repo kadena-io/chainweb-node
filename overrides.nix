@@ -114,13 +114,6 @@ let # Working on getting this function upstreamed into nixpkgs, but
         ver = "0.1.3";
         sha256 = "1vg0m27phd6yf0pszcy2c2wbqx509fr9gacn34yja521z17cxd8z";
       };
-
-      ip = callHackageDirect {
-        pkg = "ip";
-        ver = "1.6.0";
-        sha256 = "063xq2jz8qgfg9ic7fg49583v39mrd2qbwbqlwgg3x685mn0m9jx";
-      };
-
     };
 in
 

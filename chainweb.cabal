@@ -321,7 +321,6 @@ library
         , http-client-tls >=0.3
         , http-media >= 0.7
         , http-types >= 0.12
-        , ip >= 1.6
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
