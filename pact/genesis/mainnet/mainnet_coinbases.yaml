@@ -1,4 +1,0 @@
-code: |-
-  (coin.coinbase "Kadena" (keyset-ref-guard "Kadena") 10000000.0)
-nonce: mainnet-coinbase
-keyPairs: []

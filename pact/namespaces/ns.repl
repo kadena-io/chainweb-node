@@ -1,8 +1,8 @@
 (begin-tx)
 (env-data
  { 'ns-admin-keyset: ["admin"]
- , 'ns-operate-keyset: ["operate"] })
-(env-keys ["admin","operate"])
+ , 'ns-operate-keyset: ["operate"]
+ , 'ns-genesis-keyset: { "keys": [], "pred": "="} })
 
 (load "ns.pact")
 (commit-tx)

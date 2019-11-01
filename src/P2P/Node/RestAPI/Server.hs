@@ -40,8 +40,7 @@ import Control.Lens
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
-import Data.Foldable
-import Data.IxSet.Typed (getEQ)
+import Data.IxSet.Typed (getEQ, toAscList)
 import Data.Proxy
 import qualified Data.Text.IO as T
 
@@ -75,6 +74,9 @@ import P2P.Peer
 defaultPeerInfoLimit :: Num a => a
 defaultPeerInfoLimit = 64
 
+maxPeerInfoLimit :: Num a => a
+maxPeerInfoLimit = 512
+
 peerGetHandler
     :: PeerDb
     -> NetworkId
@@ -87,11 +89,13 @@ peerGetHandler db nid limit next = do
         . SP.map (second _peerEntryInfo)
         . SP.zip (SP.each [0..])
         . SP.each
-        . toList
+        . toAscList (Proxy @HostAddressIdx)
         $ getEQ nid sn
     return $! over pageItems (fmap snd) page
   where
-    effectiveLimit = limit <|> Just defaultPeerInfoLimit
+    effectiveLimit = min
+        (Just maxPeerInfoLimit)
+        (limit <|> Just defaultPeerInfoLimit)
 
 peerPutHandler
     :: PeerDb

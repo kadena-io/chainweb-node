@@ -82,6 +82,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
@@ -150,8 +151,10 @@ config v n nid = defaultChainwebConfiguration v
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
+    & set (configMiner . enableConfigEnabled) True
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
         -- The number of test miners being used.
+    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
 
     & set configReintroTxs True
         -- enable transaction re-introduction

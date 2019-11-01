@@ -19,5 +19,6 @@ data:
   ns-genesis-keyset:
     keys: []
     pred: "="
+
 nonce: load-ns-testnet-sender00
 keyPairs: []

@@ -19,7 +19,6 @@ import Test.Tasty.HUnit
 import Control.Concurrent (readMVar)
 
 import Data.Aeson
-import Data.Default (def)
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
 import Data.Text
@@ -28,8 +27,8 @@ import Data.Text
 
 import Pact.Repl
 import Pact.Repl.Types
-import Pact.Types.Names
 import Pact.Types.Runtime
+
 
 -- internal chainweb modules
 
@@ -46,7 +45,9 @@ tests = testGroup "Chainweb.Test.CoinContract"
     , testCase "Build Exec without Data" buildExecWithoutData
     ]
   , testGroup "Pact Code Unit Tests"
-    [ testCase "Coin Contract Repl Tests" ccReplTests
+    [ testCase "Coin Contract Repl Tests" (ccReplTests "pact/coin-contract/coin.repl")
+    , testCase "Ns Repl Tests" (ccReplTests "pact/namespaces/ns.repl")
+    , testCase "Payer Repl Tests" (ccReplTests "pact/gas-payer/gas-payer-v1.repl")
     ]
   ]
 
@@ -64,8 +65,8 @@ buildExecWithoutData :: Assertion
 buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 
 
-ccReplTests :: Assertion
-ccReplTests = do
+ccReplTests :: FilePath -> Assertion
+ccReplTests ccFile = do
     (r, rst) <- execScript' (Script False ccFile) ccFile
     either fail (\_ -> execRepl rst) r
   where
@@ -84,12 +85,9 @@ sender0 :: Text
 sender0 = "sender"
 
 minerKeys0 :: MinerKeys
-minerKeys0 = MinerKeys $ KeySet
+minerKeys0 = MinerKeys $ mkKeySet
   ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-  (Name $ BareName "default" def)
+  "default"
 
 minerId0 :: MinerId
 minerId0 = MinerId "default miner"
-
-ccFile :: String
-ccFile = "pact/coin-contract/coin.repl"

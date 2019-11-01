@@ -71,7 +71,6 @@ import qualified Pact.Types.ChainMeta as Pact
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
-import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Term
 
@@ -84,6 +83,7 @@ import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
+import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
@@ -256,9 +256,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 
     txdata =
       -- sender00 keyset
-      let ks = KeySet
-            [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-            (Name $ BareName "keys-all" def)
+      let ks = mkKeySet
+            ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
+            "keys-all"
       in A.object
         [ "sender01-keyset" A..= ks
         , "target-chain-id" A..= tid
@@ -330,7 +330,7 @@ invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $
           return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
     -- batch with incorrect sender
-    batch0 <- mkBadGasTxBatch "(+ 1 2)" "some-unknown-sender" sender00KeyPair Nothing
+    batch0 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
     res0 <- catches (Right <$> run batch0 ExpectPactResult)
       [ Handler (\(e :: PactTestFailure) -> return $ Left e) ]
 
@@ -346,8 +346,9 @@ invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
-      cmd <- liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just "0")
-      return $ SubmitBatch (pure cmd)
+      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
+      cmds <- mapM cmd (0 NEL.:| [1..5])
+      return $ SubmitBatch cmds
 
 
 caplistTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -503,9 +504,9 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     tx3 =
       let
         c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
-        d = KeySet
-          [ "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a" ]
-          (Name $ BareName "keys-all" def)
+        d = mkKeySet
+          ["0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"]
+          "keys-all"
       in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
     tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
     tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
@@ -756,7 +757,9 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
+    & set (configMiner . enableConfigEnabled) True
     & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
+    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
 

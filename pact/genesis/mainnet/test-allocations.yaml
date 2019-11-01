@@ -1,0 +1,21 @@
+code: |-
+
+  (define-keyset "Emily" (read-keyset "Emily"))
+  (define-keyset "Kadena" (read-keyset "Kadena"))
+  (define-keyset "MAINNET" (read-keyset "MAINNET"))
+
+  (coin.create-allocation-account "Emily" (time "2019-10-01T00:00:00Z") "Emily" 666666.67)
+  (coin.create-allocation-account "MAINNET_1" (time "2019-10-29T14:00:00Z") "MAINNET" 666666.67)
+  (coin.create-allocation-account "MAINNET_2" (time "2019-10-29T17:00:00Z") "MAINNET" 666666.67)
+  (coin.create-allocation-account "MAINNET_3" (time "2019-11-29T17:00:00Z") "MAINNET" 666666.67)
+
+  (coin.coinbase "Kadena" (keyset-ref-guard "Kadena") 10000000.0)
+
+data:
+  "MAINNET": { keys: ["a4947379c7dbb76ee60bdedd64847a15aa5657ef406201e46861475c91d3c51f","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","4926f963ee5a0c6df67a1dce242fbc11a900c4332c77bddfb0dc5b66f697fed0"], pred: "keys-2" }
+
+  "Kadena": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "Emily": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+
+nonce: testnet-allocations-0
+keyPairs: []

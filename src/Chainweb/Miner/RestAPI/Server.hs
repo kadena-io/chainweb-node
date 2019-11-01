@@ -29,7 +29,7 @@ import Data.Generics.Wrapped (_Unwrapped)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
@@ -97,7 +97,8 @@ workHandler' mr mcid m = do
     c <- _cut cdb
     T3 p bh pl <- newWork (maybe Anything Suggestion mcid) m pact c
     let !phash = _blockPayloadHash bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert phash $ T3 m p pl
+        !bct = _blockCreationTime bh
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     cdb :: CutDb cas
@@ -106,14 +107,15 @@ workHandler' mr mcid m = do
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
--- TODO Occasionally prune the `MiningState`?
 solvedHandler
     :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> IO NoContent
 solvedHandler mr (HeaderBytes hbytes) = do
     ms <- readTVarIO tms
     bh <- runGet decodeBlockHeaderWithoutHash hbytes
     publish lf ms (_coordCutDb mr) bh
-    atomically . modifyTVar' tms . over _Unwrapped . M.delete $ _blockPayloadHash bh
+    let !phash = _blockPayloadHash bh
+        !bct = _blockCreationTime bh
+    atomically . modifyTVar' tms . over _Unwrapped $ M.delete (T2 bct phash)
     pure NoContent
   where
     tms :: TVar MiningState

@@ -53,6 +53,7 @@ import Data.FileEmbed (embedFile)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
+import qualified Data.Set as S
 import Data.String (IsString)
 import Data.String.Conv (toS)
 import Data.Text (Text)
@@ -70,7 +71,7 @@ import Chainweb.Utils
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Names
-import Pact.Types.Term (KeySet(..), PublicKey)
+import Pact.Types.Term (KeySet(..), PublicKey, mkKeySet)
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
@@ -128,16 +129,16 @@ minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
 defaultMiner :: Miner
 defaultMiner = Miner (MinerId "miner")
     $ MinerKeys
-      ( KeySet
-        ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-        (Name $ BareName "keys-all" def)
-      )
+    $ mkKeySet
+      ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+      "keys-all"
+
 {-# INLINE defaultMiner #-}
 
 -- | A trivial Miner.
 --
 noMiner :: Miner
-noMiner = Miner (MinerId "NoMiner") (MinerKeys $ KeySet [] (Name $ BareName "<" def))
+noMiner = Miner (MinerId "NoMiner") (MinerKeys $ mkKeySet [] "<")
 {-# INLINE noMiner #-}
 
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.
@@ -204,7 +205,7 @@ pMiner = Miner
     <*> (MinerKeys <$> pks)
   where
     pks :: Parser KeySet
-    pks = KeySet <$> many pKey <*> pPred
+    pks = KeySet <$> (fmap S.fromList $ many pKey) <*> pPred
 
 pKey :: Parser PublicKey
 pKey = strOption (long "miner-key"

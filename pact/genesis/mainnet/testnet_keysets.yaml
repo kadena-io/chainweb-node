@@ -1,0 +1,172 @@
+code: |-
+  (define-keyset "SA <1>" (read-keyset "SA <1>"))
+  (define-keyset "SA <2>" (read-keyset "SA <2>"))
+  (define-keyset "SA <3>" (read-keyset "SA <3>"))
+  (define-keyset "SA <4>" (read-keyset "SA <4>"))
+  (define-keyset "SA <5>" (read-keyset "SA <5>"))
+  (define-keyset "SA <6>" (read-keyset "SA <6>"))
+  (define-keyset "SA <7>" (read-keyset "SA <7>"))
+  (define-keyset "SA <8>" (read-keyset "SA <8>"))
+  (define-keyset "SA <9>" (read-keyset "SA <9>"))
+  (define-keyset "SA <10>" (read-keyset "SA <10>"))
+  (define-keyset "SA <11>" (read-keyset "SA <11>"))
+  (define-keyset "SA <12>" (read-keyset "SA <12>"))
+  (define-keyset "SA <13>" (read-keyset "SA <13>"))
+  (define-keyset "SA <14>" (read-keyset "SA <14>"))
+  (define-keyset "SA <15>" (read-keyset "SA <15>"))
+  (define-keyset "SA <16>" (read-keyset "SA <16>"))
+  (define-keyset "SA <17>" (read-keyset "SA <17>"))
+  (define-keyset "SA <18>" (read-keyset "SA <18>"))
+  (define-keyset "SA <19>" (read-keyset "SA <19>"))
+  (define-keyset "SA <20>" (read-keyset "SA <20>"))
+  (define-keyset "SB <1>" (read-keyset "SB <1>"))
+  (define-keyset "SB <2>" (read-keyset "SB <2>"))
+  (define-keyset "SB <3>" (read-keyset "SB <3>"))
+  (define-keyset "SB <4>" (read-keyset "SB <4>"))
+  (define-keyset "SB <5>" (read-keyset "SB <5>"))
+  (define-keyset "SB <6>" (read-keyset "SB <6>"))
+  (define-keyset "SB <7>" (read-keyset "SB <7>"))
+  (define-keyset "SB <8>" (read-keyset "SB <8>"))
+  (define-keyset "SB <9>" (read-keyset "SB <9>"))
+  (define-keyset "SB <10>" (read-keyset "SB <10>"))
+  (define-keyset "SB <11>" (read-keyset "SB <11>"))
+  (define-keyset "SB <12>" (read-keyset "SB <12>"))
+  (define-keyset "SB <13>" (read-keyset "SB <13>"))
+  (define-keyset "SB <14>" (read-keyset "SB <14>"))
+  (define-keyset "SB <15>" (read-keyset "SB <15>"))
+  (define-keyset "SB <16>" (read-keyset "SB <16>"))
+  (define-keyset "SB <17>" (read-keyset "SB <17>"))
+  (define-keyset "SB <18>" (read-keyset "SB <18>"))
+  (define-keyset "SB <19>" (read-keyset "SB <19>"))
+  (define-keyset "SB <20>" (read-keyset "SB <20>"))
+  (define-keyset "SB <21>" (read-keyset "SB <21>"))
+  (define-keyset "SB <22>" (read-keyset "SB <22>"))
+  (define-keyset "SB <23>" (read-keyset "SB <23>"))
+  (define-keyset "SB <24>" (read-keyset "SB <24>"))
+  (define-keyset "SB <25>" (read-keyset "SB <25>"))
+  (define-keyset "SB <26>" (read-keyset "SB <26>"))
+  (define-keyset "SB <27>" (read-keyset "SB <27>"))
+  (define-keyset "SB <28>" (read-keyset "SB <28>"))
+  (define-keyset "SB <29>" (read-keyset "SB <29>"))
+  (define-keyset "SB <30>" (read-keyset "SB <30>"))
+  (define-keyset "SB <31>" (read-keyset "SB <31>"))
+  (define-keyset "SB <32>" (read-keyset "SB <32>"))
+  (define-keyset "SB <33>" (read-keyset "SB <33>"))
+  (define-keyset "SB <34>" (read-keyset "SB <34>"))
+  (define-keyset "SB <35>" (read-keyset "SB <35>"))
+  (define-keyset "SB <36>" (read-keyset "SB <36>"))
+  (define-keyset "SB <37>" (read-keyset "SB <37>"))
+  (define-keyset "SB <38>" (read-keyset "SB <38>"))
+  (define-keyset "SB <39>" (read-keyset "SB <39>"))
+  (define-keyset "SB <40>" (read-keyset "SB <40>"))
+  (define-keyset "SB <41>" (read-keyset "SB <41>"))
+  (define-keyset "SB <42>" (read-keyset "SB <42>"))
+  (define-keyset "SB <43>" (read-keyset "SB <43>"))
+  (define-keyset "SB <44>" (read-keyset "SB <44>"))
+  (define-keyset "SB <45>" (read-keyset "SB <45>"))
+  (define-keyset "SB <46>" (read-keyset "SB <46>"))
+  (define-keyset "PS_C0" (read-keyset "PS_C0"))
+  (define-keyset "PS_C1" (read-keyset "PS_C1"))
+  (define-keyset "PS_C2" (read-keyset "PS_C2"))
+  (define-keyset "PS_C3" (read-keyset "PS_C3"))
+  (define-keyset "PS_C4" (read-keyset "PS_C4"))
+  (define-keyset "PS_C5" (read-keyset "PS_C5"))
+  (define-keyset "PS_C6" (read-keyset "PS_C6"))
+  (define-keyset "PS_C7" (read-keyset "PS_C7"))
+  (define-keyset "PS_C8" (read-keyset "PS_C8"))
+  (define-keyset "PS_C9" (read-keyset "PS_C9"))
+  (define-keyset "EB_C9" (read-keyset "EB_C9"))
+  (define-keyset "Coinlist Non-US" (read-keyset "Coinlist Non-US"))
+  (define-keyset "Coinlist Global" (read-keyset "Coinlist Global"))
+  (define-keyset "FTS_C1" (read-keyset "FTS_C1"))
+  (define-keyset "CS1_C2" (read-keyset "CS1_C2"))
+  (define-keyset "CS2_C0" (read-keyset "CS2_C0"))
+  (define-keyset "ST_C1" (read-keyset "ST_C1"))
+
+data:
+  "SA <1>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <2>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <3>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <4>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <5>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <6>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <7>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <8>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <9>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <10>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <11>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <12>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <13>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <14>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <15>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <16>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <17>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <18>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <19>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SA <20>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "SB <1>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <2>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <3>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <4>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <5>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <6>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <7>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <8>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <9>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <10>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <11>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <12>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <13>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <14>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <15>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <16>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <17>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <18>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <19>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <20>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <21>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <22>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <23>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <24>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <25>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <26>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <27>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <28>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <29>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <30>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <31>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <32>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <33>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <34>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <35>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <36>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <37>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <38>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <39>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <40>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <41>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <42>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <43>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <44>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <45>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "SB <46>": { keys: ["e42634f75e0d27a95e5de0f1317e44221077535b200767ed42ca430f7f65e86b","9b338379c279a04bfb4ffce40c3a886d4bda9c7d3c299a483dc29ccc3c8c5539","232c9d2d72f47190242e6fd36c60525ab699fcd3bd22f84f06134260910415af"], pred: "keys-2" }
+  "PS_C0": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C1": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C2": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C3": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C4": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C5": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C6": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C7": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C8": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "PS_C9": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "EB_C9": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
+  "Coinlist Non-US": { keys: ["c8ce1624799846b5cb7b1f19f5676f116d54b5e85776bd28f1b9b8fd68d90130","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","7d92897ac4c171b1e619782f1fbbbc477d62226836e767615b7ce7efaa25aa95"], pred: "keys-2" }
+  "Coinlist Global": { keys: ["5ac02d6ce804712ec5822ab9813fd483265c106da3fff60cd492584bc2896581","11362525164755398299bdf1d3de1e4c75faca9d7c5df04539599928f4c8d9f7","821858752f7d8e986ab6b08cd0481ff4068e308ca1d2ff68af1241ef575ce255"], pred: "keys-2" }
+  "FTS_C1": { keys: ["29f7107b39f6c1947f96622f689bec68e01573076d60611d3ef6b8cbc43cfa0b","7c21f7b53c816798152487024d71bfcbd47b5b80ae43594b94dd38454818aefc","1ff969945ab6088cbd3f3a6a6b97187697192763d78f27f55bdddbbc157c00c0"], pred: "keys-2" }
+  "CS1_C2": { keys: ["96529dbb839027548912bc6a1cffb69c677ed9766350018cc8c46a3f819fe174","e53708564f1a78f6e5a9309fd8b9dd85646832e374162cd3c67420e202a7e45b","4bb6b71e2ddc61392274d18d142cdc8d4f50e54343098138f9a7d17fb562d6ea"], pred: "keys-2" }
+  "CS2_C0": { keys: ["9a2a12ba791909a2b5e92ab3366f60f4689e5331ef285b704efa3fd83bc959f4","7bcf78f09e64e37fe4705d5abb3735496f31f04d347c138f5dd3f4ee2683a952","f54e9f2d81be422a02adb0a172f89752fc3e5f9dae435208776bd5d83a2f6f24"], pred: "keys-2" }
+  "ST_C1": { keys: ["ccf6fa1fd32e58b0405f169ffb455a1a0434cfaff5b8549862821ff6b551d5b3","af818a5e8672ab93b085987b942e87aa52ff6c81bffafaf3437c01c8a41a6fa8","8746831c5580950e74aef86659c6f8f1acb7215067ed91d11fe691945f9c8b1e"], pred: "keys-2" }
+
+nonce: testnet-keysets
+keyPairs: []

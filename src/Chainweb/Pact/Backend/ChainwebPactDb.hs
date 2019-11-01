@@ -434,7 +434,9 @@ doCreateUserTable tn@(TableName ttxt) mn = do
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
-doRollback = bsPendingTx .= Nothing
+doRollback = do
+  bsMode .= Nothing
+  bsPendingTx .= Nothing
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
 doCommit = use bsMode >>= \mm -> case mm of

@@ -180,13 +180,14 @@ import Text.Read (readEither)
 -- | BlockHeight
 --
 newtype BlockHeight = BlockHeight { _height :: Word64 }
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype
         ( Hashable, ToJSON, FromJSON
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , Num, Integral, Real, Enum
         )
+instance Show BlockHeight where show (BlockHeight b) = show b
 
 instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
     type Tag BlockHeight = 'BlockHeightTag
