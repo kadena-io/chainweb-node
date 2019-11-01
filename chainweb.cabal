@@ -25,7 +25,7 @@ extra-source-files:
 
     -- sender information
 
-    pact/genesis/testnet/keys.yaml
+    pact/genesis/devnet/keys.yaml
 
     -- miner rewards
 
@@ -693,6 +693,7 @@ executable cwtool
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
         Ea
+        Ea.Genesis
         Gexf
         Network.X509.SelfSigned.Test
         RunNodes
