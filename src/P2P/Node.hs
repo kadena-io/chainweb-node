@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -64,13 +65,16 @@ import Control.Monad.IO.Class
 import Control.Monad.STM
 
 import Data.Aeson hiding (Error)
+import Data.Bool
+-- import Data.Bool (bool)
 import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
-import Data.IxSet.Typed (getEQ, getGT, getGTE, getLT, size)
+import qualified Data.IxSet.Typed as IXS
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Tuple
+import Data.Witherable (wither)
 
 import GHC.Generics
 
@@ -88,6 +92,7 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 
 -- Internal imports
 
+import Chainweb.HostAddress (isReservedHostAddress)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
@@ -210,7 +215,14 @@ data P2pNode = P2pNode
     , _p2pNodeActive :: !(TVar Bool)
         -- ^ Wether this node is active. If this is 'False' no new sessions
         -- will be initialized.
+    , _p2pNodeConnectionCheckManager :: !HTTP.Manager
+        -- ^ It's ugly to have a second manager, but servant messes with the
+        -- connection timeout settings and we really want a small connection
+        -- timeout here.
     }
+
+instance HasChainwebVersion P2pNode where
+    _chainwebVersion = _p2pNodeChainwebVersion
 
 showSessionId :: PeerInfo -> Async (Maybe Bool) -> T.Text
 showSessionId pinf ses = showInfo pinf <> ":" <> (T.drop 9 . sshow $ asyncThreadId ses)
@@ -288,6 +300,38 @@ setInactive node = writeTVar (_p2pNodeActive node) False
 -- -------------------------------------------------------------------------- --
 -- Sync Peers
 
+-- | Removes candidate `PeerInfo` that are:
+--
+--  * already known to us and considered good
+--  * are trivially bad (localhost, our own current IP, etc.)
+--
+removeTrivialPeers :: P2pNode -> PeerInfo -> IO (Maybe PeerInfo)
+removeTrivialPeers node pinf = do
+    peers <- peerDbSnapshot $ _p2pNodePeerDb node
+    if | me == _peerId pinf || isTrivial || isKnown peers -> pure Nothing
+       | otherwise -> bool Nothing (Just pinf) <$> canConnect
+  where
+    v = _chainwebVersion node
+    env = peerClientEnv node pinf
+    nid = _p2pNodeNetworkId node
+
+    me :: Maybe PeerId
+    me = _peerId $ _p2pNodePeerInfo node
+
+    isKnown :: PeerSet -> Bool
+    isKnown peers = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
+
+    -- TODO Check more IP ranges, possibly in HostAddress module.
+    isTrivial :: Bool
+    isTrivial = case v of
+        Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
+        _ -> False
+
+    canConnect :: IO Bool
+    canConnect = runClientM (peerGetClient v nid (Just 0) Nothing) env >>= \case
+        Left _ -> pure False
+        Right _ -> pure True
+
 peerClientEnv :: P2pNode -> PeerInfo -> ClientEnv
 peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 
@@ -306,23 +350,25 @@ syncFromPeer node info = runClientM sync env >>= \case
             logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
             return False
     Right p -> do
+        goods <- wither (removeTrivialPeers node) $ _pageItems p
         peerDbInsertPeerInfoList
             (_p2pNodeNetworkId node)
-            (pageItemsWithoutMe p)
+            goods
             (_p2pNodePeerDb node)
         return True
   where
     env = peerClientEnv node info
     v = _p2pNodeChainwebVersion node
     nid = _p2pNodeNetworkId node
+
+    sync :: ClientM (Page (NextItem Int) PeerInfo)
     sync = do
         !p <- peerGetClient v nid Nothing Nothing
         liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showInfo info
         void $ peerPutClient v nid (_p2pNodePeerInfo node)
         liftIO $ logg node Debug $ "put own peer info to " <> showInfo info
+
         return p
-    myPid = _peerId $ _p2pNodePeerInfo node
-    pageItemsWithoutMe = filter (\i -> _peerId i /= myPid) . _pageItems
 
     -- If the certificate check fails because the certificate is unknown, the
     -- peer is removed from the database. That is, we allow only connection to
@@ -388,21 +434,21 @@ findNextPeer conf node = do
             $ s
 
         shiftR s = do
-            i <- randomR node (0, max 1 (size s) - 1)
+            i <- randomR node (0, max 1 (IXS.size s) - 1)
             return $! shift i s
 
     -- Classify the peers by priority
     --
-    let base = getEQ (_p2pNodeNetworkId node) peers
+    let base = IXS.getEQ (_p2pNodeNetworkId node) peers
 #if 0
     searchSpace <- shift base
 #else
     -- TODO: how expensive is this? should be cache the classification?
     --
-    let p0 = getGT (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) base
-        p1 = getEQ (ActiveSessionCount 0) $ getLT (SuccessiveFailures 2) base
-        p2 = getGT (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
-        p3 = getEQ (ActiveSessionCount 0) $ getGTE (SuccessiveFailures 2) base
+    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
+        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
+        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
+        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
     searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
 #endif
 
@@ -573,6 +619,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
     statsVar <- newTVarIO emptyP2pNodeStats
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
+    cmgr <- Chainweb.Utils.manager 250000 -- TODO 250m is perhaps too aggressive, plus configurable
     let !s = P2pNode
                 { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
@@ -585,6 +632,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
                 , _p2pNodeClientSession = session
                 , _p2pNodeRng = rngVar
                 , _p2pNodeActive = activeVar
+                , _p2pNodeConnectionCheckManager = cmgr
                 }
 
     logfun @T.Text Info "created node"

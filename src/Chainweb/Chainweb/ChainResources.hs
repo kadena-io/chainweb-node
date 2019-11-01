@@ -228,7 +228,7 @@ mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
 
     -- FIXME Potentially dangerous down-cast.
     syncIntervalUs :: Int
-    syncIntervalUs = int pollInterval * 1000000
+    syncIntervalUs = int pollInterval * 500000
 
     remote = T.pack $ Sv.showBaseUrl $ Sv.baseUrl env
     logg d m = logg0 d $ T.concat ["[mempool sync@", remote, "]:", m]
