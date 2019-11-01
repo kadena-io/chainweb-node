@@ -311,7 +311,7 @@ getBalances url (Miner (MinerId mi) _) = do
               printf (T.unpack bs)
               return (tot + bal)
         tot <- foldM f (0 :: Decimal) bbs
-        printf $ "Your total is " <> show (roundTo 4 tot) <> "\n"
+        printf $ "Your total is " <> show (roundTo 12 tot) <> "\n"
   where
     ss :: TLSSettings
     ss = TLSSettingsSimple True True True
