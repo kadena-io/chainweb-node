@@ -1,0 +1,121 @@
+databaseDirectory: null
+resetChainDatabases: false
+chainweb:
+  throttleRate: 1000
+  miner:
+    enabled: false
+  includeOrigin: true
+  blockGasLimit: 100000
+  pruneChainDatabase: true
+  chainwebVersion: mainnet01
+  p2p:
+    peerDbFilePath: null
+    peer:
+      certificateChainFile: null
+      key: null
+      interface: '*'
+      certificateChain: null
+      hostaddress:
+        hostname: localhost
+        port: 10000
+      keyFile: null
+    maxPeerCount: 50
+    ignoreBootstrapNodes: false
+    maxSessionCount: 10
+    sessionTimeout: 60
+    peers:
+    - address:
+        hostname: us-e1.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: us-e2.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: us-e3.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: us-w1.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: us-w2.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: us-w3.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: fr1.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: fr2.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: fr3.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: jp1.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: jp2.chainweb.com
+        port: 443
+      id: null
+    - address:
+        hostname: jp3.chainweb.com
+        port: 443
+      id: null
+  transactionIndex:
+    enabled: true
+    configuration: {}
+  miningCoordination: true
+  nodeId:
+    _nodeIdId: 0
+  headerStream: true
+  mempoolP2p:
+    enabled: true
+    configuration:
+      pollInterval: 30
+      maxSessionCount: 6
+      sessionTimeout: 120
+  reintroTxs: true
+logging:
+  telemetryBackend:
+    enabled: true
+    configuration:
+      handle: stdout
+      color: auto
+      format: text
+  backend:
+    handle: stdout
+    color: auto
+    format: text
+  logger:
+    log_level: info
+    queue_size: 10000
+    exception_wait: 1000
+    exit_timeout: 1000000
+    scope: []
+    exception_limit: 10
+    policy: discard
+  clusterId: null
+  amberdataBackend:
+    enabled: false
+    configuration:
+      apiKey: ''
+      chainId: null
+      debug: true
+      host:
+        hostname: localhost
+        port: 443
+      blockchainId: ''
+  filter:
+    rules: []
+    default: debug
