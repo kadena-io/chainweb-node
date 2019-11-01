@@ -1167,7 +1167,7 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 
 -- -------------------------------------------------------------------------- --
 -- TLS Manager with connection timeout
-
+  -- TODO unify with other HTTP managers
 manager :: Int -> IO HTTP.Manager
 manager micros = HTTP.newManager settings
     { HTTP.managerConnCount = 5

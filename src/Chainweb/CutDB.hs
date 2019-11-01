@@ -591,7 +591,7 @@ cutHashesToBlockHeaderMap
     -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout 3000000 go >>= \case
+cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout 3000000 go >>= \case -- TODO define as constant or make configurable
     Nothing -> return $! Left mempty
     Just x -> return $! x
   where

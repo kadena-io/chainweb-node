@@ -619,7 +619,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
     statsVar <- newTVarIO emptyP2pNodeStats
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
-    cmgr <- Chainweb.Utils.manager 250000
+    cmgr <- Chainweb.Utils.manager 250000 -- TODO 250m is perhaps too aggressive, plus configurable
     let !s = P2pNode
                 { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
