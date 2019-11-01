@@ -5,8 +5,9 @@ code: |-
   (coin.coinbase "andrew" (read-keyset "andrew") 500.0)
   (coin.coinbase "ben" (read-keyset "ben") 500.0)
   (coin.coinbase "colin" (read-keyset "colin") 500.0)
+  (coin.coinbase "croesus" (read-keyset croesus") 9000000000.0)
   (coin.coinbase "doug" (read-keyset "doug") 500.0)
-  (coin.coinbase "emily" (read-keyset "emily") 500.0)
+  (coin.coinbase "emily" (keyset-ref-guard "emily") 500.0)
   (coin.coinbase "emmanuel" (read-keyset "emmanuel") 500.0)
   (coin.coinbase "francesco" (read-keyset "francesco") 500.0)
   (coin.coinbase "heekyun" (read-keyset "heekyun") 500.0)
@@ -29,12 +30,13 @@ data:
   andrew: ["7d7a09b741e6726219709f7ab9790c69f8cd12b1026d0090ac7c52e9aa0ab74b"]
   ben: ["d8e512b2d08afaf20c59aaf2a0db57262c31965e4310e330c1ad8075ecaa3647"]
   colin: ["db776793be0fcf8e76c75bdb35a36e67f298111dc6145c66693b0133192e2616"]
+  croesus: ["2993f795d133fa5d0fd877a641cabc8b28cd36147f666988cacbaa4379d1ff93"]
   doug: ["dea647009295dc015ba6e6359b85bafe09d2ce935a03c3b3f775442d539025"]
-  emily: ["77a4947c43cdb4b4fdef00b10dc8446c0e591b73366861048c195bb6a59bf5b9"]
+  emily: ["368059ab25bec92f19a4f8ce172030e5d672e4879aaae8d5be8b705dd3dfae7f"]
   emmanuel: ["a784a52984229ed28b703810cd452565759d88420875a5db257fa8e806ac9de5"]
   francesco: ["4b0f29b9e0a996587e5b5524731c91ecf02ecaa8b7e70e5f8f1881c5f0c18fc1"]
-  heekyun: ["0904f5972b2bc263ca3c56b6b9fb88464acbac490c22197c00a778c9b70c20cd"]
-  jeff: ["9893abd3c85889dfa351c5ee8617e5c190fa3a88ce45a6aecc1450c6a6871e7e"]
+  heekyun: ["dfb16b13e4032a6878fd98506b22cb0d6e5932c541e656b7ee5d69d72e6eb76e"]
+  jeff: ["c53217bb053b827b5fbbb322fced67a86298ec40a59aeef15b2190a05ad0a6bd"]
   leah: ["216643137fb5f6a127dbb1063702cbb7c1f153451a1ad4afa9f92e77447cc330"]
   linda: ["e1002db0894299bb37238bab02170180c0ae56f5932169bb2fcf756059fea175"]
   mark: ["e9dd33761397991a317e7cd24e82df4d1e12a30062a242c9e1c5f6a1930516dc"]
@@ -42,7 +44,7 @@ data:
   monica: ["7ac711c5d4598307fa6ab3e5051e6eb7dbc7c8c05ede5bea75be876e3878dff8"]
   rebecca: ["2fea43f7c80ba75d2173c7d83228709b144c57c5e86347c820731e025bd7f2bc"]
   stuart: ["0e3180dd4ae9d4385a21d7ca95cc7229b0f6b2ca9e0f4861dd4eed685004df66"]
-  taylor: ["7eb722d13a3f2d785482aef2bc8bb49d96849bd5d395a40ced8b05bfe068f44b"]
+  taylor: ["c369fb9bceca653b94a3558b497eb0ec23bd7e31f87d0ef37b35cd4ab147e3f3"]
   tony: ["727360c32e08812ff5f04cb1e75cd9c0ba6b72684088616010af411d0f14c54a"]
   viv: ["23d4b4e8cb303feebcafa930731d4b8913695bd0d92c3b5359506519cebf156a"]
   will: ["830ad773510ab0f5a0d4564b7b31d2b0b1ba7fd5a116f66598a1c63cc2142fd5"]

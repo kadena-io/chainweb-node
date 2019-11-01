@@ -5,9 +5,11 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -91,7 +93,8 @@ import System.Exit (exitFailure)
 
 -- internal modules
 
-import Chainweb.BlockHeader (Nonce(..), decodeBlockHeight, _height)
+import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation (prop_block_pow)
 import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner, pMiner)
@@ -327,8 +330,10 @@ mining go wb = do
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
     updateSignal :: RIO Env ()
-    updateSignal = catchAny f $ \_ -> do
+    updateSignal = catchAny f $ \se -> do
         logWarn "Couldn't connect to update stream. Trying again..."
+        logDebug $ display se
+        threadDelay 1000000  -- One second
         updateSignal
       where
         f :: RIO Env ()
@@ -352,7 +357,8 @@ mining go wb = do
             , port = baseUrlPort u
             , secure = True
             , method = "GET"
-            , requestBody = RequestBodyBS cbs }
+            , requestBody = RequestBodyBS cbs
+            , responseTimeout = responseTimeoutNone }
 
     -- | If the `go` call won the `race`, this function yields the result back
     -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
@@ -401,7 +407,7 @@ cpu cpue tbytes hbytes = do
              n -> ParN n
 
 gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
-gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
+gpu ge@(GPUEnv mpath margs) t@(TargetBytes target) h@(HeaderBytes blockbytes) = do
     minerPath <- liftIO . Path.makeAbsolute . Path.fromFilePath $ T.unpack mpath
     e <- ask
     res <- liftIO $ callExternalMiner minerPath (map T.unpack margs) False target blockbytes
@@ -412,6 +418,15 @@ gpu (GPUEnv mpath margs) (TargetBytes target) (HeaderBytes blockbytes) = do
       Right (MiningResult nonceBytes numNonces hps _) -> do
           let newBytes = nonceBytes <> B.drop 8 blockbytes
               secs = numNonces `div` max 1 hps
-          modifyIORef' (envHashes e) (+ numNonces)
-          modifyIORef' (envSecs e) (+ secs)
-          return $! HeaderBytes newBytes
+
+          -- FIXME Consider removing this check if during later benchmarking it
+          -- proves to be an issue.
+          bh <- runGet decodeBlockHeaderWithoutHash newBytes
+
+          if | not (prop_block_pow bh) -> do
+                 logError "Bad nonce returned from GPU!"
+                 gpu ge t h
+             | otherwise -> do
+                 modifyIORef' (envHashes e) (+ numNonces)
+                 modifyIORef' (envSecs e) (+ secs)
+                 pure $! HeaderBytes newBytes
