@@ -656,9 +656,13 @@ executable chainweb-miner
           chainweb
 
         -- external
+        , Decimal >= 0.4.2
+        , aeson >= 1.4.3
         , base >= 4.11 && < 5
+        , base16-bytestring >= 0.1
         , bytestring >= 0.10
         , connection >= 0.2
+        , data-default >=0.7
         , generic-lens >= 1.2
         , http-client >= 0.5
         , http-client-tls >= 0.3
