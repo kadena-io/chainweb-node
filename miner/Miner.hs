@@ -9,6 +9,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -329,8 +330,10 @@ mining go wb = do
     -- TODO Rework to use Servant's streaming? Otherwise I can't use the
     -- convenient client function here.
     updateSignal :: RIO Env ()
-    updateSignal = catchAny f $ \_ -> do
+    updateSignal = catchAny f $ \se -> do
         logWarn "Couldn't connect to update stream. Trying again..."
+        logDebug $ display se
+        threadDelay 1000000  -- One second
         updateSignal
       where
         f :: RIO Env ()
