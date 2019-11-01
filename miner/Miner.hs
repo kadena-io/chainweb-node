@@ -357,7 +357,8 @@ mining go wb = do
             , port = baseUrlPort u
             , secure = True
             , method = "GET"
-            , requestBody = RequestBodyBS cbs }
+            , requestBody = RequestBodyBS cbs
+            , responseTimeout = responseTimeoutNone }
 
     -- | If the `go` call won the `race`, this function yields the result back
     -- to some "mining coordinator" (likely a chainweb-node). If `updateSignal`
