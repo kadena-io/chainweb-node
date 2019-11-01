@@ -174,6 +174,9 @@ module Chainweb.Utils
 
 -- * Approximate thread delays
 , approximateThreadDelay
+
+-- * TLS Manager with connection timeout settings
+, manager
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -229,6 +232,9 @@ import Data.Word (Word64)
 import GHC.Generics
 import GHC.Stack (HasCallStack)
 import GHC.TypeLits (KnownSymbol, symbolVal)
+
+import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.TLS as HTTP
 
 import Numeric.Natural
 
@@ -1158,3 +1164,26 @@ threadDelayRng = unsafePerformIO (Prob.createSystemRandom >>= newMVar)
 approximateThreadDelay :: Int -> IO ()
 approximateThreadDelay d = withMVar threadDelayRng (approximately d)
                            >>= threadDelay
+
+-- -------------------------------------------------------------------------- --
+-- TLS Manager with connection timeout
+  -- TODO unify with other HTTP managers
+manager :: Int -> IO HTTP.Manager
+manager micros = HTTP.newManager settings
+    { HTTP.managerConnCount = 5
+        -- keep only 5 connections alive
+    , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
+        -- timeout connection-attempts after 10 sec instead of the default of 30 sec
+    , HTTP.managerIdleConnectionCount = 512
+        -- total number of connections to keep alive. 512 is the default
+    , HTTP.managerModifyRequest = \req -> do
+        HTTP.managerModifyRequest settings req
+            { HTTP.responseTimeout = HTTP.responseTimeoutMicro micros
+                -- overwrite the explicit connection timeout from servant-client
+                -- (If the request has a timeout configured, the global timeout of
+                -- the manager is ignored)
+            }
+    }
+  where
+    settings = HTTP.tlsManagerSettings
+
