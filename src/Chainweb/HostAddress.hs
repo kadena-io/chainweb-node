@@ -75,11 +75,16 @@ module Chainweb.HostAddress
 , localhost
 , localhostIPv4
 , localhostIPv6
+, anyIpv4
+, broadcast
+, loopback
 , readHostnameBytes
 , hostnameToText
 , hostnameFromText
 , unsafeHostnameFromText
 , pHostname
+, isReservedHostname
+, isPrivateHostname
 
 -- * HostAddresses
 , HostAddress(..)
@@ -94,6 +99,8 @@ module Chainweb.HostAddress
 , pHostAddress
 , pHostAddress'
 , hostAddressToBaseUrl
+, isPrivateHostAddress
+, isReservedHostAddress
 
 -- * Arbitrary Values
 , arbitraryPort
@@ -121,6 +128,7 @@ import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
 import Data.Hashable (Hashable(..))
+import qualified Net.IPv4 as IP
 import qualified Data.List as L
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
@@ -348,6 +356,34 @@ localhostIPv6 :: Hostname
 localhostIPv6 = HostnameIPv6 "::1"
 {-# INLINE localhostIPv6 #-}
 
+anyIpv4 :: Hostname
+anyIpv4 = HostnameIPv4 "0.0.0.0"
+{-# INLINE anyIpv4 #-}
+
+loopback :: Hostname
+loopback = HostnameIPv4 "127.0.0.1"
+{-# INLINE loopback #-}
+
+broadcast :: Hostname
+broadcast = HostnameIPv4 "255.255.255.255"
+{-# INLINE broadcast #-}
+
+isPrivateHostname :: Hostname -> Bool
+isPrivateHostname (HostnameIPv4 ip) = case IP.decodeUtf8 (CI.original ip) of
+    Nothing -> error "internal invariant violated in Chainweb.Hostaddress.isPrivateHostName"
+    Just ipv4 -> IP.private ipv4
+isPrivateHostname h
+    | h == localhost = True
+    | h == localhostIPv4 = True
+    | h == localhostIPv6 = True
+    | otherwise = False
+
+isReservedHostname :: Hostname -> Bool
+isReservedHostname (HostnameIPv4 ip) = case IP.decodeUtf8 (CI.original ip) of
+    Nothing -> error "internal invariant violated in Chainweb.Hostaddress.isPrivateHostName"
+    Just ipv4 -> IP.reserved ipv4
+isReservedHostname h = isPrivateHostname h
+
 hostnameBytes :: Hostname -> B8.ByteString
 hostnameBytes (HostnameName b) = CI.original b
 hostnameBytes (HostnameIPv4 b) = CI.original b
@@ -503,6 +539,14 @@ hostAddressToBaseUrl s (HostAddress hn p) = BaseUrl s hn' p' ""
   where
     hn' = T.unpack $ hostnameToText hn
     p'  = fromIntegral p
+
+isPrivateHostAddress :: HostAddress -> Bool
+isPrivateHostAddress (HostAddress n _) = isPrivateHostname n
+{-# INLINE isPrivateHostAddress #-}
+
+isReservedHostAddress :: HostAddress -> Bool
+isReservedHostAddress (HostAddress n _) = isReservedHostname n
+{-# INLINE isReservedHostAddress #-}
 
 -- -------------------------------------------------------------------------- --
 -- Host Preference Utils

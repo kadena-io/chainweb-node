@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -37,6 +38,7 @@ module P2P.Node.RestAPI.Server
 
 import Control.Applicative
 import Control.Lens
+import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -102,7 +104,11 @@ peerPutHandler
     -> NetworkId
     -> PeerInfo
     -> Handler NoContent
-peerPutHandler db nid e = liftIO $ NoContent <$ peerDbInsert db nid e
+peerPutHandler db nid e
+    | isReservedHostAddress (_peerAddr e) = throwM $ err400
+        { errBody = "Invalid hostaddress. Hostaddress is private or from a reserved IP range"
+        }
+    | otherwise = liftIO $ NoContent <$ peerDbInsert db nid e
 
 -- -------------------------------------------------------------------------- --
 -- P2P API Server

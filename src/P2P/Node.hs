@@ -92,7 +92,7 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 
 -- Internal imports
 
-import Chainweb.HostAddress (HostAddress(..), hostnameToText)
+import Chainweb.HostAddress (isReservedHostAddress)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
@@ -324,7 +324,7 @@ removeTrivialPeers node pinf = do
     -- TODO Check more IP ranges, possibly in HostAddress module.
     isTrivial :: Bool
     isTrivial = case v of
-        Mainnet01 -> (hostnameToText . _hostAddressHost $ _peerAddr pinf) == "localhost"
+        Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
         _ -> False
 
     canConnect :: IO Bool
@@ -367,6 +367,7 @@ syncFromPeer node info = runClientM sync env >>= \case
         liftIO $ logg node Debug $ "got " <> sshow (_pageLimit p) <> " peers " <> showInfo info
         void $ peerPutClient v nid (_p2pNodePeerInfo node)
         liftIO $ logg node Debug $ "put own peer info to " <> showInfo info
+
         return p
 
     -- If the certificate check fails because the certificate is unknown, the
@@ -444,10 +445,10 @@ findNextPeer conf node = do
 #else
     -- TODO: how expensive is this? should be cache the classification?
     --
-    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLT (SuccessiveFailures 2) base
-        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getLT (SuccessiveFailures 2) base
-        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 2) base
-        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 2) base
+    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
+        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
+        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
+        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
     searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
 #endif
 
