@@ -321,7 +321,7 @@ instance X509Key Ed448.SecretKey where
 instance X509Key RSA.PrivateKey where
     type PK RSA.PrivateKey = RSA.PublicKey
 
-    generateKey = snd <$> RSA.generate 512 0x10001
+    generateKey = snd <$> RSA.generate 2048 0x10001
     publicKey = RSA.toPublicKey . RSA.KeyPair
     getPubKey = PubKeyRSA . publicKey
     getPrivKey = PrivKeyRSA
