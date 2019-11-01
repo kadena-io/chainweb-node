@@ -393,7 +393,7 @@ isPrivateIp ip = any id
     ]
 
 isReservedIp :: IPv4 -> Bool
-isReservedIp ip = any id
+isReservedIp ip = isLocalIp ip || isPrivateIp ip || any id
     [ isMatchedTo ip $ makeAddrRange (toIPv4 [0,0,0,0]) 8
     , isMatchedTo ip $ makeAddrRange (toIPv4 [100,64,0,0]) 10
     , isMatchedTo ip $ makeAddrRange (toIPv4 [169,254,0,0]) 16
