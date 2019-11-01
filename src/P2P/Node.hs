@@ -65,6 +65,7 @@ import Control.Monad.IO.Class
 import Control.Monad.STM
 
 import Data.Aeson hiding (Error)
+import Data.Bool
 -- import Data.Bool (bool)
 import Data.Foldable
 import Data.Hashable
@@ -214,6 +215,10 @@ data P2pNode = P2pNode
     , _p2pNodeActive :: !(TVar Bool)
         -- ^ Wether this node is active. If this is 'False' no new sessions
         -- will be initialized.
+    , _p2pNodeConnectionCheckManager :: !HTTP.Manager
+        -- ^ It's ugly to have a second manager, but servant messes with the
+        -- connection timeout settings and we really want a small connection
+        -- timeout here.
     }
 
 instance HasChainwebVersion P2pNode where
@@ -304,11 +309,11 @@ removeTrivialPeers :: P2pNode -> PeerInfo -> IO (Maybe PeerInfo)
 removeTrivialPeers node pinf = do
     peers <- peerDbSnapshot $ _p2pNodePeerDb node
     if | me == _peerId pinf || isTrivial || isKnown peers -> pure Nothing
-       | otherwise -> pure $ Just pinf -- bool Nothing (Just pinf) <$> canConnect
+       | otherwise -> bool Nothing (Just pinf) <$> canConnect
   where
     v = _chainwebVersion node
-    -- env = peerClientEnv node pinf
-    -- nid = _p2pNodeNetworkId node
+    env = peerClientEnv node pinf
+    nid = _p2pNodeNetworkId node
 
     me :: Maybe PeerId
     me = _peerId $ _p2pNodePeerInfo node
@@ -322,10 +327,10 @@ removeTrivialPeers node pinf = do
         Mainnet01 -> (hostnameToText . _hostAddressHost $ _peerAddr pinf) == "localhost"
         _ -> False
 
-    -- canConnect :: IO Bool
-    -- canConnect = runClientM (peerGetClient v nid (Just 0) Nothing) env >>= \case
-    --     Left _ -> pure False
-    --     Right _ -> pure True
+    canConnect :: IO Bool
+    canConnect = runClientM (peerGetClient v nid (Just 0) Nothing) env >>= \case
+        Left _ -> pure False
+        Right _ -> pure True
 
 peerClientEnv :: P2pNode -> PeerInfo -> ClientEnv
 peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
@@ -613,6 +618,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
     statsVar <- newTVarIO emptyP2pNodeStats
     rngVar <- newTVarIO =<< R.newStdGen
     activeVar <- newTVarIO True
+    cmgr <- Chainweb.Utils.manager 250000
     let !s = P2pNode
                 { _p2pNodeNetworkId = nid
                 , _p2pNodeChainwebVersion = cv
@@ -625,6 +631,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
                 , _p2pNodeClientSession = session
                 , _p2pNodeRng = rngVar
                 , _p2pNodeActive = activeVar
+                , _p2pNodeConnectionCheckManager = cmgr
                 }
 
     logfun @T.Text Info "created node"
