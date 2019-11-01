@@ -367,8 +367,8 @@ library
         , text >= 1.2
         , these >= 1 && < 1.1
         , time >= 1.8
-        , tls >=1.5.2
-        , token-bucket >= 0.1
+        , tls >= 1.5.2
+        , token-limiter >= 0.1
         , transformers >= 0.5
         , unordered-containers >= 0.2
         , uuid >= 1.3

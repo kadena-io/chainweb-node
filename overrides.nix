@@ -97,6 +97,12 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "1b2cdc9d9slxjw5cr4pmplfln5kawj2w74zi92hsmwkffqiycjhz";
       });
 
+      token-limiter = callHackageDirect {
+        pkg = "token-limiter";
+        ver = "0.2.0.0";
+        sha256 = "0mb3wpqip4rggdi0dh1xq8k3s51bcvjxqvhzax7k77nc3rj5l83h";
+      };
+
       tls = callHackageDirect {
         pkg = "tls";
         ver = "1.5.2";

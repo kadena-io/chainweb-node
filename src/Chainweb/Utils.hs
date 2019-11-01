@@ -184,7 +184,7 @@ import Configuration.Utils hiding (Error, Lens)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Concurrent.TokenBucket
+import qualified Control.Concurrent.TokenLimiter as TokenLimit
 import Control.DeepSeq
 import Control.Exception
     (IOException, SomeAsyncException(..), bracket, evaluate)
@@ -879,14 +879,23 @@ runForeverThrottled
     -> IO ()
     -> IO ()
 runForeverThrottled logfun name burst rate a = mask $ \umask -> do
-    tokenBucket <- newTokenBucket
+    tokenBucket <- TokenLimit.newRateLimiter limitConfig
     logfun Info $ "start " <> name
-    let runThrottled = tokenBucketWait tokenBucket burst rate >> a
+    let runThrottled = TokenLimit.waitDebit limitConfig tokenBucket 1 >> a
         go = do
             forever (umask runThrottled) `catchAllSynchronous` \e ->
                 logfun Error $ name <> " failed: " <> sshow e <> ". Restarting ..."
             go
     void go `finally` logfun Info (name <> " stopped")
+  where
+    tokensPerSec = (1000000 + rate - 1) `div` rate
+    maxTokens = fromIntegral (tokensPerSec + burst)
+
+    limitConfig = TokenLimit.defaultLimitConfig {
+        TokenLimit.maxBucketTokens = maxTokens,
+        TokenLimit.initialBucketTokens = maxTokens,
+        TokenLimit.bucketRefillTokensPerSecond = fromIntegral tokensPerSec
+        }
 
 -- -------------------------------------------------------------------------- --
 -- Count leading zero bits of a bytestring
