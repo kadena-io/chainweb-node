@@ -312,7 +312,7 @@ getBalances url (Miner (MinerId mi) _) = do
               printf (T.unpack bs)
               return (tot + bal)
         tot <- foldM f (0 :: Decimal) bbs
-        printf $ "Your total is " <> show (roundTo 12 tot) <> "\n"
+        printf $ "Your total is " <> show (roundTo 12 tot) <> " kda.\n"
   where
     ss :: TLSSettings
     ss = TLSSettingsSimple True True True
@@ -328,7 +328,7 @@ getBalances url (Miner (MinerId mi) _) = do
           (P.PactResult result) <- P._crResult <$> genLocal v c cmd
           return $ case result of
             Right (PLiteral (LDecimal bal)) ->
-              (bal, "The balance on chain " <> cidtext <> " is " <> (T.pack $ show bal) <> ".\n")
+              (bal, "The balance on chain " <> cidtext <> " is " <> (T.pack $ show bal) <> " kda.\n")
             _ -> (0, "Something went wrong when looking for the balance on chain " <> cidtext <> "\n")
 
 
