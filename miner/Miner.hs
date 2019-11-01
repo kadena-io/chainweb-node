@@ -70,6 +70,7 @@ import qualified Data.ByteString.Base16 as B16
 import Data.Decimal
 import Data.Default
 import Data.Generics.Product.Fields (field)
+import Data.List (sort)
 import qualified Data.List.NonEmpty as NEL
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -318,7 +319,7 @@ getBalances url (Miner (MinerId mi) _) = do
     cenv m = ClientEnv m url Nothing
     go = do
       NodeInfo v _ cs _ <- client (Proxy @NodeInfoApi)
-      forM cs $ \cidtext -> do
+      forM (sort cs) $ \cidtext -> do
           c <- chainIdFromText cidtext
           ks <- liftIO $ testSomeKeyPairs
           let _code = printf "(coin.get-balance \"%s\")" (T.unpack mi)
