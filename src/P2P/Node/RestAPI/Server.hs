@@ -38,7 +38,7 @@ module P2P.Node.RestAPI.Server
 
 import Control.Applicative
 import Control.Lens
-import Control.Monad.Catch (throwM)
+import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -105,7 +105,7 @@ peerPutHandler
     -> PeerInfo
     -> Handler NoContent
 peerPutHandler db nid e -- TODO consider connection test here for bad peer
-    | isReservedHostAddress (_peerAddr e) = throwM $ err400
+    | isReservedHostAddress (_peerAddr e) = throwError $ err400
         { errBody = "Invalid hostaddress. Hostaddress is private or from a reserved IP range"
         }
     | otherwise = liftIO $ NoContent <$ peerDbInsert db nid e
