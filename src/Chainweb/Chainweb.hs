@@ -76,6 +76,7 @@ module Chainweb.Chainweb
 , chainwebPactData
 , chainwebThrottler
 , chainwebConfig
+, chainwebRouteBlacklist
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -121,6 +122,7 @@ import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
+import Network.HTTP.Types.Status (status404)
 
 import Numeric.Natural
 
@@ -212,6 +214,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configDisabledEndpoints :: ![T.Text]
     }
     deriving (Show, Eq, Generic)
 
@@ -244,6 +247,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
     , _configBlockGasLimit = 100000
+    , _configDisabledEndpoints = []
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -261,6 +265,7 @@ instance ToJSON ChainwebConfiguration where
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
         , "blockGasLimit" .= _configBlockGasLimit o
+        , "disabledEndpoints" .= _configDisabledEndpoints o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -278,6 +283,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
+        <*< configDisabledEndpoints . from leftMonoidalUpdate %.: "disabledEndpoints" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -316,6 +322,10 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configDisabledEndpoints %:: pLeftMonoidalUpdate % fmap pure % textOption
+        % long "disable-endpoint"
+        <> help "disable endpoints with this prefix on the local node"
+        <> metavar "PATHPREFIX"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -334,6 +344,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
     , _chainwebThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
+    , _chainwebRouteBlacklist :: !Middleware
     }
 
 makeLenses ''Chainweb
@@ -560,6 +571,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebPactData = pactData
                             , _chainwebThrottler = throttler
                             , _chainwebConfig = conf
+                            , _chainwebRouteBlacklist = routeBlacklist
                             }
 
     withPactData
@@ -611,6 +623,15 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
 
+    routeBlacklist :: Middleware
+    routeBlacklist app req respond
+        | test = respond $ responseLBS status404 [] "Endpoint not supported by this node"
+        | otherwise = app req respond
+      where
+        test = any
+            (\x -> x `T.isPrefixOf` (T.intercalate "/" (pathInfo req)))
+            (_configDisabledEndpoints conf)
+
 -- | Starts server and runs all network clients
 --
 runChainweb
@@ -623,7 +644,7 @@ runChainweb cw = do
     logg Info "start chainweb node"
     concurrently_
         -- 1. Start serving Rest API
-        (serve (throttle (_chainwebThrottler cw) . httpLog))
+        (serve (_chainwebRouteBlacklist cw . throttle (_chainwebThrottler cw) . httpLog))
         -- 2. Start Clients (with a delay of 500ms)
         (threadDelay 500000 >> clients)
   where
