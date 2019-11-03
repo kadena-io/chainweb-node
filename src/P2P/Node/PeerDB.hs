@@ -54,6 +54,9 @@ module P2P.Node.PeerDB
 , fromPeerEntryList
 , fromPeerInfoList
 
+-- * PeerSet
+, PeerSet
+
 -- * Update PeerDb Entries
 , updateLastSuccess
 , resetSuccessiveFailures

@@ -27,21 +27,11 @@ run their Chainweb node.
   - [Architecture Overview](#architecture-overview)
 
 ## Chainweb Bootstrap Nodes
-
-Below are the addresses of the Bootstrap nodes of the public Chainweb Testnet
-network:
- - us1.testnet.chainweb.com
- - us2.testnet.chainweb.com
- - eu1.testnet.chainweb.com
- - eu2.testnet.chainweb.com
- - ap1.testnet.chainweb.com
- - ap2.testnet.chainweb.com
-
+You can find the bootstrap nodes of the public Chainweb Mainnet: [here](https://github.com/kadena-io/chainweb-node/wiki)
+ 
 ## Linux Users
 
-Download the binaries:
- - Chainweb-node Testnet binary: [chainweb-node-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/tag/testnet-v3)
- - Chainweb miner Testnet binary: [chainweb-miner-testnet-v3-ubuntu-18.04](https://github.com/kadena-io/chainweb-node/releases/tag/testnet-v3)
+The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases/tag/1.0)
 
 You will need to install rocksdb with the following command:
 
@@ -63,8 +53,7 @@ several ways.
 - Homebrew: `brew install git`
 - [Installer](https://git-scm.com/downloads)
 
-To get the code, you can either use the [Source code (zip)](https://github.com/kadena-io/chainweb-node/archive/testnet-v3.zip) or the [Source code (tar.gz)](https://github.com/kadena-io/chainweb-node/archive/testnet-v3.tar.gz)
-
+To get the code, you can go [here](https://github.com/kadena-io/chainweb-node/releases/tag/1.0)
 
 You have the code, now let's pick a build tool.
 

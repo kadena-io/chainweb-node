@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.0
+version:      1.0.1
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -25,7 +25,7 @@ extra-source-files:
 
     -- sender information
 
-    pact/genesis/testnet/keys.yaml
+    pact/genesis/devnet/keys.yaml
 
     -- miner rewards
 
@@ -321,6 +321,7 @@ library
         , http-client-tls >=0.3
         , http-media >= 0.7
         , http-types >= 0.12
+        , iproute >= 1.7
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
@@ -380,6 +381,7 @@ library
         , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
+        , witherable >= 0.3
         , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
@@ -691,6 +693,7 @@ executable cwtool
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
         Ea
+        Ea.Genesis
         Gexf
         Network.X509.SelfSigned.Test
         RunNodes
