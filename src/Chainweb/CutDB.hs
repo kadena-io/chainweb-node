@@ -465,10 +465,7 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar
             onFailedCut
     = queueToStream
     & S.chain (\c -> loggc Debug c $ "start processing")
-    & S.filterM (fmap not . isVeryOld)
-    & S.filterM (fmap not . farAhead)
-    & S.filterM (fmap not . isOld)
-    & S.filterM (fmap not . isCurrent)
+    & filterOut [isVeryOld, farAhead, isOld, isCurrent]
     & S.chain (\c -> loggc Debug c $ "fetch all prerequisites")
     & S.mapM (cutHashesToBlockHeaderMap logFun headerStore payloadStore)
     & S.chain (either
@@ -533,6 +530,12 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar
         let r = _cutHashes curHashes == _cutHashes x
         when r $ loggc Debug x "skip current cut"
         return r
+
+    filterOut fs = S.filterM (\c -> not <$> anyM fs c)
+
+    anyM [] _ = return False
+    anyM (f:fs) c = do b <- f c
+                       if b then return True else anyM fs c
 
 -- | Stream of most recent cuts. This stream does not generally include the full
 -- history of cuts. When no cuts are demanded from the stream or new cuts are
