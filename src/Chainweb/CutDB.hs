@@ -701,23 +701,23 @@ cutHashesToBlockHeaderMap logfun headerStore payloadStore hs =
   where
     go :: IO (Either (HM.HashMap ChainId BlockHash, CutHashes)
                      (HM.HashMap ChainId BlockHeader))
-    go =
-        trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" (_cutId hs) 1 $ do
-            plds <- emptyCas
-            casInsertBatch plds $ V.fromList $ HM.elems $ _cutHashesPayloads hs
+    go = trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap"
+               (_cutId hs) 1 $ do
+        plds <- emptyCas
+        casInsertBatch plds $ V.fromList $ HM.elems $ _cutHashesPayloads hs
 
-            hdrs <- emptyCas
-            casInsertBatch hdrs $ V.fromList $ HM.elems $ _cutHashesHeaders hs
+        hdrs <- emptyCas
+        casInsertBatch hdrs $ V.fromList $ HM.elems $ _cutHashesHeaders hs
 
-            (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-                & S.map (fmap snd)
-                & S.mapM (tryGetBlockHeader hdrs plds)
-                & S.partitionEithers
-                & S.fold_ (\(!x) (cid, h) -> HM.insert cid h x) mempty id
-                & S.fold (\(!x) (cid, h) -> HM.insert cid h x) mempty id
-            if null missing
-                then return $! Right headers
-                else return $! Left (missing, hs)
+        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
+            & S.map (fmap snd)
+            & S.mapM (tryGetBlockHeader hdrs plds)
+            & S.partitionEithers
+            & S.fold_ (\(!x) (cid, h) -> HM.insert cid h x) mempty id
+            & S.fold (\(!x) (cid, h) -> HM.insert cid h x) mempty id
+        if null missing
+            then return $! Right headers
+            else return $! Left (missing, hs)
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
