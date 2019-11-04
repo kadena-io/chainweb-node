@@ -346,6 +346,7 @@ library
         , resourcet >= 1.2
         , safeio >= 0.0
         , safe-exceptions >= 0.1
+        , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16
         , servant-client >= 0.16
