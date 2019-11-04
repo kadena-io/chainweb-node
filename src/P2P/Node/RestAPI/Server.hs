@@ -113,13 +113,11 @@ peerPutHandler db v nid e -- TODO consider connection test here for bad peer
     | isReservedHostAddress (_peerAddr e) = throwM $ err400
         { errBody = "Invalid hostaddress. Hostaddress is private or from a reserved IP range"
         }
-    | otherwise = do
-        liftIO (guardPeerDb v nid db e) >>= \case
-            Left failure -> throwError $ err400
-                { errBody = "Invalid hostaddress. The given host isn't reachable. (" <> sshow failure <> ")"
-                }
-            Right _ -> return ()
-        NoContent <$ liftIO (peerDbInsert db nid e)
+    | otherwise = liftIO (guardPeerDb v nid db e) >>= \case
+        Left failure -> throwError $ err400
+            { errBody = "Invalid hostaddress. The given host isn't reachable. (" <> sshow failure <> ")"
+            }
+        Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --
 -- P2P API Server

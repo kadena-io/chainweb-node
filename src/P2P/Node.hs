@@ -396,7 +396,8 @@ syncFromPeer node info = runClientM sync env >>= \case
             logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
             return False
     Right p -> do
-        goods <- fmap catMaybes $ mapConcurrently (guardPeerDbOfNode node)
+        goods <- fmap catMaybes
+            $ mapConcurrently (guardPeerDbOfNode node)
             $ filter (\i -> me /= _peerId i)
             $ _pageItems p
         peerDbInsertPeerInfoList
