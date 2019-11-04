@@ -12,14 +12,6 @@ Read our [whitepapers](https://www.kadena.io/whitepapers):
 
 - [Agent-based Simulations of Blockchain Protocols illustrated via Kadena's *Chainweb*](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_3b2d0c58179d4edd9df6df4d55d61dda.pdf)
 
-
-
-With our recent release of Chainweb Testnet v3, we now have a public network to
-which anyone can connect, plus the ability to mine (either by using the new
-`chainweb-miner` or by running a node). As before, we provide a binary for Linux
-users, and Mac users can follow the instructions to build from source and then
-run their Chainweb node.
-
 ## Table of Contents
 
 - [Chainweb Bootstrap Nodes](#chainweb-bootstrap-nodes)
