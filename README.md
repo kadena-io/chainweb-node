@@ -31,7 +31,7 @@ You can find the bootstrap nodes of the public Chainweb Mainnet: [here](https://
  
 ## Linux Users
 
-The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases/tag/1.0)
+The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases)
 
 You will need to install rocksdb with the following command:
 
