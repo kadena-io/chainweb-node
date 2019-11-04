@@ -66,12 +66,14 @@ module Main ( main ) where
 import Control.Retry
 import Control.Scheduler (Comp(..), replicateWork, terminateWith, withScheduler)
 import Data.Aeson
-import qualified Data.ByteString.Base16 as B16
 import Data.Decimal
 import Data.Default
 import Data.Generics.Product.Fields (field)
 import Data.List (sort)
 import qualified Data.List.NonEmpty as NEL
+import Data.Foldable1
+import Data.Monoid
+import Data.These
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Tuple.Strict (T2(..), T3(..))
 import Network.Connection (TLSSettings(..))
@@ -102,19 +104,16 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation (prop_block_pow)
 import Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import Chainweb.Miner.Core
-import Chainweb.Miner.Pact (Miner(..), MinerId(..), pMiner)
+import Chainweb.Miner.Pact (Miner(..), pMiner)
 import Chainweb.Miner.RestAPI.Client (solvedClient, workClient)
-import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.Client
 import Chainweb.RestAPI.NodeInfo (NodeInfo(..), NodeInfoApi)
-import Chainweb.Utils (runGet, textOption, toText)
+import Chainweb.Utils (runGet, textOption, toText, sshow)
 import Chainweb.Version
 
-import Pact.ApiReq (mkExec, mkKeyPairs, ApiKeyPair(..))
-import qualified Pact.Types.ChainId as P (ChainId(..), NetworkId(..))
-import Pact.Types.ChainMeta (PublicMeta(..))
-import qualified Pact.Types.Command as P (Command (..), CommandResult(..), PactResult(..), SomeKeyPairCaps)
+import Pact.ApiReq (mkExec)
+import qualified Pact.Types.Command as P (CommandResult(..), PactResult(..))
 import Pact.Types.Crypto
-import Pact.Types.Hash
 import Pact.Types.Exp (Literal(..))
 import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Util
@@ -138,7 +137,7 @@ data Command =
     CPU CPUEnv ClientArgs
     | GPU GPUEnv ClientArgs
     | Keys
-    | BalanceCheck BaseUrl Miner
+    | Balance BaseUrl String
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 
@@ -170,7 +169,7 @@ pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
     <> command "keys" (info keysOpts (progDesc "Generate public/private key pair"))
-    <> command "balance-check" (info balanceCheckOpts (progDesc "Get balances on all chains"))
+    <> command "Balance" (info balancesOpts (progDesc "Get balances on all chains"))
     )
 
 pMinerPath :: Parser Text
@@ -196,8 +195,11 @@ cpuOpts = liftA2 (CPU . CPUEnv) pCores pClientArgs
 keysOpts :: Parser Command
 keysOpts = pure Keys
 
-balanceCheckOpts :: Parser Command
-balanceCheckOpts = BalanceCheck <$> pUrl <*> pMiner
+balancesOpts :: Parser Command
+balancesOpts = Balance <$> pUrl <*> pMinerName
+  where
+    pMinerName =
+      strOption (long "miner-account" <> help "Coin Contract account name of Miner")
 
 pCores :: Parser Word16
 pCores = option auto
@@ -236,7 +238,7 @@ main :: IO ()
 main = do
     execParser opts >>= \case
         Keys -> genKeys
-        BalanceCheck url _miner -> getBalances url _miner
+        Balance url minerAccountName -> getBalances url minerAccountName
         cmd@(CPU _ cargs) -> work cmd cargs >> exitFailure
         cmd@(GPU _ cargs) -> work cmd cargs >> exitFailure
   where
@@ -287,70 +289,89 @@ scheme env = case envCmd env of
     GPU e _ -> gpu e
     _ -> error "Impossible: You shouldn't reach this case."
 
-
-{- this will be ugly -}
-genLocal
-    :: ChainwebVersion
-    -> ChainId
-    -> P.Command Text
-    -> ClientM (P.CommandResult Hash)
-genLocal version cid =
-  case someChainwebVersionVal version of
-    SomeChainwebVersionT (_ :: Proxy cv) ->
-      case someChainIdVal cid of
-        SomeChainIdT (_ :: Proxy ccid) ->
-          client (Proxy :: Proxy (PactLocalApi cv ccid))
-
-getBalances :: BaseUrl -> Miner -> IO ()
-getBalances url (Miner (MinerId mi) _) = do
-    balanceStmts <- newManager (mkManagerSettings ss Nothing) >>= runClientM go . cenv
+getBalances :: BaseUrl -> String -> IO ()
+getBalances url mi = do
+    balanceStmts <- newManager (mkManagerSettings ss Nothing) >>= go . cenv
     case balanceStmts of
-      Left e -> throwM e
-      Right bbs -> do
-        let f :: Decimal -> (Decimal, Text) -> IO Decimal
-            f tot (bal, bs) = do
-              printf (T.unpack bs)
-              return (tot + bal)
-        tot <- foldM f (0 :: Decimal) bbs
-        printf $ "Your total is " <> show (roundTo 12 tot) <> " kda.\n"
+      These errors balances -> do
+        printf "-- Retrieved Balances -- \n"
+        forM_ (fromDList balances) (printf . T.unpack . uncurry toBalanceMsg)
+        printf "-- Unfortunate Errors --\n"
+        forM_ (fromDList errors) (printf . T.unpack . uncurry toErrMsg)
+      This errors -> do
+        printf "-- Unfortunate Errors --\n"
+        forM_ (fromDList errors) (printf . T.unpack . uncurry toErrMsg)
+      That balances -> do
+        printf "-- Retrieved Balances -- \n"
+        total <- foldM printBalance 0 $ (fromDList balances)
+        printf $ "Your total is " <> sshow (roundTo 12 total) <> " KDA.\n"
   where
-    ss :: TLSSettings
+    fromDList = flip appEndo []
+    printBalance :: Decimal -> (Text, Decimal) -> IO Decimal
+    printBalance tot (c, bal) = do
+        printf $ T.unpack $ toBalanceMsg c bal
+        return $ tot + bal
+
     ss = TLSSettingsSimple True True True
     cenv m = ClientEnv m url Nothing
-    go = do
-      NodeInfo v _ cs _ <- client (Proxy @NodeInfoApi)
-      forM (sort cs) $ \cidtext -> do
+    mConc as f = runConcurrently $ foldMap1 (Concurrently . f) as
+
+    go :: ClientEnv -> IO (These (Endo [(Text, LocalCmdError)]) (Endo [(Text, Decimal)]))
+    go env = do
+      NodeInfo v _ cs _ <-
+         runClientM (client (Proxy @NodeInfoApi)) env >>= either (throwString . show) return
+      mConc (NEL.fromList $ sort cs) $ \cidtext -> do
           c <- chainIdFromText cidtext
-          ks <- liftIO $ testSomeKeyPairs
-          let _code = printf "(coin.get-balance \"%s\")" (T.unpack mi)
-              meta = def { _pmChainId = P.ChainId cidtext }
-          cmd <- liftIO $ mkExec _code Null meta (NEL.toList ks) (Just $ P.NetworkId $ toText v) Nothing
-          (P.PactResult result) <- P._crResult <$> genLocal v c cmd
-          return $ case result of
-            Right (PLiteral (LDecimal bal)) ->
-              (bal, "The balance on chain " <> cidtext <> " is " <> (T.pack $ show bal) <> " kda.\n")
-            _ -> (0, "Something went wrong when looking for the balance on chain " <> cidtext <> "\n")
+          cmd <-
+            mkExec (printf "(coin.get-balance \"%s\")" mi) Null def mempty Nothing Nothing
+          toLocalResult cidtext <$> runClientM (pactLocalApiClient v c cmd) env
 
+    toLocalResult c r =
+      case r of
+        Right res -> convertResult c $ P._crResult res
+        Left l -> This $ Endo ((c, Client l) :)
 
-testSomeKeyPairs :: IO (NEL.NonEmpty P.SomeKeyPairCaps)
-testSomeKeyPairs = do
-    let (pub, priv, addr, scheme') = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme') Nothing
-    NEL.fromList <$> mkKeyPairs [apiKP]
+    convertResult c (P.PactResult result) =
+       case result of
+        Right (PLiteral (LDecimal bal)) -> That $ Endo ((c, bal) :)
+        Left perr -> This $ Endo ((c, LookupError (T.pack $ show perr)) :)
+        Right a -> This $ Endo ((c, PactResponseError (T.pack $ show a)) :)
 
-decodeKey :: B.ByteString -> B.ByteString
-decodeKey = fst . B16.decode
+data LocalCmdError
+  = Client ClientError -- text here is chainid
+  | LookupError Text -- the first text here is chainid
+  | PactResponseError Text
 
--- | note this is "sender00"'s key
-someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
-someED25519Pair =
-    ( PubBS $ decodeKey
-        "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-    , PrivBS $ decodeKey
-        "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
-    , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-    , ED25519
-    )
+toErrMsg :: Text -> LocalCmdError -> Text
+toErrMsg c (Client err) =
+  mconcat
+    ["Client erro on chain "
+    , c
+    , ": "
+    , T.pack $ show err
+    , "\n"
+    ]
+toErrMsg c (LookupError err) =
+  mconcat
+    ["Balance lookup error on chain: "
+     , c
+     , ": "
+     , err
+     , "\n"
+     ]
+toErrMsg c (PactResponseError err) =
+  mconcat
+  ["Pact result error on chain: "
+  , sshow c
+  , ": "
+  , sshow err
+  , ". This should never happen. Please raise an issue at "
+  , "https://github.com/kadena-io/chainweb-node/issues."
+  ]
+
+toBalanceMsg :: Text -> Decimal -> Text
+toBalanceMsg cidtext bal =
+  "Your balance on chain " <> cidtext <> " is " <> (T.pack $ show (roundTo 12 bal)) <> " KDA.\n"
 
 genKeys :: IO ()
 genKeys = do

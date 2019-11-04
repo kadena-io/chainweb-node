@@ -183,13 +183,12 @@ this example:
 
 #+BEGIN_SRC bash
   ./chainweb-miner cpu --node=us-e3.chainweb.com:443
-  --node=us-e2.chainweb.com:443 --miner-account example
-  --miner-key example --miner-pred keys-all --chain 0
+  --node=us-e2.chainweb.com:443 ...
 #+END_SRC
 
 Before discussing the aforementioned necessary clarification, note
 that specifying multiple nodes is rather straightforward: just add
-another --node= clause (as found in the example)! Now, when you
+another ~--node=~ clause (as found in the example)! Now, when you
 specify multiple nodes to mine, this does not mean that the first
 block you mine is from us-e3.chainweb.com while the second is from
 us-e2.chainweb.com. Instead, the first node found on the command line
@@ -200,8 +199,8 @@ establish a connection with the specified next node. This process will
 continue until there are no more nodes left to consider. Upon this
 event, the chainweb-miner process will halt and exit. For example,
 given the above example, if the chainweb-miner cannot communicate with
-either us-e3.chainweb and us-e2.chainweb.com, the chainweb-miner
-process will terminate.
+either us-e3.chainweb and us-e2.chainweb.com, its process will
+terminate.
 
 Also, the first node specified from the left is the first node that
 chainweb-miner attempts to form a communication channel to get blocks
@@ -235,6 +234,8 @@ The balance on chain 9 is 48.394983.
 Your total is 580.739796000000
 #+END_EXAMPLE
 
+We recommend querying your balance from the node you have been mining
+to as well as a couple other nodes (i.e. the bootstrap nodes).
 ** Troubleshooting
 
 *** I mined using the wrong account name and/or public key!
