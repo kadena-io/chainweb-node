@@ -73,9 +73,9 @@ import qualified Data.HashSet as HS
 import Data.IORef
 import qualified Data.IxSet.Typed as IXS
 import qualified Data.Map.Strict as M
+import Data.Maybe
 import qualified Data.Text as T
 import Data.Tuple
-import Data.Witherable (wither)
 
 import GHC.Generics
 
@@ -302,7 +302,7 @@ setInactive node = writeTVar (_p2pNodeActive node) False
 --
 newPeerManager :: IORef HTTP.Manager
 newPeerManager = unsafePerformIO
-    $ unsafeManager 1000000 {- 1 second -} >>= newIORef
+    $ unsafeManager 2000000 {- 1 second -} >>= newIORef
 {-# NOINLINE newPeerManager #-}
 
 getNewPeerManager :: IO HTTP.Manager
@@ -389,7 +389,7 @@ syncFromPeer node info = runClientM sync env >>= \case
             logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
             return False
     Right p -> do
-        goods <- wither (guardPeerDbOfNode node)
+        goods <- fmap catMaybes $ mapConcurrently (guardPeerDbOfNode node)
             $ filter (\i -> me /= _peerId i)
             $ _pageItems p
         peerDbInsertPeerInfoList
