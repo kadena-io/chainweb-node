@@ -149,6 +149,7 @@ data LimitConfig = LimitConfig
     { maxBucketTokens :: Int
     , initialBucketTokens :: Int
     , bucketRefillTokensPerSecond :: Int
+    , badSenderPenaltySecs :: Int
     } deriving (Eq, Ord, Show)
 
 
@@ -180,7 +181,7 @@ defaultCutDbConfig v = CutDbConfig
   where
     g = _chainGraph v
     exptime = Clock.TimeSpec { Clock.sec = 10 * 60, Clock.nsec = 0 }
-    rlPolicy = LimitConfig 60 60 30
+    rlPolicy = LimitConfig 60 60 30 20
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:
@@ -324,7 +325,8 @@ withCutDb
 withCutDb config logfun headerStore payloadStore cutHashesStore act
     = withRL $ \limiter ->
       bracket
-        (startCutDb config logfun headerStore payloadStore cutHashesStore limiter)
+        (startCutDb config logfun headerStore payloadStore cutHashesStore limiter
+                    penaltySecs)
         stopCutDb
         act
   where
@@ -336,6 +338,7 @@ withCutDb config logfun headerStore payloadStore cutHashesStore act
                       , TokenLimiter.bucketRefillTokensPerSecond =
                             bucketRefillTokensPerSecond limitPolicy
                       }
+    penaltySecs = badSenderPenaltySecs limitPolicy
 
     withRL = Limiter.withTokenLimitMap logfun "CutDB rate limiter" cachePolicy
                                        limitConfig
@@ -356,8 +359,10 @@ startCutDb
     -> WebBlockPayloadStore cas
     -> RocksDbCas CutHashes
     -> Limiter.TokenLimitMap PeerInfo
+    -> Int
     -> IO (CutDb cas)
-startCutDb config logfun headerStore payloadStore cutHashesStore limiter = mask_ $ do
+startCutDb config logfun headerStore payloadStore cutHashesStore limiter
+           penaltySeconds = mask_ $ do
     logg Debug "obtain initial cut"
     cutVar <- newTVarIO =<< initialCut
     c <- readTVarIO cutVar
@@ -378,10 +383,6 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter = mask_
   where
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
-
-    -- TODO: configurable knob here
-    penaltySeconds :: Int
-    penaltySeconds = 20
 
     refillRate :: Int
     refillRate = Limiter.bucketRefillTokensPerSecond $
@@ -411,7 +412,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter = mask_
         let mbS = _cutOrigin ch
         case mbS of
             Nothing -> return ()
-            Just s -> do
+            Just s -> when (penaltyTokens > 0) $ do
                 logfun Warn $ penaltyMsg s
                 void $ Limiter.penalize penaltyTokens s limiter
 

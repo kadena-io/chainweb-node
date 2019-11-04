@@ -259,9 +259,11 @@ withTestPayloadResource
     -> (IO (CutDb RocksDbCas, PayloadDb RocksDbCas) -> TestTree)
     -> TestTree
 withTestPayloadResource rdb v n logfun inner
-    = withTestPayloadResource' rdb v n logfun lcfg inner
+    = withTestPayloadResource' rdb v n logfun lcfg penaltySecs inner
   where
     lcfg = Limiter.makeLimitConfig 10000 10000 100000
+    -- turn off failure penalties for testing by default
+    penaltySecs = 0
 
 withTestPayloadResource'
     :: RocksDb
@@ -269,14 +271,16 @@ withTestPayloadResource'
     -> Int
     -> LogFunction
     -> Limiter.LimitConfig
+    -> Int
     -> (IO (CutDb RocksDbCas, PayloadDb RocksDbCas) -> TestTree)
     -> TestTree
-withTestPayloadResource' rdb v n logfun lcfg inner
+withTestPayloadResource' rdb v n logfun lcfg penaltySecs inner
     = withResource start stopTestPayload $ \envIO -> do
         inner (envIO >>= \(_,_,_,a,b) -> return (a,b))
   where
     cp = Limiter.TokenLimitCachePolicy 200
-    start = startTestPayload rdb v logfun n cp lcfg
+    -- turn off penalties for tests
+    start = startTestPayload rdb v logfun n cp lcfg penaltySecs
 
 -- -------------------------------------------------------------------------- --
 -- Internal Utils for mocking up the backends
@@ -288,8 +292,9 @@ startTestPayload
     -> Int
     -> Limiter.TokenLimitCachePolicy
     -> Limiter.LimitConfig
+    -> Int
     -> IO (TokenLimitMap PeerInfo, Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
-startTestPayload rdb v logfun n lCP lCfg = do
+startTestPayload rdb v logfun n lCP lCfg penaltySecs = do
     tlm <- Limiter.startTokenLimitMap logfun "test payload limiter" lCP lCfg
     rocksDb <- testRocksDb "startTestPayload" rdb
     let payloadDb = newPayloadDb rocksDb
@@ -300,6 +305,7 @@ startTestPayload rdb v logfun n lCP lCfg = do
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
     cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore cutHashesDb tlm
+                        penaltySecs
     foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
     return (tlm, pserver, hserver, cutDb, payloadDb)
 
