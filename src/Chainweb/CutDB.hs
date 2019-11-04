@@ -582,6 +582,11 @@ blockStream db = cutStreamToHeaderStream db $ cutStream db
 blockDiffStream :: MonadIO m => CutDb cas -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
 blockDiffStream db = cutStreamToHeaderDiffStream db $ cutStream db
 
+-- TODO define as constant or make configurable
+--
+cutFetchTimeout :: Int
+cutFetchTimeout = 3000000
+
 cutHashesToBlockHeaderMap
     :: PayloadCas cas
     => LogFunction
@@ -591,8 +596,14 @@ cutHashesToBlockHeaderMap
     -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout 3000000 go >>= \case -- TODO define as constant or make configurable
-    Nothing -> return $! Left mempty
+cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout cutFetchTimeout go >>= \case
+    Nothing -> do
+        logfun Warn
+            $ "Timeout while processing cut "
+                <> (cutIdToTextShort $ _cutId hs)
+                <> " at height " <> sshow (_cutHashesHeight hs)
+                <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
+        return $! Left mempty
     Just x -> return $! x
   where
     go =

@@ -180,6 +180,8 @@ module Chainweb.Utils
 
 -- * TLS Manager with connection timeout settings
 , manager
+, unsafeManager
+, setManagerRequestTimeout
 
 -- * SockAddr from network package
 , showIpv4
@@ -241,6 +243,7 @@ import GHC.Generics
 import GHC.Stack (HasCallStack)
 import GHC.TypeLits (KnownSymbol, symbolVal)
 
+import qualified Network.Connection as HTTP
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTP
 import Network.Socket
@@ -1176,15 +1179,23 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 
 -- -------------------------------------------------------------------------- --
 -- TLS Manager with connection timeout
-  -- TODO unify with other HTTP managers
+--
+-- TODO unify with other HTTP managers
+
 manager :: Int -> IO HTTP.Manager
-manager micros = HTTP.newManager settings
-    { HTTP.managerConnCount = 5
-        -- keep only 5 connections alive
-    , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
+manager micros = HTTP.newManager
+    $ setManagerRequestTimeout micros
+    $ HTTP.tlsManagerSettings
+
+unsafeManager :: Int -> IO HTTP.Manager
+unsafeManager micros = HTTP.newTlsManagerWith
+    $ setManagerRequestTimeout micros
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
+
+setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
+setManagerRequestTimeout micros settings = settings
+    { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
         -- timeout connection-attempts after 10 sec instead of the default of 30 sec
-    , HTTP.managerIdleConnectionCount = 512
-        -- total number of connections to keep alive. 512 is the default
     , HTTP.managerModifyRequest = \req -> do
         HTTP.managerModifyRequest settings req
             { HTTP.responseTimeout = HTTP.responseTimeoutMicro micros
@@ -1193,8 +1204,6 @@ manager micros = HTTP.newManager settings
                 -- the manager is ignored)
             }
     }
-  where
-    settings = HTTP.tlsManagerSettings
 
 -- -------------------------------------------------------------------------- --
 -- SockAddr from network package
