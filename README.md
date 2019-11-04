@@ -4,8 +4,11 @@
 
 <p>&nbsp;</p>
 
-# Chainweb
+# Kadena
 --
+
+
+Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocl. Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability while maintaining the security and integrity found in Bitcoin. 
 
 Read our [whitepapers](https://www.kadena.io/whitepapers):
 
@@ -17,7 +20,7 @@ For additional information, press, and development inquires, please refer to the
 ## Table of Contents
 
 - [Wiki](#chainweb-wiki)
-- [Installing Chainweb](#installing-chainweb)
+- [Installing Kadena](#installing-kadena)
   - [Instructions for Linux Users](#linux-users)
   - [Instructions for Mac Users](#mac-users)
 - [Running Chainweb Node](#running-chainweb-node)
@@ -33,12 +36,12 @@ For additional information, press, and development inquires, please refer to the
 
 ## Wiki
 
-The Chainweb wiki serves as a source of information that receives regular updates. You can find the chainweb Wiki [here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of frequently asked questions regarding  network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
+The Kadena wiki serves as a source of information that receives regular updates. You can find the chainweb Wiki [here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of frequently asked questions regarding  network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
 
 If you have additions or comments, please submit a pull request or raise an issue.
 
 
-## Installing Chainweb
+## Installing Kadena
 ### Linux Users
 
 The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases)
@@ -296,7 +299,7 @@ The production components are:
 
 ### Architecture Overview
 
-For a detailed description of the `chainweb` architecture,
+For a detailed description of the Kadena architecture,
 [see here](docs/Architecture.md).
 
 ![Architecture Overview](docs/Overview.png)
