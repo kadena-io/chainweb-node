@@ -127,9 +127,13 @@ withTestCutDb rdb v n pactIO logfun f = do
     pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
-            withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
+            withCutDb cutdbCfg logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
                 foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
+  where
+    cutdbCfg = (defaultCutDbConfig v) { _cutDbConfigRateLimitPolicy = rlPolicy }
+    -- disable (effectively) rate limiting for tests
+    rlPolicy = LimitConfig 10000 10000 100000 0
 
 -- | Adds the requested number of new blocks to the given 'CutDb'.
 --
