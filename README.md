@@ -1,3 +1,9 @@
+<p align="center">
+<img src="https://static.wixstatic.com/media/ff08e6_c60c7b14d1d543edbd57674f6c1310fe~mv2.png" alt="Polysemy" title="Polysemy">
+</p>
+
+<p>&nbsp;</p>
+
 # Chainweb
 
 Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
@@ -11,6 +17,7 @@ run their Chainweb node.
 ## Table of Contents
 
 - [Chainweb Bootstrap Nodes](#chainweb-bootstrap-nodes)
+- [FAQ](#chainweb-faq)
 - Installing Chainweb
   - [Instructions for Linux Users](#linux-users)
   - [Instructions for Mac Users](#mac-users)
@@ -29,15 +36,25 @@ run their Chainweb node.
 ## Chainweb Bootstrap Nodes
 You can find the bootstrap nodes of the public Chainweb Mainnet: [here](https://github.com/kadena-io/chainweb-node/wiki)
  
+## FAQ 
+You can find the list of frequently asked questions, including network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/releases). 
+
 ## Linux Users
 
-The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases/tag/1.0)
+The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases)
 
-You will need to install rocksdb with the following command:
+### Apt-based distributions
+If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you will need to install rocksdb with the following command:
 
 ```bash
 sudo apt install librocksdb5.8
 ```
+
+If this is not available, then please view the [Rocksdb](https://rocksdb.org/) site for alternative modes of installation. 
+
+### Other distributions
+
+For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please consult your distro's repositories for `librocksdb5.8` and install with its preferred package manager, or follow the alternative modes of installation described in [Rocksdb](https://rocksdb.org/). 
 
 At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
 
