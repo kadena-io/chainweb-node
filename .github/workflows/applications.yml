@@ -120,7 +120,7 @@ jobs:
     - name: Update package database
       run: cabal v2-update
     - name: Configure build
-      run: 'grep "ghc-${{ matrix.ghc }}" dist-newstyle/cache/plan.json || cabal v2-configure'
+      run: 'grep -q "ghc-${{ matrix.ghc }}" dist-newstyle/cache/plan.json || cabal v2-configure'
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       run: eval $SYNC_FROM_CACHE
