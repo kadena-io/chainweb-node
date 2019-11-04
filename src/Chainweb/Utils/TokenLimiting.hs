@@ -70,7 +70,7 @@ withTokenLimitMap logfun mapName expPolicy@(TokenLimitCachePolicy expTSpec) lcfg
         cache <- restore (Cache.newCache (Just expTSpec))
         Async.withAsync (reap cache) $ \rtid -> do
             let m = TokenLimitMap cache lcfg rtid expPolicy
-            act m
+            restore $ act m
   where
     reap = reaper logfun mapName
 
