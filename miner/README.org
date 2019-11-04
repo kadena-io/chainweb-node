@@ -59,7 +59,7 @@ For beginners, we recommend ~chainweb-miner~. Either way, you will need a Key
 Pair before beginning.
 
 ** Obtaining a Key Pair
-The easiest way to obtain a Key Pair is by typing `./chainweb-miner keys` in your terminal window.
+The easiest way to obtain a Key Pair is by typing ~./chainweb-miner keys~ in your terminal window.
 Once generated, please be very careful to note down the public and secret (private) key as you don't want to lose them.
 
 ** Mining with chainweb-node
