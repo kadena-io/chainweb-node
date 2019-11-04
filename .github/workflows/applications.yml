@@ -120,8 +120,7 @@ jobs:
     - name: Update package database
       run: cabal v2-update
     - name: Configure build
-      if: matrix.distcache == 'false'
-      run: cabal v2-configure
+      run: '[[ -d "dist-newstyle" ]] || cabal v2-configure'
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       run: eval $SYNC_FROM_CACHE
