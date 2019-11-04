@@ -213,6 +213,7 @@ library
         , Chainweb.Utils.Bench
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
+        , Chainweb.Utils.TokenLimiting
         , Chainweb.Utils.Watchdog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
@@ -292,6 +293,7 @@ library
         , bloomfilter >= 2.0
         , bytes >= 0.15
         , bytestring >= 0.10
+        , cache >= 0.1.1.2
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , cereal >= 0.5

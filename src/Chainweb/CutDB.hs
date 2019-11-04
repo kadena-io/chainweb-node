@@ -27,12 +27,15 @@ module Chainweb.CutDB
 (
 -- * CutConfig
   CutDbConfig(..)
+, LimitConfig(..)
 , cutDbConfigInitialCut
 , cutDbConfigInitialCutFile
 , cutDbConfigBufferSize
 , cutDbConfigLogLevel
 , cutDbConfigTelemetryLevel
 , cutDbConfigUseOrigin
+, cutDbConfigRateLimitCachePolicy
+, cutDbConfigRateLimitPolicy
 , defaultCutDbConfig
 , farAheadThreshold
 
@@ -74,6 +77,7 @@ module Chainweb.CutDB
 import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
+import qualified Control.Concurrent.TokenLimiter as TokenLimiter
 import Control.Exception
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
@@ -106,6 +110,7 @@ import Prelude hiding (lookup)
 
 import qualified Streaming.Prelude as S
 
+import qualified System.Clock as Clock
 import System.LogLevel
 import System.Timeout
 
@@ -123,6 +128,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec, check)
+import qualified Chainweb.Utils.TokenLimiting as Limiter
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
@@ -131,12 +137,20 @@ import Data.CAS.RocksDB
 import Data.PQueue
 import Data.Singletons
 
+import P2P.Peer (PeerInfo)
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 -- Cut DB Configuration
+
+data LimitConfig = LimitConfig
+    { maxBucketTokens :: Int
+    , initialBucketTokens :: Int
+    , bucketRefillTokensPerSecond :: Int
+    } deriving (Eq, Ord, Show)
+
 
 data CutDbConfig = CutDbConfig
     { _cutDbConfigInitialCut :: !Cut
@@ -145,8 +159,10 @@ data CutDbConfig = CutDbConfig
     , _cutDbConfigLogLevel :: !LogLevel
     , _cutDbConfigTelemetryLevel :: !LogLevel
     , _cutDbConfigUseOrigin :: !Bool
+    , _cutDbConfigRateLimitCachePolicy :: Limiter.TokenLimitCachePolicy
+    , _cutDbConfigRateLimitPolicy :: LimitConfig
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Eq, Show, Generic)
 
 makeLenses ''CutDbConfig
 
@@ -158,9 +174,13 @@ defaultCutDbConfig v = CutDbConfig
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
     , _cutDbConfigUseOrigin = True
+    , _cutDbConfigRateLimitCachePolicy = Limiter.TokenLimitCachePolicy exptime
+    , _cutDbConfigRateLimitPolicy = rlPolicy
     }
   where
     g = _chainGraph v
+    exptime = Clock.TimeSpec { Clock.sec = 10 * 60, Clock.nsec = 0 }
+    rlPolicy = LimitConfig 60 60 30
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:
@@ -301,10 +321,24 @@ withCutDb
     -> RocksDbCas CutHashes
     -> (CutDb cas -> IO a)
     -> IO a
-withCutDb config logfun headerStore payloadStore cutHashesStore
-    = bracket
-        (startCutDb config logfun headerStore payloadStore cutHashesStore)
+withCutDb config logfun headerStore payloadStore cutHashesStore act
+    = withRL $ \limiter ->
+      bracket
+        (startCutDb config logfun headerStore payloadStore cutHashesStore limiter)
         stopCutDb
+        act
+  where
+    cachePolicy = _cutDbConfigRateLimitCachePolicy config
+    limitPolicy = _cutDbConfigRateLimitPolicy config
+    limitConfig = TokenLimiter.defaultLimitConfig
+                      { TokenLimiter.maxBucketTokens = maxBucketTokens limitPolicy
+                      , TokenLimiter.initialBucketTokens = initialBucketTokens limitPolicy
+                      , TokenLimiter.bucketRefillTokensPerSecond =
+                            bucketRefillTokensPerSecond limitPolicy
+                      }
+
+    withRL = Limiter.withTokenLimitMap logfun "CutDB rate limiter" cachePolicy
+                                       limitConfig
 
 -- | Start a CutDB. This loads the initial cut from the database (falling back
 -- to the configured initial cut loading fails) and starts the cut validation
@@ -321,8 +355,9 @@ startCutDb
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> RocksDbCas CutHashes
+    -> Limiter.TokenLimitMap PeerInfo
     -> IO (CutDb cas)
-startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
+startCutDb config logfun headerStore payloadStore cutHashesStore _limiter = mask_ $ do
     logg Debug "obtain initial cut"
     cutVar <- newTVarIO =<< initialCut
     c <- readTVarIO cutVar
@@ -346,6 +381,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
         processCuts logfun headerStore payloadStore cutHashesStore queue cutVar
+                    (const $ return ())   -- todo: penalize here
 
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
@@ -417,18 +453,28 @@ processCuts
     -> RocksDbCas CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
+    -> (CutHashes -> IO ())    -- ^ called when a received cut is bad; either
+                               -- because it fails validation or because the
+                               -- cut prerequisites are unavailable. Used to
+                               -- e.g. penalize the sender.
+                               --
+                               -- TODO: will eventually need an argument
+                               -- ValidationFailureReason
     -> IO ()
-processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
+processCuts logFun headerStore payloadStore cutHashesStore queue cutVar
+            onFailedCut
+    = queueToStream
     & S.chain (\c -> loggc Debug c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
-    & S.chain (\c -> loggc Debug c $ "fetch all prerequesites")
+    & S.chain (\c -> loggc Debug c $ "fetch all prerequisites")
     & S.mapM (cutHashesToBlockHeaderMap logFun headerStore payloadStore)
     & S.chain (either
-        (\c -> loggc Warn c "failed to get prerequesites for some blocks")
-        (\c -> loggc Debug c "got all prerequesites")
+        (\c -> do loggc Warn (fst c) "failed to get prerequisites for some blocks"
+                  onFailedCut (snd c))
+        (\c -> loggc Debug c "got all prerequisites")
         )
     & S.concat
         -- ignore left values for now
@@ -588,13 +634,17 @@ cutHashesToBlockHeaderMap
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> CutHashes
-    -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
+    -> IO (Either (HM.HashMap ChainId BlockHash, CutHashes)
+                  (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout 3000000 go >>= \case -- TODO define as constant or make configurable
-    Nothing -> return $! Left mempty
-    Just x -> return $! x
+cutHashesToBlockHeaderMap logfun headerStore payloadStore hs =
+    timeout 3000000 go >>= \case -- TODO define as constant or make configurable
+        Nothing -> return $! Left (mempty, hs)
+        Just x -> return $! x
   where
+    go :: IO (Either (HM.HashMap ChainId BlockHash, CutHashes)
+                     (HM.HashMap ChainId BlockHeader))
     go =
         trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" (_cutId hs) 1 $ do
             plds <- emptyCas
@@ -607,11 +657,11 @@ cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout 3000000 g
                 & S.map (fmap snd)
                 & S.mapM (tryGetBlockHeader hdrs plds)
                 & S.partitionEithers
-                & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
-                & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
+                & S.fold_ (\(!x) (cid, h) -> HM.insert cid h x) mempty id
+                & S.fold (\(!x) (cid, h) -> HM.insert cid h x) mempty id
             if null missing
                 then return $! Right headers
-                else return $! Left missing
+                else return $! Left (missing, hs)
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))

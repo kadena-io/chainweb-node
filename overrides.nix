@@ -23,6 +23,12 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "03ihjgwqpif68870wwsgz1s4yz45zql1slky1lj4ixfxbig06md4";
       }) {});
 
+      cache = callHackageDirect {
+        pkg = "cache";
+        ver = "0.1.1.2";
+        sha256 = "0krx30hp74s867c5npskqq1n3xpp5vm0npg8fs9j8a8vv1wj1xhg";
+      };
+
       configuration-tools = dontCheck (callHackageDirect {
         pkg = "configuration-tools";
         ver = "0.4.1";
@@ -99,8 +105,8 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       token-limiter = callHackageDirect {
         pkg = "token-limiter";
-        ver = "0.2.0.0";
-        sha256 = "0mb3wpqip4rggdi0dh1xq8k3s51bcvjxqvhzax7k77nc3rj5l83h";
+        ver = "0.2.0.1";
+        sha256 = "0000000000000000dh1xq8k3s51bcvjxqvhzax7k77nc3rj5l83h";
       };
 
       tls = callHackageDirect {

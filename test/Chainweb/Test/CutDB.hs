@@ -22,6 +22,7 @@ module Chainweb.Test.CutDB
 , syncPact
 , withTestCutDbWithoutPact
 , withTestPayloadResource
+, withTestPayloadResource'
 , awaitCut
 , awaitBlockHeight
 , extendAwait
@@ -72,6 +73,8 @@ import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.TokenLimiting (TokenLimitMap)
+import qualified Chainweb.Utils.TokenLimiting as Limiter
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
@@ -80,6 +83,8 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.TaskMap
+
+import P2P.Peer (PeerInfo)
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
@@ -254,10 +259,24 @@ withTestPayloadResource
     -> (IO (CutDb RocksDbCas, PayloadDb RocksDbCas) -> TestTree)
     -> TestTree
 withTestPayloadResource rdb v n logfun inner
-    = withResource start stopTestPayload $ \envIO -> do
-        inner (envIO >>= \(_,_,a,b) -> return (a,b))
+    = withTestPayloadResource' rdb v n logfun lcfg inner
   where
-    start = startTestPayload rdb v logfun n
+    lcfg = Limiter.makeLimitConfig 10000 10000 100000
+
+withTestPayloadResource'
+    :: RocksDb
+    -> ChainwebVersion
+    -> Int
+    -> LogFunction
+    -> Limiter.LimitConfig
+    -> (IO (CutDb RocksDbCas, PayloadDb RocksDbCas) -> TestTree)
+    -> TestTree
+withTestPayloadResource' rdb v n logfun lcfg inner
+    = withResource start stopTestPayload $ \envIO -> do
+        inner (envIO >>= \(_,_,_,a,b) -> return (a,b))
+  where
+    cp = Limiter.TokenLimitCachePolicy 200
+    start = startTestPayload rdb v logfun n cp lcfg
 
 -- -------------------------------------------------------------------------- --
 -- Internal Utils for mocking up the backends
@@ -267,8 +286,11 @@ startTestPayload
     -> ChainwebVersion
     -> LogFunction
     -> Int
-    -> IO (Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
-startTestPayload rdb v logfun n = do
+    -> Limiter.TokenLimitCachePolicy
+    -> Limiter.LimitConfig
+    -> IO (TokenLimitMap PeerInfo, Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
+startTestPayload rdb v logfun n lCP lCfg = do
+    tlm <- Limiter.startTokenLimitMap logfun "test payload limiter" lCP lCfg
     rocksDb <- testRocksDb "startTestPayload" rdb
     let payloadDb = newPayloadDb rocksDb
         cutHashesDb = cutHashesTable rocksDb
@@ -277,16 +299,19 @@ startTestPayload rdb v logfun n = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
-    cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore cutHashesDb
+    cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore cutHashesDb tlm
     foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
-    return (pserver, hserver, cutDb, payloadDb)
+    return (tlm, pserver, hserver, cutDb, payloadDb)
 
 
-stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
-stopTestPayload (pserver, hserver, cutDb, _) = do
-    stopCutDb cutDb
-    cancel hserver
-    cancel pserver
+stopTestPayload
+    :: (TokenLimitMap PeerInfo, Async (), Async (), CutDb cas, PayloadDb cas)
+    -> IO ()
+stopTestPayload (tlm, pserver, hserver, cutDb, _) =
+    stopCutDb cutDb `finally`
+    cancel hserver `finally`
+    cancel pserver `finally`
+    Limiter.stopTokenLimitMap tlm
 
 withLocalWebBlockHeaderStore
     :: HTTP.Manager
