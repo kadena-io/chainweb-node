@@ -123,7 +123,7 @@ data ClientArgs = ClientArgs
 --
 data Command = CPU CPUEnv ClientArgs | GPU GPUEnv ClientArgs | Keys
 
-newtype CPUEnv = CPUEnv { cores :: Word16 }
+newtype CPUEnv = CPUEnv { cores :: Int }
 
 data GPUEnv = GPUEnv
     { envMinerPath :: Text
@@ -178,7 +178,7 @@ cpuOpts = liftA2 (CPU . CPUEnv) pCores pClientArgs
 keysOpts :: Parser Command
 keysOpts = pure Keys
 
-pCores :: Parser Word16
+pCores :: Parser Int
 pCores = option auto
     (long "cores" <> metavar "COUNT" <> value 1
      <> help "Number of CPU cores to use (default: 1)")
@@ -390,7 +390,7 @@ cpu cpue tbytes hbytes = do
     e <- ask
     T2 _ v <- NEL.head <$> readIORef (envUrls e)
     T2 new ns <- liftIO . fmap head . withScheduler comp $ \sch ->
-        replicateWork (fromIntegral $ cores cpue) sch $ do
+        replicateWork (cores cpue) sch $ do
             -- TODO Be more clever about the Nonce that's picked to ensure that
             -- there won't be any overlap?
             n <- Nonce <$> MWC.uniform (envGen e)
@@ -404,7 +404,7 @@ cpu cpue tbytes hbytes = do
     comp :: Comp
     comp = case cores cpue of
              1 -> Seq
-             n -> ParN n
+             n -> ParOn [0 .. n-1]
 
 gpu :: GPUEnv -> TargetBytes -> HeaderBytes -> RIO Env HeaderBytes
 gpu ge@(GPUEnv mpath margs) t@(TargetBytes target) h@(HeaderBytes blockbytes) = do
