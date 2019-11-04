@@ -5,6 +5,7 @@
 <p>&nbsp;</p>
 
 # Chainweb
+--
 
 Read our [whitepapers](https://www.kadena.io/whitepapers):
 
@@ -16,11 +17,10 @@ For additional information, press, and development inquires, please refer to the
 ## Table of Contents
 
 - [Wiki](#chainweb-wiki)
-- [FAQ](#chainweb-faq)
 - [Installing Chainweb](#installing-chainweb)
   - [Instructions for Linux Users](#linux-users)
   - [Instructions for Mac Users](#mac-users)
-- [Running Chainweb Node](#running-chainweb)
+- [Running Chainweb Node](#running-chainweb-node)
   - [Configuring a Chainweb Node](#configuring-a-chainweb-node)
     - [Specifying Bootstrap Nodes](#specifying-bootstrap-nodes)
     - [Specifying your Public Identity](#specifying-your-public-identity)
