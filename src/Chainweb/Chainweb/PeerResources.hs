@@ -219,6 +219,7 @@ withConnectionManger logger certs key peerDb runInner = do
             logFunctionText logger Info "Restarting connection manager logger"
             runLogClientConnections umask
 
+
     withAsyncWithUnmask runLogClientConnections $ \_ -> runInner mgr
 
   where
@@ -231,3 +232,4 @@ withConnectionManger logger certs key peerDb runInner = do
     serviceIdToHostAddress (h, p) = HostAddress
         <$!> readHostnameBytes (B8.pack h)
         <*> readPortBytes p
+
