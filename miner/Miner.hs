@@ -69,10 +69,12 @@ import Data.Aeson
 import Data.Decimal
 import Data.Default
 import Data.Generics.Product.Fields (field)
+import qualified Data.DList as D
 import Data.List (sort)
 import qualified Data.List.NonEmpty as NEL
 import Data.Foldable1
 import Data.Monoid
+import qualified Data.Text.IO as T
 import Data.These
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -137,7 +139,7 @@ data Command =
     CPU CPUEnv ClientArgs
     | GPU GPUEnv ClientArgs
     | Keys
-    | Balance BaseUrl String
+    | Balance BaseUrl Text
 
 newtype CPUEnv = CPUEnv { cores :: Word16 }
 
@@ -199,7 +201,7 @@ balancesOpts :: Parser Command
 balancesOpts = Balance <$> pUrl <*> pMinerName
   where
     pMinerName =
-      strOption (long "miner-account" <> help "Coin Contract account name of Miner")
+      textOption (long "miner-account" <> help "Coin Contract account name of Miner")
 
 pCores :: Parser Word16
 pCores = option auto
@@ -265,11 +267,7 @@ work cmd cargs = do
     nodeVer :: Manager -> BaseUrl -> IO (Either ClientError (T2 BaseUrl ChainwebVersion))
     nodeVer m baseurl = (T2 baseurl <$>) <$> getInfo m baseurl
 
-    -- | This allows this code to accept the self-signed certificates from
-    -- `chainweb-node`.
-    --
-    ss :: TLSSettings
-    ss = TLSSettingsSimple True True True
+
 
 getInfo :: Manager -> BaseUrl -> IO (Either ClientError ChainwebVersion)
 getInfo m url = fmap nodeVersion <$> runClientM (client (Proxy @NodeInfoApi)) cenv
@@ -289,34 +287,29 @@ scheme env = case envCmd env of
     GPU e _ -> gpu e
     _ -> error "Impossible: You shouldn't reach this case."
 
-getBalances :: BaseUrl -> String -> IO ()
+getBalances :: BaseUrl -> Text -> IO ()
 getBalances url mi = do
     balanceStmts <- newManager (mkManagerSettings ss Nothing) >>= go . cenv
     case balanceStmts of
       These errors balances -> do
         printf "-- Retrieved Balances -- \n"
-        forM_ (fromDList balances) (printf . T.unpack . uncurry toBalanceMsg)
+        forM_ balances printer
         printf "-- Unfortunate Errors --\n"
-        forM_ (fromDList errors) (printf . T.unpack . uncurry toErrMsg)
+        forM_ errors errPrinter
       This errors -> do
         printf "-- Unfortunate Errors --\n"
-        forM_ (fromDList errors) (printf . T.unpack . uncurry toErrMsg)
+        forM_ errors errPrinter
       That balances -> do
         printf "-- Retrieved Balances -- \n"
-        total <- foldM printBalance 0 $ (fromDList balances)
-        printf $ "Your total is " <> sshow (roundTo 12 total) <> " KDA.\n"
+        total <- foldM printBalance 0 balances
+        printf $ "Your total is ₭" <> sshow (roundTo 12 total) <> ".\n"
   where
-    fromDList = flip appEndo []
-    printBalance :: Decimal -> (Text, Decimal) -> IO Decimal
-    printBalance tot (c, bal) = do
-        printf $ T.unpack $ toBalanceMsg c bal
-        return $ tot + bal
-
-    ss = TLSSettingsSimple True True True
+    printer (a, b) = T.putStrLn $ toBalanceMsg a mi b
+    errPrinter (a,b) = T.putStrLn $ toErrMsg a b
+    printBalance tot (c, bal) = tot + bal <$ T.putStrLn (toBalanceMsg c mi bal)
     cenv m = ClientEnv m url Nothing
     mConc as f = runConcurrently $ foldMap1 (Concurrently . f) as
 
-    go :: ClientEnv -> IO (These (Endo [(Text, LocalCmdError)]) (Endo [(Text, Decimal)]))
     go env = do
       NodeInfo v _ cs _ <-
          runClientM (client (Proxy @NodeInfoApi)) env >>= either (throwString . show) return
@@ -329,13 +322,13 @@ getBalances url mi = do
     toLocalResult c r =
       case r of
         Right res -> convertResult c $ P._crResult res
-        Left l -> This $ Endo ((c, Client l) :)
+        Left l -> This $ D.singleton (c, Client l)
 
     convertResult c (P.PactResult result) =
        case result of
-        Right (PLiteral (LDecimal bal)) -> That $ Endo ((c, bal) :)
-        Left perr -> This $ Endo ((c, LookupError (T.pack $ show perr)) :)
-        Right a -> This $ Endo ((c, PactResponseError (T.pack $ show a)) :)
+        Right (PLiteral (LDecimal bal)) -> That $ D.singleton (c, bal)
+        Left perr -> This $ D.singleton (c, LookupError (sshow perr))
+        Right a -> This $ D.singleton (c, PactResponseError (sshow a))
 
 data LocalCmdError
   = Client ClientError -- text here is chainid
@@ -344,34 +337,35 @@ data LocalCmdError
 
 toErrMsg :: Text -> LocalCmdError -> Text
 toErrMsg c (Client err) =
-  mconcat
-    ["Client erro on chain "
-    , c
+    "Client error on chain "
+    <> c
+    <> ": "
+    <> sshow err
+    <> "\n"
+toErrMsg c (LookupError err)
+    = "Balance lookup error on chain: "
+    <> c
+    <> ": "
+    <> err
+    <> "\n"
+toErrMsg c (PactResponseError err) = mconcat
+    [ "Pact result error on chain: "
+    , sshow c
     , ": "
-    , T.pack $ show err
-    , "\n"
+    , sshow err
+    , ". This should never happen. Please raise an issue at "
+    , "https://github.com/kadena-io/chainweb-node/issues."
     ]
-toErrMsg c (LookupError err) =
-  mconcat
-    ["Balance lookup error on chain: "
-     , c
-     , ": "
-     , err
-     , "\n"
-     ]
-toErrMsg c (PactResponseError err) =
-  mconcat
-  ["Pact result error on chain: "
-  , sshow c
-  , ": "
-  , sshow err
-  , ". This should never happen. Please raise an issue at "
-  , "https://github.com/kadena-io/chainweb-node/issues."
-  ]
 
-toBalanceMsg :: Text -> Decimal -> Text
-toBalanceMsg cidtext bal =
-  "Your balance on chain " <> cidtext <> " is " <> (T.pack $ show (roundTo 12 bal)) <> " KDA.\n"
+toBalanceMsg :: Text -> Text -> Decimal -> Text
+toBalanceMsg cidtext account bal =
+    "Balance on chain "
+    <> cidtext
+    <> " for "
+    <> account
+    <> " is ₭"
+    <> sshow (roundTo 12 bal)
+    <> ".\n"
 
 genKeys :: IO ()
 genKeys = do
@@ -538,3 +532,9 @@ gpu ge@(GPUEnv mpath margs) t@(TargetBytes target) h@(HeaderBytes blockbytes) = 
                  modifyIORef' (envHashes e) (+ numNonces)
                  modifyIORef' (envSecs e) (+ secs)
                  pure $! HeaderBytes newBytes
+
+-- | This allows this code to accept the self-signed certificates from
+-- `chainweb-node`.
+--
+ss :: TLSSettings
+ss = TLSSettingsSimple True True True
