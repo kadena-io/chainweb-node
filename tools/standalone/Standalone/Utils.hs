@@ -251,7 +251,7 @@ mkKeyset p ks = object
   ]
 
 stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
 stockKey :: Text -> IO ApiKeyPair
 stockKey s = do

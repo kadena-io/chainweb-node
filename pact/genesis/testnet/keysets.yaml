@@ -83,6 +83,13 @@ code: |-
   (define-keyset "CS2_C0" (read-keyset "CS2_C0"))
   (define-keyset "ST_C1" (read-keyset "ST_C1"))
 
+  (define-keyset "allocation00" (read-keyset "allocation00"))
+  (define-keyset "allocation01" (read-keyset "allocation01"))
+  (define-keyset "allocation02" (read-keyset "allocation02"))
+  (define-keyset "Emily" (read-keyset "Emily"))
+  (define-keyset "Kadena" (read-keyset "Kadena"))
+  (define-keyset "MAINNET" (read-keyset "MAINNET"))
+
 data:
   "SA <1>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
   "SA <2>": { keys: ["5821139f2d0339a18dcb4e15fefe05d7a7a5517effe9327831b2937582899cb1","599ec558aba664551313a0fbe76dd02724fa245c90952ca038ecdbfe729d483a","fd13291a411c341ef6265d89cc14013f5a6712ea67ce395c33b0aa641ecc57bf"], pred: "keys-2" }
@@ -168,5 +175,14 @@ data:
   "CS2_C0": { keys: ["9a2a12ba791909a2b5e92ab3366f60f4689e5331ef285b704efa3fd83bc959f4","7bcf78f09e64e37fe4705d5abb3735496f31f04d347c138f5dd3f4ee2683a952","f54e9f2d81be422a02adb0a172f89752fc3e5f9dae435208776bd5d83a2f6f24"], pred: "keys-2" }
   "ST_C1": { keys: ["ccf6fa1fd32e58b0405f169ffb455a1a0434cfaff5b8549862821ff6b551d5b3","af818a5e8672ab93b085987b942e87aa52ff6c81bffafaf3437c01c8a41a6fa8","8746831c5580950e74aef86659c6f8f1acb7215067ed91d11fe691945f9c8b1e"], pred: "keys-2" }
 
-nonce: testnet-keysets
+  "MAINNET": { keys: ["a4947379c7dbb76ee60bdedd64847a15aa5657ef406201e46861475c91d3c51f","0e1a0bca51437b2f3cb5ad051dd0c5e5bc5353a9c5d7a6cc005aeb081afcc1f8","4926f963ee5a0c6df67a1dce242fbc11a900c4332c77bddfb0dc5b66f697fed0"], pred: "keys-2" }
+
+  "Kadena": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+  "Emily": { keys: ["35ff1298c56ffb60225beed32a61ada41a57e239826eea98ed29e48ff8bac43f"], pred: "keys-all" }
+
+  allocation00: ["d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"]
+  allocation01: ["b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"]
+  allocation02: ["e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"]
+
+nonce: testnet-keysets-N
 keyPairs: []
