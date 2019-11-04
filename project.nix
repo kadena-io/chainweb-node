@@ -27,7 +27,7 @@ in {
     overrides = import ./overrides.nix pactSrc pkgs hackGet;
 
     packages = {
-      chainweb = gitignoreSource [ ".gitlab-ci.yml" "*.md" "**/*.md" ] ./.;
+      chainweb = gitignoreSource [ ".gitlab-ci.yml" "*.md" "**/*.md" "*.nix" "**/.nix" ] ./.;
     };
 
     shellToolOverrides = ghc: super: {

@@ -35,6 +35,14 @@ in
           Your miner account. This must be unowned, or already claimed by you!
         '';
       };
+      chain = mkOption {
+        type = types.nullOr types.int;
+        default = null;
+        description = ''
+          Chain in focus https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org#chain-focusing
+        '';
+
+      };
       key = mkOption {
         type = types.string;
         description = ''
@@ -50,7 +58,7 @@ in
 
       serviceConfig = {
         ExecStart = pkgs.writeShellScriptBin "chainweb-miner.sh" ''
-          ${chainweb-miner}/bin/chainweb-miner cpu --node=${cfg.nodeHostname}:${toString cfg.nodePort} --miner-account=${cfg.account} --miner-key=${cfg.key}
+          ${chainweb-miner}/bin/chainweb-miner cpu --node=${cfg.nodeHostname}:${toString cfg.nodePort} --miner-account=${cfg.account} --miner-key=${cfg.key} ${if cfg.chain == null then "" else "--chain=${cfg.chain}"}
         '' + "/bin/chainweb-miner.sh";
       };
 
