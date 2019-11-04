@@ -317,6 +317,12 @@ data PeerValidationFailure
     | IsNotReachable !PeerInfo !T.Text
     deriving (Show, Eq, Ord, Generic, NFData, ToJSON)
 
+instance Exception PeerValidationFailure where
+    displayException (IsReservedHostAddress p)
+        = "The peer info " <> T.unpack (showInfo p) <> " is form a reserved IP address range"
+    displayException (IsNotReachable p t)
+        = "The peer info " <> T.unpack (showInfo p) <> " can't be reached: " <> T.unpack t
+
 -- | Removes candidate `PeerInfo` that are:
 --
 --  * already known to us and considered good
@@ -332,19 +338,20 @@ guardPeerDb v nid peerDb pinf = do
     peers <- peerDbSnapshot peerDb
     if
         | isKnown peers -> return $ Right pinf
-        | isTrivial -> return $ Left $ IsReservedHostAddress pinf
-        | otherwise -> do
-            canConnect >>= \case
-                Left e -> return $ Left $ IsNotReachable pinf (sshow e)
-                Right _ -> return $ Right pinf
+        | isReserved -> return $ Left $ IsReservedHostAddress pinf
+        | otherwise -> canConnect >>= \case
+            Left e -> return $ Left $ IsNotReachable pinf (sshow e)
+            Right _ -> return $ Right pinf
   where
     isKnown :: PeerSet -> Bool
     isKnown peers = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
 
     -- TODO Check more IP ranges, possibly in HostAddress module.
-    isTrivial :: Bool
-    isTrivial = case v of
+    isReserved :: Bool
+    isReserved = case v of
         Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
+        Testnet02 -> isReservedHostAddress (_peerAddr pinf)
+        Development -> isReservedHostAddress (_peerAddr pinf)
         _ -> False
 
     canConnect = do
@@ -358,7 +365,7 @@ guardPeerDbOfNode
     -> IO (Maybe PeerInfo)
 guardPeerDbOfNode node pinf = go >>= \case
     Left e -> do
-        logg node Warn $ "failed to validate peer " <> showInfo pinf <> ": " <> sshow e
+        logg node Warn $ "failed to validate peer " <> showInfo pinf <> ": " <> T.pack (displayException e)
         return Nothing
     Right x -> return (Just x)
   where
