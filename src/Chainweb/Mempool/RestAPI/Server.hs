@@ -12,6 +12,7 @@ module Chainweb.Mempool.RestAPI.Server
   ) where
 
 ------------------------------------------------------------------------------
+import Control.DeepSeq (NFData)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.IO.Class
 import qualified Data.DList as D
@@ -98,9 +99,9 @@ getPendingHandler mempool mbNonce mbHw = liftIO $ do
         return (oldNonce, tx)
 
 
-handleErrs :: Handler a -> Handler a
-handleErrs = (`catch` \(e :: SomeException) ->
-                 throwError $ err400 { errBody = sshow e })
+handleErrs :: NFData a => Handler a -> Handler a
+handleErrs = flip catchAllSynchronous $ \e ->
+    throwError $ err400 { errBody = sshow e }
 
 someMempoolServer
     :: (Show t)
