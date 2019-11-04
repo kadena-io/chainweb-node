@@ -20,7 +20,7 @@ module Chainweb.Miner.RestAPI.Server where
 import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO)
 import Control.Lens (over, view)
 import Control.Monad (when)
-import Control.Monad.Catch (throwM)
+import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
@@ -78,12 +78,12 @@ workHandler mr v mcid m = do
     now <- liftIO getCurrentTimeIntegral
     case txSilenceEndDate v of
         Just end | now > end ->
-            throwM err400 { errBody = "Node is out of date - please upgrade."}
+            throwError err400 { errBody = "Node is out of date - please upgrade."}
         _ -> do
             MiningState ms <- liftIO . readTVarIO $ _coordState mr
             when (M.size ms > _coordLimit mr) $ do
                 liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-                throwM err503 { errBody = "Too many work requests" }
+                throwError err503 { errBody = "Too many work requests" }
             liftIO $ workHandler' mr mcid m
 
 workHandler'
