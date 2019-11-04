@@ -137,7 +137,7 @@ import Data.CAS.RocksDB
 import Data.PQueue
 import Data.Singletons
 
-import P2P.Peer (PeerInfo)
+import P2P.Peer (PeerInfo, shortPeerInfo)
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
@@ -357,7 +357,7 @@ startCutDb
     -> RocksDbCas CutHashes
     -> Limiter.TokenLimitMap PeerInfo
     -> IO (CutDb cas)
-startCutDb config logfun headerStore payloadStore cutHashesStore _limiter = mask_ $ do
+startCutDb config logfun headerStore payloadStore cutHashesStore limiter = mask_ $ do
     logg Debug "obtain initial cut"
     cutVar <- newTVarIO =<< initialCut
     c <- readTVarIO cutVar
@@ -378,10 +378,48 @@ startCutDb config logfun headerStore payloadStore cutHashesStore _limiter = mask
   where
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
+
+    -- TODO: configurable knob here
+    penaltySeconds :: Int
+    penaltySeconds = 20
+
+    refillRate :: Int
+    refillRate = Limiter.bucketRefillTokensPerSecond $
+                 Limiter.getLimitPolicy limiter
+
+    penaltyTokens :: Int
+    penaltyTokens = refillRate * penaltySeconds
+
+    checkRateLimit :: PeerInfo -> IO Bool
+    checkRateLimit peerInfo = do
+        b <- Limiter.tryDebit 1 peerInfo limiter
+        when (not b) $ logfun Info (dropMsg peerInfo)
+        return b
+
+    penaltyMsg :: PeerInfo -> T.Text
+    penaltyMsg pinfo = T.concat [ "Penalizing peer '"
+                                , shortPeerInfo pinfo
+                                , "': bad / unverifiable cut." ]
+
+    dropMsg :: PeerInfo -> T.Text
+    dropMsg pinfo = T.concat [ "Dropping cut from peer '"
+                             , shortPeerInfo pinfo
+                             , "': rate limited / penalized." ]
+
+    penalizeSender :: CutHashes -> IO ()
+    penalizeSender ch = do
+        let mbS = _cutOrigin ch
+        case mbS of
+            Nothing -> return ()
+            Just s -> do
+                logfun Warn $ penaltyMsg s
+                void $ Limiter.penalize penaltyTokens s limiter
+
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
         processCuts logfun headerStore payloadStore cutHashesStore queue cutVar
-                    (const $ return ())   -- todo: penalize here
+                    checkRateLimit
+                    penalizeSender
 
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
@@ -453,6 +491,8 @@ processCuts
     -> RocksDbCas CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
+    -> (PeerInfo -> IO Bool)   -- ^ reputation filter. Returns 'False' when a
+                               -- peer is rate-limited or penalized.
     -> (CutHashes -> IO ())    -- ^ called when a received cut is bad; either
                                -- because it fails validation or because the
                                -- cut prerequisites are unavailable. Used to
@@ -462,10 +502,10 @@ processCuts
                                -- ValidationFailureReason
     -> IO ()
 processCuts logFun headerStore payloadStore cutHashesStore queue cutVar
-            onFailedCut
+            repFilter onFailedCut
     = queueToStream
     & S.chain (\c -> loggc Debug c $ "start processing")
-    & filterOut [isVeryOld, farAhead, isOld, isCurrent]
+    & filterOut [isVeryOld, farAhead, isOld, isCurrent, badRep]
     & S.chain (\c -> loggc Debug c $ "fetch all prerequisites")
     & S.mapM (cutHashesToBlockHeaderMap logFun headerStore payloadStore)
     & S.chain (either
@@ -530,6 +570,8 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar
         let r = _cutHashes curHashes == _cutHashes x
         when r $ loggc Debug x "skip current cut"
         return r
+
+    badRep x = maybe (return False) (fmap not . repFilter) $ _cutOrigin x
 
     filterOut fs = S.filterM (\c -> not <$> anyM fs c)
 

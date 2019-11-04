@@ -14,6 +14,7 @@ module Chainweb.Utils.TokenLimiting
 , makeLimitConfig
 , getLimiter
 , withLimiter
+, getLimitPolicy
 , tryDebit
 , waitDebit
 , penalize
@@ -142,3 +143,6 @@ waitDebit ndebits k tlm = withLimiter k tlm $ \rl ->
 
 defaultLimitConfig :: LimitConfig
 defaultLimitConfig = TL.defaultLimitConfig
+
+getLimitPolicy :: TokenLimitMap k -> LimitConfig
+getLimitPolicy = _tlmLimitPolicy
