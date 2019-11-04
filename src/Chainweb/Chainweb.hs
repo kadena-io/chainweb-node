@@ -57,6 +57,7 @@ module Chainweb.Chainweb
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
+, configCutFetchTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -212,8 +213,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
     , _configBlockGasLimit :: !Mempool.GasLimit
-    }
-    deriving (Show, Eq, Generic)
+    , _configCutFetchTimeout :: !Int
+    } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
 
@@ -244,6 +245,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
     , _configBlockGasLimit = 100000
+    , _configCutFetchTimeout = 3000000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -261,6 +263,7 @@ instance ToJSON ChainwebConfiguration where
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
         , "blockGasLimit" .= _configBlockGasLimit o
+        , "cutFetchTimeout" .= _configCutFetchTimeout o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -278,6 +281,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
+        <*< configCutFetchTimeout ..: "cutFetchTimeout" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -316,6 +320,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configCutFetchTimeout .:: option auto
+        % long "cut-fetch-timeout"
+        <> help "After this many microseconds, give up trying to sync a particular Cut"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -582,7 +589,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     -- FIXME: make this configurable
     cutConfig :: CutDbConfig
-    cutConfig = (defaultCutDbConfig v)
+    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
