@@ -115,10 +115,10 @@ peerPutHandler db v nid e -- TODO consider connection test here for bad peer
         }
     | otherwise = do
         liftIO (guardPeerDb v nid db e) >>= \case
-            Nothing -> throwError $ err400
-                { errBody = "Invalid hostaddress. The given host isn't reachable."
+            Left failure -> throwError $ err400
+                { errBody = "Invalid hostaddress. The given host isn't reachable. (" <> sshow failure <> ")"
                 }
-            Just _ -> return ()
+            Right _ -> return ()
         NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --

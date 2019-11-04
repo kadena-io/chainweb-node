@@ -67,8 +67,6 @@ import Control.Monad.IO.Class
 import Control.Monad.STM
 
 import Data.Aeson hiding (Error)
-import Data.Bool
--- import Data.Bool (bool)
 import Data.Foldable
 import Data.Hashable
 import qualified Data.HashSet as HS
@@ -314,6 +312,11 @@ getNewPeerManager = readIORef newPeerManager
 -- -------------------------------------------------------------------------- --
 -- Guard PeerDB
 
+data PeerValidationFailure
+    = IsReservedHostAddress !PeerInfo
+    | IsNotReachable !PeerInfo !T.Text
+    deriving (Show, Eq, Ord, Generic, NFData, ToJSON)
+
 -- | Removes candidate `PeerInfo` that are:
 --
 --  * already known to us and considered good
@@ -324,11 +327,16 @@ guardPeerDb
     -> NetworkId
     -> PeerDb
     -> PeerInfo
-    -> IO (Maybe PeerInfo)
+    -> IO (Either PeerValidationFailure PeerInfo)
 guardPeerDb v nid peerDb pinf = do
     peers <- peerDbSnapshot peerDb
-    if | isTrivial || isKnown peers -> pure Nothing
-       | otherwise -> bool Nothing (Just pinf) <$> canConnect
+    if
+        | isKnown peers -> return $ Right pinf
+        | isTrivial -> return $ Left $ IsReservedHostAddress pinf
+        | otherwise -> do
+            canConnect >>= \case
+                Left e -> return $ Left $ IsNotReachable pinf (sshow e)
+                Right _ -> return $ Right pinf
   where
     isKnown :: PeerSet -> Bool
     isKnown peers = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
@@ -339,22 +347,26 @@ guardPeerDb v nid peerDb pinf = do
         Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
         _ -> False
 
-    canConnect :: IO Bool
     canConnect = do
         mgr <- getNewPeerManager
         let env = peerInfoClientEnv mgr pinf
-        runClientM (peerGetClient v nid (Just 0) Nothing) env >>= \case
-            Left _ -> pure False
-            Right _ -> pure True
+        runClientM (peerGetClient v nid (Just 0) Nothing) env
 
 guardPeerDbOfNode
     :: P2pNode
     -> PeerInfo
     -> IO (Maybe PeerInfo)
-guardPeerDbOfNode node = guardPeerDb
-    (_chainwebVersion node)
-    (_p2pNodeNetworkId node)
-    (_p2pNodePeerDb node)
+guardPeerDbOfNode node pinf = go >>= \case
+    Left e -> do
+        logg node Warn $ "failed to validate peer " <> showInfo pinf <> ": " <> sshow e
+        return Nothing
+    Right x -> return (Just x)
+  where
+    go = guardPeerDb
+        (_chainwebVersion node)
+        (_p2pNodeNetworkId node)
+        (_p2pNodePeerDb node)
+        pinf
 
 -- -------------------------------------------------------------------------- --
 -- Sync Peers
