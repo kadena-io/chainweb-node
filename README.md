@@ -6,7 +6,13 @@
 
 # Chainweb
 
-Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
+Read our [whitepapers](https://www.kadena.io/whitepapers):
+
+- [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_029c9991469e4565a7c334dd716345f4.pdf)
+
+- [Agent-based Simulations of BLockchain Protocols illustrated via Kadena's *Chainweb*](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_3b2d0c58179d4edd9df6df4d55d61dda.pdf)
+
+
 
 With our recent release of Chainweb Testnet v3, we now have a public network to
 which anyone can connect, plus the ability to mine (either by using the new
@@ -35,9 +41,9 @@ run their Chainweb node.
 
 ## Chainweb Bootstrap Nodes
 You can find the bootstrap nodes of the public Chainweb Mainnet: [here](https://github.com/kadena-io/chainweb-node/wiki)
- 
-## FAQ 
-You can find the list of frequently asked questions, including network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/releases). 
+
+## FAQ
+You can find the list of frequently asked questions, including network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/releases).
 
 ## Linux Users
 
@@ -50,11 +56,11 @@ If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you wi
 sudo apt install librocksdb5.8
 ```
 
-If this is not available, then please view the [Rocksdb](https://rocksdb.org/) site for alternative modes of installation. 
+If this is not available, then please view the [Rocksdb](https://rocksdb.org/) site for alternative modes of installation.
 
 ### Other distributions
 
-For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please consult your distro's repositories for `librocksdb5.8` and install with its preferred package manager, or follow the alternative modes of installation described in [Rocksdb](https://rocksdb.org/). 
+For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please consult your distro's repositories for `librocksdb5.8` and install with its preferred package manager, or follow the alternative modes of installation described in [Rocksdb](https://rocksdb.org/).
 
 At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
 
