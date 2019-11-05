@@ -171,7 +171,7 @@ pCommand = hsubparser
     (  command "cpu" (info cpuOpts (progDesc "Perform multicore CPU mining"))
     <> command "gpu" (info gpuOpts (progDesc "Perform GPU mining"))
     <> command "keys" (info keysOpts (progDesc "Generate public/private key pair"))
-    <> command "Balance" (info balancesOpts (progDesc "Get balances on all chains"))
+    <> command "balance" (info balancesOpts (progDesc "Get balances on all chains"))
     )
 
 pMinerPath :: Parser Text
@@ -331,8 +331,8 @@ getBalances url mi = do
         Right a -> This $ D.singleton (c, PactResponseError (sshow a))
 
 data LocalCmdError
-  = Client ClientError -- text here is chainid
-  | LookupError Text -- the first text here is chainid
+  = Client ClientError
+  | LookupError Text
   | PactResponseError Text
 
 toErrMsg :: Text -> LocalCmdError -> Text
