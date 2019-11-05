@@ -782,17 +782,12 @@ execLocal
 execLocal cmd = withDiscardedBatch $ do
     cp <- getCheckpointer
     mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
-    (bh, bhash) <- case mbLatestBlock of
+    (bhe, bhash) <- case mbLatestBlock of
                        Nothing -> throwM NoBlockValidatedYet
                        (Just !p) -> return p
-    let target = Just (succ bh, bhash)
-    mprevHash <- liftIO $ _cpGetBlockParent cp (bh, bhash)
-    prevHash <- case mprevHash of
-      -- TODO: This might not be the best exception to throw here
-      Nothing -> throwM NoBlockValidatedYet
-      Just p -> return p
+    let target = Just (succ bhe, bhash)
     bhDb <- asks _psBlockHeaderDb
-    parentHeader <- liftIO $! lookupM bhDb prevHash
+    parentHeader <- liftIO $! lookupM bhDb bhash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         r <- withBlockData parentHeader $
@@ -823,15 +818,15 @@ withBlockData
     -> PactServiceM cas a
         -- ^ the action to be run
     -> PactServiceM cas a
-withBlockData bhe action = locally psPublicData go action
+withBlockData bh action = locally psPublicData go action
   where
-    (BlockHeight !bh) = _blockHeight bhe
-    (BlockHash !ph) = _blockParent bhe
+    (BlockHeight !bhe) = _blockHeight bh
+    (BlockHash !ph) = _blockParent bh
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) =
-      _blockCreationTime bhe
+      _blockCreationTime bh
 
     go t = t
-      { P._pdBlockHeight = succ bh
+      { P._pdBlockHeight = succ bhe
       , P._pdBlockTime = bt
       , P._pdPrevBlockHash = toText ph
       }
