@@ -786,9 +786,17 @@ execLocal cmd = withDiscardedBatch $ do
                        Nothing -> throwM NoBlockValidatedYet
                        (Just !p) -> return p
     let target = Just (succ bh, bhash)
+    mprevHash <- liftIO $ _cpGetBlockParent cp (bh, bhash)
+    prevHash <- case mprevHash of
+      -- TODO: This might not be the best exception to throw here
+      Nothing -> throwM NoBlockValidatedYet
+      Just p -> return p
+    bhDb <- asks _psBlockHeaderDb
+    parentHeader <- liftIO $! lookupM bhDb prevHash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
+        r <- withBlockData parentHeader $
+             liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
