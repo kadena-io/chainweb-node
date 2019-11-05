@@ -504,6 +504,7 @@ test-suite chainweb-tests
         , these >= 1 && < 1.1
         , time >= 1.8
         , transformers >= 0.5
+        , thyme == 0.3.6.0
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
