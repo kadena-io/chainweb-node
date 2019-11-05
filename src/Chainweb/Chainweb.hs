@@ -57,6 +57,7 @@ module Chainweb.Chainweb
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
+, configCutFetchTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -118,11 +119,11 @@ import qualified Data.Vector as V
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Types.Status (status404)
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
-import Network.HTTP.Types.Status (status404)
 
 import Numeric.Natural
 
@@ -214,6 +215,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configCutFetchTimeout :: !Int
     , _configDisabledEndpoints :: ![T.Text]
     }
     deriving (Show, Eq, Generic)
@@ -247,6 +249,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
     , _configBlockGasLimit = 100000
+    , _configCutFetchTimeout = 3000000
     , _configDisabledEndpoints = []
     }
 
@@ -265,6 +268,7 @@ instance ToJSON ChainwebConfiguration where
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
         , "blockGasLimit" .= _configBlockGasLimit o
+        , "cutFetchTimeout" .= _configCutFetchTimeout o
         , "disabledEndpoints" .= _configDisabledEndpoints o
         ]
 
@@ -283,6 +287,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
+        <*< configCutFetchTimeout ..: "cutFetchTimeout" % o
         <*< configDisabledEndpoints . from leftMonoidalUpdate %.: "disabledEndpoints" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
@@ -322,6 +327,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configCutFetchTimeout .:: option auto
+        % long "cut-fetch-timeout"
+        <> help "After this many microseconds, give up trying to sync a particular Cut"
     <*< configDisabledEndpoints %:: pLeftMonoidalUpdate % fmap pure % textOption
         % long "disable-endpoint"
         <> help "disable endpoints with this prefix on the local node"
@@ -594,7 +602,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     -- FIXME: make this configurable
     cutConfig :: CutDbConfig
-    cutConfig = (defaultCutDbConfig v)
+    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
