@@ -694,10 +694,10 @@ runChainweb cw = do
     concurrently_
         -- 1. Start serving Rest API
         (serve
-            $ throttle (_chainwebThrottler cw)
-            . throttle (_chainwebMiningThrottler cw)
+            $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
-            . httpLog
+            . throttle (_chainwebMiningThrottler cw)
+            . throttle (_chainwebThrottler cw)
         )
         -- 2. Start Clients (with a delay of 500ms)
         (threadDelay 500000 >> clients)
