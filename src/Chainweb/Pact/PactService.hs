@@ -787,6 +787,9 @@ execLocal cmd = withDiscardedBatch $ do
                        (Just !p) -> return p
     let target = Just (succ bhe, bhash)
     bhDb <- asks _psBlockHeaderDb
+    -- NOTE: On local calls, there might be code which needs the results of
+    -- (chain-data). In such a case, the function `withBlockData` provides the
+    -- necessary information for this call to return sensible values.
     parentHeader <- liftIO $! lookupM bhDb bhash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
