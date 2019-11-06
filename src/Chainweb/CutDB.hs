@@ -125,6 +125,7 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.Types
 import Chainweb.Graph
+import Chainweb.HostAddress
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.TreeDB
@@ -138,7 +139,7 @@ import Data.CAS.RocksDB
 import Data.PQueue
 import Data.Singletons
 
-import P2P.Peer (PeerInfo, shortPeerInfo)
+import P2P.Peer
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
@@ -361,7 +362,7 @@ startCutDb
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> RocksDbCas CutHashes
-    -> Limiter.TokenLimitMap PeerInfo
+    -> Limiter.TokenLimitMap T.Text
     -> Int
     -> IO (CutDb cas)
 startCutDb config logfun headerStore payloadStore cutHashesStore limiter
@@ -394,10 +395,12 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
     penaltyTokens :: Int
     penaltyTokens = refillRate * penaltySeconds
 
+    peerInfoToText = hostnameToText . _hostAddressHost . _peerAddr
+
     checkRateLimit :: PeerInfo -> IO Bool
-    checkRateLimit peerInfo = do
-        b <- Limiter.tryDebit 1 peerInfo limiter
-        when (not b) $ logfun Info (dropMsg peerInfo)
+    checkRateLimit pinfo = do
+        b <- Limiter.tryDebit 1 (peerInfoToText pinfo) limiter
+        when (not b) $ logfun Info (dropMsg pinfo)
         return b
 
     penaltyMsg :: PeerInfo -> T.Text
@@ -417,7 +420,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
             Nothing -> return ()
             Just s -> when (penaltyTokens > 0) $ do
                 logfun Warn $ penaltyMsg s
-                void $ Limiter.penalize penaltyTokens s limiter
+                void $ Limiter.penalize penaltyTokens (peerInfoToText s) limiter
 
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $

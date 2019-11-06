@@ -40,6 +40,7 @@ import Control.Monad.Catch
 import Data.Foldable
 import Data.Function
 import Data.Reflection
+import Data.Text (Text)
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
@@ -83,8 +84,6 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.TaskMap
-
-import P2P.Peer (PeerInfo)
 
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
@@ -300,7 +299,7 @@ startTestPayload
     -> Limiter.TokenLimitCachePolicy
     -> Limiter.LimitConfig
     -> Int
-    -> IO (TokenLimitMap PeerInfo, Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
+    -> IO (TokenLimitMap Text, Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
 startTestPayload rdb v logfun n lCP lCfg penaltySecs = do
     tlm <- Limiter.startTokenLimitMap logfun "test payload limiter" lCP lCfg
     rocksDb <- testRocksDb "startTestPayload" rdb
@@ -318,7 +317,7 @@ startTestPayload rdb v logfun n lCP lCfg penaltySecs = do
 
 
 stopTestPayload
-    :: (TokenLimitMap PeerInfo, Async (), Async (), CutDb cas, PayloadDb cas)
+    :: (TokenLimitMap Text, Async (), Async (), CutDb cas, PayloadDb cas)
     -> IO ()
 stopTestPayload (tlm, pserver, hserver, cutDb, _) =
     stopCutDb cutDb `finally`
