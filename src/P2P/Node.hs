@@ -633,7 +633,7 @@ startPeerDb
 startPeerDb nids conf = do
     !peerDb <- newEmptyPeerDb
     forM_ nids $ \nid ->
-        peerDbInsertPeerInfoList nid (_p2pConfigKnownPeers conf) peerDb
+        peerDbInsertPeerInfoList_ True nid (_p2pConfigKnownPeers conf) peerDb
     case _p2pConfigPeerDbFilePath conf of
         Just dbFilePath -> loadIntoPeerDb dbFilePath peerDb
         Nothing -> return ()
