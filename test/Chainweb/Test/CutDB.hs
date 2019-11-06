@@ -89,6 +89,9 @@ import P2P.Peer (PeerInfo)
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
 
+cutFetchTimeout :: Int
+cutFetchTimeout = 3000000
+
 -- | Provide a computation with a CutDb and PayloadDb for the given chainweb
 -- version with a linear chainweb with @n@ blocks.
 --
@@ -131,7 +134,7 @@ withTestCutDb rdb v n pactIO logfun f = do
                 foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
   where
-    cutdbCfg = (defaultCutDbConfig v) { _cutDbConfigRateLimitPolicy = rlPolicy }
+    cutdbCfg = (defaultCutDbConfig v cutFetchTimeout) { _cutDbConfigRateLimitPolicy = rlPolicy }
     -- disable (effectively) rate limiting for tests
     rlPolicy = LimitConfig 10000 10000 100000 0
 
@@ -308,8 +311,8 @@ startTestPayload rdb v logfun n lCP lCfg penaltySecs = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
-    cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore cutHashesDb tlm
-                        penaltySecs
+    cutDb <- startCutDb (defaultCutDbConfig v cutFetchTimeout) logfun hstore pstore
+                        cutHashesDb tlm penaltySecs
     foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
     return (tlm, pserver, hserver, cutDb, payloadDb)
 
