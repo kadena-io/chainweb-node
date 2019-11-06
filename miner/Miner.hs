@@ -294,10 +294,10 @@ getBalances url mi = do
       These errors balances -> do
         printf "-- Retrieved Balances -- \n"
         forM_ balances printer
-        printf "-- Unfortunate Errors --\n"
+        printf "-- Errors --\n"
         forM_ errors errPrinter
       This errors -> do
-        printf "-- Unfortunate Errors --\n"
+        printf "-- Errors --\n"
         forM_ errors errPrinter
       That balances -> do
         printf "-- Retrieved Balances -- \n"
