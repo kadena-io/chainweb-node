@@ -148,10 +148,10 @@ import Utils.Logging.Trace
 -- Cut DB Configuration
 
 data LimitConfig = LimitConfig
-    { maxBucketTokens :: Int
-    , initialBucketTokens :: Int
-    , bucketRefillTokensPerSecond :: Int
-    , badSenderPenaltySecs :: Int
+    { maxBucketTokens :: {-# UNPACK #-} !Int
+    , initialBucketTokens :: {-# UNPACK #-} !Int
+    , bucketRefillTokensPerSecond :: {-# UNPACK #-} !Int
+    , badSenderPenaltySecs :: {-# UNPACK #-} !Int
     } deriving (Eq, Ord, Show)
 
 
