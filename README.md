@@ -1,55 +1,90 @@
-# Chainweb
+<p align="center">
+<img src="https://i.imgur.com/bAZFAGF.png" width="450" height="243" alt="Kadena" title="Kadena">
+</p>
 
-Read our whitepaper: [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](http://kadena.io/docs/chainweb-v15.pdf)
+<p>&nbsp;</p>
 
-With our recent release of Chainweb Testnet v3, we now have a public network to
-which anyone can connect, plus the ability to mine (either by using the new
-`chainweb-miner` or by running a node). As before, we provide a binary for Linux
-users, and Mac users can follow the instructions to build from source and then
-run their Chainweb node.
+# Kadena Public Blockchain
+
+
+Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability while maintaining the security and integrity found in Bitcoin. 
+
+Read our [whitepapers](https://www.kadena.io/whitepapers):
+
+- [Chainweb: A Proof-of-Work Parallel-Chain Architecture for Massive Throughput](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_029c9991469e4565a7c334dd716345f4.pdf)
+- [Agent-based Simulations of Blockchain Protocols illustrated via Kadena's *Chainweb*](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_3b2d0c58179d4edd9df6df4d55d61dda.pdf)
+
+For additional information, press, and development inquires, please refer to the Kadena [website](https://kadena.io)
 
 ## Table of Contents
 
-- [Chainweb Bootstrap Nodes](#chainweb-bootstrap-nodes)
-- Installing Chainweb
+- [Wiki](#chainweb-wiki)
+- [Installing Chainweb](#installing-chainweb)
   - [Instructions for Linux Users](#linux-users)
   - [Instructions for Mac Users](#mac-users)
-- Running Chainweb
-  - [Running a Chainweb Node](#running-a-chainweb-node)
+- [Running Chainweb Node](#running-chainweb-node)
   - [Configuring a Chainweb Node](#configuring-a-chainweb-node)
     - [Specifying Bootstrap Nodes](#specifying-bootstrap-nodes)
     - [Specifying your Public Identity](#specifying-your-public-identity)
     - [Specifying your Mining Identity](#specifying-your-mining-identity)
     - [Specifying a Log Level](#specifying-a-log-level)
   - [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
-- Design
+- [Chainweb Design](#chainweb-design)
   - [Component Structure Details](#component-structure)
   - [Architecture Overview](#architecture-overview)
 
-## Chainweb Bootstrap Nodes
-You can find the bootstrap nodes of the public Chainweb Mainnet: [here](https://github.com/kadena-io/chainweb-node/wiki)
- 
-## Linux Users
+## Wiki
 
-The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases/tag/1.0)
+The Chainweb wiki serves as a source of information that receives regular updates. You can find the chainweb Wiki [here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of frequently asked questions regarding  network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
 
-You will need to install rocksdb with the following command:
+If you have additions or comments, please submit a pull request or raise an issue.
+
+
+## Installing Chainweb
+### Linux Users
+
+The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases)
+
+#### Apt-based distributions
+If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you will need to install rocksdb with the following command:
 
 ```bash
-sudo apt install librocksdb5.8
+sudo apt-get update
 ```
+
+```bash
+sudo apt-get install -y librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3
+```
+
+If this is not available, then please view the [Rocksdb](https://rocksdb.org/) site for alternative modes of installation.
+
+#### Other distributions
+
+For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`, `z3` and install with its preferred package manager, or follow the alternative modes of installation described in [Rocksdb](https://rocksdb.org/).
 
 At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
 
-## Mac Users
-### Building from Source
+### Mac Users
+
+#### Getting the Dependencies
+
+Using the `brew` package manager, issue the following commands to download Chainweb's dependencies
+
+```bash
+brew update
+brew install z3
+brew install sqlite
+brew install rocksdb
+```
+
+#### Building from Source
 
 Chainweb is a [Haskell](https://www.haskell.org/) project, and can be built in
 several ways.
 
-#### Getting the Code
+##### Getting the Code
 
-##### Dependencies
+###### Dependencies
 - Homebrew: `brew install git`
 - [Installer](https://git-scm.com/downloads)
 
@@ -57,7 +92,7 @@ To get the code, you can go [here](https://github.com/kadena-io/chainweb-node/re
 
 You have the code, now let's pick a build tool.
 
-#### Building with Nix
+##### Building with Nix
 
 The fastest way to build and run chainweb is to use the Nix package manager
 which has binary caching capabilities that allow you to download pre-built
@@ -71,9 +106,9 @@ When the build is finished, you can run chainweb with the following command:
 ./result/ghc/chainweb/bin/chainweb-node
 ```
 
-#### Building with Stack
+##### Building with Stack
 
-##### Dependencies
+###### Dependencies
 
 - `stack >= 1.9`
   - Mac (Homebrew): `brew install haskell-stack`
@@ -99,9 +134,9 @@ stack exec -- chainweb-node
 Alternatively, `stack install` will install the binary to `~/.local/bin/`, which
 you may need to add to your path. Then, you can call `chainweb-node` as-is.
 
-#### Building with Cabal
+##### Building with Cabal
 
-##### Dependencies
+###### Dependencies
 
 - `ghc >= 8.4` (Haskell compiler) and `cabal >= 2.2` (Haskell build-tool)
   - [Linux / Mac](https://www.haskell.org/ghcup/)
@@ -127,7 +162,7 @@ To install a runnable binary to `~/.cabal/bin/`:
 cabal new-install
 ```
 
-## Running a Chainweb Node
+## Running Chainweb Node
 
 **This section assumes you've installed the `chainweb-node` binary** somewhere
 sensible, or otherwise have a simple way to refer to it. Please note that by
@@ -151,7 +186,7 @@ This will run a local Node on your machine, and you will see a flurry of
 activity. However, your Node won't be connected to the wider network yet. For
 that, we must configure Chainweb and change some defaults.
 
-## Configuring a Chainweb Node
+### Configuring a Chainweb Node
 
 All available command-line options are shown by running:
 
@@ -162,7 +197,7 @@ chainweb-node --help
 But we recommend working with a configuration file. The following instructions
 assume that you have generated such a file, as shown above.
 
-### Specifying Bootstrap Nodes
+#### Specifying Bootstrap Nodes
 
 To connect to the wider network, we must communiciate with some initial Peer. We
 call such a peer a *Bootstrap Node*. We define these in the `peers` list:
@@ -188,7 +223,7 @@ peers:
 Since `peers` is a list, you can specify as many as you like, including other
 powerful Nodes that you manage.
 
-### Specifying your Public Identity
+#### Specifying your Public Identity
 
 You need to inform other Nodes how to talk back to you. This is also the
 information that they send along to their neighbours as part of the Peer
@@ -215,7 +250,7 @@ hostaddress:
 Keep in mind that you may have to perform Port Forwarding if your machine is
 behind a router.
 
-### Specifying your Mining Identity
+#### Specifying your Mining Identity
 
 See our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
 for details. Without a properly defined Mining Identity, your mining effort will
@@ -229,7 +264,7 @@ chainweb:
     enable: false
 ```
 
-### Specifying a Logging Level
+#### Specifying a Logging Level
 
 Chainweb runs on `Info` by default. If you'd prefer something quieter, like `Warn`, set:
 
@@ -239,11 +274,13 @@ logging:
     log_level: warn
 ```
 
-## Mine for a Chainweb Network
+### Mine for a Chainweb Network
 
 Detailed mining instructions can be found in our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
 
-## Component Structure
+## Chainweb Design
+
+### Component Structure
 
 The production components are:
 
@@ -259,9 +296,9 @@ The production components are:
 
 *   `chainweb-tests`: A test suite for the Chainweb library and chainweb-node.
 
-## Architecture Overview
+### Architecture Overview
 
-For a detailed description of the `chainweb` architecture,
+For a detailed description of the Kadena architecture,
 [see here](docs/Architecture.md).
 
 ![Architecture Overview](docs/Overview.png)
