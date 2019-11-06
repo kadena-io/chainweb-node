@@ -79,14 +79,16 @@ cutPutHandler db c sockAddr = NoContent <$ liftIO (addCutHashes db c')
     --
     -- TODO: do proper TLS client authentication
     --
-    c' = case sockAddrToHostAddress sockAddr of
-        Nothing -> c
-        Just ha ->
-            let pinfo = PeerInfo
-                    { _peerAddr = ha
-                    , _peerId = Nothing
-                    }
-            in set cutOrigin (Just pinfo) c
+    c' = case _cutOrigin c of
+        Just _ -> c
+        Nothing -> case sockAddrToHostAddress sockAddr of
+            Nothing -> c
+            Just ha ->
+                let pinfo = PeerInfo
+                        { _peerAddr = ha
+                        , _peerId = Nothing
+                        }
+                in set cutOrigin (Just pinfo) c
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server
