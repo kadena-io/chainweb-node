@@ -48,9 +48,11 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 
 -- Internal imports
 
+import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
+import Chainweb.Version (ChainwebVersion(..))
 
 import P2P.Peer
 
@@ -92,20 +94,42 @@ instance Arbitrary P2pConfiguration where
         <*> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary
 
+-- | Default known peers
+-- by default we start with an empty list. The hard-coded bootstrap peer
+-- infos depend on the chainweb version which may change depending on
+-- the configuration. So we have to wait until all configuration parsing
+-- is complete
+defaultKnownPeers ::  ChainwebVersion -> [PeerInfo]
+defaultKnownPeers Mainnet01 =
+  [ bootstrap "us-e1.chainweb.com"
+  , bootstrap "us-e2.chainweb.com"
+  , bootstrap "us-e3.chainweb.com"
+  
+  , bootstrap "us-w1.chainweb.com"
+  , bootstrap "us-w2.chainweb.com"
+  , bootstrap "us-w3.chainweb.com"
+  
+  , bootstrap "fr1.chainweb.com"
+  , bootstrap "fr2.chainweb.com"
+  , bootstrap "fr3.chainweb.com"
+  
+  , bootstrap "jp1.chainweb.com"
+  , bootstrap "jp2.chainweb.com"
+  , bootstrap "jp3.chainweb.com"
+  ]
+  where
+    bootstrap h = PeerInfo Nothing (unsafeHostAddressFromText (h <> ":443"))
+defaultKnownPeers _ = mempty
+
 -- | These are acceptable values for both test and production chainwebs.
 --
-defaultP2pConfiguration :: P2pConfiguration
-defaultP2pConfiguration = P2pConfiguration
+defaultP2pConfiguration ::  ChainwebVersion -> P2pConfiguration
+defaultP2pConfiguration v = P2pConfiguration
     { _p2pConfigPeer = defaultPeerConfig
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
     , _p2pConfigSessionTimeout = 60
-    , _p2pConfigKnownPeers = mempty
-        -- by default we start with an empty list. The hard-coded bootstrap peer
-        -- infos depend on the chainweb version which may change depending on
-        -- the configuration. So we have to wait until all configuration parsing
-        -- is complete
-
+    , _p2pConfigKnownPeers = defaultKnownPeers v
     , _p2pConfigPeerDbFilePath = Nothing
     , _p2pConfigIgnoreBootstrapNodes = False
     }
