@@ -399,7 +399,7 @@ syncFromPeer node info = runClientM sync env >>= \case
     Right p -> do
         caps <- getNumCapabilities
         goods <- fmap catMaybes
-            $ traverseConcurrently (ParN $ int caps * 3) (guardPeerDbOfNode node)
+            $ traverseConcurrently (ParN $ int caps) (guardPeerDbOfNode node)
             $ filter (\i -> me /= _peerId i)
             $ _pageItems p
         peerDbInsertPeerInfoList
