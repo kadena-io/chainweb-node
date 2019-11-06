@@ -24,6 +24,9 @@ import Data.List (sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
+import Network.Wai (Middleware, pathInfo, responseLBS)
+import Network.HTTP.Types.Status (status404)
+
 import P2P.Node.Configuration
 import P2P.Peer
 
@@ -247,6 +250,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebThrottler = throttler
                                       , _chainwebMiningThrottler = miningThrottler
                                       , _chainwebPutPeerThrottler = putPeerThrottler
+                                      , _chainwebRouteBlacklist = routeBlacklist
                                       , _chainwebConfig = conf
                                       }
 
@@ -286,3 +290,12 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
+
+    routeBlacklist :: Middleware
+    routeBlacklist app req respond
+        | test = respond $ responseLBS status404 [] "Endpoint not supported by this node"
+        | otherwise = app req respond
+      where
+        test = any
+            (\x -> x `T.isPrefixOf` (T.intercalate "/" (pathInfo req)))
+            (_configDisabledEndpoints conf)

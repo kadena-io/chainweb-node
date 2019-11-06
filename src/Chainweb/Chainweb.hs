@@ -80,6 +80,7 @@ module Chainweb.Chainweb
 , chainwebMiningThrottler
 , chainwebPutPeerThrottler
 , chainwebConfig
+, chainwebRouteBlacklist
 
 -- ** Mempool integration
 , ChainwebTransaction
@@ -128,6 +129,7 @@ import qualified Data.Vector as V
 import GHC.Generics hiding (from)
 
 import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Types.Status (status404)
 import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp
@@ -239,6 +241,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configCutFetchTimeout :: !Int
     , _configCutLimitConfig :: !LimitConfig
+    , _configDisabledEndpoints :: ![T.Text]
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -274,6 +277,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configBlockGasLimit = 100000
     , _configCutFetchTimeout = 10000000
     , _configCutLimitConfig = LimitConfig 60 60 30 240
+    , _configDisabledEndpoints = []
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -295,6 +299,7 @@ instance ToJSON ChainwebConfiguration where
         , "blockGasLimit" .= _configBlockGasLimit o
         , "cutFetchTimeout" .= _configCutFetchTimeout o
         , "cutLimitConfig" .= _configCutLimitConfig o
+        , "disabledEndpoints" .= _configDisabledEndpoints o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -316,6 +321,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configBlockGasLimit ..: "blockGasLimit" % o
         <*< configCutFetchTimeout ..: "cutFetchTimeout" % o
         <*< configCutLimitConfig ..: "cutLimitConfig" % o
+        <*< configDisabledEndpoints . from leftMonoidalUpdate %.: "disabledEndpoints" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -363,6 +369,10 @@ pChainwebConfiguration = id
     <*< configCutFetchTimeout .:: option auto
         % long "cut-fetch-timeout"
         <> help "After this many microseconds, give up trying to sync a particular Cut"
+    <*< configDisabledEndpoints %:: pLeftMonoidalUpdate % fmap pure % textOption
+        % long "disable-endpoint"
+        <> help "disable endpoints with this prefix on the local node"
+        <> metavar "PATHPREFIX"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -383,6 +393,7 @@ data Chainweb logger cas = Chainweb
     , _chainwebMiningThrottler :: !(Throttle Address)
     , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
+    , _chainwebRouteBlacklist :: !Middleware
     }
 
 makeLenses ''Chainweb
@@ -601,6 +612,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebMiningThrottler = miningThrottler
                             , _chainwebPutPeerThrottler = putPeerThrottler
                             , _chainwebConfig = conf
+                            , _chainwebRouteBlacklist = routeBlacklist
                             }
 
     withPactData
@@ -651,6 +663,15 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
+
+    routeBlacklist :: Middleware
+    routeBlacklist app req respond
+        | test = respond $ responseLBS status404 [] "Endpoint not supported by this node"
+        | otherwise = app req respond
+      where
+        test = any
+            (\x -> x `T.isPrefixOf` (T.intercalate "/" (pathInfo req)))
+            (_configDisabledEndpoints conf)
 
 -- -------------------------------------------------------------------------- --
 -- Throttler
@@ -707,7 +728,8 @@ runChainweb cw = do
     concurrently_
         -- 1. Start serving Rest API
         (serve
-            $ httpLog
+            $ _chainwebRouteBlacklist cw
+            . httpLog
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMiningThrottler cw)
             . throttle (_chainwebThrottler cw)
