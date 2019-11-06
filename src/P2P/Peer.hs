@@ -312,7 +312,7 @@ peerConfigHost = peerConfigAddr . hostAddressHost
 
 defaultPeerConfig :: PeerConfig
 defaultPeerConfig = PeerConfig
-    { _peerConfigAddr = HostAddress localhost 0
+    { _peerConfigAddr = HostAddress localhost 443
     , _peerConfigInterface = fromString "*"
     , _peerConfigCertificateChain = Nothing
     , _peerConfigCertificateChainFile = Nothing
