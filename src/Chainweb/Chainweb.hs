@@ -306,6 +306,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configIncludeOrigin ..: "includeOrigin" % o
         <*< configThrottleRate ..: "throttleRate" % o
         <*< configMiningThrottleRate ..: "miningThrottleRate" % o
+        <*< configPutPeerThrottleRate ..: "putPeerThrottleRate" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
