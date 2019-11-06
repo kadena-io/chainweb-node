@@ -41,8 +41,11 @@ import Data.LogMessage
 data TokenLimitMap k = TokenLimitMap
     { _tlmMap :: !(Cache k RateLimiter)
     , _tlmLimitPolicy :: !LimitConfig
+      -- ^ token bucket rate limiting policy (max num tokens, refill rate, etc)
     , _tlmReaper :: !(Async ())
     , _tlmCachePolicy :: !TokenLimitCachePolicy
+      -- ^ inactivity period before your key's rate limiter is expired from the
+      -- cache
     } deriving (Generic)
 
 newtype TokenLimitCachePolicy = TokenLimitCachePolicy

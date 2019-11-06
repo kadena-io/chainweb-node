@@ -185,7 +185,7 @@ defaultCutDbConfig v ft = CutDbConfig
   where
     g = _chainGraph v
     exptime = Clock.TimeSpec { Clock.sec = 10 * 60, Clock.nsec = 0 }
-    rlPolicy = LimitConfig 60 60 30 20
+    rlPolicy = LimitConfig 60 60 30 240
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:

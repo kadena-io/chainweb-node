@@ -270,7 +270,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
     , _configBlockGasLimit = 100000
-    , _configCutFetchTimeout = 3000000
+    , _configCutFetchTimeout = 10000000
     }
 
 instance ToJSON ChainwebConfiguration where
