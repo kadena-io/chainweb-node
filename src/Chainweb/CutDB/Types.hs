@@ -32,6 +32,7 @@ import Control.Concurrent.STM.TVar
 import Data.Function
 import Data.LogMessage
 import Data.Ord
+import qualified Data.Text as T
 
 import Numeric.Natural
 
@@ -44,6 +45,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Version
+import qualified Chainweb.Utils.TokenLimiting as Limiter
 
 import Data.CAS.RocksDB
 import Data.PQueue
@@ -62,6 +64,7 @@ data CutDb cas = CutDb
     , _cutDbPayloadStore :: !(WebBlockPayloadStore cas)
     , _cutDbQueueSize :: !Natural
     , _cutDbStore :: !(RocksDbCas CutHashes)
+    , _cutDbRateLimiter :: !(Limiter.TokenLimitMap T.Text)
     }
 
 instance HasChainGraph (CutDb cas) where

@@ -63,6 +63,7 @@ cutGetApi = Proxy
 
 type CutPutApi_
     = ReqBody '[JSON] CutHashes
+    :> RemoteHost
     :> Verb 'PUT 204 '[JSON] NoContent
 
 type CutPutApi (v :: ChainwebVersionT)

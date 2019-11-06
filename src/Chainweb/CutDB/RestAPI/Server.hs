@@ -31,12 +31,13 @@ module Chainweb.CutDB.RestAPI.Server
 , serveCutOnPort
 ) where
 
-import Control.Lens (view)
+import Control.Lens (set, view)
 import Control.Monad.Except
 
 import Data.Proxy
 import Data.Semigroup
 
+import qualified Network.Socket as N
 import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
@@ -54,6 +55,8 @@ import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils
 import Chainweb.Version
 
+import P2P.Peer
+
 -- -------------------------------------------------------------------------- --
 -- Handlers
 
@@ -64,8 +67,26 @@ cutGetHandler db (Just (MaxRank (Max mar))) = liftIO $ do
     !c' <- limitCut (view cutDbWebBlockHeaderDb db) (int mar) c
     return $! cutToCutHashes Nothing c'
 
-cutPutHandler :: CutDb cas -> CutHashes -> Handler NoContent
-cutPutHandler db c = NoContent <$ liftIO (addCutHashes db c)
+cutPutHandler
+    :: CutDb cas
+    -> CutHashes
+    -> N.SockAddr
+    -> Handler NoContent
+cutPutHandler db c sockAddr = NoContent <$ liftIO (addCutHashes db c')
+  where
+    -- Fake origin information. The peer id and port are not correct, we
+    -- use it ony for rate limiting by IP in the CutDB.
+    --
+    -- TODO: do proper TLS client authentication
+    --
+    c' = case sockAddrToHostAddress sockAddr of
+        Nothing -> c
+        Just ha ->
+            let pinfo = PeerInfo
+                    { _peerAddr = ha
+                    , _peerId = Nothing
+                    }
+            in set cutOrigin (Just pinfo) c
 
 -- -------------------------------------------------------------------------- --
 -- Cut API Server

@@ -268,7 +268,12 @@ cut :: Getter (CutDb cas) (IO Cut)
 cut = to _cut
 
 addCutHashes :: CutDb cas -> CutHashes -> IO ()
-addCutHashes db = pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) . Down
+addCutHashes db ch = do
+    traverse checkLimit (_cutOrigin ch) >>= \case
+        Just False -> return ()
+        _ -> pQueueInsertLimit (_cutDbQueue db) (_cutDbQueueSize db) $ Down ch
+  where
+    checkLimit = checkRateLimit (_cutDbLogFunction db) (_cutDbRateLimiter db)
 
 -- | An 'STM' version of '_cut'.
 --
@@ -384,6 +389,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
         , _cutDbPayloadStore = payloadStore
         , _cutDbQueueSize = _cutDbConfigBufferSize config
         , _cutDbStore = cutHashesStore
+        , _cutDbRateLimiter = limiter
         }
   where
     logg = logfun @T.Text
@@ -396,23 +402,10 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
     penaltyTokens :: Int
     penaltyTokens = refillRate * penaltySeconds
 
-    peerInfoToText = hostnameToText . _hostAddressHost . _peerAddr
-
-    checkRateLimit :: PeerInfo -> IO Bool
-    checkRateLimit pinfo = do
-        b <- Limiter.tryDebit 1 (peerInfoToText pinfo) limiter
-        when (not b) $ logfun Info (dropMsg pinfo)
-        return b
-
     penaltyMsg :: PeerInfo -> T.Text
     penaltyMsg pinfo = T.concat [ "Penalizing peer '"
                                 , shortPeerInfo pinfo
                                 , "': bad / unverifiable cut." ]
-
-    dropMsg :: PeerInfo -> T.Text
-    dropMsg pinfo = T.concat [ "Dropping cut from peer '"
-                             , shortPeerInfo pinfo
-                             , "': rate limited / penalized." ]
 
     penalizeSender :: CutHashes -> IO ()
     penalizeSender ch = do
@@ -426,7 +419,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
         processCuts config logfun headerStore payloadStore cutHashesStore queue
-                    cutVar checkRateLimit penalizeSender
+                    cutVar (checkRateLimit logfun limiter) penalizeSender
 
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
@@ -745,3 +738,26 @@ data SomeCutDb cas = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDb
 
 someCutDbVal :: ChainwebVersion -> CutDb cas -> SomeCutDb cas
 someCutDbVal (FromSing (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @_ @v db
+
+-- -------------------------------------------------------------------------- --
+-- Rate Limiting Check
+
+checkRateLimit :: LogFunction -> Limiter.TokenLimitMap T.Text -> PeerInfo -> IO Bool
+checkRateLimit logfun limiter pinfo = do
+    b <- Limiter.tryDebit 1 (peerInfoToText pinfo) limiter
+    when (not b) $ logfun Info (dropMsg pinfo)
+    return b
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+peerInfoToText :: PeerInfo -> T.Text
+peerInfoToText = hostnameToText . _hostAddressHost . _peerAddr
+
+dropMsg :: PeerInfo -> T.Text
+dropMsg pinfo = T.concat
+    [ "Dropping cut from peer '"
+    , shortPeerInfo pinfo
+    , "': rate limited / penalized."
+    ]
+

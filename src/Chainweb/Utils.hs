@@ -1255,3 +1255,4 @@ instance NFData SockAddr where
     rnf (SockAddrUnix a) = a `seq` ()
     rnf (SockAddrCan a) = a `seq` ()
 #endif
+
