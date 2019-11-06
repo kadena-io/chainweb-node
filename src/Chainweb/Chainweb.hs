@@ -76,6 +76,8 @@ module Chainweb.Chainweb
 , chainwebPayloadDb
 , chainwebPactData
 , chainwebThrottler
+, chainwebMiningThrottler
+, chainwebPutPeerThrottler
 , chainwebConfig
 
 -- ** Mempool integration
@@ -88,6 +90,13 @@ module Chainweb.Chainweb
 
 -- * Miner
 , runMiner
+
+-- * Throttler
+, mkGenericThrottler
+, mkMiningThrottler
+, mkPutPeerThrottler
+, checkPathPrefix
+, mkThrottler
 
 ) where
 
@@ -107,7 +116,7 @@ import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import Data.List (sortBy)
+import Data.List (isPrefixOf, sortBy)
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
@@ -210,6 +219,20 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
     , _configThrottleRate :: !Natural
+    , _configMiningThrottleRate :: !Natural
+        -- ^ The rate should be sufficient to make at least on call per cut. We
+        -- expect an cut to arrive every few seconds.
+        --
+        -- Default is 10 per second.
+
+    , _configPutPeerThrottleRate :: !Natural
+        -- ^ This should throttle aggressively. This endpoint does an expensive
+        -- check of the client. And we want to keep bad actors out of the
+        -- system. There should be no need for a client to call this endpoint on
+        -- the same node more often than at most few times peer minute.
+        --
+        -- Default is 1 per second
+
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
     , _configBlockGasLimit :: !Mempool.GasLimit
@@ -241,7 +264,9 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
-    , _configThrottleRate = 1000
+    , _configThrottleRate = 50 -- per second
+    , _configMiningThrottleRate = 2 --  per second
+    , _configPutPeerThrottleRate = 11 -- per second, one for each p2p network
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
     , _configBlockGasLimit = 100000
@@ -260,6 +285,8 @@ instance ToJSON ChainwebConfiguration where
         , "transactionIndex" .= _configTransactionIndex o
         , "includeOrigin" .= _configIncludeOrigin o
         , "throttleRate" .= _configThrottleRate o
+        , "miningThrottleRate" .= _configMiningThrottleRate o
+        , "putPeerThrottleRate" .= _configPutPeerThrottleRate o
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
         , "blockGasLimit" .= _configBlockGasLimit o
@@ -278,6 +305,8 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
         <*< configThrottleRate ..: "throttleRate" % o
+        <*< configMiningThrottleRate ..: "miningThrottleRate" % o
+        <*< configPutPeerThrottleRate ..: "putPeerThrottleRate" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
@@ -312,6 +341,12 @@ pChainwebConfiguration = id
     <*< configThrottleRate .:: option auto
         % long "throttle-rate"
         <> help "how many requests per second are accepted from another node before it is being throttled"
+    <*< configMiningThrottleRate .:: option auto
+        % long "mining-throttle-rate"
+        <> help "how many mining API requests per second are accepted from another node before it is being throttled"
+    <*< configPutPeerThrottleRate .:: option auto
+        % long "putpeer-throttle-rate"
+        <> help "how many PUT peer requests per second are accepted from another node before it is being throttled"
     <*< configMempoolP2p %::
         pEnableConfig "mempool-p2p" pMempoolP2pConfig
     <*< configPruneChainDatabase .:: enableDisableFlag
@@ -340,6 +375,8 @@ data Chainweb logger cas = Chainweb
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
     , _chainwebThrottler :: !(Throttle Address)
+    , _chainwebMiningThrottler :: !(Throttle Address)
+    , _chainwebPutPeerThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     }
 
@@ -519,19 +556,9 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                 !mCutDb = _cutResCutDb cuts
 
             -- initialize throttler
-            throttler <- initThrottler (defaultThrottleSettings $ TimeSpec 4 0)
-                { throttleSettingsRate = int $ _configThrottleRate conf
-                , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
-                , throttleSettingsBurst = int $ _configThrottleRate conf
-                , throttleSettingsIsThrottled = const True
-                -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
-                --     [ "cut"
-                --     , "header"
-                --     , "payload"
-                --     , "mempool"
-                --     , "peer"
-                --     ]
-                }
+            throttler <- mkGenericThrottler (_configThrottleRate conf)
+            miningThrottler <- mkMiningThrottler (_configMiningThrottleRate conf)
+            putPeerThrottler <- mkPutPeerThrottler (_configMiningThrottleRate conf)
 
             -- update the cutdb mvar used by pact service with cutdb
             void $! putMVar cdbv mCutDb
@@ -566,6 +593,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebManager = mgr
                             , _chainwebPactData = pactData
                             , _chainwebThrottler = throttler
+                            , _chainwebMiningThrottler = miningThrottler
+                            , _chainwebPutPeerThrottler = putPeerThrottler
                             , _chainwebConfig = conf
                             }
 
@@ -618,6 +647,48 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
 
+-- -------------------------------------------------------------------------- --
+-- Throttler
+
+mkGenericThrottler :: Integral a => a -> IO (Throttle Address)
+mkGenericThrottler rate = mkThrottler 5 rate (const True)
+
+mkMiningThrottler :: Integral a => a -> IO (Throttle Address)
+mkMiningThrottler rate = mkThrottler 5 rate (checkPathPrefix ["mining", "work"])
+
+mkPutPeerThrottler :: Integral a => a -> IO (Throttle Address)
+mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
+    elem "peer" (pathInfo r) && requestMethod r == "PUT"
+
+
+checkPathPrefix
+    :: [T.Text]
+        -- ^ the base rate granted to users of the endpoing
+    -> Request
+    -> Bool
+checkPathPrefix endpoint r = endpoint `isPrefixOf` drop 3 (pathInfo r)
+
+-- | The period is 1 second. Burst is 2*rate.
+--
+mkThrottler
+    :: Integral a
+    => a
+        -- ^ expiration of a stall bucket in seconds
+    -> a
+        -- ^ the base rate granted to users of the endpoint (requests per second)
+    -> (Request -> Bool)
+        -- ^ Predicate to select requests that are throttled
+    -> IO (Throttle Address)
+mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (int e) 0) -- expiration
+    { throttleSettingsRate = int rate -- number of allowed requests per period
+    , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
+    , throttleSettingsBurst = 2 * int rate
+    , throttleSettingsIsThrottled = c
+    }
+
+-- -------------------------------------------------------------------------- --
+-- Run Chainweb
+
 -- | Starts server and runs all network clients
 --
 runChainweb
@@ -630,7 +701,12 @@ runChainweb cw = do
     logg Info "start chainweb node"
     concurrently_
         -- 1. Start serving Rest API
-        (serve (throttle (_chainwebThrottler cw) . httpLog))
+        (serve
+            $ httpLog
+            . throttle (_chainwebPutPeerThrottler cw)
+            . throttle (_chainwebMiningThrottler cw)
+            . throttle (_chainwebThrottler cw)
+        )
         -- 2. Start Clients (with a delay of 500ms)
         (threadDelay 500000 >> clients)
   where

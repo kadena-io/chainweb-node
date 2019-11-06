@@ -52,7 +52,7 @@ import Chainweb.Miner.Miners
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (EnableConfig(..), int, runForever)
+import Chainweb.Utils (EnableConfig(..), runForever)
 import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
@@ -86,14 +86,15 @@ withMiningCoordination logger enabled cutDb inner
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
-            , _coordLimit = 2500
+            , _coordLimit = 1200
             , _coord503s = c }
   where
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
-        let !d = 300000000  -- 5 minutes
+        let !d = 30000000  -- 30 seconds
+        let !maxAge = 300000000  -- 5 minutes
         threadDelay d
-        ago <- over (_Unwrapped . _Unwrapped) (subtract (int d)) <$> getCurrentTimeIntegral
+        ago <- over (_Unwrapped . _Unwrapped) (subtract maxAge) <$> getCurrentTimeIntegral
         m@(MiningState ms) <- atomically $ do
             ms <- readTVar t
             modifyTVar' t . over _Unwrapped $ M.filter (f ago)
@@ -102,6 +103,12 @@ withMiningCoordination logger enabled cutDb inner
         atomicWriteIORef c 0
         logFunction logger Info . JsonLog $ MiningStats (M.size ms) count (avgTxs m)
 
+    -- Filter for work items that are not older than maxAge
+    --
+    -- NOTE: Should difficulty ever become that hard that five minutes aren't
+    -- sufficient to mine a block this constant must be changed in order to
+    -- recover.
+    --
     f :: Time Micros -> T3 a PrevTime b -> Bool
     f ago (T3 _ (PrevTime p) _) = p > BlockCreationTime ago
 

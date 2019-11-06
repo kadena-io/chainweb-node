@@ -24,12 +24,9 @@ import Data.List (sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
-import Network.Wai.Middleware.Throttle
-
 import P2P.Node.Configuration
 import P2P.Peer
 
-import System.Clock
 import System.LogLevel
 
 -- chainweb imports
@@ -215,21 +212,10 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                     mConf = _configMiner conf
                     mCutDb = _cutResCutDb cuts
 
-                    -- initialize throttler
-                throttler <- initThrottler
-                    (defaultThrottleSettings $ TimeSpec 4 0)
-                    { throttleSettingsRate = int $ _configThrottleRate conf
-                    , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
-                    , throttleSettingsBurst = int $ _configThrottleRate conf
-                    , throttleSettingsIsThrottled = const True
-                    -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
-                    --     [ "cut"
-                    --     , "header"
-                    --     , "payload"
-                    --     , "mempool"
-                    --     , "peer"
-                    --     ]
-                    }
+                -- initialize throttler
+                throttler <- mkGenericThrottler (_configThrottleRate conf)
+                miningThrottler <- mkMiningThrottler (_configMiningThrottleRate conf)
+                putPeerThrottler <- mkPutPeerThrottler (_configMiningThrottleRate conf)
 
                 void $! putMVar cdbv mCutDb
 
@@ -259,6 +245,8 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebManager = mgr
                                       , _chainwebPactData = pactData
                                       , _chainwebThrottler = throttler
+                                      , _chainwebMiningThrottler = miningThrottler
+                                      , _chainwebPutPeerThrottler = putPeerThrottler
                                       , _chainwebConfig = conf
                                       }
 
@@ -298,3 +286,4 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
+
