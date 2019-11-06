@@ -262,7 +262,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     cids = chainIds v
 
     -- FIXME: make this configurable
-    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
+    cutConfig = (defaultCutDbConfig v (_configCutFetchTimeout conf) (_configCutLimitConfig conf))
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
@@ -286,4 +286,3 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
-
