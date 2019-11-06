@@ -87,6 +87,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
 
+import Data.Aeson
 import Data.CAS.HashMap
 import Data.Foldable
 import Data.Function
@@ -151,9 +152,9 @@ data LimitConfig = LimitConfig
     { maxBucketTokens :: {-# UNPACK #-} !Int
     , initialBucketTokens :: {-# UNPACK #-} !Int
     , bucketRefillTokensPerSecond :: {-# UNPACK #-} !Int
-    , badSenderPenaltySecs :: {-# UNPACK #-} !Int
-    } deriving (Eq, Ord, Show)
-
+    , badSenderPenaltySecs :: {-# UNPACK #-} !Int }
+    deriving stock (Eq, Ord, Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
 
 data CutDbConfig = CutDbConfig
     { _cutDbConfigInitialCut :: !Cut
@@ -170,8 +171,9 @@ data CutDbConfig = CutDbConfig
 
 makeLenses ''CutDbConfig
 
-defaultCutDbConfig :: ChainwebVersion -> Int -> CutDbConfig
-defaultCutDbConfig v ft = CutDbConfig
+-- TODO Make this fully configurable.
+defaultCutDbConfig :: ChainwebVersion -> Int -> LimitConfig -> CutDbConfig
+defaultCutDbConfig v ft rlPolicy = CutDbConfig
     { _cutDbConfigInitialCut = genesisCut v
     , _cutDbConfigInitialCutFile = Nothing
     , _cutDbConfigBufferSize = (order g ^ (2 :: Int)) * diameter g
@@ -185,7 +187,6 @@ defaultCutDbConfig v ft = CutDbConfig
   where
     g = _chainGraph v
     exptime = Clock.TimeSpec { Clock.sec = 10 * 60, Clock.nsec = 0 }
-    rlPolicy = LimitConfig 60 60 30 240
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:

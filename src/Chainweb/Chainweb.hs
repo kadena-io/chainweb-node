@@ -58,6 +58,7 @@ module Chainweb.Chainweb
 , configTransactionIndex
 , configBlockGasLimit
 , configCutFetchTimeout
+, configCutLimitConfig
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -237,6 +238,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configPruneChainDatabase :: !Bool
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configCutFetchTimeout :: !Int
+    , _configCutLimitConfig :: !LimitConfig
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -271,6 +273,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configPruneChainDatabase = True
     , _configBlockGasLimit = 100000
     , _configCutFetchTimeout = 10000000
+    , _configCutLimitConfig = LimitConfig 60 60 30 240
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -291,6 +294,7 @@ instance ToJSON ChainwebConfiguration where
         , "pruneChainDatabase" .= _configPruneChainDatabase o
         , "blockGasLimit" .= _configBlockGasLimit o
         , "cutFetchTimeout" .= _configCutFetchTimeout o
+        , "cutLimitConfig" .= _configCutLimitConfig o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -311,6 +315,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
         <*< configCutFetchTimeout ..: "cutFetchTimeout" % o
+        <*< configCutLimitConfig ..: "cutLimitConfig" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -618,7 +623,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     -- FIXME: make this configurable
     cutConfig :: CutDbConfig
-    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
+    cutConfig = (defaultCutDbConfig v (_configCutFetchTimeout conf) (_configCutLimitConfig conf))
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
