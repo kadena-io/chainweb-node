@@ -728,8 +728,8 @@ runChainweb cw = do
     concurrently_
         -- 1. Start serving Rest API
         (serve
-            $ _chainwebRouteBlacklist cw
-            . httpLog
+            $ httpLog
+            . _chainwebRouteBlacklist cw
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMiningThrottler cw)
             . throttle (_chainwebThrottler cw)
