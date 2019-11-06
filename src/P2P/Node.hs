@@ -65,6 +65,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
+import Control.Scheduler (Comp(..), traverseConcurrently)
 
 import Data.Aeson hiding (Error)
 import Data.Foldable
@@ -396,8 +397,9 @@ syncFromPeer node info = runClientM sync env >>= \case
             logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
             return False
     Right p -> do
+        caps <- getNumCapabilities
         goods <- fmap catMaybes
-            $ mapConcurrently (guardPeerDbOfNode node)
+            $ traverseConcurrently (ParN $ int caps * 3) (guardPeerDbOfNode node)
             $ filter (\i -> me /= _peerId i)
             $ _pageItems p
         peerDbInsertPeerInfoList

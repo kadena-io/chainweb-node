@@ -262,7 +262,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     cids = chainIds v
 
     -- FIXME: make this configurable
-    cutConfig = (defaultCutDbConfig v)
+    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
