@@ -77,7 +77,7 @@ let # Working on getting this function upstreamed into nixpkgs, but
           pkg = "cryptonite";
           ver = "0.26";
           sha256 = "067qv3psrr1r67rfzlp3f6h6mwkcb9fldjnw4frma8j370ya238a";
-        }) "-f support_sse") (drv: {
+        }) "-f support_sse -f support_aesni -f support_pclmuldq") (drv: {
         patches = [ ./blake2s.patch ];
       });
 
