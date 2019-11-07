@@ -73,6 +73,14 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       rocksdb-haskell = dontCheck super.rocksdb-haskell;
 
+      cryptonite = overrideCabal (appendConfigureFlag (callHackageDirect {
+          pkg = "cryptonite";
+          ver = "0.26";
+          sha256 = "067qv3psrr1r67rfzlp3f6h6mwkcb9fldjnw4frma8j370ya238a";
+        }) "-f support_sse") (drv: {
+        patches = [ ./blake2s.patch ];
+      });
+
       scheduler = callHackageDirect {
         pkg = "scheduler";
         ver = "1.4.2.1";
