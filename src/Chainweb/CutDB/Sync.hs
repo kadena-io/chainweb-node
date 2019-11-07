@@ -72,7 +72,7 @@ getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) en
 -- Sync Session
 
 catchupStepSize :: BlockHeight
-catchupStepSize = 1000
+catchupStepSize = 20
 
 syncSession
     :: ChainwebVersion
