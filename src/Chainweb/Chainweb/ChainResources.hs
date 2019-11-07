@@ -197,7 +197,7 @@ runMempoolSyncClient mgr memP2pConfig chain = bracket create destroy go
   where
     create = do
         logg Debug "starting mempool p2p sync"
-        p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr $
+        p2pCreateNode v netId peer (logFunction syncLogger) peerDb mgr True $
             mempoolSyncP2pSession chain (_mempoolP2pConfigPollInterval memP2pConfig)
     go n = do
         -- Run P2P client node
