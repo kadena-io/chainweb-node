@@ -218,6 +218,9 @@ data P2pNode = P2pNode
     , _p2pNodeActive :: !(TVar Bool)
         -- ^ Wether this node is active. If this is 'False' no new sessions
         -- will be initialized.
+    , _p2pNodeDoPeerSync :: !Bool
+        -- ^ Synchronize peers at start of each session. Note, that this is
+        -- expensive.
     }
 
 instance HasChainwebVersion P2pNode where
@@ -399,7 +402,7 @@ syncFromPeer node info = runClientM sync env >>= \case
     Right p -> do
         caps <- getNumCapabilities
         goods <- fmap catMaybes
-            $ traverseConcurrently (ParN $ int caps * 3) (guardPeerDbOfNode node)
+            $ traverseConcurrently (ParN $ int caps) (guardPeerDbOfNode node)
             $ filter (\i -> me /= _peerId i)
             $ _pageItems p
         peerDbInsertPeerInfoList
@@ -522,7 +525,7 @@ newSession conf node = do
     newPeer <- atomically $ findNextPeer conf node
     let newPeerInfo = _peerEntryInfo newPeer
     logg node Debug $ "Selected new peer " <> encodeToText newPeer
-    syncFromPeer node newPeerInfo >>= \case
+    syncFromPeer_ newPeerInfo >>= \case
         False -> do
             threadDelay =<< R.randomRIO (400000, 500000)
                 -- FIXME there are better ways to prevent the node from spinning
@@ -548,6 +551,10 @@ newSession conf node = do
   where
     TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
     peerDb = _p2pNodePeerDb node
+
+    syncFromPeer_ pinfo
+        | _p2pNodeDoPeerSync node = syncFromPeer node pinfo
+        | otherwise = return True
 
 -- | Monitor and garbage collect sessions
 --
@@ -665,9 +672,10 @@ p2pCreateNode
     -> LogFunction
     -> PeerDb
     -> HTTP.Manager
+    -> Bool
     -> P2pSession
     -> IO P2pNode
-p2pCreateNode cv nid peer logfun db mgr session = do
+p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
@@ -685,6 +693,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
                 , _p2pNodeClientSession = session
                 , _p2pNodeRng = rngVar
                 , _p2pNodeActive = activeVar
+                , _p2pNodeDoPeerSync = doPeerSync
                 }
 
     logfun @T.Text Info "created node"
