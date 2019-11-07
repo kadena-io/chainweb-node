@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies      #-}
@@ -208,14 +209,17 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
         withCutResources cutConfig peer cutLogger
             rocksDb webchain payloadDb mgr pact $ \cuts -> do
                 logg Info "finished initializing cut resources"
-                let mLogger = setComponent "miner" logger
-                    mConf = _configMiner conf
-                    mCutDb = _cutResCutDb cuts
+
+                let !mLogger = setComponent "miner" logger
+                    !mConf = _configMiner conf
+                    !mCutDb = _cutResCutDb cuts
+                    !throt  = _configThrottling conf
 
                 -- initialize throttler
-                throttler <- mkGenericThrottler (_configThrottleRate conf)
-                miningThrottler <- mkMiningThrottler (_configMiningThrottleRate conf)
-                putPeerThrottler <- mkPutPeerThrottler (_configMiningThrottleRate conf)
+                throttler <- mkGenericThrottler $ _throttlingRate throt
+                miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
+                putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
+                localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
 
                 void $! putMVar cdbv mCutDb
 
@@ -247,6 +251,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebThrottler = throttler
                                       , _chainwebMiningThrottler = miningThrottler
                                       , _chainwebPutPeerThrottler = putPeerThrottler
+                                      , _chainwebLocalThrottler = localThrottler
                                       , _chainwebConfig = conf
                                       }
 
@@ -286,4 +291,3 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                        <$> casLookupM payloadDb (_blockPayloadHash bh)
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
-
