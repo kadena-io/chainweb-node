@@ -14,6 +14,7 @@ module Control.Concurrent.FixedThreadPool
   , runActionGroup
   , mapAction
   , mapAction_
+  , mapActionThrowing
   , waitAction
   ) where
 
@@ -24,11 +25,13 @@ import Control.Concurrent.STM
 import Control.Concurrent.STM.TBMChan (TBMChan)
 import qualified Control.Concurrent.STM.TBMChan as TBMChan
 import Control.Exception
-import Control.Monad (forever, void, when)
+import Control.Monad
 import Data.IORef
 import Data.Maybe (isJust)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+------------------------------------------------------------------------------
+import Chainweb.Utils
 ------------------------------------------------------------------------------
 
 data Action = Action {
@@ -56,9 +59,11 @@ newThreadPool n = do
     return $! ThreadPool threads joins chan
 
   where
-    eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
+    eatExceptions = flip catchAllSynchronous $
+                    \(e :: SomeException) -> void $ evaluate e
     performAction (Action action done _) =
-        (action >> done Nothing) `catch` (eatExceptions . done . Just)
+        (action >> done Nothing) `catchAllSynchronous` (eatExceptions . done . Just)
+
     worker chan mv restore = (`finally` putMVar mv ()) $ eatExceptions $
                              restore $ forever $ do
         m <- atomically $ TBMChan.readTBMChan chan
@@ -118,12 +123,12 @@ runActionGroup :: Traversable t
                -> t (IO ())
                -> IO (Maybe SomeException)
 runActionGroup (ThreadPool _ _ chan) actions =
-    if len == 0 then return Nothing else go
+    if actlen == 0 then return Nothing else go
   where
-    len = length actions
+    actlen = length actions
 
     go = do
-        g <- newGroup len
+        g <- newGroup actlen
         let actData = fmap (toAction g) actions
         mapM_ (atomically . TBMChan.writeTBMChan chan) actData
         waitGroup g
@@ -137,8 +142,8 @@ stopThreadPool (ThreadPool _ _ chan) =
 
 
 killThreadPool :: ThreadPool -> IO ()
-killThreadPool tp@(ThreadPool threads _ _) = do
-    stopThreadPool tp
+killThreadPool tp@(ThreadPool threads _ _) =
+    stopThreadPool tp `finally`
     V.mapM_ killThread threads
 
 
@@ -153,11 +158,12 @@ withThreadPool k userFunc = bracket create destroy userFunc
     destroy tp = stopThreadPool tp >> waitThreadPool tp
 
 
-mapAction :: Traversable t
-          => ThreadPool
-          -> (a -> IO b)
-          -> t a
-          -> IO (t (Either SomeException b))
+mapAction
+    :: Traversable t
+    => ThreadPool
+    -> (a -> IO b)
+    -> t a
+    -> IO (t (Either SomeException b))
 mapAction tp userFunc xs = do
     vals <- mapM zipMV xs
     let mvs = fmap snd vals
@@ -171,12 +177,22 @@ mapAction tp userFunc xs = do
         return $! (x, mv)
     toAction (x, mv) = try (userFunc x) >>= putMVar mv
 
+mapActionThrowing
+    :: Traversable t
+    => ThreadPool
+    -> (a -> IO b)
+    -> t a
+    -> IO (t b)
+mapActionThrowing tp userFunc xs = do
+    results <- mapAction tp userFunc xs
+    mapM (either throwIO return) results
 
-mapAction_ :: Traversable t
-           => ThreadPool
-           -> (a -> IO b)
-           -> t a
-           -> IO ()
+mapAction_
+    :: Traversable t
+    => ThreadPool
+    -> (a -> IO b)
+    -> t a
+    -> IO ()
 mapAction_ tp userFunc xs0 = do
     e <- sequence_ <$> mapAction tp (void . userFunc) xs0
     either throwIO return e

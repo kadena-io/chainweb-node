@@ -86,9 +86,11 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
+import Control.Retry
 
 import Data.Aeson
 import Data.CAS.HashMap
+import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -134,6 +136,9 @@ import Chainweb.Utils hiding (Codec, check)
 import qualified Chainweb.Utils.TokenLimiting as Limiter
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+
+import Control.Concurrent.FixedThreadPool (ThreadPool)
+import qualified Control.Concurrent.FixedThreadPool as ThreadPool
 
 import Data.CAS
 import Data.CAS.RocksDB
@@ -374,11 +379,12 @@ startCutDb
 startCutDb config logfun headerStore payloadStore cutHashesStore limiter
            penaltySeconds = mask_ $ do
     logg Debug "obtain initial cut"
-    cutVar <- newTVarIO =<< initialCut
+    tpool <- ThreadPool.newThreadPool cutDbFetchPoolSize
+    cutVar <- newTVarIO =<< initialCut tpool
     c <- readTVarIO cutVar
     logg Info $ "got initial cut: " <> sshow c
     queue <- newEmptyPQueue
-    cutAsync <- asyncWithUnmask $ \u -> u $ processor queue cutVar
+    cutAsync <- asyncWithUnmask $ \u -> u $ processor tpool queue cutVar
     logg Info "CutDB started"
     return $! CutDb
         { _cutDbCut = cutVar
@@ -390,8 +396,12 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
         , _cutDbQueueSize = _cutDbConfigBufferSize config
         , _cutDbStore = cutHashesStore
         , _cutDbRateLimiter = limiter
+        , _cutDbFetchThreadPool = tpool
         }
   where
+    cutDbFetchPoolSize = 128   -- TODO: configurable. They are IO bound so it's
+                               -- ok to start a largish fixed number of these
+
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
 
@@ -416,10 +426,10 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
                 logfun Warn $ penaltyMsg s
                 void $ Limiter.penalize penaltyTokens (peerInfoToText s) limiter
 
-    processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
-    processor queue cutVar = runForever logfun "CutDB" $
-        processCuts config logfun headerStore payloadStore cutHashesStore queue
-                    cutVar (checkRateLimit logfun limiter) penalizeSender
+    processor :: ThreadPool -> PQueue (Down CutHashes) -> TVar Cut -> IO ()
+    processor tpool queue cutVar = runForever logfun "CutDB" $
+        processCuts config logfun headerStore payloadStore cutHashesStore tpool
+                    queue cutVar (checkRateLimit logfun limiter) penalizeSender
 
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
@@ -430,7 +440,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
     -- 3. exitence of dependencies
     -- 4. full validation
     --
-    initialCut = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
+    initialCut tpool = withTableIter (_getRocksDbCas cutHashesStore) $ \it -> do
         tableIterLast it
         go it
       where
@@ -440,7 +450,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
             Nothing -> do
                 logg Debug "using intial cut from cut db configuration"
                 return $! _cutDbConfigInitialCut config
-            Just ch -> try (lookupCutHashes wbhdb ch) >>= \case
+            Just ch -> try (lookupCutHashes wbhdb tpool ch) >>= \case
                 Left (e@(TreeDbKeyNotFound _) :: TreeDbException BlockHeaderDb) -> do
                     logfun @T.Text Warn
                         $ "Unable to load cut at height " <>  sshow (_cutHashesHeight ch)
@@ -460,18 +470,30 @@ startCutDb config logfun headerStore payloadStore cutHashesStore limiter
 -- | Stop the cut validation pipeline.
 --
 stopCutDb :: CutDb cas -> IO ()
-stopCutDb db = cancel (_cutDbAsync db)
+stopCutDb db =
+    cancel (_cutDbAsync db)
+      `finally` ThreadPool.killThreadPool (_cutDbFetchThreadPool db)
+
 
 -- | Lookup the BlockHeaders for a CutHashes structure. Throws an exception if
 -- the lookup for some BlockHash in the input CutHashes.
 --
 lookupCutHashes
     :: WebBlockHeaderDb
+    -> ThreadPool
     -> CutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
-lookupCutHashes wbhdb hs = do
-    flip itraverse (_cutHashes hs) $ \cid (_, h) -> do
-        give wbhdb $ lookupWebBlockHeaderDb cid h
+lookupCutHashes wbhdb tpool hs = do
+    let hashes = HM.toList $ _cutHashes hs
+    outlist <- ThreadPool.mapActionThrowing tpool retryFetch hashes
+    return $ HM.fromList outlist
+  where
+    fetch (cid, (_, x)) = do
+        h <- give wbhdb $ lookupWebBlockHeaderDb cid x
+        return (cid, h)
+
+    nRetries = 3   -- TODO: configurable policy
+    retryFetch = recoverAll (limitRetries nRetries) . const . fetch
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
@@ -490,6 +512,7 @@ processCuts
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> RocksDbCas CutHashes
+    -> ThreadPool
     -> PQueue (Down CutHashes)
     -> TVar Cut
     -> (PeerInfo -> IO Bool)   -- ^ reputation filter. Returns 'False' when a
@@ -502,13 +525,13 @@ processCuts
                                -- TODO: will eventually need an argument
                                -- ValidationFailureReason
     -> IO ()
-processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar
-            repFilter onFailedCut
+processCuts conf logFun headerStore payloadStore cutHashesStore tpool queue
+            cutVar repFilter onFailedCut
     = queueToStream
     & S.chain (\c -> loggc Debug c $ "start processing")
     & filterOut [isVeryOld, farAhead, isOld, isCurrent, badRep]
     & S.chain (\c -> loggc Debug c $ "fetch all prerequisites")
-    & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
+    & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore tpool)
     & S.chain (either
         (\c -> do loggc Warn (fst c) "failed to get prerequisites for some blocks"
                   onFailedCut (snd c))
@@ -680,12 +703,13 @@ cutHashesToBlockHeaderMap
     -> LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
+    -> ThreadPool
     -> CutHashes
     -> IO (Either (HM.HashMap ChainId BlockHash, CutHashes)
                   (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
+cutHashesToBlockHeaderMap conf logfun headerStore payloadStore tpool hs =
     timeout (_cutDbFetchTimeout conf) go >>= \case
         Nothing -> do
             logfun Warn
@@ -706,21 +730,32 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
         hdrs <- emptyCas
         casInsertBatch hdrs $ V.fromList $ HM.elems $ _cutHashesHeaders hs
 
-        (headers :> missing) <- S.each (HM.toList $ _cutHashes hs)
-            & S.map (fmap snd)
-            & S.mapM (tryGetBlockHeader hdrs plds)
-            & S.partitionEithers
-            & S.fold_ (\(!x) (cid, h) -> HM.insert cid h x) mempty id
-            & S.fold (\(!x) (cid, h) -> HM.insert cid h x) mempty id
-        if null missing
-            then return $! Right headers
-            else return $! Left (missing, hs)
+        let hashes = HM.toList $ _cutHashes hs
+        results <- ThreadPool.mapActionThrowing tpool
+                       (tryGetBlockHeader hdrs plds) hashes
+        let (lefts, rights) = partitionEithers results
+        if null lefts
+          then
+            let f = \(!x) (cid, h) -> HM.insert cid h x
+                !headers = foldl' f mempty rights
+            in return $! Right headers
+          else
+            let f = \(!x) (cid, h) -> HM.insert cid (snd h) x
+                !missing = foldl' f mempty lefts
+            in return $! Left (missing, hs)
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
+    nRetries = 3   -- TODO: configurable
+
+    fetch hdrs plds cid x =
+        recoverAll (limitRetries nRetries)
+            $ const
+            $ getBlockHeader headerStore payloadStore hdrs plds cid priority
+                             origin x
 
     tryGetBlockHeader hdrs plds cv@(cid, _) =
-        (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
+        (Right <$> mapM (fetch hdrs plds cid . snd) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return $! Left cv

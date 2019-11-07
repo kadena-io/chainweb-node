@@ -44,8 +44,10 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.Sync.WebBlockHeaderStore.Types
-import Chainweb.Version
 import qualified Chainweb.Utils.TokenLimiting as Limiter
+import Chainweb.Version
+
+import Control.Concurrent.FixedThreadPool (ThreadPool)
 
 import Data.CAS.RocksDB
 import Data.PQueue
@@ -65,6 +67,7 @@ data CutDb cas = CutDb
     , _cutDbQueueSize :: !Natural
     , _cutDbStore :: !(RocksDbCas CutHashes)
     , _cutDbRateLimiter :: !(Limiter.TokenLimitMap T.Text)
+    , _cutDbFetchThreadPool :: !ThreadPool
     }
 
 instance HasChainGraph (CutDb cas) where
