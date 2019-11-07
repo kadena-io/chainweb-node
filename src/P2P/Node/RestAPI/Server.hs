@@ -95,6 +95,7 @@ peerGetHandler db nid limit next = do
         . SP.zip (SP.each [0..])
         . SP.each
         . toAscList (Proxy @HostAddressIdx)
+        . getEQ (SuccessiveFailures 0)
         $ getEQ nid sn
     return $! over pageItems (fmap snd) page
   where

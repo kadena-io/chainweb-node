@@ -502,10 +502,10 @@ findNextPeer conf node = do
 #else
     -- TODO: how expensive is this? should be cache the classification?
     --
-    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
-        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
-        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
-        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
+    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
+        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
+        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
+        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
     searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
 #endif
 
@@ -640,7 +640,7 @@ startPeerDb
 startPeerDb nids conf = do
     !peerDb <- newEmptyPeerDb
     forM_ nids $ \nid ->
-        peerDbInsertPeerInfoList nid (_p2pConfigKnownPeers conf) peerDb
+        peerDbInsertPeerInfoList_ True nid (_p2pConfigKnownPeers conf) peerDb
     case _p2pConfigPeerDbFilePath conf of
         Just dbFilePath -> loadIntoPeerDb dbFilePath peerDb
         Nothing -> return ()
