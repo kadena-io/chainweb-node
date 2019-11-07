@@ -730,6 +730,7 @@ runChainweb cw = do
             $ httpLog
             . throttle (_chainwebPutPeerThrottler cw)
             . throttle (_chainwebMiningThrottler cw)
+            . throttle (_chainwebLocalThrottler cw)
             . throttle (_chainwebThrottler cw)
         )
         -- 2. Start Clients (with a delay of 500ms)
