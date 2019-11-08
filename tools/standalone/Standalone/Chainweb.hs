@@ -25,6 +25,9 @@ import Data.List (sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
+import Network.Wai (Middleware, pathInfo, responseLBS)
+import Network.HTTP.Types.Status (status404)
+
 import P2P.Node.Configuration
 import P2P.Peer
 
