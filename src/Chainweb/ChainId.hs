@@ -21,7 +21,7 @@
 --
 module Chainweb.ChainId
 ( ChainIdException(..)
-, ChainId
+, ChainId(..)
 , HasChainId(..)
 , checkChainId
 , chainIdToText

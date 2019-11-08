@@ -29,7 +29,7 @@
 -- TODO
 --
 module Chainweb.Cut
-( Cut
+( Cut(..)
 , _cutMap
 , cutMap
 , _cutHeight

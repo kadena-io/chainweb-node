@@ -112,7 +112,9 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
 
+import qualified Data.Aeson as Aeson
 import Data.Align (alignWith)
+import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
@@ -140,6 +142,8 @@ import Numeric.Natural
 import Prelude hiding (log)
 
 import System.Clock
+import System.Environment
+import System.IO.Unsafe
 import System.LogLevel
 
 -- internal modules
@@ -633,13 +637,23 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     v = _configChainwebVersion conf
     cids = chainIds v
 
+    fixupInitialCut c = unsafePerformIO $ do
+        lookupEnv "INITIAL_CUT_FILE" >>= maybe (return c) override
+      where
+        override initf = do
+            js <- L.readFile initf
+            let m = Aeson.decode js
+            case m of
+              Nothing -> return c
+              Just x -> return c { _cutDbConfigInitialCut = Cut x v }
+
     -- FIXME: make this configurable
     cutConfig :: CutDbConfig
-    cutConfig = (defaultCutDbConfig v (_configCutFetchTimeout conf) (_configCutLimitConfig conf))
+    cutConfig = fixupInitialCut ((defaultCutDbConfig v (_configCutFetchTimeout conf) (_configCutLimitConfig conf))
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
-        }
+        })
 
     synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
     synchronizePactDb cs cutDb = do
