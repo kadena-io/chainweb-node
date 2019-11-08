@@ -174,7 +174,7 @@ withConnectionManger
 withConnectionManger logger certs key peerDb runInner = do
     let cred = unsafeMakeCredential certs key
     settings <- certificateCacheManagerSettings
-        (TlsSecure True certCacheLookup)
+        (TlsInsecure)
         (Just cred)
 
     let settings' = settings
