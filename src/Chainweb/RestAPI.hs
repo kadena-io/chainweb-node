@@ -57,6 +57,7 @@ import Control.Lens
 import Data.Aeson.Encode.Pretty
 import Data.Bool (bool)
 import qualified Data.ByteString.Lazy as BL
+import Data.IxSet.Typed
 import Data.Maybe
 import Data.Proxy
 import Data.Swagger
@@ -65,8 +66,8 @@ import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
-import Network.Socket
-import Network.Wai (Middleware, mapResponseHeaders)
+import Network.Socket (Socket)
+import Network.Wai (Middleware, mapResponseHeaders, requestHeaders, remoteHost)
 import Network.Wai.Handler.Warp hiding (Port)
 import Network.Wai.Handler.WarpTLS (TLSSettings, runTLSSocket)
 import Network.Wai.Middleware.Cors
@@ -232,6 +233,7 @@ chainwebApplication
 chainwebApplication v dbs mr hs
     = chainwebTime
     . chainwebCors
+    . chainwebValidatePeer (fromJuste $ lookup CutNetwork $ _chainwebServerPeerDbs dbs)
     . someServerApplication
     $ someChainwebServer v dbs mr hs
 
@@ -249,6 +251,30 @@ chainwebTime app req resp = app req resp'
         resp $ mapResponseHeaders
             ((:) ("X-Server-Timestamp", sshow timestamp))
             res
+
+-- A middleware authenticating peers
+--
+-- TODO: do proper TLS client authentication
+-- TODO: add an option to trust "X-peer-info" from a proxy
+--
+chainwebValidatePeer :: PeerDb -> Middleware
+chainwebValidatePeer pdb app req resp = do
+    sn <- peerDbSnapshot pdb
+    let pinfo = case hostaddr of
+            Nothing -> Nothing
+            Just x -> _peerEntryInfo <$> getOne (getEQ x sn)
+    case pinfo of
+        Nothing -> app req resp
+        Just x -> do
+            let req' = req
+                    { requestHeaders
+                        = ("X-peer-info",  T.encodeUtf8 (toText x))
+                        : requestHeaders req
+                    }
+            app req' resp
+  where
+    sockAddr = remoteHost req
+    hostaddr = sockAddrToHostAddress sockAddr
 
 serveChainwebOnPort
     :: Show t
