@@ -346,24 +346,6 @@ isLastInEpoch h = case effectiveWindow h of
         | otherwise -> False
 {-# INLINE isLastInEpoch #-}
 
--- | If it is discovered that the last DA occured significantly in the past, we
--- assume that a large amount of hash power has suddenly dropped out of the
--- network. Thus we must perform Emergency Difficulty Adjustment to avoid
--- stalling the chain.
---
-slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
-slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
-  where
-    EpochStartTime es = _blockEpochStart p
-    BlockRate s = blockRate (_blockChainwebVersion p)
-    WindowWidth ww = fromJuste $ window (_blockChainwebVersion p)
-
-    expected :: Seconds
-    expected = s * int ww
-
-    actual :: Seconds
-    actual = timeSpanToSeconds $ ct .-. es
-
 -- | Compute the POW target for a new BlockHeader.
 --
 powTarget
@@ -373,10 +355,10 @@ powTarget
         -- ^ block creation time of new block
     -> HashTarget
         -- ^ POW target of new block
-powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
+powTarget p (BlockCreationTime bt) = case effectiveWindow p of
     Nothing -> maxTarget
     Just w
-        | isLastInEpoch p || slowEpoch p bct ->
+        | isLastInEpoch p ->
             adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
         | otherwise -> _blockTarget p
   where
