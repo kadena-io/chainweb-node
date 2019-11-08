@@ -38,6 +38,7 @@ module P2P.Node.PeerDB
 , peerEntrySuccessiveFailures
 , peerEntryLastSuccess
 , peerEntryNetworkIds
+, peerEntrySticky
 
 -- * Peer Database
 , PeerDb(..)
@@ -48,6 +49,7 @@ module P2P.Node.PeerDB
 , peerDbInsert
 , peerDbInsertList
 , peerDbInsertPeerInfoList
+, peerDbInsertPeerInfoList_
 , peerDbInsertSet
 , peerDbDelete
 , newEmptyPeerDb
@@ -167,6 +169,10 @@ data PeerEntry = PeerEntry
 --         -- ^ Count the number of sessions. When this number becomes to high
 --         -- we should
 
+    , _peerEntrySticky :: !Bool
+        -- ^ A flag that indicates whether this entry can not be pruned form the
+        -- db
+        --
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, FromJSON, NFData)
@@ -174,11 +180,15 @@ data PeerEntry = PeerEntry
 makeLenses ''PeerEntry
 
 newPeerEntry :: NetworkId -> PeerInfo -> PeerEntry
-newPeerEntry nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0
+newPeerEntry nid i = newPeerEntry_ False nid i
+
+newPeerEntry_ :: Bool -> NetworkId -> PeerInfo -> PeerEntry
+newPeerEntry_ sticky nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0 sticky
 
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Peer Entry Set
@@ -266,6 +276,7 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
         , _peerEntryLastSuccess = max (_peerEntryLastSuccess a) (_peerEntryLastSuccess b)
         , _peerEntryNetworkIds = _peerEntryNetworkIds a <> _peerEntryNetworkIds b
         , _peerEntryActiveSessionCount = _peerEntryActiveSessionCount a + _peerEntryActiveSessionCount b
+        , _peerEntrySticky = False
         }
 
 -- | Add a 'PeerInfo' to an existing 'PeerSet'.
@@ -287,7 +298,9 @@ addPeerInfo nid = addPeerEntry . newPeerEntry nid
 -- is delete for all network ids.
 --
 deletePeer :: PeerInfo -> PeerSet -> PeerSet
-deletePeer i = deleteIx (_peerAddr i)
+deletePeer i s = case _peerEntrySticky <$> (getOne $ getEQ (_peerAddr i) s) of
+    Just True -> s
+    _ -> deleteIx (_peerAddr i) s
 
 insertPeerEntryList :: [PeerEntry] -> PeerSet -> PeerSet
 insertPeerEntryList l m = foldl' (flip addPeerEntry) m l
@@ -356,6 +369,9 @@ peerDbInsertList peers (PeerDb lock var) =
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList nid ps = peerDbInsertList (newPeerEntry nid <$> ps)
+
+peerDbInsertPeerInfoList_ :: Bool -> NetworkId -> [PeerInfo] -> PeerDb -> IO ()
+peerDbInsertPeerInfoList_ sticky nid ps = peerDbInsertList (newPeerEntry_ sticky nid <$> ps)
 
 peerDbInsertSet :: S.Set PeerEntry -> PeerDb -> IO ()
 peerDbInsertSet = peerDbInsertList . F.toList
