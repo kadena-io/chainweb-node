@@ -174,7 +174,7 @@ withConnectionManger
 withConnectionManger logger certs key peerDb runInner = do
     let cred = unsafeMakeCredential certs key
     settings <- certificateCacheManagerSettings
-        (TlsSecure True certCacheLookup)
+        (TlsInsecure)
         (Just cred)
 
     let settings' = settings
@@ -223,8 +223,8 @@ withConnectionManger logger certs key peerDb runInner = do
     withAsyncWithUnmask runLogClientConnections $ \_ -> runInner mgr
 
   where
-    certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)
-    certCacheLookup si = do
+    _certCacheLookup :: ServiceID -> IO (Maybe Fingerprint)
+    _certCacheLookup si = do
         ha <- serviceIdToHostAddress si
         pe <- getOne . getEQ ha <$!> peerDbSnapshot peerDb
         return $! pe >>= fmap peerIdToFingerprint . _peerId . _peerEntryInfo
