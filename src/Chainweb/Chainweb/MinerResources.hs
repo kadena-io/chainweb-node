@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -91,8 +92,8 @@ withMiningCoordination logger enabled cutDb inner
   where
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
-        let !d = 30000000  -- 30 seconds
-        let !maxAge = 300000000  -- 5 minutes
+        let !d = 30_000_000  -- 30 seconds
+        let !maxAge = 300_000_000  -- 5 minutes
         threadDelay d
         ago <- over (_Unwrapped . _Unwrapped) (subtract maxAge) <$> getCurrentTimeIntegral
         m@(MiningState ms) <- atomically $ do

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies      #-}
@@ -23,9 +24,6 @@ import Data.Function
 import Data.List (sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
-
-import Network.Wai (Middleware, pathInfo, responseLBS)
-import Network.HTTP.Types.Status (status404)
 
 import P2P.Node.Configuration
 import P2P.Peer
@@ -211,14 +209,17 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
         withCutResources cutConfig peer cutLogger
             rocksDb webchain payloadDb mgr pact $ \cuts -> do
                 logg Info "finished initializing cut resources"
-                let mLogger = setComponent "miner" logger
-                    mConf = _configMiner conf
-                    mCutDb = _cutResCutDb cuts
+
+                let !mLogger = setComponent "miner" logger
+                    !mConf = _configMiner conf
+                    !mCutDb = _cutResCutDb cuts
+                    !throt  = _configThrottling conf
 
                 -- initialize throttler
-                throttler <- mkGenericThrottler (_configThrottleRate conf)
-                miningThrottler <- mkMiningThrottler (_configMiningThrottleRate conf)
-                putPeerThrottler <- mkPutPeerThrottler (_configMiningThrottleRate conf)
+                throttler <- mkGenericThrottler $ _throttlingRate throt
+                miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
+                putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
+                localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
 
                 void $! putMVar cdbv mCutDb
 
@@ -250,7 +251,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebThrottler = throttler
                                       , _chainwebMiningThrottler = miningThrottler
                                       , _chainwebPutPeerThrottler = putPeerThrottler
-                                      , _chainwebRouteBlacklist = routeBlacklist
+                                      , _chainwebLocalThrottler = localThrottler
                                       , _chainwebConfig = conf
                                       }
 
