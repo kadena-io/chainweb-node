@@ -42,6 +42,7 @@ module Chainweb.Cut
 , lookupCutM
 , forkDepth
 , limitCut
+, limitCutHeaders
 
 -- * Exceptions
 , CutException(..)
@@ -245,6 +246,18 @@ limitCut wdb h c
         fromJuste <$> seekAncestor db bh (min (int $ _blockHeight bh) (int ch))
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
+
+limitCutHeaders
+    :: HasCallStack
+    => WebBlockHeaderDb
+    -> BlockHeight
+        -- upper bound for the cut height. This is not a tight bound.
+    -> HM.HashMap ChainId BlockHeader
+    -> IO (HM.HashMap ChainId BlockHeader)
+limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h Cut
+    { _cutHeaders = ch
+    , _cutChainwebVersion = _chainwebVersion whdb
+    }
 
 -- -------------------------------------------------------------------------- --
 -- Genesis Cut

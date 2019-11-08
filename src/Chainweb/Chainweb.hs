@@ -275,6 +275,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configCutFetchTimeout :: !Int
     , _configCutLimitConfig :: !LimitConfig
     , _configDisabledEndpoints :: ![T.Text]
+    , _configInitialCutHeightLimit :: !(Maybe BlockHeight)
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -309,6 +310,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configCutFetchTimeout = 10000000
     , _configCutLimitConfig = LimitConfig 60 60 30 240
     , _configDisabledEndpoints = []
+    , _configInitialCutHeightLimit = Nothing
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -329,6 +331,7 @@ instance ToJSON ChainwebConfiguration where
         , "cutFetchTimeout" .= _configCutFetchTimeout o
         , "cutLimitConfig" .= _configCutLimitConfig o
         , "disabledEndpoints" .= _configDisabledEndpoints o
+        , "initialCutHeightLimit" .= _configInitialCutHeightLimit o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -349,6 +352,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configCutFetchTimeout ..: "cutFetchTimeout" % o
         <*< configCutLimitConfig ..: "cutLimitConfig" % o
         <*< configDisabledEndpoints . from leftMonoidalUpdate %.: "disabledEndpoints" % o
+        <*< configInitialCutHeightLimit ..: "initialCutHeightLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -391,6 +395,9 @@ pChainwebConfiguration = id
         % long "disable-endpoint"
         <> help "disable endpoints with this prefix on the local node"
         <> metavar "PATHPREFIX"
+    <*< configInitialCutHeightLimit .:: fmap (Just . BlockHeight) % option auto
+        % long "initial-cut-height-limit"
+        <> help "The maximum size of the initial cut. We'll chose the largest available cut that is smaller than this number"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -661,6 +668,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
+        , _cutDbConfigInitialHeightLimit = _configInitialCutHeightLimit conf
         }
 
     synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
