@@ -860,3 +860,4 @@ runChainweb cw = do
         enabled conf = do
             logg Info "Mempool p2p sync enabled"
             return $ map (runMempoolSyncClient mgr conf) chainVals
+

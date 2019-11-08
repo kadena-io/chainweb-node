@@ -21,8 +21,11 @@ module Chainweb.TreeDB.RemoteDB
   ) where
 
 import Control.Error.Util (hush)
+import Control.Monad
 import Control.Monad.Catch (handle, throwM)
+import Control.Retry
 
+import Data.Maybe
 import qualified Data.Text as T
 
 import Numeric.Natural
@@ -143,3 +146,18 @@ remoteDb
 remoteDb db logg env = do
     h <- root db
     pure $! RemoteDb env (ALogFunction logg) (_blockChainwebVersion h) (_blockChainId h)
+
+
+entriesRetry maybePolicy (RemoteDb env alog ver cid) next limit minr maxr f
+    = f $ callAndPage client next 0 env
+  where
+    client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
+    client nxt = logServantError alog "failed to query tree db entries"
+        $ retry $ headersClient ver cid limit nxt minr maxr
+
+    retry a = recoverAll policy $ \s -> do
+        unless (rsIterNumber s == 0) $
+            liftIO $ (_getLogFunction alog) @T.Text Info $ "retry: " <> sshow (rsIterNumber s)
+        a
+
+    policy = fromMaybe (exponentialBackoff 400000 <> limitRetries 6) maybePolicy

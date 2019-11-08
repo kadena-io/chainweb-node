@@ -684,11 +684,23 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
+    hs-source-dirs:
+          tools/cwtool
+        , tools/chain2gexf
+        , tools/ea
+        , tools/run-nodes
+        -- , tools/standalone
+        , tools/txg
+        , tools/txstream
+        , tools/test-miner
+        , tools/chainweb-db
+        , node
+        , test
     main-is: CwTool.hs
     other-modules:
         Allocations
         Chain2Gexf
+        ChainwebDb
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -699,9 +711,9 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
-        Standalone
-        Standalone.Chainweb
-        Standalone.Utils
+        -- Standalone
+        -- Standalone.Chainweb
+        -- Standalone.Utils
         TXG
         TXG.Repl
         TXG.ReplInternals
@@ -762,7 +774,9 @@ executable cwtool
         , process >= 1.5
         , primitive >= 0.6
         , random >= 1.1
+        , reflection >= 2.1
         , resourcet >= 1.2
+        , retry >= 0.7
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
