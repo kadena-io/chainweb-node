@@ -256,6 +256,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebPutPeerThrottler = putPeerThrottler
                                       , _chainwebLocalThrottler = localThrottler
                                       , _chainwebConfig = conf
+                                      , _chainwebRouteBlacklist = routeBlacklist
                                       }
 
     withPactData cs cuts m
