@@ -1,6 +1,7 @@
 {
   pactRef ? "34783f9639a87b391382fe063e87737766fcdbb1"
 , pactSha ? "17sgvb1b0hy83bh59vbxcz0rjlz0xl7h1isky6syisw589yw0p2v"
+, system ? builtins.currentSystem
 }:
 
 let
@@ -11,7 +12,7 @@ pactSrc = builtins.fetchTarball {
 pactProj = "${pactSrc}/project.nix";
 
 in
-  (import pactProj {}).rp.project ({ pkgs, hackGet, ... }:
+  (import pactProj { inherit system; }).rp.project ({ pkgs, hackGet, ... }:
 let
 
 gitignoreSrc = pkgs.fetchFromGitHub {
