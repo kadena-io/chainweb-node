@@ -68,7 +68,7 @@ import GHC.Generics (Generic)
 import Network.Socket
 import Network.Wai (Middleware, mapResponseHeaders)
 import Network.Wai.Handler.Warp hiding (Port)
-import Network.Wai.Handler.WarpTLS (TLSSettings, runTLSSocket)
+import Network.Wai.Handler.WarpTLS (TLSSettings, runTLSSocket, OnInsecure (..), onInsecure)
 import Network.Wai.Middleware.Cors
 
 import Servant.API
@@ -306,7 +306,7 @@ serveChainwebSocketTls settings certChain key sock v dbs mr hs m =
     runTLSSocket tlsSettings settings sock $ m app
   where
     tlsSettings :: TLSSettings
-    tlsSettings = tlsServerChainSettings certChain key
+    tlsSettings = (tlsServerChainSettings certChain key) { onInsecure = AllowInsecure }
 
     app :: Application
     app = chainwebApplication v dbs mr hs

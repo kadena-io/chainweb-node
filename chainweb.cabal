@@ -66,6 +66,12 @@ flag debug
     default: False
     manual:True
 
+flag ghc-flags
+    description:
+        Generate .ghc.flags files during compilation
+    default: False
+    manual: True
+
 common debugging-flags
     if flag(debug)
         ghc-options:
@@ -394,6 +400,9 @@ library
     if flag(use_systemd) && os(linux)
         build-depends: systemd >= 1.2
         cpp-options: -DWITH_SYSTEMD=1
+    if flag(ghc-flags)
+        ghc-options: -fplugin GhcFlags.Plugin
+        build-depends: ghcflags
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
