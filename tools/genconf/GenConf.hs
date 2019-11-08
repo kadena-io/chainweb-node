@@ -5,7 +5,6 @@
 module GenConf where
 
 import Control.Lens
-import Control.Monad
 
 import Data.Maybe
 import Data.Text (Text)
@@ -41,31 +40,27 @@ getUserInput ::
   -> Maybe b
   -> (Text -> IO (Maybe b))
   -> Maybe (b -> Either String b)
-  -> Bool
   -> IO b
-getUserInput prompt defaultVal parse safetyCheck printRec = do
-    putStrLn prompt
+getUserInput prompt defaultVal parse safetyCheck = do
+    putStr (prompt <> " ")
     hFlush stdout
     input' <- T.getLine
     if T.null input' && isJust defaultVal
-      then do
-      when printRec $ putStrLn ("Set to recommended value: " ++ (show $ fromJust defaultVal))
-      hFlush stdout
-      return $ fromJust defaultVal
+      then return $ fromJust defaultVal
       else do
        p <- parse input'
        case p of
          Nothing -> do
            putStrLn "Invalid Input, try again"
            hFlush stdout
-           getUserInput prompt defaultVal parse safetyCheck printRec
+           getUserInput prompt defaultVal parse safetyCheck
          Just y -> case safetyCheck of
            Nothing -> return y
            Just f -> case f y of
              Left err -> do
                putStrLn err
                hFlush stdout
-               getUserInput prompt defaultVal parse safetyCheck printRec
+               getUserInput prompt defaultVal parse safetyCheck
              Right y' -> return y'
 
 validate :: (a -> Bool) -> String -> Maybe (a -> Either String a)
@@ -73,13 +68,11 @@ validate f msg = Just $ \a -> if f a then Right a else Left msg
 
 getConf :: IO ChainwebConfiguration
 getConf = do
-    putStrLn "When a recommended setting is available, press Enter to use it"
-      >> hFlush stdout
     ip <- getIP
     hostname <- hostnameFromText ip
-    host <- getUserInput (hostMsg ip) (Just hostname) checkIP Nothing True
-    port <- getUserInput portMsg (Just 443) (return . portFromText) Nothing True
-    miningCord <- getUserInput mineCoordMsg (Just True) (return . yesorno2Bool) Nothing True
+    host <- getUserInput (hostMsg ip) (Just hostname) (const $ return Nothing) Nothing
+    port <- getUserInput portMsg (Just 443) (return . portFromText) Nothing
+    miningCord <- getUserInput mineCoordMsg (Just True) (return . yesorno2Bool) Nothing
     return ChainwebConfiguration
       { _configChainwebVersion = Mainnet01
       , _configNodeId = NodeId 0 -- FIXME
@@ -99,9 +92,9 @@ getConf = do
       , _configCutFetchTimeout = 3000000
       }
   where
-    hostMsg ip = "What is your public IP address (default: " <> T.unpack ip <> ") ?"
-    portMsg = "Which port would you like to use (default: 443)? "
-    mineCoordMsg = "Would you like to turn mining coordination (default: yes)? "
+    hostMsg ip = "What is your publicly reachable domain name / IP address (default: " <> T.unpack ip <> ")?"
+    portMsg = "Which port would you like to use (default: 443)?"
+    mineCoordMsg = "Would you like to turn mining coordination (default: yes)?"
 
 -- This was not exported by the Chainweb.Chainweb module
 defaultThrottlingConfig :: ThrottlingConfig
@@ -118,17 +111,17 @@ main = do
     exist <- doesFileExist defaultfile
     case exist of
       True ->
-        getUserInput msg (Just True) (return . yesorno2Bool) Nothing False >>= \case
+        getUserInput msg (Just True) (return . yesorno2Bool) Nothing >>= \case
           True -> writeStuff conf
           False -> putStrLn "Not writing configuration file"
       False -> writeStuff conf
     exitSuccess
   where
-    msg = "Would you like to write the configuration to ./" <> defaultfile <> "?"
+    msg = "Would you like to write the configuration to " <> defaultfile <> "?"
     defaultfile = "mainnet.yaml"
     writeStuff c = do
         Y.encodeFile defaultfile c
-        putStrLn ("Writing (possibly overwriting) configuration to file ./" <> defaultfile)
+        putStrLn ("Writing (possibly overwriting) configuration to file " <> defaultfile)
 
 yesorno2Bool :: Text -> Maybe Bool
 yesorno2Bool text =
