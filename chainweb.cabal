@@ -413,6 +413,7 @@ test-suite chainweb-tests
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
+        Chainweb.Test.ForkGen
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem
@@ -425,6 +426,7 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
+        Chainweb.Test.Pact.ForkTest
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
