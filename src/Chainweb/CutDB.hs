@@ -33,6 +33,7 @@ module Chainweb.CutDB
 , cutDbConfigLogLevel
 , cutDbConfigTelemetryLevel
 , cutDbConfigUseOrigin
+, cutDbConfigInitialHeightLimit
 , cutDbFetchTimeout
 , defaultCutDbConfig
 , farAheadThreshold
@@ -147,6 +148,7 @@ data CutDbConfig = CutDbConfig
     , _cutDbConfigTelemetryLevel :: !LogLevel
     , _cutDbConfigUseOrigin :: !Bool
     , _cutDbFetchTimeout :: !Int
+    , _cutDbConfigInitialHeightLimit :: !(Maybe BlockHeight)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -161,6 +163,7 @@ defaultCutDbConfig v ft = CutDbConfig
     , _cutDbConfigTelemetryLevel = Warn
     , _cutDbConfigUseOrigin = True
     , _cutDbFetchTimeout = ft
+    , _cutDbConfigInitialHeightLimit = Nothing
     }
   where
     g = _chainGraph v
@@ -381,10 +384,13 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                     go it
                 Left e -> throwM e
                 Right hm -> do
-                    logg Debug $ "joining intial cut from cut db configuration with cut that was loaded from the database " <> sshow hm
+                    hm' <- case _cutDbConfigInitialHeightLimit config of
+                        Nothing -> return hm
+                        Just h -> limitCutHeaders wbhdb h hm
+                    logg Debug $ "joining intial cut from cut db configuration with cut that was loaded from the database " <> sshow hm'
                     joinIntoHeavier_
                         (_webBlockHeaderStoreCas headerStore)
-                        hm
+                        hm'
                         (_cutMap $ _cutDbConfigInitialCut config)
 
 -- | Stop the cut validation pipeline.
@@ -475,12 +481,17 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
             <> ", got: " <> sshow (_cutHashesHeight x)
         return r
 
+    -- This could be problematic if there is a very lighweight fork that is far
+    -- ahead
+    --
     isVeryOld x = do
         !h <- _cutHeight <$> readTVarIO cutVar
         let r = int (_cutHashesHeight x) <= (int h - threshold)
         when r $ loggc Debug x "skip very old cut"
         return r
 
+    -- This should be based on weight
+    --
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
