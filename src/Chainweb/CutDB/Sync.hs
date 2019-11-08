@@ -29,6 +29,8 @@ import Servant.Client
 
 import qualified Streaming.Prelude as S
 
+import System.Environment
+import System.IO.Unsafe
 import System.LogLevel
 
 -- internal modules
@@ -72,7 +74,11 @@ getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) en
 -- Sync Session
 
 catchupStepSize :: BlockHeight
-catchupStepSize = 20
+catchupStepSize = unsafePerformIO go
+  where
+    go = do
+        m <- lookupEnv "CATCHUP_STEP_SIZE"
+        maybe (return 200) (return . fromInteger . read) m
 
 syncSession
     :: ChainwebVersion
