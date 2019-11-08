@@ -694,6 +694,15 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
 
+    routeBlacklist :: Middleware
+    routeBlacklist app req respond
+        | test = respond $ responseLBS status404 [] "Endpoint not supported by this node"
+        | otherwise = app req respond
+      where
+        test = any
+            (\x -> x `T.isPrefixOf` (T.intercalate "/" (pathInfo req)))
+            (_configDisabledEndpoints conf)
+
 -- -------------------------------------------------------------------------- --
 -- Throttling
 
