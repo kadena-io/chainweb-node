@@ -898,11 +898,18 @@ rewindTo
 rewindTo mb = maybe rewindGenesis doRewind mb
   where
     rewindGenesis = return ()
-    doRewind (_, parentHash) = do
+    doRewind (reqHeight, parentHash) = do
         payloadDb <- asks _psPdb
         lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+        failOnTooLowRequestedHeight lastHeader reqHeight
         bhDb <- asks _psBlockHeaderDb
         playFork bhDb payloadDb parentHash lastHeader
+
+    rewindLimit = 20
+
+    failOnTooLowRequestedHeight lastHeader reqHeight
+      | _blockHeight lastHeader - reqHeight > rewindLimit =
+
 
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
