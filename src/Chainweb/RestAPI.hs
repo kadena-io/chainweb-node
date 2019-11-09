@@ -210,7 +210,7 @@ someChainwebServer v dbs mr (HeaderStream hs) =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
         <> someNodeInfoServer v
-        <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
+        <> maybe mempty (someCutServer v cutPeerDb) (_chainwebServerCutDb dbs)
         <> maybe mempty (someSpvServers v) (_chainwebServerCutDb dbs)
         <> somePayloadServers v (_chainwebServerPayloadDbs dbs)
         <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
@@ -219,6 +219,8 @@ someChainwebServer v dbs mr (HeaderStream hs) =
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing (_chainwebServerCutDb dbs) hs)
+  where
+    cutPeerDb = fromJuste $ lookup CutNetwork $ _chainwebServerPeerDbs dbs
 
 chainwebApplication
     :: Show t
