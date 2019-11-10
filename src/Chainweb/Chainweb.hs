@@ -348,7 +348,7 @@ pChainwebConfiguration = id
     <*< configNodeId .:: textOption
         % long "node-id"
         <> short 'i'
-        <> help "unique id of the node that is used as miner id in new blocks"
+        <> help "unique id of the node that is used in the database path and in log messages. Only useful when running more than one node on a single host."
     <*< configMiner %:: pEnableConfig "mining" pMinerConfig
     <*< configCoordinator .:: boolOption_
         % long "mining-coordination"
