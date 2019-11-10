@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -6,6 +7,10 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+
+#ifndef CURRENT_PACKAGE_VERSION
+#define CURRENT_PACKAGE_VERSION "UNKNOWN"
+#endif
 
 -- |
 -- Module: Chainweb.RestAPI
@@ -210,7 +215,7 @@ someChainwebServer v dbs mr (HeaderStream hs) =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
         <> someNodeInfoServer v
-        <> maybe mempty (someCutServer v) (_chainwebServerCutDb dbs)
+        <> maybe mempty (someCutServer v cutPeerDb) (_chainwebServerCutDb dbs)
         <> maybe mempty (someSpvServers v) (_chainwebServerCutDb dbs)
         <> somePayloadServers v (_chainwebServerPayloadDbs dbs)
         <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
@@ -219,6 +224,8 @@ someChainwebServer v dbs mr (HeaderStream hs) =
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing (_chainwebServerCutDb dbs) hs)
+  where
+    cutPeerDb = fromJuste $ lookup CutNetwork $ _chainwebServerPeerDbs dbs
 
 chainwebApplication
     :: Show t
@@ -231,6 +238,7 @@ chainwebApplication
     -> Application
 chainwebApplication v dbs mr hs
     = chainwebTime
+    . chainwebNodeVersion
     . chainwebCors
     . someServerApplication
     $ someChainwebServer v dbs mr hs
@@ -242,13 +250,17 @@ chainwebCors = cors . const . Just $ simpleCorsResourcePolicy
     }
 
 chainwebTime :: Middleware
-chainwebTime app req resp = app req resp'
-  where
-    resp' res = do
-        timestamp <- sec <$> getTime Realtime
-        resp $ mapResponseHeaders
-            ((:) ("X-Server-Timestamp", sshow timestamp))
-            res
+chainwebTime app req resp = app req $ \res -> do
+    timestamp <- sec <$> getTime Realtime
+    resp $ mapResponseHeaders
+        ((:) ("X-Server-Timestamp", sshow timestamp))
+        res
+
+chainwebNodeVersion :: Middleware
+chainwebNodeVersion app req resp = app req $ \res ->
+    resp $ mapResponseHeaders
+        ((:) ("X-Chainweb-Node-Version", CURRENT_PACKAGE_VERSION))
+        res
 
 serveChainwebOnPort
     :: Show t
