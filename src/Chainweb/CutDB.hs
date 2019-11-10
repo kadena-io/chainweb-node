@@ -481,7 +481,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
             <> ", got: " <> sshow (_cutHashesHeight x)
         return r
 
-    -- This could be problematic if there is a very lighweight fork that is far
+    -- This could be problematic if there is a very lightweight fork that is far
     -- ahead
     --
     isVeryOld x = do

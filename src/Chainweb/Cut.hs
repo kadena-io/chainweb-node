@@ -251,7 +251,7 @@ limitCutHeaders
     :: HasCallStack
     => WebBlockHeaderDb
     -> BlockHeight
-        -- upper bound for the cut height. This is not a tight bound.
+        -- ^ upper bound for the cut height. This is not a tight bound.
     -> HM.HashMap ChainId BlockHeader
     -> IO (HM.HashMap ChainId BlockHeader)
 limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h Cut
