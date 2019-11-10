@@ -99,7 +99,7 @@ syncSession v useOrigin p db logg env pinf = do
 
     send c = do
         putCut cenv c
-        logg @T.Text Debug $ "put cut " <> sshow c
+        logg @T.Text Debug $ "put cut " <> encodeToText c
 
     receive = do
         -- Query cut that is at most 1000 blocks ahead
@@ -109,7 +109,7 @@ syncSession v useOrigin p db logg env pinf = do
             -- needed
 
         let c' = set cutOrigin (Just pinf) c
-        logg @T.Text Info $ "received cut " <> sshow c'
+        logg @T.Text Info $ "received cut " <> encodeToText c'
         addCutHashes db c'
 
     origin = if useOrigin then Just p else Nothing

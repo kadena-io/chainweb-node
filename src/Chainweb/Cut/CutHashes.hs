@@ -199,6 +199,10 @@ instance HasCutId Cut where
     _cutId = _cutId . _cutMap
     {-# INLINE _cutId #-}
 
+instance HasCutId CutId where
+    _cutId = id
+    {-# INLINE _cutId #-}
+
 -- -------------------------------------------------------------------------- --
 -- Cut Hashes
 
