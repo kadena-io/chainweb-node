@@ -338,6 +338,11 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     cut <- liftIO $! CutDB._cut cdb
     bh <- liftIO $! lookupCutM cid cut
 
+    -- TODO get rid of (Right bh) below, rewinding checkpointer for
+    -- this could cause much problems. Conversely, we could set the
+    -- max rewind limit for this case in PactService. But in any case
+    -- it would seem this is the wrong way to check for transaction
+    -- existence at a particular depth.
     T2 bhe _bha <- liftIO (_pactLookup pe (Right bh) (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e

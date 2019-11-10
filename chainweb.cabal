@@ -684,7 +684,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -695,6 +695,7 @@ executable cwtool
         Chainweb.Test.Utils
         Ea
         Ea.Genesis
+        GenConf
         Gexf
         Network.X509.SelfSigned.Test
         RunNodes

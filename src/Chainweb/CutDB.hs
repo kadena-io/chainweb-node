@@ -438,7 +438,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     & S.chain (\c -> loggc Debug c $ "fetch all prerequesites")
     & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
     & S.chain (either
-        (\c -> loggc Warn c "failed to get prerequesites for some blocks")
+        (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
         (\c -> loggc Debug c "got all prerequesites")
         )
     & S.concat
@@ -605,7 +605,7 @@ cutHashesToBlockHeaderMap
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> CutHashes
-    -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
+    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
 cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
@@ -613,14 +613,15 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
         Nothing -> do
             logfun Warn
                 $ "Timeout while processing cut "
-                    <> (cutIdToTextShort $ _cutId hs)
+                    <> (cutIdToTextShort hsid)
                     <> " at height " <> sshow (_cutHashesHeight hs)
                     <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
-            return $! Left mempty
+            return $! Left $! T2 hsid mempty
         Just x -> return $! x
   where
+    hsid = _cutId hs
     go =
-        trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" (_cutId hs) 1 $ do
+        trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
             plds <- emptyCas
             casInsertBatch plds $ V.fromList $ HM.elems $ _cutHashesPayloads hs
 
@@ -635,7 +636,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
             if null missing
                 then return $! Right headers
-                else return $! Left missing
+                else return $! Left $! T2 hsid missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
