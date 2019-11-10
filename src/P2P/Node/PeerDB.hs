@@ -309,7 +309,11 @@ insertPeerEntryList l m = foldl' (flip addPeerEntry) m l
 -- -------------------------------------------------------------------------- --
 -- Peer Database
 
-data PeerDb = PeerDb !Bool !(MVar ()) !(TVar PeerSet)
+data PeerDb = PeerDb
+    { _peerDbIsPrivate :: !Bool
+    , _peerDbLock :: !(MVar ())
+    , _peerDbPeerSet :: !(TVar PeerSet)
+    }
     deriving (Eq, Generic)
 
 peerDbSnapshot :: PeerDb -> IO PeerSet
