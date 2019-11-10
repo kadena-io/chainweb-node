@@ -33,6 +33,7 @@ in {
     };
 
     shellToolOverrides = ghc: super: {
+      dnsutils = pkgs.dnsutils;
       stack = pkgs.stack;
       cabal-install = pkgs.haskellPackages.cabal-install;
       ghcid = pkgs.haskellPackages.ghcid;
