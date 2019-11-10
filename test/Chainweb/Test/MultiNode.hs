@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -151,16 +152,17 @@ config v n nid = defaultChainwebConfiguration v
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
-    & set (configMiner . enableConfigEnabled) True
-    & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
-        -- The number of test miners being used.
-    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
+    & set (configMining . miningInNode) miner
 
     & set configReintroTxs True
         -- enable transaction re-introduction
 
     & set (configTransactionIndex . enableConfigEnabled) True
         -- enable transaction index
+  where
+    miner = NodeMiningConfig
+        { _nodeMiningEnabled = True
+        , _nodeMiner = noMiner }
 
 -- | Set the bootstrap node port of a 'ChainwebConfiguration'
 --

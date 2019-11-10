@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
@@ -82,8 +84,6 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Miner.Config
-import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
@@ -93,6 +93,8 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact (noMiner)
 
 import Data.CAS.RocksDB
 
@@ -757,11 +759,13 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
-    & set (configMiner . enableConfigEnabled) True
-    & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
-    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
+    & set (configMining . miningInNode) miner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
+  where
+    miner = NodeMiningConfig
+        { _nodeMiningEnabled = True
+        , _nodeMiner = noMiner }
 
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
 bootstrapConfig conf = conf

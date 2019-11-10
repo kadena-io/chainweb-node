@@ -52,6 +52,7 @@ module Chainweb.Chainweb
 , ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
+, configMining
 , configHeaderStream
 , configReintroTxs
 , configP2p

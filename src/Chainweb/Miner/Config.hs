@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -21,13 +20,21 @@
 module Chainweb.Miner.Config
 ( MiningConfig(..)
 , defaultMining
+, miningCoordination
+, miningInNode
 , CoordinationConfig(..)
+, coordinationEnabled
+, coordinationMode
+, coordinationMiners
 , NodeMiningConfig(..)
+, nodeMiningEnabled
+, nodeMiner
 ) where
 
 import Configuration.Utils
 
-import Data.Generics.Product.Fields (field)
+import Control.Lens (lens)
+
 import qualified Data.HashSet as HS
 
 import GHC.Generics (Generic)
@@ -48,7 +55,13 @@ import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..))
 data MiningConfig = MiningConfig
     { _miningCoordination :: !CoordinationConfig
     , _miningInNode :: !NodeMiningConfig }
-    deriving stock (Eq, Show, Generic)
+    deriving stock (Eq, Show)
+
+miningCoordination :: Lens' MiningConfig CoordinationConfig
+miningCoordination = lens _miningCoordination (\m c -> m { _miningCoordination = c })
+
+miningInNode :: Lens' MiningConfig NodeMiningConfig
+miningInNode = lens _miningInNode (\m c -> m { _miningInNode = c })
 
 instance ToJSON MiningConfig where
     toJSON o = object
@@ -57,8 +70,8 @@ instance ToJSON MiningConfig where
 
 instance FromJSON (MiningConfig -> MiningConfig) where
     parseJSON = withObject "MiningConfig" $ \o -> id
-        <$< field @"_miningCoordination" %.: "coordination" % o
-        <*< field @"_miningInNode" %.: "nodeMining" % o
+        <$< miningCoordination %.: "coordination" % o
+        <*< miningInNode %.: "nodeMining" % o
 
 defaultMining :: MiningConfig
 defaultMining = MiningConfig
@@ -71,6 +84,15 @@ data CoordinationConfig = CoordinationConfig
     , _coordinationMiners :: !(HS.HashSet MinerId) }
     deriving stock (Eq, Show, Generic)
 
+coordinationEnabled :: Lens' CoordinationConfig Bool
+coordinationEnabled = lens _coordinationEnabled (\m c -> m { _coordinationEnabled = c })
+
+coordinationMode :: Lens' CoordinationConfig CoordinationMode
+coordinationMode = lens _coordinationMode (\m c -> m { _coordinationMode = c })
+
+coordinationMiners :: Lens' CoordinationConfig (HS.HashSet MinerId)
+coordinationMiners = lens _coordinationMiners (\m c -> m { _coordinationMiners = c })
+
 instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
@@ -79,9 +101,9 @@ instance ToJSON CoordinationConfig where
 
 instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
-        <$< field @"_coordinationEnabled" ..: "enabled" % o
-        <*< field @"_coordinationMode" ..: "mode" % o
-        <*< field @"_coordinationMiners" ..: "miners" % o
+        <$< coordinationEnabled ..: "enabled" % o
+        <*< coordinationMode ..: "mode" % o
+        <*< coordinationMiners ..: "miners" % o
 
 defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
@@ -98,6 +120,12 @@ data NodeMiningConfig = NodeMiningConfig
     , _nodeMiner :: !Miner }
     deriving stock (Eq, Show, Generic)
 
+nodeMiningEnabled :: Lens' NodeMiningConfig Bool
+nodeMiningEnabled = lens _nodeMiningEnabled (\m c -> m { _nodeMiningEnabled = c })
+
+nodeMiner :: Lens' NodeMiningConfig Miner
+nodeMiner = lens _nodeMiner (\m c -> m { _nodeMiner = c })
+
 instance ToJSON NodeMiningConfig where
     toJSON o = object
         [ "enabled" .= _nodeMiningEnabled o
@@ -105,8 +133,8 @@ instance ToJSON NodeMiningConfig where
 
 instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
     parseJSON = withObject "NodeMiningConfig" $ \o -> id
-        <$< field @"_nodeMiningEnabled" ..: "enabled" % o
-        <*< field @"_nodeMiner" ..: "miner" % o
+        <$< nodeMiningEnabled ..: "enabled" % o
+        <*< nodeMiner ..: "miner" % o
 
 defaultNodeMining :: NodeMiningConfig
 defaultNodeMining = NodeMiningConfig
