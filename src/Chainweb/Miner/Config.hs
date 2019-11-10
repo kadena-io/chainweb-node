@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -16,80 +19,98 @@
 --
 
 module Chainweb.Miner.Config
-( MinerConfig(..)
-, MinerCount(..)
-, configTestMiners
-, configMinerInfo
-, defaultMinerConfig
-, validateMinerConfig
-, pMinerConfig
+( MiningConfig(..)
+, defaultMining
+, CoordinationConfig(..)
+, NodeMiningConfig(..)
 ) where
 
 import Configuration.Utils
 
-import Control.Lens hiding ((.=))
-import Control.Monad
-import Control.Monad.Except (throwError)
+import Data.Generics.Product.Fields (field)
+import qualified Data.HashSet as HS
 
 import GHC.Generics (Generic)
-
-import Numeric.Natural (Natural)
 
 import Pact.Types.Term (mkKeySet)
 
 -- internal modules
 
-import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..))
 
 ---
 
-newtype MinerCount = MinerCount { _minerCount :: Natural }
-    deriving (Eq, Ord, Show)
+-- validateMinerConfig :: ConfigValidation MinerConfig l
+-- validateMinerConfig c =
+--     when (view (configMinerInfo . minerId) c == "")
+--         $ throwError "Mining is enabled but no miner id is configured"
 
-makeLenses ''MinerCount
+data MiningConfig = MiningConfig
+    { _miningCoordination :: !CoordinationConfig
+    , _miningInNode :: !NodeMiningConfig }
+    deriving stock (Eq, Show, Generic)
 
-data MinerConfig = MinerConfig
-    { _configTestMiners :: !MinerCount
-    , _configMinerInfo :: !Miner
-    }
-    deriving (Show, Eq, Generic)
-
-makeLenses ''MinerConfig
-
-defaultMinerConfig :: MinerConfig
-defaultMinerConfig = MinerConfig
-    { _configTestMiners = MinerCount 10
-        -- hidden configuration option that is only used in testing
-    , _configMinerInfo = invalidMiner
-    }
-  where
-    invalidMiner = Miner "" (MinerKeys $ mkKeySet [] "keys-all")
-
--- configTestMiner is only used for testing and hidden from the output
--- of --printConfig
---
-instance ToJSON MinerConfig where
+instance ToJSON MiningConfig where
     toJSON o = object
-        [ "minerInfo" .= _configMinerInfo o
-        ]
+        [ "coordination" .= _miningCoordination o
+        , "nodeMining" .= _miningInNode o ]
 
-instance FromJSON (MinerConfig -> MinerConfig) where
+instance FromJSON (MiningConfig -> MiningConfig) where
+    parseJSON = withObject "MiningConfig" $ \o -> id
+        <$< field @"_miningCoordination" %.: "coordination" % o
+        <*< field @"_miningInNode" %.: "nodeMining" % o
 
-    parseJSON = withObject "MinerConfig" $ \o -> id
-        <$< (configTestMiners . minerCount) ..: "testMiners" % o
-        <*< configMinerInfo ..: "minerInfo" % o
+defaultMining :: MiningConfig
+defaultMining = MiningConfig
+    { _miningCoordination = defaultCoordination
+    , _miningInNode = defaultNodeMining }
 
--- TODO Options for parsing `Miner` on the command line.
---
-pMinerConfig :: MParser MinerConfig
-pMinerConfig = id
-    <$< (configTestMiners . minerCount) .:: option auto
-        % long "test-miners"
-        <> short 'm'
-        <> hidden
-        <> internal
+data CoordinationConfig = CoordinationConfig
+    { _coordinationEnabled :: !Bool
+    , _coordinationMode :: !CoordinationMode
+    , _coordinationMiners :: !(HS.HashSet MinerId) }
+    deriving stock (Eq, Show, Generic)
 
-validateMinerConfig :: ConfigValidation MinerConfig l
-validateMinerConfig c =
-    when (view (configMinerInfo . minerId) c == "")
-        $ throwError "Mining is enabled but no miner id is configured"
+instance ToJSON CoordinationConfig where
+    toJSON o = object
+        [ "enabled" .= _coordinationEnabled o
+        , "mode" .= _coordinationMode o
+        , "miners" .= _coordinationMiners o ]
+
+instance FromJSON (CoordinationConfig -> CoordinationConfig) where
+    parseJSON = withObject "CoordinationConfig" $ \o -> id
+        <$< field @"_coordinationEnabled" ..: "enabled" % o
+        <*< field @"_coordinationMode" ..: "mode" % o
+        <*< field @"_coordinationMiners" ..: "miners" % o
+
+defaultCoordination :: CoordinationConfig
+defaultCoordination = CoordinationConfig
+    { _coordinationEnabled = False
+    , _coordinationMode = Private
+    , _coordinationMiners = mempty }
+
+data CoordinationMode = Public | Private
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
+
+data NodeMiningConfig = NodeMiningConfig
+    { _nodeMiningEnabled :: !Bool
+    , _nodeMiner :: !Miner }
+    deriving stock (Eq, Show, Generic)
+
+instance ToJSON NodeMiningConfig where
+    toJSON o = object
+        [ "enabled" .= _nodeMiningEnabled o
+        , "miner" .= _nodeMiner o ]
+
+instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
+    parseJSON = withObject "NodeMiningConfig" $ \o -> id
+        <$< field @"_nodeMiningEnabled" ..: "enabled" % o
+        <*< field @"_nodeMiner" ..: "miner" % o
+
+defaultNodeMining :: NodeMiningConfig
+defaultNodeMining = NodeMiningConfig
+    { _nodeMiningEnabled = False
+    , _nodeMiner = invalidMiner }
+  where
+    invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"

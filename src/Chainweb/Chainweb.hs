@@ -52,8 +52,6 @@ module Chainweb.Chainweb
 , ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
-, configMiner
-, configCoordinator
 , configHeaderStream
 , configReintroTxs
 , configP2p
@@ -62,7 +60,7 @@ module Chainweb.Chainweb
 , configCutFetchTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
-, validateChainwebConfiguration
+-- , validateChainwebConfiguration
 
 -- * Chainweb Resources
 , Chainweb(..)
@@ -119,9 +117,7 @@ import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
-import Data.Generics.Product.Fields (field)
 import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
 import Data.List (isPrefixOf, sortBy)
 import Data.Maybe
 import Data.Monoid
@@ -149,7 +145,6 @@ import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
-import qualified Pact.Types.Term as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
@@ -168,7 +163,6 @@ import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..))
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Pact.Utils (fromPactChainId)
@@ -210,79 +204,6 @@ instance FromJSON (TransactionIndexConfig -> TransactionIndexConfig) where
 
 pTransactionIndexConfig :: MParser TransactionIndexConfig
 pTransactionIndexConfig = pure id
-
--- -------------------------------------------------------------------------- --
--- Mining Configuration
-
-data MiningConfig = MiningConfig
-    { _miningCoordination :: !CoordinationConfig
-    , _miningInNode :: !NodeMiningConfig }
-    deriving stock (Eq, Show, Generic)
-
-instance ToJSON MiningConfig where
-    toJSON o = object
-        [ "coordination" .= _miningCoordination o
-        , "nodeMining" .= _miningInNode o ]
-
-instance FromJSON (MiningConfig -> MiningConfig) where
-    parseJSON = withObject "MiningConfig" $ \o -> id
-        <$< field @"_miningCoordination" %.: "coordination" % o
-        <*< field @"_miningInNode" %.: "nodeMining" % o
-
-defaultMining :: MiningConfig
-defaultMining = MiningConfig
-    { _miningCoordination = defaultCoordination
-    , _miningInNode = defaultNodeMining }
-
-data CoordinationConfig = CoordinationConfig
-    { _coordinationEnabled :: !Bool
-    , _coordinationMode :: !CoordinationMode
-    , _coordinationMiners :: !(HS.HashSet MinerId) }
-    deriving stock (Eq, Show, Generic)
-
-instance ToJSON CoordinationConfig where
-    toJSON o = object
-        [ "enabled" .= _coordinationEnabled o
-        , "mode" .= _coordinationMode o
-        , "miners" .= _coordinationMiners o ]
-
-instance FromJSON (CoordinationConfig -> CoordinationConfig) where
-    parseJSON = withObject "CoordinationConfig" $ \o -> id
-        <$< field @"_coordinationEnabled" ..: "enabled" % o
-        <*< field @"_coordinationMode" ..: "mode" % o
-        <*< field @"_coordinationMiners" ..: "miners" % o
-
-defaultCoordination :: CoordinationConfig
-defaultCoordination = CoordinationConfig
-    { _coordinationEnabled = False
-    , _coordinationMode = Private
-    , _coordinationMiners = mempty }
-
-data CoordinationMode = Public | Private
-    deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
-
-data NodeMiningConfig = NodeMiningConfig
-    { _nodeMiningEnabled :: !Bool
-    , _nodeMiner :: !Miner }
-    deriving stock (Eq, Show, Generic)
-
-instance ToJSON NodeMiningConfig where
-    toJSON o = object
-        [ "enabled" .= _nodeMiningEnabled o
-        , "miner" .= _nodeMiner o ]
-
-instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
-    parseJSON = withObject "NodeMiningConfig" $ \o -> id
-        <$< field @"_nodeMiningEnabled" ..: "enabled" % o
-        <*< field @"_nodeMiner" ..: "miner" % o
-
-defaultNodeMining :: NodeMiningConfig
-defaultNodeMining = NodeMiningConfig
-    { _nodeMiningEnabled = False
-    , _nodeMiner = invalidMiner }
-  where
-    invalidMiner = Miner "" . MinerKeys $ P.mkKeySet [] "keys-all"
 
 -- -------------------------------------------------------------------------- --
 -- Throttling Configuration
@@ -669,8 +590,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
-                    withMinerResources mLogger mConf mCutDb $ \m -> do
+                withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
+                    withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
                             { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
