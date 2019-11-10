@@ -117,8 +117,16 @@ defaultCoordination = CoordinationConfig
     , _coordinationMiners = mempty }
 
 data CoordinationMode = Public | Private
-    deriving stock (Eq, Show, Generic)
-    deriving anyclass (ToJSON, FromJSON)
+    deriving stock (Eq, Show)
+
+instance ToJSON CoordinationMode where
+    toJSON Public = "public"
+    toJSON Private = "private"
+
+instance FromJSON CoordinationMode where
+    parseJSON (String "private") = pure Private
+    parseJSON (String "public") = pure Public
+    parseJSON _ = fail "Failed to parse CoordinationMode. Expected 'private' or 'public'."
 
 data NodeMiningConfig = NodeMiningConfig
     { _nodeMiningEnabled :: !Bool
