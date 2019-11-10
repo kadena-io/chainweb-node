@@ -49,6 +49,7 @@ data PactException
   | TransactionValidationException [(PactHash, Text)]
   | PactDuplicateTableError Text
   | TransactionDecodeFailure Text
+  | RewindLimitExceeded Text BlockHeight BlockHeight
   -- The only argument Text is the duplicate table name.
   deriving (Eq,Generic)
 
