@@ -138,7 +138,7 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
-    -- validateChainwebConfiguration $ _nodeConfigChainweb o  -- TODO Reinstate
+    validateChainwebConfiguration $ _nodeConfigChainweb o
     maybe (return ())
           checkIfValidChain
           (getAmberdataChainId o)

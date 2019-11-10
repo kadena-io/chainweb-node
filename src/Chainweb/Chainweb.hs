@@ -61,7 +61,7 @@ module Chainweb.Chainweb
 , configCutFetchTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
--- , validateChainwebConfiguration
+, validateChainwebConfiguration
 
 -- * Chainweb Resources
 , Chainweb(..)
@@ -281,10 +281,9 @@ instance HasChainGraph ChainwebConfiguration where
     _chainGraph = _chainGraph . _chainwebVersion
     {-# INLINE _chainGraph #-}
 
--- TODO Reenable!
--- validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
--- validateChainwebConfiguration c = do
---     validateEnableConfig validateMinerConfig (_configMiner c)
+validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
+validateChainwebConfiguration c = do
+    validateMinerConfig (_configMining c)
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration

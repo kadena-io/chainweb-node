@@ -22,6 +22,7 @@ module Chainweb.Miner.Config
 , defaultMining
 , miningCoordination
 , miningInNode
+, validateMinerConfig
 , CoordinationConfig(..)
 , coordinationEnabled
 , coordinationMode
@@ -33,7 +34,9 @@ module Chainweb.Miner.Config
 
 import Configuration.Utils
 
-import Control.Lens (lens)
+import Control.Lens (lens, view)
+import Control.Monad (when)
+import Control.Monad.Except (throwError)
 
 import qualified Data.HashSet as HS
 
@@ -43,14 +46,16 @@ import Pact.Types.Term (mkKeySet)
 
 -- internal modules
 
-import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..))
+import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..), minerId)
 
 ---
 
--- validateMinerConfig :: ConfigValidation MinerConfig l
--- validateMinerConfig c =
---     when (view (configMinerInfo . minerId) c == "")
---         $ throwError "Mining is enabled but no miner id is configured"
+validateMinerConfig :: ConfigValidation MiningConfig l
+validateMinerConfig c =
+    when (_nodeMiningEnabled nmc && view minerId (_nodeMiner nmc) == "")
+        $ throwError "In-node Mining is enabled but no miner id is configured"
+  where
+    nmc = _miningInNode c
 
 data MiningConfig = MiningConfig
     { _miningCoordination :: !CoordinationConfig

@@ -79,7 +79,7 @@ import Pact.Types.Term (KeySet(..), PublicKey, mkKeySet)
 
 -- | `MinerId` is a thin wrapper around `Text` to differentiate it from user
 -- addresses.
-newtype MinerId = MinerId Text
+newtype MinerId = MinerId { _minerId :: Text }
     deriving stock (Eq, Ord, Generic)
     deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable)
 
