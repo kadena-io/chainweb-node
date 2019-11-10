@@ -69,7 +69,8 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
-    , _coord503s :: IORef Int }
+    , _coord503s :: IORef Int
+    , _coordConf :: !CoordinationConfig }
 
 withMiningCoordination
     :: Logger logger
@@ -88,7 +89,8 @@ withMiningCoordination logger conf cutDb inner
             , _coordCutDb = cutDb
             , _coordState = t
             , _coordLimit = 1200
-            , _coord503s = c }
+            , _coord503s = c
+            , _coordConf = conf }
   where
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do

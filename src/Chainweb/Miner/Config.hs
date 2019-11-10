@@ -27,6 +27,7 @@ module Chainweb.Miner.Config
 , coordinationEnabled
 , coordinationMode
 , coordinationMiners
+, CoordinationMode(..)
 , NodeMiningConfig(..)
 , nodeMiningEnabled
 , nodeMiner
