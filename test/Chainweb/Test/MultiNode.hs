@@ -162,7 +162,8 @@ config v n nid = defaultChainwebConfiguration v
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner }
+        , _nodeMiner = noMiner
+        , _nodeTestMiners = MinerCount n }
 
 -- | Set the bootstrap node port of a 'ChainwebConfiguration'
 --

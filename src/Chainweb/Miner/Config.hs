@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -29,8 +30,11 @@ module Chainweb.Miner.Config
 , coordinationMiners
 , CoordinationMode(..)
 , NodeMiningConfig(..)
+, defaultNodeMining
 , nodeMiningEnabled
 , nodeMiner
+, nodeTestMiners
+, MinerCount(..)
 ) where
 
 import Configuration.Utils
@@ -43,6 +47,8 @@ import qualified Data.HashSet as HS
 
 import GHC.Generics (Generic)
 
+import Numeric.Natural (Natural)
+
 import Pact.Types.Term (mkKeySet)
 
 -- internal modules
@@ -50,6 +56,10 @@ import Pact.Types.Term (mkKeySet)
 import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..), minerId)
 
 ---
+
+newtype MinerCount = MinerCount { _minerCount :: Natural }
+    deriving stock (Eq, Ord, Show)
+    deriving newtype (FromJSON)
 
 validateMinerConfig :: ConfigValidation MiningConfig l
 validateMinerConfig c =
@@ -131,7 +141,8 @@ instance FromJSON CoordinationMode where
 
 data NodeMiningConfig = NodeMiningConfig
     { _nodeMiningEnabled :: !Bool
-    , _nodeMiner :: !Miner }
+    , _nodeMiner :: !Miner
+    , _nodeTestMiners :: !MinerCount }
     deriving stock (Eq, Show, Generic)
 
 nodeMiningEnabled :: Lens' NodeMiningConfig Bool
@@ -139,6 +150,9 @@ nodeMiningEnabled = lens _nodeMiningEnabled (\m c -> m { _nodeMiningEnabled = c 
 
 nodeMiner :: Lens' NodeMiningConfig Miner
 nodeMiner = lens _nodeMiner (\m c -> m { _nodeMiner = c })
+
+nodeTestMiners :: Lens' NodeMiningConfig MinerCount
+nodeTestMiners = lens _nodeTestMiners (\m c -> m { _nodeTestMiners = c })
 
 instance ToJSON NodeMiningConfig where
     toJSON o = object
@@ -149,10 +163,12 @@ instance FromJSON (NodeMiningConfig -> NodeMiningConfig) where
     parseJSON = withObject "NodeMiningConfig" $ \o -> id
         <$< nodeMiningEnabled ..: "enabled" % o
         <*< nodeMiner ..: "miner" % o
+        <*< nodeTestMiners ..: "testMiners" % o
 
 defaultNodeMining :: NodeMiningConfig
 defaultNodeMining = NodeMiningConfig
     { _nodeMiningEnabled = False
-    , _nodeMiner = invalidMiner }
+    , _nodeMiner = invalidMiner
+    , _nodeTestMiners = MinerCount 10 }
   where
     invalidMiner = Miner "" . MinerKeys $ mkKeySet [] "keys-all"

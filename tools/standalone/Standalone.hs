@@ -232,9 +232,10 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
     -- , _nodeConfigStopCondition = TimeLength (1000000 * 60 * 10)
     }
   where
-    miner = NodeMiningConfig
-        { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner }
+    miner :: NodeMiningConfig
+    miner = defaultNodeMining
+        & nodeMiningEnabled .~ True
+        & nodeMiner .~ noMiner
 
 instance ToJSON StandaloneConfiguration where
     toJSON o = object

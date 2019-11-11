@@ -40,8 +40,6 @@ module Chainweb.Version
 , window
 -- ** Date-based Transaction Disabling
 , txSilenceEndDate
--- ** Testing
-, testMiners
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -575,7 +573,3 @@ txSilenceEndDate FastTimedCPM{} = Nothing
 txSilenceEndDate Development = Nothing
 txSilenceEndDate Testnet02 = Nothing
 txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
-
--- | O(n).
-testMiners :: ChainwebVersion -> Natural
-testMiners = int . HS.size . chainIds

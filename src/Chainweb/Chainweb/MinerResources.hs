@@ -170,7 +170,7 @@ runMiner v mr = case window v of
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        localTest lf v (_nodeMiner conf) cdb gen
+        localTest lf v (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner :: IO ()
     powMiner = localPOW lf v (_nodeMiner conf) cdb

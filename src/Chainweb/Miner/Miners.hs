@@ -41,6 +41,7 @@ import qualified System.Random.MWC.Distributions as MWC
 import Chainweb.BlockHeader
 import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
+import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner)
@@ -66,8 +67,9 @@ localTest
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
+    -> MinerCount
     -> IO ()
-localTest lf v m cdb gen = runForever lf "Chainweb.Miner.Miners.localTest" loop
+localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
     loop :: IO a
     loop = do
@@ -82,7 +84,7 @@ localTest lf v m cdb gen = runForever lf "Chainweb.Miner.Miners.localTest" loop
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
     t :: Double
-    t = int graphOrder / (int (testMiners v) * meanBlockTime * 1000000)
+    t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
 
     graphOrder :: Natural
     graphOrder = order $ _chainGraph v

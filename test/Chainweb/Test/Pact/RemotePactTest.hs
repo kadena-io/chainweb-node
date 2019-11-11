@@ -765,7 +765,8 @@ config ver n nid = defaultChainwebConfiguration ver
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner }
+        , _nodeMiner = noMiner
+        , _nodeTestMiners = MinerCount n }
 
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
 bootstrapConfig conf = conf
