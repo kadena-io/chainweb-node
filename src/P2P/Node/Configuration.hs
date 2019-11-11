@@ -85,7 +85,7 @@ data P2pConfiguration = P2pConfiguration
 
     , _p2pConfigPrivate :: !Bool
         -- ^ make this node private, so that it only communicates with the
-        -- initially configured know peers. Use this option with care, because
+        -- initially configured known peers. Use this option with care, because
         -- it may result in networks that are not well connected with the
         -- overall consensus.
     }
@@ -174,7 +174,7 @@ pP2pConfiguration networkId = id
         <> help ("when enabled the hard-coded bootstrap nodes for network are ignored")
     <*< p2pConfigPrivate .:: enableDisableFlag
         % prefixLong net "private"
-        <> help ("when enabled this node private and communicates only with the initially configured known peers")
+        <> help ("when enabled this node becomes private and communicates only with the initially configured known peers")
   where
     net = T.unpack . networkIdToText <$> networkId
 
