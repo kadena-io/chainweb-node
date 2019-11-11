@@ -89,6 +89,7 @@ getConf = do
       , _configPruneChainDatabase = True
       , _configBlockGasLimit = 100000
       , _configCutFetchTimeout = 3000000
+      , _configInitialCutHeightLimit = Nothing
       }
   where
     hostMsg ip = "What is your publicly reachable domain name / IP address (default: " <> T.unpack ip <> ")?"
