@@ -283,9 +283,13 @@ instance HasChainGraph ChainwebConfiguration where
     _chainGraph = _chainGraph . _chainwebVersion
     {-# INLINE _chainGraph #-}
 
-validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
+validateChainwebConfiguration :: Applicative l => ConfigValidation ChainwebConfiguration l
 validateChainwebConfiguration c = do
     validateEnableConfig validateMinerConfig (_configMiner c)
+    case _configChainwebVersion c of
+        Mainnet01 -> validateP2pConfiguration (_configP2p c)
+        Testnet02 -> validateP2pConfiguration (_configP2p c)
+        _ -> return ()
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
