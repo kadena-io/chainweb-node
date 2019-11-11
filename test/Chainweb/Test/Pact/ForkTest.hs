@@ -66,33 +66,65 @@ prop_forkValidates
     :: BlockHeaderDb
     -> BlockHeader
     -> Property
-prop_forkValidates db genBlock =
-    withRocksResource $
-       \rocksIO ->
-        withTempDir $ \dir ->
-        withBlockHeaderDb rocksIO genBlock $ \bhdb ->
-        withPayloadDb $ \pdb -> monadicIO $ do
-            mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
-            fi <- genFork db mapRef genBlock
-            let blockList = blocksFromFork fi
-            liftIO $ putStrLn $ "list of blocks:\n" ++ show blockList
-            -- liftIO $ putStrLn $ show fi
-            withPact testVersion Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
-                newBlockTest "new-block-0" reqQIO blockList
-            assert (True == True) -- TODO: how to validate this test?
+prop_forkValidates db genBlock = do
+    let pairIO@(iofp, rocksIO) = rocksCreate
+    _ <- withTempDir $ \dir ->
+      withBlockHeaderDb rocksIO genBlock $ \bhdb ->
+      withPayloadDb $ \pdb -> monadicIO $ do
+          mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
+          fi <- genFork db mapRef genBlock
+          let blockList = blocksFromFork fi
+          liftIO $ putStrLn $ "list of blocks:\n" ++ show blockList
+          -- liftIO $ putStrLn $ show fi
+          withPact testVersion Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
+              newBlockTest "new-block-0" reqQIO blockList
+          assert (True == True) -- TODO: how to validate this test?
+    (fp, rdb) <- pairIO
+    rocksFree fp rdb
+
+-- rocksCreate rocksFree pulled from withRocksResource
+rocksCreate :: IO (FilePath, RocksDb)
+rocksCreate = do
+    sysdir <- getCanonicalTemporaryDirectory
+    dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
+    rocks <- openRocksDb dir
+    return (dir, rocks)
+
+rocksFree :: (FilePath, RocksDb) -> IO ()
+rocksFree (dir, rocks) = do
+    closeRocksDb rocks
+    destroyRocksDb dir
+    removeDirectoryRecursive dir
+      `catchAllSynchronous` (const $ return ())
+
+{-
+withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
+withRocksResource m = withResource create destroy wrap
+  where
+    create = do
+      sysdir <- getCanonicalTemporaryDirectory
+      dir <- createTempDirectory sysdir "chainweb-rocksdb-tmp"
+      rocks <- openRocksDb dir
+      return (dir, rocks)
+    destroy (dir, rocks) = do
+        closeRocksDb rocks
+        destroyRocksDb dir
+        removeDirectoryRecursive dir
+          `catchAllSynchronous` (const $ return ())
+    wrap ioact = let io' = snd <$> ioact in m io'
+-}
 
 forkValidatesTT :: BlockHeaderDb -> BlockHeader -> TestTree
 forkValidatesTT db genBlock =
     testProperty "someName" $ prop_forkValidates db genBlock
 
-wrapForkValidatesTT :: BlockHeaderDb -> BlockHeader -> TestTree
-wrapForkValidatesTT db genBlock =
-  withRocksResource $ \rocksIO ->
-     forkValidatesTT db genBlock
-
 -- withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
 -- withResource :: IO a -> (a -> IO ()) -> TestTree -> TestTree
 -- testProperty :: Testable a => TestName -> a -> TestTree
+--    (Property is an instance of Testable)
+
+
+
 
 blocksFromFork :: ForkInfo -> [BlockHeader]
 blocksFromFork ForkInfo{..} =
