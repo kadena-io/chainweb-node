@@ -81,6 +81,13 @@ data P2pConfiguration = P2pConfiguration
         -- ^ the path where the peer database is persisted
 
     , _p2pConfigIgnoreBootstrapNodes :: !Bool
+        -- ^ ignore builtin bootstrap nodes.
+
+    , _p2pConfigPrivate :: !Bool
+        -- ^ make this node private, so that it only communicates with the
+        -- initially configured known peers. Use this option with care, because
+        -- it may result in networks that are not well connected with the
+        -- overall consensus.
     }
     deriving (Show, Eq, Generic)
 
@@ -90,7 +97,7 @@ instance Arbitrary P2pConfiguration where
     arbitrary = P2pConfiguration
         <$> arbitrary <*> arbitrary <*> arbitrary
         <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary
+        <*> arbitrary <*> arbitrary
 
 -- | These are acceptable values for both test and production chainwebs.
 --
@@ -108,6 +115,7 @@ defaultP2pConfiguration = P2pConfiguration
 
     , _p2pConfigPeerDbFilePath = Nothing
     , _p2pConfigIgnoreBootstrapNodes = False
+    , _p2pConfigPrivate = False
     }
 
 instance ToJSON P2pConfiguration where
@@ -119,6 +127,7 @@ instance ToJSON P2pConfiguration where
         , "peers" .= _p2pConfigKnownPeers o
         , "peerDbFilePath" .= _p2pConfigPeerDbFilePath o
         , "ignoreBootstrapNodes" .= _p2pConfigIgnoreBootstrapNodes o
+        , "private" .= _p2pConfigPrivate o
         ]
 
 instance FromJSON (P2pConfiguration -> P2pConfiguration) where
@@ -130,6 +139,7 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigKnownPeers . from leftMonoidalUpdate %.: "peers" % o
         <*< p2pConfigPeerDbFilePath ..: "peerDbFilePath" % o
         <*< p2pConfigIgnoreBootstrapNodes ..: "ignoreBootstrapNodes" % o
+        <*< p2pConfigPrivate ..: "private" % o
 
 instance FromJSON P2pConfiguration where
     parseJSON = withObject "P2pExampleConfig" $ \o -> P2pConfiguration
@@ -140,6 +150,7 @@ instance FromJSON P2pConfiguration where
         <*> o .: "peers"
         <*> o .: "peerDbFilePath"
         <*> o .: "ignoreBootstrapNodes"
+        <*> o .: "private"
 
 pP2pConfiguration :: Maybe NetworkId -> MParser P2pConfiguration
 pP2pConfiguration networkId = id
@@ -161,6 +172,9 @@ pP2pConfiguration networkId = id
     <*< p2pConfigIgnoreBootstrapNodes .:: enableDisableFlag
         % prefixLong net "ignore-bootstrap-nodes"
         <> help ("when enabled the hard-coded bootstrap nodes for network are ignored")
+    <*< p2pConfigPrivate .:: enableDisableFlag
+        % prefixLong net "private"
+        <> help ("when enabled this node becomes private and communicates only with the initially configured known peers")
   where
     net = T.unpack . networkIdToText <$> networkId
 
