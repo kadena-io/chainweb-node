@@ -67,9 +67,10 @@ prop_forkValidates
     -> BlockHeader
     -> Property
 prop_forkValidates db genBlock = do
-    let pairIO@(iofp, rocksIO) = rocksCreate
+    let ioact = rocksCreate
+    let io' = snd <$> ioact
     _ <- withTempDir $ \dir ->
-      withBlockHeaderDb rocksIO genBlock $ \bhdb ->
+      withBlockHeaderDb io' genBlock $ \bhdb ->
       withPayloadDb $ \pdb -> monadicIO $ do
           mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
           fi <- genFork db mapRef genBlock
@@ -78,9 +79,10 @@ prop_forkValidates db genBlock = do
           -- liftIO $ putStrLn $ show fi
           withPact testVersion Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
               newBlockTest "new-block-0" reqQIO blockList
-          assert (True == True) -- TODO: how to validate this test?
-    (fp, rdb) <- pairIO
+    rdb <- io'
+    fp <- fst <$> ioact
     rocksFree fp rdb
+    assert (True == True) -- TODO: how to validate this test?
 
 -- rocksCreate rocksFree pulled from withRocksResource
 rocksCreate :: IO (FilePath, RocksDb)
