@@ -88,7 +88,7 @@ withMiningCoordination logger conf cutDb inner
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
-            , _coordLimit = 1200
+            , _coordLimit = _coordinationReqLimit conf
             , _coord503s = c
             , _coordConf = conf }
   where

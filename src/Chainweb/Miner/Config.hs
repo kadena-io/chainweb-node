@@ -97,11 +97,15 @@ defaultMining = MiningConfig
 data CoordinationConfig = CoordinationConfig
     { _coordinationEnabled :: !Bool
     , _coordinationMode :: !CoordinationMode
-    , _coordinationMiners :: !(HS.HashSet MinerId) }
+    , _coordinationMiners :: !(HS.HashSet MinerId)
+    , _coordinationReqLimit :: !Int }
     deriving stock (Eq, Show, Generic)
 
 coordinationEnabled :: Lens' CoordinationConfig Bool
 coordinationEnabled = lens _coordinationEnabled (\m c -> m { _coordinationEnabled = c })
+
+coordinationLimit :: Lens' CoordinationConfig Int
+coordinationLimit = lens _coordinationReqLimit (\m c -> m { _coordinationReqLimit = c })
 
 coordinationMode :: Lens' CoordinationConfig CoordinationMode
 coordinationMode = lens _coordinationMode (\m c -> m { _coordinationMode = c })
@@ -112,12 +116,14 @@ coordinationMiners = lens _coordinationMiners (\m c -> m { _coordinationMiners =
 instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
+        , "limit" .= _coordinationReqLimit o
         , "mode" .= _coordinationMode o
         , "miners" .= _coordinationMiners o ]
 
 instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
         <$< coordinationEnabled ..: "enabled" % o
+        <*< coordinationLimit ..: "limit" % o
         <*< coordinationMode ..: "mode" % o
         <*< coordinationMiners ..: "miners" % o
 
@@ -125,7 +131,8 @@ defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
     { _coordinationEnabled = False
     , _coordinationMode = Private
-    , _coordinationMiners = mempty }
+    , _coordinationMiners = mempty
+    , _coordinationReqLimit = 1200 }
 
 data CoordinationMode = Public | Private
     deriving stock (Eq, Show)
