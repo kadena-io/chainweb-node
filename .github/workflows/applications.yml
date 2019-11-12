@@ -4,6 +4,7 @@ on:
   push:
     branches: 
     - master
+    - lars/github-ci
     
 jobs:
   build:
@@ -72,9 +73,11 @@ jobs:
         documentation: false
         package chainweb
           documentation: false
+          optimization: 2
           ghc-options: -j
         package pact
           documentation: false
+          optimization: 2
           ghc-options: -j
         EOF
     - name: Append cabal.project (only ghc-8.8.1)
