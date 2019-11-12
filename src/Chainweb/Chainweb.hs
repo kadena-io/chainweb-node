@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -51,8 +52,7 @@ module Chainweb.Chainweb
 , ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
-, configMiner
-, configCoordinator
+, configMining
 , configHeaderStream
 , configReintroTxs
 , configP2p
@@ -258,8 +258,7 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
-    , _configMiner :: !(EnableConfig MinerConfig)
-    , _configCoordinator :: !Bool
+    , _configMining :: !MiningConfig
     , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
@@ -285,14 +284,13 @@ instance HasChainGraph ChainwebConfiguration where
 
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
 validateChainwebConfiguration c = do
-    validateEnableConfig validateMinerConfig (_configMiner c)
+    validateMinerConfig (_configMining c)
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
-    , _configMiner = EnableConfig False defaultMinerConfig
-    , _configCoordinator = False
+    , _configMining = defaultMining
     , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
@@ -310,8 +308,7 @@ instance ToJSON ChainwebConfiguration where
     toJSON o = object
         [ "chainwebVersion" .= _configChainwebVersion o
         , "nodeId" .= _configNodeId o
-        , "miner" .= _configMiner o
-        , "miningCoordination" .= _configCoordinator o
+        , "mining" .= _configMining o
         , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
@@ -329,8 +326,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
-        <*< configMiner %.: "miner" % o
-        <*< configCoordinator ..: "miningCoordination" % o
+        <*< configMining %.: "mining" % o
         <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
@@ -353,10 +349,6 @@ pChainwebConfiguration = id
         % long "node-id"
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
-    <*< configMiner %:: pEnableConfig "mining" pMinerConfig
-    <*< configCoordinator .:: boolOption_
-        % long "mining-coordination"
-        <> help "whether to enable external requests for mining work"
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -578,7 +570,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             logg Info "finished initializing cut resources"
 
             let !mLogger = setComponent "miner" logger
-                !mConf = _configMiner conf
+                !mConf = _configMining conf
                 !mCutDb = _cutResCutDb cuts
                 !throt  = _configThrottling conf
 
@@ -605,8 +597,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
-                    withMinerResources mLogger mConf mCutDb $ \m -> do
+                withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
+                    withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
                             { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
