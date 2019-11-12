@@ -26,6 +26,7 @@ import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
@@ -43,12 +44,13 @@ import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
 import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
+import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
     (ChainChoice(..), MiningState(..), newWork, publish)
 import Chainweb.Miner.Core
     (ChainBytes(..), HeaderBytes(..), WorkBytes, workBytes)
 import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Miner.Pact (Miner)
+import Chainweb.Miner.Pact (Miner, minerId)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
@@ -84,6 +86,10 @@ workHandler mr v mcid m = do
             when (M.size ms > _coordLimit mr) $ do
                 liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
                 throwError err503 { errBody = "Too many work requests" }
+            let !conf = _coordConf mr
+            when (_coordinationMode conf == Private
+                  && not (HS.member (view minerId m) (_coordinationMiners conf))) $
+                throwError err403 { errBody = "Unauthorized Miner" }
             liftIO $ workHandler' mr mcid m
 
 workHandler'
