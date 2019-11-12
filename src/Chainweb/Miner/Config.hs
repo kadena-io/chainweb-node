@@ -57,6 +57,8 @@ import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..), minerId)
 
 ---
 
+-- | Strictly for testing.
+--
 newtype MinerCount = MinerCount { _minerCount :: Natural }
     deriving stock (Eq, Ord, Show)
     deriving newtype (FromJSON)
@@ -68,6 +70,8 @@ validateMinerConfig c =
   where
     nmc = _miningInNode c
 
+-- | Full configuration for Mining.
+--
 data MiningConfig = MiningConfig
     { _miningCoordination :: !CoordinationConfig
     , _miningInNode :: !NodeMiningConfig }
@@ -94,12 +98,21 @@ defaultMining = MiningConfig
     { _miningCoordination = defaultCoordination
     , _miningInNode = defaultNodeMining }
 
+-- | Configuration for Mining Coordination.
 data CoordinationConfig = CoordinationConfig
     { _coordinationEnabled :: !Bool
+      -- ^ Is mining coordination enabled? If not, the @/mining/@ won't even be
+      -- present on the node.
     , _coordinationMode :: !CoordinationMode
+      -- ^ `Public` or `Private`.
     , _coordinationMiners :: !(HS.HashSet MinerId)
-    , _coordinationReqLimit :: !Int }
-    deriving stock (Eq, Show, Generic)
+      -- ^ When the mode is set to `Private`, this field must contain at least
+      -- one `MinerId` (i.e. account name) in order for work requests to be
+      -- made.
+    , _coordinationReqLimit :: !Int
+      -- ^ The number of @/mining/work/@ requests that can be made to this node
+      -- in a 5 minute period.
+    } deriving stock (Eq, Show, Generic)
 
 coordinationEnabled :: Lens' CoordinationConfig Bool
 coordinationEnabled = lens _coordinationEnabled (\m c -> m { _coordinationEnabled = c })
@@ -134,6 +147,8 @@ defaultCoordination = CoordinationConfig
     , _coordinationMiners = mempty
     , _coordinationReqLimit = 1200 }
 
+-- | When `Public`, anyone can make Mining work requests to this node.
+-- When `Private`, only designated Miners can do so.
 data CoordinationMode = Public | Private
     deriving stock (Eq, Show)
 
@@ -148,9 +163,14 @@ instance FromJSON CoordinationMode where
 
 data NodeMiningConfig = NodeMiningConfig
     { _nodeMiningEnabled :: !Bool
+      -- ^ If enabled, this node will mine with a single CPU along with its
+      -- other responsibilities.
     , _nodeMiner :: !Miner
-    , _nodeTestMiners :: !MinerCount }
-    deriving stock (Eq, Show, Generic)
+      -- ^ If enabled, a `Miner` identity must be supplied in order to assign
+      -- mining rewards.
+    , _nodeTestMiners :: !MinerCount
+      -- ^ Strictly for testing.
+    } deriving stock (Eq, Show, Generic)
 
 nodeMiningEnabled :: Lens' NodeMiningConfig Bool
 nodeMiningEnabled = lens _nodeMiningEnabled (\m c -> m { _nodeMiningEnabled = c })
