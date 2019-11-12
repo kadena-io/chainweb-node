@@ -142,7 +142,7 @@ jobs:
       run: |
         mkdir -p dist-newstyle/artifacts/applications
         mkdir -p dist-newstyle/artifacts/docs
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/build/*/{chainweb-miner,chainweb-node} dist-newstyle/artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/{chainweb-miner,chainweb-node} dist-newstyle/artifacts/applications
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:
