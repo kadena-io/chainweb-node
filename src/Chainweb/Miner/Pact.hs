@@ -50,6 +50,7 @@ import qualified Data.Csv as CSV
 import Data.Decimal (roundTo)
 import Data.Default (Default(..))
 import Data.FileEmbed (embedFile)
+import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
@@ -78,9 +79,9 @@ import Pact.Types.Term (KeySet(..), PublicKey, mkKeySet)
 
 -- | `MinerId` is a thin wrapper around `Text` to differentiate it from user
 -- addresses.
-newtype MinerId = MinerId Text
+newtype MinerId = MinerId { _minerId :: Text }
     deriving stock (Eq, Ord, Generic)
-    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData)
+    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable)
 
 -- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
 -- from user keysets.

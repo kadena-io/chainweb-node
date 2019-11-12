@@ -553,6 +553,7 @@ newSession conf node = do
     peerDb = _p2pNodePeerDb node
 
     syncFromPeer_ pinfo
+        | _p2pConfigPrivate conf = return True
         | _p2pNodeDoPeerSync node = syncFromPeer node pinfo
         | otherwise = return True
 
@@ -644,7 +645,9 @@ startPeerDb nids conf = do
     case _p2pConfigPeerDbFilePath conf of
         Just dbFilePath -> loadIntoPeerDb dbFilePath peerDb
         Nothing -> return ()
-    return peerDb
+    return $ if _p2pConfigPrivate conf
+        then makePeerDbPrivate peerDb
+        else peerDb
 
 -- | Stop a 'PeerDb', possibly persisting the db to a file.
 --

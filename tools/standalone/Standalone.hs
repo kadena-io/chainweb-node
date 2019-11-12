@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -10,8 +9,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
- {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Module: Standalone
@@ -24,7 +23,7 @@
 --
 module Standalone where
 
-import Configuration.Utils hiding (disabled, Error)
+import Configuration.Utils hiding (Error, disabled)
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -36,12 +35,12 @@ import Control.Monad.Managed
 import Data.CAS.RocksDB
 import Data.LogMessage
 import Data.PQueue
-import Data.Typeable
 import qualified Data.TaskMap as TM
 import qualified Data.Text as T
+import Data.Typeable
 
-import GHC.Stats
 import GHC.Generics hiding (to)
+import GHC.Stats
 
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
@@ -224,8 +223,7 @@ makeLenses ''StandaloneConfiguration
 defaultStandaloneConfiguration :: ChainwebVersion -> StandaloneConfiguration
 defaultStandaloneConfiguration v = StandaloneConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
-        & configMiner . enableConfigEnabled .~ True
-        & configMiner . enableConfigConfig . configMinerInfo .~ noMiner
+        & configMining . miningInNode .~ miner
     , _nodeConfigLog = defaultLogConfig
         & logConfigLogger . L.loggerConfigThreshold .~ L.Info
     , _nodeConfigDatabaseDirectory = Just "standalonedbs/"
@@ -233,6 +231,11 @@ defaultStandaloneConfiguration v = StandaloneConfiguration
     , _nodeConfigStopCondition = BlockStopCondition (Height 2)
     -- , _nodeConfigStopCondition = TimeLength (1000000 * 60 * 10)
     }
+  where
+    miner :: NodeMiningConfig
+    miner = defaultNodeMining
+        & nodeMiningEnabled .~ True
+        & nodeMiner .~ noMiner
 
 instance ToJSON StandaloneConfiguration where
     toJSON o = object

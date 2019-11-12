@@ -1,4 +1,48 @@
 # Changelog
 
-## [Unreleased]
+## 1.0.4 (2019 Nov ??)
 
+- **Improved mining configuration.** Mining configuration has been consolidated
+  into a single section:
+
+```yaml
+mining:
+  coordination:
+    enabled: false
+    mode: private
+    limit: 1200
+    miners: []
+  nodeMining:
+    miner:
+      account: ''
+      predicate: keys-all
+      public-keys: []
+    enabled: false
+```
+
+While your old config files will still work, you are encouraged to refresh them
+via:
+
+```
+# Generate the refreshed config.
+chainweb-node --config-file=config.yaml --print-config > new-config.yaml
+
+# See what changed.
+diff --color -u config.yaml new-config.yaml
+
+# Confirm the changes.
+mv new-config.yaml config.yaml
+```
+
+You will notice, for instance, that the `miningCoordination` field has been
+moved.
+
+- **Private mining.** When `enabled: true` and `mode: private`, you must provide
+  a list of account names into the `miners` field. Only remote clients that
+  declare they are mining to these blessed accounts will be able to receive
+  work - all others will be rejected. You can use this to protect your node from
+  unwanted visitors.
+
+- **Configurable work request limits.** The `limit` field can be set to restrict
+  the number of mining work requests that occur over a 5 minute period. Requests
+  over this limit are rejected with a `503` error code.
