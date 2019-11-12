@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.0.2
+version:      1.0.3
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -346,6 +346,7 @@ library
         , resourcet >= 1.2
         , safeio >= 0.0
         , safe-exceptions >= 0.1
+        , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16
         , servant-client >= 0.16
@@ -684,7 +685,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -695,6 +696,7 @@ executable cwtool
         Chainweb.Test.Utils
         Ea
         Ea.Genesis
+        GenConf
         Gexf
         Network.X509.SelfSigned.Test
         RunNodes

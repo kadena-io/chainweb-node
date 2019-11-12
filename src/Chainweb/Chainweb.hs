@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -7,6 +8,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -50,13 +52,13 @@ module Chainweb.Chainweb
 , ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
-, configMiner
-, configCoordinator
+, configMining
 , configHeaderStream
 , configReintroTxs
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
+, configCutFetchTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -75,6 +77,9 @@ module Chainweb.Chainweb
 , chainwebPayloadDb
 , chainwebPactData
 , chainwebThrottler
+, chainwebMiningThrottler
+, chainwebPutPeerThrottler
+, chainwebLocalThrottler
 , chainwebConfig
 
 -- ** Mempool integration
@@ -88,6 +93,14 @@ module Chainweb.Chainweb
 -- * Miner
 , runMiner
 
+-- * Throttler
+, ThrottlingConfig(..)
+, mkGenericThrottler
+, mkMiningThrottler
+, mkPutPeerThrottler
+, mkLocalThrottler
+, checkPathPrefix
+, mkThrottler
 ) where
 
 import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
@@ -106,7 +119,7 @@ import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
 import qualified Data.HashMap.Strict as HM
-import Data.List (sortBy)
+import Data.List (isPrefixOf, sortBy)
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
@@ -121,8 +134,6 @@ import Network.Socket (Socket)
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
-
-import Numeric.Natural
 
 import Prelude hiding (log)
 
@@ -196,24 +207,70 @@ pTransactionIndexConfig :: MParser TransactionIndexConfig
 pTransactionIndexConfig = pure id
 
 -- -------------------------------------------------------------------------- --
+-- Throttling Configuration
+
+data ThrottlingConfig = ThrottlingConfig
+    { _throttlingRate :: !Double
+    , _throttlingMiningRate :: !Double
+        -- ^ The rate should be sufficient to make at least on call per cut. We
+        -- expect an cut to arrive every few seconds.
+        --
+        -- Default is 10 per second.
+    , _throttlingPeerRate :: !Double
+        -- ^ This should throttle aggressively. This endpoint does an expensive
+        -- check of the client. And we want to keep bad actors out of the
+        -- system. There should be no need for a client to call this endpoint on
+        -- the same node more often than at most few times peer minute.
+        --
+        -- Default is 1 per second
+    , _throttlingLocalRate :: !Double
+    }
+    deriving stock (Eq, Show)
+
+makeLenses ''ThrottlingConfig
+
+defaultThrottlingConfig :: ThrottlingConfig
+defaultThrottlingConfig = ThrottlingConfig
+    { _throttlingRate = 50 -- per second
+    , _throttlingMiningRate = 2 --  per second
+    , _throttlingPeerRate = 11 -- per second, one for each p2p network
+    , _throttlingLocalRate = 0.1  -- per 10 seconds
+    }
+
+instance ToJSON ThrottlingConfig where
+    toJSON o = object
+        [ "global" .= _throttlingRate o
+        , "mining" .= _throttlingMiningRate o
+        , "putPeer" .= _throttlingPeerRate o
+        , "local" .= _throttlingLocalRate o
+        ]
+
+instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
+    parseJSON = withObject "ThrottlingConfig" $ \o -> id
+        <$< throttlingRate ..: "global" % o
+        <*< throttlingMiningRate ..: "mining" % o
+        <*< throttlingPeerRate ..: "putPeer" % o
+        <*< throttlingLocalRate ..: "local" % o
+
+-- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
-    , _configMiner :: !(EnableConfig MinerConfig)
-    , _configCoordinator :: !Bool
+    , _configMining :: !MiningConfig
     , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
     , _configIncludeOrigin :: !Bool
-    , _configThrottleRate :: !Natural
+    , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configPruneChainDatabase :: !Bool
     , _configBlockGasLimit :: !Mempool.GasLimit
-    }
-    deriving (Show, Eq, Generic)
+    , _configCutFetchTimeout :: !Int
+    , _configInitialCutHeightLimit :: !(Maybe BlockHeight)
+    } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
 
@@ -227,57 +284,60 @@ instance HasChainGraph ChainwebConfiguration where
 
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
 validateChainwebConfiguration c = do
-    validateEnableConfig validateMinerConfig (_configMiner c)
+    validateMinerConfig (_configMining c)
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
-    , _configMiner = EnableConfig False defaultMinerConfig
-    , _configCoordinator = False
+    , _configMining = defaultMining
     , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configIncludeOrigin = True
-    , _configThrottleRate = 1000
+    , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configPruneChainDatabase = True
     , _configBlockGasLimit = 100000
+    , _configCutFetchTimeout = 3000000
+    , _configInitialCutHeightLimit = Nothing
     }
 
 instance ToJSON ChainwebConfiguration where
     toJSON o = object
         [ "chainwebVersion" .= _configChainwebVersion o
         , "nodeId" .= _configNodeId o
-        , "miner" .= _configMiner o
-        , "miningCoordination" .= _configCoordinator o
+        , "mining" .= _configMining o
         , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
         , "includeOrigin" .= _configIncludeOrigin o
-        , "throttleRate" .= _configThrottleRate o
+        , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "pruneChainDatabase" .= _configPruneChainDatabase o
         , "blockGasLimit" .= _configBlockGasLimit o
+        , "cutFetchTimeout" .= _configCutFetchTimeout o
+        , "initialCutHeightLimit" .= _configInitialCutHeightLimit o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
-        <*< configMiner %.: "miner" % o
-        <*< configCoordinator ..: "miningCoordination" % o
+        <*< configMining %.: "mining" % o
         <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configIncludeOrigin ..: "includeOrigin" % o
-        <*< configThrottleRate ..: "throttleRate" % o
+        <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
+        <*< configCutFetchTimeout ..: "cutFetchTimeout" % o
+        <*< configInitialCutHeightLimit ..: "initialCutHeightLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -289,10 +349,6 @@ pChainwebConfiguration = id
         % long "node-id"
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
-    <*< configMiner %:: pEnableConfig "mining" pMinerConfig
-    <*< configCoordinator .:: boolOption_
-        % long "mining-coordination"
-        <> help "whether to enable external requests for mining work"
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -305,9 +361,6 @@ pChainwebConfiguration = id
     <*< configIncludeOrigin .:: enableDisableFlag
         % long "include-origin"
         <> help "whether to include the local peer as origin when publishing cut hashes"
-    <*< configThrottleRate .:: option auto
-        % long "throttle-rate"
-        <> help "how many requests per second are accepted from another node before it is being throttled"
     <*< configMempoolP2p %::
         pEnableConfig "mempool-p2p" pMempoolP2pConfig
     <*< configPruneChainDatabase .:: enableDisableFlag
@@ -316,6 +369,12 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configCutFetchTimeout .:: option auto
+        % long "cut-fetch-timeout"
+        <> help "After this many microseconds, give up trying to sync a particular Cut"
+    <*< configInitialCutHeightLimit .:: fmap (Just . BlockHeight) % option auto
+        % long "initial-cut-height-limit"
+        <> help "The maximum size of the initial cut. We'll chose the largest available cut that is small than this number"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -333,6 +392,9 @@ data Chainweb logger cas = Chainweb
     , _chainwebManager :: !HTTP.Manager
     , _chainwebPactData :: [(ChainId, PactServerData logger cas)]
     , _chainwebThrottler :: !(Throttle Address)
+    , _chainwebMiningThrottler :: !(Throttle Address)
+    , _chainwebPutPeerThrottler :: !(Throttle Address)
+    , _chainwebLocalThrottler :: !(Throttle Address)
     , _chainwebConfig :: !ChainwebConfiguration
     }
 
@@ -508,23 +570,15 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             logg Info "finished initializing cut resources"
 
             let !mLogger = setComponent "miner" logger
-                !mConf = _configMiner conf
+                !mConf = _configMining conf
                 !mCutDb = _cutResCutDb cuts
+                !throt  = _configThrottling conf
 
             -- initialize throttler
-            throttler <- initThrottler (defaultThrottleSettings $ TimeSpec 4 0)
-                { throttleSettingsRate = int $ _configThrottleRate conf
-                , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
-                , throttleSettingsBurst = int $ _configThrottleRate conf
-                , throttleSettingsIsThrottled = const True
-                -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
-                --     [ "cut"
-                --     , "header"
-                --     , "payload"
-                --     , "mempool"
-                --     , "peer"
-                --     ]
-                }
+            throttler <- mkGenericThrottler $ _throttlingRate throt
+            miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
+            putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
+            localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
 
             -- update the cutdb mvar used by pact service with cutdb
             void $! putMVar cdbv mCutDb
@@ -543,8 +597,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
-                    withMinerResources mLogger mConf mCutDb $ \m -> do
+                withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
+                    withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
                             { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
@@ -559,6 +613,9 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebManager = mgr
                             , _chainwebPactData = pactData
                             , _chainwebThrottler = throttler
+                            , _chainwebMiningThrottler = miningThrottler
+                            , _chainwebPutPeerThrottler = putPeerThrottler
+                            , _chainwebLocalThrottler = localThrottler
                             , _chainwebConfig = conf
                             }
 
@@ -582,10 +639,11 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
     -- FIXME: make this configurable
     cutConfig :: CutDbConfig
-    cutConfig = (defaultCutDbConfig v)
+    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
         { _cutDbConfigLogLevel = Info
         , _cutDbConfigTelemetryLevel = Info
         , _cutDbConfigUseOrigin = _configIncludeOrigin conf
+        , _cutDbConfigInitialHeightLimit = _configInitialCutHeightLimit conf
         }
 
     synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
@@ -611,6 +669,51 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             void $ _pactValidateBlock pact bh payload
             logCr Info "pact db synchronized"
 
+-- -------------------------------------------------------------------------- --
+-- Throttling
+
+mkGenericThrottler :: Double -> IO (Throttle Address)
+mkGenericThrottler rate = mkThrottler 5 rate (const True)
+
+mkMiningThrottler :: Double -> IO (Throttle Address)
+mkMiningThrottler rate = mkThrottler 5 rate (checkPathPrefix ["mining", "work"])
+
+mkPutPeerThrottler :: Double -> IO (Throttle Address)
+mkPutPeerThrottler rate = mkThrottler 5 rate $ \r ->
+    elem "peer" (pathInfo r) && requestMethod r == "PUT"
+
+mkLocalThrottler :: Double -> IO (Throttle Address)
+mkLocalThrottler rate = mkThrottler 5 rate (checkPathPrefix path)
+  where
+    path = ["pact", "api", "v1", "local"]
+
+checkPathPrefix
+    :: [T.Text]
+        -- ^ the base rate granted to users of the endpoing
+    -> Request
+    -> Bool
+checkPathPrefix endpoint r = endpoint `isPrefixOf` drop 3 (pathInfo r)
+
+-- | The period is 1 second. Burst is 2*rate.
+--
+mkThrottler
+    :: Double
+        -- ^ expiration of a stall bucket in seconds
+    -> Double
+        -- ^ the base rate granted to users of the endpoint (requests per second)
+    -> (Request -> Bool)
+        -- ^ Predicate to select requests that are throttled
+    -> IO (Throttle Address)
+mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceiling e) 0) -- expiration
+    { throttleSettingsRate = rate -- number of allowed requests per period
+    , throttleSettingsPeriod = 1_000_000 -- 1 second
+    , throttleSettingsBurst = 2 * ceiling rate
+    , throttleSettingsIsThrottled = c
+    }
+
+-- -------------------------------------------------------------------------- --
+-- Run Chainweb
+
 -- | Starts server and runs all network clients
 --
 runChainweb
@@ -623,7 +726,13 @@ runChainweb cw = do
     logg Info "start chainweb node"
     concurrently_
         -- 1. Start serving Rest API
-        (serve (throttle (_chainwebThrottler cw) . httpLog))
+        (serve
+            $ httpLog
+            . throttle (_chainwebPutPeerThrottler cw)
+            . throttle (_chainwebMiningThrottler cw)
+            . throttle (_chainwebLocalThrottler cw)
+            . throttle (_chainwebThrottler cw)
+        )
         -- 2. Start Clients (with a delay of 500ms)
         (threadDelay 500000 >> clients)
   where

@@ -65,6 +65,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.STM
+import Control.Scheduler (Comp(..), traverseConcurrently)
 
 import Data.Aeson hiding (Error)
 import Data.Foldable
@@ -217,6 +218,9 @@ data P2pNode = P2pNode
     , _p2pNodeActive :: !(TVar Bool)
         -- ^ Wether this node is active. If this is 'False' no new sessions
         -- will be initialized.
+    , _p2pNodeDoPeerSync :: !Bool
+        -- ^ Synchronize peers at start of each session. Note, that this is
+        -- expensive.
     }
 
 instance HasChainwebVersion P2pNode where
@@ -396,8 +400,9 @@ syncFromPeer node info = runClientM sync env >>= \case
             logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
             return False
     Right p -> do
+        caps <- getNumCapabilities
         goods <- fmap catMaybes
-            $ mapConcurrently (guardPeerDbOfNode node)
+            $ traverseConcurrently (ParN $ int caps) (guardPeerDbOfNode node)
             $ filter (\i -> me /= _peerId i)
             $ _pageItems p
         peerDbInsertPeerInfoList
@@ -497,10 +502,10 @@ findNextPeer conf node = do
 #else
     -- TODO: how expensive is this? should be cache the classification?
     --
-    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
-        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getEQ (SuccessiveFailures 0) base
-        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
-        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGTE (SuccessiveFailures 1) base
+    let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
+        p1 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
+        p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
+        p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
     searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
 #endif
 
@@ -520,7 +525,7 @@ newSession conf node = do
     newPeer <- atomically $ findNextPeer conf node
     let newPeerInfo = _peerEntryInfo newPeer
     logg node Debug $ "Selected new peer " <> encodeToText newPeer
-    syncFromPeer node newPeerInfo >>= \case
+    syncFromPeer_ newPeerInfo >>= \case
         False -> do
             threadDelay =<< R.randomRIO (400000, 500000)
                 -- FIXME there are better ways to prevent the node from spinning
@@ -546,6 +551,11 @@ newSession conf node = do
   where
     TimeSpan timeoutMs = secondsToTimeSpan @Double (_p2pConfigSessionTimeout conf)
     peerDb = _p2pNodePeerDb node
+
+    syncFromPeer_ pinfo
+        | _p2pConfigPrivate conf = return True
+        | _p2pNodeDoPeerSync node = syncFromPeer node pinfo
+        | otherwise = return True
 
 -- | Monitor and garbage collect sessions
 --
@@ -631,11 +641,13 @@ startPeerDb
 startPeerDb nids conf = do
     !peerDb <- newEmptyPeerDb
     forM_ nids $ \nid ->
-        peerDbInsertPeerInfoList nid (_p2pConfigKnownPeers conf) peerDb
+        peerDbInsertPeerInfoList_ True nid (_p2pConfigKnownPeers conf) peerDb
     case _p2pConfigPeerDbFilePath conf of
         Just dbFilePath -> loadIntoPeerDb dbFilePath peerDb
         Nothing -> return ()
-    return peerDb
+    return $ if _p2pConfigPrivate conf
+        then makePeerDbPrivate peerDb
+        else peerDb
 
 -- | Stop a 'PeerDb', possibly persisting the db to a file.
 --
@@ -663,9 +675,10 @@ p2pCreateNode
     -> LogFunction
     -> PeerDb
     -> HTTP.Manager
+    -> Bool
     -> P2pSession
     -> IO P2pNode
-p2pCreateNode cv nid peer logfun db mgr session = do
+p2pCreateNode cv nid peer logfun db mgr doPeerSync session = do
     -- intialize P2P State
     sessionsVar <- newTVarIO mempty
     statsVar <- newTVarIO emptyP2pNodeStats
@@ -683,6 +696,7 @@ p2pCreateNode cv nid peer logfun db mgr session = do
                 , _p2pNodeClientSession = session
                 , _p2pNodeRng = rngVar
                 , _p2pNodeActive = activeVar
+                , _p2pNodeDoPeerSync = doPeerSync
                 }
 
     logfun @T.Text Info "created node"

@@ -33,6 +33,8 @@ module Chainweb.CutDB
 , cutDbConfigLogLevel
 , cutDbConfigTelemetryLevel
 , cutDbConfigUseOrigin
+, cutDbConfigInitialHeightLimit
+, cutDbFetchTimeout
 , defaultCutDbConfig
 , farAheadThreshold
 
@@ -145,19 +147,23 @@ data CutDbConfig = CutDbConfig
     , _cutDbConfigLogLevel :: !LogLevel
     , _cutDbConfigTelemetryLevel :: !LogLevel
     , _cutDbConfigUseOrigin :: !Bool
+    , _cutDbFetchTimeout :: !Int
+    , _cutDbConfigInitialHeightLimit :: !(Maybe BlockHeight)
     }
     deriving (Show, Eq, Ord, Generic)
 
 makeLenses ''CutDbConfig
 
-defaultCutDbConfig :: ChainwebVersion -> CutDbConfig
-defaultCutDbConfig v = CutDbConfig
+defaultCutDbConfig :: ChainwebVersion -> Int -> CutDbConfig
+defaultCutDbConfig v ft = CutDbConfig
     { _cutDbConfigInitialCut = genesisCut v
     , _cutDbConfigInitialCutFile = Nothing
     , _cutDbConfigBufferSize = (order g ^ (2 :: Int)) * diameter g
     , _cutDbConfigLogLevel = Warn
     , _cutDbConfigTelemetryLevel = Warn
     , _cutDbConfigUseOrigin = True
+    , _cutDbFetchTimeout = ft
+    , _cutDbConfigInitialHeightLimit = Nothing
     }
   where
     g = _chainGraph v
@@ -343,9 +349,10 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
   where
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
+
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
-        processCuts logfun headerStore payloadStore cutHashesStore queue cutVar
+        processCuts config logfun headerStore payloadStore cutHashesStore queue cutVar
 
     -- TODO: The following code doesn't perform any validation of the cut.
     -- 'joinIntoHeavier_' may stil be slow on large dbs. Eventually, we should
@@ -377,10 +384,13 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                     go it
                 Left e -> throwM e
                 Right hm -> do
-                    logg Debug $ "joining intial cut from cut db configuration with cut that was loaded from the database " <> sshow hm
+                    hm' <- case _cutDbConfigInitialHeightLimit config of
+                        Nothing -> return hm
+                        Just h -> limitCutHeaders wbhdb h hm
+                    logg Debug $ "joining intial cut from cut db configuration with cut that was loaded from the database " <> sshow hm'
                     joinIntoHeavier_
                         (_webBlockHeaderStoreCas headerStore)
-                        hm
+                        hm'
                         (_cutMap $ _cutDbConfigInitialCut config)
 
 -- | Stop the cut validation pipeline.
@@ -411,23 +421,24 @@ lookupCutHashes wbhdb hs = do
 --
 processCuts
     :: PayloadCas cas
-    => LogFunction
+    => CutDbConfig
+    -> LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> RocksDbCas CutHashes
     -> PQueue (Down CutHashes)
     -> TVar Cut
     -> IO ()
-processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
+processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
     & S.chain (\c -> loggc Debug c $ "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
     & S.chain (\c -> loggc Debug c $ "fetch all prerequesites")
-    & S.mapM (cutHashesToBlockHeaderMap logFun headerStore payloadStore)
+    & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
     & S.chain (either
-        (\c -> loggc Warn c "failed to get prerequesites for some blocks")
+        (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
         (\c -> loggc Debug c "got all prerequesites")
         )
     & S.concat
@@ -470,12 +481,17 @@ processCuts logFun headerStore payloadStore cutHashesStore queue cutVar = queueT
             <> ", got: " <> sshow (_cutHashesHeight x)
         return r
 
+    -- This could be problematic if there is a very lightweight fork that is far
+    -- ahead
+    --
     isVeryOld x = do
         !h <- _cutHeight <$> readTVarIO cutVar
         let r = int (_cutHashesHeight x) <= (int h - threshold)
         when r $ loggc Debug x "skip very old cut"
         return r
 
+    -- This should be based on weight
+    --
     isOld x = do
         curHashes <- cutToCutHashes Nothing <$> readTVarIO cutVar
         let r = all (>= (0 :: Int)) $ (HM.unionWith (-) `on` (fmap (int . fst) . _cutHashes)) curHashes x
@@ -582,32 +598,30 @@ blockStream db = cutStreamToHeaderStream db $ cutStream db
 blockDiffStream :: MonadIO m => CutDb cas -> S.Stream (Of (Either BlockHeader BlockHeader)) m r
 blockDiffStream db = cutStreamToHeaderDiffStream db $ cutStream db
 
--- TODO define as constant or make configurable
---
-cutFetchTimeout :: Int
-cutFetchTimeout = 3000000
-
 cutHashesToBlockHeaderMap
     :: PayloadCas cas
-    => LogFunction
+    => CutDbConfig
+    -> LogFunction
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> CutHashes
-    -> IO (Either (HM.HashMap ChainId BlockHash) (HM.HashMap ChainId BlockHeader))
+    -> IO (Either (T2 CutId (HM.HashMap ChainId BlockHash)) (HM.HashMap ChainId BlockHeader))
         -- ^ The 'Left' value holds missing hashes, the 'Right' value holds
         -- a 'Cut'.
-cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout cutFetchTimeout go >>= \case
-    Nothing -> do
-        logfun Warn
-            $ "Timeout while processing cut "
-                <> (cutIdToTextShort $ _cutId hs)
-                <> " at height " <> sshow (_cutHashesHeight hs)
-                <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
-        return $! Left mempty
-    Just x -> return $! x
+cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
+    timeout (_cutDbFetchTimeout conf) go >>= \case
+        Nothing -> do
+            logfun Warn
+                $ "Timeout while processing cut "
+                    <> (cutIdToTextShort hsid)
+                    <> " at height " <> sshow (_cutHashesHeight hs)
+                    <> maybe " from unknown origin" (\p -> " from origin " <> toText p) origin
+            return $! Left $! T2 hsid mempty
+        Just x -> return $! x
   where
+    hsid = _cutId hs
     go =
-        trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" (_cutId hs) 1 $ do
+        trace logfun "Chainweb.CutDB.cutHashesToBlockHeaderMap" hsid 1 $ do
             plds <- emptyCas
             casInsertBatch plds $ V.fromList $ HM.elems $ _cutHashesPayloads hs
 
@@ -622,7 +636,7 @@ cutHashesToBlockHeaderMap logfun headerStore payloadStore hs = timeout cutFetchT
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
             if null missing
                 then return $! Right headers
-                else return $! Left missing
+                else return $! Left $! T2 hsid missing
 
     origin = _cutOrigin hs
     priority = Priority (- int (_cutHashesHeight hs))
