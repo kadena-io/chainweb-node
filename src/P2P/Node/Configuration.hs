@@ -50,7 +50,7 @@ import Numeric.Natural
 
 import Test.QuickCheck
 
-import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
+import Test.QuickCheck.Instances ()
 
 -- Internal imports
 
@@ -129,10 +129,10 @@ validateP2pConfiguration c = do
     validatePeerConfig $ _p2pConfigPeer c
 
     when (_p2pConfigIgnoreBootstrapNodes c && null (_p2pConfigKnownPeers c)) $ throwError
-        $ "Default bootstrap nodes are ignored and no known peers are configured. This node won't be able to communicate with the network"
+        $ "Default bootstrap nodes are ignored and no known peers are configured. This node won't be able to communicate with the network."
 
     when (_p2pConfigPrivate c && null (_p2pConfigKnownPeers c)) $ tell
-        $ pure "This node is configured to communicate only with the default bootstrap nodes"
+        $ pure "This node is configured to communicate only with the default bootstrap nodes."
 
     mapM_ (validateDirectory "peerDbFilePath") (_p2pConfigPeerDbFilePath c)
 
@@ -144,10 +144,10 @@ validateP2pConfiguration c = do
     validateRange "maxSessionCount" (2, 30) (_p2pConfigMaxSessionCount c)
 
     when (_p2pConfigMaxSessionCount c < 5) $ tell
-        $ pure "This node is configured to have a maximum session count of less than 5. This will limit the ability of this node to communicate with the rest of the network. A max session count between 10 and 20 is adviced"
+        $ pure "This node is configured to have a maximum session count of less than 5. This will limit the ability of this node to communicate with the rest of the network. A max session count between 10 and 20 is advised."
 
     when (_p2pConfigMaxSessionCount c > 50) $ tell
-        $ pure "This node is configured with a maximum session count of more than 50. This may put a high load on the network stack of the node and may cause connectivity problems. A max session count between 10 and 20 is adviced"
+        $ pure "This node is configured with a maximum session count of more than 50. This may put a high load on the network stack of the node and may cause connectivity problems. A max session count between 10 and 20 is advised."
 
 instance ToJSON P2pConfiguration where
     toJSON o = object
