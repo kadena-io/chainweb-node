@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 1.0.4 (2019 Nov ??)
+## 1.0.4 (2019-11-13)
 
 #### Improved Mining Configuration
 
