@@ -7,7 +7,10 @@
 # Kadena Public Blockchain
 
 
-Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability while maintaining the security and integrity found in Bitcoin.
+Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus
+protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism
+that improves throughput and scalability while maintaining the security and
+integrity found in Bitcoin.
 
 Read our [whitepapers](https://www.kadena.io/whitepapers):
 
@@ -30,18 +33,26 @@ For additional information, press, and development inquires, please refer to the
 
 ## Wiki
 
-The Chainweb wiki serves as a source of information that receives regular updates. You can find the chainweb Wiki [here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of frequently asked questions regarding  network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
+The Chainweb wiki serves as a source of information that receives regular
+updates. You can find the chainweb Wiki
+[here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of
+frequently asked questions regarding network information, how to explore blocks,
+diagnosing error messages, and more
+[here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
 
 If you have additions or comments, please submit a pull request or raise an issue.
 
 
 ## Installing Chainweb
+
 ### Linux Users
 
 The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases).
 
 #### Apt-based distributions
-If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you will need to install rocksdb with the following command:
+
+If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you
+will need to install rocksdb with the following command:
 
 ```bash
 sudo apt-get update
@@ -51,11 +62,15 @@ sudo apt-get update
 sudo apt-get install -y librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3
 ```
 
-If this is not available, then please view the [Rocksdb](https://rocksdb.org/) site for alternative modes of installation.
+If this is not available, then please view the [Rocksdb](https://rocksdb.org/)
+site for alternative modes of installation.
 
 #### Other distributions
 
-For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`, `z3` and install with its preferred package manager, or follow the alternative modes of installation described in [Rocksdb](https://rocksdb.org/).
+For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please
+consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`, `z3`
+and install with its preferred package manager, or follow the alternative modes
+of installation described in [Rocksdb](https://rocksdb.org/).
 
 At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
 
