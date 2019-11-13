@@ -32,6 +32,7 @@ import System.LogLevel
 
 -- chainweb imports
 
+import Chainweb.Miner.Config
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
@@ -211,7 +212,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                 logg Info "finished initializing cut resources"
 
                 let !mLogger = setComponent "miner" logger
-                    !mConf = _configMiner conf
+                    !mConf = _configMining conf
                     !mCutDb = _cutResCutDb cuts
                     !throt  = _configThrottling conf
 
@@ -229,8 +230,8 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
 
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
-                    withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
-                        withMinerResources mLogger mConf mCutDb $ \m -> do
+                    withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc -> do
+                        withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
                             logg Info "finished initializing miner resources"
                             inner Chainweb
                                       { _chainwebHostAddress =

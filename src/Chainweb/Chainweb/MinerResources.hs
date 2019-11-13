@@ -46,14 +46,14 @@ import qualified System.Random.MWC as MWC
 import Chainweb.BlockHeader (BlockCreationTime(..))
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
-import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
     (MiningState(..), MiningStats(..), PrevTime(..))
 import Chainweb.Miner.Miners
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (EnableConfig(..), runForever)
+import Chainweb.Utils (runForever)
 import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
@@ -69,17 +69,18 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
-    , _coord503s :: IORef Int }
+    , _coord503s :: IORef Int
+    , _coordConf :: !CoordinationConfig }
 
 withMiningCoordination
     :: Logger logger
     => logger
-    -> Bool
+    -> CoordinationConfig
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
     -> IO a
-withMiningCoordination logger enabled cutDb inner
-    | not enabled = inner Nothing
+withMiningCoordination logger conf cutDb inner
+    | not (_coordinationEnabled conf) = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
         c <- newIORef 0
@@ -87,8 +88,9 @@ withMiningCoordination logger enabled cutDb inner
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
-            , _coordLimit = 1200
-            , _coord503s = c }
+            , _coordLimit = _coordinationReqLimit conf
+            , _coord503s = c
+            , _coordConf = conf }
   where
     prune :: TVar MiningState -> IORef Int -> IO ()
     prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
@@ -127,17 +129,17 @@ withMiningCoordination logger enabled cutDb inner
 data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb cas)
-    , _minerResConfig :: !MinerConfig
+    , _minerResConfig :: !NodeMiningConfig
     }
 
 withMinerResources
     :: logger
-    -> EnableConfig MinerConfig
+    -> NodeMiningConfig
     -> CutDb cas
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger (EnableConfig enabled conf) cutDb inner
-    | not enabled = inner Nothing
+withMinerResources logger conf cutDb inner
+    | not (_nodeMiningEnabled conf) = inner Nothing
     | otherwise = do
         inner . Just $ MinerResources
             { _minerResLogger = logger
@@ -159,7 +161,7 @@ runMiner v mr = case window v of
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
 
-    conf :: MinerConfig
+    conf :: NodeMiningConfig
     conf = _minerResConfig mr
 
     lf :: LogFunction
@@ -168,7 +170,7 @@ runMiner v mr = case window v of
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        localTest lf v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
+        localTest lf v (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = localPOW lf v (_configMinerInfo conf) cdb
+    powMiner = localPOW lf v (_nodeMiner conf) cdb

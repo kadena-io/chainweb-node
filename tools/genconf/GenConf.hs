@@ -12,9 +12,9 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Yaml as Y
 
+import System.Directory
 import System.Exit
 import System.IO
-import System.Directory
 import System.Process
 
 -- chainweb imports
@@ -72,12 +72,11 @@ getConf = do
     hostname <- hostnameFromText ip
     host <- getUserInput (hostMsg ip) (Just hostname) (const $ return Nothing) Nothing
     port <- getUserInput portMsg (Just 443) (return . portFromText) Nothing
-    miningCord <- getUserInput mineCoordMsg (Just True) (return . yesorno2Bool) Nothing
+    coord <- getUserInput mineCoordMsg (Just True) (return . yesorno2Bool) Nothing
     return ChainwebConfiguration
       { _configChainwebVersion = Mainnet01
       , _configNodeId = NodeId 0 -- FIXME
-      , _configMiner = EnableConfig False defaultMinerConfig
-      , _configCoordinator = miningCord
+      , _configMining = defaultMining & miningCoordination . coordinationEnabled .~ coord
       , _configHeaderStream = False
       , _configReintroTxs = True
       , _configP2p = defaultP2pConfiguration
