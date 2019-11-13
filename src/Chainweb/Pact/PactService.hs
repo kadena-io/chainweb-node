@@ -787,13 +787,19 @@ execLocal
 execLocal cmd = withDiscardedBatch $ do
     cp <- getCheckpointer
     mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
-    (bh, bhash) <- case mbLatestBlock of
+    (bhe, bhash) <- case mbLatestBlock of
                        Nothing -> throwM NoBlockValidatedYet
                        (Just !p) -> return p
-    let target = Just (succ bh, bhash)
+    let target = Just (succ bhe, bhash)
+    bhDb <- asks _psBlockHeaderDb
+    -- NOTE: On local calls, there might be code which needs the results of
+    -- (chain-data). In such a case, the function `withBlockData` provides the
+    -- necessary information for this call to return sensible values.
+    parentHeader <- liftIO $! lookupM bhDb bhash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
+        r <- withBlockData parentHeader $
+             liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
@@ -820,15 +826,15 @@ withBlockData
     -> PactServiceM cas a
         -- ^ the action to be run
     -> PactServiceM cas a
-withBlockData bhe action = locally psPublicData go action
+withBlockData bh action = locally psPublicData go action
   where
-    (BlockHeight !bh) = _blockHeight bhe
-    (BlockHash !ph) = _blockParent bhe
+    (BlockHeight !bhe) = _blockHeight bh
+    (BlockHash !ph) = _blockParent bh
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) =
-      _blockCreationTime bhe
+      _blockCreationTime bh
 
     go t = t
-      { P._pdBlockHeight = succ bh
+      { P._pdBlockHeight = succ bhe
       , P._pdBlockTime = bt
       , P._pdPrevBlockHash = toText ph
       }
