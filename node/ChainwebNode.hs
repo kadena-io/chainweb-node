@@ -132,7 +132,7 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     }
   where
     level = case v of
-        Mainnet01 -> L.Warn
+        Mainnet01 -> L.Info
         _ -> L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
