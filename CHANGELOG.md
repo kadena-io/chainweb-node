@@ -50,3 +50,15 @@ rejected. You can use this to protect your node from unwanted visitors.
 The `limit` field can be set to restrict the number of mining work requests that
 occur over a 5 minute period. Requests over this limit are rejected with a `503`
 error code.
+
+#### Improve Cut Database Configuration
+
+Cut database configuration has been consolidated into a single section:
+
+```yaml
+cuts:
+  includeOrigin: true
+  pruneChainDatabase: true
+  fetchTimeout: 3000000
+  initialCutHeightLimit: null
+```
