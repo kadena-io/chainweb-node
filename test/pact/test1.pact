@@ -24,8 +24,7 @@
     "Two-phase confidential payment, sending money from SRC at SRC-ENTITY to DEST at DEST-ENTITY."
 
     (step-with-rollback
-     src-entity
-     (let ((result (debit src amount { "transfer-to": dest, "message": "Starting pact" })))
+     src-entity (let ((result (debit src amount { "transfer-to": dest, "message": "Starting pact" })))
        (yield { "result": result, "amount": amount, "tx": (pact-id) }))
      (credit src amount { "rollback": (pact-id) }))
 
@@ -73,6 +72,11 @@
    (create-account "Acct1" 1000000.0)
    (create-account "Acct2" 0.0)
    (read-all))
+
+ (defun multiply-transfer (source dest mult)
+   "Multiply the balance in 'dest' by 'mult', transferring the required coins from 'source'"
+   (let x = read-account ("Acct2")
+    in transfer "Acct1" "Acct2" (x * (mult-1))
 
  (defpact create-private-accounts ()
    (step "Alice" (create-account "A" 1000.0))

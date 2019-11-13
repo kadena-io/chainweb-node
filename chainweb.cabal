@@ -480,6 +480,7 @@ test-suite chainweb-tests
         , http-client-tls >=0.3
         , pact >= 2.6
         , paths >= 0.2
+        , primes
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -487,6 +488,7 @@ test-suite chainweb-tests
         , resource-pool >= 0.2
         , resourcet >= 1.2
         , retry >= 0.7
+        , safe
         , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16
