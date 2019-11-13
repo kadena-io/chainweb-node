@@ -66,7 +66,7 @@ data CutSyncResources logger = CutSyncResources
     }
 
 data CutResources logger cas = CutResources
-    { _cutResCutConfig :: !CutDbConfig
+    { _cutResCutConfig :: !CutDbParams
     , _cutResPeer :: !(PeerResources logger)
     , _cutResCutDb :: !(CutDb cas)
     , _cutResLogger :: !logger
@@ -86,7 +86,7 @@ instance HasChainwebVersion (CutResources logger cas) where
 withCutResources
     :: Logger logger
     => PayloadCas cas
-    => CutDbConfig
+    => CutDbParams
     -> PeerResources logger
     -> logger
     -> RocksDb
@@ -96,7 +96,7 @@ withCutResources
     -> WebPactExecutionService
     -> (CutResources logger cas -> IO a)
     -> IO a
-withCutResources cutDbConfig peer logger rdb webchain payloadDb mgr pact f = do
+withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
 
     -- initialize blockheader store
     headerStore <- newWebBlockHeaderStore mgr webchain (logFunction logger)
@@ -107,9 +107,9 @@ withCutResources cutDbConfig peer logger rdb webchain payloadDb mgr pact f = do
     -- initialize cutHashes store
     let cutHashesStore = cutHashesTable rdb
 
-    withCutDb cutDbConfig (logFunction logger) headerStore payloadStore cutHashesStore $ \cutDb ->
+    withCutDb cutDbParams (logFunction logger) headerStore payloadStore cutHashesStore $ \cutDb ->
         f $ CutResources
-            { _cutResCutConfig  = cutDbConfig
+            { _cutResCutConfig  = cutDbParams
             , _cutResPeer = peer
             , _cutResCutDb = cutDb
             , _cutResLogger = logger
@@ -129,7 +129,7 @@ withCutResources cutDbConfig peer logger rdb webchain payloadDb mgr pact f = do
   where
     v = _chainwebVersion webchain
     syncLogger = addLabel ("sub-component", "sync") logger
-    useOrigin = _cutDbConfigUseOrigin cutDbConfig
+    useOrigin = _cutDbParamsUseOrigin cutDbParams
 
 -- | The networks that are used by the cut DB.
 --

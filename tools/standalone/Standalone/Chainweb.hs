@@ -194,7 +194,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
       (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
       cidsList
   where
-    prune = _configPruneChainDatabase conf
+    prune = _cutPruneChainDatabase $ _configCuts conf
     cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
@@ -268,11 +268,13 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     cids = chainIds v
 
     -- FIXME: make this configurable
-    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
-        { _cutDbConfigLogLevel = Info
-        , _cutDbConfigTelemetryLevel = Info
-        , _cutDbConfigUseOrigin = _configIncludeOrigin conf
-        }
+    cutConfig = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
+        { _cutDbParamsLogLevel = Info
+        , _cutDbParamsTelemetryLevel = Info
+        , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
+      where
+        cutConf = _configCuts conf
 
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
