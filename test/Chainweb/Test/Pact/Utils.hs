@@ -60,6 +60,7 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+, withPact'
 , WithPactCtxSQLite
 -- * miscellaneous
 , ChainwebNetwork(..)
@@ -618,6 +619,19 @@ withPact
     -> (IO PactQueue -> TestTree)
     -> TestTree
 withPact version logLevel iopdb iobhdb mempool iodir f =
+    withPact' version logLevel iopdb iobhdb mempool (Just <$> iodir) f
+
+-- similar to withPact, but allowing the FilePath argument to be 'Nothing'
+withPact'
+    :: ChainwebVersion
+    -> LogLevel
+    -> IO (PayloadDb HashMapCas)
+    -> IO BlockHeaderDb
+    -> MemPoolAccess
+    -> IO (Maybe FilePath)
+    -> (IO PactQueue -> TestTree)
+    -> TestTree
+withPact' version logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
@@ -627,12 +641,15 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
         bhdb <- iobhdb
         dir <- iodir
         a <- async $ initPactService version cid logger reqQ mempool mv
-                                     bhdb pdb (Just dir) Nothing False
+                                     bhdb pdb dir Nothing False
         return (a, reqQ)
 
     stopPact (a, _) = cancel a
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
+
+
+
 
 newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }

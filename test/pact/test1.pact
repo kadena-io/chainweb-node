@@ -51,7 +51,6 @@
             { "balance": (+ balance amount), "amount": amount
             , "data": data })))
 
-
   (defun read-account (id)
     "Read data for account ID"
     (+ { "account": id } (read accounts id)))
@@ -75,8 +74,8 @@
 
  (defun multiply-transfer (source dest mult)
    "Multiply the balance in 'dest' by 'mult', transferring the required coins from 'source'"
-   (let x = read-account ("Acct2")
-    in transfer "Acct1" "Acct2" (x * (mult-1))
+   (let ((x read-account ("Acct2")))
+     (transfer "Acct1" "Acct2" (x * (mult-1)))
 
  (defpact create-private-accounts ()
    (step "Alice" (create-account "A" 1000.0))
