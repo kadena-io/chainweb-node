@@ -52,7 +52,7 @@ import Foreign.Storable (peekElemOff, poke)
 import Servant.API
 
 import System.Exit
-import System.IO (hClose)
+import System.IO (hClose, stderr)
 import System.Path
 import qualified System.Process as P
 
@@ -268,7 +268,9 @@ callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
       where
         act = do
             b <- B.hGet h 4000
-            if B.null b then return "stderr not saved" else act
+            if B.null b 
+              then return "See prior logs for error message" 
+              else B.hPutStr stderr b >> act
 
     errThread = if saveStderr
                   then B.hGetContents
