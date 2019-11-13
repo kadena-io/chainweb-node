@@ -268,8 +268,7 @@ makeLenses ''CutConfig
 
 instance ToJSON CutConfig where
     toJSON o = object
-        [ "includeOrigin" .= _cutIncludeOrigin o
-        , "pruneChainDatabase" .= _cutPruneChainDatabase o
+        [ "pruneChainDatabase" .= _cutPruneChainDatabase o
         , "fetchTimeout" .= _cutFetchTimeout o
         , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o ]
 
