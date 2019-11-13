@@ -57,7 +57,6 @@ Cut database configuration has been consolidated into a single section:
 
 ```yaml
 cuts:
-  includeOrigin: true
   pruneChainDatabase: true
   fetchTimeout: 3000000
   initialCutHeightLimit: null
