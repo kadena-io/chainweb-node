@@ -106,7 +106,7 @@ defaultP2pConfiguration = P2pConfiguration
     { _p2pConfigPeer = defaultPeerConfig
     , _p2pConfigMaxSessionCount = 10
     , _p2pConfigMaxPeerCount = 50
-    , _p2pConfigSessionTimeout = 60
+    , _p2pConfigSessionTimeout = 240
     , _p2pConfigKnownPeers = mempty
         -- by default we start with an empty list. The hard-coded bootstrap peer
         -- infos depend on the chainweb version which may change depending on
