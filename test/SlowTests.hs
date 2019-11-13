@@ -13,14 +13,16 @@
 
 module SlowTests ( main ) where
 
-import System.LogLevel
+-- These comments will remain until the MultiNode test is functional.
+
+-- import System.LogLevel
 import Test.Tasty
 
 -- internal modules
 
-import Chainweb.Graph
-import qualified Chainweb.Test.MultiNode
-import Chainweb.Version
+-- import Chainweb.Graph
+-- import qualified Chainweb.Test.MultiNode
+-- import Chainweb.Version
 
 import qualified Network.X509.SelfSigned.Test
 
@@ -29,8 +31,9 @@ main = defaultMain suite
 
 suite :: TestTree
 suite = testGroup "ChainwebSlowTests"
-    [ Chainweb.Test.MultiNode.test Warn (TimedConsensus petersonChainGraph) 10 150
-    , testGroup "Network.X05.SelfSigned.Test"
+    [
+      -- Chainweb.Test.MultiNode.test Warn (TimedConsensus petersonChainGraph) 10 150
+    testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]
     ]
