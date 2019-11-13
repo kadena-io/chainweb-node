@@ -264,13 +264,11 @@ callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
                 return $ MiningResult nonceBytes numHashes rate errbytes
     go _ _ _ _ = fail "impossible: process is opened with CreatePipe in/out/err"
 
-    slurp h = act
-      where
-        act = do
+    slurp h = do
             b <- B.hGet h 4000
             if B.null b 
               then return "See prior logs for error message" 
-              else B.hPutStr stderr b >> act
+              else B.hPutStr stderr b >> slurp h
 
     errThread = if saveStderr
                   then B.hGetContents
