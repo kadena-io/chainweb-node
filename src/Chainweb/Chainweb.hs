@@ -103,6 +103,7 @@ module Chainweb.Chainweb
 
 -- * Cut Config
 , CutConfig(..)
+, defaultCutConfig
 ) where
 
 import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
@@ -329,7 +330,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 100000
+    , _configBlockGasLimit = 100_000
     }
 
 instance ToJSON ChainwebConfiguration where

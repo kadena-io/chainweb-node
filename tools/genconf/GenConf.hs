@@ -76,6 +76,7 @@ getConf = do
     return ChainwebConfiguration
       { _configChainwebVersion = Mainnet01
       , _configNodeId = NodeId 0 -- FIXME
+      , _configCuts = defaultCutConfig
       , _configMining = defaultMining & miningCoordination . coordinationEnabled .~ coord
       , _configHeaderStream = False
       , _configReintroTxs = True
@@ -83,13 +84,9 @@ getConf = do
                      & p2pConfigPeer . peerConfigAddr
                      .~ HostAddress host port
       , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
-      , _configIncludeOrigin = True
       , _configThrottling = defaultThrottlingConfig
       , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-      , _configPruneChainDatabase = True
       , _configBlockGasLimit = 100000
-      , _configCutFetchTimeout = 3000000
-      , _configInitialCutHeightLimit = Nothing
       }
   where
     hostMsg ip = "What is your publicly reachable domain name / IP address (default: " <> T.unpack ip <> ")?"
