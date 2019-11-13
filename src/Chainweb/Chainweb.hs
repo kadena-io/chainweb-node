@@ -649,12 +649,12 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     cids = chainIds v
 
     -- FIXME: make this configurable
-    cutConfig :: CutDbConfig
-    cutConfig = (defaultCutDbConfig v $ _cutFetchTimeout cutConf)
-        { _cutDbConfigLogLevel = Info
-        , _cutDbConfigTelemetryLevel = Info
-        , _cutDbConfigUseOrigin = _cutIncludeOrigin cutConf
-        , _cutDbConfigInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
+    cutConfig :: CutDbParams
+    cutConfig = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
+        { _cutDbParamsLogLevel = Info
+        , _cutDbParamsTelemetryLevel = Info
+        , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
       where
         cutConf = _configCuts conf
 
