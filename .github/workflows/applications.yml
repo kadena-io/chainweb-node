@@ -2,10 +2,10 @@ name: Build and publish application binaries
 
 on:
   push:
-    branches: 
+    branches:
     - master
     - lars/github-ci
-    
+
 jobs:
   build:
     name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
@@ -21,7 +21,7 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
-      
+
       # Cabal Cache
       CABAL_CACHE: ./tmp/bin/cabal-cache
       CABAL_CACHE_BUCKET: kadena-cabal-cache
@@ -51,7 +51,7 @@ jobs:
       run: |
         curl -sL https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --paths.d --ghc-alias=${{ matrix.ghc }} --cabal-alias=3.0.0.0 install ghc-${{ matrix.ghc }} cabal-install-3.0.0.0
         ln -s /opt/cabal/3.0.0.0 /opt/cabal/3.0
-    - name: Set GHC and Cabal version 
+    - name: Set GHC and Cabal version
       uses: actions/setup-haskell@v1
       with:
          ghc-version: ${{ matrix.ghc }}
@@ -63,8 +63,8 @@ jobs:
       if: contains(matrix.os, 'mac')
       run: |
         brew update
-        brew install z3 
-        brew install sqlite 
+        brew install z3
+        brew install sqlite
         brew install rocksdb
         brew install awscli
     - name: Append cabal.project
@@ -129,7 +129,7 @@ jobs:
     - name: Install build dependencies
       run: cabal v2-build --only-dependencies
     - name: Build
-      run: cabal v2-build chainweb-node chainweb-miner
+      run: cabal v2-build chainweb-node
     - name: Sync dist cache
       if: always() && (matrix.distcache == 'true')
       run: eval $SYNC_TO_DIST_CACHE
@@ -142,7 +142,7 @@ jobs:
       run: |
         mkdir -p dist-newstyle/artifacts/applications
         mkdir -p dist-newstyle/artifacts/docs
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/{chainweb-miner,chainweb-node} dist-newstyle/artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/chainweb-node dist-newstyle/artifacts/applications
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:
@@ -153,7 +153,7 @@ jobs:
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
-        tar -C ./dist-newstyle/artifacts/applications/ -czf $BINFILE chainweb-node chainweb-miner
+        tar -C ./dist-newstyle/artifacts/applications/ -czf $BINFILE chainweb-node
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/
         aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$BINFILE --acl public-read
