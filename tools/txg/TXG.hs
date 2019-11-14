@@ -78,7 +78,7 @@ import Pact.Types.Exp (Literal(..))
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
-import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -231,7 +231,7 @@ sendTransactions
   -> NonEmpty (Command Text)
   -> IO (Either ClientError RequestKeys)
 sendTransactions (TXGConfig _ _ cenv v _ _) cid cmds =
-  runClientM (send v cid $ SubmitBatch cmds) cenv
+  runClientM (pactSendApiClient v cid $ SubmitBatch cmds) cenv
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m)
@@ -268,11 +268,11 @@ loadContracts config host contractLoaders = do
     ts <- testSomeKeyPairs
     contracts <- traverse (\f -> f meta ts) contractLoaders
     pollresponse <- runExceptT $ do
-      rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
+      rkeys <- ExceptT $ runClientM (pactSendApiClient v cid $ SubmitBatch contracts) ce
       when vb $ do
             withConsoleLogger Info $ do
                 logg Info $ "sent contracts with request key: " <> sshow rkeys
-      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+      ExceptT $ runClientM (pactPollApiClient v cid . Poll $ _rkRequestKeys rkeys) ce
     withConsoleLogger Info . logg Info $ sshow pollresponse
 
 realTransactions
@@ -293,8 +293,8 @@ realTransactions config host tv distribution = do
     (paymentKS, paymentAcc) <- liftIO $ NEL.unzip <$> Sim.createPaymentsAccounts v meta
     (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts v meta
     pollresponse <- liftIO . runExceptT $ do
-      rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc <> coinAcc) ce
-      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+      rkeys <- ExceptT $ runClientM (pactSendApiClient v cid . SubmitBatch $ paymentAcc <> coinAcc) ce
+      ExceptT $ runClientM (pactPollApiClient v cid . Poll $ _rkRequestKeys rkeys) ce
     case pollresponse of
       Left e -> logg Error $ toLogMessage (sshow e :: Text)
       Right _ -> pure ()
@@ -397,7 +397,7 @@ simpleExpressions config host tv distribution = do
 pollRequestKeys :: Args -> HostAddress -> RequestKey -> IO ()
 pollRequestKeys config host rkey = do
   TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
-  response <- runClientM (poll v cid . Poll $ pure rkey) ce
+  response <- runClientM (pactPollApiClient v cid . Poll $ pure rkey) ce
   case response of
     Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
     Right (PollResponses a)
@@ -412,7 +412,7 @@ pollRequestKeys config host rkey = do
 listenerRequestKey :: Args -> HostAddress -> ListenerRequest -> IO ()
 listenerRequestKey config host listenerRequest = do
   TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
-  runClientM (listen v cid listenerRequest) ce >>= \case
+  runClientM (pactListenApiClient v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print r >> exitSuccess
   where
@@ -442,7 +442,7 @@ singleTransaction args host (SingleTX c cid)
     f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
     f cfg@(TXGConfig _ _ ce v _ _) cmd = do
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
-      ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
+      ExceptT $ runClientM (pactListenApiClient v cid $ ListenerRequest rk) ce
 
 
 inMempool :: Args -> HostAddress -> (ChainId, [TransactionHash]) -> IO ()
@@ -550,28 +550,28 @@ defaultContractLoaders :: ChainwebVersion -> NonEmpty ContractLoader
 defaultContractLoaders v =
   NEL.fromList [ helloWorldContractLoader v, simplePaymentsContractLoader v]
 
-api version chainid =
-  case someChainwebVersionVal version of
-    SomeChainwebVersionT (_ :: Proxy cv) ->
-      case someChainIdVal chainid of
-        SomeChainIdT (_ :: Proxy cid) ->
-          client
-            (Proxy :: Proxy (PactApi cv cid))
+-- api version chainid =
+--   case someChainwebVersionVal version of
+--     SomeChainwebVersionT (_ :: Proxy cv) ->
+--       case someChainIdVal chainid of
+--         SomeChainIdT (_ :: Proxy cid) ->
+--           client
+--             (Proxy :: Proxy (PactApi cv cid))
 
-send :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
-send version chainid = go
-  where
-    go :<|> _ :<|> _ :<|> _ = api version chainid
+-- send :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
+-- send version chainid = go
+--   where
+--     go :<|> _ :<|> _ :<|> _ = api version chainid
 
-poll :: ChainwebVersion -> ChainId -> Poll -> ClientM PollResponses
-poll version chainid = go
-  where
-    _ :<|> go :<|> _ :<|> _ = api version chainid
+-- poll :: ChainwebVersion -> ChainId -> Poll -> ClientM PollResponses
+-- poll version chainid = go
+--   where
+--     _ :<|> go :<|> _ :<|> _ = api version chainid
 
-listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM ListenResponse
-listen version chainid = go
-  where
-    _ :<|> _ :<|> go :<|> _ = api version chainid
+-- listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM ListenResponse
+-- listen version chainid = go
+--   where
+--     _ :<|> _ :<|> go :<|> _ = api version chainid
 
 ---------------------------
 -- FOR DEBUGGING IN GHCI --
