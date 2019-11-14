@@ -28,7 +28,7 @@ import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.CoinContract
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
-import qualified Chainweb.Test.Mempool.RestAPI
+-- import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Miner.Core
 import qualified Chainweb.Test.Misc
@@ -37,13 +37,13 @@ import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactReplay
-import qualified Chainweb.Test.Pact.RemotePactTest
+-- import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.RewardsTest
 import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.Pact.TTL
-import qualified Chainweb.Test.RestAPI
+-- import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
-import qualified Chainweb.Test.SPV
+-- import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
 import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
@@ -67,7 +67,7 @@ main =
         defaultMain
             $ adjustOption adj
             $ testGroup "Chainweb Tests" . schedule Sequential
-            $ pactTestSuite rdb
+            $ pactTestSuite
             : mempoolTestSuite db h0
             : suite rdb
   where
@@ -78,13 +78,14 @@ mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
     $ schedule Sequential [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
 
-pactTestSuite :: RocksDb -> ScheduledTest
-pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
+-- pactTestSuite :: RocksDb -> ScheduledTest
+pactTestSuite :: ScheduledTest
+pactTestSuite = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
         [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactInProcApi.tests
-        , Chainweb.Test.Pact.RemotePactTest.tests rdb
+        -- , Chainweb.Test.Pact.RemotePactTest.tests rdb
         , Chainweb.Test.Pact.PactReplay.tests
         , Chainweb.Test.Pact.ChainData.tests
         , Chainweb.Test.Pact.TTL.tests
@@ -103,12 +104,12 @@ suite rdb =
         , Chainweb.Test.CoinContract.tests
         , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Roundtrips.tests
-        , Chainweb.Test.RestAPI.tests rdb
-        , Chainweb.Test.SPV.tests rdb
+        -- , Chainweb.Test.RestAPI.tests rdb
+        -- , Chainweb.Test.SPV.tests rdb
         , Chainweb.Test.Pact.SPV.tests
         , Chainweb.Test.Mempool.InMem.tests
         , Chainweb.Test.Mempool.Sync.tests
-        , Chainweb.Test.Mempool.RestAPI.tests
+        -- , Chainweb.Test.Mempool.RestAPI.tests
         , Chainweb.Test.Miner.Core.tests
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests

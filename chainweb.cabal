@@ -698,17 +698,20 @@ executable cwtool
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
+        , connection >=0.2
         , configuration-tools >= 0.4.1
         , containers >= 0.5
         , data-default >= 0.7
+        , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.3
-        , file-embed
-        , filepath
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , fake >= 0.1.1.1
+        , file-embed
         , file-embed >= 0.0
+        , filepath
         , formatting >= 6.3
         , generic-lens >= 1.1
         , http-client >= 0.5
@@ -726,10 +729,13 @@ executable cwtool
         , pact >= 2.6
         , paths >= 0.2
         , pretty-simple >= 2.1
-        , process >= 1.5
         , primitive >= 0.6
+        , process >= 1.5
         , random >= 1.1
+        , reflection >= 2.1
+        , resource-pool >= 0.2
         , resourcet >= 1.2
+        , retry >= 0.7
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
@@ -737,6 +743,8 @@ executable cwtool
         , stm
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
+        , strict-concurrency >= 0.2
+        , strict-tuple >= 0.1.3
         , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3
@@ -744,6 +752,7 @@ executable cwtool
         , tasty-quickcheck >= 0.9
         , temporary >= 1.3
         , text >= 1.2
+        , thyme == 0.3.6.0
         , time >= 1.8
         , transformers >= 0.5
         , unordered-containers >= 0.2
