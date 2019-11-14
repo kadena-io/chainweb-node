@@ -344,9 +344,9 @@ instance FromJSON (PeerConfig -> PeerConfig) where
         <$< peerConfigAddr %.: "hostaddress" % o
         <*< setProperty peerConfigInterface "interface" (parseJsonFromText "interface") o
         <*< peerConfigCertificateChain ..: "certificateChain" % o
-        <*< peerConfigCertificateChain ..: "certificateChainFile" % o
+        <*< peerConfigCertificateChainFile ..: "certificateChainFile" % o
         <*< peerConfigKey ..: "key" % o
-        <*< peerConfigKey ..: "keyFile" % o
+        <*< peerConfigKeyFile ..: "keyFile" % o
 
 pPeerConfig :: Maybe String -> MParser PeerConfig
 pPeerConfig service = id
