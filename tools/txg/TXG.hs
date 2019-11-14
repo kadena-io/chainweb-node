@@ -550,46 +550,14 @@ defaultContractLoaders :: ChainwebVersion -> NonEmpty ContractLoader
 defaultContractLoaders v =
   NEL.fromList [ helloWorldContractLoader v, simplePaymentsContractLoader v]
 
--- api version chainid =
---   case someChainwebVersionVal version of
---     SomeChainwebVersionT (_ :: Proxy cv) ->
---       case someChainIdVal chainid of
---         SomeChainIdT (_ :: Proxy cid) ->
---           client
---             (Proxy :: Proxy (PactApi cv cid))
-
--- send :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
--- send version chainid = go
---   where
---     go :<|> _ :<|> _ :<|> _ = api version chainid
-
--- poll :: ChainwebVersion -> ChainId -> Poll -> ClientM PollResponses
--- poll version chainid = go
---   where
---     _ :<|> go :<|> _ :<|> _ = api version chainid
-
--- listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM ListenResponse
--- listen version chainid = go
---   where
---     _ :<|> _ :<|> go :<|> _ = api version chainid
-
 ---------------------------
 -- FOR DEBUGGING IN GHCI --
 ---------------------------
--- genapi2 :: ChainwebVersion -> ChainId -> Text
--- genapi2 version chainid =
---   case someChainwebVersionVal version of
---     SomeChainwebVersionT (_ :: Proxy cv) ->
---       case someChainIdVal chainid of
---         SomeChainIdT (_ :: Proxy cid) ->
---           let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
---           in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
 
 isMempoolMember :: ChainwebVersion -> ChainId -> [TransactionHash] -> ClientM [Bool]
 isMempoolMember version chainid = go
   where
     _ :<|> go :<|> _ :<|> _ = genapiMempool version chainid
-
 
 genapiMempool version chainid =
   case someChainwebVersionVal version of
