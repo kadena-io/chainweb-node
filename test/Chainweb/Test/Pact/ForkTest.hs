@@ -6,6 +6,7 @@
 
 module Chainweb.Test.Pact.ForkTest
   ( tests
+  , runNewBlocks2
   ) where
 
 import Control.Concurrent.MVar
@@ -40,6 +41,7 @@ import Pact.Types.Command
 
 -- internal modules
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
@@ -56,38 +58,57 @@ import Chainweb.Transaction
 import Chainweb.Version
 
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-tests db h0 =
+tests _db _h0 =
     testGroupSch "pact-fork-quickcheck-tests" [theTT]
   where
     theTT = withRocksResource $ \rocksIO ->
-            withBlockHeaderDb rocksIO h0 $ \bhdb ->
+            withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
             withPayloadDb $ \pdb ->
             withPact' testVersion Warn pdb bhdb testMemPoolAccess (return Nothing) (\reqQIO ->
-                testProperty "prop_forkValidates" (prop_forkValidates db h0 reqQIO))
+                testProperty "prop_forkValidates" (prop_forkValidates bhdb _genBlock reqQIO))
+
+    _genBlock = genesisBlockHeader testVersion cid
+    cid = someChainId testVersion
 
 testVersion :: ChainwebVersion
 testVersion = Development
 
 -- | Property: Fork requiring checkpointer rewind validates properly
-prop_forkValidates :: BlockHeaderDb -> BlockHeader -> IO PactQueue -> Property
-prop_forkValidates db genBlock reqQIO = monadicIO $ do
-    liftIO $ putStrLn $ "$$$$$ genesis block: $$$$$\n" ++ showHeaderFields [genBlock] ++ "$$$$$$$$$$"
+prop_forkValidates :: (IO BlockHeaderDb) -> BlockHeader -> IO PactQueue -> Property
+prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
+    db <- liftIO $ iodb
+    liftIO $ putStrLn $ "\n$$$$$ genesis block: $$$$$\n" ++ showHeaderFields [genBlock] ++ "$$$$$$$$$$"
+
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     fi <- genFork db mapRef genBlock
+
     liftIO $ putStrLn $ "***** ForkInfo from genBlock: *****\n" ++ show fi ++ "\n**********"
+
     let blockList = blocksFromFork fi
+    let expected = expectedForkProd fi
+
     liftIO $ putStrLn $ "##### head of list: #####\n" ++ showHeaderFields [head blockList] ++ "##########"
     liftIO $ putStrLn $ "&&&&& list of blocks:&&&&&\n" ++ showHeaderFields blockList ++ "&&&&&&&&&&"
+
     reqQ <- liftIO $ reqQIO
-    let expected = productForHeight $ fromIntegral $ _blockHeight (last blockList)
     result <- liftIO $ runNewBlocks blockList reqQ
     assert (result == expected)
 
 blocksFromFork :: ForkInfo -> [BlockHeader]
 blocksFromFork ForkInfo{..} =
     reverse fiPreForkHeaders -- shared trunk of fork, genesis at the head
-        ++ reverse fiLeftForkHeaders -- left fork, applied on top of the trunk
-        ++ reverse fiRightForkHeaders -- right fork, applied on top of trunk via checkpointer rewind
+      ++ reverse fiLeftForkHeaders -- left fork, applied on top of the trunk
+      ++ reverse fiRightForkHeaders -- right fork, played over trunk via checkptr rewind
+
+expectedForkProd :: ForkInfo -> Int
+expectedForkProd ForkInfo{..} =
+    let leftHeight = fiForkHeight + fiLeftBranchHeight -- (1 based)
+        rightHeight = leftHeight + fiRightBranchHeight -- (1 based)
+
+        trunkProd = prodFromHeight (fiForkHeight - 1) -- (prodFromHeight is 0 based)
+        rBranchProd = prodFromRange leftHeight (rightHeight - 1) -- (prodFromRange is 0 based)
+
+    in trunkProd * rBranchProd
 
 txsFromHeight :: Int -> IO (Vector PactTransaction)
 txsFromHeight 0 = do
@@ -103,7 +124,7 @@ txsFromHeight h = do
     d <- adminData
     return $ V.fromList $
         PactTransaction { _pactCode = toS ( "(test1.multiply-transfer \"Acct1\" \"Acct2\""
-                                          ++ show (valForHeight h) ++ ")" )
+                                          ++ show (valFromHeight h) ++ ")" )
                         , _pactData = d }
         : commonTxs d
 
@@ -119,7 +140,10 @@ commonTxs d =
     ]
 
 runNewBlocks :: [BlockHeader] -> PactQueue -> IO Int
-runNewBlocks blocks reqQ = do
+runNewBlocks _blocks _reqQ = return 1
+
+runNewBlocks2 :: [BlockHeader] -> PactQueue -> IO Int
+runNewBlocks2 blocks reqQ = do
     responses <- foldM f [] blocks
     intResults <- toIntResults responses
     putStrLn $ "Results from runNewBlocks: " ++ show intResults
@@ -138,15 +162,25 @@ toIntResults mvars = do
             (Left _err) -> return 0
             (Right _plwo) -> return 1
 
-productForHeight :: Int -> Int
-productForHeight h =
-  let ps = take h primes :: [Int]
-  in foldr (\x r -> x * r) 1 ps
+-- product of primes assigned to a given (inclusive) range of block heights
+prodFromRange :: Int -> Int -> Int
+prodFromRange lo hi =
+  let xs = nPrimes hi
+      range = drop (lo - 1) xs
+  in foldr (\x r -> x * r) 1 range
 
-valForHeight :: Int -> Int
-valForHeight h =
-  let ps = primes :: [Int]
-  in ps !! h
+prodFromHeight :: Int -> Int
+prodFromHeight h =
+    let xs = nPrimes h
+    in foldr (\x r -> x * r) 1 xs
+
+valFromHeight :: Int -> Int
+valFromHeight h = last (nPrimes h)
+
+nPrimes :: Int -> [Int]
+nPrimes n | n <= 0    = [0]
+          | n == 1    = [1]
+          | otherwise = 1 : take (n-1) primes :: [Int]
 
 showHeaderFields :: [BlockHeader] -> String
 showHeaderFields bhs =

@@ -18,6 +18,7 @@ import Data.HashSet (HashSet)
 import qualified Data.HashSet as HS
 import Data.Int
 import Data.IORef
+import Data.List
 import Data.Tree
 import Data.Vector ((!))
 import qualified Data.Vector as V
@@ -109,8 +110,11 @@ genTree
   -> PropertyM IO (Tree BlockTrans)
 genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
+    liftIO $ putStrLn $ "genTree, b4 header'"
     next <- header' h
+    liftIO $ putStrLn $ "genTree, after header'"
     liftIO $ TreeDB.insert db next
+    liftIO $ putStrLn $ "genTree, after TreeDB.insert'"
     listOfOne <- preForkTrunk db mapRef next theRest
     newNode mapRef
             BlockTrans { btBlockHeader = h, btTransactions = takenNow }
@@ -215,6 +219,7 @@ postForkTrunk db mapRef h avail count = do
 ----------------------------------------------------------------------------------------------------
 header' :: BlockHeader -> PropertyM IO BlockHeader
 header' h = do
+    liftIO $ putStrLn $ "header': \n" ++ showHeaderFields [h]
     nonce <- Nonce <$> pick chooseAny
     return
         . fromLog
@@ -236,6 +241,16 @@ header' h = do
     target = powTarget h t'
     v = _blockChainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+
+showHeaderFields :: [BlockHeader] -> String
+showHeaderFields bhs =
+    foldl' f "" bhs
+  where
+    f r BlockHeader{..} = r ++
+        ("BlockHeader at height = " ++ show _blockHeight
+         ++ "\n\tHash: " ++ show _blockHash
+         ++ "\n\tParent hash: " ++ show _blockParent
+         ++ "\n\n")
 
 ----------------------------------------------------------------------------------------------------
 --  Info about generated forks

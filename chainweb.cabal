@@ -338,12 +338,14 @@ library
         , pact >= 2.6
         , paths >= 0.2
         , pem >=0.2
+        , primes >= 0.2
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
+        , safe >= 0.3
         , safeio >= 0.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
@@ -480,7 +482,7 @@ test-suite chainweb-tests
         , http-client-tls >=0.3
         , pact >= 2.6
         , paths >= 0.2
-        , primes
+        , primes >= 0.2
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -488,7 +490,7 @@ test-suite chainweb-tests
         , resource-pool >= 0.2
         , resourcet >= 1.2
         , retry >= 0.7
-        , safe
+        , safe >= 0.3
         , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16
