@@ -19,6 +19,7 @@ import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
 import Data.IORef
+import Data.List
 import Data.Numbers.Primes
 import qualified Data.Text as T
 import Data.Vector (Vector)
@@ -39,7 +40,6 @@ import Pact.Types.Command
 
 -- internal modules
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
@@ -57,14 +57,13 @@ import Chainweb.Version
 
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 tests db h0 =
-    let cid = someChainId testVersion
-        genBlock = genesisBlockHeader testVersion cid
-        theTT = withRocksResource $ \rocksIO ->
-              withBlockHeaderDb rocksIO genBlock $ \bhdb ->
-              withPayloadDb $ \pdb ->
-              withPact' testVersion Warn pdb bhdb testMemPoolAccess (return Nothing) (\reqQIO ->
-                  testProperty "abc" (prop_forkValidates db h0 reqQIO))
-    in testGroupSch "pact-fork-quickcheck-tests" [theTT]
+    testGroupSch "pact-fork-quickcheck-tests" [theTT]
+  where
+    theTT = withRocksResource $ \rocksIO ->
+            withBlockHeaderDb rocksIO h0 $ \bhdb ->
+            withPayloadDb $ \pdb ->
+            withPact' testVersion Warn pdb bhdb testMemPoolAccess (return Nothing) (\reqQIO ->
+                testProperty "prop_forkValidates" (prop_forkValidates db h0 reqQIO))
 
 testVersion :: ChainwebVersion
 testVersion = Development
@@ -72,11 +71,13 @@ testVersion = Development
 -- | Property: Fork requiring checkpointer rewind validates properly
 prop_forkValidates :: BlockHeaderDb -> BlockHeader -> IO PactQueue -> Property
 prop_forkValidates db genBlock reqQIO = monadicIO $ do
+    liftIO $ putStrLn $ "$$$$$ genesis block: $$$$$\n" ++ showHeaderFields [genBlock] ++ "$$$$$$$$$$"
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     fi <- genFork db mapRef genBlock
+    liftIO $ putStrLn $ "***** ForkInfo from genBlock: *****\n" ++ show fi ++ "\n**********"
     let blockList = blocksFromFork fi
-    liftIO $ putStrLn $ "list of blocks:\n" ++ show blockList
-    -- liftIO $ putStrLn $ show fi
+    liftIO $ putStrLn $ "##### head of list: #####\n" ++ showHeaderFields [head blockList] ++ "##########"
+    liftIO $ putStrLn $ "&&&&& list of blocks:&&&&&\n" ++ showHeaderFields blockList ++ "&&&&&&&&&&"
     reqQ <- liftIO $ reqQIO
     let expected = productForHeight $ fromIntegral $ _blockHeight (last blockList)
     result <- liftIO $ runNewBlocks blockList reqQ
@@ -84,7 +85,9 @@ prop_forkValidates db genBlock reqQIO = monadicIO $ do
 
 blocksFromFork :: ForkInfo -> [BlockHeader]
 blocksFromFork ForkInfo{..} =
-    fiPreForkHeaders ++ fiLeftForkHeaders ++ fiRightForkHeaders
+    reverse fiPreForkHeaders -- shared trunk of fork, genesis at the head
+        ++ reverse fiLeftForkHeaders -- left fork, applied on top of the trunk
+        ++ reverse fiRightForkHeaders -- right fork, applied on top of trunk via checkpointer rewind
 
 txsFromHeight :: Int -> IO (Vector PactTransaction)
 txsFromHeight 0 = do
@@ -144,6 +147,16 @@ valForHeight :: Int -> Int
 valForHeight h =
   let ps = primes :: [Int]
   in ps !! h
+
+showHeaderFields :: [BlockHeader] -> String
+showHeaderFields bhs =
+    foldl' f "" bhs
+  where
+    f r BlockHeader{..} = r ++
+        ("BlockHeader at height = " ++ show _blockHeight
+         ++ "\n\tHash: " ++ show _blockHash
+         ++ "\n\tParent hash: " ++ show _blockParent
+         ++ "\n\n")
 
 ----------------------------------------------------------------------------------------------------
 -- Borrowed/modified from PactInProceApi test...
