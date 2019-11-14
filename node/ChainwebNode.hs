@@ -132,7 +132,7 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     }
   where
     level = case v of
-        Mainnet01 -> L.Warn
+        Mainnet01 -> L.Info
         _ -> L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
@@ -323,8 +323,9 @@ node conf logger = do
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+        notifyReady
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
-            [ notifyReady >> runChainweb cw
+            [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runAmberdataBlockMonitor (amberdataChainId conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)

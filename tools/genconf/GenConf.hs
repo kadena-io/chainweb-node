@@ -20,10 +20,7 @@ import System.Process
 -- chainweb imports
 import Chainweb.Chainweb
 import Chainweb.HostAddress
-import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
-import Chainweb.NodeId
-import Chainweb.Utils
 import Chainweb.Version
 
 import P2P.Node.Configuration
@@ -73,24 +70,10 @@ getConf = do
     host <- getUserInput (hostMsg ip) (Just hostname) (const $ return Nothing) Nothing
     port <- getUserInput portMsg (Just 443) (return . portFromText) Nothing
     coord <- getUserInput mineCoordMsg (Just True) (return . yesorno2Bool) Nothing
-    return ChainwebConfiguration
-      { _configChainwebVersion = Mainnet01
-      , _configNodeId = NodeId 0 -- FIXME
-      , _configMining = defaultMining & miningCoordination . coordinationEnabled .~ coord
-      , _configHeaderStream = False
-      , _configReintroTxs = True
-      , _configP2p = defaultP2pConfiguration
-                     & p2pConfigPeer . peerConfigAddr
-                     .~ HostAddress host port
-      , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
-      , _configIncludeOrigin = True
-      , _configThrottling = defaultThrottlingConfig
-      , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-      , _configPruneChainDatabase = True
-      , _configBlockGasLimit = 100000
-      , _configCutFetchTimeout = 3000000
-      , _configInitialCutHeightLimit = Nothing
-      }
+    return $
+      defaultChainwebConfiguration Mainnet01
+      & configMining . miningCoordination . coordinationEnabled .~ coord
+      & configP2p . p2pConfigPeer . peerConfigAddr .~ HostAddress host port
   where
     hostMsg ip = "What is your publicly reachable domain name / IP address (default: " <> T.unpack ip <> ")?"
     portMsg = "Which port would you like to use (default: 443)?"
