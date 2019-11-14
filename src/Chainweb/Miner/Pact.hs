@@ -34,36 +34,28 @@ module Chainweb.Miner.Pact
   -- * Defaults
 , noMiner
 , defaultMiner
-  -- * CLI Utils
-, pMiner
 ) where
 
 import GHC.Generics (Generic)
 
 import Control.DeepSeq (NFData)
 import Control.Lens hiding ((.=))
-import Control.Monad (unless)
 import Control.Monad.Catch (MonadThrow)
 
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
-import Data.Char (isHexDigit)
 import qualified Data.Csv as CSV
 import Data.Decimal (roundTo)
-import Data.Default (Default(..))
 import Data.FileEmbed (embedFile)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
-import qualified Data.Set as S
 import Data.String (IsString(..))
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word
-
-import Options.Applicative
 
 -- internal modules
 
@@ -73,8 +65,7 @@ import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
 import Pact.Parse (ParsedDecimal(..))
-import Pact.Types.Names
-import Pact.Types.Term (KeySet(..), PublicKey, mkKeySet)
+import Pact.Types.Term (KeySet(..), mkKeySet)
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
@@ -198,28 +189,3 @@ readRewards v =
 rawMinerRewards :: ByteString
 rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
 {-# NOINLINE rawMinerRewards #-}
-
---------------------------------------------------------------------------------
--- CLI Utils
-
-pMiner :: Parser Miner
-pMiner = Miner
-    <$> strOption (long "miner-account" <> help "Coin Contract account name of Miner")
-    <*> (MinerKeys <$> pks)
-  where
-    pks :: Parser KeySet
-    pks = KeySet <$> (fmap S.fromList $ many pKey) <*> pPred
-
-pKey :: Parser PublicKey
-pKey = option k (long "miner-key"
-    <> help "Public key of the account to send rewards (can pass multiple times)")
-  where
-    k :: ReadM PublicKey
-    k = eitherReader $ \s -> do
-        unless (length s == 64 && all isHexDigit s)
-            . Left $ "Public Key " <> s <> " is not valid."
-        Right $ fromString s
-
-pPred :: Parser Name
-pPred = (\s -> Name $ BareName s def) <$>
-    strOption (long "miner-pred" <> value "keys-all" <> help "Keyset predicate")
