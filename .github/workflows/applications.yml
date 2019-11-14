@@ -4,6 +4,7 @@ on:
   push:
     branches:
     - master
+    - doug/add-freeze-file
     - lars/github-ci
 
 jobs:
