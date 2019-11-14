@@ -800,7 +800,7 @@ runChainweb cw = do
 
     serverSettings :: Settings
     serverSettings = setOnException
-        (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
+        (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServerError r e))
         $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
 
     serve :: Middleware -> IO ()

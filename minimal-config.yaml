@@ -71,8 +71,23 @@ logging:
     format: text
 
   logger:
-    log_level: warn
+    log_level: info
 
   filter:
-    rules: []
-    default: debug
+    rules:
+      - key: component
+        value: cut-monitor
+        level: info
+      - key: component
+        value: pact-tx-replay
+        level: info
+      - key: component
+        value: connection-manager
+        level: info
+      - key: component
+        value: miner
+        level: info
+      - key: component
+        value: local-handler
+        level: info
+    default: error
