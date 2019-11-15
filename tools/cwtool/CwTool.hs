@@ -8,6 +8,7 @@ import Text.Printf
 import qualified Chain2Gexf
 import qualified Ea
 import qualified GenConf
+import qualified HeaderDump
 import qualified RunNodes
 import qualified SlowTests
 import qualified TXG
@@ -86,6 +87,10 @@ topLevelCommands =
       "genconf"
       "Interactively generate a chainweb-node config"
       GenConf.main
+  , CommandSpec
+      "header-dump"
+      "Dump Block Headers to a JSON array"
+      HeaderDump.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()
