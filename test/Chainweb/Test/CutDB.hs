@@ -84,6 +84,9 @@ import Data.TaskMap
 -- -------------------------------------------------------------------------- --
 -- Create a random Cut DB with the respective Payload Store
 
+cutFetchTimeout :: Int
+cutFetchTimeout = 3000000
+
 -- | Provide a computation with a CutDb and PayloadDb for the given chainweb
 -- version with a linear chainweb with @n@ blocks.
 --
@@ -122,7 +125,7 @@ withTestCutDb rdb v n pactIO logfun f = do
     pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
-            withCutDb (defaultCutDbConfig v) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
+            withCutDb (defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
                 foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
 
@@ -277,7 +280,7 @@ startTestPayload rdb v logfun n = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
-    cutDb <- startCutDb (defaultCutDbConfig v) logfun hstore pstore cutHashesDb
+    cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) logfun hstore pstore cutHashesDb
     foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
 

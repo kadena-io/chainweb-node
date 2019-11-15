@@ -180,7 +180,7 @@ withConnectionManger logger certs key peerDb runInner = do
     let settings' = settings
             { HTTP.managerConnCount = 5
                 -- keep only 5 connections alive
-            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 10000000
+            , HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro 5000000
                 -- timeout connection-attempts after 10 sec instead of the default of 30 sec
             , HTTP.managerIdleConnectionCount = 512
                 -- total number of connections to keep alive. 512 is the default
@@ -198,7 +198,7 @@ withConnectionManger logger certs key peerDb runInner = do
             inc reqCountRef
             -- incKey urlStats (sshow $ HTTP.getUri req)
             HTTP.managerModifyRequest settings req
-                { HTTP.responseTimeout = HTTP.responseTimeoutMicro 10000000
+                { HTTP.responseTimeout = HTTP.responseTimeoutMicro 5000000
                     -- overwrite the explicit connection timeout from servant-client
                     -- (If the request has a timeout configured, the global timeout of
                     -- the manager is ignored)
@@ -219,6 +219,7 @@ withConnectionManger logger certs key peerDb runInner = do
             logFunctionText logger Info "Restarting connection manager logger"
             runLogClientConnections umask
 
+
     withAsyncWithUnmask runLogClientConnections $ \_ -> runInner mgr
 
   where
@@ -231,3 +232,4 @@ withConnectionManger logger certs key peerDb runInner = do
     serviceIdToHostAddress (h, p) = HostAddress
         <$!> readHostnameBytes (B8.pack h)
         <*> readPortBytes p
+

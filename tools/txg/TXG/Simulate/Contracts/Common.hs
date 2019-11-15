@@ -125,7 +125,7 @@ coinAccountNames :: [Account]
 coinAccountNames = (Account . ("sender0" <>) . show) <$> [0 :: Int .. 9]
 
 stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
 -- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair

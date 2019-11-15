@@ -20,6 +20,9 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-deprecations #-}
+
 -- |
 -- Module: Chainweb.Utils
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -176,6 +179,16 @@ module Chainweb.Utils
 
 -- * Approximate thread delays
 , approximateThreadDelay
+
+-- * TLS Manager with connection timeout settings
+, manager
+, unsafeManager
+, setManagerRequestTimeout
+
+-- * SockAddr from network package
+, showIpv4
+, showIpv6
+, sockAddrJson
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -226,11 +239,16 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
 import Data.Tuple.Strict
-import Data.Word (Word64)
+import Data.Word
 
 import GHC.Generics
 import GHC.Stack (HasCallStack)
 import GHC.TypeLits (KnownSymbol, symbolVal)
+
+import qualified Network.Connection as HTTP
+import qualified Network.HTTP.Client as HTTP
+import qualified Network.HTTP.Client.TLS as HTTP
+import Network.Socket
 
 import Numeric.Natural
 
@@ -1168,3 +1186,73 @@ threadDelayRng = unsafePerformIO (Prob.createSystemRandom >>= newMVar)
 approximateThreadDelay :: Int -> IO ()
 approximateThreadDelay d = withMVar threadDelayRng (approximately d)
                            >>= threadDelay
+
+-- -------------------------------------------------------------------------- --
+-- TLS Manager with connection timeout
+--
+-- TODO unify with other HTTP managers
+
+manager :: Int -> IO HTTP.Manager
+manager micros = HTTP.newManager
+    $ setManagerRequestTimeout micros
+    $ HTTP.tlsManagerSettings
+
+unsafeManager :: Int -> IO HTTP.Manager
+unsafeManager micros = HTTP.newTlsManagerWith
+    $ setManagerRequestTimeout micros
+    $ HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True True True) Nothing
+
+setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
+setManagerRequestTimeout micros settings = settings
+    { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
+        -- timeout connection-attempts after 10 sec instead of the default of 30 sec
+    , HTTP.managerModifyRequest = \req -> do
+        HTTP.managerModifyRequest settings req
+            { HTTP.responseTimeout = HTTP.responseTimeoutMicro micros
+                -- overwrite the explicit connection timeout from servant-client
+                -- (If the request has a timeout configured, the global timeout of
+                -- the manager is ignored)
+            }
+    }
+
+-- -------------------------------------------------------------------------- --
+-- SockAddr from network package
+
+sockAddrJson :: SockAddr -> Value
+sockAddrJson (SockAddrInet p i) = object
+    [ "ipv4" .= showIpv4 i
+    , "port" .= fromIntegral @PortNumber @Int p
+    ]
+sockAddrJson (SockAddrInet6 p f i s) = object
+    [ "ipv6" .= show i
+    , "port" .= fromIntegral @PortNumber @Int p
+    , "flowInfo" .= f
+    , "scopeId" .= s
+    ]
+sockAddrJson (SockAddrUnix s) = object
+    [ "pipe" .= s
+    ]
+#if !MIN_VERSION_network(3,0,0)
+sockAddrJson (SockAddrCan i) = object
+    [ "can" .= i
+    ]
+#endif
+
+showIpv4 :: HostAddress -> T.Text
+showIpv4 ha = T.intercalate "." $ sshow <$> [a0,a1,a2,a3]
+  where
+    (a0,a1,a2,a3) = hostAddressToTuple ha
+
+showIpv6 :: HostAddress6 -> T.Text
+showIpv6 ha = T.intercalate ":"
+    $ T.pack . printf "%x" <$> [a0,a1,a2,a3,a4,a5,a6,a7]
+  where
+    (a0,a1,a2,a3,a4,a5,a6,a7) = hostAddress6ToTuple ha
+
+#if !MIN_VERSION_network(3,0,0)
+instance NFData SockAddr where
+    rnf (SockAddrInet a b) = a `seq` b `seq` ()
+    rnf (SockAddrInet6 a b c d) = a `seq` b `seq` c `seq` d `seq` ()
+    rnf (SockAddrUnix a) = a `seq` ()
+    rnf (SockAddrCan a) = a `seq` ()
+#endif

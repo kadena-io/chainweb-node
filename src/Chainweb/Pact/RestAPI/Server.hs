@@ -338,6 +338,11 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     cut <- liftIO $! CutDB._cut cdb
     bh <- liftIO $! lookupCutM cid cut
 
+    -- TODO get rid of (Right bh) below, rewinding checkpointer for
+    -- this could cause much problems. Conversely, we could set the
+    -- max rewind limit for this case in PactService. But in any case
+    -- it would seem this is the wrong way to check for transaction
+    -- existence at a particular depth.
     T2 bhe _bha <- liftIO (_pactLookup pe (Right bh) (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
@@ -395,7 +400,9 @@ internalPoll cutR cid chain cut requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
     results0 <- _pactLookup pactEx (Right chainLeaf) requestKeys >>= either throwM return
-    let results = V.map (\(a, b) -> (a, fromJust b)) $
+        -- TODO: are we sure that all of these are raised locally. This will cause the
+        -- server to shut down the connection without returning a result to the user.
+    let results = V.map (\(a, b) -> (a, fromJuste b)) $
                   V.filter (isJust . snd) $
                   V.zip requestKeysV results0
     (HM.fromList . catMaybes . V.toList) <$> mapM lookup results

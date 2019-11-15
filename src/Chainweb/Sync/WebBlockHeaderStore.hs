@@ -50,6 +50,8 @@ import Data.Hashable
 import Data.Reflection (give)
 import qualified Data.Text as T
 
+import GHC.Generics
+
 import qualified Network.HTTP.Client as HTTP
 
 import Servant.Client
@@ -60,12 +62,14 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Client
 import Chainweb.Sync.WebBlockHeaderStore.Types
+import Chainweb.Time
 import Chainweb.TreeDB
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.TreeDB.RemoteDB
@@ -191,6 +195,11 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
 -- -------------------------------------------------------------------------- --
 -- Obtain, Validate, and Store BlockHeaders
 
+newtype GetBlockHeaderFailure = GetBlockHeaderFailure T.Text
+    deriving (Show, Eq, Ord, Generic)
+
+instance Exception GetBlockHeaderFailure
+
 -- | Run an action to obtain and validate a BlockHeader along with all of it's
 -- dependencies. Dependencies are computed asynchronously. Asynchronous
 -- computations are memoized and shared. The results are stored in the provided
@@ -214,7 +223,7 @@ getBlockHeaderInternal
     -> IO (ChainValue BlockHeader)
 getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin h = do
     logg Debug $ "getBlockHeaderInternal: " <> sshow h
-    memoInsert cas memoMap h $ \k@(ChainValue _ k') -> do
+    memoInsert cas memoMap h $ \k@(ChainValue cid k') -> do
 
         -- query BlockHeader via
         --
@@ -232,13 +241,37 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
                     return $! (Nothing, x)
                 (Just !x) -> return $! (maybeOrigin, x)
 
+        -- Check that the chain id is correct. The candidate cas is indexed just
+        -- by the block hash. So, if this fails it is most likely a bug in code
+        -- that uses or populates the candidateHeaderCas.
+        --
+        unless (_chainId header == cid) $ throwM $ GetBlockHeaderFailure
+            $ "chain id of block header doesn't match expected chain id. "
+            <> "Most likely, this is a bug in Chainweb.Sync.WebBlockHeaderStore."
+
+        -- Perform intrinsic validations on the block header. There's another
+        -- complete pass of block header validations after payload validation
+        -- when the header is finally added to the db.
+        --
+        now <- getCurrentTimeIntegral
+        validateIntrinsicM now header
+
         -- Query Prerequesits recursively. If there is already job for this
         -- prerequesite in the memo-table it is awaited, otherwise a new job is
         -- created.
         --
-        let queryPrerequesiteHeader p = Concurrently $ void $ do
-                logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader for " <> sshow h <> ": " <> sshow p
+        let queryAdjacentParent p = Concurrently $ void $ do
+                logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h <> ": " <> sshow p
                 getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
+
+            -- Perform inductive (involving the parent) validations on the block
+            -- header. There's another complete pass of block header validations
+            -- after payload validation when the header is finally added to the db.
+            --
+            queryParent p = Concurrently $ void $ do
+                logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h <> ": " <> sshow p
+                ChainValue _ ph <- getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
+                validateInductiveM ph header
 
         p <- runConcurrently
             -- query payload
@@ -246,10 +279,10 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
             -- query parent (recursively)
             --
-            <* queryPrerequesiteHeader (_blockParent <$> chainValue header)
+            <* queryParent (_blockParent <$> chainValue header)
 
             -- query adjacent parents (recursively)
-            <* mconcat (queryPrerequesiteHeader <$> adjParents header)
+            <* mconcat (queryAdjacentParent <$> adjParents header)
 
             -- TODO Above recursive calls are potentially long running
             -- computations. In particular pact validation can take significant
@@ -294,6 +327,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- isn't yet in the block header database and thus we still must
         -- validate the payload for this block header.
         --
+
         logg Debug $ taskMsg k $ "getBlockHeaderInternal validate payload for " <> sshow h <> ": " <> sshow p
         validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
             logg Warn $ taskMsg k $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e

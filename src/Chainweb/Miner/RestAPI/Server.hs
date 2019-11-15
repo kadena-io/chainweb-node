@@ -20,16 +20,17 @@ module Chainweb.Miner.RestAPI.Server where
 import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO)
 import Control.Lens (over, view)
 import Control.Monad (when)
-import Control.Monad.Catch (throwM)
+import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
@@ -43,12 +44,13 @@ import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
 import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
+import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
     (ChainChoice(..), MiningState(..), newWork, publish)
 import Chainweb.Miner.Core
     (ChainBytes(..), HeaderBytes(..), WorkBytes, workBytes)
 import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Miner.Pact (Miner)
+import Chainweb.Miner.Pact (Miner, minerId)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
@@ -78,12 +80,16 @@ workHandler mr v mcid m = do
     now <- liftIO getCurrentTimeIntegral
     case txSilenceEndDate v of
         Just end | now > end ->
-            throwM err400 { errBody = "Node is out of date - please upgrade."}
+            throwError err400 { errBody = "Node is out of date - please upgrade."}
         _ -> do
             MiningState ms <- liftIO . readTVarIO $ _coordState mr
             when (M.size ms > _coordLimit mr) $ do
                 liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-                throwM err503 { errBody = "Too many work requests" }
+                throwError err503 { errBody = "Too many work requests" }
+            let !conf = _coordConf mr
+            when (_coordinationMode conf == Private
+                  && not (HS.member (view minerId m) (_coordinationMiners conf))) $
+                throwError err403 { errBody = "Unauthorized Miner" }
             liftIO $ workHandler' mr mcid m
 
 workHandler'
@@ -95,9 +101,10 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork (maybe Anything Suggestion mcid) m pact c
+    T3 p bh pl <- newWork (logFunction $ _coordLogger mr) (maybe Anything Suggestion mcid) m pact c
     let !phash = _blockPayloadHash bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert phash $ T3 m p pl
+        !bct = _blockCreationTime bh
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     cdb :: CutDb cas
@@ -106,14 +113,15 @@ workHandler' mr mcid m = do
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
--- TODO Occasionally prune the `MiningState`?
 solvedHandler
     :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> IO NoContent
 solvedHandler mr (HeaderBytes hbytes) = do
     ms <- readTVarIO tms
     bh <- runGet decodeBlockHeaderWithoutHash hbytes
     publish lf ms (_coordCutDb mr) bh
-    atomically . modifyTVar' tms . over _Unwrapped . M.delete $ _blockPayloadHash bh
+    let !phash = _blockPayloadHash bh
+        !bct = _blockCreationTime bh
+    atomically . modifyTVar' tms . over _Unwrapped $ M.delete (T2 bct phash)
     pure NoContent
   where
     tms :: TVar MiningState

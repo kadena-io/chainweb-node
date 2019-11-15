@@ -35,6 +35,7 @@ module Chainweb.Pact.TransactionExec
   -- * Coinbase Execution
 , applyCoinbase
 , mkCoinbaseCmd
+, EnforceCoinbaseFailure(..)
 
   -- * Command Helpers
 , publicMetaOf
@@ -247,6 +248,10 @@ applyGenesisCmd logger dbEnv pd spv cmd =
           liftIO $ logDebugRequestKey logger rk "successful genesis tx for request key"
           return $ T2 (r { _crGas = 0 }) mempty
 
+-- | Whether to ignore coinbase failures, or "enforce" (fail block)
+-- Backward-compat fix is to enforce in new block, but ignore in validate.
+newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
+
 applyCoinbase
     :: Logger
       -- ^ Pact logger
@@ -260,8 +265,10 @@ applyCoinbase
       -- ^ Contains block height, time, prev hash + metadata
     -> BlockHash
       -- ^ hash of the mined block
+    -> EnforceCoinbaseFailure
+      -- ^ treat
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph =
+applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) =
     evalTransactionM cenv def go
   where
     cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport Nothing
@@ -275,8 +282,10 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph =
         applyExec' interp cexec mempty chash managedNamespacePolicy
 
       case cr of
-        Left e -> flip T2 mempty <$>
-          jsonErrorResult' rk e 0 "coinbase tx failure"
+        Left e
+          | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
+          | otherwise -> flip T2 mempty <$>
+            jsonErrorResult' rk e 0 "coinbase tx failure"
         Right er -> do
           liftIO
             $ logDebugRequestKey logger rk
