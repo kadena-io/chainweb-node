@@ -34,8 +34,6 @@ module Chainweb.Miner.Pact
   -- * Defaults
 , noMiner
 , defaultMiner
-  -- * CLI Utils
-, pMiner
 ) where
 
 import GHC.Generics (Generic)
@@ -48,18 +46,16 @@ import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
 import qualified Data.Csv as CSV
 import Data.Decimal (roundTo)
-import Data.Default (Default(..))
 import Data.FileEmbed (embedFile)
+import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
-import Data.String (IsString)
+import Data.String (IsString(..))
 import Data.String.Conv (toS)
 import Data.Text (Text)
-import Data.Vector as V
+import qualified Data.Vector as V
 import Data.Word
-
-import Options.Applicative
 
 -- internal modules
 
@@ -69,17 +65,16 @@ import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 
 import Pact.Parse (ParsedDecimal(..))
-import Pact.Types.Names
-import Pact.Types.Term (KeySet(..), PublicKey)
+import Pact.Types.Term (KeySet(..), mkKeySet)
 
 -- -------------------------------------------------------------------------- --
 -- Miner data
 
 -- | `MinerId` is a thin wrapper around `Text` to differentiate it from user
 -- addresses.
-newtype MinerId = MinerId Text
+newtype MinerId = MinerId { _minerId :: Text }
     deriving stock (Eq, Ord, Generic)
-    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData)
+    deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable)
 
 -- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
 -- from user keysets.
@@ -128,16 +123,16 @@ minerKeys = lens (\(Miner _ k) -> k) (\(Miner i _) b -> Miner i b)
 defaultMiner :: Miner
 defaultMiner = Miner (MinerId "miner")
     $ MinerKeys
-      ( KeySet
-        ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-        (Name $ BareName "keys-all" def)
-      )
+    $ mkKeySet
+      ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+      "keys-all"
+
 {-# INLINE defaultMiner #-}
 
 -- | A trivial Miner.
 --
 noMiner :: Miner
-noMiner = Miner (MinerId "NoMiner") (MinerKeys $ KeySet [] (Name $ BareName "<" def))
+noMiner = Miner (MinerId "NoMiner") (MinerKeys $ mkKeySet [] "<")
 {-# INLINE noMiner #-}
 
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.
@@ -155,7 +150,7 @@ fromMinerData = decodeStrictOrThrow' . _minerData
 data MinerRewards = MinerRewards
     { _minerRewards :: !(HashMap BlockHeight ParsedDecimal)
       -- ^ The map of blockheight thresholds to miner rewards
-    , _minerRewardHeights :: !(Vector BlockHeight)
+    , _minerRewardHeights :: !(V.Vector BlockHeight)
       -- ^ A (sorted) vector of blockheights (head is most recent)
     } deriving (Eq, Ord, Show, Generic)
 
@@ -166,7 +161,7 @@ minerRewards = to _minerRewards
 
 -- | A lens into the sorted vector of significant block heights pegged to a reward
 --
-minerRewardHeights :: Lens' MinerRewards (Vector BlockHeight)
+minerRewardHeights :: Lens' MinerRewards (V.Vector BlockHeight)
 minerRewardHeights = lens _minerRewardHeights (\t b -> t { _minerRewardHeights = b })
 
 -- | Rewards table mapping 3-month periods to their rewards
@@ -194,22 +189,3 @@ readRewards v =
 rawMinerRewards :: ByteString
 rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
 {-# NOINLINE rawMinerRewards #-}
-
---------------------------------------------------------------------------------
--- CLI Utils
-
-pMiner :: Parser Miner
-pMiner = Miner
-    <$> strOption (long "miner-account" <> help "Coin Contract account name of Miner")
-    <*> (MinerKeys <$> pks)
-  where
-    pks :: Parser KeySet
-    pks = KeySet <$> many pKey <*> pPred
-
-pKey :: Parser PublicKey
-pKey = strOption (long "miner-key"
-    <> help "Public key of the account to send rewards (can pass multiple times)")
-
-pPred :: Parser Name
-pPred = (\s -> Name $ BareName s def) <$>
-    strOption (long "miner-pred" <> value "keys-all" <> help "Keyset predicate")

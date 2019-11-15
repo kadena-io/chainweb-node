@@ -17,6 +17,9 @@ module Chainweb.Mempool.InMem
     -- * Low-level create/destroy functions
   , makeInMemPool
   , newInMemMempoolData
+
+  , validateOne
+  , txTTLCheck
   ) where
 
 ------------------------------------------------------------------------------
@@ -251,7 +254,7 @@ validateOne
     -> t
     -> TransactionHash
     -> Either InsertError t
-validateOne cfg v badmap (Time (TimeSpan now)) t h =
+validateOne cfg v badmap now t h =
     transactionsEnabled
     >> sizeOK
     >> gasPriceRoundingCheck
@@ -292,12 +295,19 @@ validateOne cfg v badmap (Time (TimeSpan now)) t h =
 
     -- prop_tx_ttl_arrival
     ttlCheck :: Either InsertError ()
-    ttlCheck = ebool_ InsertErrorInvalidTime (ct < now && now < et && ct < et)
-      where
-        TransactionMetadata (Time (TimeSpan ct)) (Time (TimeSpan et)) = txMetadata txcfg t
+    ttlCheck = txTTLCheck txcfg now t
 
     notInBadMap :: Either InsertError ()
     notInBadMap = maybe (Right ()) (const $ Left InsertErrorBadlisted) $ HashMap.lookup h badmap
+
+
+-- | Check the TTL of a transaction.
+txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
+txTTLCheck txcfg (Time (TimeSpan now)) t =
+    ebool_ InsertErrorInvalidTime (ct < now && now < et && ct < et)
+  where
+    TransactionMetadata (Time (TimeSpan ct)) (Time (TimeSpan et)) = txMetadata txcfg t
+
 
 -- | Validation: Similar to `insertCheckInMem`, but does not short circuit.
 -- Instead, bad transactions are filtered out and the successful ones are kept.

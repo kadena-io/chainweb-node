@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      0.2
+version:      1.0.4
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -10,7 +10,7 @@ license:      BSD-3-Clause
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
-copyright:    Copyright (C) 2018 Kadena LLC
+copyright:    Copyright (C) 2019 Kadena LLC
 category:     Blockchain, Currency, Bitcoin
 build-type:   Custom
 
@@ -25,17 +25,11 @@ extra-source-files:
 
     -- sender information
 
-    pact/genesis/testnet/keys.yaml
+    pact/genesis/devnet/keys.yaml
 
     -- miner rewards
 
     rewards/miner_rewards.csv
-
-    -- genesis allocations csvs
-
-    rewards/mainnet_keysets.csv
-    rewards/mainnet_allocations.csv
-    rewards/mainnet_coinbase.csv
 
     -- pact test data
 
@@ -327,6 +321,7 @@ library
         , http-client-tls >=0.3
         , http-media >= 0.7
         , http-types >= 0.12
+        , iproute >= 1.7
         , ixset-typed >= 0.4
         , lens >= 4.16
         , loglevel >= 0.1
@@ -351,6 +346,7 @@ library
         , resourcet >= 1.2
         , safeio >= 0.0
         , safe-exceptions >= 0.1
+        , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16
         , servant-client >= 0.16
@@ -386,6 +382,7 @@ library
         , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
+        , witherable >= 0.3
         , x509 >=1.7
         , x509-system >=1.6
         , x509-validation >=1.6
@@ -508,6 +505,7 @@ test-suite chainweb-tests
         , these >= 1 && < 1.1
         , time >= 1.8
         , transformers >= 0.5
+        , thyme == 0.3.6.0
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
@@ -519,88 +517,88 @@ test-suite chainweb-tests
         cpp-options: -dWITH_ED25519=1
 
 
-test-suite chainweb-tools-tests
-    import: warning-flags, debugging-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-    type: exitcode-stdio-1.0
-    hs-source-dirs: test tools/txg
-    main-is: ChainwebToolsTests.hs
-    build-depends:
-        -- internal
-            chainweb
+-- test-suite chainweb-tools-tests
+--     import: warning-flags, debugging-flags
+--     default-language: Haskell2010
+--     ghc-options:
+--         -threaded
+--         -with-rtsopts=-N
+--     type: exitcode-stdio-1.0
+--     hs-source-dirs: test tools/txg
+--     main-is: ChainwebToolsTests.hs
+--     build-depends:
+--         -- internal
+--             chainweb
 
-        -- external
-        , Decimal >= 0.4.2
-        , QuickCheck >= 2.12.6
-        , aeson >= 1.4.3
-        , async >= 2.2
-        , attoparsec >= 0.13
-        , base >= 4.11 && < 5
-        , base16-bytestring >= 0.1
-        , base64-bytestring >= 1.0
-        , bytes >= 0.15
-        , bytestring >= 0.10
-        , chainweb-storage >= 0.1
-        , connection >=0.2
-        , containers >= 0.5
-        , data-default >=0.7
-        , data-ordlist >= 0.4.7
-        , deepseq >= 1.4
-        , directory >= 1.2
-        , exceptions
-        , extra >= 1.6
-        , fake >= 0.1.1.1
-        , file-embed >= 0.0
-        , hashable >= 1.2
-        , http-client >= 0.5
-        , http-types >= 0.12
-        , lens >= 4.16
-        , loglevel >= 0.1
-        , mtl >= 2.2
-        , neat-interpolation >= 0.3
-        , network >= 2.6
-        , http-client-tls >=0.3
-        , pact >= 2.6
-        , paths >= 0.2
-        , quickcheck-instances >= 0.3
-        , random >= 1.1
-        , random-bytestring >= 0.1
-        , reflection >= 2.1
-        , resource-pool >= 0.2
-        , resourcet >= 1.2
-        , retry >= 0.7
-        , scheduler >= 1.4
-        , semialign >= 1
-        , servant >= 0.16
-        , servant-client >= 0.16
-        , servant-client-core >= 0.16
-        , string-conv >= 0.1
-        , stm
-        , streaming >= 0.2.2
-        , streaming-commons >= 0.2
-        , strict-concurrency >= 0.2
-        , strict-tuple >= 0.1.3
-        , tasty >= 1.0
-        , tasty-golden >= 2.3
-        , tasty-hunit >= 0.9
-        , tasty-quickcheck >= 0.9
-        , temporary >= 1.3
-        , text >=1.2
-        , these >= 1 && < 1.1
-        , time >= 1.8
-        , transformers >= 0.5
-        , unordered-containers >= 0.2
-        , vector >= 0.12
-        , wai >= 3.2
-        , warp >= 3.2
-        , warp-tls >= 3.2.7
-        , yaml >= 0.11
+--         -- external
+--         , Decimal >= 0.4.2
+--         , QuickCheck >= 2.12.6
+--         , aeson >= 1.4.3
+--         , async >= 2.2
+--         , attoparsec >= 0.13
+--         , base >= 4.11 && < 5
+--         , base16-bytestring >= 0.1
+--         , base64-bytestring >= 1.0
+--         , bytes >= 0.15
+--         , bytestring >= 0.10
+--         , chainweb-storage >= 0.1
+--         , connection >=0.2
+--         , containers >= 0.5
+--         , data-default >=0.7
+--         , data-ordlist >= 0.4.7
+--         , deepseq >= 1.4
+--         , directory >= 1.2
+--         , exceptions
+--         , extra >= 1.6
+--         , fake >= 0.1.1.1
+--         , file-embed >= 0.0
+--         , hashable >= 1.2
+--         , http-client >= 0.5
+--         , http-types >= 0.12
+--         , lens >= 4.16
+--         , loglevel >= 0.1
+--         , mtl >= 2.2
+--         , neat-interpolation >= 0.3
+--         , network >= 2.6
+--         , http-client-tls >=0.3
+--         , pact >= 2.6
+--         , paths >= 0.2
+--         , quickcheck-instances >= 0.3
+--         , random >= 1.1
+--         , random-bytestring >= 0.1
+--         , reflection >= 2.1
+--         , resource-pool >= 0.2
+--         , resourcet >= 1.2
+--         , retry >= 0.7
+--         , scheduler >= 1.4
+--         , semialign >= 1
+--         , servant >= 0.16
+--         , servant-client >= 0.16
+--         , servant-client-core >= 0.16
+--         , string-conv >= 0.1
+--         , stm
+--         , streaming >= 0.2.2
+--         , streaming-commons >= 0.2
+--         , strict-concurrency >= 0.2
+--         , strict-tuple >= 0.1.3
+--         , tasty >= 1.0
+--         , tasty-golden >= 2.3
+--         , tasty-hunit >= 0.9
+--         , tasty-quickcheck >= 0.9
+--         , temporary >= 1.3
+--         , text >=1.2
+--         , these >= 1 && < 1.1
+--         , time >= 1.8
+--         , transformers >= 0.5
+--         , unordered-containers >= 0.2
+--         , vector >= 0.12
+--         , wai >= 3.2
+--         , warp >= 3.2
+--         , warp-tls >= 3.2.7
+--         , yaml >= 0.11
 
-    if flag(ed25519)
-        cpp-options: -dWITH_ED25519=1
+--     if flag(ed25519)
+--         cpp-options: -dWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
@@ -646,48 +644,13 @@ executable chainweb-node
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
-executable chainweb-miner
-    import: warning-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-        -O2
-    hs-source-dirs: miner
-    main-is: Miner.hs
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , base >= 4.11 && < 5
-        , bytestring >= 0.10
-        , connection >= 0.2
-        , errors >= 2.3
-        , generic-lens >= 1.2
-        , http-client >= 0.5
-        , http-client-tls >= 0.3
-        , http-types >= 0.12
-        , mwc-random >= 0.13
-        , optparse-applicative >= 0.14
-        , paths >= 0.2
-        , retry >= 0.7
-        , rio >= 0.1.5
-        , scheduler >= 1.4.1
-        , servant-client >= 0.16
-        , streaming >= 0.2
-        , streaming-events >= 1.0
-        , strict-tuple >= 0.1.3
-        , time >= 1.8
-        , wai-extra >= 3.0
-
 executable cwtool
     import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -697,6 +660,8 @@ executable cwtool
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
         Ea
+        Ea.Genesis
+        GenConf
         Gexf
         Network.X509.SelfSigned.Test
         RunNodes

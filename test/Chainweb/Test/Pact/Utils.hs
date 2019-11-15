@@ -178,7 +178,6 @@ sender00KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 sender00KeyPair =
     ( PubBS $ getByteString
         "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-
     , PrivBS $ getByteString
         "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
     , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
@@ -572,7 +571,7 @@ mkKeyset p ks = object
   ]
 
 stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
 -- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair

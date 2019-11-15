@@ -15,6 +15,7 @@ module Chainweb.Mempool.Consensus
 , mkMempoolConsensus
 , processFork
 , processFork'
+, processForkCheckTTL
 , ReintroducedTxsLog (..)
 ) where
 
@@ -40,9 +41,11 @@ import System.LogLevel
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.Mempool.InMem
 import Chainweb.Mempool.Mempool
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -51,8 +54,8 @@ import Data.CAS
 import Data.LogMessage (JsonLog(..), LogFunction)
 
 ------------------------------------------------------------------------------
-data MempoolConsensus t = MempoolConsensus
-    { mpcMempool :: !(MempoolBackend t)
+data MempoolConsensus = MempoolConsensus
+    { mpcMempool :: !(MempoolBackend ChainwebTransaction)
     , mpcLastNewBlockParent :: !(IORef (Maybe BlockHeader))
     , mpcProcessFork
           :: LogFunction
@@ -78,10 +81,10 @@ instance Exception MempoolException
 ------------------------------------------------------------------------------
 mkMempoolConsensus
     :: PayloadCas cas
-    => MempoolBackend t
+    => MempoolBackend ChainwebTransaction
     -> BlockHeaderDb
     -> Maybe (PayloadDb cas)
-    -> IO (MempoolConsensus t)
+    -> IO MempoolConsensus
 mkMempoolConsensus mempool blockHeaderDb payloadStore = do
     lastParentRef <- newIORef Nothing :: IO (IORef (Maybe BlockHeader))
 
@@ -102,10 +105,20 @@ processFork
     -> BlockHeader
     -> IO (Vector ChainwebTransaction, Vector ChainwebTransaction)
 processFork blockHeaderDb payloadStore lastHeaderRef logFun newHeader = do
+    now <- getCurrentTimeIntegral
     lastHeader <- readIORef lastHeaderRef
     (a, b) <- processFork' logFun blockHeaderDb newHeader lastHeader
                            (payloadLookup payloadStore)
+                           (processForkCheckTTL now)
     return (V.map unHashable a, V.map unHashable b)
+
+
+------------------------------------------------------------------------------
+processForkCheckTTL :: Time Micros -> HashableTrans PayloadWithText -> Bool
+processForkCheckTTL now (HashableTrans t) =
+    either (const False) (const True) $
+    txTTLCheck chainwebTransactionConfig now t
+
 
 ------------------------------------------------------------------------------
 -- called directly from some unit tests...
@@ -116,8 +129,9 @@ processFork'
     -> BlockHeader
     -> Maybe BlockHeader
     -> (BlockHeader -> IO (HashSet x))
+    -> (x -> Bool)
     -> IO (V.Vector x, V.Vector x)
-processFork' logFun db newHeader lastHeaderM plLookup =
+processFork' logFun db newHeader lastHeaderM plLookup flt =
     maybe (return (V.empty, V.empty)) go lastHeaderM
   where
     go lastHeader = do
@@ -128,7 +142,8 @@ processFork' logFun db newHeader lastHeaderM plLookup =
         -- before re-introducing the transactions from the losing fork (aka
         -- oldBlocks), filter out any transactions that have been included in
         -- the winning fork (aka newBlocks):
-        let !results = V.fromList $ HS.toList
+        let !results = V.fromList $ filter flt
+                                  $ HS.toList
                                   $ oldTrans `HS.difference` newTrans
         let !deletes = V.fromList $ HS.toList newTrans
 

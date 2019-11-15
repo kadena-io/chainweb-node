@@ -1,8 +1,8 @@
 
 (define-keyset 'ns-admin-keyset (read-keyset 'ns-admin-keyset))
-(define-keyset 'ns-operate-keyset (read-keyset 'ns-operate-keyset))
+(define-keyset 'ns-operate-keyset (read-keyset 'ns-genesis-keyset))
 
-(module ns 'ns-admin-keyset
+(module ns GOVERNANCE
   "Administers definition of new namespaces in Chainweb."
 
   (defschema reg-entry
@@ -10,6 +10,9 @@
     active:bool)
 
   (deftable registry:{reg-entry})
+
+  (defcap GOVERNANCE ()
+    (enforce-keyset 'ns-admin-keyset))
 
   (defcap OPERATE ()
     (enforce-keyset 'ns-operate-keyset))
@@ -85,3 +88,5 @@
 
 (define-namespace "user" GUARD_SUCCESS GUARD_FAILURE)
 (define-namespace "free" GUARD_SUCCESS GUARD_FAILURE)
+;;rotate to real operate keyset
+(define-keyset 'ns-operate-keyset (read-keyset 'ns-operate-keyset))

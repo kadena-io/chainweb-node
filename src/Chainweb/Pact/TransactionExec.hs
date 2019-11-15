@@ -35,6 +35,7 @@ module Chainweb.Pact.TransactionExec
   -- * Coinbase Execution
 , applyCoinbase
 , mkCoinbaseCmd
+, EnforceCoinbaseFailure(..)
 
   -- * Command Helpers
 , publicMetaOf
@@ -227,11 +228,14 @@ applyGenesisCmd logger dbEnv pd spv cmd = do
     resultE <- catchesPactError $! runPayload cmdEnv initState cmd [] permissiveNamespacePolicy
     fmap (`T2` mempty) $! case resultE of
       Left e ->
-        jsonErrorResult' cmdEnv requestKey e [] (Gas 0)
-          "genesis tx failure for request key while running genesis"
+        internalError $ "Genesis command failed: " <> sshow e
       Right (T2 result _) -> do
         logDebugRequestKey logger requestKey "successful genesis tx for request key"
         return $ result { _crGas = 0 }
+
+-- | Whether to ignore coinbase failures, or "enforce" (fail block)
+-- Backward-compat fix is to enforce in new block, but ignore in validate.
+newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
 
 applyCoinbase
@@ -247,8 +251,10 @@ applyCoinbase
       -- ^ Contains block height, time, prev hash + metadata
     -> BlockHash
       -- ^ hash of the mined block
+    -> EnforceCoinbaseFailure
+      -- ^ treat
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
+applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) = do
     -- cmd env with permissive gas model
     let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport Nothing
         initState = initStateInterpreter $ initCapabilities [magic_COINBASE]
@@ -260,7 +266,8 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph = do
     cre <- catchesPactError $! applyExec' cenv initState cexec [] ch managedNamespacePolicy
 
     case cre of
-      Left e -> (`T2` mempty) <$> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
+      Left e | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
+             | otherwise -> (`T2` mempty) <$> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
       Right er -> do
         logDebugRequestKey logger rk
           $ "successful coinbase of "

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
@@ -75,8 +76,10 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Anything m pact c
-        let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
+        T3 p bh pl <- newWork lf Anything m pact c
+        let !phash = _blockPayloadHash bh
+            !bct = _blockCreationTime bh
+            ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
@@ -117,8 +120,10 @@ localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork Anything m pact c
-        let ms = MiningState $ M.singleton (_blockPayloadHash bh) (T3 m p pl)
+        T3 p bh pl <- newWork lf Anything m pact c
+        let !phash = _blockPayloadHash bh
+            !bct = _blockCreationTime bh
+            ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop

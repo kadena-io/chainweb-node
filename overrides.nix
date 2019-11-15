@@ -114,7 +114,6 @@ let # Working on getting this function upstreamed into nixpkgs, but
         ver = "0.1.3";
         sha256 = "1vg0m27phd6yf0pszcy2c2wbqx509fr9gacn34yja521z17cxd8z";
       };
-
     };
 in
 

@@ -125,7 +125,7 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
   _hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
 
   blockenv01 <- _cpRestore _cpeCheckpointer (Just (bh01, hash00))
-  addKeyset blockenv01 "k2" (KeySet [] (Name $ BareName ">=" (Info Nothing)))
+  addKeyset blockenv01 "k2" (mkKeySet [] ">=")
 
   _cpDiscard _cpeCheckpointer
 
@@ -135,7 +135,7 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
   hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
   blockenv11 <- _cpRestore _cpeCheckpointer (Just (bh11, hash00))
-  addKeyset blockenv11 "k1" (KeySet [] (Name $ BareName ">=" (Info Nothing)))
+  addKeyset blockenv11 "k1" (mkKeySet [] ">=")
   _cpSave _cpeCheckpointer hash11
 
 addKeyset :: PactDbEnv' -> KeySetName -> KeySet -> IO ()
@@ -509,7 +509,7 @@ runRegression pactdb e schemaInit = do
   let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
   _writeRow pactdb Update usert "key1" row' conn
   assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
-  let ks = KeySet [PublicKey "skdjhfskj"] (Name $ BareName "predfun" def)
+  let ks = mkKeySet [PublicKey "skdjhfskj"] "predfun"
   _writeRow pactdb Write KeySets "ks1" ks conn
   assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" conn
   (modName,modRef,mod') <- loadModule

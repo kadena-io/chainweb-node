@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
@@ -47,6 +49,8 @@ import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
+import Data.Thyme.Clock
+import Data.Thyme.Calendar
 
 import NeatInterpolation
 
@@ -71,7 +75,6 @@ import qualified Pact.Types.ChainMeta as Pact
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
-import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Term
 
@@ -83,8 +86,6 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Miner.Config
-import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
@@ -94,6 +95,8 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact (noMiner)
 
 import Data.CAS.RocksDB
 
@@ -143,6 +146,9 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 testCase "trivialLocalCheck" $
                 localTest iot net
               , after AllSucceed "remote spv" $
+                testCase "localChainData" $
+                localChainDataTest iot net
+              , after AllSucceed "remote spv" $
                 testGroup "gasForTxSize"
                 [ txTooBigGasTest iot net ]
               , after AllSucceed "remote spv" $
@@ -181,6 +187,45 @@ localTest iot nio = do
         let (PactResult e) = _crResult cr
         in assertEqual "expect /local to succeed and return 3" e
                        (Right (PLiteral $ LDecimal 3))
+
+localChainDataTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
+localChainDataTest iot nio = do
+    cenv <- fmap _getClientEnv nio
+    mv <- newMVar (0 :: Int)
+    SubmitBatch batch <- localTestBatch iot mv
+    let cmd = head $ toList batch
+    sid <- mkChainId v (0 :: Int)
+    res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
+    checkCommandResult res
+  where
+
+    checkCommandResult (Left e) = throwM $ LocalFailure (show e)
+    checkCommandResult (Right cr) =
+        let (PactResult e) = _crResult cr
+        in mapM_ expectedResult e
+
+    localTestBatch iott mnonce = modifyMVar mnonce $ \(!nn) -> do
+        let nonce = "nonce" <> sshow nn
+        t <- toTxCreationTime <$> iott
+        kps <- testKeyPairs sender00KeyPair Nothing
+        c <- mkExec "(chain-data)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+        pure (succ nn, SubmitBatch (pure c))
+        where
+          ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta pactCid "sender00" 1000 0.1 (fromInteger ttl)
+
+    expectedResult (PObject (ObjectMap m)) = do
+          assert' "block-height" (PLiteral (LInteger 0))
+          let u = UTCTime (view (from gregorian) (YearMonthDay 1970 1 1)) (fromSeconds (0 :: Int))
+          assert' "block-time" (PLiteral (LTime $ (view (from utcTime)) u))
+          assert' "chain-id" (PLiteral (LString "8"))
+          assert' "gas-limit" (PLiteral (LInteger 1000))
+          assert' "gas-price" (PLiteral (LDecimal 0.1))
+          assert' "prev-block-hash" (PLiteral (LString ""))
+          assert' "sender" (PLiteral (LString "sender00"))
+        where
+          assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
+    expectedResult _ = assertFailure "Didn't get back an object map!"
 
 sendValidationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
@@ -257,9 +302,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 
     txdata =
       -- sender00 keyset
-      let ks = KeySet
-            [ "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7" ]
-            (Name $ BareName "keys-all" def)
+      let ks = mkKeySet
+            ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
+            "keys-all"
       in A.object
         [ "sender01-keyset" A..= ks
         , "target-chain-id" A..= tid
@@ -442,7 +487,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     case q of
       Right [cr] -> case resultOf cr of
         Left e -> assertBool "expect negative allocation test failure"
-          $ T.isInfixOf "Failure: Tx Failed: funds locked until \"2019-10-31T18:00:00Z\""
+          $ T.isInfixOf "Failure: Tx Failed: funds locked until \"2020-10-31T18:00:00Z\""
           $ sshow e
         _ -> assertFailure "unexpected pact result success in negative allocation test"
       _ -> assertFailure "unexpected failure in negative allocation test"
@@ -505,9 +550,9 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     tx3 =
       let
         c = "(define-keyset \"allocation02\" (read-keyset \"allocation02-keyset\"))"
-        d = KeySet
-          [ "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a" ]
-          (Name $ BareName "keys-all" def)
+        d = mkKeySet
+          ["0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"]
+          "keys-all"
       in PactTransaction c $ Just (A.object [ "allocation02-keyset" A..= d ])
     tx4 = PactTransaction "(coin.release-allocation \"allocation02\")" Nothing
     tx5 = PactTransaction "(coin.details \"allocation02\")" Nothing
@@ -758,11 +803,14 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
     & set (configP2p . p2pConfigMaxSessionCount) 4
     & set (configP2p . p2pConfigSessionTimeout) 60
-    & set (configMiner . enableConfigEnabled) True
-    & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
-    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
+    & set (configMining . miningInNode) miner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
+  where
+    miner = NodeMiningConfig
+        { _nodeMiningEnabled = True
+        , _nodeMiner = noMiner
+        , _nodeTestMiners = MinerCount n }
 
 bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
 bootstrapConfig conf = conf

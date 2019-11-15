@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies      #-}
@@ -24,16 +25,14 @@ import Data.List (sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
-import Network.Wai.Middleware.Throttle
-
 import P2P.Node.Configuration
 import P2P.Peer
 
-import System.Clock
 import System.LogLevel
 
 -- chainweb imports
 
+import Chainweb.Miner.Config
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
@@ -195,7 +194,7 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
       (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
       cidsList
   where
-    prune = _configPruneChainDatabase conf
+    prune = _cutPruneChainDatabase $ _configCuts conf
     cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
@@ -211,25 +210,17 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
         withCutResources cutConfig peer cutLogger
             rocksDb webchain payloadDb mgr pact $ \cuts -> do
                 logg Info "finished initializing cut resources"
-                let mLogger = setComponent "miner" logger
-                    mConf = _configMiner conf
-                    mCutDb = _cutResCutDb cuts
 
-                    -- initialize throttler
-                throttler <- initThrottler
-                    (defaultThrottleSettings $ TimeSpec 4 0)
-                    { throttleSettingsRate = int $ _configThrottleRate conf
-                    , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
-                    , throttleSettingsBurst = int $ _configThrottleRate conf
-                    , throttleSettingsIsThrottled = const True
-                    -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
-                    --     [ "cut"
-                    --     , "header"
-                    --     , "payload"
-                    --     , "mempool"
-                    --     , "peer"
-                    --     ]
-                    }
+                let !mLogger = setComponent "miner" logger
+                    !mConf = _configMining conf
+                    !mCutDb = _cutResCutDb cuts
+                    !throt  = _configThrottling conf
+
+                -- initialize throttler
+                throttler <- mkGenericThrottler $ _throttlingRate throt
+                miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
+                putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
+                localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
 
                 void $! putMVar cdbv mCutDb
 
@@ -239,8 +230,8 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
 
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
-                    withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
-                        withMinerResources mLogger mConf mCutDb $ \m -> do
+                    withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc -> do
+                        withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
                             logg Info "finished initializing miner resources"
                             inner Chainweb
                                       { _chainwebHostAddress =
@@ -259,6 +250,9 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebManager = mgr
                                       , _chainwebPactData = pactData
                                       , _chainwebThrottler = throttler
+                                      , _chainwebMiningThrottler = miningThrottler
+                                      , _chainwebPutPeerThrottler = putPeerThrottler
+                                      , _chainwebLocalThrottler = localThrottler
                                       , _chainwebConfig = conf
                                       }
 
@@ -274,11 +268,13 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     cids = chainIds v
 
     -- FIXME: make this configurable
-    cutConfig = (defaultCutDbConfig v)
-        { _cutDbConfigLogLevel = Info
-        , _cutDbConfigTelemetryLevel = Info
-        , _cutDbConfigUseOrigin = _configIncludeOrigin conf
-        }
+    cutConfig = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
+        { _cutDbParamsLogLevel = Info
+        , _cutDbParamsTelemetryLevel = Info
+        , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
+      where
+        cutConf = _configCuts conf
 
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb
