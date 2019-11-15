@@ -140,11 +140,11 @@ validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
     mapM_ checkIfValidChain (getAmberdataChainId o)
-    mapM_ (validateDirectory "databaseDirectory") (_nodeConfigDatabaseDirectory o)
+    mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
   where
     chains = chainIds $ _nodeConfigChainweb o
     checkIfValidChain cid
-      = unless (HS.member cid chainbs)
+      = unless (HS.member cid chains)
         $ throwError $ "Invalid chain id provided: " <> toText cid
     getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
 
