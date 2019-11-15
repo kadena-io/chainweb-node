@@ -139,19 +139,13 @@ validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration 
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
-    maybe (return ())
-          checkIfValidChain
-          (getAmberdataChainId o)
-    maybe (return ())
-          (validateFilePath "databaseDirectory")
-          (_nodeConfigDatabaseDirectory o)
+    mapM_ checkIfValidChain (getAmberdataChainId o)
+    mapM_ (validateDirectory "databaseDirectory") (_nodeConfigDatabaseDirectory o)
   where
     chains = chainIds $ _nodeConfigChainweb o
     checkIfValidChain cid
-      = bool
-        (throwError $ "Invalid chain id provided: " <> toText cid)
-        (return ())
-        (HS.member cid chains)
+      = unless (HS.member cid chainbs)
+        $ throwError $ "Invalid chain id provided: " <> toText cid
     getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
 
 
