@@ -50,7 +50,6 @@ import Control.Monad
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
-import Data.Bool
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
