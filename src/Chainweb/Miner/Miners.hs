@@ -109,7 +109,7 @@ mempoolNoopMiner lf v m cdb = runForever lf "Chainweb.Miner.Miners.mempoolNoopMi
            view cutDbPayloadStore cdb
     loop = do
         c <- _cut cdb
-        mapM_ (\cid -> newWork (Suggestion cid) m pact c) chains
+        mapM_ (\cid -> newWork lf (Suggestion cid) m pact c) chains
         approximateThreadDelay 60000000 -- wake up once a minute
 
 -- | A single-threaded in-process Proof-of-Work mining loop.

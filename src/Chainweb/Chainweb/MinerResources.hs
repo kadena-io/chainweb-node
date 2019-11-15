@@ -157,9 +157,9 @@ runMiner v mr =
     then case window v of
              Nothing -> testMiner
              Just _ -> powMiner
-    else mempoolNoopMiner lf v (_configMinerInfo conf) cdb
+    else mempoolNoopMiner lf v (_nodeMiner conf) cdb
   where
-    enabled = _minerResEnabled mr
+    enabled = _nodeMiningEnabled $ _minerResConfig mr
 
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
