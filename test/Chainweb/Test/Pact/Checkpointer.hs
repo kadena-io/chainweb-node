@@ -22,7 +22,6 @@ import Data.Text (Text)
 
 import NeatInterpolation (text)
 
-import Pact.Gas (freeGasEnv)
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
 import Pact.Repl
@@ -32,7 +31,6 @@ import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
-import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.SPV (noSPVSupport)
 
 import Test.Tasty
@@ -188,7 +186,7 @@ checkpointerTest name initdata =
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
+                  let cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing
                   execMsg <- buildExecParsedCode eData eCode
 
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
@@ -200,7 +198,7 @@ checkpointerTest name initdata =
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
+                      cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
                   evalTransactionM cmdenv def $
                     applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy

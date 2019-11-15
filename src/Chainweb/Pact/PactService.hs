@@ -87,7 +87,6 @@ import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.Server as P
 import qualified Pact.Types.SPV as P
 import Pact.Types.Term (DefType(..), ObjectMap(..))
 
@@ -533,12 +532,11 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
     createGasEnv
         :: PayloadCas cas
         => PactServiceEnv cas
-        -> P.PactDbEnv a
+        -> P.PactDbEnv db
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
-        -> P.CommandEnv a
+        -> TransactionEnv db
     createGasEnv envM db cmd =
-        P.CommandEnv Nothing P.Transactional db logger
-        freeGasEnv publicData spv nid
+        TransactionEnv Nothing P.Transactional db logger publicData spv nid
       where
         !logger = _cpeLogger . _psCheckpointEnv $ envM
         !publicData = set P.pdPublicMeta (publicMetaOf cmd) (_psPublicData envM)

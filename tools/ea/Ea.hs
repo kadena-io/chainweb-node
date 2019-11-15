@@ -70,27 +70,11 @@ import Pact.Types.SPV (noSPVSupport)
 ---
 
 main :: IO ()
-main = do
-
-    -- test payloads on chain 0 and N
-
-    go0 chain0
-    goN chainN
-
-    -- mainnet payloads on chains 0 through 10
-
-    goM "0" $ mainnetN mainAllocations0
-    goM "1" $ mainnetN mainAllocations1
-    goM "2" $ mainnetN mainAllocations2
-    goM "3" $ mainnetN mainAllocations3
-    goM "4" $ mainnetN mainAllocations4
-    goM "5" $ mainnetN mainAllocations5
-    goM "6" $ mainnetN mainAllocations6
-    goM "7" $ mainnetN mainAllocations7
-    goM "8" $ mainnetN mainAllocations8
-    goM "9" $ mainnetN mainAllocations9
-
-    putStrLn "Done."
+main = devnet
+    >> fastnet
+    >> testnet
+    >> mainnet
+    >> putStrLn "Done."
   where
     devnet  = mkPayloads [development0, developmentN]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]

@@ -153,7 +153,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     supply = gasFeeOf gasLimit gasPrice
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
-    cenv0 = CommandEnv Nothing Transactional pdbenv logger freeGasEnv pd' spv nid
+    cenv0 = TransactionEnv Nothing Transactional pdbenv logger pd' spv nid
 
     -- Discount the initial gas charge from the Pact execution gas limit
     userGasEnv = mkGasEnvOf cmd gasModel
@@ -163,7 +163,8 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
       liftIO
         $ logLog logger "ERROR"
         $ "critical transaction failure: "
-        <> show requestKey <> ": "
+        <> show requestKey
+        <> ": "
         <> unpack e
       internalError e
 
@@ -180,7 +181,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
           !pe = PactError GasError def []
             $ "Tx too big (" <> pretty initialGas <> "), limit "
             <> pretty gasLimit
-        in jsonErrorResult requestKey pe gasLimit "Tx too big"
+        in jsonErrorResult_ requestKey pe gasLimit "Tx too big"
       | otherwise = next
 
     applyPayload pid = do
@@ -195,7 +196,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
 
       case cr of
         Left e ->
-          jsonErrorResult requestKey e gasLimit
+          jsonErrorResult_ requestKey e gasLimit
           "tx failure for request key when running cmd"
         Right r -> applyRedeem pid r
 
@@ -205,8 +206,8 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
       rr <- catchesPactError $! redeemGas cmd initialGas pr pid
       case rr of
         Left e ->
-          jsonErrorResult requestKey e (_crGas pr)
-          "tx failure for request key while redeeming gas"
+          jsonErrorResult_ requestKey e (_crGas pr)
+            "tx failure for request key while redeeming gas"
         Right r -> do
           mcache <- use transactionCache
           let !redeemLogs = fromMaybe [] $ _crLogs r
@@ -227,11 +228,11 @@ applyGenesisCmd
       -- ^ command with payload to execute
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyGenesisCmd logger dbEnv pd spv cmd =
-    evalTransactionM cenv def go
+    evalTransactionM tenv def go
   where
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     nid = networkIdOf cmd
-    cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd' spv nid
+    tenv = TransactionEnv Nothing Transactional dbEnv logger pd' spv nid
     rk = cmdToRequestKey cmd
 
     -- when calling genesis commands, we bring all magic capabilities in scope
@@ -247,10 +248,6 @@ applyGenesisCmd logger dbEnv pd spv cmd =
         Right r -> do
           liftIO $ logDebugRequestKey logger rk "successful genesis tx for request key"
           return $ T2 (r { _crGas = 0 }) mempty
-
--- | Whether to ignore coinbase failures, or "enforce" (fail block)
--- Backward-compat fix is to enforce in new block, but ignore in validate.
-newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
 applyCoinbase
     :: Logger
@@ -269,9 +266,9 @@ applyCoinbase
       -- ^ treat
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) =
-    evalTransactionM cenv def go
+    evalTransactionM tenv def go
   where
-    cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport Nothing
+    tenv = TransactionEnv Nothing Transactional dbEnv logger pd noSPVSupport Nothing
     interp = initStateInterpreter $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow ph)
     rk = RequestKey chash
@@ -285,7 +282,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (Enfor
         Left e
           | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
           | otherwise -> flip T2 mempty <$>
-            jsonErrorResult' rk e 0 "coinbase tx failure"
+            jsonErrorResult rk e 0 "coinbase tx failure"
         Right er -> do
           liftIO
             $ logDebugRequestKey logger rk
@@ -312,14 +309,14 @@ applyLocal
       -- ^ command with payload to execute
     -> IO (CommandResult [TxLog Value])
 applyLocal logger dbEnv pd spv cmd =
-    evalTransactionM cenv def go
+    evalTransactionM tenv def go
   where
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     rk = cmdToRequestKey cmd
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
-    cenv = CommandEnv Nothing Local dbEnv logger freeGasEnv pd' spv nid
+    tenv = TransactionEnv Nothing Local dbEnv logger pd' spv nid
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
@@ -330,39 +327,37 @@ applyLocal logger dbEnv pd spv cmd =
         applyExec defaultInterpreter rk em signers chash managedNamespacePolicy
 
       case cr of
-        Left e -> jsonErrorResult' rk e 0 "applyLocal"
+        Left e -> jsonErrorResult rk e 0 "applyLocal"
         Right r -> return $! r { _crMetaData = Just (toJSON pd') }
 
--- | Present a failure as a pair of json result of Command Error and associated logs
 jsonErrorResult
     :: RequestKey
     -> PactError
     -> Gas
     -> String
-    -> TransactionM p (T2 (CommandResult [TxLog Value]) ModuleCache)
-jsonErrorResult rk err gas msg = do
-    l <- view ceLogger
-    logs <- use transactionLogs
-    mcache <- use transactionCache
-
-    liftIO $! logErrorRequestKey l rk err msg
-
-    return $! T2 (CommandResult rk Nothing (PactResult (Left err))
-      gas (Just logs) Nothing Nothing) mcache
-
-jsonErrorResult'
-    :: RequestKey
-    -> PactError
-    -> Gas
-    -> String
     -> TransactionM p (CommandResult [TxLog Value])
-jsonErrorResult' rk err gas msg = do
-    l <- view ceLogger
+jsonErrorResult rk err gas msg = do
+    l <- view txLogger
     logs <- use transactionLogs
 
     liftIO $! logErrorRequestKey l rk err msg
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing
+
+jsonErrorResult_
+    :: RequestKey
+    -> PactError
+    -> Gas
+    -> String
+    -> TransactionM p (T2 (CommandResult [TxLog Value]) ModuleCache)
+jsonErrorResult_ rk err gas msg = do
+    l <- view txLogger
+    logs <- use transactionLogs
+    mcache <- use transactionCache
+
+    liftIO $! logErrorRequestKey l rk err msg
+    return $! T2 (CommandResult rk Nothing (PactResult (Left err))
+      gas (Just logs) Nothing Nothing) mcache
 
 runPayload
     :: Interpreter p
@@ -411,13 +406,13 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      cenv <- ask
+      tenv <- ask
       genv <- use transactionGasEnv
 
-      let eenv = evalEnv cenv genv
+      let eenv = evalEnv tenv genv
       er <- liftIO $! evalExec senderSigs interp eenv parsedCode
 
-      liftIO $! for_ (_erExec er) $ \pe -> logLog (_ceLogger cenv) "DEBUG"
+      liftIO $! for_ (_erExec er) $ \pe -> logLog (_txLogger tenv) "DEBUG"
         $ "applyExec: new pact added: "
         <> show (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
 
@@ -427,9 +422,9 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       return er
   where
-    evalEnv c g = setupEvalEnv (_ceDbEnv c) (_ceEntity c) (_ceMode c)
+    evalEnv c g = setupEvalEnv (_txDbEnv c) (_txEntity c) (_txMode c)
       (MsgData execData Nothing hsh) initRefStore g
-      nsp (_ceSPVSupport c) (_cePublicData c)
+      nsp (_txSpvSupport c) (_txPublicData c)
 
 managedNamespacePolicy :: NamespacePolicy
 managedNamespacePolicy = SmartNamespacePolicy False
@@ -463,10 +458,10 @@ applyContinuation'
     -> NamespacePolicy
     -> TransactionM p EvalResult
 applyContinuation' interp cm senderSigs hsh nsp = do
-    cenv <- ask
+    tenv <- ask
     genv <- use transactionGasEnv
 
-    let eenv = evalEnv cenv genv
+    let eenv = evalEnv tenv genv
     er <- liftIO $! evalContinuation senderSigs interp eenv cm
 
     -- set log + cache updates
@@ -479,9 +474,9 @@ applyContinuation' interp cm senderSigs hsh nsp = do
     rollback = _cmRollback cm
     pid = _cmPactId cm
     pactStep = Just $ PactStep step rollback pid Nothing
-    evalEnv c g = setupEvalEnv (_ceDbEnv c) (_ceEntity c) (_ceMode c)
+    evalEnv c g = setupEvalEnv (_txDbEnv c) (_txEntity c) (_txMode c)
       (MsgData (_cmData cm) pactStep hsh) initRefStore
-      g nsp (_ceSPVSupport c) (_cePublicData c)
+      g nsp (_txSpvSupport c) (_txPublicData c)
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')

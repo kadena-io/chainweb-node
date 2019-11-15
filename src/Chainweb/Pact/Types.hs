@@ -22,12 +22,23 @@ module Chainweb.Pact.Types
   , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
+  , EnforceCoinbaseFailure(..)
 
     -- * Transaction State
   , TransactionState(..)
   , transactionGasEnv
   , transactionLogs
   , transactionCache
+
+    -- * Transaction Env
+  , TransactionEnv(..)
+  , txEntity
+  , txMode
+  , txDbEnv
+  , txLogger
+  , txPublicData
+  , txSpvSupport
+  , txNetworkId
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -65,15 +76,17 @@ import Data.Vector (Vector)
 -- internal pact modules
 
 import Pact.Gas
+import Pact.Interpreter (PactDbEnv)
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Gas
 import qualified Pact.Types.Hash as H
+import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.Persistence
-import Pact.Types.Runtime (ModuleData)
-import Pact.Types.Server (CommandEnv)
+import Pact.Types.Runtime
+import Pact.Types.SPV
 import Pact.Types.Term (ModuleName, PactId(..), Ref)
 
 -- internal chainweb modules
@@ -125,6 +138,11 @@ instance Show GasSupply where show (GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 
+-- | Whether to ignore coinbase failures, or "enforce" (fail block)
+-- Backward-compat fix is to enforce in new block, but ignore in validate.
+--
+newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
+
 -- | Transaction execution state
 --
 data TransactionState = TransactionState
@@ -138,6 +156,19 @@ makeLenses ''TransactionState
 instance Default TransactionState where
     def = TransactionState freeGasEnv mempty mempty
 
+-- | Transaction execution env
+--
+data TransactionEnv db = TransactionEnv
+    { _txEntity :: !(Maybe EntityName)
+    , _txMode :: !ExecutionMode
+    , _txDbEnv :: PactDbEnv db
+    , _txLogger :: !Logger
+    , _txPublicData :: !PublicData
+    , _txSpvSupport :: !SPVSupport
+    , _txNetworkId :: !(Maybe NetworkId)
+    }
+makeLenses ''TransactionEnv
+
 -- | The transaction monad used in transaction execute. The reader
 -- environment is the a Pact command env, writer is a list of json-ified
 -- tx logs, and transaction state consists of a module cache, gas env,
@@ -145,10 +176,10 @@ instance Default TransactionState where
 --
 newtype TransactionM db a = TransactionM
     { _runTransactionM
-        :: ReaderT (CommandEnv db) (StateT TransactionState IO) a
+        :: ReaderT (TransactionEnv db) (StateT TransactionState IO) a
     } deriving
       ( Functor, Applicative, Monad
-      , MonadReader (CommandEnv db)
+      , MonadReader (TransactionEnv db)
       , MonadState TransactionState
       , MonadThrow, MonadCatch, MonadMask
       , MonadIO
@@ -161,15 +192,15 @@ newtype TransactionM db a = TransactionM
 --
 runTransactionM
     :: forall db a
-    . CommandEnv db
+    . TransactionEnv db
       -- ^ initial reader env
     -> TransactionState
       -- ^ initial state
     -> TransactionM db a
       -- ^ computation to execute
     -> IO (a, TransactionState)
-runTransactionM cenv txst act
-    = runStateT (runReaderT (_runTransactionM act) cenv) txst
+runTransactionM tenv txst act
+    = runStateT (runReaderT (_runTransactionM act) tenv) txst
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, returning the full range of
@@ -177,42 +208,42 @@ runTransactionM cenv txst act
 --
 runTransactionM_
     :: forall db a
-    . CommandEnv db
+    . TransactionEnv db
       -- ^ initial reader env
     -> TransactionState
       -- ^ initial state
     -> TransactionM db a
       -- ^ computation to execute
     -> IO (T2 a TransactionState)
-runTransactionM_ cenv txst act
+runTransactionM_ tenv txst act
     = view (from _T2)
-    <$> runStateT (runReaderT (_runTransactionM act) cenv) txst
+    <$> runStateT (runReaderT (_runTransactionM act) tenv) txst
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, discarding the final state.
 --
 evalTransactionM
     :: forall db a
-    . CommandEnv db
+    . TransactionEnv db
       -- ^ initial reader env
     -> TransactionState
       -- ^ initial state
     -> TransactionM db a
     -> IO a
-evalTransactionM cenv txst act
-    = evalStateT (runReaderT (_runTransactionM act) cenv) txst
+evalTransactionM tenv txst act
+    = evalStateT (runReaderT (_runTransactionM act) tenv) txst
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, discarding the final value.
 --
 execTransactionM
     :: forall p a
-    . CommandEnv p
+    . TransactionEnv p
       -- ^ initial reader env
     -> TransactionState
       -- ^ initial state
     -> TransactionM p a
       -- ^ computation to execute
     -> IO TransactionState
-execTransactionM cenv txst act
-    = execStateT (runReaderT (_runTransactionM act) cenv) txst
+execTransactionM tenv txst act
+    = execStateT (runReaderT (_runTransactionM act) tenv) txst
