@@ -61,6 +61,7 @@ import Control.Monad.Trans.Maybe
 
 import Data.Aeson hiding ((.=))
 import qualified Data.Aeson as A
+import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
@@ -142,7 +143,8 @@ applyCmd
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
-    evalTransactionM cenv0 txst0 applyBuyGas
+    second _transactionCache <$>
+      runTransactionM_ cenv0 txst0 applyBuyGas
   where
     txst0 = set transactionCache mcache0 def
     cmd = payloadObj <$> cmdIn
@@ -181,7 +183,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
           !pe = PactError GasError def []
             $ "Tx too big (" <> pretty initialGas <> "), limit "
             <> pretty gasLimit
-        in jsonErrorResult_ requestKey pe gasLimit "Tx too big"
+        in jsonErrorResult requestKey pe gasLimit "Tx too big"
       | otherwise = next
 
     applyPayload pid = do
@@ -196,8 +198,8 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
 
       case cr of
         Left e ->
-          jsonErrorResult_ requestKey e gasLimit
-          "tx failure for request key when running cmd"
+          jsonErrorResult requestKey e gasLimit
+            "tx failure for request key when running cmd"
         Right r -> applyRedeem pid r
 
     applyRedeem pid pr = do
@@ -206,14 +208,13 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
       rr <- catchesPactError $! redeemGas cmd initialGas pr pid
       case rr of
         Left e ->
-          jsonErrorResult_ requestKey e (_crGas pr)
+          jsonErrorResult requestKey e (_crGas pr)
             "tx failure for request key while redeeming gas"
         Right r -> do
-          mcache <- use transactionCache
           let !redeemLogs = fromMaybe [] $ _crLogs r
               !fr = crLogs . _Just <>~ redeemLogs $ pr
 
-          return $! T2 fr mcache
+          return fr
 
 applyGenesisCmd
     :: Logger
@@ -343,21 +344,6 @@ jsonErrorResult rk err gas msg = do
     liftIO $! logErrorRequestKey l rk err msg
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing
-
-jsonErrorResult_
-    :: RequestKey
-    -> PactError
-    -> Gas
-    -> String
-    -> TransactionM p (T2 (CommandResult [TxLog Value]) ModuleCache)
-jsonErrorResult_ rk err gas msg = do
-    l <- view txLogger
-    logs <- use transactionLogs
-    mcache <- use transactionCache
-
-    liftIO $! logErrorRequestKey l rk err msg
-    return $! T2 (CommandResult rk Nothing (PactResult (Left err))
-      gas (Just logs) Nothing Nothing) mcache
 
 runPayload
     :: Interpreter p
