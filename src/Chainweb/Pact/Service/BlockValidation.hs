@@ -71,11 +71,11 @@ local ct reqQ = do
     return resultVar
 
 lookupPactTxs
-    :: Maybe (T2 BlockHeight BlockHash)
+    :: Rewind (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
     -> PactQueue
     -> IO (MVar (Either PactException
-                     (Vector (Maybe (T2 BlockHeight BlockHash)))))
+                     (Vector (Rewind (T2 BlockHeight BlockHash)))))
 lookupPactTxs restorePoint txs reqQ = do
     resultVar <- newEmptyMVar
     let !req = LookupPactTxsReq restorePoint txs resultVar

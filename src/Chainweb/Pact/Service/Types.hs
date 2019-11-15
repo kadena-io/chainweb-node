@@ -99,10 +99,10 @@ data LocalReq = LocalReq
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !(Maybe (T2 BlockHeight BlockHash))
+    { _lookupRestorePoint :: !(Rewind (T2 BlockHeight BlockHash))
         -- here if the restore point is "Nothing" it means "we don't care"
     , _lookupKeys :: !(Vector PactHash)
-    , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
+    , _lookupResultVar :: !(PactExMVar (Vector (Rewind (T2 BlockHeight BlockHash))))
     }
 instance Show LookupPactTxsReq where
     show (LookupPactTxsReq m _ _) =

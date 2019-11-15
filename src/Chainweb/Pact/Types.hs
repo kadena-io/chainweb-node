@@ -105,4 +105,16 @@ newtype GasId = GasId PactId deriving (Eq, Show)
 
 type TransactionM p a = ReaderT (CommandEnv p) IO a
 
+data Rewind a
+    = DoRewind !a
+    | NoRewind !a
+    | Genesis {-# UNPACK #-} !cid
+    deriving (Functor, Applicative, Foldable, Traversable, Monad)
+
+instance HasChainId a => HasChainId (Rewind a) where
+    _chainId = \case
+      DoRewind !a -> _chainId a
+      NoRewind !a -> _chainId a
+      Genesis !cid -> cid
+
 makeLenses ''PactDbStatePersist
