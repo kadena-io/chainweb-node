@@ -377,11 +377,14 @@ powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
     Nothing -> maxTarget
     Just w
         | isLastInEpoch p || slowEpoch p bct ->
-            adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
+            -- adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
+           error $ "adjust target - " ++ show w
         | otherwise -> _blockTarget p
   where
-    t = EpochStartTime bt
-    ver = _blockChainwebVersion p
+    -- t = EpochStartTime bt
+    -- ver = _blockChainwebVersion p
+    _t = EpochStartTime bt
+    _ver = _blockChainwebVersion p
 {-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader

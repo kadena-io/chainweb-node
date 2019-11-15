@@ -250,6 +250,7 @@ showHeaderFields bhs =
         ("BlockHeader at height = " ++ show _blockHeight
          ++ "\n\tHash: " ++ show _blockHash
          ++ "\n\tParent hash: " ++ show _blockParent
+         ++ "\n\tTarget: " ++ show _blockTarget
          ++ "\n\n")
 
 ----------------------------------------------------------------------------------------------------

@@ -547,6 +547,7 @@ blockRate Mainnet01 = BlockRate 30
 -- algorithm seen in `adjust`.
 --
 newtype WindowWidth = WindowWidth Natural
+  deriving Show
 
 -- | The Proof-of-Work `WindowWidth` for each `ChainwebVersion`. For chainwebs
 -- that do not expect to perform POW, this should be `Nothing`.

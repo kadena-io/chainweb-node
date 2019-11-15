@@ -6,7 +6,6 @@
 
 module Chainweb.Test.Pact.ForkTest
   ( tests
-  , runNewBlocks2
   ) where
 
 import Control.Concurrent.MVar
@@ -43,6 +42,7 @@ import Pact.Types.Command
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB.Types
+import Chainweb.Graph
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -71,7 +71,7 @@ tests _db _h0 =
     cid = someChainId testVersion
 
 testVersion :: ChainwebVersion
-testVersion = Development
+testVersion = FastTimedCPM petersonChainGraph
 
 -- | Property: Fork requiring checkpointer rewind validates properly
 prop_forkValidates :: (IO BlockHeaderDb) -> BlockHeader -> IO PactQueue -> Property
@@ -111,19 +111,20 @@ expectedForkProd ForkInfo{..} =
     in trunkProd * rBranchProd
 
 txsFromHeight :: Int -> IO (Vector PactTransaction)
-txsFromHeight 0 = do
+txsFromHeight 0 = error "Zeron"
+txsFromHeight 1 = do
     d <- adminData
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
     return $ V.fromList
         ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d }
           , PactTransaction { _pactCode = "(create-table test1.accounts)" , _pactData = d }
           , PactTransaction { _pactCode = "(test1.create-global-accounts)" , _pactData = d }
-          , PactTransaction { _pactCode = "(test1.transfer \"Acct1\" \"Acct2\" 1", _pactData = d }
+          , PactTransaction { _pactCode = "(test1.transfer \"Acct1\" \"Acct2\" 1)", _pactData = d }
           ] ++ commonTxs d )
 txsFromHeight h = do
     d <- adminData
     return $ V.fromList $
-        PactTransaction { _pactCode = toS ( "(test1.multiply-transfer \"Acct1\" \"Acct2\""
+         PactTransaction { _pactCode = toS ( "(test1.multiply-transfer \"Acct1\" \"Acct2\""
                                           ++ show (valFromHeight h) ++ ")" )
                         , _pactData = d }
         : commonTxs d
@@ -140,13 +141,10 @@ commonTxs d =
     ]
 
 runNewBlocks :: [BlockHeader] -> PactQueue -> IO Int
-runNewBlocks _blocks _reqQ = return 1
-
-runNewBlocks2 :: [BlockHeader] -> PactQueue -> IO Int
-runNewBlocks2 blocks reqQ = do
+runNewBlocks blocks reqQ = do
     responses <- foldM f [] blocks
     intResults <- toIntResults responses
-    putStrLn $ "Results from runNewBlocks: " ++ show intResults
+    putStrLn $ "Results from toIntResults: " ++ show intResults
     return $ headDef 0 intResults
   where
     f r x = do
@@ -160,7 +158,10 @@ toIntResults mvars = do
         res <- readMVar mv
         case res of
             (Left _err) -> return 0
-            (Right _plwo) -> return 1
+            (Right plwo) -> do
+                let outs = V.map snd (_payloadWithOutputsTransactions plwo)
+                putStrLn $ "Results from runNewBlocks: " ++ show outs
+                return 1
 
 -- product of primes assigned to a given (inclusive) range of block heights
 prodFromRange :: Int -> Int -> Int
