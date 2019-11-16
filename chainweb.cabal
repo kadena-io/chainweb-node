@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.0.3
+version:      1.0.4
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -505,6 +505,7 @@ test-suite chainweb-tests
         , these >= 1 && < 1.1
         , time >= 1.8
         , transformers >= 0.5
+        , thyme == 0.3.6.0
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
@@ -643,48 +644,13 @@ executable chainweb-node
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
-executable chainweb-miner
-    import: warning-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-        -O2
-    hs-source-dirs: miner
-    main-is: Miner.hs
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , base >= 4.11 && < 5
-        , bytestring >= 0.10
-        , connection >= 0.2
-        , generic-lens >= 1.2
-        , http-client >= 0.5
-        , http-client-tls >= 0.3
-        , http-types >= 0.12
-        , mwc-random >= 0.13
-        , optparse-applicative >= 0.14
-        , pact >= 2.6
-        , paths >= 0.2
-        , retry >= 0.7
-        , rio >= 0.1.5
-        , scheduler >= 1.4.1
-        , servant-client >= 0.16
-        , streaming >= 0.2
-        , streaming-events >= 1.0
-        , strict-tuple >= 0.1.3
-        , time >= 1.8
-        , wai-extra >= 3.0
-
 executable cwtool
     import: warning-flags, debugging-flags
     default-language: Haskell2010
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -695,6 +661,7 @@ executable cwtool
         Chainweb.Test.Utils
         Ea
         Ea.Genesis
+        GenConf
         Gexf
         Network.X509.SelfSigned.Test
         RunNodes

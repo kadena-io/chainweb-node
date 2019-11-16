@@ -46,14 +46,14 @@ import qualified System.Random.MWC as MWC
 import Chainweb.BlockHeader (BlockCreationTime(..))
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
-import Chainweb.Miner.Config (MinerConfig(..))
+import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
     (MiningState(..), MiningStats(..), PrevTime(..))
 import Chainweb.Miner.Miners
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (EnableConfig(..), runForever)
+import Chainweb.Utils (runForever)
 import Chainweb.Version (ChainwebVersion(..), window)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
@@ -69,29 +69,34 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
-    , _coord503s :: IORef Int }
+    , _coord503s :: IORef Int
+    , _coord403s :: IORef Int
+    , _coordConf :: !CoordinationConfig }
 
 withMiningCoordination
     :: Logger logger
     => logger
-    -> Bool
+    -> CoordinationConfig
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
     -> IO a
-withMiningCoordination logger enabled cutDb inner
-    | not enabled = inner Nothing
+withMiningCoordination logger conf cutDb inner
+    | not (_coordinationEnabled conf) = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
-        c <- newIORef 0
-        fmap snd . concurrently (prune t c) $ inner . Just $ MiningCoordination
+        c503 <- newIORef 0
+        c403 <- newIORef 0
+        fmap snd . concurrently (prune t c503 c403) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
-            , _coordLimit = 1200
-            , _coord503s = c }
+            , _coordLimit = _coordinationReqLimit conf
+            , _coord503s = c503
+            , _coord403s = c403
+            , _coordConf = conf }
   where
-    prune :: TVar MiningState -> IORef Int -> IO ()
-    prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
+    prune :: TVar MiningState -> IORef Int -> IORef Int -> IO ()
+    prune t c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
         let !d = 30_000_000  -- 30 seconds
         let !maxAge = 300_000_000  -- 5 minutes
         threadDelay d
@@ -100,9 +105,11 @@ withMiningCoordination logger enabled cutDb inner
             ms <- readTVar t
             modifyTVar' t . over _Unwrapped $ M.filter (f ago)
             pure ms
-        count <- readIORef c
-        atomicWriteIORef c 0
-        logFunction logger Info . JsonLog $ MiningStats (M.size ms) count (avgTxs m)
+        count503 <- readIORef c503
+        count403 <- readIORef c403
+        atomicWriteIORef c503 0
+        atomicWriteIORef c403 0
+        logFunction logger Info . JsonLog $ MiningStats (M.size ms) count503 count403 (avgTxs m)
 
     -- Filter for work items that are not older than maxAge
     --
@@ -127,17 +134,17 @@ withMiningCoordination logger enabled cutDb inner
 data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb cas)
-    , _minerResConfig :: !MinerConfig
+    , _minerResConfig :: !NodeMiningConfig
     }
 
 withMinerResources
     :: logger
-    -> EnableConfig MinerConfig
+    -> NodeMiningConfig
     -> CutDb cas
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger (EnableConfig enabled conf) cutDb inner
-    | not enabled = inner Nothing
+withMinerResources logger conf cutDb inner
+    | not (_nodeMiningEnabled conf) = inner Nothing
     | otherwise = do
         inner . Just $ MinerResources
             { _minerResLogger = logger
@@ -159,7 +166,7 @@ runMiner v mr = case window v of
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
 
-    conf :: MinerConfig
+    conf :: NodeMiningConfig
     conf = _minerResConfig mr
 
     lf :: LogFunction
@@ -168,7 +175,7 @@ runMiner v mr = case window v of
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        localTest lf v (_configMinerInfo conf) cdb gen (_configTestMiners conf)
+        localTest lf v (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = localPOW lf v (_configMinerInfo conf) cdb
+    powMiner = localPOW lf v (_nodeMiner conf) cdb

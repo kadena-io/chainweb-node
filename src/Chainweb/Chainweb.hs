@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -51,14 +52,12 @@ module Chainweb.Chainweb
 , ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
-, configMiner
-, configCoordinator
+, configMining
 , configHeaderStream
 , configReintroTxs
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
-, configCutFetchTimeout
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -101,6 +100,10 @@ module Chainweb.Chainweb
 , mkLocalThrottler
 , checkPathPrefix
 , mkThrottler
+
+-- * Cut Config
+, CutConfig(..)
+, defaultCutConfig
 ) where
 
 import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
@@ -252,24 +255,52 @@ instance FromJSON (ThrottlingConfig -> ThrottlingConfig) where
         <*< throttlingPeerRate ..: "putPeer" % o
         <*< throttlingLocalRate ..: "local" % o
 
+--
+
+data CutConfig = CutConfig
+    { _cutIncludeOrigin :: !Bool
+    , _cutPruneChainDatabase :: !Bool
+    , _cutFetchTimeout :: !Int
+    , _cutInitialCutHeightLimit :: !(Maybe BlockHeight)
+    } deriving (Eq, Show)
+
+makeLenses ''CutConfig
+
+instance ToJSON CutConfig where
+    toJSON o = object
+        [ "pruneChainDatabase" .= _cutPruneChainDatabase o
+        , "fetchTimeout" .= _cutFetchTimeout o
+        , "initialCutHeightLimit" .= _cutInitialCutHeightLimit o ]
+
+instance FromJSON (CutConfig -> CutConfig) where
+    parseJSON = withObject "CutConfig" $ \o -> id
+        <$< cutIncludeOrigin ..: "includeOrigin" % o
+        <*< cutPruneChainDatabase ..: "pruneChainDatabase" % o
+        <*< cutFetchTimeout ..: "fetchTimeout" % o
+        <*< cutInitialCutHeightLimit ..: "initialCutHeightLimit" % o
+
+defaultCutConfig :: CutConfig
+defaultCutConfig = CutConfig
+    { _cutIncludeOrigin = True
+    , _cutPruneChainDatabase = True
+    , _cutFetchTimeout = 3_000_000
+    , _cutInitialCutHeightLimit = Nothing }
+
 -- -------------------------------------------------------------------------- --
 -- Chainweb Configuration
 
 data ChainwebConfiguration = ChainwebConfiguration
     { _configChainwebVersion :: !ChainwebVersion
     , _configNodeId :: !NodeId
-    , _configMiner :: !(EnableConfig MinerConfig)
-    , _configCoordinator :: !Bool
+    , _configCuts :: !CutConfig
+    , _configMining :: !MiningConfig
     , _configHeaderStream :: !Bool
     , _configReintroTxs :: !Bool
     , _configP2p :: !P2pConfiguration
     , _configTransactionIndex :: !(EnableConfig TransactionIndexConfig)
-    , _configIncludeOrigin :: !Bool
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
-    , _configPruneChainDatabase :: !Bool
     , _configBlockGasLimit :: !Mempool.GasLimit
-    , _configCutFetchTimeout :: !Int
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -284,60 +315,51 @@ instance HasChainGraph ChainwebConfiguration where
 
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
 validateChainwebConfiguration c = do
-    validateEnableConfig validateMinerConfig (_configMiner c)
+    validateMinerConfig (_configMining c)
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration
     { _configChainwebVersion = v
     , _configNodeId = NodeId 0 -- FIXME
-    , _configMiner = EnableConfig False defaultMinerConfig
-    , _configCoordinator = False
+    , _configCuts = defaultCutConfig
+    , _configMining = defaultMining
     , _configHeaderStream = False
     , _configReintroTxs = True
     , _configP2p = defaultP2pConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
-    , _configIncludeOrigin = True
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configPruneChainDatabase = True
-    , _configBlockGasLimit = 100000
-    , _configCutFetchTimeout = 3000000
+    , _configBlockGasLimit = 100_000
     }
 
 instance ToJSON ChainwebConfiguration where
     toJSON o = object
         [ "chainwebVersion" .= _configChainwebVersion o
         , "nodeId" .= _configNodeId o
-        , "miner" .= _configMiner o
-        , "miningCoordination" .= _configCoordinator o
+        , "cuts" .= _configCuts o
+        , "mining" .= _configMining o
         , "headerStream" .= _configHeaderStream o
         , "reintroTxs" .= _configReintroTxs o
         , "p2p" .= _configP2p o
         , "transactionIndex" .= _configTransactionIndex o
-        , "includeOrigin" .= _configIncludeOrigin o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
-        , "pruneChainDatabase" .= _configPruneChainDatabase o
         , "blockGasLimit" .= _configBlockGasLimit o
-        , "cutFetchTimeout" .= _configCutFetchTimeout o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
     parseJSON = withObject "ChainwebConfig" $ \o -> id
         <$< configChainwebVersion ..: "chainwebVersion" % o
         <*< configNodeId ..: "nodeId" % o
-        <*< configMiner %.: "miner" % o
-        <*< configCoordinator ..: "miningCoordination" % o
+        <*< configCuts %.: "cuts" % o
+        <*< configMining %.: "mining" % o
         <*< configHeaderStream ..: "headerStream" % o
         <*< configReintroTxs ..: "reintroTxs" % o
         <*< configP2p %.: "p2p" % o
         <*< configTransactionIndex %.: "transactionIndex" % o
-        <*< configIncludeOrigin ..: "includeOrigin" % o
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
-        <*< configPruneChainDatabase ..: "pruneChainDatabase" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
-        <*< configCutFetchTimeout ..: "cutFetchTimeout" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -349,10 +371,6 @@ pChainwebConfiguration = id
         % long "node-id"
         <> short 'i'
         <> help "unique id of the node that is used as miner id in new blocks"
-    <*< configMiner %:: pEnableConfig "mining" pMinerConfig
-    <*< configCoordinator .:: boolOption_
-        % long "mining-coordination"
-        <> help "whether to enable external requests for mining work"
     <*< configHeaderStream .:: boolOption_
         % long "header-stream"
         <> help "whether to enable an endpoint for streaming block updates"
@@ -362,20 +380,11 @@ pChainwebConfiguration = id
     <*< configP2p %:: pP2pConfiguration Nothing
     <*< configTransactionIndex %::
         pEnableConfig "transaction-index" pTransactionIndexConfig
-    <*< configIncludeOrigin .:: enableDisableFlag
-        % long "include-origin"
-        <> help "whether to include the local peer as origin when publishing cut hashes"
     <*< configMempoolP2p %::
         pEnableConfig "mempool-p2p" pMempoolP2pConfig
-    <*< configPruneChainDatabase .:: enableDisableFlag
-        % long "prune-chain-database"
-        <> help "prune the chain database for all chains on startup"
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
-    <*< configCutFetchTimeout .:: option auto
-        % long "cut-fetch-timeout"
-        <> help "After this many microseconds, give up trying to sync a particular Cut"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -540,7 +549,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         cidsList
   where
     prune :: Bool
-    prune = _configPruneChainDatabase conf
+    prune = _cutPruneChainDatabase $ _configCuts conf
 
     cidsList :: [ChainId]
     cidsList = toList cids
@@ -571,7 +580,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             logg Info "finished initializing cut resources"
 
             let !mLogger = setComponent "miner" logger
-                !mConf = _configMiner conf
+                !mConf = _configMining conf
                 !mCutDb = _cutResCutDb cuts
                 !throt  = _configThrottling conf
 
@@ -598,8 +607,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
 
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
-                withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc ->
-                    withMinerResources mLogger mConf mCutDb $ \m -> do
+                withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
+                    withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
                         inner Chainweb
                             { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
@@ -639,12 +648,14 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     cids = chainIds v
 
     -- FIXME: make this configurable
-    cutConfig :: CutDbConfig
-    cutConfig = (defaultCutDbConfig v $ _configCutFetchTimeout conf)
-        { _cutDbConfigLogLevel = Info
-        , _cutDbConfigTelemetryLevel = Info
-        , _cutDbConfigUseOrigin = _configIncludeOrigin conf
-        }
+    cutConfig :: CutDbParams
+    cutConfig = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
+        { _cutDbParamsLogLevel = Info
+        , _cutDbParamsTelemetryLevel = Info
+        , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
+      where
+        cutConf = _configCuts conf
 
     synchronizePactDb :: HM.HashMap ChainId (ChainResources logger) -> CutDb cas -> IO ()
     synchronizePactDb cs cutDb = do
@@ -789,7 +800,7 @@ runChainweb cw = do
 
     serverSettings :: Settings
     serverSettings = setOnException
-        (\r e -> when (defaultShouldDisplayException e) (logg Error $ loggServerError r e))
+        (\r e -> when (defaultShouldDisplayException e) (logg Warn $ loggServerError r e))
         $ peerServerSettings (_peerResPeer $ _chainwebPeer cw)
 
     serve :: Middleware -> IO ()

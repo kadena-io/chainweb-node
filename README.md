@@ -7,7 +7,10 @@
 # Kadena Public Blockchain
 
 
-Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism that improves throughput and scalability while maintaining the security and integrity found in Bitcoin. 
+Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus
+protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism
+that improves throughput and scalability while maintaining the security and
+integrity found in Bitcoin.
 
 Read our [whitepapers](https://www.kadena.io/whitepapers):
 
@@ -22,31 +25,34 @@ For additional information, press, and development inquires, please refer to the
 - [Installing Chainweb](#installing-chainweb)
   - [Instructions for Linux Users](#linux-users)
   - [Instructions for Mac Users](#mac-users)
-- [Running Chainweb Node](#running-chainweb-node)
-  - [Configuring a Chainweb Node](#configuring-a-chainweb-node)
-    - [Specifying Bootstrap Nodes](#specifying-bootstrap-nodes)
-    - [Specifying your Public Identity](#specifying-your-public-identity)
-    - [Specifying your Mining Identity](#specifying-your-mining-identity)
-    - [Specifying a Log Level](#specifying-a-log-level)
-  - [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
+- [Configuring and Running a Chainweb Node](#configuring-and-running-a-chainweb-node)
+- [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
 - [Chainweb Design](#chainweb-design)
   - [Component Structure Details](#component-structure)
   - [Architecture Overview](#architecture-overview)
 
 ## Wiki
 
-The Chainweb wiki serves as a source of information that receives regular updates. You can find the chainweb Wiki [here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of frequently asked questions regarding  network information, how to explore blocks, diagnosing error messages, and more [here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
+The Chainweb wiki serves as a source of information that receives regular
+updates. You can find the chainweb Wiki
+[here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of
+frequently asked questions regarding network information, how to explore blocks,
+diagnosing error messages, and more
+[here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
 
 If you have additions or comments, please submit a pull request or raise an issue.
 
 
 ## Installing Chainweb
+
 ### Linux Users
 
-The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases)
+The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases).
 
 #### Apt-based distributions
-If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you will need to install rocksdb with the following command:
+
+If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you
+will need to install rocksdb with the following command:
 
 ```bash
 sudo apt-get update
@@ -56,11 +62,15 @@ sudo apt-get update
 sudo apt-get install -y librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3
 ```
 
-If this is not available, then please view the [Rocksdb](https://rocksdb.org/) site for alternative modes of installation.
+If this is not available, then please view the [Rocksdb](https://rocksdb.org/)
+site for alternative modes of installation.
 
 #### Other distributions
 
-For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`, `z3` and install with its preferred package manager, or follow the alternative modes of installation described in [Rocksdb](https://rocksdb.org/).
+For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please
+consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`, `z3`
+and install with its preferred package manager, or follow the alternative modes
+of installation described in [Rocksdb](https://rocksdb.org/).
 
 At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
 
@@ -162,119 +172,31 @@ To install a runnable binary to `~/.cabal/bin/`:
 cabal new-install
 ```
 
-## Running Chainweb Node
+## Configuring and Running a Chainweb Node
 
 **This section assumes you've installed the `chainweb-node` binary** somewhere
-sensible, or otherwise have a simple way to refer to it. Please note that by
-default, the in-process mining is turned on; for instructions on how to turn it
-off, please refer to the [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
+sensible, or otherwise have a simple way to refer to it.
 
-Chainweb has many configuration options. Although there are command-line flags
-for all of them, in practice we use a config file:
-
-```bash
-./chainweb-node --print-config > config.yaml
-```
-
-Then, to run a node:
-
-```bash
-./chainweb-node --config-file=config.yaml
-```
-
-This will run a local Node on your machine, and you will see a flurry of
-activity. However, your Node won't be connected to the wider network yet. For
-that, we must configure Chainweb and change some defaults.
-
-### Configuring a Chainweb Node
-
-All available command-line options are shown by running:
-
-```bash
-chainweb-node --help
-```
-
-But we recommend working with a configuration file. The following instructions
-assume that you have generated such a file, as shown above.
-
-#### Specifying Bootstrap Nodes
-
-To connect to the wider network, we must communiciate with some initial Peer. We
-call such a peer a *Bootstrap Node*. We define these in the `peers` list:
-
-```yaml
-chainweb:
-  ... # other settings
-  p2p:
-    ... # other settings
-    peers: []
-```
-
-Let's update it to include one of Kadena's public Bootstraps:
-
-```yaml
-peers:
-  - address:
-      hostname: us1.testnet.chainweb.com
-      port: 443
-    id: null
-```
-
-Since `peers` is a list, you can specify as many as you like, including other
-powerful Nodes that you manage.
-
-#### Specifying your Public Identity
-
-You need to inform other Nodes how to talk back to you. This is also the
-information that they send along to their neighbours as part of the Peer
-Network:
-
-```yaml
-chainweb:
-  p2p:
-    peer:
-      ... # other settings
-      hostaddress:
-        hostname: localhost
-        port: 0
-```
-
-`localhost` is no good.
+To configure your node, please use our [minimal node
+configuration](./minimal-config.yaml). You need to update only one section,
+`hostaddress`:
 
 ```yaml
 hostaddress:
-  hostname: <your-public-ip-here>
+  hostname: your-public-ip-or-domain
   port: 443
 ```
 
-Keep in mind that you may have to perform Port Forwarding if your machine is
-behind a router.
+**Note:** You will have to perform Port Forwarding if your machine is behind a
+router.
 
-#### Specifying your Mining Identity
+Then, to run your node:
 
-See our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org)
-for details. Without a properly defined Mining Identity, your mining effort will
-be wasted.
-
-Don't want to mine? Use either `--disable-mining` on the command-line, or set:
-
-```yaml
-chainweb:
-  miner:
-    enable: false
+```bash
+chainweb-node --config-file=minimal-config.yaml
 ```
 
-#### Specifying a Logging Level
-
-Chainweb runs on `Info` by default. If you'd prefer something quieter, like `Warn`, set:
-
-```yaml
-logging:
-  logger:
-    log_level: warn
-```
-
-### Mine for a Chainweb Network
+## Mine for a Chainweb Network
 
 Detailed mining instructions can be found in our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
 

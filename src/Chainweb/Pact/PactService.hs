@@ -496,7 +496,7 @@ withCheckpointerRewind
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
 withCheckpointerRewind target caller act = do
-    rewindTo target
+    rewindTo Nothing target
     withCheckpointer target caller act
 
 finalizeCheckpointer :: (Checkpointer -> IO ()) -> PactServiceM cas ()
@@ -693,11 +693,16 @@ execNewBlock mpAccess parentHeader miner creationTime =
   do
     updateMempool
     withDiscardedBatch $ do
-      rewindTo target
+      rewindTo newblockRewindLimit target
       newTrans <- withCheckpointer target "preBlock" doPreBlock
       withCheckpointer target "execNewBlock" (doNewBlock newTrans)
 
   where
+
+    -- This is intended to mitigate mining attempts during replay.
+    -- In theory we shouldn't need to rewind much ever, but values
+    -- less than this are failing in PactReplay test.
+    newblockRewindLimit = Just 8
 
     doPreBlock pdbenv = do
       cp <- getCheckpointer
@@ -782,13 +787,19 @@ execLocal
 execLocal cmd = withDiscardedBatch $ do
     cp <- getCheckpointer
     mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
-    (bh, bhash) <- case mbLatestBlock of
+    (bhe, bhash) <- case mbLatestBlock of
                        Nothing -> throwM NoBlockValidatedYet
                        (Just !p) -> return p
-    let target = Just (succ bh, bhash)
+    let target = Just (succ bhe, bhash)
+    bhDb <- asks _psBlockHeaderDb
+    -- NOTE: On local calls, there might be code which needs the results of
+    -- (chain-data). In such a case, the function `withBlockData` provides the
+    -- necessary information for this call to return sensible values.
+    parentHeader <- liftIO $! lookupM bhDb bhash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
+        r <- withBlockData parentHeader $
+             liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
@@ -815,15 +826,15 @@ withBlockData
     -> PactServiceM cas a
         -- ^ the action to be run
     -> PactServiceM cas a
-withBlockData bhe action = locally psPublicData go action
+withBlockData bh action = locally psPublicData go action
   where
-    (BlockHeight !bh) = _blockHeight bhe
-    (BlockHash !ph) = _blockParent bhe
+    (BlockHeight !bhe) = _blockHeight bh
+    (BlockHash !ph) = _blockParent bh
     (BlockCreationTime (Time (TimeSpan (Micros !bt)))) =
-      _blockCreationTime bhe
+      _blockCreationTime bh
 
     go t = t
-      { P._pdBlockHeight = succ bh
+      { P._pdBlockHeight = succ bhe
       , P._pdBlockTime = bt
       , P._pdPrevBlockHash = toText ph
       }
@@ -889,20 +900,32 @@ playOneBlock currHeader plData pdbenv = do
 --
 rewindTo
     :: forall cas . PayloadCas cas
-    => Maybe (BlockHeight, ParentHash)
+    => Maybe BlockHeight
+        -- ^ if set, limit rewinds to this delta
+    -> Maybe (BlockHeight, ParentHash)
         -- ^ The block height @height@ to which to restore and the parent header
         -- @parentHeader@.
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
     -> PactServiceM cas ()
-rewindTo mb = maybe rewindGenesis doRewind mb
+rewindTo rewindLimit mb = maybe rewindGenesis doRewind mb
   where
     rewindGenesis = return ()
-    doRewind (_, parentHash) = do
+    doRewind (reqHeight, parentHash) = do
         payloadDb <- asks _psPdb
         lastHeader <- findLatestValidBlock >>= maybe failNonGenesisOnEmptyDb return
+        failOnTooLowRequestedHeight rewindLimit lastHeader reqHeight
         bhDb <- asks _psBlockHeaderDb
         playFork bhDb payloadDb parentHash lastHeader
+
+    failOnTooLowRequestedHeight (Just limit) lastHeader reqHeight
+      | reqHeight + limit < lastHeight = -- need to stick with addition because Word64
+        throwM $ RewindLimitExceeded
+        ("Requested rewind exceeds limit (" <> sshow limit <> ")")
+        reqHeight lastHeight
+        where lastHeight = _blockHeight lastHeader
+    failOnTooLowRequestedHeight _ _ _ = return ()
+
 
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 

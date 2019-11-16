@@ -7,6 +7,7 @@ import Text.Printf
 
 import qualified Chain2Gexf
 import qualified Ea
+import qualified GenConf
 import qualified RunNodes
 import qualified SlowTests
 import qualified TXG
@@ -81,6 +82,10 @@ topLevelCommands =
       "test-miner"
       "Test an external miner"
       TestMiner.main
+  , CommandSpec
+      "genconf"
+      "Interactively generate a chainweb-node config"
+      GenConf.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()
