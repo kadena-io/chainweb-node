@@ -70,6 +70,7 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
     , _coord503s :: IORef Int
+    , _coord403s :: IORef Int
     , _coordConf :: !CoordinationConfig }
 
 withMiningCoordination
@@ -83,17 +84,19 @@ withMiningCoordination logger conf cutDb inner
     | not (_coordinationEnabled conf) = inner Nothing
     | otherwise = do
         t <- newTVarIO mempty
-        c <- newIORef 0
-        fmap snd . concurrently (prune t c) $ inner . Just $ MiningCoordination
+        c503 <- newIORef 0
+        c403 <- newIORef 0
+        fmap snd . concurrently (prune t c503 c403) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
             , _coordState = t
             , _coordLimit = _coordinationReqLimit conf
-            , _coord503s = c
+            , _coord503s = c503
+            , _coord403s = c403
             , _coordConf = conf }
   where
-    prune :: TVar MiningState -> IORef Int -> IO ()
-    prune t c = runForever (logFunction logger) "Chainweb.Chainweb.MinerResources.prune" $ do
+    prune :: TVar MiningState -> IORef Int -> IORef Int -> IO ()
+    prune t c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
         let !d = 30_000_000  -- 30 seconds
         let !maxAge = 300_000_000  -- 5 minutes
         threadDelay d
@@ -102,9 +105,11 @@ withMiningCoordination logger conf cutDb inner
             ms <- readTVar t
             modifyTVar' t . over _Unwrapped $ M.filter (f ago)
             pure ms
-        count <- readIORef c
-        atomicWriteIORef c 0
-        logFunction logger Info . JsonLog $ MiningStats (M.size ms) count (avgTxs m)
+        count503 <- readIORef c503
+        count403 <- readIORef c403
+        atomicWriteIORef c503 0
+        atomicWriteIORef c403 0
+        logFunction logger Info . JsonLog $ MiningStats (M.size ms) count503 count403 (avgTxs m)
 
     -- Filter for work items that are not older than maxAge
     --
@@ -138,9 +143,7 @@ withMinerResources
     -> CutDb cas
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger conf cutDb inner
-    | not (_nodeMiningEnabled conf) = inner Nothing
-    | otherwise = do
+withMinerResources logger conf cutDb inner =
         inner . Just $ MinerResources
             { _minerResLogger = logger
             , _minerResCutDb = cutDb
@@ -154,10 +157,15 @@ runMiner
     => ChainwebVersion
     -> MinerResources logger cas
     -> IO ()
-runMiner v mr = case window v of
-    Nothing -> testMiner
-    Just _ -> powMiner
+runMiner v mr =
+    if enabled
+    then case window v of
+             Nothing -> testMiner
+             Just _ -> powMiner
+    else mempoolNoopMiner lf v (_nodeMiner conf) cdb
   where
+    enabled = _nodeMiningEnabled $ _minerResConfig mr
+
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
 

@@ -88,7 +88,8 @@ workHandler mr v mcid m = do
                 throwError err503 { errBody = "Too many work requests" }
             let !conf = _coordConf mr
             when (_coordinationMode conf == Private
-                  && not (HS.member (view minerId m) (_coordinationMiners conf))) $
+                  && not (HS.member (view minerId m) (_coordinationMiners conf))) $ do
+                liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
                 throwError err403 { errBody = "Unauthorized Miner" }
             liftIO $ workHandler' mr mcid m
 
