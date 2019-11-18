@@ -10,11 +10,17 @@ let # Working on getting this function upstreamed into nixpkgs, but
            inherit sha256;
          }) {};
 
+    convertCabalTestsAndBenchmarksToExecutables = p: overrideCabal p (drv: {
+      preConfigure = (drv.preConfigure or "") + ''
+        sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
+      '';
+    });
+
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
 
       chainweb = enableCabalFlag (
-        justStaticExecutables (enableDWARFDebugging super.chainweb)) "use_systemd";
+        justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
 
       chainweb-storage = dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
