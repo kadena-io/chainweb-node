@@ -143,9 +143,7 @@ withMinerResources
     -> CutDb cas
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger conf cutDb inner
-    | not (_nodeMiningEnabled conf) = inner Nothing
-    | otherwise = do
+withMinerResources logger conf cutDb inner =
         inner . Just $ MinerResources
             { _minerResLogger = logger
             , _minerResCutDb = cutDb
@@ -159,10 +157,15 @@ runMiner
     => ChainwebVersion
     -> MinerResources logger cas
     -> IO ()
-runMiner v mr = case window v of
-    Nothing -> testMiner
-    Just _ -> powMiner
+runMiner v mr =
+    if enabled
+    then case window v of
+             Nothing -> testMiner
+             Just _ -> powMiner
+    else mempoolNoopMiner lf v (_nodeMiner conf) cdb
   where
+    enabled = _nodeMiningEnabled $ _minerResConfig mr
+
     cdb :: CutDb cas
     cdb = _minerResCutDb mr
 
