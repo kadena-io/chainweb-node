@@ -9,8 +9,8 @@ module Chainweb.Test.Pact.ForkTest
   ) where
 
 import Control.Concurrent.MVar
+import Control.Exception (throwIO)
 import Control.Lens
-import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Aeson (Value)
@@ -91,8 +91,9 @@ prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
     liftIO $ putStrLn $ "&&&&& list of blocks:&&&&&\n" ++ showHeaderFields blockList ++ "&&&&&&&&&&"
 
     reqQ <- liftIO $ reqQIO
-    result <- liftIO $ runNewBlocks blockList reqQ
-    assert (result == expected)
+    (newBlockRes, valBlockRes) <- liftIO $ runBlocks blockList reqQ
+    assert (newBlockRes == valBlockRes)
+    assert (valBlockRes == expected)
 
 blocksFromFork :: ForkInfo -> [BlockHeader]
 blocksFromFork ForkInfo{..} =
@@ -107,20 +108,20 @@ expectedForkProd ForkInfo{..} =
 
         trunkProd = prodFromHeight (fiForkHeight - 1) -- (prodFromHeight is 0 based)
         rBranchProd = prodFromRange leftHeight (rightHeight - 1) -- (prodFromRange is 0 based)
-
     in trunkProd * rBranchProd
 
 txsFromHeight :: Int -> IO (Vector PactTransaction)
-txsFromHeight 0 = error "Zeron"
+txsFromHeight 0 = error "txsFromHeight called for Genesis block"
 txsFromHeight 1 = do
     d <- adminData
     moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
     return $ V.fromList
-        ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d }
-          , PactTransaction { _pactCode = "(create-table test1.accounts)" , _pactData = d }
-          , PactTransaction { _pactCode = "(test1.create-global-accounts)" , _pactData = d }
-          , PactTransaction { _pactCode = "(test1.transfer \"Acct1\" \"Acct2\" 1)", _pactData = d }
-          ] ++ commonTxs d )
+        ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d } ] )
+        -- ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d }
+        --   , PactTransaction { _pactCode = "(create-table test1.accounts)" , _pactData = d }
+        --   , PactTransaction { _pactCode = "(test1.create-global-accounts)" , _pactData = d }
+        --   , PactTransaction { _pactCode = "(test1.transfer \"Acct1\" \"Acct2\" 1)", _pactData = d }
+        --   ] ++ commonTxs d )
 txsFromHeight h = do
     d <- adminData
     return $ V.fromList $
@@ -140,28 +141,75 @@ commonTxs d =
     , PactTransaction { _pactCode = "(at 'sender (chain-data))", _pactData = d }
     ]
 
-runNewBlocks :: [BlockHeader] -> PactQueue -> IO Int
-runNewBlocks blocks reqQ = do
-    responses <- foldM f [] blocks
-    intResults <- toIntResults responses
-    putStrLn $ "Results from toIntResults: " ++ show intResults
-    return $ headDef 0 intResults
+runBlocks :: [BlockHeader] -> PactQueue -> IO (Int, Int)
+runBlocks blocks theReqQ = do
+    thePairs <- go (head blocks) (tail blocks) theReqQ []
+    return $ headDef (0, 0) thePairs
   where
-    f r x = do
-        let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-        respVar <- newBlock noMiner x (BlockCreationTime blockTime) reqQ
-        return $ respVar : r
+    go :: BlockHeader -> [BlockHeader] -> PactQueue -> [(Int, Int)] -> IO [(Int, Int)]
+    go _parent [] _reqQ pairs = return pairs -- this case shouldn't occur
+    go _parent (_new : []) _reqQ pairs = return pairs
+    go parent (new : remaining) reqQ pairs = do
+            mvNew <- runNewBlock parent reqQ
+            (plwoNew, asIntNew) <- getResult mvNew
+            mvVal <- runValidateBlock plwoNew parent new reqQ
+            (_plwoVal, asIntVal) <- getResult mvVal
+            go new (tail remaining) reqQ ((asIntNew, asIntVal) : pairs)
+    -- pairs <- forM blocks $ \b -> do
+    --     mvNew <- runNewBlock b reqQ
+    --     (plwoNew, asIntNew) <- getResult mvNew
+    --     mvVal <- runValidateBlock plwoNew b reqQ
+    --     (_plwoVal, asIntVal) <- getResult mvVal
+    --     return (asIntNew, asIntVal)
+    -- return $ headDef (0, 0) pairs
 
-toIntResults :: [MVar (Either PactException PayloadWithOutputs)] -> IO [Int]
-toIntResults mvars = do
-    forM mvars $ \mv -> do
-        res <- readMVar mv
-        case res of
-            (Left _err) -> return 0
-            (Right plwo) -> do
-                let outs = V.map snd (_payloadWithOutputsTransactions plwo)
-                putStrLn $ "Results from runNewBlocks: " ++ show outs
-                return 1
+getResult :: MVar (Either PactException PayloadWithOutputs) -> IO (PayloadWithOutputs, Int)
+getResult mvar = do
+    res <- takeMVar mvar
+    case res of
+        (Left pactEx) -> throwIO $ pactEx
+        (Right plwo) -> do
+            putStrLn $ "Result as plwo: " ++ show plwo
+            let outs = V.map snd (_payloadWithOutputsTransactions plwo)
+            n <- asInt outs
+            putStrLn $ "Result as Int: " ++ show n
+            return (plwo, n)
+
+asInt :: Vector TransactionOutput -> IO Int
+asInt _plwo = return 1
+
+runNewBlock :: BlockHeader -> PactQueue -> IO (MVar (Either PactException PayloadWithOutputs))
+runNewBlock block reqQ = do
+    putStrLn "runNewBlock....."
+    let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
+    newBlock noMiner block (BlockCreationTime blockTime) reqQ
+
+-- validate the same transactions as sent to newBlock
+runValidateBlock
+    :: PayloadWithOutputs
+    -> BlockHeader
+    -> BlockHeader
+    -> PactQueue
+    -> IO (MVar (Either PactException PayloadWithOutputs))
+runValidateBlock plwo parentHeader blockHeader reqQ = do
+    putStrLn "runValidateBlock....."
+    let matchingPlHash = _payloadWithOutputsPayloadHash plwo
+    let plData = PayloadData
+            { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions plwo
+            , _payloadDataMiner = _payloadWithOutputsMiner plwo
+
+            -- MISMATCH 1
+            , _payloadDataPayloadHash = matchingPlHash
+            , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash plwo
+
+            -- MISMATCH 2
+            , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash plwo
+            }
+    let toValidateHeader = (blockHeader)
+            { _blockPayloadHash = matchingPlHash
+            , _blockParent = _blockHash parentHeader
+            }
+    validateBlock toValidateHeader plData reqQ
 
 -- product of primes assigned to a given (inclusive) range of block heights
 prodFromRange :: Int -> Int -> Int

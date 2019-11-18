@@ -1,5 +1,4 @@
 (define-keyset 'test-admin-ks (read-keyset "test-admin-keyset"))
-(namespace 'free)
 
 (module test1 'test-admin-ks
 
@@ -82,3 +81,6 @@
     (step "Carol" (create-account "C" 1000.0))
     (step "Dinesh" (create-account "D" 1000.0)))
 )
+(create-table accounts)
+(create-global-accounts)
+(transfer "Acct1" "Acct2" 1)
