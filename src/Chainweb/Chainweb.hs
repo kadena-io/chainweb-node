@@ -496,7 +496,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     preInsertBatch txs = do
         let hashes = V.map (toPactHash . sfst) txs
         pex <- readMVar mv
-        rs <- _pactLookup pex (Genesis cid) hashes >>= either throwM pure
+        rs <- _pactLookup pex (PreInsert cid) hashes >>= either throwM pure
         pure $ alignWith f rs txs
       where
         f (These r (T2 h t)) = maybe (Right (T2 h t)) (Left . T2 h) $ toDupeResult r
