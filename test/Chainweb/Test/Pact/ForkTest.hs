@@ -169,9 +169,17 @@ runNewBlock
     -> PactQueue
     -> (IO BlockHeaderDb)
     -> IO (MVar (Either PactException PayloadWithOutputs))
-runNewBlock block reqQ _iodb = do
+runNewBlock block reqQ iodb = do
     putStrLn $ "runNewBlock...\n\t" ++ showHeaderFields [block]
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
+    -- TODO: remove this
+    -- Test calling loookup on the parent block
+    db <- iodb
+    res <- TDB.lookup db (_blockHash block)
+    let str = case res of
+          Nothing -> "lookup on TreeDB returned Nothing"
+          Just _dbe -> "lookup on TreeDB returned Just, about to call newBlock..."
+    putStrLn $ "runNewBlock: " ++ str
     newBlock noMiner block (BlockCreationTime blockTime) reqQ
 
 -- validate the same transactions as sent to newBlock
@@ -182,7 +190,7 @@ runValidateBlock
     -> PactQueue
     -> (IO BlockHeaderDb)
     -> IO (MVar (Either PactException PayloadWithOutputs))
-runValidateBlock plwo parentHeader blockHeader reqQ iodb = do
+runValidateBlock plwo parentHeader blockHeader reqQ _iodb = do
     putStrLn $ "runValidateBlock..."
         ++ "\n\tthe parent block: " ++ showHeaderFields [parentHeader]
         ++ "\n\tthe current block: " ++ showHeaderFields [blockHeader]
@@ -193,14 +201,6 @@ runValidateBlock plwo parentHeader blockHeader reqQ iodb = do
             , _blockParent = _blockHash parentHeader
             , _blockCreationTime = BlockCreationTime (Time hour)
             }
-    -- TODO: remove this
-    -- Test calling loookup on the parent block
-    db <- iodb
-    res <- TDB.lookup db (_blockHash parentHeader)
-    let str = case res of
-          Nothing -> "lookup on TreeDB returned Nothing"
-          Just _dbe -> "lookup on TreeDB returned Just"
-    putStrLn $ "runValidateBlock: " ++ str
     validateBlock toValidateHeader plData reqQ
 
 -- product of primes assigned to a given (inclusive) range of block heights
