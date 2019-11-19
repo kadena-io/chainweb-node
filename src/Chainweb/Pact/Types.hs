@@ -1,5 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
@@ -22,6 +25,7 @@ module Chainweb.Pact.Types
   , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
+  , Rewind(..)
     -- * types
   , TransactionM
   , ModuleCache
@@ -57,10 +61,12 @@ import Pact.Types.Term (ModuleName, PactId(..), Ref)
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
 import Chainweb.Utils
+import Chainweb.Version
 
 
 type HashCommandResult = CommandResult H.Hash
@@ -104,5 +110,15 @@ instance Show GasSupply where show (GasSupply g) = show g
 newtype GasId = GasId PactId deriving (Eq, Show)
 
 type TransactionM p a = ReaderT (CommandEnv p) IO a
+
+data Rewind
+    = DoRewind !BlockHeader
+    | NoRewind {-# UNPACK #-} !ChainId
+    deriving (Eq, Show)
+
+instance HasChainId Rewind where
+    _chainId = \case
+      DoRewind !bh -> _chainId bh
+      NoRewind !cid -> cid
 
 makeLenses ''PactDbStatePersist
