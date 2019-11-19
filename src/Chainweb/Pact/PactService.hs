@@ -1084,22 +1084,12 @@ execLookupPactTxs restorePoint txs
     | V.null txs = return mempty
     | otherwise = go
   where
-    doRewind cp (T2 lh lha) =
-      withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $ \_ ->
-        liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
-
-    go = do
-      cp <- getCheckpointer
-      case restorePoint of
-        NoRewind _ -> liftIO $!
-          V.mapM (_cpLookupProcessedTx cp) txs
-        DoRewind a -> doRewind cp a
-        _ -> do
-          mrp <- fmap (\(!bh) -> T2 (_blockHeight bh) (_blockHash bh))
-            <$!> findLatestValidBlock
-          case mrp of
-            Nothing -> return mempty -- nothing denotes genesis
-            Just a -> doRewind cp a
+    go = getCheckpointer >>= \(!cp) -> case restorePoint of
+      NoRewind _ ->
+        liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
+      DoRewind (T2 lh lha) ->
+        withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $ \_ ->
+          liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
 findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case

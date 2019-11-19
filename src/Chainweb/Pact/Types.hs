@@ -112,14 +112,12 @@ type TransactionM p a = ReaderT (CommandEnv p) IO a
 
 data Rewind a
     = DoRewind !a
-    | NoRewind !a
-    | PreInsert {-# UNPACK #-} !ChainId
+    | NoRewind {-# UNPACK #-} !ChainId
     deriving (Eq, Show, Functor)
 
 instance HasChainId a => HasChainId (Rewind a) where
     _chainId = \case
       DoRewind !a -> _chainId a
-      NoRewind !a -> _chainId a
-      PreInsert !cid -> cid
+      NoRewind !cid -> cid
 
 makeLenses ''PactDbStatePersist
