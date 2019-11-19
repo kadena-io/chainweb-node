@@ -54,6 +54,7 @@ nix-linux:
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - nix-shell --run "echo Done with shell test"
     - ./result/bin/chainweb-node --version
+    - result/bin/bench
     # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
@@ -84,6 +85,7 @@ slow-tests:
     - echo This is a master slow test run.
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
     - result/bin/cwtool slow-tests +RTS -N4
+    - result/bin/bench
 
 # pages:
 #   stage: deploy
