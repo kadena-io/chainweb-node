@@ -28,7 +28,7 @@ import qualified Criterion.Main as C
 
 import Data.Aeson
 import Data.Bool
-import Data.ByteString hiding (append, elem, foldr, map)
+import Data.ByteString (ByteString)
 import Data.Bytes.Put
 import Data.Char
 import Data.Decimal
@@ -125,35 +125,43 @@ testMemPoolAccess accounts t = mempty
 
     blockSize = 10
 
-    getTestBlock mVarAccounts _txOrigTime _validate _bHeight@(BlockHeight bh) _hash
+    setTime time = (\pb -> pb { _pmCreationTime = toTxCreationTime time })
+
+    getTestBlock mVarAccounts txOrigTime validate _bHeight@(BlockHeight bh) _hash
         | bh == 1 = do
-            meta <- makeMeta cid
+            meta <- setTime txOrigTime <$> makeMeta cid
             acctsKeysets <- createCoinAccounts testVer meta
             case traverse validateCommand (fmap (view _3) acctsKeysets) of
               Left err -> throwM $ userError err
               Right !r -> do
                   modifyMVar' mVarAccounts
                     (const $ M.fromList . fmap (view _1 &&& view _2) . toList $ acctsKeysets)
-                  _validate _bHeight _hash (V.fromList $ toList r) >>= print
+                  vs <- validate _bHeight _hash (V.fromList $ toList r)
+                  -- TODO: something better should go here
+                  unless (and vs) $ throwM $ userError "validation error"
                   return $! V.fromList $ toList r
+
         | otherwise =
           withMVar mVarAccounts $ \accs -> do
+            putStrLn $ "got here blockheight " <> show bh
             coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs) >>= traverse generate
+            putStrLn "coinReqs"
+            print coinReqs
+            putStrLn "coinReqs"
             runIdentityT $ forM coinReqs $ \coinReq -> do
                 let (Account sender, ks) =
                       case coinReq of
                         CoinCreateAccount account (Guard guardd) -> (account, guardd)
-                        CoinAccountBalance account -> (account,) $ (fromJuste $ M.lookup account accs)
+                        CoinAccountBalance account -> (account, fromJuste $ M.lookup account accs)
                         CoinTransfer (SenderName sn) rcvr amt ->
-                          (mkTransferCaps rcvr amt) $ (sn,) $ (fromJuste $ M.lookup sn accs)
+                          mkTransferCaps rcvr amt (sn, fromJuste $ M.lookup sn accs)
                         CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt ->
-                          (mkTransferCaps rcvr amt) (acc, guardd)
-                meta <- liftIO $ makeMetaWithSender sender cid
-                eCmd <- liftIO (validateCommand <$> createCoinContractRequest testVer meta ks coinReq)
+                          mkTransferCaps rcvr amt (acc, guardd)
+                meta <- liftIO $ setTime txOrigTime <$> makeMetaWithSender sender cid
+                eCmd <- liftIO $ validateCommand <$> createCoinContractRequest testVer meta ks coinReq
                 case eCmd of
                   Left e -> throwM $ userError e
                   Right tx -> return tx
-
 
     mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty SomeKeyPairCaps) -> (Account, NonEmpty SomeKeyPairCaps)
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
@@ -166,12 +174,11 @@ testMemPoolAccess accounts t = mempty
                       , PLiteral $ LDecimal m]
 
 playMainTrunk
-    :: BlockHeader
-    -> PayloadDb HashMapCas
+    :: PayloadDb HashMapCas
     -> BlockHeaderDb
     -> PactQueue
     -> IO [T3 BlockHeader BlockHeader PayloadWithOutputs]
-playMainTrunk _genesisBlock pdb bhdb rr = do
+playMainTrunk pdb bhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
     mineLine genesisBlock nonceCounter 7
   where
@@ -270,7 +277,7 @@ withResources logLevel f = C.perRunEnvWithCleanup create destroy unwrap
         coinAccounts <- newMVar mempty
         pactService <-
           startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess coinAccounts time) tempDir
-        mainTrunkBlocks <- playMainTrunk genesisBlock payloadDb blockHeaderDb (snd pactService)
+        mainTrunkBlocks <- playMainTrunk payloadDb blockHeaderDb (snd pactService)
         return $ NoopNFData $ Resources {..}
 
     destroy (NoopNFData (Resources {..})) = do
@@ -353,7 +360,7 @@ assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
 assertNotLeft (Right r) = return r
 
--- more code duplication
+-- MORE CODE DUPLICATION
 
 createCoinAccount
     :: ChainwebVersion
@@ -422,7 +429,7 @@ mkRandomCoinContractRequest transfersPred kacts = do
     pure $ case request of
       0 -> CoinAccountBalance <$> fake
       1 -> do
-          (from, to) <- distinctPairSenders
+          (from, to) <- distinctPair (M.keys kacts)
           case M.lookup to kacts of
               Nothing -> error $ errmsg ++ getAccount to
               Just _keyset -> CoinTransfer
@@ -435,7 +442,9 @@ mkRandomCoinContractRequest transfersPred kacts = do
         "mkRandomCoinContractRequest: something went wrong." ++
         " Cannot find account name: "
 
-newtype Account = Account { getAccount :: String } deriving (Eq, Ord, Show, Generic)
+newtype Account = Account
+  { getAccount :: String
+  } deriving (Eq, Ord, Show, Generic)
 
 data CoinContractRequest
   = CoinCreateAccount Account Guard
@@ -472,13 +481,8 @@ instance Fake Amount where
       lowerLimit = 0
       upperLimit = 5
 
-distinctPairSenders :: FGen (Account, Account)
-distinctPairSenders = fakeInt 0 9 >>= go
-  where
-    append num = Account $ "sender0" ++ show num
-    go n = do
-      m <- fakeInt 0 9
-      if n == m then go n else return (append n, append m)
+distinctPair :: (Fake a, Eq a) => [a] -> FGen (a,a)
+distinctPair xs = elements xs >>= \a -> (,) a <$> suchThat fake (/= a)
 
 createCoinContractRequest
     :: ChainwebVersion
