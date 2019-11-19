@@ -1077,26 +1077,20 @@ transactionsFromPayload plData = do
 
 execLookupPactTxs
     :: PayloadCas cas
-    => Maybe (T2 BlockHeight BlockHash)
+    => Rewind
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
 execLookupPactTxs restorePoint txs
     | V.null txs = return mempty
     | otherwise = go
   where
-    getRestorePoint = case restorePoint of
-        Nothing -> fmap (\bh -> T2 (_blockHeight bh) (_blockHash bh))
-            <$> findLatestValidBlock
-        x -> return x
-
-    go = do
-        cp <- getCheckpointer
-        mrp <- getRestorePoint
-        case mrp of
-            Nothing -> return mempty      -- can't look up anything at genesis
-            Just (T2 lh lha) ->
-                withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $ \_ ->
-                    liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
+    go = getCheckpointer >>= \(!cp) -> case restorePoint of
+      NoRewind _ ->
+        liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
+      DoRewind bh -> do
+        let !t = Just $! (_blockHeight bh + 1,_blockHash bh)
+        withCheckpointerRewind t "lookupPactTxs" $ \_ ->
+          liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
 findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
