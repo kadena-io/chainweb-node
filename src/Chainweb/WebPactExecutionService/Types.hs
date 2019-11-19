@@ -11,7 +11,6 @@ import qualified Pact.Types.Hash as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -23,7 +22,7 @@ data PactExecutionService = PactExecutionService
     , _pactNewBlock :: Miner -> BlockHeader -> BlockCreationTime -> IO PayloadWithOutputs
     , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
     , _pactLookup
-        :: Rewind BlockHeade
+        :: Rewind BlockHeader
             -- ^ restore point. Left cid means we
             -- don't care about the restore point.
         -> Vector P.PactHash

@@ -1,5 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
@@ -22,6 +25,7 @@ module Chainweb.Pact.Types
   , GasId(..)
   , PactServiceEnv(..)
   , PactServiceState(..)
+  , Rewind(..)
     -- * types
   , TransactionM
   , ModuleCache
@@ -61,6 +65,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
 import Chainweb.Utils
+import Chainweb.Version
 
 
 type HashCommandResult = CommandResult H.Hash
@@ -108,8 +113,8 @@ type TransactionM p a = ReaderT (CommandEnv p) IO a
 data Rewind a
     = DoRewind !a
     | NoRewind !a
-    | Genesis {-# UNPACK #-} !cid
-    deriving (Functor, Applicative, Foldable, Traversable, Monad)
+    | Genesis {-# UNPACK #-} !ChainId
+    deriving (Eq, Show, Functor)
 
 instance HasChainId a => HasChainId (Rewind a) where
     _chainId = \case

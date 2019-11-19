@@ -74,8 +74,7 @@ lookupPactTxs
     :: Rewind (T2 BlockHeight BlockHash)
     -> Vector P.PactHash
     -> PactQueue
-    -> IO (MVar (Either PactException
-                     (Vector (Rewind (T2 BlockHeight BlockHash)))))
+    -> IO (MVar (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash)))))
 lookupPactTxs restorePoint txs reqQ = do
     resultVar <- newEmptyMVar
     let !req = LookupPactTxsReq restorePoint txs resultVar

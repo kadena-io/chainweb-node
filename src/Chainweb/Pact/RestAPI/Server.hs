@@ -82,6 +82,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()

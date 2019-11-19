@@ -17,7 +17,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
@@ -48,13 +47,13 @@ mkWebPactExecutionService
     :: HM.HashMap ChainId PactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
-    { _pactValidateBlock = \h pd -> withChainService h $ \p -> _pactValidateBlock p h pd
-    , _pactNewBlock = \m h ct -> withChainService h $ \p -> _pactNewBlock p m h ct
+    { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
+    , _pactNewBlock = \m h ct -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h ct
     , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
-    , _pactLookup = \h txs -> withChainService h $ \p -> _pactLookup p eh txs
+    , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
     }
   where
-    withChainService cid act =  maybe (err cid) act HM.lookup hm
+    withChainService cid act =  maybe (err cid) act $ HM.lookup cid hm
     err cid = throwM $ userError
       $ "PactExecutionService: Invalid chain ID: "
       ++ show cid
@@ -68,7 +67,7 @@ mkPactExecutionService q = PactExecutionService
         mv <- validateBlock h pd q
         r <- takeMVar mv
         case r of
-          (Right !pdo) -> return pdo
+          Right !pdo -> return pdo
           Left e -> throwM e
     , _pactNewBlock = \m h ct -> do
         mv <- newBlock m h ct q
@@ -83,7 +82,7 @@ mkPactExecutionService q = PactExecutionService
     }
   where
     blockHeaderToRestorePoint =
-      fmap (\!bh -> T2 (_blockHeight bh) (_blockHash bh))
+      fmap (\(!bh) -> T2 (_blockHeight bh) (_blockHash bh))
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
 -- given.
