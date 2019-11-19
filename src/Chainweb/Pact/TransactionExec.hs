@@ -267,7 +267,7 @@ applyCoinbase
       -- ^ treat
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) =
-    evalTransactionM tenv def go
+    second _transactionCache <$> runTransactionM_ tenv def go
   where
     tenv = TransactionEnv Nothing Transactional dbEnv logger pd noSPVSupport Nothing
     interp = initStateInterpreter $ initCapabilities [magic_COINBASE]
@@ -282,8 +282,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (Enfor
       case cr of
         Left e
           | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
-          | otherwise -> flip T2 mempty <$>
-            jsonErrorResult rk e 0 "coinbase tx failure"
+          | otherwise -> jsonErrorResult rk e 0 "coinbase tx failure"
         Right er -> do
           liftIO
             $ logDebugRequestKey logger rk
@@ -292,10 +291,8 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (Enfor
             ++ " to "
             ++ show mid
 
-          return $! T2
-           (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing)
-           (_erLoadedModules er)
+          return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
+           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
 
 applyLocal
     :: Logger
