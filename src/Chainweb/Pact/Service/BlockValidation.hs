@@ -71,7 +71,7 @@ local ct reqQ = do
     return resultVar
 
 lookupPactTxs
-    :: Rewind (T2 BlockHeight BlockHash)
+    :: Rewind
     -> Vector P.PactHash
     -> PactQueue
     -> IO (MVar (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash)))))

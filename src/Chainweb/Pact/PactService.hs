@@ -1077,7 +1077,7 @@ transactionsFromPayload plData = do
 
 execLookupPactTxs
     :: PayloadCas cas
-    => Rewind (T2 BlockHeight BlockHash)
+    => Rewind
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
 execLookupPactTxs restorePoint txs
@@ -1087,8 +1087,9 @@ execLookupPactTxs restorePoint txs
     go = getCheckpointer >>= \(!cp) -> case restorePoint of
       NoRewind _ ->
         liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
-      DoRewind (T2 lh lha) ->
-        withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $ \_ ->
+      DoRewind bh -> do
+        let !t = Just $! (_blockHeight bh + 1,_blockHash bh)
+        withCheckpointerRewind t "lookupPactTxs" $ \_ ->
           liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)

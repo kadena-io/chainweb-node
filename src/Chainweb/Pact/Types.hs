@@ -61,6 +61,7 @@ import Pact.Types.Term (ModuleName, PactId(..), Ref)
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
@@ -110,14 +111,14 @@ newtype GasId = GasId PactId deriving (Eq, Show)
 
 type TransactionM p a = ReaderT (CommandEnv p) IO a
 
-data Rewind a
-    = DoRewind !a
+data Rewind
+    = DoRewind !BlockHeader
     | NoRewind {-# UNPACK #-} !ChainId
-    deriving (Eq, Show, Functor)
+    deriving (Eq, Show)
 
-instance HasChainId a => HasChainId (Rewind a) where
+instance HasChainId Rewind where
     _chainId = \case
-      DoRewind !a -> _chainId a
+      DoRewind !bh -> _chainId bh
       NoRewind !cid -> cid
 
 makeLenses ''PactDbStatePersist

@@ -22,8 +22,8 @@ data PactExecutionService = PactExecutionService
     , _pactNewBlock :: Miner -> BlockHeader -> BlockCreationTime -> IO PayloadWithOutputs
     , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
     , _pactLookup
-        :: Rewind BlockHeader
-            -- ^ restore point. Left cid means we
+        :: Rewind
+            -- ^ restore point. 'NoRewind' means we
             -- don't care about the restore point.
         -> Vector P.PactHash
             -- ^ txs to lookup

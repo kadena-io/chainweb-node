@@ -14,7 +14,6 @@ import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Monad.Catch
 import qualified Data.HashMap.Strict as HM
-import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import Chainweb.BlockHeader
@@ -77,12 +76,9 @@ mkPactExecutionService q = PactExecutionService
         mv <- local ct q
         takeMVar mv
     , _pactLookup = \h txs -> do
-        mv <- lookupPactTxs (blockHeaderToRestorePoint h) txs q
+        mv <- lookupPactTxs h txs q
         takeMVar mv
     }
-  where
-    blockHeaderToRestorePoint =
-      fmap (\(!bh) -> T2 (_blockHeight bh) (_blockHash bh))
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
 -- given.
