@@ -658,7 +658,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -671,6 +671,7 @@ executable cwtool
         Ea.Genesis
         GenConf
         Gexf
+        HeaderDump
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
@@ -738,6 +739,7 @@ executable cwtool
         , primitive >= 0.6
         , random >= 1.1
         , resourcet >= 1.2
+        , rocksdb-haskell >= 1.0
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
