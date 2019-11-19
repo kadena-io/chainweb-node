@@ -195,9 +195,6 @@ runValidateBlock plwo parentHeader blockHeader reqQ iodb = do
             }
     -- TODO: remove this
     -- Test calling loookup on the parent block
-    -- lookup :: db -> DbKey db -> IO (Maybe (DbEntry db))
-    -- instance TreeDb BlockHeaderDb where
-    -- type DbEntry BlockHeaderDb = BlockHeader
     db <- iodb
     res <- TDB.lookup db (_blockHash parentHeader)
     let str = case res of
