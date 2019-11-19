@@ -11,9 +11,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 module Chainweb.Pact.Backend.ForkingBench (forkingBench) where
 
-import Control.Arrow
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TBQueue
@@ -23,7 +23,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Trans.Identity
 import qualified Criterion.Main as C
 
 import Data.Aeson
@@ -32,11 +31,13 @@ import Data.ByteString (ByteString)
 import Data.Bytes.Put
 import Data.Char
 import Data.Decimal
-import Data.Foldable
+import Data.FileEmbed
+import Data.Foldable (toList)
 import Data.IORef
 import Data.List (uncons)
-import Data.List.NonEmpty hiding (insert, toList)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -49,6 +50,7 @@ import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Vector as V
+import qualified Data.Yaml as Y
 
 import Fake
 
@@ -108,15 +110,14 @@ import Data.CAS.RocksDB
 
 forkingBench :: C.Benchmark
 forkingBench =
-    C.bench "forkingBench" $ withResources Quiet go
+    C.bench "forkingBench" $ withResources 10 Quiet go
   where
-
-    go _lol _mainLineBlocks _pactQueue = do
-            -- let join1 = undefined mainLineBlocks
-                -- join2 = undefined mainLineBlocks
-            -- _ <- playForksAtJoin1 join1 payloadDb blockHeaderDb pactQueue
-            -- _ <- playForksAtJoin2 join2 payloadDb blockHeaderDb pactQueue
-            return ()
+    go mainLineBlocks pdb bhdb nonceCounter pactQueue = do
+        let (T3 _ join1 _) = mainLineBlocks !! 5
+            forkLength1 = 5
+            forkLength2 = 5
+        void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
+        void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
 testMemPoolAccess :: MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
 testMemPoolAccess accounts t = mempty
@@ -125,30 +126,26 @@ testMemPoolAccess accounts t = mempty
 
     blockSize = 10
 
-    setTime time = (\pb -> pb { _pmCreationTime = toTxCreationTime time })
+    setTime time = \pb -> pb { _pmCreationTime = toTxCreationTime time }
 
-    getTestBlock mVarAccounts txOrigTime validate _bHeight@(BlockHeight bh) _hash
+    getTestBlock mVarAccounts txOrigTime validate bHeight@(BlockHeight bh) hash
         | bh == 1 = do
             meta <- setTime txOrigTime <$> makeMeta cid
-            acctsKeysets <- createCoinAccounts testVer meta
-            case traverse validateCommand (fmap (view _3) acctsKeysets) of
+            (as, kss, cmds) <- unzip3 . toList <$> createCoinAccounts testVer meta
+            case traverse validateCommand cmds of
               Left err -> throwM $ userError err
               Right !r -> do
                   modifyMVar' mVarAccounts
-                    (const $ M.fromList . fmap (view _1 &&& view _2) . toList $ acctsKeysets)
-                  vs <- validate _bHeight _hash (V.fromList $ toList r)
+                    (const $ M.fromList $ zip as kss)
+                  vs <- validate bHeight hash (V.fromList $ toList r)
                   -- TODO: something better should go here
-                  unless (and vs) $ throwM $ userError "validation error"
+                  unless (and vs) $ throwM $ userError "at blockheight 1"
                   return $! V.fromList $ toList r
 
         | otherwise =
           withMVar mVarAccounts $ \accs -> do
-            putStrLn $ "got here blockheight " <> show bh
             coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs) >>= traverse generate
-            putStrLn "coinReqs"
-            print coinReqs
-            putStrLn "coinReqs"
-            runIdentityT $ forM coinReqs $ \coinReq -> do
+            txs <- forM coinReqs $ \coinReq -> do
                 let (Account sender, ks) =
                       case coinReq of
                         CoinCreateAccount account (Guard guardd) -> (account, guardd)
@@ -157,11 +154,12 @@ testMemPoolAccess accounts t = mempty
                           mkTransferCaps rcvr amt (sn, fromJuste $ M.lookup sn accs)
                         CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt ->
                           mkTransferCaps rcvr amt (acc, guardd)
-                meta <- liftIO $ setTime txOrigTime <$> makeMetaWithSender sender cid
-                eCmd <- liftIO $ validateCommand <$> createCoinContractRequest testVer meta ks coinReq
+                meta <- setTime txOrigTime <$> makeMetaWithSender sender cid
+                eCmd <- validateCommand <$> createCoinContractRequest testVer meta ks coinReq
                 case eCmd of
                   Left e -> throwM $ userError e
                   Right tx -> return tx
+            return $! txs
 
     mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty SomeKeyPairCaps) -> (Account, NonEmpty SomeKeyPairCaps)
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
@@ -173,18 +171,22 @@ testMemPoolAccess accounts t = mempty
                       , PLiteral $ LString $ T.pack r
                       , PLiteral $ LDecimal m]
 
-playMainTrunk
+playLine
     :: PayloadDb HashMapCas
     -> BlockHeaderDb
+    -> Word64
+    -> BlockHeader
     -> PactQueue
+    -> IORef Word64
     -> IO [T3 BlockHeader BlockHeader PayloadWithOutputs]
-playMainTrunk pdb bhdb rr = do
-    nonceCounter <- newIORef (1 :: Word64)
-    mineLine genesisBlock nonceCounter 7
+playLine  pdb bhdb trunkLength startingBlock rr =
+    mineLine startingBlock trunkLength
   where
-    mineLine start ncounter l =
-        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. (startHeight + l)]) rr) start
+    mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 BlockHeader BlockHeader PayloadWithOutputs]
+    mineLine start l ncounter =
+        evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) rr) start
       where
+        startHeight :: Num a => a
         startHeight = fromIntegral $ _blockHeight start
         go = do
             r <- ask
@@ -243,11 +245,6 @@ mineBlock parentHeader nonce pdb bhdb r = do
                  , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
                  }
 
-_playForksAtJoin1 :: a
-_playForksAtJoin1 = undefined
-_playForksAtJoin2 :: a
-_playForksAtJoin2 = undefined
-
 data Resources
   = Resources
     {
@@ -258,14 +255,14 @@ data Resources
     , pactService :: (Async (), PactQueue)
     , mainTrunkBlocks :: [T3 BlockHeader BlockHeader PayloadWithOutputs]
     , coinAccounts :: MVar (Map Account (NonEmpty SomeKeyPairCaps))
+    , nonceCounter :: IORef Word64
     }
 
-
 type RunPactService b
-   = MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> [T3 BlockHeader BlockHeader PayloadWithOutputs] -> PactQueue -> IO b
+   = [T3 BlockHeader BlockHeader PayloadWithOutputs] -> PayloadDb HashMapCas -> BlockHeaderDb -> IORef Word64 -> PactQueue  -> IO b
 
-withResources :: NFData b => LogLevel -> RunPactService b -> C.Benchmarkable
-withResources logLevel f = C.perRunEnvWithCleanup create destroy unwrap
+withResources :: NFData b => Word64 -> LogLevel -> RunPactService b -> C.Benchmarkable
+withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unwrap
   where
 
     create = do
@@ -275,18 +272,20 @@ withResources logLevel f = C.perRunEnvWithCleanup create destroy unwrap
         tempDir <- fst <$> newTempDir
         time <- getCurrentTimeIntegral
         coinAccounts <- newMVar mempty
+        nonceCounter <- newIORef 1
         pactService <-
           startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess coinAccounts time) tempDir
-        mainTrunkBlocks <- playMainTrunk payloadDb blockHeaderDb (snd pactService)
+        mainTrunkBlocks <-
+          playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}
 
     destroy (NoopNFData (Resources {..})) = do
       stopPact pactService
       destroyRocksResource rocksDbAndDir
       destroyPayloadDb payloadDb
-      removeDirectoryRecursive tempDir
 
-    unwrap (NoopNFData (Resources {..})) = f coinAccounts mainTrunkBlocks (snd $ pactService)
+    unwrap (NoopNFData (Resources {..})) =
+      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd $ pactService)
 
     pactQueueSize = 2000
 
@@ -309,10 +308,7 @@ testVer = Development
 -- we might need to change the version to fastTimedCPM
 
 genesisBlock :: BlockHeader
-genesisBlock = genesisBlockHeader testVer chainid
-
-chainid :: ChainId
-chainid = someChainId testVer
+genesisBlock = genesisBlockHeader testVer cid
 
 createRocksResource :: IO (FilePath, RocksDb)
 createRocksResource = do
@@ -325,7 +321,7 @@ destroyRocksResource :: (FilePath, RocksDb) -> IO ()
 destroyRocksResource (dir, rocks)  =  do
     closeRocksDb rocks
     destroyRocksDb dir
-    removeDirectoryRecursive dir
+    doesDirectoryExist dir >>= flip when (removeDirectoryRecursive dir)
 
 createPayloadDb :: IO (PayloadDb HashMapCas)
 createPayloadDb = newPayloadDb
@@ -366,51 +362,69 @@ createCoinAccount
     :: ChainwebVersion
     -> PublicMeta
     -> String
-    -> IO (Account, NonEmpty SomeKeyPairCaps, Command Text)
+    -> IO (NonEmpty SomeKeyPairCaps, Command Text)
 createCoinAccount v meta name = do
-    adminKS <- testSomeKeyPairs
-    nameKeyset <- NEL.fromList <$> getKeyset
-    let theData = object [T.pack (name ++ "-keyset") .= fmap (formatB16PubKey . fst) nameKeyset]
-    res <- mkExec theCode theData meta (NEL.toList adminKS) (Just $ Pact.NetworkId $ toText v) Nothing
-    pure (Account name, nameKeyset, res)
+    sender00Keyset <- NEL.fromList <$> getKeyset "sender00"
+    nameKeyset <- NEL.fromList <$> getKeyset name
+    let attach = attachCaps "sender00" name 1000.0
+    let theData = object [T.pack name .= fmap (formatB16PubKey . fst) (attach nameKeyset)]
+    res <- mkExec theCode theData meta (NEL.toList $ attach sender00Keyset) (Just $ Pact.NetworkId $ toText v) Nothing
+    pure (nameKeyset, res)
   where
-    theCode = printf "(coin.create-account \"%s\" (read-keyset \"%s\"))" name name
+    theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
+    isSenderAccount name'  =
+      elem name' (map getAccount coinAccountNames)
 
-    getKeyset :: IO [SomeKeyPairCaps]
-    getKeyset = (\k -> [(k, [])]) <$> genKeyPair defaultScheme
+    getKeyset :: String -> IO [SomeKeyPairCaps]
+    getKeyset s
+      | isSenderAccount s = do
+          keypair <- stockKey (T.pack s)
+          mkKeyPairs [keypair]
+      | otherwise = (\k -> [(k, [])]) <$> genKeyPair defaultScheme
+
+    attachCaps s rcvr m ks = (caps <$) <$> ks
+      where
+        caps = [gas, tfr]
+        gas = SigCapability (QualifiedName "coin" "GAS" (mkInfo "coin.GAS")) []
+        tfr = SigCapability (QualifiedName "coin" "TRANSFER" (mkInfo "coin.TRANSFER"))
+              [ PLiteral $ LString $ T.pack s
+              , PLiteral $ LString $ T.pack rcvr
+              , PLiteral $ LDecimal m]
+
+coinAccountNames :: [Account]
+coinAccountNames = (Account . ("sender0" <>) . show) <$> [0 :: Int .. 9]
+
+-- | Convenient access to predefined testnet sender accounts
+stockKey :: Text -> IO ApiKeyPair
+stockKey s = do
+  let Right (Object o) = Y.decodeEither' stockKeyFile
+      Just (Object kp) = HM.lookup s o
+      Just (String pub) = HM.lookup "public" kp
+      Just (String priv) = HM.lookup "secret" kp
+      mkKeyBS = decodeKey . encodeUtf8
+  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519) Nothing
+
+stockKeyFile :: ByteString
+stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
 createCoinAccounts :: ChainwebVersion -> PublicMeta -> IO (NonEmpty (Account, NonEmpty SomeKeyPairCaps, Command Text))
-createCoinAccounts v meta = traverse (createCoinAccount v meta) names
+createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
+  where
+    go a m = do
+      (b,c) <- m
+      return (Account a,b,c)
 
 names :: NonEmpty String
-names = NEL.map safeCapitalize . NEL.fromList $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
+names = NEL.map safeCapitalize . NEL.fromList $ Prelude.take 2 $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
 
 accountNames :: NonEmpty Account
 accountNames = Account <$> names
-
-testSomeKeyPairs :: IO (NonEmpty SomeKeyPairCaps)
-testSomeKeyPairs = do
-    let (pub, priv, addr, scheme) = someED25519Pair
-        apiKP = ApiKeyPair priv (Just pub) (Just addr) (Just scheme) Nothing
-    NEL.fromList <$> mkKeyPairs [apiKP]
-
 
 formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
 safeCapitalize :: String -> String
 safeCapitalize = fromMaybe [] . fmap (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
-
--- | note this is "sender00"'s key
-someED25519Pair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
-someED25519Pair =
-    ( PubBS $ decodeKey
-        "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-    , PrivBS $ decodeKey
-        "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
-    , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-    , ED25519
-    )
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
@@ -548,7 +562,7 @@ makeMeta c = do
           _pmChainId = Pact.ChainId $ chainIdToText c
         , _pmSender = "sender00"
         , _pmGasLimit = 10000
-        , _pmGasPrice = 0.001
+        , _pmGasPrice = 0.000000000001
         , _pmTTL = 3600
         , _pmCreationTime = t
         }
