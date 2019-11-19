@@ -69,7 +69,6 @@ maxTTL :: ParsedInteger
 maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- This is probably going to be changed. Let us make it 2 days for now.
 
--- prop_tx_ttl_newBlock/validateBlock
 timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
 timingsCheck (BlockCreationTime blockOriginationTime) tx =
     ttl > 0
