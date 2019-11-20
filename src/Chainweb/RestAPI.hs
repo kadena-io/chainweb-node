@@ -259,7 +259,7 @@ chainwebTime app req resp = app req $ \res -> do
 chainwebNodeVersion :: Middleware
 chainwebNodeVersion app req resp = app req $ \res ->
     resp $ mapResponseHeaders
-        ((:) ("X-Chainweb-Node-Version", CURRENT_PACKAGE_VERSION))
+        ((:) chainwebNodeVersionHeader)
         res
 
 serveChainwebOnPort
