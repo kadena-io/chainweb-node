@@ -50,7 +50,6 @@ import Control.Monad
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
-import Data.Bool
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
@@ -139,19 +138,13 @@ validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration 
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
-    maybe (return ())
-          checkIfValidChain
-          (getAmberdataChainId o)
-    maybe (return ())
-          (validateFilePath "databaseDirectory")
-          (_nodeConfigDatabaseDirectory o)
+    mapM_ checkIfValidChain (getAmberdataChainId o)
+    mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
   where
     chains = chainIds $ _nodeConfigChainweb o
     checkIfValidChain cid
-      = bool
-        (throwError $ "Invalid chain id provided: " <> toText cid)
-        (return ())
-        (HS.member cid chains)
+      = unless (HS.member cid chains)
+        $ throwError $ "Invalid chain id provided: " <> toText cid
     getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
 
 

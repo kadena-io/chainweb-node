@@ -48,7 +48,7 @@ module Chainweb.Chainweb
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
--- * Configuration
+-- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
@@ -58,6 +58,7 @@ module Chainweb.Chainweb
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
+, configThrottling
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -93,7 +94,6 @@ module Chainweb.Chainweb
 , runMiner
 
 -- * Throttler
-, ThrottlingConfig(..)
 , mkGenericThrottler
 , mkMiningThrottler
 , mkPutPeerThrottler
@@ -101,8 +101,19 @@ module Chainweb.Chainweb
 , checkPathPrefix
 , mkThrottler
 
+, ThrottlingConfig(..)
+, throttlingRate
+, throttlingLocalRate
+, throttlingMiningRate
+, throttlingPeerRate
+, defaultThrottlingConfig
+
 -- * Cut Config
 , CutConfig(..)
+, cutIncludeOrigin
+, cutPruneChainDatabase
+, cutFetchTimeout
+, cutInitialCutHeightLimit
 , defaultCutConfig
 ) where
 
