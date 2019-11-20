@@ -33,7 +33,6 @@ module TXG.Repl
   , mkCmdStr
   , mkKey
   , mkKeyCombined
-  , mkPubMeta
   , k2g
   , mkGuard
   , mkGuardCombined
@@ -185,13 +184,6 @@ mkKeyset p ks = object
   , "keys" .= ks
   ]
 
-mkPubMeta :: ChainId -> IO PublicMeta
-mkPubMeta cid = do
-  current <- (round `fmap` getPOSIXTime) :: IO Integer
-  return $ defPubMeta
-    & set pmCreationTime (TxCreationTime (ParsedInteger current))
-    & set pmChainId (P.ChainId (chainIdToText cid))
-
 sampleKeyPairCaps :: IO [SomeKeyPairCaps]
 sampleKeyPairCaps = do
   s' <- dieEither $ parseB16TextOnly sender00Secret
@@ -263,7 +255,7 @@ _nw :: Network
 _nw = Network _ver _hostAddr _cid
 
 _metaIO :: IO PublicMeta
-_metaIO = mkPubMeta _cid
+_metaIO = makeMeta _cid
 
 _cmd1IO :: IO (Command Text)
 _cmd1IO = do
