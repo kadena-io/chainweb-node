@@ -81,6 +81,7 @@ module Chainweb.Pact.Backend.Types
     , runPactServiceM
 
     , PactServiceException(..)
+    , ModuleCache
 
       -- * optics
     , psMempoolAccess
@@ -92,6 +93,7 @@ module Chainweb.Pact.Backend.Types
     , psBlockHeaderDb
     , psMinerRewards
     , psGasModel
+    , psInitCache
     ) where
 
 import Control.Exception
@@ -125,8 +127,6 @@ import Pact.Types.ChainMeta (PublicData(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
-    (ExecutionMode(..), PactDb(..), TableName(..), TxId(..),
-    TxLog(..))
 import Pact.Types.Gas (GasModel)
 import Pact.Types.SPV
 
@@ -328,8 +328,11 @@ data PactServiceEnv cas = PactServiceEnv
     , _psMinerRewards :: !MinerRewards
     }
 
-newtype PactServiceState = PactServiceState
+type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
+
+data PactServiceState = PactServiceState
     { _psStateValidated :: Maybe BlockHeader
+    , _psInitCache :: ! ModuleCache
     }
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
