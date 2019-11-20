@@ -112,7 +112,7 @@ instance ToJSON LogConfig where
         , "backend" .= _logConfigBackend o
         , "telemetryBackend" .= _logConfigTelemetryBackend o
         , "clusterId" .= _logConfigClusterId o
-        , "amberdataBackend" .= _logConfigAmberdataBackend o
+        -- hidden:  "amberdataBackend" .= _logConfigAmberdataBackend o
         , "filter" .= _logConfigFilter o
         ]
 
@@ -143,8 +143,6 @@ pLogConfig_ prefix = id
     <*< logConfigClusterId .:: fmap Just % textOption
         % prefixLong maybePrefix "cluster-id"
         <> help "a label that is added to all log messages from this node"
-    <*< logConfigAmberdataBackend %::
-        pEnableConfig "amberdata-logger" pAmberdataConfig
     <*< logConfigFilter %:: pFilter_ maybePrefix
   where
     maybePrefix
