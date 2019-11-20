@@ -51,9 +51,10 @@ nix-linux:
   script:
     - echo -e "${CI_COMMIT_SHORT_SHA}\n${CI_COMMIT_REF_NAME}\n${CI_COMMIT_TAG}" > .vcs-info
     - cat .vcs-info
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg externalTestsAndBench true
     - nix-shell --run "echo Done with shell test"
-    - ./result/bin/chainweb-node --version
+    - result/bin/chainweb-node --version
+    - result/bin/chainweb-tests
     - result/bin/bench
     # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
@@ -83,8 +84,9 @@ slow-tests:
     - linux
   script:
     - echo This is a master slow test run.
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg externalTestsAndBench true
     - result/bin/cwtool slow-tests +RTS -N4
+    - result/bin/chainweb-tests
     - result/bin/bench
 
 # pages:

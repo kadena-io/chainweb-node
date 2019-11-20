@@ -1,4 +1,5 @@
-pactSrc: pkgs: hackGet: self: super: with pkgs.haskell.lib;
+{ pactSrc, pkgs, hackGet, externalTestsAndBench }:
+self: super: with pkgs.haskell.lib;
 let # Working on getting this function upstreamed into nixpkgs, but
     # this actually gets things directly from hackage and doesn't
     # depend on the state of nixpkgs.  Should allow us to have fewer
@@ -10,11 +11,15 @@ let # Working on getting this function upstreamed into nixpkgs, but
            inherit sha256;
          }) {};
 
-    convertCabalTestsAndBenchmarksToExecutables = p: overrideCabal p (drv: {
-      preConfigure = (drv.preConfigure or "") + ''
-        sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
-      '';
-    });
+    convertCabalTestsAndBenchmarksToExecutables = p:
+      if externalTestsAndBench
+        then
+          (overrideCabal p (drv: {
+            preConfigure = (drv.preConfigure or "") + ''
+              sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
+            '';
+          }))
+        else p;
 
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
