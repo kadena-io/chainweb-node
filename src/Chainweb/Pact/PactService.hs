@@ -75,7 +75,6 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import Pact.Gas (freeGasEnv)
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
@@ -331,7 +330,7 @@ serviceRequests memPoolAccess reqQ = do
                     , show e
                     ]
                 liftIO $ void $ tryPutMVar mvar $! toPactInternalError e
-            ]
+           ]
       where
         -- Pact turns AsyncExceptions into textual exceptions within
         -- PactInternalError. So there is no easy way for us to distinguish
@@ -534,9 +533,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         => PactServiceEnv cas
         -> P.PactDbEnv db
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
+        -> P.GasPrice
         -> TransactionEnv db
-    createGasEnv envM db cmd =
-        TransactionEnv Nothing P.Transactional db logger publicData spv nid
+    createGasEnv envM db cmd gp =
+        TransactionEnv Nothing P.Transactional db logger publicData spv nid gp
       where
         !logger = _cpeLogger . _psCheckpointEnv $ envM
         !publicData = set P.pdPublicMeta (publicMetaOf cmd) (_psPublicData envM)
@@ -556,21 +556,21 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
             supply = gasFeeOf gasLimit gasPrice
-            buyGasEnv = createGasEnv envM db cmd
-            txst0 = TransactionState freeGasEnv mcache mempty
+            buyGasEnv = createGasEnv envM db cmd gasPrice
+            txst0 = set txCache mcache
+              $ set txGasLimit gasLimit
+              $ def
 
         cr <- liftIO
           $! P.catchesPactError
-          $! runTransactionM_ buyGasEnv txst0
+          $! runTransactionM buyGasEnv txst0
           $! buyGas cmd miner supply
 
         case cr of
             Left _ ->
               return (T2 mcache (T3 tx Unique BuyGasFailed))  -- TODO throw InsertError instead
-            Right (T2 (Left _) t) ->
-              return $! T2 (_transactionCache t) (T3 tx Unique BuyGasFailed)
-            Right (T2 (Right _) t) ->
-              return $! T2 (_transactionCache t) (T3 tx Unique BuyGasPassed)
+            Right (T2 _ t) ->
+              return $! T2 (_txCache t) (T3 tx Unique BuyGasPassed)
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -1078,26 +1078,20 @@ transactionsFromPayload plData = do
 
 execLookupPactTxs
     :: PayloadCas cas
-    => Maybe (T2 BlockHeight BlockHash)
+    => Rewind
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))
 execLookupPactTxs restorePoint txs
     | V.null txs = return mempty
     | otherwise = go
   where
-    getRestorePoint = case restorePoint of
-        Nothing -> fmap (\bh -> T2 (_blockHeight bh) (_blockHash bh))
-            <$> findLatestValidBlock
-        x -> return x
-
-    go = do
-        cp <- getCheckpointer
-        mrp <- getRestorePoint
-        case mrp of
-            Nothing -> return mempty      -- can't look up anything at genesis
-            Just (T2 lh lha) ->
-                withCheckpointerRewind (Just (lh + 1, lha)) "lookupPactTxs" $ \_ ->
-                    liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
+    go = getCheckpointer >>= \(!cp) -> case restorePoint of
+      NoRewind _ ->
+        liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
+      DoRewind bh -> do
+        let !t = Just $! (_blockHeight bh + 1,_blockHash bh)
+        withCheckpointerRewind t "lookupPactTxs" $ \_ ->
+          liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
 findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case

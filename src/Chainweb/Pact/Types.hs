@@ -1,5 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
@@ -26,9 +29,10 @@ module Chainweb.Pact.Types
 
     -- * Transaction State
   , TransactionState(..)
-  , transactionGasEnv
-  , transactionLogs
-  , transactionCache
+  , txGasModel
+  , txGasLimit
+  , txLogs
+  , txCache
 
     -- * Transaction Env
   , TransactionEnv(..)
@@ -39,13 +43,15 @@ module Chainweb.Pact.Types
   , txPublicData
   , txSpvSupport
   , txNetworkId
+  , txGasPrice
 
     -- * Transaction Execution Monad
   , TransactionM(..)
   , runTransactionM
-  , runTransactionM_
-  , execTransactionM
   , evalTransactionM
+
+    -- * Rewind data type
+  , Rewind(..)
 
     -- * types
   , ModuleCache
@@ -85,16 +91,18 @@ import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.Persistence
-import Pact.Types.Runtime
+import Pact.Types.Runtime hiding (ChainId(..))
 import Pact.Types.SPV
 import Pact.Types.Term (ModuleName, PactId(..), Ref)
 
 -- internal chainweb modules
 
+import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Payload
 import Chainweb.Utils
+import Chainweb.Version
 
 
 type HashCommandResult = CommandResult H.Hash
@@ -143,18 +151,33 @@ newtype GasId = GasId PactId deriving (Eq, Show)
 --
 newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
+-- | This data type marks whether or not a particular header is
+-- expected to rewind or not. In the case of 'NoRewind', no
+-- header data is given, and a chain id is given instead for
+-- routing purposes
+--
+data Rewind
+    = DoRewind !BlockHeader
+    | NoRewind {-# UNPACK #-} !ChainId
+    deriving (Eq, Show)
+
+instance HasChainId Rewind where
+    _chainId = \case
+      DoRewind !bh -> _chainId bh
+      NoRewind !cid -> cid
+
 -- | Transaction execution state
 --
 data TransactionState = TransactionState
-    { _transactionGasEnv :: GasEnv
-    , _transactionCache :: ModuleCache
-    , _transactionLogs :: [TxLog Value]
+    { _txCache :: ModuleCache
+    , _txLogs :: [TxLog Value]
+    , _txGasLimit :: !Gas
+    , _txGasModel :: !GasModel
     }
-
 makeLenses ''TransactionState
 
 instance Default TransactionState where
-    def = TransactionState freeGasEnv mempty mempty
+    def = TransactionState mempty mempty 0 (_geGasModel freeGasEnv)
 
 -- | Transaction execution env
 --
@@ -166,6 +189,7 @@ data TransactionEnv db = TransactionEnv
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
+    , _txGasPrice :: !GasPrice
     }
 makeLenses ''TransactionEnv
 
@@ -175,7 +199,7 @@ makeLenses ''TransactionEnv
 -- and log values.
 --
 newtype TransactionM db a = TransactionM
-    { _runTransactionM
+    { _unTransactionM
         :: ReaderT (TransactionEnv db) (StateT TransactionState IO) a
     } deriving
       ( Functor, Applicative, Monad
@@ -188,7 +212,7 @@ newtype TransactionM db a = TransactionM
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, returning the full range of
--- results
+-- results in a strict tuple
 --
 runTransactionM
     :: forall db a
@@ -198,26 +222,10 @@ runTransactionM
       -- ^ initial state
     -> TransactionM db a
       -- ^ computation to execute
-    -> IO (a, TransactionState)
-runTransactionM tenv txst act
-    = runStateT (runReaderT (_runTransactionM act) tenv) txst
-
--- | Run a 'TransactionM' computation given some initial
--- reader and state values, returning the full range of
--- results in a strict tuple
---
-runTransactionM_
-    :: forall db a
-    . TransactionEnv db
-      -- ^ initial reader env
-    -> TransactionState
-      -- ^ initial state
-    -> TransactionM db a
-      -- ^ computation to execute
     -> IO (T2 a TransactionState)
-runTransactionM_ tenv txst act
+runTransactionM tenv txst act
     = view (from _T2)
-    <$> runStateT (runReaderT (_runTransactionM act) tenv) txst
+    <$> runStateT (runReaderT (_unTransactionM act) tenv) txst
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, discarding the final state.
@@ -231,19 +239,4 @@ evalTransactionM
     -> TransactionM db a
     -> IO a
 evalTransactionM tenv txst act
-    = evalStateT (runReaderT (_runTransactionM act) tenv) txst
-
--- | Run a 'TransactionM' computation given some initial
--- reader and state values, discarding the final value.
---
-execTransactionM
-    :: forall p a
-    . TransactionEnv p
-      -- ^ initial reader env
-    -> TransactionState
-      -- ^ initial state
-    -> TransactionM p a
-      -- ^ computation to execute
-    -> IO TransactionState
-execTransactionM tenv txst act
-    = execStateT (runReaderT (_runTransactionM act) tenv) txst
+    = evalStateT (runReaderT (_unTransactionM act) tenv) txst

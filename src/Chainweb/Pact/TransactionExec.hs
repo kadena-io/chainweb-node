@@ -68,7 +68,6 @@ import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
-import Data.Maybe
 import Data.Text (Text, pack, unpack)
 import Data.Tuple.Strict (T2(..))
 
@@ -143,10 +142,16 @@ applyCmd
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
-    second _transactionCache <$>
-      runTransactionM_ cenv0 txst0 applyBuyGas
+    second _txCache <$>
+      runTransactionM cenv txst applyBuyGas
   where
-    txst0 = set transactionCache mcache0 def
+    txst = set txCache mcache0
+      $ set txGasLimit gasLimit
+      $ def
+
+    cenv = TransactionEnv Nothing Transactional pdbenv logger
+      pd' spv nid gasPrice
+
     cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
@@ -155,11 +160,6 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     supply = gasFeeOf gasLimit gasPrice
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
-    cenv0 = TransactionEnv Nothing Transactional pdbenv logger pd' spv nid
-
-    -- Discount the initial gas charge from the Pact execution gas limit
-    userGasEnv = mkGasEnvOf cmd gasModel
-      & over geGasLimit (\l -> l - fromIntegral initialGas)
 
     fatal e = do
       liftIO
@@ -175,20 +175,22 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
       case buyGasResultE of
         Left e1 -> fatal $ "tx failure for requestKey when buying gas: " <> tShow e1
         Right (Left e) -> fatal e
-        Right (Right pid) -> checkTooBigTx $ applyPayload pid
+        Right (Right !pid) -> checkTooBigTx $ applyPayload pid
 
     checkTooBigTx next
-      | initialGas >= gasLimit =
-        let
-          !pe = PactError GasError def []
-            $ "Tx too big (" <> pretty initialGas <> "), limit "
-            <> pretty gasLimit
-        in jsonErrorResult requestKey pe gasLimit "Tx too big"
+      | initialGas >= gasLimit = do
+          gl <- use txGasLimit
+          let !pe = PactError GasError def []
+                $ "Tx too big (" <> pretty initialGas <> "), limit "
+                <> pretty gl
+          jsonErrorResult requestKey pe gl "Tx too big"
       | otherwise = next
 
     applyPayload pid = do
-      transactionGasEnv .= userGasEnv
-      mcache <- use transactionCache
+      txGasModel .= gasModel
+      txGasLimit %= (\g -> g - initialGas)
+
+      mcache <- use txCache
 
       let interp = initStateInterpreter $
             setModuleCache mcache def
@@ -203,18 +205,14 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
         Right r -> applyRedeem pid r
 
     applyRedeem pid pr = do
-      transactionGasEnv .= freeGasEnv
+      txGasModel .= (_geGasModel freeGasEnv)
 
       rr <- catchesPactError $! redeemGas cmd initialGas pr pid
       case rr of
         Left e ->
           jsonErrorResult requestKey e (_crGas pr)
             "tx failure for request key while redeeming gas"
-        Right r -> do
-          let !redeemLogs = fromMaybe [] $ _crLogs r
-              !fr = crLogs . _Just <>~ redeemLogs $ pr
-
-          return fr
+        Right r -> return r
 
 applyGenesisCmd
     :: Logger
@@ -233,7 +231,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
   where
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     nid = networkIdOf cmd
-    tenv = TransactionEnv Nothing Transactional dbEnv logger pd' spv nid
+    tenv = TransactionEnv Nothing Transactional dbEnv logger pd' spv nid 0.0
     rk = cmdToRequestKey cmd
 
     -- when calling genesis commands, we bring all magic capabilities in scope
@@ -267,9 +265,10 @@ applyCoinbase
       -- ^ treat
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) =
-    second _transactionCache <$> runTransactionM_ tenv def go
+    second _txCache <$> runTransactionM tenv def go
   where
-    tenv = TransactionEnv Nothing Transactional dbEnv logger pd noSPVSupport Nothing
+    tenv = TransactionEnv Nothing Transactional dbEnv logger pd
+      noSPVSupport Nothing 0.0
     interp = initStateInterpreter $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow ph)
     rk = RequestKey chash
@@ -314,7 +313,7 @@ applyLocal logger dbEnv pd spv cmd =
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
-    tenv = TransactionEnv Nothing Local dbEnv logger pd' spv nid
+    tenv = TransactionEnv Nothing Local dbEnv logger pd' spv nid 0.0
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
@@ -336,7 +335,7 @@ jsonErrorResult
     -> TransactionM p (CommandResult [TxLog Value])
 jsonErrorResult rk err gas msg = do
     l <- view txLogger
-    logs <- use transactionLogs
+    logs <- use txLogs
 
     liftIO $! logErrorRequestKey l rk err msg
     return $! CommandResult rk Nothing (PactResult (Left err))
@@ -370,7 +369,7 @@ applyExec
     -> TransactionM p (CommandResult [TxLog Value])
 applyExec interp rk em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
-    logs <- use transactionLogs
+    logs <- use txLogs
     -- applyExec enforces non-empty expression set so `last` ok
     return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing
@@ -390,7 +389,10 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | otherwise = do
 
       tenv <- ask
-      genv <- use transactionGasEnv
+      genv <- GasEnv
+        <$> use (txGasLimit . to fromIntegral)
+        <*> view txGasPrice
+        <*> use txGasModel
 
       let eenv = evalEnv tenv genv
       er <- liftIO $! evalExec senderSigs interp eenv parsedCode
@@ -400,8 +402,8 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
         <> show (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
 
       -- set log + cache updates
-      transactionLogs <>= (_erLogs er)
-      transactionCache .= (_erLoadedModules er)
+      txLogs <>= (_erLogs er)
+      txCache .= (_erLoadedModules er)
 
       return er
   where
@@ -425,7 +427,7 @@ applyContinuation
     -> TransactionM p (CommandResult [TxLog Value])
 applyContinuation interp rk cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
-    logs <- use transactionLogs
+    logs <- use txLogs
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing)
@@ -442,14 +444,17 @@ applyContinuation'
     -> TransactionM p EvalResult
 applyContinuation' interp cm senderSigs hsh nsp = do
     tenv <- ask
-    genv <- use transactionGasEnv
+    genv <- GasEnv
+      <$> use (txGasLimit . to fromIntegral)
+      <*> view txGasPrice
+      <*> use txGasModel
 
     let eenv = evalEnv tenv genv
     er <- liftIO $! evalContinuation senderSigs interp eenv cm
 
     -- set log + cache updates
-    transactionLogs <>= (_erLogs er)
-    transactionCache .= (_erLoadedModules er)
+    txLogs <>= (_erLogs er)
+    txCache .= (_erLoadedModules er)
 
     return er
   where
@@ -486,7 +491,7 @@ buyGas cmd (Miner mid mks) supply = go
     bgHash = Hash (chash <> "-buygas")
 
     go = do
-      mcache <- use transactionCache
+      mcache <- use txCache
       buyGasCmd <- liftIO $! mkBuyGasCmd mid mks sender supply
 
       result <- applyExec' (interp mcache) buyGasCmd
@@ -498,13 +503,13 @@ buyGas cmd (Miner mid mks) supply = go
         Just pe -> do
           return $! Right $ GasId (_pePactId pe)
 
-    findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
-    findPayer = runMaybeT $ do
-      (!m,!qn,!as) <- MaybeT findPayerCap
-      pMod <- MaybeT $ lookupModule qn m
-      capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
-      return $ runCap (getInfo qn) capRef as
-
+findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
+findPayer = runMaybeT $ do
+    (!m,!qn,!as) <- MaybeT findPayerCap
+    pMod <- MaybeT $ lookupModule qn m
+    capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
+    return $ runCap (getInfo qn) capRef as
+  where
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
@@ -543,7 +548,7 @@ redeemGas
     -> GasId           -- ^ result of the buy-gas continuation
     -> TransactionM p (CommandResult [TxLog Value])
 redeemGas cmd initialGas cmdResult gid = do
-    mcache <- use transactionCache
+    mcache <- use txCache
 
     applyContinuation (initState mcache) rk (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)

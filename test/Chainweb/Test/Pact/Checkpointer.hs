@@ -186,7 +186,7 @@ checkpointerTest name initdata =
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing
+                  let cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0
                   execMsg <- buildExecParsedCode eData eCode
 
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
@@ -198,7 +198,7 @@ checkpointerTest name initdata =
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing
+                      cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
                   evalTransactionM cmdenv def $
                     applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
