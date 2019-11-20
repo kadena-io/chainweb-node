@@ -1,5 +1,17 @@
 # `chainweb-node` Changelog
 
+## 1.0.5
+
+This version changes the rules for difficulty adjustment in scenarios when there
+is a sudden loss of more than 99% of the networks hash power. While this is very
+unlikely to happen, this change could result in a fork if not applied by the
+majority of the network. *Node administrators are advised to upgrade to this
+version as soon as possible.*
+
+*   Emergency difficulty adjustment is disabled from chain height 80,000
+    onward. This is technically a fork, although it will hopefully never become
+    relevant. [#671](https://github.com/kadena-io/chainweb-node/pull/671)
+
 ## 1.0.4 (2019-11-13)
 
 #### Improved Mining Configuration
