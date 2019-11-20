@@ -35,8 +35,9 @@ import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 
 import Control.DeepSeq (NFData)
-import Control.Error.Util ((!?), (??))
+import Control.Error.Util (hoistEither, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
+import Control.Monad (unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
 
@@ -47,7 +48,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
 import qualified Data.Text as T
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -60,6 +61,7 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation (prop_block_pow)
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -74,14 +76,16 @@ import Chainweb.Version
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
+import Utils.Logging.Trace (trace)
+
 -- -------------------------------------------------------------------------- --
 -- Miner
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
 --
-newtype MiningState =
-    MiningState (M.Map BlockPayloadHash (T3 Miner PrevTime PayloadWithOutputs))
+newtype MiningState = MiningState
+    (M.Map (T2 BlockCreationTime BlockPayloadHash) (T3 Miner PrevTime PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -89,7 +93,8 @@ newtype MiningState =
 --
 data MiningStats = MiningStats
     { _statsCacheSize :: Int
-    , _states503s :: Int
+    , _stats503s :: Int
+    , _stats403s :: Int
     , _statsAvgTxs :: Int }
     deriving stock (Generic)
     deriving anyclass (ToJSON, NFData)
@@ -104,12 +109,13 @@ data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
-    :: ChainChoice
+    :: LogFunction
+    -> ChainChoice
     -> Miner
     -> PactExecutionService
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork choice miner pact c = do
+newWork logFun choice miner pact c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -134,13 +140,14 @@ newWork choice miner pact c = do
     -- TODO Consider instead some maximum amount of retries?
     --
     case getAdjacentParents c p of
-        Nothing -> newWork (TriedLast cid) miner pact c
+        Nothing -> newWork logFun (TriedLast cid) miner pact c
         Just adjParents -> do
             -- Fetch a Pact Transaction payload. This is an expensive call
             -- that shouldn't be repeated.
             --
             creationTime <- getCurrentTimeIntegral
-            payload <- _pactNewBlock pact miner p (BlockCreationTime creationTime)
+            payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
+                (_pactNewBlock pact miner p (BlockCreationTime creationTime))
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
@@ -177,13 +184,32 @@ publish lf ms cdb bh = do
 -- mining client), attempts to reassociate it with the current best `Cut`, and
 -- publishes the result to the `Cut` network.
 --
+-- There are a number of "fail fast" conditions which will kill the candidate
+-- `BlockHeader` before it enters the Cut pipeline.
+--
 publish' :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish' lf (MiningState ms) cdb bh = do
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
+        !bct = _blockCreationTime bh
     res <- runExceptT $ do
-        T3 m p pl <- M.lookup phash ms ?? "BlockHeader given with no associated Payload"
+        -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
+        -- Payload we know about, reject it.
+        --
+        T3 m p pl <- M.lookup (T2 bct phash) ms ?? "BlockHeader given with no associated Payload"
+
         let !miner = m ^. minerId . _Unwrapped
+            !nonce = _blockNonce bh
+
+        -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
+        -- Hash) is trivially incorrect, reject it.
+        --
+        unless (prop_block_pow bh) . hoistEither .
+            Left $ "Invalid POW hash given for nonce: " <> sshow nonce
+
+        -- Fail Early: If the `BlockHeader` is already stale and can't be
+        -- appended to the best `Cut` we know about, reject it.
+        --
         c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
@@ -197,12 +223,15 @@ publish' lf (MiningState ms) cdb bh = do
             let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                         _payloadWithOutputsTransactions pl
 
+            now <- getCurrentTimeIntegral
             pure . JsonLog $ NewMinedBlock
-                (ObjectEncoded bh)
-                (int . V.length $ _payloadWithOutputsTransactions pl)
-                (int bytes)
-                (estimatedHashes p bh)
-                miner
+                { _minedBlockHeader = ObjectEncoded bh
+                , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pl
+                , _minedBlockSize = int bytes
+                , _minedHashAttempts = estimatedHashes p bh
+                , _minedBlockMiner = miner
+                , _minedBlockDiscoveredAt = now
+                }
     either (lf @T.Text Info) (lf Info) res
 
 -- | The estimated per-second Hash Power of the network, guessed from the time

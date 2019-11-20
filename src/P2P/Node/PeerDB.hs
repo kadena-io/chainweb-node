@@ -30,6 +30,7 @@ module P2P.Node.PeerDB
 , SuccessiveFailures(..)
 , AddedTime(..)
 , ActiveSessionCount(..)
+, HostAddressIdx
 
 -- * Peer Entry
 , PeerEntry(..)
@@ -37,6 +38,7 @@ module P2P.Node.PeerDB
 , peerEntrySuccessiveFailures
 , peerEntryLastSuccess
 , peerEntryNetworkIds
+, peerEntrySticky
 
 -- * Peer Database
 , PeerDb(..)
@@ -47,11 +49,16 @@ module P2P.Node.PeerDB
 , peerDbInsert
 , peerDbInsertList
 , peerDbInsertPeerInfoList
+, peerDbInsertPeerInfoList_
 , peerDbInsertSet
 , peerDbDelete
 , newEmptyPeerDb
+, makePeerDbPrivate
 , fromPeerEntryList
 , fromPeerInfoList
+
+-- * PeerSet
+, PeerSet
 
 -- * Update PeerDb Entries
 , updateLastSuccess
@@ -83,9 +90,11 @@ import Control.Monad ((<$!>))
 import Control.Monad.STM
 
 import Data.Aeson
+import Data.Bits
 import qualified Data.ByteString.Lazy as BL
 import Data.Foldable (foldl')
 import qualified Data.Foldable as F
+import Data.Hashable
 import Data.IxSet.Typed
 import qualified Data.Set as S
 import Data.Time.Clock
@@ -98,6 +107,8 @@ import Prelude hiding (null)
 
 import System.IO.SafeWrite
 import System.IO.Temp
+import System.IO.Unsafe
+import System.Random
 
 import Test.QuickCheck (Arbitrary(..), Property, ioProperty, property, (===))
 
@@ -159,6 +170,10 @@ data PeerEntry = PeerEntry
 --         -- ^ Count the number of sessions. When this number becomes to high
 --         -- we should
 
+    , _peerEntrySticky :: !Bool
+        -- ^ A flag that indicates whether this entry can not be pruned form the
+        -- db
+        --
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, FromJSON, NFData)
@@ -166,17 +181,34 @@ data PeerEntry = PeerEntry
 makeLenses ''PeerEntry
 
 newPeerEntry :: NetworkId -> PeerInfo -> PeerEntry
-newPeerEntry nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0
+newPeerEntry nid i = newPeerEntry_ False nid i
+
+newPeerEntry_ :: Bool -> NetworkId -> PeerInfo -> PeerEntry
+newPeerEntry_ sticky nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0 sticky
 
 instance Arbitrary PeerEntry where
     arbitrary = PeerEntry
         <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Peer Entry Set
 
+pdNonce :: Int
+pdNonce = unsafePerformIO randomIO
+{-# NOINLINE  pdNonce #-}
+
+newtype HostAddressIdx = HostAddressIdx Int
+    deriving (Show, Eq, Ord, Generic)
+    deriving newtype (ToJSON, FromJSON, Arbitrary, NFData)
+
+hostAddressIdx :: HostAddress -> HostAddressIdx
+hostAddressIdx = HostAddressIdx . xor pdNonce . hash
+{-# INLINE hostAddressIdx #-}
+
 type PeerEntryIxs =
-    '[ HostAddress
+    '[ HostAddressIdx
+    , HostAddress
         -- a primary index
     , Maybe PeerId
         -- unique index in the 'Just' values, but not in the 'Nothing' values
@@ -188,6 +220,7 @@ type PeerEntryIxs =
 
 instance Indexable PeerEntryIxs PeerEntry where
     indices = ixList
+        (ixFun $ \e -> [hostAddressIdx $ _peerAddr $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerAddr $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerId $ _peerEntryInfo e])
         (ixFun $ \e -> [_peerEntrySuccessiveFailures e])
@@ -244,6 +277,7 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
         , _peerEntryLastSuccess = max (_peerEntryLastSuccess a) (_peerEntryLastSuccess b)
         , _peerEntryNetworkIds = _peerEntryNetworkIds a <> _peerEntryNetworkIds b
         , _peerEntryActiveSessionCount = _peerEntryActiveSessionCount a + _peerEntryActiveSessionCount b
+        , _peerEntrySticky = False
         }
 
 -- | Add a 'PeerInfo' to an existing 'PeerSet'.
@@ -265,7 +299,9 @@ addPeerInfo nid = addPeerEntry . newPeerEntry nid
 -- is delete for all network ids.
 --
 deletePeer :: PeerInfo -> PeerSet -> PeerSet
-deletePeer i = deleteIx (_peerAddr i)
+deletePeer i s = case _peerEntrySticky <$> (getOne $ getEQ (_peerAddr i) s) of
+    Just True -> s
+    _ -> deleteIx (_peerAddr i) s
 
 insertPeerEntryList :: [PeerEntry] -> PeerSet -> PeerSet
 insertPeerEntryList l m = foldl' (flip addPeerEntry) m l
@@ -273,23 +309,27 @@ insertPeerEntryList l m = foldl' (flip addPeerEntry) m l
 -- -------------------------------------------------------------------------- --
 -- Peer Database
 
-data PeerDb = PeerDb (MVar ()) (TVar PeerSet)
+data PeerDb = PeerDb
+    { _peerDbIsPrivate :: !Bool
+    , _peerDbLock :: !(MVar ())
+    , _peerDbPeerSet :: !(TVar PeerSet)
+    }
     deriving (Eq, Generic)
 
 peerDbSnapshot :: PeerDb -> IO PeerSet
-peerDbSnapshot (PeerDb _ var) = readTVarIO var
+peerDbSnapshot (PeerDb _ _ var) = readTVarIO var
 {-# INLINE peerDbSnapshot #-}
 
 peerDbSnapshotSTM :: PeerDb -> STM PeerSet
-peerDbSnapshotSTM (PeerDb _ var) = readTVar var
+peerDbSnapshotSTM (PeerDb _ _ var) = readTVar var
 {-# INLINE peerDbSnapshotSTM #-}
 
 peerDbSize :: PeerDb -> IO Natural
-peerDbSize (PeerDb _ var) = int . size <$!> readTVarIO var
+peerDbSize (PeerDb _ _ var) = int . size <$!> readTVarIO var
 {-# INLINE peerDbSize #-}
 
 peerDbSizeSTM :: PeerDb -> STM Natural
-peerDbSizeSTM (PeerDb _ var) = int . size <$!> readTVar var
+peerDbSizeSTM (PeerDb _ _ var) = int . size <$!> readTVar var
 {-# INLINE peerDbSizeSTM #-}
 
 -- | Adds new 'PeerInfo' values for a given chain id.
@@ -299,7 +339,8 @@ peerDbSizeSTM (PeerDb _ var) = int . size <$!> readTVar var
 -- contention.
 --
 peerDbInsert :: PeerDb -> NetworkId -> PeerInfo -> IO ()
-peerDbInsert (PeerDb lock var) nid i = withMVar lock
+peerDbInsert (PeerDb True _ _) _ _ = return ()
+peerDbInsert (PeerDb _ lock var) nid i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
@@ -309,7 +350,7 @@ peerDbInsert (PeerDb lock var) nid i = withMVar lock
 -- | Delete a peer, identified by its host address, from the peer database.
 --
 peerDbDelete :: PeerDb -> PeerInfo -> IO ()
-peerDbDelete (PeerDb lock var) i = withMVar lock
+peerDbDelete (PeerDb _ lock var) i = withMVar lock
     . const
     . atomically
     . modifyTVar' var
@@ -317,7 +358,7 @@ peerDbDelete (PeerDb lock var) i = withMVar lock
 {-# INLINE peerDbDelete #-}
 
 fromPeerEntryList :: [PeerEntry] -> IO PeerDb
-fromPeerEntryList peers = PeerDb
+fromPeerEntryList peers = PeerDb False
     <$> newMVar ()
     <*> newTVarIO (fromList peers)
 
@@ -325,7 +366,8 @@ fromPeerInfoList :: NetworkId -> [PeerInfo] -> IO PeerDb
 fromPeerInfoList nid peers = fromPeerEntryList $ newPeerEntry nid <$> peers
 
 peerDbInsertList :: [PeerEntry] -> PeerDb -> IO ()
-peerDbInsertList peers (PeerDb lock var) =
+peerDbInsertList _ (PeerDb True _ _) = return ()
+peerDbInsertList peers (PeerDb _ lock var) =
     withMVar lock
         . const
         . atomically
@@ -333,16 +375,25 @@ peerDbInsertList peers (PeerDb lock var) =
         $ insertPeerEntryList peers
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
-peerDbInsertPeerInfoList nid ps = peerDbInsertList (newPeerEntry nid <$> ps)
+peerDbInsertPeerInfoList _ _ (PeerDb True _ _) = return ()
+peerDbInsertPeerInfoList nid ps db = peerDbInsertList (newPeerEntry nid <$> ps) db
+
+peerDbInsertPeerInfoList_ :: Bool -> NetworkId -> [PeerInfo] -> PeerDb -> IO ()
+peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _) = return ()
+peerDbInsertPeerInfoList_ sticky nid ps db = peerDbInsertList (newPeerEntry_ sticky nid <$> ps) db
 
 peerDbInsertSet :: S.Set PeerEntry -> PeerDb -> IO ()
-peerDbInsertSet = peerDbInsertList . F.toList
+peerDbInsertSet _ (PeerDb True _ _) = return ()
+peerDbInsertSet s db = peerDbInsertList (F.toList s) db
 
 newEmptyPeerDb :: IO PeerDb
-newEmptyPeerDb = PeerDb <$> newMVar () <*> newTVarIO mempty
+newEmptyPeerDb = PeerDb False <$> newMVar () <*> newTVarIO mempty
+
+makePeerDbPrivate :: PeerDb -> PeerDb
+makePeerDbPrivate (PeerDb _ lock var) = PeerDb True lock var
 
 updatePeerDb :: PeerDb -> HostAddress -> (PeerEntry -> PeerEntry) -> IO ()
-updatePeerDb (PeerDb lock var) a f
+updatePeerDb (PeerDb _ lock var) a f
     = withMVar lock . const . atomically . modifyTVar' var $ \s ->
         case getOne $ getEQ a s of
             Nothing -> s
@@ -383,7 +434,7 @@ storePeerDb f db = withOutputFile f $ \h ->
     peerDbSnapshot db >>= \sn -> BL.hPutStr h (encode $ toPeerSet sn)
 
 loadPeerDb :: FilePath -> IO PeerDb
-loadPeerDb f = PeerDb
+loadPeerDb f = PeerDb False
     <$> newMVar ()
     <*> (newTVarIO . fromPeerSet =<< decodeFileStrictOrThrow' f)
 

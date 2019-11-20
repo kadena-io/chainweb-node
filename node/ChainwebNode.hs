@@ -50,7 +50,6 @@ import Control.Monad
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
-import Data.Bool
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
@@ -132,26 +131,20 @@ defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     }
   where
     level = case v of
-        Mainnet01 -> L.Warn
+        Mainnet01 -> L.Info
         _ -> L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
     validateChainwebConfiguration $ _nodeConfigChainweb o
-    maybe (return ())
-          checkIfValidChain
-          (getAmberdataChainId o)
-    maybe (return ())
-          (validateFilePath "databaseDirectory")
-          (_nodeConfigDatabaseDirectory o)
+    mapM_ checkIfValidChain (getAmberdataChainId o)
+    mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
   where
     chains = chainIds $ _nodeConfigChainweb o
     checkIfValidChain cid
-      = bool
-        (throwError $ "Invalid chain id provided: " <> toText cid)
-        (return ())
-        (HS.member cid chains)
+      = unless (HS.member cid chains)
+        $ throwError $ "Invalid chain id provided: " <> toText cid
     getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
 
 
@@ -323,8 +316,9 @@ node conf logger = do
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+        notifyReady
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
-            [ notifyReady >> runChainweb cw
+            [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runAmberdataBlockMonitor (amberdataChainId conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
