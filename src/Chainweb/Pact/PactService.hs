@@ -610,7 +610,6 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
       bool (Left Mempool.InsertErrorInvalidTime) (Right ()) $
       checkTimes tx
 
-
     checkTimes :: ChainwebTransaction -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
 
@@ -1088,9 +1087,24 @@ transactionsFromPayload plData = do
     theLefts = lefts eithers
 
 execPreInsertCheckReq
-    :: Vector ChainwebTransaction
+    :: PayloadCas cas
+    => Vector ChainwebTransaction
     -> PactServiceM cas (Vector (Either Mempool.InsertError ()))
-execPreInsertCheckReq = undefined
+execPreInsertCheckReq txs = do
+    cp <- getCheckpointer
+    b <- liftIO $ _cpGetLatestBlock cp
+    case b of
+        Nothing -> return $! V.map (const (Right ())) txs
+        Just (h, _) -> withCheckpointer b "execPreInsertCheckReq" $ \pdb -> do
+            now <- liftIO getCurrentTimeIntegral
+            psEnv <- ask
+            psState <- get
+            liftIO (Discard <$>
+                    validateChainwebTxs cp (BlockCreationTime now) (h + 1) txs
+                          (runGas pdb psEnv psState))
+  where
+    runGas pdb psEnv psState ts =
+        fst <$!> runPactServiceM psState psEnv (attemptBuyGas noMiner pdb ts)
 
 execLookupPactTxs
     :: PayloadCas cas
