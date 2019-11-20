@@ -331,6 +331,10 @@ instance Exception PeerValidationFailure where
 --
 --  * already known to us and considered good
 --  * are trivially bad (localhost, our own current IP, etc.)
+--  * are not reachable
+--
+--  We may add more checks here in the future, like for instance, black listing
+--  or white listing.
 --
 guardPeerDb
     :: ChainwebVersion
@@ -350,7 +354,6 @@ guardPeerDb v nid peerDb pinf = do
     isKnown :: PeerSet -> Bool
     isKnown peers = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
 
-    -- TODO Check more IP ranges, possibly in HostAddress module.
     isReserved :: Bool
     isReserved = case v of
         Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
@@ -358,6 +361,10 @@ guardPeerDb v nid peerDb pinf = do
         Development -> isReservedHostAddress (_peerAddr pinf)
         _ -> False
 
+    -- Currently we are using 'getNewPeerManager' which doesn't validate
+    -- certificates. We could be more strict and check that the certificate
+    -- matches the fingerprint of the new peer @pinf@.
+    --
     canConnect = do
         mgr <- getNewPeerManager
         let env = peerInfoClientEnv mgr pinf
