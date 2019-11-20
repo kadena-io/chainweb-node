@@ -95,10 +95,6 @@ import TXG.Simulate.Contracts.CoinContract
 import TXG.Simulate.Contracts.Common
 import TXG.Simulate.Utils
 
-sender00Public, sender00Secret :: Text
-sender00Public = "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-sender00Secret = "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
-
 -- Helper for simplifying construction of RequestKeys
 rk :: String -> RequestKeys
 rk s = RequestKeys $ fromString s :| []
@@ -186,17 +182,8 @@ mkKeyset p ks = object
 
 sampleKeyPairCaps :: IO [SomeKeyPairCaps]
 sampleKeyPairCaps = do
-  s' <- dieEither $ parseB16TextOnly sender00Secret
-  p' <- dieEither $ parseB16TextOnly sender00Public
-  let apiKP = ApiKeyPair
-        { _akpSecret = PrivBS s'
-        , _akpPublic = Just (PubBS p')
-        , _akpAddress = Nothing
-        , _akpScheme = Nothing
-        , _akpCaps = Nothing }
-  mkKeyPairs [apiKP]
-  where
-    dieEither = either (throwIO . userError) (return $!)
+  s <- stockKey "sender00"
+  mkKeyPairs [s]
 
 mkCmdStr :: PublicMeta -> ChainwebVersion -> [SomeKeyPairCaps] -> String -> IO (Command Text)
 mkCmdStr meta ver kps str = do
