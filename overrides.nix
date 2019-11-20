@@ -1,4 +1,4 @@
-{ pactSrc, pkgs, hackGet, externalTestsAndBench }:
+{ pactSrc, pkgs, hackGet }:
 self: super: with pkgs.haskell.lib;
 let # Working on getting this function upstreamed into nixpkgs, but
     # this actually gets things directly from hackage and doesn't
@@ -11,15 +11,14 @@ let # Working on getting this function upstreamed into nixpkgs, but
            inherit sha256;
          }) {};
 
+    # Includes test suite and benchmark binaries in the output derivation.
+    # Has the side effect of causing nix-build to not run them.
     convertCabalTestsAndBenchmarksToExecutables = p:
-      if externalTestsAndBench
-        then
-          (overrideCabal p (drv: {
-            preConfigure = (drv.preConfigure or "") + ''
-              sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
-            '';
-          }))
-        else p;
+      overrideCabal p (drv: {
+        preConfigure = (drv.preConfigure or "") + ''
+          sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
+        '';
+      });
 
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);

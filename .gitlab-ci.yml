@@ -31,7 +31,7 @@ nix-macos:
   script:
     - nix-build
     - nix-shell --run "echo Done with shell test"
-    # - nix-build -A ghc.chainweb.doc
+    - result/bin/chainweb-tests
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
 #    "--arg runCoverage true" to nix-build, but that means that the
@@ -55,7 +55,6 @@ nix-linux:
     - nix-shell --run "echo Done with shell test"
     - result/bin/chainweb-node --version
     - result/bin/chainweb-tests
-    - result/bin/bench
     # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
@@ -85,6 +84,7 @@ slow-tests:
   script:
     - echo This is a master slow test run.
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg externalTestsAndBench true
+    - nix-build -A ghc.chainweb.doc
     - result/bin/cwtool slow-tests +RTS -N4
     - result/bin/chainweb-tests
     - result/bin/bench
@@ -112,3 +112,4 @@ nightly-nix:
     # It probably makes sense to run coverage nightly
     - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg runCoverage true
     - result/bin/cwtool slow-tests +RTS -N4
+    - result/bin/bench
