@@ -31,7 +31,7 @@ nix-macos:
   script:
     - nix-build
     - nix-shell --run "echo Done with shell test"
-    - result/bin/chainweb-tests
+    - result/bin/chainweb-tests --hide-successes
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
 #    "--arg runCoverage true" to nix-build, but that means that the
@@ -51,10 +51,10 @@ nix-linux:
   script:
     - echo -e "${CI_COMMIT_SHORT_SHA}\n${CI_COMMIT_REF_NAME}\n${CI_COMMIT_TAG}" > .vcs-info
     - cat .vcs-info
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg externalTestsAndBench true
+    - nix-build
     - nix-shell --run "echo Done with shell test"
     - result/bin/chainweb-node --version
-    - result/bin/chainweb-tests
+    - result/bin/chainweb-tests --hide-successes
     # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
 #    NOTE: If we want artifacts to inclue code coverage reports, we have to pass
@@ -83,10 +83,11 @@ slow-tests:
     - linux
   script:
     - echo This is a master slow test run.
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg externalTestsAndBench true
+    - nix-build
+    - nix-build docker.nix
     - nix-build -A ghc.chainweb.doc
+    - result/bin/chainweb-tests --hide-successes
     - result/bin/cwtool slow-tests +RTS -N4
-    - result/bin/chainweb-tests
     - result/bin/bench
 
 # pages:
@@ -106,10 +107,9 @@ nightly-nix:
     - schedules
   script:
     - echo This is a nightly build!
-    # - nix-build docker.nix
-    # - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' -A ghc.chainweb.doc
 
     # It probably makes sense to run coverage nightly
-    - nix-build --option extra-sandbox-paths '/etc/protocols /etc/services' --arg runCoverage true
+    - nix-build
+    - result/bin/chainweb-tests --hide-successes
     - result/bin/cwtool slow-tests +RTS -N4
     - result/bin/bench
