@@ -46,8 +46,6 @@ import Data.Bifunctor
 import Data.IxSet.Typed (getEQ, toAscList)
 import Data.Proxy
 import qualified Data.Text.IO as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
 
 import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
@@ -111,17 +109,11 @@ peerPutHandler
     -> NetworkId
     -> PeerInfo
     -> Handler NoContent
-peerPutHandler db v nid e -- TODO consider connection test here for bad peer
-    | isReservedHostAddress addr = throwError $ err400
-        { errBody = "Invalid hostaddress. Hostaddress is private or from a reserved IP range: " <> TL.encodeUtf8 (TL.fromStrict $ hostAddressToText addr)
+peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
+    Left failure -> throwError $ err400
+        { errBody = "Invalid hostaddress: " <> sshow failure
         }
-    | otherwise = liftIO (guardPeerDb v nid db e) >>= \case
-        Left failure -> throwError $ err400
-            { errBody = "Invalid hostaddress. The given host isn't reachable. (" <> sshow failure <> ")"
-            }
-        Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
-  where
-    addr = _peerAddr e
+    Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --
 -- P2P API Server
