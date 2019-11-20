@@ -563,7 +563,7 @@ data MockTx = MockTx {
 
 
 mockBlockGasLimit :: GasLimit
-mockBlockGasLimit = 65535
+mockBlockGasLimit = 100000000
 
 
 -- | A codec for transactions when sending them over the wire.

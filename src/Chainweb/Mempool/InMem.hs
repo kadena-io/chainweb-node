@@ -397,7 +397,9 @@ getBlockInMem cfg lock txValidate bheight phash = do
         writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemCountPending mdata) $! HashMap.size psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
-        return $! out
+        mout <- V.unsafeThaw out
+        TimSort.sortBy (compareOnGasPrice txcfg) mout
+        V.unsafeFreeze mout
 
   where
     pruneBadMap now = HashMap.filter (> now)
