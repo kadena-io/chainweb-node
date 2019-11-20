@@ -106,7 +106,6 @@ toMempoolBackend
 toMempoolBackend v mempool = do
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
-      , mempoolBlockGasLimit = blockSizeLimit
       , mempoolMember = member
       , mempoolLookup = lookup
       , mempoolInsert = insert
@@ -121,7 +120,7 @@ toMempoolBackend v mempool = do
     nonce = _inmemNonce mempool
     lockMVar = _inmemDataLock mempool
 
-    InMemConfig tcfg blockSizeLimit _ _ _ = cfg
+    InMemConfig tcfg _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
     insert = insertInMem cfg v lockMVar
@@ -382,14 +381,14 @@ getBlockInMem :: forall t .
               -> MempoolPreBlockCheck t
               -> BlockHeight
               -> BlockHash
-              -> GasLimit
               -> IO (Vector t)
-getBlockInMem cfg lock txValidate bheight phash size0 = do
+getBlockInMem cfg lock txValidate bheight phash = do
     withMVar lock $ \mdata -> do
         !psq0 <- readIORef $ _inmemPending mdata
         now <- getCurrentTimeIntegral
         !badmap <- pruneBadMap now <$!> readIORef (_inmemBadMap mdata)
         let !psq = HashMap.map decodeTx psq0
+            size0 = _inmemTxBlockSizeLimit cfg
         T3 psq' badmap' out <- go psq badmap size0 []
 
         -- put the txs chosen for the block back into the map -- they don't get

@@ -138,6 +138,8 @@ import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
 
+import Numeric.Natural (Natural)
+
 import Prelude hiding (log)
 
 import System.Clock
@@ -302,6 +304,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configPactQueueSize :: !Natural
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -330,7 +333,8 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 100_000
+    , _configBlockGasLimit = 1_000_000 --TODO determine default for 1.1 rollout
+    , _configPactQueueSize = 2000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -346,6 +350,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "blockGasLimit" .= _configBlockGasLimit o
+        , "pactQueueSize" .= _configPactQueueSize o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -361,6 +366,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
+        <*< configPactQueueSize ..: "pactQueueSize" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -386,6 +392,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configPactQueueSize .:: jsonOption
+        % long "pact-queue-size"
+        <> help "max size of pact internal queue"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -543,7 +552,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg cdbv payloadDb prune dbDir nodeid
-                     resetDb)
+                     resetDb (_configPactQueueSize conf))
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)

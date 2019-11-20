@@ -192,7 +192,7 @@ propBadlist (txs, badTxs) _ mempool = runExceptT $ do
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsPending
 
     -- once we call mempoolGetBlock, the bad txs should be badlisted
-    liftIO $ void $ mempoolGetBlock mempool preblockCheck 1 nullBlockHash 10000000
+    liftIO $ void $ mempoolGetBlock mempool preblockCheck 1 nullBlockHash
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     liftIO $ insert badTxs
@@ -266,7 +266,7 @@ propTrivial txs _ mempool = runExceptT $ do
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     getBlock = mempoolGetBlock mempool noopMempoolPreBlockCheck 0 nullBlockHash
-                               (mempoolBlockGasLimit mempool)
+
     onFees x = (Down (mockGasPrice x), mockGasLimit x)
 
 
