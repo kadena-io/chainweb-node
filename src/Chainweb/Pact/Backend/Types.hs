@@ -332,7 +332,7 @@ type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: Maybe BlockHeader
-    , _psInitCache :: ! ModuleCache
+    , _psInitCache :: !ModuleCache
     }
 
 type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
