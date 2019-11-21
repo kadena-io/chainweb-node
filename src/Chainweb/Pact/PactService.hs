@@ -65,6 +65,7 @@ import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Vector.Strategies
 
 import System.Directory
 import System.LogLevel
@@ -1066,13 +1067,14 @@ transactionsFromPayload plData = do
     unless (null theLefts) $ do
         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
             <> (T.intercalate ". " $ T.pack <$> theLefts)
-    return $! V.fromList (rights eithers)
+    let !v = V.fromList (rights eithers) `using` parVector 1
+    return v
   where
     toCWTransaction bs = codecDecode chainwebPayloadCodec bs
-    !transSeq = _payloadDataTransactions plData
-    !transList = toList transSeq
-    !bytes = _transactionBytes <$!> transList
-    !eithers = toCWTransaction <$!> bytes
+    transSeq = _payloadDataTransactions plData
+    transList = toList transSeq
+    bytes = _transactionBytes <$> transList
+    eithers = toCWTransaction <$> bytes
     theLefts = lefts eithers
 
 execLookupPactTxs
