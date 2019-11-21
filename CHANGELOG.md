@@ -1,5 +1,18 @@
 # `chainweb-node` Changelog
 
+## 1.0.5
+
+### Configuration Changes
+
+*   Configuration options for logging blocks to Amberdata got removed.
+    [#717](https://github.com/kadena-io/chainweb-node/pull/717)
+
+### Bug Fixes
+
+*   Parsing of the configuration file properties
+    `p2p.peer.certificateChainFile` and `p2p.peer.keyFile` got fixed.
+    [#703](https://github.com/kadena-io/chainweb-node/pull/703)
+
 ## 1.0.4 (2019-11-13)
 
 #### Improved Mining Configuration

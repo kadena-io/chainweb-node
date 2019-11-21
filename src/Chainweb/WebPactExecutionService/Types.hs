@@ -23,10 +23,10 @@ data PactExecutionService = PactExecutionService
     , _pactLocal :: ChainwebTransaction -> IO (Either PactException HashCommandResult)
     , _pactLookup
         :: Rewind
-            -- ^ restore point. 'NoRewind' means we
+            -- restore point. 'NoRewind' means we
             -- don't care about the restore point.
         -> Vector P.PactHash
-            -- ^ txs to lookup
+            -- txs to lookup
         -> IO (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash))))
     }
 
