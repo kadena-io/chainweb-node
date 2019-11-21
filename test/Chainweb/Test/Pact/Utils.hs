@@ -134,7 +134,6 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
@@ -399,7 +398,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
     ctx <- TestPactCtx
-        <$> newMVar (PactServiceState Nothing)
+        <$> newMVar (PactServiceState Nothing mempty)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
@@ -422,7 +421,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
     ctx <- TestPactCtx
-      <$> newMVar (PactServiceState Nothing)
+      <$> newMVar (PactServiceState Nothing mempty)
       <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
@@ -553,7 +552,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
       let rs = readRewards v
       !ctx <- TestPactCtx
-        <$!> newMVar (PactServiceState Nothing)
+        <$!> newMVar (PactServiceState Nothing mempty)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
@@ -622,7 +621,7 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
   where
     startPact = do
         mv <- newEmptyMVar
-        reqQ <- atomically $ newTBQueue pactQueueSize
+        reqQ <- atomically $ newTBQueue 2000
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir

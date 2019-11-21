@@ -96,6 +96,7 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHash
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types (ModuleCache)
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types
 import Chainweb.Transaction
@@ -242,12 +243,13 @@ applyCoinbase
       -- ^ hash of the mined block
     -> EnforceCoinbaseFailure
       -- ^ treat
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) =
-    second _txCache <$> runTransactionM tenv txst go
+    -> ModuleCache
+    -> IO (CommandResult [TxLog Value])
+applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) mc =
+    evalTransactionM tenv txst go
   where
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport Nothing 0.0 rk 0
-    txst =TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    txst =TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = initStateInterpreter $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow ph)
     rk = RequestKey chash

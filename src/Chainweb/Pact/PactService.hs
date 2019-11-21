@@ -53,6 +53,8 @@ import Data.Bool (bool)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
+import Data.DList (DList(..))
+import qualified Data.DList as DL
 import Data.Either
 import Data.Foldable (foldl', toList)
 import qualified Data.HashMap.Strict as HM
@@ -197,7 +199,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
           gasModel = tableGasModelNoSize defaultGasConfig -- TODO get sizing working
       let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
                                 bhDb gasModel rs
-      evalStateT (runReaderT act pse) (PactServiceState Nothing)
+      evalStateT (runReaderT act pse) (PactServiceState Nothing mempty)
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
@@ -522,12 +524,12 @@ attemptBuyGas
     -> PactServiceM cas (Vector BuyGasValidation)
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         psEnv <- ask
-        V.fromList . ($ []) . sfst <$> V.foldM (f psEnv) (T2 id mempty) txs
+        V.fromList . toList . sfst <$> V.foldM (f psEnv) (T2 mempty mempty) txs
 
   where
     f psEnv (T2 dl mcache) cmd = do
         T2 mcache' !res <- runBuyGas psEnv dbEnv mcache cmd
-        pure $! T2 (dl . (res :)) mcache'
+        pure $! T2 (DL.snoc dl res) mcache'
 
     createGasEnv
         :: PayloadCas cas
@@ -989,14 +991,15 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
-    T2 coinOut mc <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail
+    mc <- use psInitCache
+    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
     cmdBSToTx = toTransactionBytes
       . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
-    paired = V.zipWith (curry $ first cmdBSToTx) ctxs
+    paired outs = V.zipWith (curry $ first cmdBSToTx) ctxs outs
 
 
 runCoinbase
@@ -1004,9 +1007,10 @@ runCoinbase
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
-    -> PactServiceM cas (T2 HashCommandResult ModuleCache)
-runCoinbase Nothing _ _ _ = return $ T2 noCoinbase mempty
-runCoinbase (Just parentHash) dbEnv miner enfCBFail = do
+    -> ModuleCache
+    -> PactServiceM cas HashCommandResult
+runCoinbase Nothing _ _ _ _ = return noCoinbase
+runCoinbase (Just parentHash) dbEnv miner enfCBFail mc = do
     psEnv <- ask
 
     let !pd = _psPublicData psEnv
@@ -1015,8 +1019,8 @@ runCoinbase (Just parentHash) dbEnv miner enfCBFail = do
         !rs = _psMinerRewards psEnv
 
     reward <- liftIO $! minerReward rs bh
-    T2 cr mc <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash enfCBFail
-    return $! T2 (toHashCommandResult cr) mc
+    cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash enfCBFail mc
+    return $! toHashCommandResult cr
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
 -- The output vector is in the same order as the input (i.e. you can zip it
@@ -1029,7 +1033,7 @@ applyPactCmds
     -> ModuleCache
     -> PactServiceM cas (Vector HashCommandResult)
 applyPactCmds isGenesis env cmds miner mc =
-    V.fromList . ($ []) . sfst <$> V.foldM f (T2 id mc) cmds
+    V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) cmds
   where
     f  (T2 dl mcache) cmd = applyPactCmd isGenesis env cmd miner mcache dl
 
@@ -1040,8 +1044,8 @@ applyPactCmd
     -> ChainwebTransaction
     -> Miner
     -> ModuleCache
-    -> ([HashCommandResult] -> [HashCommandResult])  -- ^ difference list
-    -> PactServiceM cas (T2 ([HashCommandResult] -> [HashCommandResult]) ModuleCache)
+    -> DList HashCommandResult
+    -> PactServiceM cas (T2 (DList HashCommandResult) ModuleCache)
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
@@ -1049,15 +1053,19 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         !spv      = _psSpvSupport psEnv
         pactHash  = view P.cmdHash cmdIn
 
-    T2 !result mcache' <- liftIO $ if isGenesis
+    T2 result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv (payloadObj <$> cmdIn)
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
+
+    -- on genesis, seed initial service state with loaded modules
+    when isGenesis $
+      psInitCache .= mcache'
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp pactHash
     let !res = toHashCommandResult result
-    pure $! T2 (dl . (res :)) mcache'
+    pure $! T2 (DL.snoc dl res) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> HashCommandResult
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString

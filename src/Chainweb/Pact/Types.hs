@@ -60,7 +60,6 @@ module Chainweb.Pact.Types
   , Rewind(..)
 
     -- * types
-  , ModuleCache
   , HashCommandResult
 
   -- * defaults
@@ -78,23 +77,24 @@ import Control.Monad.State.Strict
 
 
 import Data.Aeson
-import Data.HashMap.Strict
-import Data.Tuple.Strict
+import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 
 -- internal pact modules
 
 import Pact.Interpreter (PactDbEnv)
 import Pact.Parse (ParsedDecimal)
+import Pact.Types.ChainId (NetworkId)
+import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Exp
+import Pact.Types.Gas
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
 import Pact.Types.PactValue
-import Pact.Types.Persistence
-import Pact.Types.Runtime hiding (ChainId(..))
+import Pact.Types.Persistence (TxLog, ExecutionMode)
 import Pact.Types.SPV
-import Pact.Types.Term (ModuleName, PactId(..), Ref)
+import Pact.Types.Term (PactId(..))
 
 -- internal chainweb modules
 
@@ -107,8 +107,6 @@ import Chainweb.Version
 
 
 type HashCommandResult = CommandResult H.Hash
-
-type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
 data Transactions = Transactions
     { _transactionPairs :: !(Vector (Transaction, HashCommandResult))
