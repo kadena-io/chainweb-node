@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -68,7 +69,8 @@ import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
-import Data.Text (Text, pack, unpack)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 
 -- internal Pact modules
@@ -146,73 +148,52 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
       runTransactionM cenv txst applyBuyGas
   where
     txst = set txCache mcache0
-      $ set txGasLimit gasLimit
-      $ def
-
-    cenv = TransactionEnv Nothing Transactional pdbenv logger
-      pd' spv nid gasPrice
+      $ TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    cenv = TransactionEnv Transactional pdbenv logger pd' spv nid gasPrice
+      requestKey gasLimit
 
     cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     gasPrice = gasPriceOf cmd
     gasLimit = fromIntegral $ gasLimitOf cmd
-    supply = gasFeeOf gasLimit gasPrice
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
 
-    fatal e = do
-      liftIO
-        $ logLog logger "ERROR"
-        $ "critical transaction failure: "
-        <> show requestKey
-        <> ": "
-        <> unpack e
-      internalError e
-
-    applyBuyGas = do
-      buyGasResultE <- catchesPactError $! buyGas cmd miner supply
-      case buyGasResultE of
-        Left e1 -> fatal $ "tx failure for requestKey when buying gas: " <> tShow e1
-        Right (Left e) -> fatal e
-        Right (Right !pid) -> checkTooBigTx $ applyPayload pid
+    applyBuyGas =
+      catchesPactError (buyGas cmd miner) >>= \case
+        Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
+        Right _ -> checkTooBigTx applyPayload
 
     checkTooBigTx next
       | initialGas >= gasLimit = do
-          gl <- use txGasLimit
+          txGasUsed .= gasLimit -- all gas is consumed
+          --
           let !pe = PactError GasError def []
                 $ "Tx too big (" <> pretty initialGas <> "), limit "
-                <> pretty gl
-          jsonErrorResult requestKey pe gl "Tx too big"
+                <> pretty gasLimit
+
+          jsonErrorResult pe "Tx too big"
       | otherwise = next
 
-    applyPayload pid = do
+    applyPayload = do
       txGasModel .= gasModel
-      txGasLimit %= (\g -> g - initialGas)
+      txGasUsed .= initialGas
 
-      mcache <- use txCache
-
-      let interp = initStateInterpreter $
-            setModuleCache mcache def
-
-      cr <- catchesPactError $!
-        runPayload interp cmd managedNamespacePolicy
-
+      cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
-        Left e ->
-          jsonErrorResult requestKey e gasLimit
-            "tx failure for request key when running cmd"
-        Right r -> applyRedeem pid r
+        Left e -> jsonErrorResult e "tx failure for request key when running cmd"
+        Right r -> applyRedeem r
 
-    applyRedeem pid pr = do
+    applyRedeem cr = do
       txGasModel .= (_geGasModel freeGasEnv)
 
-      rr <- catchesPactError $! redeemGas cmd initialGas pr pid
-      case rr of
-        Left e ->
-          jsonErrorResult requestKey e (_crGas pr)
-            "tx failure for request key while redeeming gas"
-        Right r -> return r
+      r <- catchesPactError $! redeemGas cmd initialGas
+      case r of
+        Left e -> jsonErrorResult e "tx failure for request key while redeeming gas"
+        Right _ -> do
+          logs <- use txLogs
+          return $! set crLogs (Just logs) cr
 
 applyGenesisCmd
     :: Logger
@@ -227,26 +208,26 @@ applyGenesisCmd
       -- ^ command with payload to execute
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyGenesisCmd logger dbEnv pd spv cmd =
-    evalTransactionM tenv def go
+    evalTransactionM tenv txst go
   where
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     nid = networkIdOf cmd
-    tenv = TransactionEnv Nothing Transactional dbEnv logger pd' spv nid 0.0
     rk = cmdToRequestKey cmd
+    tenv = TransactionEnv Transactional dbEnv logger pd' spv nid 0.0 rk 0
+    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
     -- when calling genesis commands, we bring all magic capabilities in scope
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
-      cr <- catchesPactError $!
-        runPayload interp cmd permissiveNamespacePolicy
+      cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> internalError
           $ "Genesis command failed: "
           <> sshow e
         Right r -> do
-          liftIO $ logDebugRequestKey logger rk "successful genesis tx for request key"
-          return $ T2 (r { _crGas = 0 }) mempty
+          logDebugRequestKey "successful genesis tx for request key"
+          return $ T2 r mempty
 
 applyCoinbase
     :: Logger
@@ -265,10 +246,10 @@ applyCoinbase
       -- ^ treat
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) =
-    second _txCache <$> runTransactionM tenv def go
+    second _txCache <$> runTransactionM tenv txst go
   where
-    tenv = TransactionEnv Nothing Transactional dbEnv logger pd
-      noSPVSupport Nothing 0.0
+    tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport Nothing 0.0 rk 0
+    txst =TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = initStateInterpreter $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow ph)
     rk = RequestKey chash
@@ -281,14 +262,13 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (Enfor
       case cr of
         Left e
           | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
-          | otherwise -> jsonErrorResult rk e 0 "coinbase tx failure"
+          | otherwise -> jsonErrorResult e "coinbase tx failure"
         Right er -> do
-          liftIO
-            $ logDebugRequestKey logger rk
-            $ "successful coinbase of "
-            ++ (take 18 $ show d)
-            ++ " to "
-            ++ show mid
+          logDebugRequestKey
+            $! "successful coinbase of "
+            <> (T.take 18 $ sshow d)
+            <> " to "
+            <> sshow mid
 
           return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
            (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
@@ -306,14 +286,15 @@ applyLocal
       -- ^ command with payload to execute
     -> IO (CommandResult [TxLog Value])
 applyLocal logger dbEnv pd spv cmd =
-    evalTransactionM tenv def go
+    evalTransactionM tenv txst go
   where
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     rk = cmdToRequestKey cmd
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
-    tenv = TransactionEnv Nothing Local dbEnv logger pd' spv nid 0.0
+    tenv = TransactionEnv Local dbEnv logger pd' spv nid 0.0 rk 0
+    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
@@ -321,38 +302,62 @@ applyLocal logger dbEnv pd spv cmd =
         _ -> throwCmdEx "local continuations not supported"
 
       cr <- catchesPactError $!
-        applyExec defaultInterpreter rk em signers chash managedNamespacePolicy
+        applyExec defaultInterpreter em signers chash managedNamespacePolicy
 
       case cr of
-        Left e -> jsonErrorResult rk e 0 "applyLocal"
+        Left e -> jsonErrorResult e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (toJSON pd') }
 
 jsonErrorResult
-    :: RequestKey
-    -> PactError
-    -> Gas
-    -> String
+    :: PactError
+    -> Text
     -> TransactionM p (CommandResult [TxLog Value])
-jsonErrorResult rk err gas msg = do
-    l <- view txLogger
+jsonErrorResult err msg = do
     logs <- use txLogs
+    gas <- use txGasUsed
+    rk <- view txRequestKey
 
-    liftIO $! logErrorRequestKey l rk err msg
+    void $! logErrorRequestKey err msg
+
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing
 
 runPayload
-    :: Interpreter p
-    -> Command (Payload PublicMeta ParsedCode)
+    :: Command (Payload PublicMeta ParsedCode)
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-runPayload interp cmd nsp = case payload of
-    Exec pm ->
-      applyExec interp rk pm signers chash nsp
-    Continuation ym ->
-      applyContinuation interp rk ym signers chash nsp
+runPayload cmd nsp = do
+    mcache <- use txCache
+    g0 <- use txGasUsed
+
+    let interp = initStateInterpreter
+          $ set evalGas g0
+          $ setModuleCache mcache def
+
+    case payload of
+      Exec pm ->
+        applyExec interp pm signers chash nsp
+      Continuation ym ->
+        applyContinuation interp ym signers chash nsp
+
   where
-    rk = cmdToRequestKey cmd
+    signers = _pSigners $ _cmdPayload cmd
+    chash = toUntypedHash $ _cmdHash cmd
+    payload = _pPayload $ _cmdPayload cmd
+
+-- | Run genesis transaction payloads with custom interpreter
+--
+runGenesis
+    :: Command (Payload PublicMeta ParsedCode)
+    -> NamespacePolicy
+    -> Interpreter p
+    -> TransactionM p (CommandResult [TxLog Value])
+runGenesis cmd nsp interp = case payload of
+    Exec pm ->
+      applyExec interp pm signers chash nsp
+    Continuation ym ->
+      applyContinuation interp ym signers chash nsp
+  where
     signers = _pSigners $ _cmdPayload cmd
     chash = toUntypedHash $ _cmdHash cmd
     payload = _pPayload $ _cmdPayload cmd
@@ -361,15 +366,15 @@ runPayload interp cmd nsp = case payload of
 --
 applyExec
     :: Interpreter p
-    -> RequestKey
     -> ExecMsg ParsedCode
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-applyExec interp rk em senderSigs hsh nsp = do
+applyExec interp em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
     logs <- use txLogs
+    rk <- view txRequestKey
     -- applyExec enforces non-empty expression set so `last` ok
     return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing
@@ -390,7 +395,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
 
       tenv <- ask
       genv <- GasEnv
-        <$> use (txGasLimit . to fromIntegral)
+        <$> view (txGasLimit . to fromIntegral)
         <*> view txGasPrice
         <*> use txGasModel
 
@@ -401,33 +406,28 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
         $ "applyExec: new pact added: "
         <> show (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
 
-      -- set log + cache updates
-      txLogs <>= (_erLogs er)
-      txCache .= (_erLoadedModules er)
+      -- set log + cache updates + used gas
+      setTxResultState er
 
       return er
   where
-    evalEnv c g = setupEvalEnv (_txDbEnv c) (_txEntity c) (_txMode c)
+    evalEnv c g = setupEvalEnv (_txDbEnv c) Nothing (_txMode c)
       (MsgData execData Nothing hsh) initRefStore g
       nsp (_txSpvSupport c) (_txPublicData c)
-
-managedNamespacePolicy :: NamespacePolicy
-managedNamespacePolicy = SmartNamespacePolicy False
-  (QualifiedName (ModuleName "ns" Nothing) "validate" def)
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
 applyContinuation
     :: Interpreter p
-    -> RequestKey
     -> ContMsg
     -> [Signer]
     -> Hash
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
-applyContinuation interp rk cm senderSigs hsh nsp = do
+applyContinuation interp cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
     logs <- use txLogs
+    rk <- view txRequestKey
     -- last safe here because cont msg is guaranteed one exp
     return $! (CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
       _erGas (Just logs) _erExec Nothing)
@@ -445,7 +445,7 @@ applyContinuation'
 applyContinuation' interp cm senderSigs hsh nsp = do
     tenv <- ask
     genv <- GasEnv
-      <$> use (txGasLimit . to fromIntegral)
+      <$> view (txGasLimit . to fromIntegral)
       <*> view txGasPrice
       <*> use txGasModel
 
@@ -453,8 +453,7 @@ applyContinuation' interp cm senderSigs hsh nsp = do
     er <- liftIO $! evalContinuation senderSigs interp eenv cm
 
     -- set log + cache updates
-    txLogs <>= (_erLogs er)
-    txCache .= (_erLoadedModules er)
+    setTxResultState er
 
     return er
   where
@@ -462,7 +461,7 @@ applyContinuation' interp cm senderSigs hsh nsp = do
     rollback = _cmRollback cm
     pid = _cmPactId cm
     pactStep = Just $ PactStep step rollback pid Nothing
-    evalEnv c g = setupEvalEnv (_txDbEnv c) (_txEntity c) (_txMode c)
+    evalEnv c g = setupEvalEnv (_txDbEnv c) Nothing (_txMode c)
       (MsgData (_cmData cm) pactStep hsh) initRefStore
       g nsp (_txSpvSupport c) (_txPublicData c)
 
@@ -471,12 +470,8 @@ applyContinuation' interp cm senderSigs hsh nsp = do
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-buyGas
-    :: Command (Payload PublicMeta ParsedCode)
-    -> Miner
-    -> GasSupply
-    -> TransactionM p (Either Text GasId)
-buyGas cmd (Miner mid mks) supply = go
+buyGas :: Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM p ()
+buyGas cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
     initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
@@ -492,16 +487,16 @@ buyGas cmd (Miner mid mks) supply = go
 
     go = do
       mcache <- use txCache
+      supply <- gasFeeOf <$> view txGasLimit <*> view txGasPrice
+
       buyGasCmd <- liftIO $! mkBuyGasCmd mid mks sender supply
 
       result <- applyExec' (interp mcache) buyGasCmd
         (_pSigners $ _cmdPayload cmd) bgHash managedNamespacePolicy
 
       case _erExec result of
-        Nothing -> return $!
-          Left "buyGas: Internal error - empty continuation"
-        Just pe -> do
-          return $! Right $ GasId (_pePactId pe)
+        Nothing -> fatal "buyGas: Internal error - empty continuation"
+        Just pe -> void $! txGasId .= (Just $ GasId (_pePactId pe))
 
 findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
 findPayer = runMaybeT $ do
@@ -535,7 +530,6 @@ findPayer = runMaybeT $ do
         _ -> evalError' i "Internal error, GAS_PAYER already acquired"
 
 
-
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')
 --
@@ -543,20 +537,28 @@ findPayer = runMaybeT $ do
 --
 redeemGas
     :: Command (Payload PublicMeta ParsedCode)
-    -> Gas             -- ^ total gas usage from command payload
-    -> CommandResult a -- ^ result from the user command payload
-    -> GasId           -- ^ result of the buy-gas continuation
-    -> TransactionM p (CommandResult [TxLog Value])
-redeemGas cmd initialGas cmdResult gid = do
+    -> Gas
+      -- ^ initial gas of the cmd payload
+    -> TransactionM p ()
+redeemGas cmd initialGas = do
     mcache <- use txCache
 
-    applyContinuation (initState mcache) rk (redeemGasCmd fee gid)
+    gid <- use txGasId >>= \case
+      Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
+      Just g -> return g
+
+    fee <- feeOf initialGas
+
+    void $! applyContinuation (initState mcache) (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
+
   where
-    totalGas = initialGas + _crGas cmdResult
-    fee = gasFeeOf totalGas (gasPriceOf cmd)
-    rk = cmdToRequestKey cmd
+    feeOf g0 = do
+      g <- use txGasUsed
+      p <- view txGasPrice
+      return $! gasFeeOf (g + g0) p
+
     initState mc = initStateInterpreter
       $ setModuleCache mc
       $ initCapabilities [magic_GAS]
@@ -601,6 +603,22 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
       , "reward" A..= reward
       ]
 {-# INLINABLE mkCoinbaseCmd #-}
+
+-- | Set tx result state
+--
+setTxResultState :: EvalResult -> TransactionM db ()
+setTxResultState er = do
+    txLogs <>= (_erLogs er)
+    txCache .= (_erLoadedModules er)
+    txGasUsed .= (_erGas er)
+{-# INLINE setTxResultState #-}
+
+-- | Managed namespace policy CAF
+--
+managedNamespacePolicy :: NamespacePolicy
+managedNamespacePolicy = SmartNamespacePolicy False
+  (QualifiedName (ModuleName "ns" Nothing) "validate" def)
+{-# NOINLINE managedNamespacePolicy #-}
 
 -- ---------------------------------------------------------------------------- --
 -- Utilities
@@ -663,7 +681,7 @@ buildExecParsedCode value code = maybe (go Null) go value
       Right !t -> pure $! ExecMsg t v
       -- if we can't construct coin contract calls, this should
       -- fail fast
-      Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
+      Left err -> internalError $ "buildExecParsedCode: parse failed: " <> T.pack err
 
 
 -- | Create a gas environment from a verified command
@@ -698,18 +716,40 @@ toCoinUnit = roundTo 12
 
 -- | Log request keys at DEBUG when successful
 --
-logDebugRequestKey :: Logger -> RequestKey -> String -> IO ()
-logDebugRequestKey l k reason = logLog l "DEBUG" $ reason <> ": " <> show k
+logDebugRequestKey :: forall db. Text -> TransactionM db ()
+logDebugRequestKey s = do
+    l <- view txLogger
+    rk <- view txRequestKey
+    liftIO $! logLog l "DEBUG" $! T.unpack s <> ": " <> show rk
 
 -- | Log request keys and error message at ERROR when failed
 --
 logErrorRequestKey
-    :: Exception e
-    => Logger
-    -> RequestKey
-    -> e
-    -> String
-    -> IO ()
-logErrorRequestKey l k e reason = logLog l "ERROR" $ reason
-    <> ": " <> show k
-    <> ": " <> show e
+    :: forall db e
+    . Exception e
+    => e
+    -> Text
+    -> TransactionM db ()
+logErrorRequestKey e reason = do
+    l <- view txLogger
+    rk <- view txRequestKey
+
+    liftIO
+      $! logLog l "ERROR"
+      $! T.unpack reason
+      <> ": " <> show rk
+      <> ": " <> show e
+
+-- | Denotes fatal failure points in the tx exec process
+--
+fatal :: forall db a. Text -> TransactionM db a
+fatal e = do
+    l <- view txLogger
+    rk <- view txRequestKey
+
+    liftIO
+      $! logLog l "ERROR"
+      $! "critical transaction failure: "
+      <> sshow rk <> ": " <> T.unpack e
+
+    internalError e

@@ -22,10 +22,12 @@ import Data.Text (Text)
 
 import NeatInterpolation (text)
 
+import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
+import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
@@ -186,21 +188,26 @@ checkpointerTest name initdata =
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0
+
                   execMsg <- buildExecParsedCode eData eCode
 
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0 (RequestKey h') 0
+                      cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
-                  evalTransactionM cmdenv def $
+                  evalTransactionM cmdenv cmdst $
                     applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
 
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = TransactionEnv Nothing Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0
+
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-                  evalTransactionM cmdenv def $
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0 (RequestKey h') 0
+                      cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+
+                  evalTransactionM cmdenv cmdst $
                     applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
 
             ------------------------------------------------------------------

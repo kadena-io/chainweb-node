@@ -75,6 +75,7 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
+import qualified Pact.Gas as P
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
@@ -534,14 +535,16 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         -> P.PactDbEnv db
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
         -> P.GasPrice
+        -> P.Gas
         -> TransactionEnv db
-    createGasEnv envM db cmd gp =
-        TransactionEnv Nothing P.Transactional db logger publicData spv nid gp
+    createGasEnv envM db cmd gp gl =
+        TransactionEnv P.Transactional db logger publicData spv nid gp rk gl
       where
         !logger = _cpeLogger . _psCheckpointEnv $ envM
         !publicData = set P.pdPublicMeta (publicMetaOf cmd) (_psPublicData envM)
         !spv = _psSpvSupport envM
         !nid = networkIdOf cmd
+        !rk = P.cmdToRequestKey cmd
 
     runBuyGas
         :: PayloadCas cas
@@ -555,16 +558,14 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         let cmd = payloadObj <$> tx
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
-            supply = gasFeeOf gasLimit gasPrice
-            buyGasEnv = createGasEnv envM db cmd gasPrice
+            buyGasEnv = createGasEnv envM db cmd gasPrice gasLimit
             txst0 = set txCache mcache
-              $ set txGasLimit gasLimit
-              $ def
+              $ TransactionState mempty mempty 0 Nothing (P._geGasModel P.freeGasEnv)
 
         cr <- liftIO
           $! P.catchesPactError
           $! runTransactionM buyGasEnv txst0
-          $! buyGas cmd miner supply
+          $! buyGas cmd miner
 
         case cr of
             Left _ ->

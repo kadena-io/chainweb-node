@@ -18,7 +18,11 @@
 -- Pact Types module for Chainweb
 --
 module Chainweb.Pact.Types
-  ( PactDbStatePersist(..)
+  ( -- * Pact Db State
+    PactDbStatePersist(..)
+  , pdbspRestoreFile
+  , pdbspPactDbState
+
   , Transactions(..)
   , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
@@ -31,12 +35,13 @@ module Chainweb.Pact.Types
   , TransactionState(..)
   , txGasModel
   , txGasLimit
+  , txGasUsed
+  , txGasId
   , txLogs
   , txCache
 
     -- * Transaction Env
   , TransactionEnv(..)
-  , txEntity
   , txMode
   , txDbEnv
   , txLogger
@@ -44,6 +49,7 @@ module Chainweb.Pact.Types
   , txSpvSupport
   , txNetworkId
   , txGasPrice
+  , txRequestKey
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -56,10 +62,8 @@ module Chainweb.Pact.Types
     -- * types
   , ModuleCache
   , HashCommandResult
-    -- * optics
-  , pdbspRestoreFile
-  , pdbspPactDbState
-    -- * defaults
+
+  -- * defaults
   , emptyPayload
   , noCoinbase
     -- * module exports
@@ -74,19 +78,16 @@ import Control.Monad.State.Strict
 
 
 import Data.Aeson
-import Data.Default
 import Data.HashMap.Strict
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 -- internal pact modules
 
-import Pact.Gas
 import Pact.Interpreter (PactDbEnv)
 import Pact.Parse (ParsedDecimal)
 import Pact.Types.Command
 import Pact.Types.Exp
-import Pact.Types.Gas
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
 import Pact.Types.PactValue
@@ -171,25 +172,24 @@ instance HasChainId Rewind where
 data TransactionState = TransactionState
     { _txCache :: ModuleCache
     , _txLogs :: [TxLog Value]
-    , _txGasLimit :: !Gas
+    , _txGasUsed :: !Gas
+    , _txGasId :: !(Maybe GasId)
     , _txGasModel :: !GasModel
     }
 makeLenses ''TransactionState
 
-instance Default TransactionState where
-    def = TransactionState mempty mempty 0 (_geGasModel freeGasEnv)
-
 -- | Transaction execution env
 --
 data TransactionEnv db = TransactionEnv
-    { _txEntity :: !(Maybe EntityName)
-    , _txMode :: !ExecutionMode
+    { _txMode :: !ExecutionMode
     , _txDbEnv :: PactDbEnv db
     , _txLogger :: !Logger
     , _txPublicData :: !PublicData
     , _txSpvSupport :: !SPVSupport
     , _txNetworkId :: !(Maybe NetworkId)
     , _txGasPrice :: !GasPrice
+    , _txRequestKey :: !RequestKey
+    , _txGasLimit :: !Gas
     }
 makeLenses ''TransactionEnv
 
