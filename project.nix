@@ -1,6 +1,6 @@
 {
-  pactRef ? "34783f9639a87b391382fe063e87737766fcdbb1"
-, pactSha ? "17sgvb1b0hy83bh59vbxcz0rjlz0xl7h1isky6syisw589yw0p2v"
+  pactRef ? "1e5741fa7ff4ebe9ec896efd65f15627ed232f30"
+, pactSha ? "1wg1nnxq59j7xb6m4w5dvxmr76idcpvpc6fmp9anyqrq27i4hc0l"
 }:
 
 let
@@ -24,7 +24,7 @@ inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
 
 in {
     name = "chainweb";
-    overrides = import ./overrides.nix pactSrc pkgs hackGet;
+    overrides = import ./overrides.nix { inherit pactSrc pkgs hackGet; };
 
     packages = {
       chainweb = gitignoreSource ./.;
