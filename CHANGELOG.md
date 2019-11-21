@@ -1,17 +1,29 @@
 # `chainweb-node` Changelog
 
-## 1.0.5
+## 1.0.5 (2019-11-??)
+
+This version changes the rules for Difficulty Adjustment in scenarios where
+there is a sudden loss of over 99% of the network hash power. While this is very
+unlikely to happen, this altered logic could result in a fork if not applied by
+the majority of the network. **Node administrators are advised to upgrade to
+this version as soon as possible.**
+
+### Significant Changes
+
+- Emergency difficulty adjustment is disabled from chain height 80,000 onward.
+  This is technically a fork, although it will hopefully never become relevant.
+  [#671](https://github.com/kadena-io/chainweb-node/pull/671)
 
 ### Configuration Changes
 
-*   Configuration options for logging blocks to Amberdata got removed.
-    [#717](https://github.com/kadena-io/chainweb-node/pull/717)
+- Configuration options for logging blocks to Amberdata was removed.
+  [#717](https://github.com/kadena-io/chainweb-node/pull/717)
 
 ### Bug Fixes
 
-*   Parsing of the configuration file properties
-    `p2p.peer.certificateChainFile` and `p2p.peer.keyFile` got fixed.
-    [#703](https://github.com/kadena-io/chainweb-node/pull/703)
+- Parsing of the configuration file properties `p2p.peer.certificateChainFile`
+  and `p2p.peer.keyFile` was fixed.
+  [#703](https://github.com/kadena-io/chainweb-node/pull/703)
 
 ## 1.0.4 (2019-11-13)
 

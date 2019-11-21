@@ -18,7 +18,7 @@ import Chainweb.Version (ChainwebVersion(..))
 ------------------------------------------------------------------------------
 
 tests :: TestTree
-tests = testGroup "Chainweb.Mempool.InMem"
+tests = testGroup "Chainweb.Test.Mempool"
             $ Chainweb.Test.Mempool.tests
             $ MempoolWithFunc wf
   where
