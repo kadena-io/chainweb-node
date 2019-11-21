@@ -134,7 +134,6 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
@@ -622,7 +621,7 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
   where
     startPact = do
         mv <- newEmptyMVar
-        reqQ <- atomically $ newTBQueue pactQueueSize
+        reqQ <- atomically $ newTBQueue 2000
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
