@@ -381,6 +381,7 @@ library
         , wai-extra >= 3.0
         , vector >= 0.12
         , vector-algorithms >= 0.7
+        , vector-strategies >= 0.4
         , wai-middleware-throttle >= 0.3
         , warp >= 3.2
         , warp-tls >= 3.2.7
