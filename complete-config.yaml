@@ -137,9 +137,5 @@ logging:
 
 # --- Miscellaneous Settings --- #
 
-# Location of your database files. Leaving this as `null` tells Chainweb to use
-# its default locations.
-databaseDirectory: null
-
 # If `true`, deletes your entire database upon startup.
 resetChainDatabases: false
