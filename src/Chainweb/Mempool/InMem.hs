@@ -28,7 +28,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
 import Control.DeepSeq
 import Control.Error.Util (hush)
-import Control.Exception (bracket, mask_, throw)
+import Control.Exception (bracket, evaluate, mask_, throw)
 import Control.Monad (void, (<$!>))
 
 import Data.Aeson
@@ -49,7 +49,6 @@ import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
-import Data.Vector.Strategies
 
 import Pact.Parse
 import Pact.Types.Gas (GasPrice(..))
@@ -195,8 +194,7 @@ lookupInMem :: NFData t
             -> IO (Vector (LookupResult t))
 lookupInMem txcfg lock txs = do
     q <- withMVarMasked lock (readIORef . _inmemPending)
-    let v = V.map (fromJuste . lookupOne q) txs `using`
-            parVector 1
+    v <- V.mapM (evaluate . force . fromJuste . lookupOne q) txs
     return $! v
   where
     lookupOne q txHash = lookupQ q txHash <|> pure Missing
@@ -247,8 +245,7 @@ insertCheckInMem cfg v lock txs
 
     case withHashes of
         Left _ -> pure $! void withHashes
-        Right r -> let !r' = r `using` parVector 1
-                   in void . sequenceA <$!> _inmemPreInsertBatchChecks cfg r'
+        Right r -> void . sequenceA <$!> _inmemPreInsertBatchChecks cfg r
   where
     hasher :: t -> TransactionHash
     hasher = txHasher (_inmemTxCfg cfg)

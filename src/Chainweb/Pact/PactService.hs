@@ -39,7 +39,8 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception (SomeAsyncException)
+import Control.DeepSeq
+import Control.Exception (SomeAsyncException, evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -65,7 +66,6 @@ import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Vector.Strategies
 
 import System.Directory
 import System.LogLevel
@@ -1064,8 +1064,9 @@ toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do
-    let vtrans = (V.fromList . map toCWTransaction . toList
-                    $ _payloadDataTransactions plData) `using` parVector 1
+    vtrans <- fmap V.fromList $
+              mapM toCWTransaction $
+              toList (_payloadDataTransactions plData)
     let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
@@ -1073,8 +1074,8 @@ transactionsFromPayload plData = do
             <> (T.intercalate ". " ls)
     return $! V.fromList theRights
   where
-    toCWTransaction bs = codecDecode chainwebPayloadCodec $
-                         _transactionBytes bs
+    toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
+                                          _transactionBytes bs))
 
 execLookupPactTxs
     :: PayloadCas cas
