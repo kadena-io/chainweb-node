@@ -201,9 +201,10 @@ lookupInMem txcfg lock txs = do
   where
     lookupOne q txHash = lookupQ q txHash <|> pure Missing
     codec = txCodec txcfg
-    fixup !bs = either (const Missing) Pending
-                    $! codecDecode codec
-                    $! SB.fromShort bs
+    fixup (T3 _ _ bs) =
+        either (const Missing) Pending
+            $! codecDecode codec
+            $! SB.fromShort bs
     lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
 
 
@@ -383,8 +384,11 @@ insertInMem cfg v lock runCheck txs0 = do
     hasher = txHasher txcfg
 
     insOne (T2 pending soFar) (T2 txhash tx) =
-        let !bytes = SB.toShort $! encodeTx tx
-        in T2 (HashMap.insert txhash bytes pending) (soFar . (txhash:))
+        let !gp = txGasPrice txcfg tx
+            !gl = txGasLimit txcfg tx
+            !bytes = SB.toShort $! encodeTx tx
+            !x = T3 gp gl bytes
+        in T2 (HashMap.insert txhash x pending) (soFar . (txhash:))
 
 
 ------------------------------------------------------------------------------
@@ -399,20 +403,16 @@ getBlockInMem
     -> IO (Vector t)
 getBlockInMem cfg lock txValidate bheight phash = do
     withMVar lock $ \mdata -> do
-        !psq0 <- readIORef $ _inmemPending mdata
+        !psq <- readIORef $ _inmemPending mdata
         now <- getCurrentTimeIntegral
         !badmap <- pruneBadMap now <$!> readIORef (_inmemBadMap mdata)
-        let decodeOne (k, v) = let !d = decodeTx v in k `seq` v `seq` (k, (v, d))
-            !psq0V = V.fromList (map decodeOne (HashMap.toList psq0))
-                     `using` parVector 1
-            !psq = HashMap.fromList $ V.toList psq0V
-            size0 = _inmemTxBlockSizeLimit cfg
+        let size0 = _inmemTxBlockSizeLimit cfg
         T3 psq' badmap' out <- go psq badmap size0 []
 
         -- put the txs chosen for the block back into the map -- they don't get
         -- expunged until they are mined and validated by consensus.
         let !psq'' = V.foldl' ins psq' out
-        writeIORef (_inmemPending mdata) $! force $ HashMap.map fst psq''
+        writeIORef (_inmemPending mdata) $! force psq''
         writeIORef (_inmemCountPending mdata) $! HashMap.size psq''
         writeIORef (_inmemBadMap mdata) $! force badmap'
         mout <- V.unsafeThaw $ V.map (snd . snd) out
@@ -422,7 +422,7 @@ getBlockInMem cfg lock txValidate bheight phash = do
   where
     pruneBadMap now = HashMap.filter (> now)
 
-    ins !m !(h,t) = HashMap.insert h t m
+    ins !m !(h,(b,t)) = HashMap.insert h (T3 (txGasPrice txcfg t) (txGasLimit txcfg t) b) m
 
     insBadMap !m !(h,(_,t)) = let endTime = txMetaExpiryTime (txMetadata txcfg t)
                           in HashMap.insert h endTime m
@@ -445,11 +445,11 @@ getBlockInMem cfg lock txValidate bheight phash = do
     sizeOK tx = getSize tx <= maxSize
 
     validateBatch
-        :: HashMap TransactionHash (SB.ShortByteString, t)
+        :: PendingMap
         -> BadMap
         -> Vector (TransactionHash, (SB.ShortByteString, t))
         -> IO (T3 (Vector (TransactionHash, (SB.ShortByteString, t)))
-                  (HashMap TransactionHash (SB.ShortByteString, t))
+                  PendingMap
                   BadMap)
     validateBatch !psq0 !badmap q = do
         let txs = V.map (snd . snd) q
@@ -470,18 +470,19 @@ getBlockInMem cfg lock txValidate bheight phash = do
     unconsV v = T2 (V.unsafeHead v) (V.unsafeTail v)
 
     nextBatch
-        :: HashMap TransactionHash (SB.ShortByteString, t)
+        :: PendingMap
         -> GasLimit
         -> IO [(TransactionHash, (SB.ShortByteString, t))]
     nextBatch !psq !remainingGas = do
         let !pendingTxs0 = V.fromList $ HashMap.toList psq
+        let cmp (T3 gp0 _ _) (T3 gp1 _ _) = compare (Down gp0) (Down gp1)
         mPendingTxs <- V.unsafeThaw pendingTxs0
-        TimSort.sortBy (compareOnGasPrice txcfg `on` (snd . snd)) mPendingTxs
+        TimSort.sortBy (cmp `on` snd) mPendingTxs
         !pendingTxs <- V.unsafeFreeze mPendingTxs
         return $! getBatch pendingTxs remainingGas [] 0
 
     getBatch
-        :: Vector (TransactionHash, (SB.ShortByteString, t))
+        :: Vector (TransactionHash, T3 GasPrice GasLimit SB.ShortByteString)
         -> GasLimit
         -> [(TransactionHash, (SB.ShortByteString, t))]
         -> Int
@@ -492,18 +493,18 @@ getBlockInMem cfg lock txValidate bheight phash = do
       | V.null pendingTxs = soFar
       | inARow >= maxInARow || sz <= 0 = soFar
       | otherwise = do
-            let (T2 !xx@(_, (_, tx)) !pendingTxs') = unconsV pendingTxs
-            let txSz = getSize tx
+            let (T2 (h, (T3 _ _ txbytes)) !pendingTxs') = unconsV pendingTxs
+            let !tx = decodeTx txbytes
+            let !txSz = getSize tx
             if txSz <= sz
-              then getBatch pendingTxs' (sz - txSz) (xx:soFar) 0
+              then getBatch pendingTxs' (sz - txSz) ((h,(txbytes, tx)):soFar) 0
               else getBatch pendingTxs' sz soFar (inARow + 1)
 
-    go :: HashMap TransactionHash (SB.ShortByteString, t)
+    go :: PendingMap
        -> BadMap
        -> GasLimit
        -> [Vector (TransactionHash, (SB.ShortByteString, t))]
-       -> IO (T3 (HashMap TransactionHash (SB.ShortByteString, t))
-                 BadMap
+       -> IO (T3 PendingMap BadMap
                  (Vector (TransactionHash, (SB.ShortByteString, t))))
     go !psq !badmap !remainingGas !soFar = do
         nb <- nextBatch psq remainingGas
