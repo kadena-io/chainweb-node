@@ -115,25 +115,28 @@ _run args = withArgs args $ C.defaultMain [bench]
 bench :: C.Benchmark
 bench = C.bgroup "PactServiceBench" $
     [ C.bench "forkingBench" $ withResources Nothing 10 Quiet forkingBench
-    , C.bench "oneBlock" $ withResources (Just (mkStdGen 1)) 1 Error oneBlock
+    , C.bench "oneBlock-5" $ oneBlock 5
+    , C.bench "oneBlock-10" $ oneBlock 10
+    , C.bench "oneBlock-25" $ oneBlock 25
     ]
   where
-    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue = do
+    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue _ = do
         let (T3 _ join1 _) = mainLineBlocks !! 5
             forkLength1 = 5
             forkLength2 = 5
         void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
         void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
-    oneBlock mainLineBlocks _pdb _bhdb _nonceCounter pactQueue = do
-        let (T3 _ join1 _) = mainLineBlocks !! 0
-        void $ noMineBlock join1 (Nonce 1234) pactQueue
+    oneBlock txCount = withResources (Just (mkStdGen 1)) 1 Error $ go
+      where
+        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
+          writeIORef txsPerBlock txCount
+          let (T3 _ join1 _) = mainLineBlocks !! 0
+          void $ noMineBlock join1 (Nonce 1234) pactQueue
 
-testMemPoolAccess :: Maybe StdGen -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
-testMemPoolAccess mseed accounts t = mempty
+testMemPoolAccess :: Maybe StdGen -> IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
+testMemPoolAccess mseed txsPerBlock accounts t = mempty
     { mpaGetBlock = \validate bh hash _header -> getTestBlock accounts t validate bh hash }
   where
-
-    blockSize = 10
 
     setTime time = \pb -> pb { _pmCreationTime = toTxCreationTime time }
 
@@ -153,6 +156,7 @@ testMemPoolAccess mseed accounts t = mempty
 
         | otherwise =
           withMVar mVarAccounts $ \accs -> do
+            blockSize <- readIORef txsPerBlock
             coinReqs <- do
               vs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs)
               gen <- fromMaybe newStdGen (pure <$> mseed)
@@ -175,10 +179,7 @@ testMemPoolAccess mseed accounts t = mempty
 
     generate' (MkFGen g) = do
       r <- get
-      -- I realize the line below could be this instead
-      -- "fmap snd . next"
-      -- But GHC doesn't like it.
-      modify' $ next >>= return . snd
+      modify' $ snd <$> next
       return $ g r
 
     mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty SomeKeyPairCaps) -> (Account, NonEmpty SomeKeyPairCaps)
@@ -296,10 +297,17 @@ data Resources
     , mainTrunkBlocks :: [T3 BlockHeader BlockHeader PayloadWithOutputs]
     , coinAccounts :: MVar (Map Account (NonEmpty SomeKeyPairCaps))
     , nonceCounter :: IORef Word64
+    , txPerBlock :: IORef Int
     }
 
-type RunPactService b
-   = [T3 BlockHeader BlockHeader PayloadWithOutputs] -> PayloadDb HashMapCas -> BlockHeaderDb -> IORef Word64 -> PactQueue  -> IO b
+type RunPactService b =
+  [T3 BlockHeader BlockHeader PayloadWithOutputs]
+  -> PayloadDb HashMapCas
+  -> BlockHeaderDb
+  -> IORef Word64
+  -> PactQueue
+  -> IORef Int
+  -> IO b
 
 withResources :: NFData b => Maybe StdGen -> Word64 -> LogLevel -> RunPactService b -> C.Benchmarkable
 withResources mseed trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unwrap
@@ -313,8 +321,9 @@ withResources mseed trunkLength logLevel f = C.perRunEnvWithCleanup create destr
         time <- getCurrentTimeIntegral
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
+        txPerBlock <- newIORef 10
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess mseed coinAccounts time) tempDir
+          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess mseed txPerBlock coinAccounts time) tempDir
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}
@@ -325,7 +334,7 @@ withResources mseed trunkLength logLevel f = C.perRunEnvWithCleanup create destr
       destroyPayloadDb payloadDb
 
     unwrap (NoopNFData (Resources {..})) =
-      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd $ pactService)
+      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd $ pactService) txPerBlock
 
     pactQueueSize = 2000
 
