@@ -43,13 +43,12 @@ module Chainweb.Pact.TransactionExec
 , networkIdOf
 , gasFeeOf
 , gasPriceOf
-, mkGasEnvOf
 
   -- * Utilities
 , buildExecParsedCode
 , jsonErrorResult
-, logDebugRequestKey
-, logErrorRequestKey
+, debug
+, error_
 , mkMagicCapSlot
 ) where
 
@@ -147,8 +146,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     second _txCache <$>
       runTransactionM cenv txst applyBuyGas
   where
-    txst = set txCache mcache0
-      $ TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
     cenv = TransactionEnv Transactional pdbenv logger pd' spv nid gasPrice
       requestKey gasLimit
 
@@ -226,7 +224,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
           $ "Genesis command failed: "
           <> sshow e
         Right r -> do
-          logDebugRequestKey "successful genesis tx for request key"
+          debug "successful genesis tx for request key"
           return $ T2 r mempty
 
 applyCoinbase
@@ -264,7 +262,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (Enfor
           | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
           | otherwise -> jsonErrorResult e "coinbase tx failure"
         Right er -> do
-          logDebugRequestKey
+          debug
             $! "successful coinbase of "
             <> (T.take 18 $ sshow d)
             <> " to "
@@ -317,7 +315,7 @@ jsonErrorResult err msg = do
     gas <- use txGasUsed
     rk <- view txRequestKey
 
-    void $! logErrorRequestKey err msg
+    void $! error_ err msg
 
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing
@@ -604,22 +602,6 @@ mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
       ]
 {-# INLINABLE mkCoinbaseCmd #-}
 
--- | Set tx result state
---
-setTxResultState :: EvalResult -> TransactionM db ()
-setTxResultState er = do
-    txLogs <>= (_erLogs er)
-    txCache .= (_erLoadedModules er)
-    txGasUsed .= (_erGas er)
-{-# INLINE setTxResultState #-}
-
--- | Managed namespace policy CAF
---
-managedNamespacePolicy :: NamespacePolicy
-managedNamespacePolicy = SmartNamespacePolicy False
-  (QualifiedName (ModuleName "ns" Nothing) "validate" def)
-{-# NOINLINE managedNamespacePolicy #-}
-
 -- ---------------------------------------------------------------------------- --
 -- Utilities
 
@@ -660,6 +642,22 @@ setModuleCache
 setModuleCache = set (evalRefs . rsLoadedModules)
 {-# INLINE setModuleCache #-}
 
+-- | Set tx result state
+--
+setTxResultState :: EvalResult -> TransactionM db ()
+setTxResultState er = do
+    txLogs <>= (_erLogs er)
+    txCache .= (_erLoadedModules er)
+    txGasUsed .= (_erGas er)
+{-# INLINE setTxResultState #-}
+
+-- | Managed namespace policy CAF
+--
+managedNamespacePolicy :: NamespacePolicy
+managedNamespacePolicy = SmartNamespacePolicy False
+  (QualifiedName (ModuleName "ns" Nothing) "validate" def)
+{-# NOINLINE managedNamespacePolicy #-}
+
 -- | Builder for "magic" capabilities given a magic cap name
 --
 mkMagicCapSlot :: Text -> CapSlot UserCapability
@@ -683,12 +681,6 @@ buildExecParsedCode value code = maybe (go Null) go value
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> T.pack err
 
-
--- | Create a gas environment from a verified command
---
-mkGasEnvOf :: Command (Payload PublicMeta c) -> GasModel -> GasEnv
-mkGasEnvOf cmd gasModel = GasEnv (gasLimitOf cmd) (gasPriceOf cmd) gasModel
-{-# INLINE mkGasEnvOf #-}
 
 -- | Retrieve public metadata from a command
 --
@@ -716,21 +708,21 @@ toCoinUnit = roundTo 12
 
 -- | Log request keys at DEBUG when successful
 --
-logDebugRequestKey :: forall db. Text -> TransactionM db ()
-logDebugRequestKey s = do
+debug :: forall db. Text -> TransactionM db ()
+debug s = do
     l <- view txLogger
     rk <- view txRequestKey
     liftIO $! logLog l "DEBUG" $! T.unpack s <> ": " <> show rk
 
 -- | Log request keys and error message at ERROR when failed
 --
-logErrorRequestKey
+error_
     :: forall db e
     . Exception e
     => e
     -> Text
     -> TransactionM db ()
-logErrorRequestKey e reason = do
+error_ e reason = do
     l <- view txLogger
     rk <- view txRequestKey
 
