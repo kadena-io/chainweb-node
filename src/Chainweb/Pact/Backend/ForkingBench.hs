@@ -114,8 +114,8 @@ _run args = withArgs args $ C.defaultMain [bench]
 
 bench :: C.Benchmark
 bench = C.bgroup "PactServiceBench" $
-    [ C.bench "forkingBench" $ withResources 10 Quiet forkingBench
-    , C.bench "oneBlock" $ withResources 1 Error oneBlock
+    [ C.bench "forkingBench" $ withResources Nothing 10 Quiet forkingBench
+    , C.bench "oneBlock" $ withResources (Just (mkStdGen 1)) 1 Error oneBlock
     ]
   where
     forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue = do
@@ -128,8 +128,8 @@ bench = C.bgroup "PactServiceBench" $
         let (T3 _ join1 _) = mainLineBlocks !! 0
         void $ noMineBlock join1 (Nonce 1234) pactQueue
 
-testMemPoolAccess :: MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
-testMemPoolAccess accounts t = mempty
+testMemPoolAccess :: Maybe StdGen -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
+testMemPoolAccess mseed accounts t = mempty
     { mpaGetBlock = \validate bh hash _header -> getTestBlock accounts t validate bh hash }
   where
 
@@ -153,7 +153,10 @@ testMemPoolAccess accounts t = mempty
 
         | otherwise =
           withMVar mVarAccounts $ \accs -> do
-            coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs) >>= traverse generate
+            coinReqs <- do
+              vs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs)
+              gen <- fromMaybe newStdGen (pure <$> mseed)
+              evalStateT (traverse generate' vs) gen
             txs <- forM coinReqs $ \coinReq -> do
                 let (Account sender, ks) =
                       case coinReq of
@@ -169,6 +172,14 @@ testMemPoolAccess accounts t = mempty
                   Left e -> throwM $ userError e
                   Right tx -> return tx
             return $! txs
+
+    generate' (MkFGen g) = do
+      r <- get
+      -- I realize the line below could be this instead
+      -- "fmap snd . next"
+      -- But GHC doesn't like it.
+      modify' $ next >>= return . snd
+      return $ g r
 
     mkTransferCaps :: ReceiverName -> Amount -> (Account, NonEmpty SomeKeyPairCaps) -> (Account, NonEmpty SomeKeyPairCaps)
     mkTransferCaps (ReceiverName (Account r)) (Amount m) (s@(Account ss),ks) = (s, (caps <$) <$> ks)
@@ -290,8 +301,8 @@ data Resources
 type RunPactService b
    = [T3 BlockHeader BlockHeader PayloadWithOutputs] -> PayloadDb HashMapCas -> BlockHeaderDb -> IORef Word64 -> PactQueue  -> IO b
 
-withResources :: NFData b => Word64 -> LogLevel -> RunPactService b -> C.Benchmarkable
-withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unwrap
+withResources :: NFData b => Maybe StdGen -> Word64 -> LogLevel -> RunPactService b -> C.Benchmarkable
+withResources mseed trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unwrap
   where
 
     create = do
@@ -303,7 +314,7 @@ withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unw
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess coinAccounts time) tempDir
+          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess mseed coinAccounts time) tempDir
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}
@@ -439,7 +450,7 @@ createCoinAccounts v meta = traverse (go <*> createCoinAccount v meta) names
       return (Account a,b,c)
 
 names :: NonEmpty String
-names = NEL.map safeCapitalize . NEL.fromList $ Prelude.take 2 $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
+names = NEL.map safeCapitalize . NEL.fromList $ words "mary elizabeth patricia jennifer linda barbara margaret susan dorothy jessica james john robert michael william david richard joseph charles thomas"
 
 accountNames :: NonEmpty Account
 accountNames = Account <$> names
