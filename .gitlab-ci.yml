@@ -84,7 +84,7 @@ slow-tests:
   script:
     - echo This is a master slow test run.
     - nix-build
-    - nix-build docker.nix
+    - nix-build docker.nix # only works on linux
     - nix-build -A ghc.chainweb.doc
     - result/bin/chainweb-tests --hide-successes
     - result/bin/cwtool slow-tests +RTS -N4

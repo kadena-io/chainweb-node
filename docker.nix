@@ -1,4 +1,4 @@
-{ nixpkgs ? import <nixpkgs> { system = "x86_64-linux"; }, skipTests ? true }:
+{ nixpkgs ? (import ./project.nix { system = "x86_64-linux"; }).rp.nixpkgs, skipTests ? true }:
 
 let
     inherit (nixpkgs) pkgs;
