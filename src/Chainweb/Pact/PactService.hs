@@ -11,6 +11,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
+{-# OPTIONS_GHC -Wno-unused-binds #-}
 -- |
 -- Module: Chainweb.Pact.PactService
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -71,6 +72,7 @@ import System.LogLevel
 
 import Prelude hiding (lookup)
 
+import Debug.Trace (trace)
 
 ------------------------------------------------------------------------------
 -- external pact modules
@@ -394,14 +396,14 @@ validateHashes
     -> Either PactException PayloadWithOutputs
 validateHashes bHeader pwo pData =
     if newHash == prevHash
-    then Right pwo
-    else Left $ BlockValidationFailure $ A.object
+    then trace "Right in validateHashes" (Right pwo)
+    else trace "Left in validateHashes" (Left $ BlockValidationFailure $ A.object
          [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
          , "actual" A..= newHash
          , "expected" A..= prevHash
          , "payloadWithOutputs" A..= pwo
          , "otherMismatchs" A..= mismatchs
-         ]
+         ])
     where
       newHash = _payloadWithOutputsPayloadHash pwo
       newTransactions = V.map fst (_payloadWithOutputsTransactions pwo)
@@ -510,7 +512,9 @@ _liftCPErr = either internalError' return
 
 
 data Uniqueness = Duplicate | Unique
+    deriving Show
 data AbleToBuyGas = BuyGasFailed | BuyGasPassed
+    deriving Show
 type BuyGasValidation = T3 ChainwebTransaction Uniqueness AbleToBuyGas
 
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
@@ -588,10 +592,18 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
     | V.null txs = pure V.empty
     | otherwise = do
         -- TODO miner attack: does the list itself contain any duplicates txs?
-        let f t = do
+        let f :: P.Command a -> IO (T2 (P.Command a) Uniqueness)
+            f t = do
               uniqueness <- (bool Unique Duplicate . isJust)
                 <$> _cpLookupProcessedTx cp (P._cmdHash t)
               return $! T2 t uniqueness
+
+        t2s <- V.mapM (\tx -> f tx) txs
+        valParams <- doBuyGas t2s
+        putStrLn "Uniqueness, ableToBuyGasNess from validateChainwebTxs: "
+        _ <- forM valParams $ \(T3 _a b c) -> do
+          putStrLn $ show b ++ " " ++ show c
+
         txs' <- liftIO $ V.mapM f txs
         doBuyGas txs' >>= V.mapM validate
   where
@@ -841,7 +853,6 @@ playOneBlock currHeader plData pdbenv = do
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
-    -- prop_tx_ttl_validate
     oks <- liftIO $
            validateChainwebTxs cp creationTime
                (_blockHeight currHeader) trans skipDebitGas

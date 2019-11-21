@@ -5,6 +5,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-# OPTIONS_GHC -Wno-unused-binds #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
+
 module Chainweb.Test.Pact.ForkTest
   ( tests
   ) where
@@ -35,11 +38,13 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty.QuickCheck
 
+import Pact.Types.Command (Command(..))
 import Pact.Parse
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 
 -- internal modules
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
@@ -58,6 +63,8 @@ import Chainweb.Time
 import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.Version
+
+import Debug.Trace
 
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 tests _db _h0 =
@@ -88,7 +95,7 @@ prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
     liftIO $ putStrLn $ "&&&&& list of blocks: &&&&&\n" ++ showHeaderFields blockList ++ "&&&&&&&&&&"
 
     reqQ <- liftIO $ reqQIO
-    (newBlockRes, valBlockRes) <- liftIO $ runBlocks blockList reqQ iodb
+    (newBlockRes, valBlockRes) <- liftIO $ runBlocks db blockList reqQ iodb
     assert (newBlockRes == valBlockRes)
     assert (valBlockRes == expected)
 
@@ -114,16 +121,23 @@ txsFromHeight 1 = do
     moduleStr <- readFile' $ testPactFilesDir ++ "test2.pact"
     return $ V.fromList
         ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d } ] )
-txsFromHeight h = do
-    d <- adminData
-    return $ V.fromList $
-         PactTransaction { _pactCode = toS ( "(free.fork-test.multiply-transfer \"Acct1\" \"Acct2\""
-                                          ++ show (valFromHeight h) ++ ")" )
-                        , _pactData = d }
-        : commonTxs d
+txsFromHeight h = V.fromList <$> tailTransactions h
 
-commonTxs :: (Maybe Value) -> [PactTransaction]
-commonTxs d =
+-- tailTransactions :: Int -> IO [PactTransaction]
+-- tailTransactions h = do
+--     d <- adminData
+--     return [ PactTransaction { _pactCode = toS ( "(free.fork-test.multiply-transfer \"Acct1\" \"Acct2\""
+--                                             ++ show (valFromHeight h) ++ ")" )
+--                              , _pactData = d } ]
+tailTransactions :: Int -> IO [PactTransaction]
+tailTransactions h = do
+    d <- adminData
+    let aTx = PactTransaction { _pactCode = toS ( "(+ 1 " ++ show (valFromHeight h) ++ ")" )
+                              , _pactData = d }
+    return [aTx]
+
+_commonTxs :: (Maybe Value) -> [PactTransaction]
+_commonTxs d =
     [ PactTransaction { _pactCode = "(at 'prev-block-hash (chain-data))", _pactData = d }
     , PactTransaction { _pactCode = "(at 'block-time (chain-data))", _pactData = d }
     , PactTransaction { _pactCode = "(at 'block-height (chain-data))", _pactData = d }
@@ -133,8 +147,8 @@ commonTxs d =
     , PactTransaction { _pactCode = "(at 'sender (chain-data))", _pactData = d }
     ]
 
-runBlocks :: [BlockHeader] -> PactQueue -> (IO BlockHeaderDb) -> IO (Int, Int)
-runBlocks blocks theReqQ theIodb = do
+runBlocks :: BlockHeaderDb -> [BlockHeader] -> PactQueue -> (IO BlockHeaderDb) -> IO (Int, Int)
+runBlocks db blocks theReqQ theIodb = do
     thePairs <- go (head blocks) (tail blocks) theReqQ theIodb []
     return $ headDef (0, 0) thePairs
   where
@@ -142,12 +156,15 @@ runBlocks blocks theReqQ theIodb = do
        -> [(Int, Int)] -> IO [(Int, Int)]
     go _parent [] _reqQ _iodb pairs = return pairs -- this case shouldn't occur
     go _parent (_new : []) _reqQ _iodb pairs = return pairs
-    go parent (new : remaining) reqQ iodb pairs = do
+    go parent (_new : remaining) reqQ iodb pairs = do
             mvNew <- runNewBlock parent reqQ iodb
             (plwoNew, asIntNew) <- getResult mvNew
-            mvVal <- runValidateBlock plwoNew parent new reqQ iodb
+
+            new' <- mkProperNewBlock db plwoNew parent
+            mvVal <- runValidateBlock plwoNew new' reqQ
             (_plwoVal, asIntVal) <- getResult mvVal
-            go new remaining reqQ iodb ((asIntNew, asIntVal) : pairs)
+
+            go new' remaining reqQ iodb ((asIntNew, asIntVal) : pairs)
 
 getResult :: MVar (Either PactException PayloadWithOutputs) -> IO (PayloadWithOutputs, Int)
 getResult mvar = do
@@ -169,39 +186,53 @@ runNewBlock
     -> PactQueue
     -> (IO BlockHeaderDb)
     -> IO (MVar (Either PactException PayloadWithOutputs))
-runNewBlock block reqQ iodb = do
-    putStrLn $ "runNewBlock...\n\t" ++ showHeaderFields [block]
+runNewBlock parentBlock reqQ iodb = do
+    putStrLn $ "runNewBlock...\n\t" ++ showHeaderFields [parentBlock]
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-    -- TODO: remove this
-    -- Test calling loookup on the parent block
+
+    -- TODO: remove this -- Test calling loookup on the parent block
     db <- iodb
-    res <- TDB.lookup db (_blockHash block)
+    res <- TDB.lookup db (_blockHash parentBlock)
     let str = case res of
-          Nothing -> "lookup on TreeDB returned Nothing"
-          Just _dbe -> "lookup on TreeDB returned Just, about to call newBlock..."
-    putStrLn $ "runNewBlock: " ++ str
-    newBlock noMiner block (BlockCreationTime blockTime) reqQ
+          Nothing -> "lookup of parent in TreeDB returned Nothing"
+          Just _dbe -> "lookup of parent in TreeDB returned a 'Just'"
+    putStrLn $ "About to call newBlock, " ++ str
+
+    newBlock noMiner parentBlock (BlockCreationTime blockTime) reqQ
 
 -- validate the same transactions as sent to newBlock
 runValidateBlock
     :: PayloadWithOutputs
     -> BlockHeader
-    -> BlockHeader
     -> PactQueue
-    -> (IO BlockHeaderDb)
     -> IO (MVar (Either PactException PayloadWithOutputs))
-runValidateBlock plwo parentHeader blockHeader reqQ _iodb = do
-    putStrLn $ "runValidateBlock..."
-        ++ "\n\tthe parent block: " ++ showHeaderFields [parentHeader]
-        ++ "\n\tthe current block: " ++ showHeaderFields [blockHeader]
+runValidateBlock plwo blockHeader reqQ = do
+    putStrLn $ "runValidateBlock -- the current block:" ++ showHeaderFields [blockHeader]
+    let plData = payloadWithOutputsToPayloadData plwo
+    validateBlock blockHeader plData reqQ
+
+mkProperNewBlock
+    :: BlockHeaderDb
+    -> PayloadWithOutputs
+    -> BlockHeader
+    -> (IO BlockHeader)
+mkProperNewBlock db plwo parentHeader = do
+    let adjParents = BlockHashRecord HM.empty
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
     let plData = payloadWithOutputsToPayloadData plwo
-    let toValidateHeader = (blockHeader)
-            { _blockPayloadHash = matchingPlHash
-            , _blockParent = _blockHash parentHeader
-            , _blockCreationTime = BlockCreationTime (Time hour)
-            }
-    validateBlock toValidateHeader plData reqQ
+
+    let BlockCreationTime bctParent = _blockCreationTime parentHeader
+    let Time (TimeSpan tsParent) = bctParent
+    let parentSec = timeSpanToSeconds tsParent
+    let newBlockSec = timeSpanToSeconds tsParent + 10
+    let newBlockTS = secondsToTimeSpan newBlockSec
+    let newBlockTime = Time (TimeSpan newBlockTS)
+    let creationTime = BlockCreationTime newBlockTime
+
+    let newHeader = newBlockHeader adjParents matchingPlHash (Nonce 0) creationTime parentHeader
+    putStrLn $ "mkProperNewBlock - new header: " ++ showHeaderFields [newHeader]
+    liftIO $ TDB.insert db newHeader
+    return newHeader
 
 -- product of primes assigned to a given (inclusive) range of block heights
 prodFromRange :: Int -> Int -> Int
@@ -229,9 +260,9 @@ showHeaderFields bhs =
   where
     f r BlockHeader{..} = r ++
         ("BlockHeader at height = " ++ show _blockHeight
+         ++ "\n\tBlock creation time: " ++ show _blockCreationTime
          ++ "\n\tHash: " ++ show _blockHash
-         ++ "\n\tParent hash: " ++ show _blockParent
-         ++ "\n\n")
+         ++ "\n\tParent hash: " ++ show _blockParent)
 
 ----------------------------------------------------------------------------------------------------
 -- Borrowed/modified from PactInProceApi test...
@@ -252,4 +283,7 @@ testMemPoolAccess = MemPoolAccess
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60 -- 24 hours
                 in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger (30 * 60)))) tx -- 30 min
-        return outtxs
+
+        let pactHashes = V.map (\tx -> _cmdHash tx) outtxs
+        trace ("transaction(s) from mempool for height = " ++ show bHeight ++ ": " ++ show pactHashes)
+            return outtxs

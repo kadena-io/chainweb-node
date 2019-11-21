@@ -64,19 +64,53 @@ aeson :: (String -> b) -> (a -> b) -> Result a -> b
 aeson f _ (Error a) = f a
 aeson _ g (Success a) = g a
 
--- | The maximum time-to-live (expressed in seconds)
+-- 2 | The maximum time-to-live (expressed in seconds)
 maxTTL :: ParsedInteger
 maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- This is probably going to be changed. Let us make it 2 days for now.
 
+-- timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
+-- timingsCheck (BlockCreationTime blockOriginationTime) tx =
+--     ttl > 0
+--     && blockOriginationTime >= (toMicrosFromSeconds 0)
+--     && txOriginationTime >=
+--     && toMicrosFromSeconds txOriginationTime < blockOriginationTime
+--     && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
+--     && ttl <= maxTTL
+--   where
+--     (TTLSeconds ttl) = timeToLiveOf tx
+--     toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+--     (TxCreationTime txOriginationTime) = creationTimeOf tx
 timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
 timingsCheck (BlockCreationTime blockOriginationTime) tx =
-    ttl > 0
-    && blockOriginationTime >= (toMicrosFromSeconds 0)
-    && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime < blockOriginationTime
-    && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
-    && ttl <= maxTTL
+  let b =
+        ttl > 0
+        && blockOriginationTime >= (toMicrosFromSeconds 0)
+        && txOriginationTime >= 0
+        && toMicrosFromSeconds txOriginationTime < blockOriginationTime
+        && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
+        && ttl <= maxTTL
+  in if not b
+       then
+         let timingStr =
+                "\nblockOriginationTime: " ++ show blockOriginationTime
+                ++ "\ntoMicrosFromSeconds 0: " ++ show (toMicrosFromSeconds 0)
+                ++ "\ntxOriginationTime: " ++ show txOriginationTime
+                ++ "\ntoMicrosFromSeconds txOriginationTime: " ++ show (toMicrosFromSeconds txOriginationTime)
+                ++ "\ntoMicrosFromSeconds txOriginationTime + ttl: "
+                   ++ show (toMicrosFromSeconds (txOriginationTime + ttl))
+                ++ "\n: ttl: " ++ show ttl
+                ++ "\n: maxTTL: " ++ show maxTTL
+                ++ "\nttl > 0: " ++ show (ttl >0)
+                ++ "\nblockOriginationTime >= 0: "
+                    ++ show (txOriginationTime >= 0)
+                ++ "\ntoMicrosFromSeconds txOriginationTime < blockOriginationTime: "
+                    ++ show (toMicrosFromSeconds txOriginationTime < blockOriginationTime)
+                ++ "\ntoMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime: "
+                    ++ show (toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime)
+                ++ "\nttl <= maxTTL: " ++ show (ttl <= maxTTL)
+         in error $ "failed timings check: " ++ timingStr
+       else b
   where
     (TTLSeconds ttl) = timeToLiveOf tx
     toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
