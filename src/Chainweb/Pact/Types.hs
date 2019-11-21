@@ -28,7 +28,6 @@ module Chainweb.Pact.Types
   , Rewind(..)
     -- * types
   , TransactionM
-  , ModuleCache
   , HashCommandResult
     -- * optics
   , pdbspRestoreFile
@@ -45,7 +44,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 
 import Data.Aeson
-import Data.HashMap.Strict
 import Data.Vector (Vector)
 
 -- internal pact modules
@@ -55,9 +53,8 @@ import Pact.Types.Command
 import Pact.Types.Exp
 import qualified Pact.Types.Hash as H
 import Pact.Types.PactValue
-import Pact.Types.Runtime (ModuleData)
 import Pact.Types.Server (CommandEnv)
-import Pact.Types.Term (ModuleName, PactId(..), Ref)
+import Pact.Types.Term (PactId(..))
 
 -- internal chainweb modules
 
@@ -70,8 +67,6 @@ import Chainweb.Version
 
 
 type HashCommandResult = CommandResult H.Hash
-
-type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
 data Transactions = Transactions
     { _transactionPairs :: !(Vector (Transaction, HashCommandResult))
