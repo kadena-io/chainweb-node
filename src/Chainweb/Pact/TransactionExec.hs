@@ -94,8 +94,9 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHash
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Backend.Types (ModuleCache)
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Pact.Types (GasId(..), GasSupply(..), ModuleCache)
+import Chainweb.Pact.Types (GasId(..), GasSupply(..))
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
 
@@ -253,11 +254,16 @@ applyCoinbase
       -- ^ hash of the mined block
     -> EnforceCoinbaseFailure
       -- ^ treat
-    -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) = do
+    -> ModuleCache
+      -- ^ initial module cache
+    -> IO (CommandResult [TxLog Value])
+applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) mc = do
     -- cmd env with permissive gas model
     let cenv = CommandEnv Nothing Transactional dbEnv logger freeGasEnv pd noSPVSupport Nothing
-        initState = initStateInterpreter $ initCapabilities [magic_COINBASE]
+        initState = initStateInterpreter
+          $ setModuleCache mc
+          $ initCapabilities [magic_COINBASE]
+
         ch = Pact.Hash (sshow ph)
 
     let rk = RequestKey ch
@@ -267,7 +273,7 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph (EnforceCo
 
     case cre of
       Left e | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
-             | otherwise -> (`T2` mempty) <$> jsonErrorResult' cenv rk e [] (Gas 0) "coinbase tx failure"
+             | otherwise -> jsonErrorResult' cenv rk e [] 0 "coinbase tx failure"
       Right er -> do
         logDebugRequestKey logger rk
           $ "successful coinbase of "
@@ -275,10 +281,8 @@ applyCoinbase logger dbEnv (Miner mid mks) mr@(ParsedDecimal d) pd ph (EnforceCo
           ++ " to "
           ++ show mid
 
-        return $! T2
-          (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing)
-          (_erLoadedModules er)
+        return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
+           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
 
 
 
