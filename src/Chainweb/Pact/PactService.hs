@@ -559,8 +559,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
             buyGasEnv = createGasEnv envM db cmd gasPrice gasLimit
-            txst0 = set txCache mcache
-              $ TransactionState mempty mempty 0 Nothing (P._geGasModel P.freeGasEnv)
+            txst0 = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
 
         cr <- liftIO
           $! P.catchesPactError
