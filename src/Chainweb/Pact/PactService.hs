@@ -517,51 +517,48 @@ type BuyGasValidation = T3 ChainwebTransaction Uniqueness AbleToBuyGas
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
 --
 attemptBuyGas
-    :: PayloadCas cas
-    => Miner
+    :: Miner
     -> PactDbEnv'
     -> Vector (T2 ChainwebTransaction Uniqueness)
     -> PactServiceM cas (Vector BuyGasValidation)
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
-        psEnv <- ask
-        V.fromList . toList . sfst <$> V.foldM (f psEnv) (T2 mempty mempty) txs
+        mc <- use psInitCache
+        V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
 
   where
-    f psEnv (T2 dl mcache) cmd = do
-        T2 mcache' !res <- runBuyGas psEnv dbEnv mcache cmd
+    f (T2 dl mcache) cmd = do
+        T2 mcache' !res <- runBuyGas dbEnv mcache cmd
         pure $! T2 (DL.snoc dl res) mcache'
 
     createGasEnv
-        :: PayloadCas cas
-        => PactServiceEnv cas
-        -> P.PactDbEnv db
+        :: P.PactDbEnv db
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
         -> P.GasPrice
         -> P.Gas
-        -> TransactionEnv db
-    createGasEnv envM db cmd gp gl =
-        TransactionEnv P.Transactional db logger publicData spv nid gp rk gl
+        -> PactServiceM cas (TransactionEnv db)
+    createGasEnv db cmd gp gl = do
+        l <- view $ psCheckpointEnv . cpeLogger
+        pd <- set P.pdPublicMeta pm <$!> view psPublicData
+        spv <- view psSpvSupport
+        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl
       where
-        !logger = _cpeLogger . _psCheckpointEnv $ envM
-        !publicData = set P.pdPublicMeta (publicMetaOf cmd) (_psPublicData envM)
-        !spv = _psSpvSupport envM
+        !pm = publicMetaOf cmd
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
 
     runBuyGas
-        :: PayloadCas cas
-        => PactServiceEnv cas
-        -> P.PactDbEnv a
+        :: P.PactDbEnv a
         -> ModuleCache
         -> T2 ChainwebTransaction Uniqueness
         -> PactServiceM cas (T2 ModuleCache BuyGasValidation)
-    runBuyGas _ _ mcache (T2 tx Duplicate) = return $ T2 mcache (T3 tx Duplicate BuyGasFailed)
-    runBuyGas envM db mcache (T2 tx Unique) = do
+    runBuyGas _ mcache (T2 tx Duplicate) = return $ T2 mcache (T3 tx Duplicate BuyGasFailed)
+    runBuyGas db mcache (T2 tx Unique) = do
         let cmd = payloadObj <$> tx
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
-            buyGasEnv = createGasEnv envM db cmd gasPrice gasLimit
             txst = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
+
+        buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
 
         cr <- liftIO
           $! P.catchesPactError
@@ -992,6 +989,7 @@ execTransactions
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
+
     coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
@@ -1051,7 +1049,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         !pd       = _psPublicData psEnv
         !spv      = _psSpvSupport psEnv
-        pactHash  = view P.cmdHash cmdIn
+        pactHash  = P._cmdHash cmdIn
 
     T2 result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv (payloadObj <$> cmdIn)
