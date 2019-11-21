@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -9,6 +10,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,6 +18,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+
+#ifndef CURRENT_PACKAGE_VERSION
+#define CURRENT_PACKAGE_VERSION "UNKNOWN"
+#endif
 
 -- |
 -- Module: Chainweb.Utils.API
@@ -36,6 +42,13 @@ module Chainweb.RestAPI.Utils
 , ApiVersion(..)
 , apiVersion
 , prettyApiVersion
+
+-- * Chainweb Node Version Header
+, type ChainwebNodeVersionHeaderName
+, type ChainwebNodeVersionHeaderValue
+, chainwebNodeVersionHeaderName
+, chainwebNodeVersionHeaderValue
+, chainwebNodeVersionHeader
 
 -- * Paging
 , type PageParams
@@ -65,14 +78,17 @@ module Chainweb.RestAPI.Utils
 ) where
 
 import Data.Aeson
+import qualified Data.CaseInsensitive as CI
 import Data.Kind
 import Data.Proxy
 import Data.Streaming.Network (bindPortGen)
+import Data.String
 import qualified Data.Text as T
 
 import GHC.Generics
 import GHC.TypeLits
 
+import qualified Network.HTTP.Types.Header as HTTP
 import qualified Network.Socket as N
 import Network.Wai.Handler.Warp (HostPreference)
 
@@ -117,6 +133,24 @@ prettyApiVersion = case apiVersion of
     ApiVersion t -> t
 
 -- -------------------------------------------------------------------------- --
+-- Chainweb Node Version header
+
+type ChainwebNodeVersionHeaderName = "X-Chainweb-Node-Version"
+type ChainwebNodeVersionHeaderValue = CURRENT_PACKAGE_VERSION
+
+chainwebNodeVersionHeaderName :: IsString a => CI.FoldCase a => CI.CI a
+chainwebNodeVersionHeaderName = fromString $ symbolVal $ Proxy @ChainwebNodeVersionHeaderName
+{-# INLINE chainwebNodeVersionHeaderName #-}
+
+chainwebNodeVersionHeaderValue :: IsString a => a
+chainwebNodeVersionHeaderValue = fromString $ symbolVal $ Proxy @ChainwebNodeVersionHeaderValue
+{-# INLINE chainwebNodeVersionHeaderValue #-}
+
+chainwebNodeVersionHeader :: HTTP.Header
+chainwebNodeVersionHeader = (chainwebNodeVersionHeaderName, chainwebNodeVersionHeaderValue)
+{-# INLINE chainwebNodeVersionHeader #-}
+
+-- -------------------------------------------------------------------------- --
 -- Paging Utils
 
 -- | Pages Parameters
@@ -134,7 +168,25 @@ type NextParam k = QueryParam "next" k
 
 newtype ChainwebEndpoint = ChainwebEndpoint ChainwebVersionT
 
-type ChainwebEndpointApi c a = "chainweb" :> Version :> ChainwebVersionSymbol c :> a
+type ChainwebEndpointApi c a = "chainweb"
+    :> Version
+    :> ChainwebVersionSymbol c
+    :> a
+
+-- | Server implementations can use this type to gain access to the
+-- @X-chainweb-node-version@. Currently, this isn't used. It should be used with
+-- care; rejecting clients based on their chainweb version can cause forks in
+-- the network.
+--
+-- The @X-chainweb-node-version@ request header is a constant on the client
+-- side. Therefore clients don't need to provide it. It is injected in the
+-- 'HasClient' instance.
+--
+type ChainwebEndpointApiWithHeader c a = "chainweb"
+    :> Version
+    :> ChainwebVersionSymbol c
+    :> Header ChainwebNodeVersionHeaderName T.Text -- Cabal.Version
+    :> a
 
 instance
     (HasServer api ctx, KnownChainwebVersionSymbol c)
@@ -159,10 +211,16 @@ instance
     => HasClient m ('ChainwebEndpoint v :> api)
   where
     type Client m ('ChainwebEndpoint v :> api)
-        = Client m (NetworkEndpointApi 'CutNetworkT api)
+        = Client m (ChainwebEndpointApi v api)
 
-    clientWithRoute pm _
-        = clientWithRoute pm $ Proxy @(ChainwebEndpointApi v api)
+    -- Inject @X-chainweb-node-version@ header
+    --
+    clientWithRoute pm _ r
+        = clientWithRoute
+            pm
+            (Proxy @(ChainwebEndpointApiWithHeader v api))
+            r
+            (Just chainwebNodeVersionHeaderValue)
     hoistClientMonad pm _
         = hoistClientMonad pm $ Proxy @(ChainwebEndpointApi v api)
 
