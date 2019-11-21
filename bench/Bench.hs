@@ -9,6 +9,6 @@ main :: IO ()
 main = do
   defaultMain
     [
-      -- Checkpointer.bench ,
-      ForkingBench.forkingBench
+      Checkpointer.bench ,
+      ForkingBench.bench
     ]

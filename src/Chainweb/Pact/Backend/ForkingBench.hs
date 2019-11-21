@@ -10,9 +10,11 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
-{-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
-module Chainweb.Pact.Backend.ForkingBench (forkingBench) where
+module Chainweb.Pact.Backend.ForkingBench
+  (bench
+  ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -25,7 +27,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import qualified Criterion.Main as C
 
-import Data.Aeson
+import Data.Aeson hiding (Error)
 import Data.Bool
 import Data.ByteString (ByteString)
 import Data.Bytes.Put
@@ -37,7 +39,6 @@ import Data.IORef
 import Data.List (uncons)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -45,7 +46,6 @@ import Data.Text.Encoding
 import Data.Tuple.Strict
 import Data.Word
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Base16 as B16
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -58,6 +58,7 @@ import GHC.Conc hiding (withMVar)
 import GHC.Generics hiding (from, to)
 
 import System.Directory
+import System.Environment
 import System.IO.Temp
 import System.IO.Extra
 import System.LogLevel
@@ -108,16 +109,24 @@ import Chainweb.Version
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 
-forkingBench :: C.Benchmark
-forkingBench =
-    C.bench "forkingBench" $ withResources 10 Quiet go
+_run :: [String] -> IO ()
+_run args = withArgs args $ C.defaultMain [bench]
+
+bench :: C.Benchmark
+bench = C.bgroup "PactServiceBench" $
+    [ C.bench "forkingBench" $ withResources 10 Quiet forkingBench
+    , C.bench "oneBlock" $ withResources 1 Error oneBlock
+    ]
   where
-    go mainLineBlocks pdb bhdb nonceCounter pactQueue = do
+    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue = do
         let (T3 _ join1 _) = mainLineBlocks !! 5
             forkLength1 = 5
             forkLength2 = 5
         void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
         void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
+    oneBlock mainLineBlocks _pdb _bhdb _nonceCounter pactQueue = do
+        let (T3 _ join1 _) = mainLineBlocks !! 0
+        void $ noMineBlock join1 (Nonce 1234) pactQueue
 
 testMemPoolAccess :: MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
 testMemPoolAccess accounts t = mempty
@@ -225,7 +234,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
      T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
      newHeader <- runGet decodeBlockHeaderWithoutHash new
 
-     mv' <- validateBlock newHeader (toPayloadData payload) r
+     mv' <- validateBlock newHeader (payloadWithOutputsToPayloadData payload) r
 
      void $ assertNotLeft =<< takeMVar mv'
 
@@ -235,15 +244,35 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
      return $ T3 parentHeader newHeader payload
 
-     where
-       toPayloadData :: PayloadWithOutputs -> PayloadData
-       toPayloadData d = PayloadData
-                 { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
-                 , _payloadDataMiner = _payloadWithOutputsMiner d
-                 , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
-                 , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
-                 , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
-                 }
+
+
+noMineBlock
+    :: BlockHeader
+    -> Nonce
+    -> PactQueue
+    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+noMineBlock parentHeader nonce r = do
+
+     -- assemble block without nonce and timestamp
+     creationTime <- getCurrentTimeIntegral
+
+     mv <- newBlock noMiner parentHeader (BlockCreationTime creationTime) r
+
+     payload <- assertNotLeft =<< takeMVar mv
+
+     let bh = newBlockHeader
+              (BlockHashRecord mempty)
+              (_payloadWithOutputsPayloadHash payload)
+              nonce
+              creationTime
+              parentHeader
+
+     mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
+
+     void $ assertNotLeft =<< takeMVar mv'
+
+     return $ T3 parentHeader bh payload
+
 
 data Resources
   = Resources
@@ -349,9 +378,6 @@ toTxCreationTime :: Time Integer -> TxCreationTime
 toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
-decodeKey :: ByteString -> ByteString
-decodeKey = fst . B16.decode
-
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
 assertNotLeft (Right r) = return r
@@ -397,12 +423,10 @@ coinAccountNames = (Account . ("sender0" <>) . show) <$> [0 :: Int .. 9]
 -- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair
 stockKey s = do
-  let Right (Object o) = Y.decodeEither' stockKeyFile
-      Just (Object kp) = HM.lookup s o
-      Just (String pub) = HM.lookup "public" kp
-      Just (String priv) = HM.lookup "secret" kp
-      mkKeyBS = decodeKey . encodeUtf8
-  return $ ApiKeyPair (PrivBS $ mkKeyBS priv) (Just $ PubBS $ mkKeyBS pub) Nothing (Just ED25519) Nothing
+  let (kps :: M.Map Text ApiKeyPair) = either (error . show) id $ Y.decodeEither' stockKeyFile
+  case M.lookup s kps of
+    Nothing -> error $ "stockKey: bad keys name: " ++ show s
+    Just akp -> return akp
 
 stockKeyFile :: ByteString
 stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
