@@ -1064,18 +1064,17 @@ toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do
+    let vtrans = (V.fromList . map toCWTransaction . toList
+                    $ _payloadDataTransactions plData) `using` parVector 1
+    let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
+        let ls = map T.pack theLefts
         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
-            <> (T.intercalate ". " $ T.pack <$> theLefts)
-    let !v = V.fromList (rights eithers) `using` parVector 1
-    return v
+            <> (T.intercalate ". " ls)
+    return $! V.fromList theRights
   where
-    toCWTransaction bs = codecDecode chainwebPayloadCodec bs
-    transSeq = _payloadDataTransactions plData
-    transList = toList transSeq
-    bytes = _transactionBytes <$> transList
-    eithers = toCWTransaction <$> bytes
-    theLefts = lefts eithers
+    toCWTransaction bs = codecDecode chainwebPayloadCodec $
+                         _transactionBytes bs
 
 execLookupPactTxs
     :: PayloadCas cas
