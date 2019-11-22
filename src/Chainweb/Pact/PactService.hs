@@ -524,7 +524,6 @@ attemptBuyGas
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         mc <- use psInitCache
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
-
   where
     f (T2 dl mcache) cmd = do
         T2 mcache' !res <- runBuyGas dbEnv mcache cmd
@@ -992,6 +991,7 @@ execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv
 
     coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
+
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
@@ -1055,9 +1055,8 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         then applyGenesisCmd logger dbEnv pd spv (payloadObj <$> cmdIn)
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
-    -- on genesis, seed initial service state with loaded modules
     when isGenesis $
-      psInitCache .= mcache'
+      psInitCache <>= mcache'
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.

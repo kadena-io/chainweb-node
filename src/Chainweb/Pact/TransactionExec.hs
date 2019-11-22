@@ -41,7 +41,7 @@ module Chainweb.Pact.TransactionExec
   -- * Command Helpers
 , publicMetaOf
 , networkIdOf
-, gasFeeOf
+, gasSupplyOf
 , gasPriceOf
 
   -- * Utilities
@@ -187,7 +187,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     applyRedeem cr = do
       txGasModel .= (_geGasModel freeGasEnv)
 
-      r <- catchesPactError $! redeemGas cmd initialGas
+      r <- catchesPactError $! redeemGas cmd
       case r of
         Left e -> jsonErrorResult e "tx failure for request key while redeeming gas"
         Right _ -> do
@@ -226,7 +226,8 @@ applyGenesisCmd logger dbEnv pd spv cmd =
           <> sshow e
         Right r -> do
           debug "successful genesis tx for request key"
-          return $ T2 r mempty
+          mc <- use txCache
+          return $ T2 r mc
 
 applyCoinbase
     :: Logger
@@ -487,7 +488,7 @@ buyGas cmd (Miner mid mks) = go
 
     go = do
       mcache <- use txCache
-      supply <- gasFeeOf <$> view txGasLimit <*> view txGasPrice
+      supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
 
       buyGasCmd <- liftIO $! mkBuyGasCmd mid mks sender supply
 
@@ -535,36 +536,27 @@ findPayer = runMaybeT $ do
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-redeemGas
-    :: Command (Payload PublicMeta ParsedCode)
-    -> Gas
-      -- ^ initial gas of the cmd payload
-    -> TransactionM p ()
-redeemGas cmd initialGas = do
+redeemGas :: Command (Payload PublicMeta ParsedCode) -> TransactionM p ()
+redeemGas cmd = do
     mcache <- use txCache
 
     gid <- use txGasId >>= \case
       Nothing -> fatal $! "redeemGas: no gas id in scope for gas refunds"
       Just g -> return g
 
-    fee <- feeOf initialGas
+    fee <- gasSupplyOf <$> use txGasUsed <*> view txGasPrice
 
     void $! applyContinuation (initState mcache) (redeemGasCmd fee gid)
       (_pSigners $ _cmdPayload cmd) (toUntypedHash $ _cmdHash cmd)
       managedNamespacePolicy
 
   where
-    feeOf g0 = do
-      g <- use txGasUsed
-      p <- view txGasPrice
-      return $! gasFeeOf (g + g0) p
-
     initState mc = initStateInterpreter
       $ setModuleCache mc
       $ initCapabilities [magic_GAS]
 
-    redeemGasCmd fee' (GasId pid) =
-      ContMsg pid 1 False (object [ "fee" A..= fee' ]) Nothing
+    redeemGasCmd fee (GasId pid) =
+      ContMsg pid 1 False (object [ "fee" A..= fee ]) Nothing
 
 -- | Build the 'coin-contract.buygas' command
 --
@@ -572,7 +564,7 @@ mkBuyGasCmd
     :: MinerId   -- ^ Id of the miner to fund
     -> MinerKeys -- ^ Miner keyset
     -> Text      -- ^ Address of the sender from the command
-    -> GasSupply -- ^ The gas limit total * price
+    -> GasSupply -- ^ ddThe gas limit total * price
     -> IO (ExecMsg ParsedCode)
 mkBuyGasCmd (MinerId mid) (MinerKeys ks) sender total =
     buildExecParsedCode buyGasData $ mconcat
@@ -699,11 +691,11 @@ networkIdOf = _pNetworkId . _cmdPayload
 -- | Calculate the gas fee (pact-generate gas cost * user-specified gas price),
 -- rounding to the nearest stu.
 --
-gasFeeOf :: Gas -> GasPrice -> GasSupply
-gasFeeOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
+gasSupplyOf :: Gas -> GasPrice -> GasSupply
+gasSupplyOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
   where
     gs = toCoinUnit ((fromIntegral gas) * gp)
-{-# INLINE gasFeeOf #-}
+{-# INLINE gasSupplyOf #-}
 
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
