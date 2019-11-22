@@ -141,7 +141,7 @@ applyCmd
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
-    second _txCache <$>
+    second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -164,7 +164,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     checkTooBigTx next
       | initialGas >= gasLimit = do
           txGasUsed .= gasLimit -- all gas is consumed
-          --
+
           let !pe = PactError GasError def []
                 $ "Tx too big (" <> pretty initialGas <> "), limit "
                 <> pretty gasLimit
@@ -204,7 +204,7 @@ applyGenesisCmd
       -- ^ command with payload to execute
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
 applyGenesisCmd logger dbEnv pd spv cmd =
-    evalTransactionM tenv txst go
+    second _txCache <$!> runTransactionM tenv txst go
   where
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     nid = networkIdOf cmd
@@ -218,10 +218,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
       cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
-        Right r -> do
-          debug "successful genesis tx for request key"
-          mc <- use txCache
-          return $ T2 r mc
+        Right r -> r <$ debug "successful genesis tx for request key"
 
 applyCoinbase
     :: Logger
@@ -393,13 +390,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      tenv <- ask
-      genv <- GasEnv
-        <$> view (txGasLimit . to fromIntegral)
-        <*> view txGasPrice
-        <*> use txGasModel
-
-      let eenv = evalEnv tenv genv
+      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh)
       er <- liftIO $! evalExec senderSigs interp eenv parsedCode
 
       for_ (_erExec er) $ \pe -> debug
@@ -410,10 +401,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       setTxResultState er
 
       return er
-  where
-    evalEnv c g = setupEvalEnv (_txDbEnv c) Nothing (_txMode c)
-      (MsgData execData Nothing hsh) initRefStore g
-      nsp (_txSpvSupport c) (_txPublicData c)
+
 
 -- | Execute a 'ContMsg' and return the command result and module cache
 --
@@ -442,28 +430,15 @@ applyContinuation'
     -> Hash
     -> NamespacePolicy
     -> TransactionM p EvalResult
-applyContinuation' interp cm senderSigs hsh nsp = do
-    tenv <- ask
-    genv <- GasEnv
-      <$> view (txGasLimit . to fromIntegral)
-      <*> view txGasPrice
-      <*> use txGasModel
-
-    let eenv = evalEnv tenv genv
+applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
+    eenv <- mkEvalEnv nsp $ MsgData d pactStep hsh
     er <- liftIO $! evalContinuation senderSigs interp eenv cm
 
-    -- set log + cache updates
     setTxResultState er
 
     return er
   where
-    step = _cmStep cm
-    rollback = _cmRollback cm
-    pid = _cmPactId cm
-    pactStep = Just $ PactStep step rollback pid Nothing
-    evalEnv c g = setupEvalEnv (_txDbEnv c) Nothing (_txMode c)
-      (MsgData (_cmData cm) pactStep hsh) initRefStore
-      g nsp (_txSpvSupport c) (_txPublicData c)
+    pactStep = Just $ PactStep s rb pid Nothing
 
 -- | Build and execute 'coin.buygas' command from miner info and user command
 -- info (see 'TransactionExec.applyCmd')
@@ -643,6 +618,23 @@ setTxResultState er = do
     txCache .= (_erLoadedModules er)
     txGasUsed .= (_erGas er)
 {-# INLINE setTxResultState #-}
+
+-- | Make an 'EvalEnv' given a tx env + state
+--
+mkEvalEnv
+    :: NamespacePolicy
+    -> MsgData
+    -> TransactionM db (EvalEnv db)
+mkEvalEnv nsp msg = do
+    tenv <- ask
+    genv <- GasEnv
+      <$> view (txGasLimit . to fromIntegral)
+      <*> view txGasPrice
+      <*> use txGasModel
+
+    return $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
+      msg initRefStore genv
+      nsp (_txSpvSupport tenv) (_txPublicData tenv)
 
 -- | Managed namespace policy CAF
 --

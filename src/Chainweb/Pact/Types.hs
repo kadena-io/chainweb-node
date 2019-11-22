@@ -55,6 +55,7 @@ module Chainweb.Pact.Types
   , TransactionM(..)
   , runTransactionM
   , evalTransactionM
+  , execTransactionM
 
     -- * Rewind data type
   , Rewind(..)
@@ -238,3 +239,17 @@ evalTransactionM
     -> IO a
 evalTransactionM tenv txst act
     = evalStateT (runReaderT (_unTransactionM act) tenv) txst
+
+-- | Run a 'TransactionM' computation given some initial
+-- reader and state values, returning just the final state.
+--
+execTransactionM
+    :: forall db a
+    . TransactionEnv db
+      -- ^ initial reader env
+    -> TransactionState
+      -- ^ initial state
+    -> TransactionM db a
+    -> IO TransactionState
+execTransactionM tenv txst act
+    = execStateT (runReaderT (_unTransactionM act) tenv) txst

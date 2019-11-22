@@ -561,13 +561,13 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         cr <- liftIO
           $! P.catchesPactError
-          $! runTransactionM buyGasEnv txst
+          $! execTransactionM buyGasEnv txst
           $! buyGas cmd miner
 
         case cr of
             Left _ ->
               return (T2 mcache (T3 tx Unique BuyGasFailed))  -- TODO throw InsertError instead
-            Right (T2 _ t) ->
+            Right t ->
               return $! T2 (_txCache t) (T3 tx Unique BuyGasPassed)
 
 -- | The principal validation logic for groups of Pact Transactions.
