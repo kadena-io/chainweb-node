@@ -47,13 +47,10 @@ module Chainweb.Pact.TransactionExec
   -- * Utilities
 , buildExecParsedCode
 , jsonErrorResult
-, debug
-, error_
 , mkMagicCapSlot
 ) where
 
 import Control.Lens
-import Control.Monad.Catch (Exception(..))
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
@@ -314,8 +311,13 @@ jsonErrorResult err msg = do
     logs <- use txLogs
     gas <- use txGasUsed
     rk <- view txRequestKey
+    l <- view txLogger
 
-    void $! error_ err msg
+    liftIO
+      $! logLog l "ERROR"
+      $! T.unpack msg
+      <> ": " <> show rk
+      <> ": " <> show err
 
     return $! CommandResult rk Nothing (PactResult (Left err))
       gas (Just logs) Nothing Nothing
@@ -694,8 +696,11 @@ gasSupplyOf gas (GasPrice (ParsedDecimal gp)) = GasSupply (ParsedDecimal gs)
     gs = toCoinUnit ((fromIntegral gas) * gp)
 {-# INLINE gasSupplyOf #-}
 
+-- | Round to the nearest Stu
+--
 toCoinUnit :: Decimal -> Decimal
 toCoinUnit = roundTo 12
+{-# INLINE toCoinUnit #-}
 
 -- | Log request keys at DEBUG when successful
 --
@@ -705,23 +710,6 @@ debug s = do
     rk <- view txRequestKey
     liftIO $! logLog l "DEBUG" $! T.unpack s <> ": " <> show rk
 
--- | Log request keys and error message at ERROR when failed
---
-error_
-    :: forall db e
-    . Exception e
-    => e
-    -> Text
-    -> TransactionM db ()
-error_ e reason = do
-    l <- view txLogger
-    rk <- view txRequestKey
-
-    liftIO
-      $! logLog l "ERROR"
-      $! T.unpack reason
-      <> ": " <> show rk
-      <> ": " <> show e
 
 -- | Denotes fatal failure points in the tx exec process
 --
