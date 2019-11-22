@@ -64,7 +64,7 @@ instance Arbitrary ChainwebVersion where
         , FastTimedCPM singletonChainGraph
         , FastTimedCPM petersonChainGraph
         , Development
-        , Testnet02
+        , Testnet03
         , Mainnet01
         ]
 
