@@ -37,6 +37,7 @@ import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Servant.API
 import Servant.Server
+import System.Random
 
 -- internal modules
 
@@ -136,7 +137,8 @@ updatesHandler :: CutDb cas -> ChainBytes -> Tagged Handler Application
 updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
     cid <- runGet decodeChainId cbytes
     cv  <- _cut cdb >>= newIORef
-    timer <- registerDelay (1000000 * 180)
+    x <- randomRIO @Double (0.9, 1.1)
+    timer <- registerDelay (round $ 1000000 * 240 * x)
     eventSourceAppIO (go timer cid cv) req respond
   where
     -- | A nearly empty `ServerEvent` that signals the discovery of a new
