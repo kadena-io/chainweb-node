@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,7 +18,7 @@
 --
 module Chainweb.Miner.RestAPI.Server where
 
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
@@ -135,7 +136,8 @@ updatesHandler :: CutDb cas -> ChainBytes -> Tagged Handler Application
 updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
     cid <- runGet decodeChainId cbytes
     cv  <- _cut cdb >>= newIORef
-    eventSourceAppIO (go cid cv) req respond
+    timer <- registerDelay (1000000 * 180)
+    eventSourceAppIO (go timer cid cv) req respond
   where
     -- | A nearly empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
@@ -144,8 +146,13 @@ updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
     f :: ServerEvent
     f = ServerEvent (Just $ fromByteString "New Cut") Nothing []
 
-    go :: ChainId -> IORef Cut -> IO ServerEvent
-    go cid cv = readIORef cv >>= awaitNewCutByChainId cdb cid >>= writeIORef cv >> pure f
+    go :: TVar Bool -> ChainId -> IORef Cut -> IO ServerEvent
+    go timer cid cv = readTVarIO timer >>= \case
+        True -> return CloseEvent
+        False -> f <$ do
+            c <- readIORef cv
+            c' <- awaitNewCutByChainId cdb cid c
+            writeIORef cv $! c'
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
