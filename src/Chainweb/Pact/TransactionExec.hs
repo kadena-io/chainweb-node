@@ -221,9 +221,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
     go = do
       cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
       case cr of
-        Left e -> internalError
-          $ "Genesis command failed: "
-          <> sshow e
+        Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> do
           debug "successful genesis tx for request key"
           mc <- use txCache
@@ -262,7 +260,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (Enfor
 
       case cr of
         Left e
-          | throwCritical -> internalError $ "Coinbase tx failure: " <> sshow e
+          | throwCritical -> fatal $ "Coinbase tx failure: " <> sshow e
           | otherwise -> jsonErrorResult e "coinbase tx failure"
         Right er -> do
           debug
@@ -403,9 +401,9 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
       let eenv = evalEnv tenv genv
       er <- liftIO $! evalExec senderSigs interp eenv parsedCode
 
-      liftIO $! for_ (_erExec er) $ \pe -> logLog (_txLogger tenv) "DEBUG"
+      for_ (_erExec er) $ \pe -> debug
         $ "applyExec: new pact added: "
-        <> show (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
+        <> sshow (_pePactId pe, _peStep pe, _peYield pe, _peExecuted pe)
 
       -- set log + cache updates + used gas
       setTxResultState er
@@ -564,7 +562,7 @@ mkBuyGasCmd
     :: MinerId   -- ^ Id of the miner to fund
     -> MinerKeys -- ^ Miner keyset
     -> Text      -- ^ Address of the sender from the command
-    -> GasSupply -- ^ ddThe gas limit total * price
+    -> GasSupply -- ^ The gas limit total * price
     -> IO (ExecMsg ParsedCode)
 mkBuyGasCmd (MinerId mid) (MinerKeys ks) sender total =
     buildExecParsedCode buyGasData $ mconcat
