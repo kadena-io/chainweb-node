@@ -1102,13 +1102,14 @@ execPreInsertCheckReq txs = do
     b <- liftIO $ _cpGetLatestBlock cp
     case b of
         Nothing -> return $! V.map (const (Right ())) txs
-        Just (h, _) -> withCheckpointer b "execPreInsertCheckReq" $ \pdb -> do
-            now <- liftIO getCurrentTimeIntegral
-            psEnv <- ask
-            psState <- get
-            liftIO (Discard <$>
-                    validateChainwebTxs cp (BlockCreationTime now) (h + 1) txs
-                          (runGas pdb psEnv psState))
+        Just (h, ha) ->
+            withCheckpointer (Just (h+1, ha)) "execPreInsertCheckReq" $ \pdb -> do
+                now <- liftIO getCurrentTimeIntegral
+                psEnv <- ask
+                psState <- get
+                liftIO (Discard <$>
+                        validateChainwebTxs cp (BlockCreationTime now) (h + 1) txs
+                              (runGas pdb psEnv psState))
   where
     runGas pdb psEnv psState ts =
         fst <$!> runPactServiceM psState psEnv (attemptBuyGas noMiner pdb ts)

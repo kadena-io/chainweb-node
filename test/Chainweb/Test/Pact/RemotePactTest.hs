@@ -48,6 +48,7 @@ import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Text.Encoding (encodeUtf8)
 import Data.Thyme.Clock
 import Data.Thyme.Calendar
@@ -92,6 +93,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Transaction
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -157,9 +159,6 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "genesis allocations" $
                 testGroup "caplistTests"
                 [ caplistTest iot net ]
-              , after AllSucceed "caplist tests" $
-                testGroup "gasBuyingErrors"
-                [ invalidBuyGasTest iot net ]
               ]
     ]
 
@@ -245,18 +244,45 @@ sendValidationTest iot nio =
         expectSendFailure $ flip runClientM cenv $ do
             pactSendApiClient v sid batch3
 
-  where
-    expectSendFailure act = do
-        m <- (wrap `catch` h)
-        maybe (return ()) (\msg -> assertBool msg False) m
-      where
-        wrap = do
-            let ef out = Just ("expected exception on bad tx, got: "
-                               <> show out)
-            act >>= return . either (const Nothing) ef
+        step "check insufficient gas"
+        (SubmitBatch batch4) <- testBatch' iot 10000 mv
+        let b4 = SubmitBatch $ fmap mungeGasPrice batch4
+        expectSendFailure $ flip runClientM cenv $
+            pactSendApiClient v sid b4
 
-        h :: SomeException -> IO (Maybe String)
-        h _ = return Nothing
+        step "check bad sender"
+        batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
+        expectSendFailure $ flip runClientM cenv $
+            pactSendApiClient v sid batch5
+
+  where
+    mkBadGasTxBatch code senderName senderKeyPair capList = do
+      ks <- testKeyPairs senderKeyPair capList
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
+      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
+      cmds <- mapM cmd (0 NEL.:| [1..5])
+      return $ SubmitBatch cmds
+
+    decodeOne = either error id . decodePayload . encodeUtf8
+    mungeGasPrice = fmap (T.decodeUtf8 . encodePayload . mungePayload . decodeOne)
+      where
+        mungePayload =
+            modifyPayloadWithText (set (pMeta . Pact.pmGasPrice) 10000000000)
+
+expectSendFailure :: Show a => IO (Either b a) -> IO ()
+expectSendFailure act = do
+    m <- (wrap `catch` h)
+    maybe (return ()) (\msg -> assertBool msg False) m
+  where
+    wrap = do
+        let ef out = Just ("expected exception on bad tx, got: "
+                           <> show out)
+        act >>= return . either (const Nothing) ef
+
+    h :: SomeException -> IO (Maybe String)
+    h _ = return Nothing
 
 
 spvTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -359,42 +385,6 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
     txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
     txcode1 = txcode0 <> "(identity 1)"
-
-
-invalidBuyGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $ \step -> do
-    cenv <- fmap _getClientEnv nio
-    sid <- mkChainId v (0 :: Int)
-
-    let run batch expectation = flip runClientM cenv $ do
-          void $ liftIO $ step "sendApiClient: submit transaction"
-          rks <- liftIO $ sending sid cenv batch
-
-          void $ liftIO $ step "pollApiClient: polling for request key"
-          (PollResponses resp) <- liftIO $ polling sid cenv rks expectation
-
-          return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
-
-    -- batch with incorrect sender
-    batch0 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
-    res0 <- catches (Right <$> run batch0 ExpectPactResult)
-      [ Handler (\(e :: PactTestFailure) -> return $ Left e) ]
-
-    void $ liftIO $ step "tx signed with incorrect sender should fail buy gas validation"
-    case res0 of
-      Left (PollingFailure s) -> assertEqual "tx with incorrect sender" "polling check failed" s
-      Left e -> assertFailure $ "test failure for tx with incorrect sender: " <> show e
-      Right cr -> assertFailure $ "test failure for tx with incorrect sender: " <> show cr
-
-  where
-    mkBadGasTxBatch code senderName senderKeyPair capList = do
-      ks <- testKeyPairs senderKeyPair capList
-      t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
-      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
-      cmds <- mapM cmd (0 NEL.:| [1..5])
-      return $ SubmitBatch cmds
 
 
 caplistTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
