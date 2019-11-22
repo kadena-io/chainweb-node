@@ -875,7 +875,7 @@ runChainweb cw = do
             TimedCPM{} -> enabled c
             FastTimedCPM{} -> enabled c
             Development -> enabled c
-            Testnet02 -> enabled c
+            Testnet03 -> enabled c
             Mainnet01 -> disabled
       where
         disabled = do
