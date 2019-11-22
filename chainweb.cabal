@@ -622,6 +622,8 @@ executable chainweb-node
     ghc-options:
         -threaded
         -with-rtsopts=-N
+        -with-rtsopts=-H1G
+        -with-rtsopts=-A64M
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
