@@ -18,14 +18,18 @@ import Control.Lens
 import Control.Monad.IO.Class
 
 import Data.Aeson (Value)
-import Data.String.Conv (toS)
+import qualified Data.Aeson as A
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
+import Data.Int
 import Data.IORef
 import Data.List
 import Data.Numbers.Primes
+import Data.String.Conv (toS)
+import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -38,10 +42,13 @@ import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
 import Test.Tasty.QuickCheck
 
-import Pact.Types.Command (Command(..))
-import Pact.Parse
 import Pact.Types.ChainMeta
-import Pact.Types.Command
+import Pact.Parse
+import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.Command as P
+import qualified Pact.Types.Hash as P
+import qualified Pact.Types.Exp as P
+import qualified Pact.Types.PactValue as P
 
 -- internal modules
 import Chainweb.BlockHash
@@ -73,7 +80,7 @@ tests _db _h0 =
     theTT = withRocksResource $ \rocksIO ->
             withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
             withPayloadDb $ \pdb ->
-            withPact' testVersion Warn pdb bhdb testMemPoolAccess (return Nothing) (\reqQIO ->
+            withPact' testVersion Warn pdb bhdb (testMemPoolAccess cid) (return Nothing) (\reqQIO ->
                 testProperty "prop_forkValidates" (prop_forkValidates bhdb _genBlock reqQIO))
 
     _genBlock = genesisBlockHeader testVersion cid
@@ -90,12 +97,15 @@ prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
     fi <- genFork db mapRef genBlock
 
     let blockList = blocksFromFork fi
-    let expected = expectedForkProd fi
+    expected <- liftIO $ expectedForkProd fi
 
     liftIO $ putStrLn $ "&&&&& list of blocks: &&&&&\n" ++ showHeaderFields blockList ++ "&&&&&&&&&&"
 
     reqQ <- liftIO $ reqQIO
     (newBlockRes, valBlockRes) <- liftIO $ runBlocks db blockList reqQ iodb
+    liftIO $ putStrLn $ "Expected: " ++ show expected
+    liftIO $ putStrLn $ "newBlock results: " ++ show newBlockRes
+    liftIO $ putStrLn $ "validateBlock results: " ++ show valBlockRes
     assert (newBlockRes == valBlockRes)
     assert (valBlockRes == expected)
 
@@ -105,36 +115,52 @@ blocksFromFork ForkInfo{..} =
       ++ reverse fiLeftForkHeaders -- left fork, applied on top of the trunk
       ++ reverse fiRightForkHeaders -- right fork, played over trunk via checkptr rewind
 
-expectedForkProd :: ForkInfo -> Int
-expectedForkProd ForkInfo{..} =
+expectedForkProd :: ForkInfo -> IO Int
+expectedForkProd ForkInfo{..} = do
     let leftHeight = fiForkHeight + fiLeftBranchHeight -- (1 based)
-        rightHeight = leftHeight + fiRightBranchHeight -- (1 based)
+    let rightHeight = leftHeight + fiRightBranchHeight -- (1 based)
 
-        trunkProd = prodFromHeight (fiForkHeight - 1) -- (prodFromHeight is 0 based)
-        rBranchProd = prodFromRange leftHeight (rightHeight - 1) -- (prodFromRange is 0 based)
-    in trunkProd * rBranchProd
+    let trunkProd = prodFromHeight (fiForkHeight - 1) -- (prodFromHeight is 0 based)
+    let rBranchProd = prodFromRange leftHeight (rightHeight - 1) -- (prodFromRange is 0 based)
+
+    putStrLn $ "expectedForkProd - "
+             ++ "\n\tleft height: " ++ show leftHeight
+             ++ "\n\tright height: " ++ show rightHeight
+             ++ "\n\ttrunkProd: " ++ show trunkProd
+             ++ "\n\trBranchProd: " ++ show rBranchProd
+             ++ "\n\ttotal product: " ++ show (trunkProd * rBranchProd)
+
+    return $ trunkProd * rBranchProd
 
 txsFromHeight :: Int -> IO (Vector PactTransaction)
 txsFromHeight 0 = error "txsFromHeight called for Genesis block"
 txsFromHeight 1 = do
     d <- adminData
     moduleStr <- readFile' $ testPactFilesDir ++ "test2.pact"
+    putStrLn $ "moduleStr: \n" ++ moduleStr ++ "\n"
     return $ V.fromList
         ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d } ] )
 txsFromHeight h = V.fromList <$> tailTransactions h
 
--- tailTransactions :: Int -> IO [PactTransaction]
--- tailTransactions h = do
---     d <- adminData
---     return [ PactTransaction { _pactCode = toS ( "(free.fork-test.multiply-transfer \"Acct1\" \"Acct2\""
---                                             ++ show (valFromHeight h) ++ ")" )
---                              , _pactData = d } ]
 tailTransactions :: Int -> IO [PactTransaction]
 tailTransactions h = do
     d <- adminData
-    let aTx = PactTransaction { _pactCode = toS ( "(+ 1 " ++ show (valFromHeight h) ++ ")" )
-                              , _pactData = d }
-    return [aTx]
+    let str :: String
+        str = "(fork-test.multiply-transfer \"Acct1\" \"Acct2\" " ++ show (valFromHeight h) ++ ")"
+    putStrLn $ "tailTransactions - the String: " ++ str
+
+    let pactText :: Text
+        pactText = T.pack str
+    -- let pactText = toS ( "(free.fork-test.multiply-transfer \"Acct1\" \"Acct2\""
+    --                      ++ show (valFromHeight h) ++ ")" ) :: Text
+    putStrLn $ "tailTransactions = the text: " ++ T.unpack pactText
+    return [ PactTransaction { _pactCode = pactText, _pactData = d } ]
+-- tailTransactions :: Int -> IO [PactTransaction]
+-- tailTransactions h = do
+--     d <- adminData
+--     let aTx = PactTransaction { _pactCode = toS ( "(+ 1 " ++ show (valFromHeight h) ++ ")" )
+--                               , _pactData = d }
+--     return [aTx]
 
 _commonTxs :: (Maybe Value) -> [PactTransaction]
 _commonTxs d =
@@ -174,12 +200,34 @@ getResult mvar = do
         (Right plwo) -> do
             -- putStrLn $ "Result as plwo: " ++ show plwo
             let outs = V.map snd (_payloadWithOutputsTransactions plwo)
-            n <- asInt outs
+            n <- asSingleResult outs
             -- putStrLn $ "Result as Int: " ++ show n
             return (plwo, n)
 
-asInt :: Vector TransactionOutput -> IO Int
-asInt _plwo = return 1
+asSingleResult :: Vector TransactionOutput -> IO Int
+asSingleResult txOuts = do
+  theInts <- traverse (\txOut -> txAsIntResult txOut) txOuts
+  let theSum = V.sum theInts
+  putStrLn $ "asSingleResult - Summing this vector: " ++ show theInts
+             ++ " into: " ++ show theSum
+  return theSum
+
+txAsIntResult :: TransactionOutput -> IO Int
+txAsIntResult txOut = do
+    let theBytes = _transactionOutputBytes txOut
+    theInt <- case A.decode (toS theBytes) :: Maybe (P.CommandResult P.Hash) of
+        Nothing -> do
+            putStrLn $ "txAsIntResult - Nothing"
+            return 0
+        Just cmd -> do
+          putStrLn $ "txAsIntResult - CommandResult is: " ++ show cmd
+          let res = P._crResult cmd
+          case res of
+              P.PactResult (Right (P.PLiteral (P.LDecimal n))) -> return $ fromEnum n
+              _someOther -> do
+                  putStrLn $ "txAsIntResult - Could not decode the Int result"
+                  return 0
+    return theInt
 
 runNewBlock
     :: BlockHeader
@@ -220,15 +268,7 @@ mkProperNewBlock db plwo parentHeader = do
     let adjParents = BlockHashRecord HM.empty
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
     let plData = payloadWithOutputsToPayloadData plwo
-
-    let BlockCreationTime bctParent = _blockCreationTime parentHeader
-    let Time (TimeSpan tsParent) = bctParent
-    let parentSec = timeSpanToSeconds tsParent
-    let newBlockSec = timeSpanToSeconds tsParent + 10
-    let newBlockTS = secondsToTimeSpan newBlockSec
-    let newBlockTime = Time (TimeSpan newBlockTS)
-    let creationTime = BlockCreationTime newBlockTime
-
+    creationTime <- getCurrentTimeIntegral
     let newHeader = newBlockHeader adjParents matchingPlHash (Nonce 0) creationTime parentHeader
     putStrLn $ "mkProperNewBlock - new header: " ++ showHeaderFields [newHeader]
     liftIO $ TDB.insert db newHeader
@@ -260,6 +300,7 @@ showHeaderFields bhs =
   where
     f r BlockHeader{..} = r ++
         ("BlockHeader at height = " ++ show _blockHeight
+         ++ "\n\tChain id: " ++ show _blockChainId
          ++ "\n\tBlock creation time: " ++ show _blockCreationTime
          ++ "\n\tHash: " ++ show _blockHash
          ++ "\n\tParent hash: " ++ show _blockParent)
@@ -267,23 +308,29 @@ showHeaderFields bhs =
 ----------------------------------------------------------------------------------------------------
 -- Borrowed/modified from PactInProceApi test...
 ----------------------------------------------------------------------------------------------------
-testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess = MemPoolAccess
+testMemPoolAccess :: ChainId -> MemPoolAccess
+testMemPoolAccess cid =
+  -- should this just be e.g. "8" ?
+  let pactCid = P.ChainId $ chainIdToText cid
+  in MemPoolAccess
     { mpaGetBlock = \_validate bh hash _header ->
-        getBlockFromHeight (fromIntegral bh) hash
+        (getBlockFromHeight pactCid) (fromIntegral bh) hash
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     }
   where
-    getBlockFromHeight bHeight _bHash = do
+    getBlockFromHeight pCid bHeight _bHash = do
         txs <- txsFromHeight bHeight
-        let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
-            g = modifyPayloadWithText . set (pMeta . pmTTL)
+        let f = modifyPayloadWithText . set (P.pMeta . pmCreationTime)
+            g = modifyPayloadWithText . set (P.pMeta . pmTTL)
+            h = modifyPayloadWithText . set (P.pMeta . pmChainId)
+
         outtxs' <- goldenTestTransactions txs
+        currentTime <- getCurrentTimeIntegral
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60 -- 24 hours
-                in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger (30 * 60)))) tx -- 30 min
-
-        let pactHashes = V.map (\tx -> _cmdHash tx) outtxs
-        trace ("transaction(s) from mempool for height = " ++ show bHeight ++ ": " ++ show pactHashes)
+                in fmap ((h pCid) . (g ttl) . (f (toTxCreationTime currentTime))) tx
+        -- let pactHashes = V.map (\tx -> P._cmdHash tx) outtxs
+        -- trace ("transaction(s) from mempool for height = " ++ show bHeight ++ ": " ++ show pactHashes)
+        trace ("ChainwebTransactions from mempool: " ++ show outtxs)
             return outtxs

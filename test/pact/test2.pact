@@ -1,5 +1,3 @@
-(namespace 'free)
-
 (define-keyset 'test-admin-ks (read-keyset "test-admin-keyset"))
 
 (module fork-test 'test-admin-ks
