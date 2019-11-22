@@ -276,8 +276,9 @@ applyLocal
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
+    -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv pd spv cmd =
+applyLocal logger dbEnv pd spv cmd mc =
     evalTransactionM tenv txst go
   where
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
@@ -286,7 +287,7 @@ applyLocal logger dbEnv pd spv cmd =
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
     tenv = TransactionEnv Local dbEnv logger pd' spv nid 0.0 rk 0
-    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
