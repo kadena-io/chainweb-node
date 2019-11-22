@@ -248,13 +248,13 @@ chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Development = 0x00000001
-chainwebVersionId Testnet03 = 0x00000004
+chainwebVersionId Testnet03 = 0x00000006
 chainwebVersionId Mainnet01 = 0x00000005
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromChainwebVersionId 0x00000001 = Development
-fromChainwebVersionId 0x00000004 = Testnet03
+fromChainwebVersionId 0x00000006 = Testnet03
 fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
