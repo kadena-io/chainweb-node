@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.0.4
+version:      1.0.5
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -65,6 +65,11 @@ flag debug
         Enable various debugging features
     default: False
     manual:True
+
+flag ghc-flags
+    description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
+    default: False
+    manual: True
 
 common debugging-flags
     if flag(debug)
@@ -249,6 +254,7 @@ library
 
         -- pact
         , Chainweb.Pact.Backend.Bench
+        , Chainweb.Pact.Backend.ForkingBench
         , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.Backend.RelationalCheckpointer
@@ -312,6 +318,7 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , extra >= 1.6
+        , fake >= 0.1.1.1
         , file-embed >= 0.0
         , generic-lens >= 1.1
         , hashable >= 1.2
@@ -394,6 +401,9 @@ library
     if flag(use_systemd) && os(linux)
         build-depends: systemd >= 1.2
         cpp-options: -DWITH_SYSTEMD=1
+    if flag(ghc-flags)
+        ghc-options: -fplugin GhcFlags.Plugin
+        build-depends: ghcflags
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
