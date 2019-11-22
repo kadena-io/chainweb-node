@@ -215,7 +215,6 @@ applyGenesisCmd logger dbEnv pd spv cmd =
     tenv = TransactionEnv Transactional dbEnv logger pd' spv nid 0.0 rk 0
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
-    -- when calling genesis commands, we bring all magic capabilities in scope
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
