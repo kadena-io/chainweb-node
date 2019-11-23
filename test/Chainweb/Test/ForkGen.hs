@@ -41,6 +41,8 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import qualified Chainweb.TreeDB as TreeDB
 
+import Debug.Trace
+
 ----------------------------------------------------------------------------------------------------
 data ForkInfo = ForkInfo
   { fiBlockHeaderDb :: BlockHeaderDb
@@ -145,7 +147,7 @@ preForkTrunk db mapRef h avail = do
     liftIO $ TreeDB.insert db next
     (takenNow, theRest) <- takeTrans avail
     children <- frequencyM
-        [(1, fork db mapRef next theRest), (3, preForkTrunk db mapRef next theRest)]
+        [(1, fork db mapRef next theRest), (9, preForkTrunk db mapRef next theRest)]
     theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
                           children
@@ -157,6 +159,8 @@ frequencyM :: [(Int, PropertyM IO a)] -> PropertyM IO a
 frequencyM xs = do
     let indexGens = elements . (:[]) <$> [0..]
     let indexZip = zip (fst <$> xs) indexGens
+    liftIO $ putStrLn $ "frequencyM - indexZip = " ++ show indexZip
+
     -- the original 'frequency' chooses the index of the value:
     n <- pick $ frequency indexZip :: PropertyM IO Int
     snd (V.fromList xs ! n)
@@ -174,9 +178,7 @@ fork db mapRef h avail = do
     nextRight <- header' h
     liftIO $ TreeDB.insert db nextRight
     (takenNow, theRest) <- takeTrans avail
-
     (lenL, lenR) <- genForkLengths
-
     left <- postForkTrunk db mapRef nextLeft theRest lenL
     right <- postForkTrunk db mapRef nextRight theRest lenR
     theNewNode <- newNode mapRef
@@ -189,7 +191,8 @@ genForkLengths :: PropertyM IO (Int, Int)
 genForkLengths = do
     left <- pick $ choose (1, 5)
     right <- pick $ choose (1, left)
-    return (left, right)
+    trace ("genForkLengths: (" ++ show left ++ ", " ++ show right ++ ")")
+        return (left, right)
 
 ----------------------------------------------------------------------------------------------------
 postForkTrunk

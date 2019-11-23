@@ -1,6 +1,8 @@
-(define-keyset 'test-admin-ks (read-keyset "test-admin-keyset"))
+(define-keyset 'test-admin (read-keyset "test-admin-keyset"))
 
-(module test1 'test-admin-ks
+(namespace 'free)
+
+(module test1 'test-admin
 
   (defschema account
     balance:decimal
@@ -22,7 +24,8 @@
     "Two-phase confidential payment, sending money from SRC at SRC-ENTITY to DEST at DEST-ENTITY."
 
     (step-with-rollback
-     src-entity (let ((result (debit src amount { "transfer-to": dest, "message": "Starting pact" })))
+     src-entity
+     (let ((result (debit src amount { "transfer-to": dest, "message": "Starting pact" })))
        (yield { "result": result, "amount": amount, "tx": (pact-id) }))
      (credit src amount { "rollback": (pact-id) }))
 
@@ -49,6 +52,7 @@
             { "balance": (+ balance amount), "amount": amount
             , "data": data })))
 
+
   (defun read-account (id)
     "Read data for account ID"
     (+ { "account": id } (read accounts id)))
@@ -59,28 +63,21 @@
   (defun enforce-positive (amount)
     (enforce (>= amount 0.0) "amount must be positive"))
 
-  (defun read-all ()
-    (map (read-account) (keys accounts)))
+ (defun read-all ()
+   (map (read-account) (keys accounts)))
 
-  (defun read-all-global ()
-    (map (read-account) ["Acct1" "Acct2"]))
+ (defun read-all-global ()
+   (map (read-account) ["Acct1" "Acct2"]))
 
-  (defun create-global-accounts ()
-    (create-account "Acct1" 1000000.0)
-    (create-account "Acct2" 0.0)
-    (read-all))
+ (defun create-global-accounts ()
+   (create-account "Acct1" 1000000.0)
+   (create-account "Acct2" 0.0)
+   (read-all))
 
-  (defun multiply-transfer (source dest mult)
-    "Multiply the balance in 'dest' by 'mult', transferring the required coins from 'source'"
-    (let ((x read-account ("Acct2")))
-      (transfer "Acct1" "Acct2" (x * (mult-1)))
+ (defpact create-private-accounts ()
+   (step "Alice" (create-account "A" 1000.0))
+   (step "Bob" (create-account "B" 1000.0))
+   (step "Carol" (create-account "C" 1000.0))
+   (step "Dinesh" (create-account "D" 1000.0)))
 
-  (defpact create-private-accounts ()
-    (step "Alice" (create-account "A" 1000.0))
-    (step "Bob" (create-account "B" 1000.0))
-    (step "Carol" (create-account "C" 1000.0))
-    (step "Dinesh" (create-account "D" 1000.0)))
 )
-(create-table accounts)
-(create-global-accounts)
-(transfer "Acct1" "Acct2" 1)
