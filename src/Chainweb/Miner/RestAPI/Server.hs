@@ -19,7 +19,7 @@
 --
 module Chainweb.Miner.RestAPI.Server where
 
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO, readTVar, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
@@ -38,6 +38,7 @@ import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Servant.API
 import Servant.Server
+
 import System.Random
 
 -- internal modules
@@ -45,7 +46,7 @@ import System.Random
 import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
-import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
+import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
@@ -138,8 +139,9 @@ updatesHandler :: CutDb cas -> ChainBytes -> Tagged Handler Application
 updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
     cid <- runGet decodeChainId cbytes
     cv  <- _cut cdb >>= newIORef
-    remaining <- randomRIO @Int (eventsPerStream - 1, eventsPerStream + 1) >>= newIORef
-    eventSourceAppIO (go remaining cid cv) req respond
+    jitter <- randomRIO @Double (0.9, 1.1)
+    timer <- registerDelay (round $ jitter * 240) -- about 4 minutes, or 8 blocks
+    eventSourceAppIO (go timer cid cv) req respond
   where
     -- | A nearly empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
@@ -148,17 +150,22 @@ updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
     f :: ServerEvent
     f = ServerEvent (Just $ fromByteString "New Cut") Nothing []
 
-    go :: IORef Int -> ChainId -> IORef Cut -> IO ServerEvent
-    go remaining cid cv = readIORef remaining >>= \x -> if
-        | x <= 0 -> return CloseEvent
-        | otherwise -> f <$ do
-            c <- readIORef cv
-            c' <- awaitNewCutByChainId cdb cid c
-            writeIORef remaining $! x - 1
-            writeIORef cv $! c'
+    go :: TVar Bool -> ChainId -> IORef Cut -> IO ServerEvent
+    go timer cid cv = do
+        c <- readIORef cv
 
-    eventsPerStream :: Int
-    eventsPerStream = 8
+        -- await either a timeout or a new event
+        maybeCut <- atomically $ do
+            t <- readTVar timer
+            if t
+                then return Nothing
+                else Just <$> awaitNewCutByChainIdStm cdb cid c
+
+        case maybeCut of
+            Nothing -> return CloseEvent
+            Just c' -> do
+                writeIORef cv $! c'
+                return f
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
