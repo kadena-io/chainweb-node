@@ -77,7 +77,7 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import qualified Pact.Gas as P
+import Pact.Gas (freeGasEnv)
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
@@ -89,6 +89,7 @@ import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Runtime as P
+import qualified Pact.Types.Server as P
 import qualified Pact.Types.SPV as P
 import Pact.Types.Term (DefType(..), ObjectMap(..))
 
@@ -333,7 +334,7 @@ serviceRequests memPoolAccess reqQ = do
                     , show e
                     ]
                 liftIO $ void $ tryPutMVar mvar $! toPactInternalError e
-           ]
+            ]
       where
         -- Pact turns AsyncExceptions into textual exceptions within
         -- PactInternalError. So there is no easy way for us to distinguish
@@ -517,58 +518,60 @@ type BuyGasValidation = T3 ChainwebTransaction Uniqueness AbleToBuyGas
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
 --
 attemptBuyGas
-    :: Miner
+    :: PayloadCas cas
+    => Miner
     -> PactDbEnv'
     -> Vector (T2 ChainwebTransaction Uniqueness)
     -> PactServiceM cas (Vector BuyGasValidation)
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
-        mc <- use psInitCache
-        V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
+        psEnv <- ask
+        V.fromList . ($ []) . sfst <$> V.foldM (f psEnv) (T2 id mempty) txs
+
   where
-    f (T2 dl mcache) cmd = do
-        T2 mcache' !res <- runBuyGas dbEnv mcache cmd
-        pure $! T2 (DL.snoc dl res) mcache'
+    f psEnv (T2 dl mcache) cmd = do
+        T2 mcache' !res <- runBuyGas psEnv dbEnv mcache cmd
+        pure $! T2 (dl . (res :)) mcache'
 
     createGasEnv
-        :: P.PactDbEnv db
+        :: PayloadCas cas
+        => PactServiceEnv cas
+        -> P.PactDbEnv a
         -> P.Command (P.Payload P.PublicMeta P.ParsedCode)
-        -> P.GasPrice
-        -> P.Gas
-        -> PactServiceM cas (TransactionEnv db)
-    createGasEnv db cmd gp gl = do
-        l <- view $ psCheckpointEnv . cpeLogger
-        pd <- set P.pdPublicMeta pm <$!> view psPublicData
-        spv <- view psSpvSupport
-        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl
+        -> P.CommandEnv a
+    createGasEnv envM db cmd =
+        P.CommandEnv Nothing P.Transactional db logger
+        freeGasEnv publicData spv nid
       where
-        !pm = publicMetaOf cmd
+        !logger = _cpeLogger . _psCheckpointEnv $ envM
+        !publicData = set P.pdPublicMeta (publicMetaOf cmd) (_psPublicData envM)
+        !spv = _psSpvSupport envM
         !nid = networkIdOf cmd
-        !rk = P.cmdToRequestKey cmd
 
     runBuyGas
-        :: P.PactDbEnv a
+        :: PayloadCas cas
+        => PactServiceEnv cas
+        -> P.PactDbEnv a
         -> ModuleCache
         -> T2 ChainwebTransaction Uniqueness
         -> PactServiceM cas (T2 ModuleCache BuyGasValidation)
-    runBuyGas _ mcache (T2 tx Duplicate) = return $ T2 mcache (T3 tx Duplicate BuyGasFailed)
-    runBuyGas db mcache (T2 tx Unique) = do
+    runBuyGas _ _ mcache (T2 tx Duplicate) = return $ T2 mcache (T3 tx Duplicate BuyGasFailed)
+    runBuyGas envM db mcache (T2 tx Unique) = do
         let cmd = payloadObj <$> tx
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
-            txst = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
+            supply = gasFeeOf gasLimit gasPrice
+            buyGasEnv = createGasEnv envM db cmd
 
-        buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
+        buyGasResultE <- liftIO $! P.catchesPactError $!
+          buyGas buyGasEnv cmd miner supply mcache
 
-        cr <- liftIO
-          $! P.catchesPactError
-          $! execTransactionM buyGasEnv txst
-          $! buyGas cmd miner
-
-        case cr of
+        case buyGasResultE of
             Left _ ->
               return (T2 mcache (T3 tx Unique BuyGasFailed))  -- TODO throw InsertError instead
-            Right t ->
-              return $! T2 (_txCache t) (T3 tx Unique BuyGasPassed)
+            Right (Left _) ->
+              return (T2 mcache (T3 tx Unique BuyGasFailed))
+            Right (Right (T3 _ _ newmcache)) ->
+              return (T2 newmcache (T3 tx Unique BuyGasPassed))
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -797,10 +800,9 @@ execLocal cmd = withDiscardedBatch $ do
     parentHeader <- liftIO $! lookupM bhDb bhash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
-        mc <- use psInitCache
         r <- withBlockData parentHeader $
              liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap payloadObj cmd) mc
+                _psPublicData _psSpvSupport (fmap payloadObj cmd)
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -989,10 +991,8 @@ execTransactions
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-
     coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
-
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
@@ -1050,14 +1050,15 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         !pd       = _psPublicData psEnv
         !spv      = _psSpvSupport psEnv
-        pactHash  = P._cmdHash cmdIn
+        pactHash  = view P.cmdHash cmdIn
 
     T2 result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv (payloadObj <$> cmdIn)
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
 
+    -- on genesis, seed initial service state with loaded modules
     when isGenesis $
-      psInitCache <>= mcache'
+      psInitCache .= mcache'
 
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
