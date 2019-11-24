@@ -22,6 +22,7 @@ module Chainweb.Miner.RestAPI.Server where
 import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO, readTVar, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
+import Control.Monad.Catch (bracket)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
@@ -34,6 +35,8 @@ import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..), T3(..))
 
+import Network.HTTP.Types.Status
+import Network.Wai (responseLBS)
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Servant.API
@@ -135,14 +138,20 @@ solvedHandler mr (HeaderBytes hbytes) = do
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
-updatesHandler :: CutDb cas -> ChainBytes -> Tagged Handler Application
-updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
+updatesHandler
+    :: Logger l
+    => MiningCoordination l cas
+    -> ChainBytes
+    -> Tagged Handler Application
+updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respond $ do
     cid <- runGet decodeChainId cbytes
-    cv  <- _cut cdb >>= newIORef
+    cv  <- _cut (_coordCutDb mr) >>= newIORef
     jitter <- randomRIO @Double (0.9, 1.1)
-    timer <- registerDelay (round $ jitter * 240) -- about 4 minutes, or 8 blocks
+    timer <- registerDelay (round $ jitter * realToFrac timeout * 1000000)
     eventSourceAppIO (go timer cid cv) req respond
   where
+    timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
+
     -- | A nearly empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
     -- to the caller.
@@ -159,13 +168,24 @@ updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
             t <- readTVar timer
             if t
                 then return Nothing
-                else Just <$> awaitNewCutByChainIdStm cdb cid c
+                else Just <$> awaitNewCutByChainIdStm (_coordCutDb mr) cid c
 
         case maybeCut of
             Nothing -> return CloseEvent
             Just c' -> do
                 writeIORef cv $! c'
                 return f
+
+    count = _coordUpdateStreamCount mr
+
+    withLimit respond inner = bracket
+        (atomicModifyIORef' count $ \x -> (x - 1, x - 1))
+        (const $ atomicModifyIORef' count $ \x -> (x + 1, ()))
+        (\x -> if x <= 0 then ret503 respond else inner)
+
+    ret503 respond = do
+        atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
+        respond $ responseLBS status503 [] "Too many work requests"
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
@@ -176,7 +196,7 @@ miningServer
 miningServer mr v =
     workHandler mr v
     :<|> liftIO . solvedHandler mr
-    :<|> updatesHandler (_coordCutDb mr)
+    :<|> updatesHandler mr
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
 someMiningServer v@(FromSing (SChainwebVersion :: Sing vT)) mr =
