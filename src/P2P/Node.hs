@@ -357,7 +357,7 @@ guardPeerDb v nid peerDb pinf = do
     isReserved :: Bool
     isReserved = case v of
         Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
-        Testnet02 -> isReservedHostAddress (_peerAddr pinf)
+        Testnet03 -> isReservedHostAddress (_peerAddr pinf)
         Development -> isReservedHostAddress (_peerAddr pinf)
         _ -> False
 

@@ -115,25 +115,28 @@ _run args = withArgs args $ C.defaultMain [bench]
 bench :: C.Benchmark
 bench = C.bgroup "PactServiceBench" $
     [ C.bench "forkingBench" $ withResources 10 Quiet forkingBench
-    , C.bench "oneBlock" $ withResources 1 Error oneBlock
+    , C.bench "oneBlock-5" $ oneBlock 5
+    , C.bench "oneBlock-10" $ oneBlock 10
+    , C.bench "oneBlock-25" $ oneBlock 25
     ]
   where
-    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue = do
+    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue _ = do
         let (T3 _ join1 _) = mainLineBlocks !! 5
             forkLength1 = 5
             forkLength2 = 5
         void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
         void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
-    oneBlock mainLineBlocks _pdb _bhdb _nonceCounter pactQueue = do
-        let (T3 _ join1 _) = mainLineBlocks !! 0
-        void $ noMineBlock join1 (Nonce 1234) pactQueue
+    oneBlock txCount = withResources 1 Error $ go
+      where
+        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
+          writeIORef txsPerBlock txCount
+          let (T3 _ join1 _) = mainLineBlocks !! 0
+          void $ noMineBlock join1 (Nonce 1234) pactQueue
 
-testMemPoolAccess :: MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
-testMemPoolAccess accounts t = mempty
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
+testMemPoolAccess txsPerBlock accounts t = mempty
     { mpaGetBlock = \validate bh hash _header -> getTestBlock accounts t validate bh hash }
   where
-
-    blockSize = 10
 
     setTime time = \pb -> pb { _pmCreationTime = toTxCreationTime time }
 
@@ -153,6 +156,7 @@ testMemPoolAccess accounts t = mempty
 
         | otherwise =
           withMVar mVarAccounts $ \accs -> do
+            blockSize <- readIORef txsPerBlock
             coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs) >>= traverse generate
             txs <- forM coinReqs $ \coinReq -> do
                 let (Account sender, ks) =
@@ -285,10 +289,17 @@ data Resources
     , mainTrunkBlocks :: [T3 BlockHeader BlockHeader PayloadWithOutputs]
     , coinAccounts :: MVar (Map Account (NonEmpty SomeKeyPairCaps))
     , nonceCounter :: IORef Word64
+    , txPerBlock :: IORef Int
     }
 
-type RunPactService b
-   = [T3 BlockHeader BlockHeader PayloadWithOutputs] -> PayloadDb HashMapCas -> BlockHeaderDb -> IORef Word64 -> PactQueue  -> IO b
+type RunPactService b =
+  [T3 BlockHeader BlockHeader PayloadWithOutputs]
+  -> PayloadDb HashMapCas
+  -> BlockHeaderDb
+  -> IORef Word64
+  -> PactQueue
+  -> IORef Int
+  -> IO b
 
 withResources :: NFData b => Word64 -> LogLevel -> RunPactService b -> C.Benchmarkable
 withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unwrap
@@ -302,8 +313,9 @@ withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unw
         time <- getCurrentTimeIntegral
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
+        txPerBlock <- newIORef 10
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess coinAccounts time) tempDir
+          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts time) tempDir
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}
@@ -314,7 +326,7 @@ withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unw
       destroyPayloadDb payloadDb
 
     unwrap (NoopNFData (Resources {..})) =
-      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd $ pactService)
+      f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd $ pactService) txPerBlock
 
     pactQueueSize = 2000
 
