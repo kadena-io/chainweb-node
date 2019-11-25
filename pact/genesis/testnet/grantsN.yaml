@@ -25,7 +25,7 @@ code: |-
   (coin.coinbase "will" (read-keyset "will") 500.0)
   (coin.coinbase "Kadena" (keyset-ref-guard "Kadena") 10000000.0)
 data:
-  anagha: ["0d8dcae3b6fd805c552ea3bca93d9787624311f784f992be3a1ecd446102ccd9"]
+  anagha: ["73329f0b8f52fb34492a11b2e63e9a19ead2e142144386d288d284242b29bac8"]
   anastasia: ["1ec74de724b3c700737d99906aba48dbed6b90140bbc64133c558571b18883c3"]
   andrew: ["7d7a09b741e6726219709f7ab9790c69f8cd12b1026d0090ac7c52e9aa0ab74b"]
   ben: ["d8e512b2d08afaf20c59aaf2a0db57262c31965e4310e330c1ad8075ecaa3647"]
