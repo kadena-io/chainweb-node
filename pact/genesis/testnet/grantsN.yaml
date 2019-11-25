@@ -5,7 +5,7 @@ code: |-
   (coin.coinbase "andrew" (read-keyset "andrew") 500.0)
   (coin.coinbase "ben" (read-keyset "ben") 500.0)
   (coin.coinbase "colin" (read-keyset "colin") 500.0)
-  (coin.coinbase "croesus" (read-keyset croesus") 9000000000.0)
+  (coin.coinbase "croesus" (read-keyset "croesus") 9000000000.0)
   (coin.coinbase "doug" (read-keyset "doug") 500.0)
   (coin.coinbase "emily" (read-keyset "emily") 500.0)
   (coin.coinbase "emmanuel" (read-keyset "emmanuel") 500.0)
