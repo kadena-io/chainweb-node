@@ -27,6 +27,7 @@ module Chainweb.Chainweb.MinerResources
   ) where
 
 import Data.Generics.Wrapped (_Unwrapped)
+import Data.HashMap.Strict (HashMap)
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict (T3(..))
@@ -44,6 +45,8 @@ import qualified System.Random.MWC as MWC
 -- internal modules
 
 import Chainweb.BlockHeader (BlockCreationTime(..))
+import Chainweb.ChainId
+import Chainweb.Chainweb.ChainResources
 import Chainweb.CutDB (CutDb)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
@@ -134,19 +137,22 @@ withMiningCoordination logger conf cutDb inner
 data MinerResources logger cas = MinerResources
     { _minerResLogger :: !logger
     , _minerResCutDb :: !(CutDb cas)
+    , _minerChainResources :: HashMap ChainId (ChainResources logger)
     , _minerResConfig :: !NodeMiningConfig
     }
 
 withMinerResources
     :: logger
     -> NodeMiningConfig
+    -> HashMap ChainId (ChainResources logger)
     -> CutDb cas
     -> (Maybe (MinerResources logger cas) -> IO a)
     -> IO a
-withMinerResources logger conf cutDb inner =
+withMinerResources logger conf chainRes cutDb inner =
         inner . Just $ MinerResources
             { _minerResLogger = logger
             , _minerResCutDb = cutDb
+            , _minerChainResources = chainRes
             , _minerResConfig = conf
             }
 
@@ -159,10 +165,11 @@ runMiner
     -> IO ()
 runMiner v mr =
     if enabled
-    then case window v of
-             Nothing -> testMiner
-             Just _ -> powMiner
-    else mempoolNoopMiner lf v (_nodeMiner conf) cdb
+        then case window v of
+                 Nothing -> testMiner
+                 Just _ -> powMiner
+        else mempoolNoopMiner lf (_minerChainResources mr)
+
   where
     enabled = _nodeMiningEnabled $ _minerResConfig mr
 

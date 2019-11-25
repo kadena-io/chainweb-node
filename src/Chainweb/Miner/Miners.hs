@@ -25,7 +25,8 @@ module Chainweb.Miner.Miners
   ) where
 
 import Data.Bytes.Put (runPutS)
-import Data.Foldable (toList)
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict (T2(..), T3(..))
 
@@ -41,8 +42,11 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.ChainId
+import Chainweb.Chainweb.ChainResources
 import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
+import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
@@ -101,16 +105,18 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block
 -- regularly to prune mempool.
-mempoolNoopMiner :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
-mempoolNoopMiner lf v m cdb = runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" loop
+mempoolNoopMiner
+    :: LogFunction
+    -> HashMap ChainId (ChainResources logger)
+    -> IO ()
+mempoolNoopMiner lf chainRes =
+    runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" loop
   where
-    chains = toList $ chainIds v
-    pact = _webPactExecutionService . _webBlockPayloadStorePact $
-           view cutDbPayloadStore cdb
     loop = do
-        c <- _cut cdb
-        mapM_ (\cid -> newWork lf (Suggestion cid) m pact c) chains
+        mapM_ runOne $ HashMap.toList chainRes
         approximateThreadDelay 60000000 -- wake up once a minute
+
+    runOne (_, cr) = Mempool.mempoolPrune $ _chainResMempool cr
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --

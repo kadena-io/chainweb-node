@@ -245,6 +245,9 @@ data MempoolBackend t = MempoolBackend {
   , mempoolGetBlock
       :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
 
+    -- | Discard any expired transactions.
+  , mempoolPrune :: IO ()
+
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
     -- the callback in chunks. No ordering of hashes is presupposed. Returns
@@ -272,6 +275,7 @@ noopMempool = do
     , mempoolInsertCheck = noopInsertCheck
     , mempoolMarkValidated = noopMV
     , mempoolGetBlock = noopGetBlock
+    , mempoolPrune = return ()
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
     }
