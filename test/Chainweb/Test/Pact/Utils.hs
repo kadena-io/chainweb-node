@@ -558,10 +558,10 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       return (ctx, dbSt)
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
-withMVarResource value = withResource (newMVar value) (const $ return ())
+withMVarResource value = withResource (newMVar value) (const mempty)
 
 withTime :: (IO (Time Integer) -> TestTree) -> TestTree
-withTime = withResource getCurrentTimeIntegral (const (return ()))
+withTime = withResource getCurrentTimeIntegral (const mempty)
 
 mkKeyset :: Text -> [PublicKeyBS] -> Value
 mkKeyset p ks = object
@@ -590,7 +590,7 @@ toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb (\_ -> return ())
+withPayloadDb = withResource newPayloadDb (const mempty)
 
 withBlockHeaderDb
     :: IO RocksDb

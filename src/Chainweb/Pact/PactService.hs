@@ -797,8 +797,9 @@ execLocal cmd = withDiscardedBatch $ do
     -- necessary information for this call to return sensible values.
     parentHeader <- liftIO $! lookupM bhDb bhash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
-        PactServiceEnv{..} <- ask
-        r <- withBlockData parentHeader $
+        -- PactServiceEnv{..} <- ask
+        r <- withBlockData parentHeader $ do
+             PactServiceEnv{..} <- ask
              liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
                 _psPublicData _psSpvSupport (fmap payloadObj cmd)
         return $! Discard (toHashCommandResult r)
