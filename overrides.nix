@@ -45,6 +45,13 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "1sbn4dbb2y1gwdwjvz5vf6a1g349z0jha5iz4dmp2v67dv86fzs5";
       });
 
+      # Needed by docker.nix
+      data-ordlist = dontCheck (callHackageDirect {
+        pkg = "data-ordlist";
+        ver = "0.4.7.0";
+        sha256 = "1kxvzq69m26sc6birs0sdc3nbnh5k82f94j8w5bizjvi48q5vwf9";
+      });
+
       digraph = dontCheck (callHackageDirect {
         pkg = "digraph";
         ver = "0.1.0.2";
@@ -85,6 +92,20 @@ let # Working on getting this function upstreamed into nixpkgs, but
         pkg = "nonempty-containers";
         ver = "0.3.1.0";
         sha256 = "1hnwvhz9w07z2mlq75iz0bysz586d828725k1bx8mjqvc86ncv8m";
+      };
+
+      # Needed by docker.nix
+      resource-pool = callHackageDirect {
+        pkg = "resource-pool";
+        ver = "0.2.3.2";
+        sha256 = "13gllfa7qvmzifqa5jwxa29f9w9cmk5jzyg5wnfm31v8z1akvs11";
+      };
+
+      # Needed by docker.nix
+      retry = callHackageDirect {
+        pkg = "retry";
+        ver = "0.8.1.0";
+        sha256 = "1cn4d1fjywhvvd7yaqpr24w3hwg1i68prf775xpbwivfwfrlfbfy";
       };
 
       rocksdb-haskell = dontCheck super.rocksdb-haskell;

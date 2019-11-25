@@ -4,8 +4,7 @@ let
     inherit (nixpkgs) pkgs;
     inherit (nixpkgs.haskell.lib) justStaticExecutables dontCheck;
     chainwebDrv = ( import ./. { system = "x86_64-linux"; } );
-    chainwebStatic = justStaticExecutables
-                     (if skipTests then dontCheck chainwebDrv else chainwebDrv);
+    chainwebStatic = justStaticExecutables chainwebDrv;
 in
     let baseImage = pkgs.dockerTools.buildImage {
             name = "chainweb-base";
