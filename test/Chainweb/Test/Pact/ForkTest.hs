@@ -122,18 +122,21 @@ blocksFromFork ForkInfo{..} =
 
 expectedForkProd :: ForkInfo -> IO Int
 expectedForkProd ForkInfo{..} = do
-    let leftHeight = fiForkHeight + fiLeftBranchHeight -- (1 based)
-    let rightHeight = leftHeight + fiRightBranchHeight -- (1 based)
-
+    -- list of blocks consists of fork followed by left branch followed by right branch
+    let rightRangeLo = fiLeftBranchHeight -- 0 based range
+    let rightRangeHi = rightRangeLo + (fiRightBranchHeight - fiForkHeight - 1)
     let trunkProd = prodFromHeight (fiForkHeight - 1) -- (prodFromHeight is 0 based)
-    let rBranchProd = prodFromRange leftHeight (rightHeight - 1) -- (prodFromRange is 0 based)
-
+    let rBranchProd = prodFromRange rightRangeLo rightRangeHi
     putStrLn $ "expectedForkProd - "
-             ++ "\n\tleft height: " ++ show leftHeight
-             ++ "\n\tright height: " ++ show rightHeight
+             ++ "\n\ttrunk height: " ++ show fiForkHeight
+             ++ "\n\tleft height: " ++ show fiLeftBranchHeight
+             ++ "\n\tright height: " ++ show fiRightBranchHeight
+
+             ++ "\n\tright range lo: " ++ show rightRangeLo ++ " (0 based)"
+             ++ "\n\tright range hi: " ++ show rightRangeHi ++ " (0 based)"
+
              ++ "\n\ttrunkProd: " ++ show trunkProd
              ++ "\n\trBranchProd: " ++ show rBranchProd
-             ++ " (via prodFromRange " ++ show leftHeight ++ " " ++ show (rightHeight -1) ++ ")"
              ++ "\n\ttotal product: " ++ show (trunkProd * rBranchProd)
 
     return $ trunkProd * rBranchProd
@@ -153,6 +156,7 @@ tailTransactions :: Int -> IO [PactTransaction]
 tailTransactions h = do
     d <- adminData
     let txStr = "(free.test1.multiply-transfer \"Acct1\" \"Acct2\" " ++ show (valFromHeight h) ++ ".0)"
+    putStrLn $ "tailTransaction - Tx for height " ++ show h ++ " is: " ++ txStr
     return [ PactTransaction { _pactCode = T.pack txStr, _pactData = d } ]
 
 runBlocks :: BlockHeaderDb -> [BlockHeader] -> PactQueue -> (IO BlockHeaderDb) -> IO (Int, Int)

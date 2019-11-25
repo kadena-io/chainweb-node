@@ -149,7 +149,7 @@ preForkTrunk theDb theMapRef hdr availTxs lengths@(lenT, _lenL, _lenR) = do
     go theDb theMapRef hdr availTxs (lenT-1) lengths
   where
     go db mapRef h avail count fl = do
-        liftIO $ putStrLn $ "GO - count: " ++ show count
+        -- liftIO $ putStrLn $ "GO - count: " ++ show count
         next <- header' h
         liftIO $ TreeDB.insert db next
         (takenNow, theRest) <- takeTrans avail
@@ -309,13 +309,13 @@ takePreFork theTree =
   where
     go :: Tree BlockTrans -> [BlockTrans] -> IO ([BlockTrans], Tree BlockTrans) -- remove this
     go (Node bt [x]) xs = do
-        putStrLn $ "takePreFork - A"
+        -- putStrLn $ "takePreFork - A"
         go x (bt : xs) -- continue the trunk
     go t@(Node bt [_x, _y]) xs = do
-        putStrLn $ "takePreFork - B"
+        -- putStrLn $ "takePreFork - B"
         return (bt : xs, t) -- reached the fork
     go someTree xs = do
-        putStrLn $ "takePreFork - C"
+        -- putStrLn $ "takePreFork - C"
         return (xs, someTree) -- should never happen
 
 ----------------------------------------------------------------------------------------------------
