@@ -5,6 +5,7 @@
 
 module Chainweb.Test.ForkGen
   ( ForkInfo(..)
+  , frequencyM
   , genFork
   ) where
 
@@ -40,8 +41,6 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import qualified Chainweb.TreeDB as TreeDB
-
-import Debug.Trace
 
 ----------------------------------------------------------------------------------------------------
 data ForkInfo = ForkInfo
@@ -81,7 +80,7 @@ genFork
 genFork db mapRef startHeader = do
     allTxs <- getTransPool
     theTree <- genTree db mapRef startHeader allTxs
-    return $ buildForkInfo db theTree
+    liftIO $ buildForkInfo db theTree
 
 ----------------------------------------------------------------------------------------------------
 mkMockTx :: Int64 -> PropertyM IO MockTx
@@ -113,7 +112,10 @@ genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
     liftIO $ TreeDB.insert db next
-    listOfOne <- preForkTrunk db mapRef next theRest
+
+    fl <- genForkLengths
+
+    listOfOne <- preForkTrunk db mapRef next theRest fl
     newNode mapRef
             BlockTrans { btBlockHeader = h, btTransactions = takenNow }
             listOfOne
@@ -141,29 +143,23 @@ preForkTrunk
     -> IORef (HashMap BlockHeader (HashSet TransactionHash))
     -> BlockHeader
     -> HashSet TransactionHash
+    -> (Int, Int, Int)
     -> PropertyM IO (Forest BlockTrans)
-preForkTrunk db mapRef h avail = do
-    next <- header' h
-    liftIO $ TreeDB.insert db next
-    (takenNow, theRest) <- takeTrans avail
-    children <- frequencyM
-        [(1, fork db mapRef next theRest), (9, preForkTrunk db mapRef next theRest)]
-    theNewNode <- newNode mapRef
-                          BlockTrans {btBlockHeader = h, btTransactions = takenNow}
-                          children
-    return [theNewNode]
-
-----------------------------------------------------------------------------------------------------
--- | Version of frequency where the generators are in IO
-frequencyM :: [(Int, PropertyM IO a)] -> PropertyM IO a
-frequencyM xs = do
-    let indexGens = elements . (:[]) <$> [0..]
-    let indexZip = zip (fst <$> xs) indexGens
-    liftIO $ putStrLn $ "frequencyM - indexZip = " ++ show indexZip
-
-    -- the original 'frequency' chooses the index of the value:
-    n <- pick $ frequency indexZip :: PropertyM IO Int
-    snd (V.fromList xs ! n)
+preForkTrunk theDb theMapRef hdr availTxs lengths@(lenT, _lenL, _lenR) = do
+    go theDb theMapRef hdr availTxs (lenT-1) lengths
+  where
+    go db mapRef h avail count fl = do
+        liftIO $ putStrLn $ "GO - count: " ++ show count
+        next <- header' h
+        liftIO $ TreeDB.insert db next
+        (takenNow, theRest) <- takeTrans avail
+        children <- if count /= 0
+            then go db mapRef next theRest (count - 1) fl
+            else fork db mapRef next theRest fl
+        theNewNode <- newNode mapRef
+                              BlockTrans {btBlockHeader = h, btTransactions = takenNow}
+                              children
+        return [theNewNode]
 
 ----------------------------------------------------------------------------------------------------
 fork
@@ -171,28 +167,37 @@ fork
     -> IORef (HashMap BlockHeader (HashSet TransactionHash))
     -> BlockHeader
     -> HashSet TransactionHash
+    -> (Int, Int, Int)
     -> PropertyM IO (Forest BlockTrans)
-fork db mapRef h avail = do
+fork db mapRef h avail (_lenT, lenL, lenR) = do
     nextLeft <- header' h
     liftIO $ TreeDB.insert db nextLeft
     nextRight <- header' h
     liftIO $ TreeDB.insert db nextRight
     (takenNow, theRest) <- takeTrans avail
-    (lenL, lenR) <- genForkLengths
-    left <- postForkTrunk db mapRef nextLeft theRest lenL
-    right <- postForkTrunk db mapRef nextRight theRest lenR
+    -- (lenL, lenR) <- genForkLengths
+    left <- postForkTrunk db mapRef nextLeft theRest (lenL-1)
+    right <- postForkTrunk db mapRef nextRight theRest (lenR-1)
     theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
                           (left ++ right)
     return [theNewNode]
 
 ----------------------------------------------------------------------------------------------------
-genForkLengths :: PropertyM IO (Int, Int)
+genForkLengths :: PropertyM IO (Int, Int, Int)
 genForkLengths = do
+    let maxTotalLen = 12
+    trunk <- pick $ choose (1, 2)
+    let actualTrunkLen = trunk + 2 -- including the genesis and fork point, trunk length is +2 nodes
     left <- pick $ choose (1, 5)
-    right <- pick $ choose (1, left)
-    trace ("genForkLengths: (" ++ show left ++ ", " ++ show right ++ ")")
-        return (left, right)
+    right <- pick $ choose (1, maxTotalLen - (actualTrunkLen + left))
+    liftIO $ putStrLn $ "\ngenForkLengths:"
+                        ++ "\n\ttrunk: " ++ show trunk
+                        ++ " (" ++ show (trunk + 1) ++ " including genesis block) "
+                        ++ " (" ++ show (trunk + 2) ++ " including the fork point)"
+                        ++ "\n\tleft: " ++ show left
+                        ++ "\n\tright: " ++ show right
+    return (trunk, left, right)
 
 ----------------------------------------------------------------------------------------------------
 postForkTrunk
@@ -260,13 +265,16 @@ showHeaderFields bhs =
 buildForkInfo
     :: BlockHeaderDb
     -> Tree BlockTrans
-    -> ForkInfo
-buildForkInfo blockHeaderDb t =
-    let (preFork, left, right) = splitNodes t
-        forkHeight = length preFork
-    in if null preFork || null left || null right
+    -> IO ForkInfo
+buildForkInfo blockHeaderDb t = do
+    (preFork, left, right) <- splitNodes t
+    let forkHeight = length preFork
+    putStrLn $ "buildForkInfo: (" ++ show forkHeight ++ ", "
+               ++ show (length left) ++ ", "
+               ++ show (length right) ++ ")"
+    if null preFork || null left || null right
         then error "buildForkInfo -- all of the 3 lists must be non-empty"
-        else
+        else return $
             ForkInfo
             { fiBlockHeaderDb = blockHeaderDb
             , fiOldHeader = btBlockHeader (head left)
@@ -284,25 +292,31 @@ buildForkInfo blockHeaderDb t =
 ----------------------------------------------------------------------------------------------------
 -- | Split the nodes into a triple of lists (xs, ys, zs) where xs = the nodes on the trunk before
 --   the fork, ys = the nodes on the left fork, and zs = the nodes on the right fork
-splitNodes :: Tree BlockTrans -> BT3
-splitNodes t =
-    let (trunk, restOfTree) = takePreFork t
-        (leftFork, rightFork) = case restOfTree of
-            Node _bt (x : y : _zs) -> (takeFork x [], takeFork y [])
-            _someTree -> ([], []) -- should never happen
-    in (trunk, leftFork, rightFork)
+splitNodes :: Tree BlockTrans ->IO BT3
+splitNodes t = do
+    (trunk, restOfTree) <- takePreFork t
+    let (leftFork, rightFork) = case restOfTree of
+          Node _bt (x : y : _zs) -> (takeFork x [], takeFork y [])
+          _someTree -> ([], []) -- should never happen
+    return (trunk, leftFork, rightFork)
 
 type BT3 = ([BlockTrans], [BlockTrans], [BlockTrans])
 
 ----------------------------------------------------------------------------------------------------
-takePreFork :: Tree BlockTrans -> ([BlockTrans], Tree BlockTrans)
+takePreFork :: Tree BlockTrans -> IO ([BlockTrans], Tree BlockTrans)
 takePreFork theTree =
     go theTree []
   where
-    go :: Tree BlockTrans -> [BlockTrans] -> ([BlockTrans], Tree BlockTrans) -- remove this
-    go (Node bt [x]) xs = go x (bt : xs) -- continue the trunk
-    go t@(Node bt [_x, _y]) xs = (bt : xs, t) -- reached the fork
-    go someTree xs = (xs, someTree) -- should never happen
+    go :: Tree BlockTrans -> [BlockTrans] -> IO ([BlockTrans], Tree BlockTrans) -- remove this
+    go (Node bt [x]) xs = do
+        putStrLn $ "takePreFork - A"
+        go x (bt : xs) -- continue the trunk
+    go t@(Node bt [_x, _y]) xs = do
+        putStrLn $ "takePreFork - B"
+        return (bt : xs, t) -- reached the fork
+    go someTree xs = do
+        putStrLn $ "takePreFork - C"
+        return (xs, someTree) -- should never happen
 
 ----------------------------------------------------------------------------------------------------
 takeFork :: Tree BlockTrans -> [BlockTrans] -> [BlockTrans]
@@ -327,6 +341,17 @@ splitHsAt :: (Eq a, Hashable a) => Int -> HashSet a -> (HashSet a, HashSet a)
 splitHsAt n x =
   let firstSet = HS.fromList $ take n (HS.toList x)
   in (firstSet, x `HS.difference` firstSet)
+
+----------------------------------------------------------------------------------------------------
+-- | Version of frequency where the generators are in IO
+frequencyM :: [(Int, PropertyM IO a)] -> PropertyM IO a
+frequencyM xs = do
+    let indexGens = elements . (:[]) <$> [0..]
+    let indexZip = zip (fst <$> xs) indexGens
+
+    -- the original 'frequency' chooses the index of the value:
+    n <- pick $ frequency indexZip :: PropertyM IO Int
+    snd (V.fromList xs ! n)
 
 ----------------------------------------------------------------------------------------------------
 -- For debuggging

@@ -70,7 +70,7 @@
    (map (read-account) ["Acct1" "Acct2"]))
 
  (defun create-global-accounts ()
-   (create-account "Acct1" 1000000000.0)
+   (create-account "Acct1" 300000000000.0)
    (create-account "Acct2" 0.0)
    (read-all))
 

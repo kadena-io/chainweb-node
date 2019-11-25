@@ -67,22 +67,23 @@ main =
     withToyDB rdb toyChainId $ \h0 db -> do
         defaultMain
             -- TODO: replace commented out tests before merge
-            -- $ adjustOption adj
-            -- $ testGroup "Chainweb Tests" . schedule Sequential
-            -- $ pactTestSuite rdb
-            -- : mempoolTestSuite db h0
-            -- : pactForkTestSuite db h0
-            -- : suite rdb
-            $ adjustOption adj
+            -- adjustOption adj
             $ testGroup "Chainweb Tests" . schedule Sequential
-            $ [pactForkTestSuite db h0]
+
+            -- $ pactTestSuite rdb
+            $ pactForkTestSuite db h0
+
+            -- : mempoolTestSuite db h0
+            : [mempoolTestSuite db h0]
+            -- : suite rdb
+
   where
-    adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
-    adj x = x
+    _adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
+    _adj x = x
 
 
-_mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-_mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
+mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
+mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
     $ schedule Sequential [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
 
 _pactTestSuite :: RocksDb -> ScheduledTest

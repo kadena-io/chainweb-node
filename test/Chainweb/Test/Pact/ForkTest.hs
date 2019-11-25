@@ -98,7 +98,7 @@ prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
     let blockList = blocksFromFork fi
     expected <- liftIO $ expectedForkProd fi
     if expected >= maxBalance
-      then do
+      then do -- this shouldn't happen...
         liftIO $ putStrLn "Max account balance would be exceeded, letting this test pass"
         assert True
       else do
@@ -112,7 +112,7 @@ prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
         assert (valBlockRes == expected)
 
 maxBalance :: Int
-maxBalance = 1000000000
+maxBalance = 300000000000
 
 blocksFromFork :: ForkInfo -> [BlockHeader]
 blocksFromFork ForkInfo{..} =
@@ -257,6 +257,7 @@ mkProperNewBlock db plwo parentHeader = do
     return newHeader
 
 -- product of primes assigned to a given (inclusive) range of block heights
+-- max product w/12 primes starting with 1: 200,560,490,130
 prodFromRange :: Int -> Int -> Int
 prodFromRange lo hi =
   let xs = nPrimes hi
