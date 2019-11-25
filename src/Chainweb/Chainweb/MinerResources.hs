@@ -88,7 +88,7 @@ withMiningCoordination logger conf cutDb inner
         t <- newTVarIO mempty
         c503 <- newIORef 0
         c403 <- newIORef 0
-        l <- newIORef 0
+        l <- newIORef (_coordinationUpdateStreamLimit conf)
         fmap snd . concurrently (prune t c503 c403) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb

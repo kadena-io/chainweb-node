@@ -184,8 +184,7 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respo
         (\x -> if x <= 0 then ret503 respond else inner)
 
     ret503 respond = do
-        atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-        respond $ responseLBS status503 [] "Too many work requests"
+        respond $ responseLBS status503 [] "No more update streams available currently. Retry later."
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
