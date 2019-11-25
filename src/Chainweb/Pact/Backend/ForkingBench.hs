@@ -114,9 +114,14 @@ _run args = withArgs args $ C.defaultMain [bench]
 bench :: C.Benchmark
 bench = C.bgroup "PactService" $
     [ withResources 10 Quiet forkingBench
-    , oneBlock 1
-    , oneBlock 10
-    , oneBlock 100
+    , oneBlock True 1
+    , oneBlock True 10
+    , oneBlock True 50
+    , oneBlock True 100
+    , oneBlock False 1
+    , oneBlock False 10
+    , oneBlock False 50
+    , oneBlock False 100
     ]
   where
     forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue _ =
@@ -127,13 +132,15 @@ bench = C.bgroup "PactService" $
         void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
         void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
-    oneBlock txCount = withResources 1 Error $ go
+    oneBlock validate txCount = withResources 1 Error $ go
       where
         go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock =
-          C.bench ("oneBlock[" ++ show txCount ++ "]") $ C.whnfIO $ do
+          C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
             let (T3 _ join1 _) = mainLineBlocks !! 0
-            noMineBlock join1 (Nonce 1234) pactQueue
+            noMineBlock validate join1 (Nonce 1234) pactQueue
+        name = "block-new" ++ (if validate then "-valid" else "") ++
+               "[" ++ show txCount ++ "]"
 
 testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
 testMemPoolAccess txsPerBlock accounts t = mempty
@@ -253,11 +260,12 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
 
 noMineBlock
-    :: BlockHeader
+    :: Bool
+    -> BlockHeader
     -> Nonce
     -> PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
-noMineBlock parentHeader nonce r = do
+noMineBlock validate parentHeader nonce r = do
 
      -- assemble block without nonce and timestamp
      creationTime <- getCurrentTimeIntegral
@@ -273,9 +281,10 @@ noMineBlock parentHeader nonce r = do
               creationTime
               parentHeader
 
-     mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
+     when validate $ do
+       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
 
-     void $ assertNotLeft =<< takeMVar mv'
+       void $ assertNotLeft =<< takeMVar mv'
 
      return $ T3 parentHeader bh payload
 
