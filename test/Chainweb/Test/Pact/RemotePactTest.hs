@@ -181,7 +181,9 @@ localTest iot nio = do
     SubmitBatch batch <- testBatch iot mv
     let cmd = head $ toList batch
     sid <- mkChainId v (0 :: Int)
-    PactResult e <- _crResult <$> local sid cenv cmd
+    res <- local sid cenv cmd
+    let (PactResult e) = _crResult res
+    assertEqual "expect /local to return gas for tx" (_crGas res) 10
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
 localChainDataTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
@@ -323,7 +325,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     batch0 <- mkTxBatch txcode0 A.Null 1
 
     -- batch to test that gas for tx size discounted from the total gas supply
-    batch1 <- mkTxBatch txcode1 A.Null 4
+    batch1 <- mkTxBatch txcode1 A.Null 12
 
     res0 <- run batch0 ExpectPactError
     res1 <- run batch1 ExpectPactError
@@ -341,9 +343,9 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Tx too big (3), limit 1"
+      Pact.PactError Pact.GasError def [] "Tx too big (10), limit 1"
     gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (4) exceeded: 5"
+      Pact.PactError Pact.GasError def [] "Gas limit (12) exceeded: 13"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair Nothing
@@ -533,7 +535,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099938.51) -- balance = (1k + 1mm) - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1099995.76) -- balance = (1k + 1mm) - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
@@ -558,7 +560,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099918.43) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1099994.9) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
         ]
 

@@ -196,7 +196,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
                            initBlockState sqlenv logger
 
       let !rs = readRewards ver
-          gasModel = tableGasModelNoSize defaultGasConfig -- TODO get sizing working
+          gasModel = tableGasModel defaultGasConfig
       let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
                                 bhDb gasModel rs
       evalStateT (runReaderT act pse) (PactServiceState Nothing mempty)
@@ -800,7 +800,7 @@ execLocal cmd = withDiscardedBatch $ do
         mc <- use psInitCache
         r <- withBlockData parentHeader $
              liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport (fmap payloadObj cmd) mc
+                _psPublicData _psSpvSupport cmd mc
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -1122,9 +1122,11 @@ getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
 
 -- | temporary gas model without sizing
-tableGasModelNoSize :: GasCostConfig -> GasModel
-tableGasModelNoSize gasConfig =
+_tableGasModelNoSize :: GasCostConfig -> GasModel
+_tableGasModelNoSize gasConfig =
   let run name ga = case ga of
+        GMakeList v -> expLengthPenalty v
+        GSort l -> expLengthPenalty l
         GSelect mColumns -> case mColumns of
           Nothing -> 1
           Just [] -> 1
@@ -1133,8 +1135,8 @@ tableGasModelNoSize gasConfig =
           fromIntegral n * _gasCostConfig_sortFactor gasConfig
         GConcatenation i j ->
           fromIntegral (i + j) * _gasCostConfig_concatenationFactor gasConfig
-        GUnreduced ts -> case Map.lookup name (_gasCostConfig_primTable gasConfig) of
-          Just g -> g ts
+        GUnreduced _ts -> case Map.lookup name (_gasCostConfig_primTable gasConfig) of
+          Just g -> g
           Nothing -> error $ "Unknown primitive \"" <> T.unpack name <> "\" in determining cost of GUnreduced"
         GPostRead r -> case r of
           ReadData cols -> _gasCostConfig_readColumnCost gasConfig * fromIntegral (Map.size (_objectMap cols))
@@ -1145,7 +1147,7 @@ tableGasModelNoSize gasConfig =
           ReadNamespace _ns ->  _gasCostConfig_readColumnCost gasConfig
           ReadKeySet _ksName _ks ->  _gasCostConfig_readColumnCost gasConfig
           ReadYield (Yield _obj _) -> _gasCostConfig_readColumnCost gasConfig * fromIntegral (Map.size (_objectMap _obj))
-        GWrite _w -> 1 {- case w of
+        GPreWrite _w -> 1 {- case w of
           WriteData _type key obj ->
             (memoryCost key (_gasCostConfig_writeBytesCost gasConfig))
             + (memoryCost obj (_gasCostConfig_writeBytesCost gasConfig))

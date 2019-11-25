@@ -5,6 +5,10 @@
 
 (verify 'coin)
 
+;; Enable the table gas model
+(env-gasmodel "table")
+(env-gaslimit 30000)
+
 ;; Account creation and account details unit tests
 
 (begin-tx)
@@ -22,8 +26,30 @@
   (get-balance 'emily))
 
 ;; create accounts should succeed and initialize with correct amounts and guards
+(env-gas 0) (env-gaslog)
 (create-account 'emily (read-keyset 'emily))
+(expect
+  "Gas cost of coin contract account creation"
+  ["TOTAL: 186"
+   "create-account:GUserApp: 1"
+   "read-keyset:GUnreduced: 1"
+   "validate-account:GUserApp: 1"
+   "enforce:GUnreduced: 1"
+   "is-charset:GUnreduced: 1"
+   "format:GUnreduced: 4"
+   "length:GUnreduced: 1"
+   "enforce:GUnreduced: 1"
+   ">=:GUnreduced: 2"
+   "format:GUnreduced: 4"
+   "enforce:GUnreduced: 1"
+   "<=:GUnreduced: 2"
+   "format:GUnreduced: 4"
+   "insert:GUnreduced: 100"
+   "insert:GWrite:WriteData:Insert: 62"]
+  (env-gaslog))
+
 (create-account 'doug (read-keyset 'doug))
+
 
 ; accounts conform to account structure
 (expect-failure
@@ -52,12 +78,32 @@
     (read-keyset 'emily)))
 
 ; check account balances for newly created accounts
+(env-gas 0) (env-gaslog)
+(get-balance 'emily)
+(expect
+  "Gas cost of querying an account's balance"
+  ["TOTAL: 16"
+   "get-balance:GUserApp: 1"
+   "with-read:GUnreduced: 13"
+   "with-read:GPostRead:ReadData: 2"]
+  (env-gaslog))
+
 (expect
   "initial balance at 0.0"
   0.0
   (get-balance 'emily))
 
 ; account information checks out for new accounts
+(env-gas 0) (env-gaslog)
+(details 'doug)
+(expect
+  "Gas cost of querying the details of an account"
+  ["TOTAL: 16"
+   "details:GUserApp: 1"
+   "with-read:GUnreduced: 13"
+   "with-read:GPostRead:ReadData: 2"]
+  (env-gaslog))
+
 (expect
   "details reflects the correct balance and guard information"
   {"account" : "doug", "balance": 0.0, "guard": (read-keyset 'doug)}
@@ -68,8 +114,14 @@
 ;; credits + debits should succeed. Both should reflect the correct balance
 
 (begin-tx)
-
+(env-gas 0) (env-gaslog)
 (use coin)
+(expect
+  "Gas cost of using the coin contract"
+  ["TOTAL: 2"
+   "use:GUse: 1"
+   "lookup module:GPostRead:ReadModule: 1"]
+  (env-gaslog))
 
 ; w/o capability
 (expect-failure
@@ -82,7 +134,19 @@
   "not granted"
   (debit 'emily 1.0))
 
+(env-gas 0) (env-gaslog)
 (test-capability (DEBIT 'emily))
+(expect
+  "Gas cost of testing the DEBIT capability"
+  ["TOTAL: 26"
+   "DEBIT:GUserApp: 1"
+   "enforce-guard:GUnreduced: 8"
+   "at:GUnreduced: 2"
+   "read:GUnreduced: 10"
+   "read:GPostRead:ReadData: 2"
+   "enforce:GUnreduced: 1"
+   "!=:GUnreduced: 2"]
+  (env-gaslog))
 
 ; debit tests
 (expect-failure
