@@ -19,11 +19,13 @@ module Chainweb.Miner.Miners
   ( -- * Local Mining
     localPOW
   , localTest
+  , mempoolNoopMiner
     -- * Remote Mining
   , transferableBytes
   ) where
 
 import Data.Bytes.Put (runPutS)
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict (T2(..), T3(..))
 
@@ -48,7 +50,7 @@ import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, runForever, runGet)
+import Chainweb.Utils (approximateThreadDelay, int, runForever, runGet)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -95,6 +97,20 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 
     work :: BlockHeader -> IO BlockHeader
     work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
+
+-- | A miner that grabs new blocks from mempool and discards them. Mempool
+-- pruning happens during new-block time, so we need to ask for a new block
+-- regularly to prune mempool.
+mempoolNoopMiner :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
+mempoolNoopMiner lf v m cdb = runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" loop
+  where
+    chains = toList $ chainIds v
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $
+           view cutDbPayloadStore cdb
+    loop = do
+        c <- _cut cdb
+        mapM_ (\cid -> newWork lf (Suggestion cid) m pact c) chains
+        approximateThreadDelay 60000000 -- wake up once a minute
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
