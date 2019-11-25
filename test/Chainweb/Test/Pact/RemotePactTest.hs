@@ -47,6 +47,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import Data.Thyme.Clock
@@ -72,6 +73,7 @@ import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
+import Pact.Types.Hash (Hash)
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
@@ -179,14 +181,8 @@ localTest iot nio = do
     SubmitBatch batch <- testBatch iot mv
     let cmd = head $ toList batch
     sid <- mkChainId v (0 :: Int)
-    res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
-    checkCommandResult res
-  where
-    checkCommandResult (Left e) = throwM $ LocalFailure (show e)
-    checkCommandResult (Right cr) =
-        let (PactResult e) = _crResult cr
-        in assertEqual "expect /local to succeed and return 3" e
-                       (Right (PLiteral $ LDecimal 3))
+    PactResult e <- _crResult <$> local sid cenv cmd
+    assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
 localChainDataTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
@@ -347,7 +343,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "Tx too big (3), limit 1"
     gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (1) exceeded: 2"
+      Pact.PactError Pact.GasError def [] "Gas limit (4) exceeded: 5"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair Nothing
@@ -465,7 +461,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       void $ liftIO $ polling sid cenv rks0 ExpectPactResult
 
       testCaseStep "localApiClient: submit local account balance request"
-      pactLocalApiClient v sid $ head (toList batch1)
+      liftIO $ local sid cenv $ head (toList batch1)
 
     case p of
       Left e -> assertFailure $ "test failure: " <> show e
@@ -517,7 +513,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       SubmitBatch batch2 <- liftIO
         $ mkSingletonBatch iot allocation02KeyPair' tx5 n5 (pm "allocation02") Nothing
 
-      pactLocalApiClient v sid $ head (toList batch2)
+      liftIO $ local sid cenv $ head (toList batch2)
 
     case r of
       Left e -> assertFailure $ "test failure: " <> show e
@@ -537,7 +533,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099938.51) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1099938.51) -- balance = (1k + 1mm) - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
@@ -607,6 +603,29 @@ getClientEnv url = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
     mgr <- HTTP.newTlsManagerWith mgrSettings
     return $ mkClientEnv mgr url
+
+-- | Calls to /local via the pact local api client with retry
+--
+local
+    :: ChainId
+    -> ClientEnv
+    -> Command Text
+    -> IO (CommandResult Hash)
+local sid cenv cmd =
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+      debug
+        $ "requesting local cmd for " <> (take 18 $ show cmd)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single spv request and return the result
+      --
+      runClientM (pactLocalApiClient v sid cmd) cenv >>= \case
+        Left e -> throwM $ LocalFailure (show e)
+        Right t -> return t
+  where
+    h _ = Handler $ \case
+      LocalFailure _ -> return True
+      _ -> return False
 
 -- | Request an SPV proof using exponential retry logic
 --

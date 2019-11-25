@@ -162,7 +162,7 @@ jobs:
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$BINFILE --acl public-read
     - name: Link latest-build application in S3
-      if: github.ref == 'master'
+      if: contains(github.ref, 'master')
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
