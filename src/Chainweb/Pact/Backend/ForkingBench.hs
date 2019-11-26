@@ -19,7 +19,6 @@ module Chainweb.Pact.Backend.ForkingBench
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TBQueue
-import Control.DeepSeq
 import Control.Lens hiding ((.=), elements, from, to)
 import Control.Monad
 import Control.Monad.Catch
@@ -113,25 +112,35 @@ _run :: [String] -> IO ()
 _run args = withArgs args $ C.defaultMain [bench]
 
 bench :: C.Benchmark
-bench = C.bgroup "PactServiceBench" $
-    [ C.bench "forkingBench" $ withResources 10 Quiet forkingBench
-    , C.bench "oneBlock-5" $ oneBlock 5
-    , C.bench "oneBlock-10" $ oneBlock 10
-    , C.bench "oneBlock-25" $ oneBlock 25
+bench = C.bgroup "PactService" $
+    [ withResources 10 Quiet forkingBench
+    , oneBlock True 1
+    , oneBlock True 10
+    , oneBlock True 50
+    , oneBlock True 100
+    , oneBlock False 1
+    , oneBlock False 10
+    , oneBlock False 50
+    , oneBlock False 100
     ]
   where
-    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue _ = do
+    forkingBench mainLineBlocks pdb bhdb nonceCounter pactQueue _ =
+      C.bench "forkingBench"  $ C.whnfIO $ do
         let (T3 _ join1 _) = mainLineBlocks !! 5
             forkLength1 = 5
             forkLength2 = 5
         void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
         void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
-    oneBlock txCount = withResources 1 Error $ go
+
+    oneBlock validate txCount = withResources 1 Error $ go
       where
-        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock = do
-          writeIORef txsPerBlock txCount
-          let (T3 _ join1 _) = mainLineBlocks !! 0
-          void $ noMineBlock join1 (Nonce 1234) pactQueue
+        go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock =
+          C.bench name $ C.whnfIO $ do
+            writeIORef txsPerBlock txCount
+            let (T3 _ join1 _) = mainLineBlocks !! 0
+            noMineBlock validate join1 (Nonce 1234) pactQueue
+        name = "block-new" ++ (if validate then "-valid" else "") ++
+               "[" ++ show txCount ++ "]"
 
 testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
 testMemPoolAccess txsPerBlock accounts t = mempty
@@ -251,11 +260,12 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
 
 noMineBlock
-    :: BlockHeader
+    :: Bool
+    -> BlockHeader
     -> Nonce
     -> PactQueue
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
-noMineBlock parentHeader nonce r = do
+noMineBlock validate parentHeader nonce r = do
 
      -- assemble block without nonce and timestamp
      creationTime <- getCurrentTimeIntegral
@@ -271,9 +281,10 @@ noMineBlock parentHeader nonce r = do
               creationTime
               parentHeader
 
-     mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
+     when validate $ do
+       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
 
-     void $ assertNotLeft =<< takeMVar mv'
+       void $ assertNotLeft =<< takeMVar mv'
 
      return $ T3 parentHeader bh payload
 
@@ -292,17 +303,17 @@ data Resources
     , txPerBlock :: IORef Int
     }
 
-type RunPactService b =
+type RunPactService =
   [T3 BlockHeader BlockHeader PayloadWithOutputs]
   -> PayloadDb HashMapCas
   -> BlockHeaderDb
   -> IORef Word64
   -> PactQueue
   -> IORef Int
-  -> IO b
+  -> C.Benchmark
 
-withResources :: NFData b => Word64 -> LogLevel -> RunPactService b -> C.Benchmarkable
-withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unwrap
+withResources :: Word64 -> LogLevel -> RunPactService -> C.Benchmark
+withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
   where
 
     create = do
@@ -325,7 +336,7 @@ withResources trunkLength logLevel f = C.perRunEnvWithCleanup create destroy unw
       destroyRocksResource rocksDbAndDir
       destroyPayloadDb payloadDb
 
-    unwrap (NoopNFData (Resources {..})) =
+    unwrap ~(NoopNFData (Resources {..})) =
       f mainTrunkBlocks payloadDb blockHeaderDb nonceCounter (snd $ pactService) txPerBlock
 
     pactQueueSize = 2000

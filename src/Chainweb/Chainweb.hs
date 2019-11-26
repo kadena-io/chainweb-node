@@ -249,7 +249,7 @@ makeLenses ''ThrottlingConfig
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
     { _throttlingRate = 50 -- per second
-    , _throttlingMiningRate = 2 --  per second
+    , _throttlingMiningRate = 5 --  per second
     , _throttlingPeerRate = 11 -- per second, one for each p2p network
     , _throttlingLocalRate = 0.1  -- per 10 seconds
     }
@@ -883,7 +883,7 @@ runChainweb cw = do
             TimedCPM{} -> enabled c
             FastTimedCPM{} -> enabled c
             Development -> enabled c
-            Testnet02 -> enabled c
+            Testnet03 -> enabled c
             Mainnet01 -> disabled
       where
         disabled = do
