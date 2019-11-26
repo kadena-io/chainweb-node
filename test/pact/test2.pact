@@ -80,10 +80,10 @@
 
  (defun multiply-transfer:decimal (source dest mult)
    (let ((val:decimal (read-balance dest)))
-     (transfer source dest (* val (- mult 1)))
-     (* val (- mult 1))
-     )
+     (transfer source dest (- (* val mult) val))
+     (* val mult)
    )
+ )
 
  (defpact create-private-accounts ()
    (step "Alice" (create-account "A" 1000.0))
