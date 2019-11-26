@@ -94,13 +94,15 @@ tests = testGroupSch label
     , withTime $ chainDataTest "gas-price"
     , withTime $ chainDataTest "chain-id"
     , withTime $ chainDataTest "sender"
-    , withTime $ \iot -> withGenesisBlockTime
+    , withTime $ \iot -> withGenesisData _blockCreationTime
       $ \iom -> chainDataLocalAssertTest @BlockCreationTime (assertBlockTime iom) "block-time" iot
-    , withTime $ chainDataLocalAssertTest @BlockHeight assertBlockHeight "block-height"
+    , withTime $ \iot -> withGenesisData _blockHeight
+      $ \iom -> chainDataLocalAssertTest @BlockHeight (assertBlockHeight iom) "block-height" iot
     , withTime $ chainDataLocalAssertTest @ChainId assertChainId "chain-id"
     ]
   where
     label = "Chainweb.Test.Pact.ChainData"
+
     assertBlockTime iomvar = ToAssert2 name f iomvar integerToBlockCreationTime
       where
         name = "block-time"
@@ -108,12 +110,18 @@ tests = testGroupSch label
           let gentime = _blockCreationTime $ genesisBlockHeader testVer testChainId
           if (prevtime == gentime && time == gentime) then assertBool ("assert-" ++ (getFieldKey name)) True
             else assertBool ("assert-" ++ (getFieldKey name)) (prevtime < time)
-    assertBlockHeight = ToAssert1 name (assertEqual ("assert-" ++ (getFieldKey name)) (BlockHeight 0)) integerToBlockHeight
-      where name = "block-height"
+
+    assertBlockHeight iomvar = ToAssert2 name f iomvar integerToBlockHeight
+      where
+        name = "block-height"
+        f (prevBlockHeight :: BlockHeight) curBlockHeight =
+          assertBool ("assert-" ++ (getFieldKey name)) (prevBlockHeight < curBlockHeight)
+
     assertChainId = ToAssert1 name (assertEqual ("assert-" ++ (getFieldKey name)) (someChainId testVer)) integerToChainId
       where name = "chain-id"
-    withGenesisBlockTime :: (IO (MVar BlockCreationTime) -> TestTree) -> TestTree
-    withGenesisBlockTime = withResource (newMVar (_blockCreationTime $ genesisBlockHeader testVer testChainId)) (const mempty)
+
+    withGenesisData :: (BlockHeader -> a) -> (IO (MVar a) -> TestTree) -> TestTree
+    withGenesisData f = withResource (newMVar (f $ genesisBlockHeader testVer testChainId)) (const mempty)
 
 -- Let's just assume the scale/resolution of the input is correct from the get-go.
 integerToBlockCreationTime :: Integer -> BlockCreationTime
