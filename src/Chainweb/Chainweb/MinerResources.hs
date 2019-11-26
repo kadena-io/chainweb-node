@@ -72,9 +72,11 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordCutDb :: !(CutDb cas)
     , _coordState :: !(TVar MiningState)
     , _coordLimit :: !Int
-    , _coord503s :: IORef Int
-    , _coord403s :: IORef Int
-    , _coordConf :: !CoordinationConfig }
+    , _coord503s :: !(IORef Int)
+    , _coord403s :: !(IORef Int)
+    , _coordConf :: !CoordinationConfig
+    , _coordUpdateStreamCount :: !(IORef Int)
+    }
 
 withMiningCoordination
     :: Logger logger
@@ -89,6 +91,7 @@ withMiningCoordination logger conf cutDb inner
         t <- newTVarIO mempty
         c503 <- newIORef 0
         c403 <- newIORef 0
+        l <- newIORef (_coordinationUpdateStreamLimit conf)
         fmap snd . concurrently (prune t c503 c403) $ inner . Just $ MiningCoordination
             { _coordLogger = logger
             , _coordCutDb = cutDb
@@ -96,7 +99,9 @@ withMiningCoordination logger conf cutDb inner
             , _coordLimit = _coordinationReqLimit conf
             , _coord503s = c503
             , _coord403s = c403
-            , _coordConf = conf }
+            , _coordConf = conf
+            , _coordUpdateStreamCount = l
+            }
   where
     prune :: TVar MiningState -> IORef Int -> IORef Int -> IO ()
     prune t c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
