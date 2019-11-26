@@ -71,10 +71,11 @@ main =
             $ testGroup "Chainweb Tests" . schedule Sequential
 
             -- $ pactTestSuite rdb
-            $ pactForkTestSuite db h0
+            -- $ pactForkTestSuite db h0
+            $ [pactForkTestSuite db h0]
 
             -- : mempoolTestSuite db h0
-            : [mempoolTestSuite db h0]
+            -- : [mempoolTestSuite db h0]
             -- : suite rdb
 
   where
@@ -82,8 +83,8 @@ main =
     _adj x = x
 
 
-mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
+_mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
+_mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
     $ schedule Sequential [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
 
 _pactTestSuite :: RocksDb -> ScheduledTest

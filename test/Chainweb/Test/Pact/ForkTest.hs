@@ -95,30 +95,41 @@ prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
     db <- liftIO $ iodb
     fi <- genFork db mapRef genBlock
     liftIO $ putStrLn $ "Fork info: \n" ++ showForkInfoFields fi
-    let blockList = blocksFromFork fi
+
     expected <- liftIO $ expectedForkProd fi
     if expected >= maxBalance
       then do -- this shouldn't happen...
         liftIO $ putStrLn "Max account balance would be exceeded, letting this test pass"
         assert True
       else do
-        -- liftIO $ putStrLn $ "&&&&& list of blocks: &&&&&\n" ++ showHeaderFields blockList ++ "&&&&&&&&&&"
         reqQ <- liftIO $ reqQIO
-        (newBlockRes, valBlockRes) <- liftIO $ runBlocks db blockList reqQ iodb
+
+        let trunkBlockList = reverse (fiPreForkHeaders fi)
+        liftIO $ putStrLn $ "list of TRUNK blocks: \n" ++ showHeaderFields trunkBlockList
+        (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <- liftIO $
+            runBlocks db (head trunkBlockList) ((length (tail trunkBlockList)) - 1) reqQ iodb
+        liftIO $ putStrLn $ "Last TRUNK block returned: \n" ++ showHeaderFields [parentFromTrunk]
+
+        let leftBlockList = reverse (fiLeftForkHeaders fi)
+        liftIO $ putStrLn $ "parent for the LEFT block: \n" ++ showHeaderFields [parentFromTrunk]
+        liftIO $ putStrLn $ "list of LEFT blocks: \n" ++ showHeaderFields leftBlockList
+        (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
+            runBlocks db parentFromTrunk ((length leftBlockList) - 1) reqQ iodb
+
+        let rightBlockList = reverse (fiRightForkHeaders fi)
+        liftIO $ putStrLn $ "parent for the RIGHT block: \n" ++ showHeaderFields [parentFromTrunk]
+        liftIO $ putStrLn $ "list of RIGHT blocks: \n" ++ showHeaderFields rightBlockList
+        (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
+            runBlocks db parentFromTrunk ((length rightBlockList) - 1) reqQ iodb
+
         liftIO $ putStrLn $ "Expected: " ++ show expected
-        liftIO $ putStrLn $ "newBlock results: " ++ show newBlockRes
-        liftIO $ putStrLn $ "validateBlock results: " ++ show valBlockRes
-        assert (newBlockRes == valBlockRes)
-        assert (valBlockRes == expected)
+        liftIO $ putStrLn $ "newBlock results: " ++ show nbRightRes
+        liftIO $ putStrLn $ "validateBlock results: " ++ show vbRightRes
+        assert (nbRightRes == vbRightRes)
+        assert (vbRightRes == expected)
 
 maxBalance :: Int
 maxBalance = 300000000000
-
-blocksFromFork :: ForkInfo -> [BlockHeader]
-blocksFromFork ForkInfo{..} =
-    reverse fiPreForkHeaders -- shared trunk of fork, genesis at the head
-      ++ reverse fiLeftForkHeaders -- left fork, applied on top of the trunk
-      ++ reverse fiRightForkHeaders -- right fork, played over trunk via checkptr rewind
 
 expectedForkProd :: ForkInfo -> IO Int
 expectedForkProd ForkInfo{..} = do
@@ -159,24 +170,31 @@ tailTransactions h = do
     putStrLn $ "tailTransaction - Tx for height " ++ show h ++ " is: " ++ txStr
     return [ PactTransaction { _pactCode = T.pack txStr, _pactData = d } ]
 
-runBlocks :: BlockHeaderDb -> [BlockHeader] -> PactQueue -> (IO BlockHeaderDb) -> IO (Int, Int)
-runBlocks db blocks theReqQ theIodb = do
-    thePairs <- go (head blocks) (tail blocks) theReqQ theIodb []
-    return $ headDef (0, 0) thePairs
-  where
-    go :: BlockHeader -> [BlockHeader] -> PactQueue -> (IO BlockHeaderDb)
-       -> [(Int, Int)] -> IO [(Int, Int)]
-    go _parent [] _reqQ _iodb pairs = return pairs -- this case shouldn't occur
-    go _parent (_new : []) _reqQ _iodb pairs = return pairs
-    go parent (_new : remaining) reqQ iodb pairs = do
-            mvNew <- runNewBlock parent reqQ iodb
-            (plwoNew, asIntNew) <- getResult mvNew
+runBlocks
+  :: BlockHeaderDb
+  -> BlockHeader
+  -> Int
+  -> PactQueue
+  -> (IO BlockHeaderDb)
+  -> IO (Int, Int, BlockHeader)
+runBlocks db parent 0 reqQ iodb = processBlock db parent reqQ iodb
+runBlocks db parent count reqQ iodb = do
+    (_nbRes, _vbRes, theNewBlock) <- processBlock db parent reqQ iodb
+    runBlocks db theNewBlock (count -1) reqQ iodb
 
-            new' <- mkProperNewBlock db plwoNew parent
-            mvVal <- runValidateBlock plwoNew new' reqQ
-            (_plwoVal, asIntVal) <- getResult mvVal
-
-            go new' remaining reqQ iodb ((asIntNew, asIntVal) : pairs)
+processBlock
+    :: BlockHeaderDb
+    -> BlockHeader
+    -> PactQueue
+    -> (IO BlockHeaderDb)
+    -> IO (Int, Int, BlockHeader)
+processBlock db parent reqQ iodb = do
+    mvNew <- runNewBlock parent reqQ iodb
+    (plwoNew, asIntNew) <- getResult mvNew
+    new' <- mkProperNewBlock db plwoNew parent
+    mvVal <- runValidateBlock plwoNew new' reqQ
+    (_plwoVal, asIntVal) <- getResult mvVal
+    return (asIntNew, asIntVal, new')
 
 getResult :: MVar (Either PactException PayloadWithOutputs) -> IO (PayloadWithOutputs, Int)
 getResult mvar = do
@@ -203,15 +221,15 @@ txAsIntResult txOut = do
     let theBytes = _transactionOutputBytes txOut
     theInt <- case A.decode (toS theBytes) :: Maybe (P.CommandResult P.Hash) of
         Nothing -> do
-            putStrLn $ "txAsIntResult - Nothing"
+            putStrLn $ "\ntxAsIntResult - Nothing"
             return 0
         Just cmd -> do
           let res = P._crResult cmd
-          putStrLn $ "txAsIntResult - PactResult is: " ++ show res
+          putStrLn $ "\ntxAsIntResult - PactResult is: " ++ show res
           case res of
               P.PactResult (Right (P.PLiteral (P.LDecimal n))) -> return $ fromEnum n
               _someOther -> do
-                  putStrLn $ "txAsIntResult - Could not decode the Int result"
+                  putStrLn $ "\ntxAsIntResult - Could not decode the Int result"
                   return 0
     return theInt
 
@@ -221,7 +239,7 @@ runNewBlock
     -> (IO BlockHeaderDb)
     -> IO (MVar (Either PactException PayloadWithOutputs))
 runNewBlock parentBlock reqQ iodb = do
-    putStrLn $ "runNewBlock...\n\t" ++ showHeaderFields [parentBlock]
+    putStrLn $ "\nrunNewBlock...\n\t" ++ showHeaderFields [parentBlock]
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
 
     -- TODO: remove this -- Test calling loookup on the parent block
@@ -241,7 +259,7 @@ runValidateBlock
     -> PactQueue
     -> IO (MVar (Either PactException PayloadWithOutputs))
 runValidateBlock plwo blockHeader reqQ = do
-    putStrLn $ "runValidateBlock -- the current block:" ++ showHeaderFields [blockHeader]
+    putStrLn $ "\nrunValidateBlock -- the current block:" ++ showHeaderFields [blockHeader]
     let plData = payloadWithOutputsToPayloadData plwo
     validateBlock blockHeader plData reqQ
 
@@ -251,12 +269,14 @@ mkProperNewBlock
     -> BlockHeader
     -> (IO BlockHeader)
 mkProperNewBlock db plwo parentHeader = do
+
     let adjParents = BlockHashRecord HM.empty
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
     let plData = payloadWithOutputsToPayloadData plwo
     creationTime <- getCurrentTimeIntegral
     let newHeader = newBlockHeader adjParents matchingPlHash (Nonce 0) creationTime parentHeader
-    putStrLn $ "mkProperNewBlock - new header: " ++ showHeaderFields [newHeader]
+
+    putStrLn $ "\nmkProperNewBlock - new header: " ++ showHeaderFields [newHeader]
     liftIO $ TDB.insert db newHeader
     return newHeader
 

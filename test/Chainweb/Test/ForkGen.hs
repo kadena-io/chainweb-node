@@ -189,8 +189,8 @@ genForkLengths = do
     let maxTotalLen = 12
     trunk <- pick $ choose (1, 2)
     let actualTrunkLen = trunk + 2 -- including the genesis and fork point, trunk length is +2 nodes
-    left <- pick $ choose (1, 5)
-    right <- pick $ choose (1, maxTotalLen - (actualTrunkLen + left))
+    left <- pick $ choose (1, 4)
+    right <- pick $ choose ((left + 1), maxTotalLen - (actualTrunkLen + left))
     liftIO $ putStrLn $ "\ngenForkLengths:"
                         ++ "\n\ttrunk: " ++ show trunk
                         ++ " (" ++ show (trunk + 1) ++ " including genesis block) "
