@@ -58,7 +58,7 @@ insertHandler v mempool txsT = handleErrs (NoContent <$ begin)
     begin = do
         now <- liftIO getCurrentTimeIntegral
         case txActivationDate v of
-            Just start | start < now -> undefined
+            Just start | start < now -> pure ()
             _ -> do
                  txs <- mapM go txsT
                  let txV = V.fromList txs
