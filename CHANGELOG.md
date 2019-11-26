@@ -2,12 +2,12 @@
 
 ## 1.0.6 (2019-11-26)
 
-This is a minor release provides stability and performance improvements. It also
+This is a minor release that provides stability and performance improvements. It also
 upgrades the testnet version.
 
 Miners are advised to also upgrade to the most recent version of the mining
 application. Older versions of `chainweb-miner` may experience occasional delays
-of work update notifications when used with this chainweb node version.
+of work update notifications when used with this `chainweb-node` version.
 
 * Improves the stability of Chainweb nodes, by closing a TCP connection leak on
   nodes that had mining coordination enabled.
