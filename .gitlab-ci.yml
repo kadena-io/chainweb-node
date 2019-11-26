@@ -79,16 +79,17 @@ slow-tests:
   stage: test
   only:
     - master
+    - doug/enable-docker-build # temporary until CI passes
   tags:
     - linux
   script:
     - echo This is a master slow test run.
     - nix-build
-    # - nix-build docker.nix
-    # - nix-build -A ghc.chainweb.doc
     - result/bin/chainweb-tests --hide-successes
     - result/bin/cwtool slow-tests +RTS -N4
     - result/bin/bench
+    - nix-build docker.nix
+    # - nix-build -A ghc.chainweb.doc
 
 # pages:
 #   stage: deploy
