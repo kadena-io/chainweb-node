@@ -188,7 +188,7 @@ sendHandler
 sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     now <- liftIO getCurrentTimeIntegral
-    case txSilenceEndDate v of
+    case txActivationDate v of
         Just end | now < end -> failWith "Transactions are disabled until 2019 Dec 6"
         _ -> case traverse validateCommand cmds of
             Right enriched -> do

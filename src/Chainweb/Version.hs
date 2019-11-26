@@ -40,6 +40,7 @@ module Chainweb.Version
 , window
 -- ** Date-based Transaction Disabling
 , txSilenceEndDate
+, txActivationDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -564,6 +565,9 @@ window Development = Just $ WindowWidth 120
 window Testnet03 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
 
+-- | The date after which nodes in the 1.0.x series will halt their
+-- functionality.
+--
 txSilenceEndDate :: ChainwebVersion -> Maybe (Time Micros)
 txSilenceEndDate Test{} = Nothing
 txSilenceEndDate TimedConsensus{} = Nothing
@@ -572,4 +576,17 @@ txSilenceEndDate TimedCPM{} = Nothing
 txSilenceEndDate FastTimedCPM{} = Nothing
 txSilenceEndDate Development = Nothing
 txSilenceEndDate Testnet03 = Nothing
-txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-06T00:00:00.0 |]
+txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
+
+-- | The date after which nodes in the 1.1.x series will spontaneously allow
+-- Transactions in the system.
+--
+txActivationDate :: ChainwebVersion -> Maybe (Time Micros)
+txActivationDate Test{} = Nothing
+txActivationDate TimedConsensus{} = Nothing
+txActivationDate PowConsensus{} = Nothing
+txActivationDate TimedCPM{} = Nothing
+txActivationDate FastTimedCPM{} = Nothing
+txActivationDate Development = Nothing
+txActivationDate Testnet03 = Nothing
+txActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-06T00:00:00.0 |]
