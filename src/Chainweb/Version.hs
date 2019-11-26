@@ -39,7 +39,6 @@ module Chainweb.Version
 , WindowWidth(..)
 , window
 -- ** Date-based Transaction Disabling
-, txSilenceEndDate
 , txActivationDate
 
 -- * Typelevel ChainwebVersion
@@ -564,19 +563,6 @@ window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet03 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
-
--- | The date after which nodes in the 1.0.x series will halt their
--- functionality.
---
-txSilenceEndDate :: ChainwebVersion -> Maybe (Time Micros)
-txSilenceEndDate Test{} = Nothing
-txSilenceEndDate TimedConsensus{} = Nothing
-txSilenceEndDate PowConsensus{} = Nothing
-txSilenceEndDate TimedCPM{} = Nothing
-txSilenceEndDate FastTimedCPM{} = Nothing
-txSilenceEndDate Development = Nothing
-txSilenceEndDate Testnet03 = Nothing
-txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
 
 -- | The date after which nodes in the 1.1.x series will spontaneously allow
 -- Transactions in the system.
