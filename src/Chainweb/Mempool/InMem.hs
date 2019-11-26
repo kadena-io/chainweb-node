@@ -66,7 +66,7 @@ import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, txSilenceEndDate)
+import Chainweb.Version (ChainwebVersion, txActivationDate)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -264,12 +264,12 @@ validateOne cfg v badmap now t h =
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
 
-    -- | KILLSWITCH: This is to be removed in a future version of Chainweb. This
-    -- prevents any transaction from entering the mempool.
+    -- | KILLSWITCH: This can be removed once the date itself has passed. Until
+    -- then, this prevents any transaction from entering the mempool.
     --
     transactionsEnabled :: Either InsertError ()
-    transactionsEnabled = case txSilenceEndDate v of
-        Just _ -> Left InsertErrorTransactionsDisabled
+    transactionsEnabled = case txActivationDate v of
+        Just start | now < start -> Left InsertErrorTransactionsDisabled
         _ -> pure ()
 
     sizeOK :: Either InsertError ()

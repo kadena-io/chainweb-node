@@ -174,8 +174,8 @@ data PactCmdLog
   deriving (Show, Generic, ToJSON, NFData)
 
 
--- | KILLSWITCH (SOFT): The logic here involving `txSilenceEndDate` is to be
--- removed in a future version of Chainweb. This prevents any "real" Pact
+-- | KILLSWITCH: The logic here involving `txActivationDate` can be removed once
+-- the date itself has passed. Until then, this prevents any "real" Pact
 -- transactions from being submitted to the system.
 --
 sendHandler
