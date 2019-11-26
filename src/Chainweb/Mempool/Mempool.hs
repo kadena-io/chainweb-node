@@ -125,6 +125,7 @@ import Pact.Types.ChainMeta (TTLSeconds(..), TxCreationTime(..))
 import Pact.Types.Command
 import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
+import Pact.Types.PactError
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -197,6 +198,9 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
+                 | InsertErrorBuyGasFailed
+                 | InsertErrorModuleInstall
+                 | InsertErrorCompileFailure PactError
                  | InsertErrorOther Text
   deriving (Generic, Eq)
 
@@ -212,6 +216,10 @@ instance Show InsertError
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
     show InsertErrorTransactionsDisabled = "Transactions are disabled until December 5"
+    -- TODO: Write a better error message here?
+    show InsertErrorBuyGasFailed = "This transaction ran out of gas."
+    show InsertErrorModuleInstall = "This transaction attempts to install a module. This is currently disallowed."
+    show (InsertErrorCompileFailure pe) = "This transaction's code fails to compile: " <> show pe
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
 instance Exception InsertError
