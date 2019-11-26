@@ -4,6 +4,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -146,8 +147,14 @@ updatesHandler
 updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respond $ do
     cid <- runGet decodeChainId cbytes
     cv  <- _cut (_coordCutDb mr) >>= newIORef
+
+    -- An update stream is closed after @timeout@ seconds. We add some jitter to
+    -- availablility of streams is uniformily distributed over time and not
+    -- predictable.
+    --
     jitter <- randomRIO @Double (0.9, 1.1)
-    timer <- registerDelay (round $ jitter * realToFrac timeout * 1000000)
+    timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
+
     eventSourceAppIO (go timer cid cv) req respond
   where
     timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
