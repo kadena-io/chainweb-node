@@ -291,14 +291,12 @@ validateOne cfg v badmap now t h =
             , "It should be rounded to at most 12 decimal places."
             ]
 
-
     -- prop_tx_ttl_arrival
     ttlCheck :: Either InsertError ()
     ttlCheck = txTTLCheck txcfg now t
 
     notInBadMap :: Either InsertError ()
     notInBadMap = maybe (Right ()) (const $ Left InsertErrorBadlisted) $ HashMap.lookup h badmap
-
 
 -- | Check the TTL of a transaction.
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()

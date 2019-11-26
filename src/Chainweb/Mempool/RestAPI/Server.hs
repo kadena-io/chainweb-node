@@ -8,7 +8,6 @@ module Chainweb.Mempool.RestAPI.Server
   ( mempoolServer
   , someMempoolServer
   , someMempoolServers
-  , mempoolApp
   ) where
 
 ------------------------------------------------------------------------------
@@ -28,24 +27,42 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Version
 
 ------------------------------------------------------------------------------
-insertHandler :: Show t => MempoolBackend t -> [T.Text] -> Handler NoContent
-insertHandler mempool txsT = handleErrs (NoContent <$ begin)
+insertHandler
+    :: forall t
+    .  ChainwebVersion
+    -> MempoolBackend t
+    -> [T.Text]
+    -> Handler NoContent
+insertHandler v mempool txsT = handleErrs (NoContent <$ begin)
   where
     txcfg = mempoolTxConfig mempool
+
+    decode :: T.Text -> Either String t
     decode = codecDecode (txCodec txcfg) . T.encodeUtf8
 
+    go :: T.Text -> Handler t
     go h = case decode h of
         Left e -> throwM . DecodeException $ T.pack e
         Right t -> return t
 
+    -- | KILLSWITCH: The logic here involving `txActivationDate` can be removed
+    -- once that date itself has passed and Transaction are enabled. Until then,
+    -- this will prevent mempools from inserting data into each other.
+    --
+    begin :: Handler ()
     begin = do
-        txs <- mapM go txsT
-        let txV = V.fromList txs
-        liftIO $ mempoolInsert mempool CheckedInsert txV
+        now <- liftIO getCurrentTimeIntegral
+        case txActivationDate v of
+            Just start | start < now -> undefined
+            _ -> do
+                 txs <- mapM go txsT
+                 let txV = V.fromList txs
+                 liftIO $ mempoolInsert mempool CheckedInsert txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
@@ -105,31 +122,23 @@ handleErrs = flip catchAllSynchronous $ \e ->
 
 someMempoolServer
     :: (Show t)
-    => SomeMempool t
+    => ChainwebVersion
+    -> SomeMempool t
     -> SomeServer
-someMempoolServer (SomeMempool (mempool :: Mempool_ v c t))
-  = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer mempool)
+someMempoolServer ver (SomeMempool (mempool :: Mempool_ v c t))
+  = SomeServer (Proxy @(MempoolApi v c)) (mempoolServer ver mempool)
 
 
 someMempoolServers
     :: (Show t)
     => ChainwebVersion -> [(ChainId, MempoolBackend t)] -> SomeServer
 someMempoolServers v = mconcat
-    . fmap (someMempoolServer . uncurry (someMempoolVal v))
+    . fmap (someMempoolServer v . uncurry (someMempoolVal v))
 
 
-mempoolServer :: Show t => Mempool_ v c t -> Server (MempoolApi v c)
-mempoolServer (Mempool_ mempool) =
-    insertHandler mempool
+mempoolServer :: Show t => ChainwebVersion -> Mempool_ v c t -> Server (MempoolApi v c)
+mempoolServer v (Mempool_ mempool) =
+    insertHandler v mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool
     :<|> getPendingHandler mempool
-
-mempoolApp
-    :: forall v c t
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => Show t
-    => Mempool_ v c t
-    -> Application
-mempoolApp mempool = serve (Proxy @(MempoolApi v c)) (mempoolServer mempool)
