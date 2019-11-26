@@ -54,6 +54,7 @@ import Pact.Types.Term (mkKeySet)
 -- internal modules
 
 import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..), minerId)
+import Chainweb.Time (Seconds)
 
 ---
 
@@ -112,6 +113,10 @@ data CoordinationConfig = CoordinationConfig
     , _coordinationReqLimit :: !Int
       -- ^ The number of @/mining/work/@ requests that can be made to this node
       -- in a 5 minute period.
+    , _coordinationUpdateStreamLimit :: !Int
+        -- ^ the maximum number of concurrent update streams that is supported
+    , _coordinationUpdateStreamTimeout :: !Seconds
+        -- ^ the duration that an update stream is kept open in seconds
     } deriving stock (Eq, Show, Generic)
 
 coordinationEnabled :: Lens' CoordinationConfig Bool
@@ -126,12 +131,21 @@ coordinationMode = lens _coordinationMode (\m c -> m { _coordinationMode = c })
 coordinationMiners :: Lens' CoordinationConfig (HS.HashSet MinerId)
 coordinationMiners = lens _coordinationMiners (\m c -> m { _coordinationMiners = c })
 
+coordinationUpdateStreamLimit :: Lens' CoordinationConfig Int
+coordinationUpdateStreamLimit = lens _coordinationUpdateStreamLimit (\m c -> m { _coordinationUpdateStreamLimit = c })
+
+coordinationUpdateStreamTimeout :: Lens' CoordinationConfig Seconds
+coordinationUpdateStreamTimeout = lens _coordinationUpdateStreamTimeout (\m c -> m { _coordinationUpdateStreamTimeout = c })
+
 instance ToJSON CoordinationConfig where
     toJSON o = object
         [ "enabled" .= _coordinationEnabled o
         , "limit" .= _coordinationReqLimit o
         , "mode" .= _coordinationMode o
-        , "miners" .= _coordinationMiners o ]
+        , "miners" .= _coordinationMiners o
+        , "updateStreamLimit" .= _coordinationUpdateStreamLimit o
+        , "updateStreamTimeout" .= _coordinationUpdateStreamTimeout o
+        ]
 
 instance FromJSON (CoordinationConfig -> CoordinationConfig) where
     parseJSON = withObject "CoordinationConfig" $ \o -> id
@@ -139,13 +153,18 @@ instance FromJSON (CoordinationConfig -> CoordinationConfig) where
         <*< coordinationLimit ..: "limit" % o
         <*< coordinationMode ..: "mode" % o
         <*< coordinationMiners ..: "miners" % o
+        <*< coordinationUpdateStreamLimit ..: "updateStreamLimit" % o
+        <*< coordinationUpdateStreamTimeout ..: "updateStreamTimeout" % o
 
 defaultCoordination :: CoordinationConfig
 defaultCoordination = CoordinationConfig
     { _coordinationEnabled = False
     , _coordinationMode = Private
     , _coordinationMiners = mempty
-    , _coordinationReqLimit = 1200 }
+    , _coordinationReqLimit = 1200
+    , _coordinationUpdateStreamLimit = 2000
+    , _coordinationUpdateStreamTimeout = 240
+    }
 
 -- | When `Public`, anyone can make Mining work requests to this node.
 -- When `Private`, only designated Miners can do so.
