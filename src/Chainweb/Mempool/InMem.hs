@@ -273,7 +273,7 @@ validateOne cfg v badmap now t h =
         _ -> pure ()
 
     sizeOK :: Either InsertError ()
-    sizeOK = ebool_ InsertErrorOversized (getSize t <= maxSize)
+    sizeOK = ebool_ (InsertErrorOversized maxSize) (getSize t <= maxSize)
       where
         getSize = txGasLimit txcfg
         maxSize = _inmemTxBlockSizeLimit cfg
