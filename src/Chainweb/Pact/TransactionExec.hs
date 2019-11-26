@@ -610,13 +610,26 @@ gasInterpreter g = do
 initialGasOf :: PayloadWithText -> Gas
 initialGasOf cmd = gasFee
   where
+    feePerByte :: Decimal = 0.01
+    
     contProofSize =
       case _pPayload (payloadObj cmd) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
         _ -> 0
     txSize = SB.length (payloadBytes cmd) - contProofSize
-    gasFee = expLengthPenalty txSize
+
+    costPerByte = fromIntegral txSize * feePerByte
+    sizePenalty = txSizeAccelerationFee costPerByte
+    gasFee = ceiling (costPerByte + sizePenalty)
 {-# INLINE initialGasOf #-}
+
+txSizeAccelerationFee :: Decimal -> Decimal
+txSizeAccelerationFee costPerByte = total
+  where
+    total = (costPerByte / bytePenalty) ^ power
+    bytePenalty = 512
+    power :: Integer = 7 
+{-# INLINE txSizeAccelerationFee #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --

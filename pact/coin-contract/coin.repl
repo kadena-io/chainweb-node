@@ -1,13 +1,24 @@
-(begin-tx)
-(load "fungible-v1.pact")
-(load "coin.pact")
-(commit-tx)
-
-(verify 'coin)
-
 ;; Enable the table gas model
 (env-gasmodel "table")
 (env-gaslimit 30000)
+
+(begin-tx)
+(env-gas 0) (env-gaslog)
+(load "fungible-v1.pact")
+(env-gaslog)
+(expect
+  "Gas cost of loading fungible contract"
+  757 (env-gas))
+
+(env-gas 0) (env-gaslog)
+(load "coin.pact")
+(env-gaslog)
+(expect
+  "Gas cost of loading coin contract"
+  3635 (env-gas))
+(commit-tx)
+
+(verify 'coin)
 
 ;; Account creation and account details unit tests
 
@@ -18,7 +29,12 @@
 (define-keyset 'doug (read-keyset "doug"))
 (define-keyset 'stuart (read-keyset "stuart"))
 
+(env-gas 0) (env-gaslog)
 (use coin)
+(env-gaslog)
+(expect
+  "Gas cost of using the coin contract"
+  2 (env-gas))
 
 ;; account balance for emily does not exist, because account does not exist yet
 (expect-failure
@@ -28,25 +44,10 @@
 ;; create accounts should succeed and initialize with correct amounts and guards
 (env-gas 0) (env-gaslog)
 (create-account 'emily (read-keyset 'emily))
+(env-gaslog)
 (expect
   "Gas cost of coin contract account creation"
-  ["TOTAL: 186"
-   "create-account:GUserApp: 1"
-   "read-keyset:GUnreduced: 1"
-   "validate-account:GUserApp: 1"
-   "enforce:GUnreduced: 1"
-   "is-charset:GUnreduced: 1"
-   "format:GUnreduced: 4"
-   "length:GUnreduced: 1"
-   "enforce:GUnreduced: 1"
-   ">=:GUnreduced: 2"
-   "format:GUnreduced: 4"
-   "enforce:GUnreduced: 1"
-   "<=:GUnreduced: 2"
-   "format:GUnreduced: 4"
-   "insert:GUnreduced: 100"
-   "insert:GWrite:WriteData:Insert: 62"]
-  (env-gaslog))
+  186 (env-gas))
 
 (create-account 'doug (read-keyset 'doug))
 
@@ -79,49 +80,33 @@
 
 ; check account balances for newly created accounts
 (env-gas 0) (env-gaslog)
-(get-balance 'emily)
-(expect
-  "Gas cost of querying an account's balance"
-  ["TOTAL: 16"
-   "get-balance:GUserApp: 1"
-   "with-read:GUnreduced: 13"
-   "with-read:GPostRead:ReadData: 2"]
-  (env-gaslog))
-
 (expect
   "initial balance at 0.0"
   0.0
   (get-balance 'emily))
+(env-gaslog)
+(expect
+  "Gas cost of querying an account's balance"
+  16 (env-gas))
 
 ; account information checks out for new accounts
 (env-gas 0) (env-gaslog)
-(details 'doug)
-(expect
-  "Gas cost of querying the details of an account"
-  ["TOTAL: 16"
-   "details:GUserApp: 1"
-   "with-read:GUnreduced: 13"
-   "with-read:GPostRead:ReadData: 2"]
-  (env-gaslog))
-
 (expect
   "details reflects the correct balance and guard information"
   {"account" : "doug", "balance": 0.0, "guard": (read-keyset 'doug)}
   (details 'doug))
+(env-gaslog)
+(expect
+  "Gas cost of querying the details of an account"
+  17 (env-gas))
 
 (commit-tx)
 
 ;; credits + debits should succeed. Both should reflect the correct balance
 
 (begin-tx)
-(env-gas 0) (env-gaslog)
+
 (use coin)
-(expect
-  "Gas cost of using the coin contract"
-  ["TOTAL: 2"
-   "use:GUse: 1"
-   "lookup module:GPostRead:ReadModule: 1"]
-  (env-gaslog))
 
 ; w/o capability
 (expect-failure
@@ -136,17 +121,10 @@
 
 (env-gas 0) (env-gaslog)
 (test-capability (DEBIT 'emily))
+(env-gaslog)
 (expect
   "Gas cost of testing the DEBIT capability"
-  ["TOTAL: 26"
-   "DEBIT:GUserApp: 1"
-   "enforce-guard:GUnreduced: 8"
-   "at:GUnreduced: 2"
-   "read:GUnreduced: 10"
-   "read:GPostRead:ReadData: 2"
-   "enforce:GUnreduced: 1"
-   "!=:GUnreduced: 2"]
-  (env-gaslog))
+  26 (env-gas))
 
 ; debit tests
 (expect-failure
@@ -407,9 +385,14 @@
   (transfer 'emily 'doug 1.0))
 
 (test-capability (coin.TRANSFER "emily" "doug" 1.0))
+(env-gas 0) (env-gaslog)
 (expect
   "roundtrip 1.0 transfer succeeds" "Write succeeded"
   (transfer 'emily 'doug 1.0))
+(env-gaslog)
+(expect
+  "Gas cost of transfer"
+  484 (env-gas))
 
 (expect-failure "emily->doug capability used up"
   "TRANSFER exceeded"
@@ -440,9 +423,13 @@
   (get-balance 'will))
 
 (test-capability (TRANSFER 'doug 'will 1.0))
+(env-gas 0) (env-gaslog)
 (expect "transfer-create to new account succeeds"
   "Write succeeded"
   (transfer-create 'doug 'will (read-keyset 'will) 1.0))
+(env-gaslog)
+(expect
+  "Gas cost of transfer-create" 468 (env-gas))
 
 (expect
   "doug now has 0.4 coins"
