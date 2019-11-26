@@ -2,6 +2,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,9 +20,10 @@
 --
 module Chainweb.Miner.RestAPI.Server where
 
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO)
+import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO, readTVar, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
+import Control.Monad.Catch (bracket)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
@@ -32,17 +36,21 @@ import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..), T3(..))
 
+import Network.HTTP.Types.Status
+import Network.Wai (responseLBS)
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
 
 import Servant.API
 import Servant.Server
+
+import System.Random
 
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
-import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
+import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
@@ -131,12 +139,26 @@ solvedHandler mr (HeaderBytes hbytes) = do
     lf :: LogFunction
     lf = logFunction $ _coordLogger mr
 
-updatesHandler :: CutDb cas -> ChainBytes -> Tagged Handler Application
-updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
+updatesHandler
+    :: Logger l
+    => MiningCoordination l cas
+    -> ChainBytes
+    -> Tagged Handler Application
+updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respond $ do
     cid <- runGet decodeChainId cbytes
-    cv  <- _cut cdb >>= newIORef
-    eventSourceAppIO (go cid cv) req respond
+    cv  <- _cut (_coordCutDb mr) >>= newIORef
+
+    -- An update stream is closed after @timeout@ seconds. We add some jitter to
+    -- availablility of streams is uniformily distributed over time and not
+    -- predictable.
+    --
+    jitter <- randomRIO @Double (0.9, 1.1)
+    timer <- registerDelay (round $ jitter * realToFrac timeout * 1_000_000)
+
+    eventSourceAppIO (go timer cid cv) req respond
   where
+    timeout = _coordinationUpdateStreamTimeout $ _coordConf mr
+
     -- | A nearly empty `ServerEvent` that signals the discovery of a new
     -- `Cut`. Currently there is no need to actually send any information over
     -- to the caller.
@@ -144,8 +166,32 @@ updatesHandler cdb (ChainBytes cbytes) = Tagged $ \req respond -> do
     f :: ServerEvent
     f = ServerEvent (Just $ fromByteString "New Cut") Nothing []
 
-    go :: ChainId -> IORef Cut -> IO ServerEvent
-    go cid cv = readIORef cv >>= awaitNewCutByChainId cdb cid >>= writeIORef cv >> pure f
+    go :: TVar Bool -> ChainId -> IORef Cut -> IO ServerEvent
+    go timer cid cv = do
+        c <- readIORef cv
+
+        -- await either a timeout or a new event
+        maybeCut <- atomically $ do
+            t <- readTVar timer
+            if t
+                then return Nothing
+                else Just <$> awaitNewCutByChainIdStm (_coordCutDb mr) cid c
+
+        case maybeCut of
+            Nothing -> return CloseEvent
+            Just c' -> do
+                writeIORef cv $! c'
+                return f
+
+    count = _coordUpdateStreamCount mr
+
+    withLimit respond inner = bracket
+        (atomicModifyIORef' count $ \x -> (x - 1, x - 1))
+        (const $ atomicModifyIORef' count $ \x -> (x + 1, ()))
+        (\x -> if x <= 0 then ret503 respond else inner)
+
+    ret503 respond = do
+        respond $ responseLBS status503 [] "No more update streams available currently. Retry later."
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
@@ -156,7 +202,7 @@ miningServer
 miningServer mr v =
     workHandler mr v
     :<|> liftIO . solvedHandler mr
-    :<|> updatesHandler (_coordCutDb mr)
+    :<|> updatesHandler mr
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
 someMiningServer v@(FromSing (SChainwebVersion :: Sing vT)) mr =
