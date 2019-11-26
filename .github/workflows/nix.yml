@@ -1,0 +1,31 @@
+name: Nix CI
+
+on: 
+  push:
+    branches:
+      - master
+      - github-self-hosted-ci
+
+jobs:
+  build:
+
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build binaries
+      run: nix-build
+    - name: Run tests
+      run: |
+        result/bin/chainweb-tests --hide-successes
+        result/bin/cwtool slow-tests +RTS -N4
+        result/bin/bench
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        # Artifact name
+        name: chainweb-node
+        # Directory containing files to upload
+        path: result/bin/chainweb-node
+    - name: Build docker container
+      run: nix-build docker.nix
