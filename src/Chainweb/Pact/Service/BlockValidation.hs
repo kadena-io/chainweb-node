@@ -17,6 +17,7 @@ module Chainweb.Pact.Service.BlockValidation
 , newBlock
 , local
 , lookupPactTxs
+, pactPreInsertCheck
 ) where
 
 
@@ -27,6 +28,7 @@ import qualified Pact.Types.Hash as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
@@ -79,5 +81,16 @@ lookupPactTxs restorePoint txs reqQ = do
     resultVar <- newEmptyMVar
     let !req = LookupPactTxsReq restorePoint txs resultVar
     let !msg = LookupPactTxsMsg req
+    addRequest reqQ msg
+    return resultVar
+
+pactPreInsertCheck
+    :: Vector ChainwebTransaction
+    -> PactQueue
+    -> IO (MVar (Either PactException (Vector (Either InsertError ()))))
+pactPreInsertCheck txs reqQ = do
+    resultVar <- newEmptyMVar
+    let !req = PreInsertCheckReq txs resultVar
+    let !msg = PreInsertCheckMsg req
     addRequest reqQ msg
     return resultVar

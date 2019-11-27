@@ -19,8 +19,8 @@ import qualified Data.Vector as V
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.BlockValidation
+import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.WebPactExecutionService.Types
@@ -50,6 +50,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     , _pactNewBlock = \m h ct -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h ct
     , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
     , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
+    , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
     }
   where
     withChainService cid act =  maybe (err cid) act $ HM.lookup cid hm
@@ -66,7 +67,7 @@ mkPactExecutionService q = PactExecutionService
         mv <- validateBlock h pd q
         r <- takeMVar mv
         case r of
-          Right !pdo -> return pdo
+          Right (!pdo) -> return pdo
           Left e -> throwM e
     , _pactNewBlock = \m h ct -> do
         mv <- newBlock m h ct q
@@ -78,6 +79,8 @@ mkPactExecutionService q = PactExecutionService
     , _pactLookup = \h txs -> do
         mv <- lookupPactTxs h txs q
         takeMVar mv
+    , _pactPreInsertCheck = \_ txs ->
+        pactPreInsertCheck txs q >>= takeMVar
     }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
@@ -89,4 +92,5 @@ emptyPactExecutionService = PactExecutionService
     , _pactNewBlock = \_ _ _ -> pure emptyPayload
     , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
+    , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
     }
