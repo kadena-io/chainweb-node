@@ -20,7 +20,8 @@
 --
 module Chainweb.Miner.RestAPI.Server where
 
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO, readTVar, registerDelay)
+import Control.Concurrent.STM.TVar
+    (TVar, modifyTVar', readTVar, readTVarIO, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
 import Control.Monad.Catch (bracket)
@@ -34,6 +35,8 @@ import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 import Data.Tuple.Strict (T2(..), T3(..))
 
 import Network.HTTP.Types.Status
@@ -58,7 +61,7 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
     (ChainBytes(..), HeaderBytes(..), WorkBytes, workBytes)
 import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Miner.Pact (Miner, minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
@@ -84,7 +87,7 @@ workHandler
     -> Maybe ChainId
     -> Miner
     -> Handler WorkBytes
-workHandler mr v mcid m = do
+workHandler mr v mcid m@(Miner (MinerId mid) _) = do
     now <- liftIO getCurrentTimeIntegral
     case txSilenceEndDate v of
         Just end | now > end ->
@@ -98,7 +101,8 @@ workHandler mr v mcid m = do
             when (_coordinationMode conf == Private
                   && not (HS.member (view minerId m) (_coordinationMiners conf))) $ do
                 liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
-                throwError err403 { errBody = "Unauthorized Miner" }
+                let midb = TL.encodeUtf8 $ TL.fromStrict mid
+                throwError err403 { errBody = "Unauthorized Miner: " <> midb }
             liftIO $ workHandler' mr mcid m
 
 workHandler'

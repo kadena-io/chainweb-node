@@ -99,6 +99,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.CutDB
 import Chainweb.Logger
+import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
@@ -292,6 +293,10 @@ serviceRequests memPoolAccess reqQ = do
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
                 tryOne "execLookupPactTxs" resultVar $
                     execLookupPactTxs restorePoint txHashes
+                go
+            PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
+                tryOne "execPreInsertCheckReq" resultVar $
+                    execPreInsertCheckReq txs
                 go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
@@ -578,9 +583,9 @@ validateChainwebTxs
     -> BlockHeight
     -> Vector ChainwebTransaction
     -> RunGas
-    -> IO (Vector Bool)
+    -> IO (Vector (Either Mempool.InsertError ()))
 validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
-    | bh == 0 = pure $! V.replicate (V.length txs) True
+    | bh == 0 = pure $! V.replicate (V.length txs) (Right ())
     | V.null txs = pure V.empty
     | otherwise = do
         -- TODO miner attack: does the list itself contain any duplicates txs?
@@ -591,19 +596,21 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
         txs' <- liftIO $ V.mapM f txs
         doBuyGas txs' >>= V.mapM validate
   where
-    validate :: T3 ChainwebTransaction Uniqueness AbleToBuyGas -> IO Bool
-    validate (T3 _ Duplicate _) = pure False
-    validate (T3 _ _ BuyGasFailed) = pure False
+    validate
+        :: T3 ChainwebTransaction Uniqueness AbleToBuyGas
+        -> IO (Either Mempool.InsertError ())
+    validate (T3 _ Duplicate _) = pure (Left Mempool.InsertErrorDuplicate)
+    validate (T3 _ _ BuyGasFailed) = pure (Left Mempool.InsertErrorNoGas)
     validate (T3 tx Unique BuyGasPassed) =
-      pure $! all ($ tx) [checkTimes]
-
+      return $!
+      bool (Left Mempool.InsertErrorInvalidTime) (Right ()) $
+      checkTimes tx
 
     checkTimes :: ChainwebTransaction -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
 
 type RunGas = Vector (T2 ChainwebTransaction Uniqueness)
   -> IO (Vector (T3 ChainwebTransaction Uniqueness AbleToBuyGas))
-
 
 
 skipDebitGas :: RunGas
@@ -712,7 +719,10 @@ execNewBlock mpAccess parentHeader miner creationTime =
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
             -- which we determined was unnecessary and was a db hit
-            validateChainwebTxs cp creationTime bhi txs runDebitGas
+            --
+            -- TODO: propagate the underlying error type?
+            V.map (either (const False) (const True))
+                <$> validateChainwebTxs cp creationTime bhi txs runDebitGas
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
 
@@ -850,9 +860,10 @@ playOneBlock currHeader plData pdbenv = do
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
     -- prop_tx_ttl_validate
-    oks <- liftIO $
+    oks <- liftIO (
+        fmap (either (const False) (const True)) <$>
            validateChainwebTxs cp creationTime
-               (_blockHeight currHeader) trans skipDebitGas
+               (_blockHeight currHeader) trans skipDebitGas)
     let mbad = V.elemIndex False oks
     case mbad of
         Nothing -> return ()  -- ok
@@ -1078,6 +1089,27 @@ transactionsFromPayload plData = do
     !bytes = _transactionBytes <$!> transList
     !eithers = toCWTransaction <$!> bytes
     theLefts = lefts eithers
+
+execPreInsertCheckReq
+    :: PayloadCas cas
+    => Vector ChainwebTransaction
+    -> PactServiceM cas (Vector (Either Mempool.InsertError ()))
+execPreInsertCheckReq txs = do
+    cp <- getCheckpointer
+    b <- liftIO $ _cpGetLatestBlock cp
+    case b of
+        Nothing -> return $! V.map (const (Right ())) txs
+        Just (h, ha) ->
+            withCheckpointer (Just (h+1, ha)) "execPreInsertCheckReq" $ \pdb -> do
+                now <- liftIO getCurrentTimeIntegral
+                psEnv <- ask
+                psState <- get
+                liftIO (Discard <$>
+                        validateChainwebTxs cp (BlockCreationTime now) (h + 1) txs
+                              (runGas pdb psEnv psState))
+  where
+    runGas pdb psEnv psState ts =
+        fst <$!> runPactServiceM psState psEnv (attemptBuyGas noMiner pdb ts)
 
 execLookupPactTxs
     :: PayloadCas cas

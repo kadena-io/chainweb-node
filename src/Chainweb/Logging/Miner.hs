@@ -16,6 +16,7 @@
 --
 module Chainweb.Logging.Miner
 ( NewMinedBlock(..)
+, OrphanedBlock(..)
 ) where
 
 import Control.DeepSeq
@@ -40,5 +41,12 @@ data NewMinedBlock = NewMinedBlock
     , _minedBlockMiner :: !Text
     , _minedBlockDiscoveredAt :: !(Time Micros)
     }
-    deriving (Eq, Show, Generic)
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (ToJSON, NFData)
+
+data OrphanedBlock = OrphanedBlock
+    { _orphanedHeader :: !(ObjectEncoded BlockHeader)
+    , _orphanedMiner :: !Text
+    , _orphanedReason :: Text }
+    deriving stock (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)

@@ -365,6 +365,8 @@ withNodeLogger logConfig v f = runManaged $ do
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
+    orphanedBlockBackend <- managed
+        $ mkTelemetryLogger @OrphanedBlock mgr teleLogConfig
     miningStatsBackend <- managed
         $ mkTelemetryLogger @MiningStats mgr teleLogConfig
     requestLogBackend <- managed
@@ -390,6 +392,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler newBlockAmberdataBackend
             , logHandler endpointBackend
             , logHandler newBlockBackend
+            , logHandler orphanedBlockBackend
             , logHandler miningStatsBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend

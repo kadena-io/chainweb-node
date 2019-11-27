@@ -11,6 +11,8 @@ import qualified Pact.Types.Hash as P
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.ChainId
+import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
@@ -28,6 +30,10 @@ data PactExecutionService = PactExecutionService
         -> Vector P.PactHash
             -- txs to lookup
         -> IO (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash))))
+    , _pactPreInsertCheck
+        :: ChainId
+        -> Vector ChainwebTransaction
+        -> IO (Either PactException (Vector (Either InsertError ())))
     }
 
 newtype WebPactExecutionService = WebPactExecutionService
