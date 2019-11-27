@@ -575,8 +575,9 @@ txSilenceEndDate Development = Nothing
 txSilenceEndDate Testnet03 = Nothing
 txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
 
--- | The date after which nodes in the 1.1.x series will spontaneously allow
--- Transactions in the system.
+-- | KILLSWITCH: The date after which nodes in the 1.1.x series will
+-- spontaneously allow Transactions in the system. This constant can be removed
+-- once the date has passed, and /must not be used in core validation code/.
 --
 txActivationDate :: ChainwebVersion -> Maybe (Time Micros)
 txActivationDate Test{} = Nothing
