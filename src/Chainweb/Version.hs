@@ -590,4 +590,4 @@ transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
 transferActivationDate Development = Nothing
 transferActivationDate Testnet03 = Nothing
-transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-06T00:00:00.0 |]
+transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
