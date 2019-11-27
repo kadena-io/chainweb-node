@@ -34,7 +34,6 @@ import qualified Chainweb.Test.Miner.Core
 import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.ChainData
 import qualified Chainweb.Test.Pact.Checkpointer
-import qualified Chainweb.Test.Pact.ForkTest
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactReplay
@@ -66,29 +65,22 @@ main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
     withToyDB rdb toyChainId $ \h0 db -> do
         defaultMain
-            -- TODO: replace commented out tests before merge
-            -- adjustOption adj
+            $ adjustOption adj
             $ testGroup "Chainweb Tests" . schedule Sequential
-
-            -- $ pactTestSuite rdb
-            -- $ pactForkTestSuite db h0
-            $ [pactForkTestSuite db h0]
-
-            -- : mempoolTestSuite db h0
-            -- : [mempoolTestSuite db h0]
-            -- : suite rdb
-
+            $ pactTestSuite rdb
+            : mempoolTestSuite db h0
+            : suite rdb
   where
-    _adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
-    _adj x = x
+    adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
+    adj x = x
 
 
-_mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-_mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
+mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
+mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
     $ schedule Sequential [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
 
-_pactTestSuite :: RocksDb -> ScheduledTest
-_pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
+pactTestSuite :: RocksDb -> ScheduledTest
+pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
         [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
@@ -100,12 +92,8 @@ _pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.RewardsTest.tests
         ]
 
-pactForkTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-pactForkTestSuite db genesisBlock = testGroupSch "Pact Fork Tests"
-    $ schedule Sequential [Chainweb.Test.Pact.ForkTest.tests db genesisBlock]
-
-_suite :: RocksDb -> [ScheduledTest]
-_suite rdb =
+suite :: RocksDb -> [ScheduledTest]
+suite rdb =
     [ testGroupSch "Chainweb Unit Tests"
         [ testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb

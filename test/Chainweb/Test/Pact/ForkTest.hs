@@ -9,16 +9,21 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Chainweb.Test.Pact.ForkTest
-  ( tests
+  ( ioTests
   ) where
 
+import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception (throwIO)
+import Control.Concurrent.STM.TBQueue
+import Control.Exception (bracket, throwIO)
 import Control.Lens
 import Control.Monad.IO.Class
+import Control.Monad.STM
 
 import Data.Aeson (Value)
 import qualified Data.Aeson as A
+import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.HashSet (HashSet)
@@ -29,6 +34,7 @@ import Data.Numbers.Primes
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -40,10 +46,12 @@ import System.LogLevel
 
 import Test.QuickCheck hiding ((.&.))
 import Test.QuickCheck.Monadic
+import Test.Tasty
 import Test.Tasty.QuickCheck
 
 import Pact.Types.ChainMeta
 import Pact.Parse
+import Pact.Server.PactService
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
@@ -56,13 +64,16 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.Graph
+import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
+import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.ForkGen
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -72,16 +83,25 @@ import qualified Chainweb.TreeDB as TDB
 import Chainweb.Version
 
 
-tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
-tests _db _h0 =
-    testGroupSch "pact-fork-quickcheck-tests" [theTT]
-  where
-    theTT = withRocksResource $ \rocksIO ->
-            withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
-            withPayloadDb $ \pdb ->
-            withPact' testVersion Warn pdb bhdb (testMemPoolAccess cid) (return Nothing) (\reqQIO ->
-                testProperty "prop_forkValidates" (prop_forkValidates bhdb _genBlock reqQIO))
+main :: IO ()
+main =
+    withTempRocksDb "chainweb-tests" $ \rdb ->
+    withToyDB rdb toyChainId $ \h0 db -> do
+    tt <- ioTests db h0
+    defaultMain tt
 
+ioTests :: BlockHeaderDb -> BlockHeader -> IO TestTree
+ioTests _db _h0 = do
+    return theTT
+    -- testGroupSch "pact-fork-quickcheck-tests" [theTT]
+  where
+    theTT =
+        withRocksResource $ \rocksIO ->
+        withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
+        withPayloadDb $ \pdb ->
+        -- withPact' testVersion Warn pdb bhdb (testMemPoolAccess cid mv) (return Nothing) (\reqQIO ->
+        --     testProperty "prop_forkValidates" (prop_forkValidates bhdb _genBlock reqQIO))
+        testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock)
     _genBlock = genesisBlockHeader testVersion cid
     cid = someChainId testVersion
 
@@ -89,44 +109,91 @@ testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
 
 -- | Property: Fork requiring checkpointer rewind validates properly
-prop_forkValidates :: (IO BlockHeaderDb) -> BlockHeader -> IO PactQueue -> Property
-prop_forkValidates iodb genBlock reqQIO = monadicIO $ do
-    mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
-    db <- liftIO $ iodb
-    fi <- genFork db mapRef genBlock
-    liftIO $ putStrLn $ "Fork info: \n" ++ showForkInfoFields fi
+prop_forkValidates :: IO (PayloadDb HashMapCas) -> (IO BlockHeaderDb) -> ChainId -> BlockHeader -> Property
+prop_forkValidates pdb bhdb cid genBlock = monadicIO $ do
 
-    expected <- liftIO $ expectedForkProd fi
-    if expected >= maxBalance
-      then do -- this shouldn't happen...
-        liftIO $ putStrLn "Max account balance would be exceeded, letting this test pass"
-        assert True
-      else do
-        reqQ <- liftIO $ reqQIO
+    mVar <- newMVar (0 :: Int)
+    withPactProp testVersion Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing)
+    $ \reqQIO -> do
 
-        let trunkBlockList = reverse (fiPreForkHeaders fi)
-        liftIO $ putStrLn $ "list of TRUNK blocks: \n" ++ showHeaderFields trunkBlockList
-        (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <- liftIO $
-            runBlocks db (head trunkBlockList) ((length (tail trunkBlockList)) - 1) reqQ iodb
-        liftIO $ putStrLn $ "Last TRUNK block returned: \n" ++ showHeaderFields [parentFromTrunk]
+        mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
+        db <- liftIO $ bhdb
+        fi <- genFork db mapRef genBlock
+        liftIO $ putStrLn $ "Fork info: \n" ++ showForkInfoFields fi
 
-        let leftBlockList = reverse (fiLeftForkHeaders fi)
-        liftIO $ putStrLn $ "parent for the LEFT block: \n" ++ showHeaderFields [parentFromTrunk]
-        liftIO $ putStrLn $ "list of LEFT blocks: \n" ++ showHeaderFields leftBlockList
-        (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
-            runBlocks db parentFromTrunk ((length leftBlockList) - 1) reqQ iodb
+        expected <- liftIO $ expectedForkProd fi
+        if expected >= maxBalance
+          then do -- this shouldn't happen...
+            liftIO $ putStrLn "Max account balance would be exceeded, letting this test pass"
+            assert True
+          else do
+            reqQ <- liftIO $ reqQIO
 
-        let rightBlockList = reverse (fiRightForkHeaders fi)
-        liftIO $ putStrLn $ "parent for the RIGHT block: \n" ++ showHeaderFields [parentFromTrunk]
-        liftIO $ putStrLn $ "list of RIGHT blocks: \n" ++ showHeaderFields rightBlockList
-        (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
-            runBlocks db parentFromTrunk ((length rightBlockList) - 1) reqQ iodb
+            let trunkBlockList = reverse (fiPreForkHeaders fi)
+            liftIO $ putStrLn $ "list of TRUNK blocks: \n" ++ showHeaderFields trunkBlockList
+            (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <- liftIO $
+                runBlocks db (head trunkBlockList) ((length (tail trunkBlockList)) - 1) reqQ bhdb
+            liftIO $ putStrLn $ "Last TRUNK block returned: \n" ++ showHeaderFields [parentFromTrunk]
 
-        liftIO $ putStrLn $ "Expected: " ++ show expected
-        liftIO $ putStrLn $ "newBlock results: " ++ show nbRightRes
-        liftIO $ putStrLn $ "validateBlock results: " ++ show vbRightRes
-        assert (nbRightRes == vbRightRes)
-        assert (vbRightRes == expected)
+            let leftBlockList = reverse (fiLeftForkHeaders fi)
+            liftIO $ putStrLn $ "parent for the LEFT block: \n" ++ showHeaderFields [parentFromTrunk]
+            liftIO $ putStrLn $ "list of LEFT blocks: \n" ++ showHeaderFields leftBlockList
+            (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
+                runBlocks db parentFromTrunk ((length leftBlockList) - 1) reqQ bhdb
+
+            let rightBlockList = reverse (fiRightForkHeaders fi)
+            liftIO $ putStrLn $ "parent for the RIGHT block: \n" ++ showHeaderFields [parentFromTrunk]
+            liftIO $ putStrLn $ "list of RIGHT blocks: \n" ++ showHeaderFields rightBlockList
+            (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
+                runBlocks db parentFromTrunk ((length rightBlockList) - 1) reqQ bhdb
+
+            liftIO $ putStrLn $ "Expected: " ++ show expected
+            liftIO $ putStrLn $ "newBlock results: " ++ show nbRightRes
+            liftIO $ putStrLn $ "validateBlock results: " ++ show vbRightRes
+            assert (nbRightRes == vbRightRes)
+
+withPactProp
+    :: ChainwebVersion
+    -> LogLevel
+    -> IO (PayloadDb HashMapCas)
+    -> IO BlockHeaderDb
+    -> MemPoolAccess
+    -> IO (Maybe FilePath)
+    -> (IO PactQueue -> Property)
+    -> Property
+withPactProp version logLevel iopdb iobhdb mempool iodir f =
+    {-  withResource
+          :: IO a  --  initialize the resource
+          -> (a -> IO ())  --  free the resource
+          -> TestTree
+          -> TestTree
+
+        Control.Exception.bracket
+          :: IO a   -- computation to run first ("acquire resource")
+          -> (a -> IO b) -- computation to run last ("release resource")
+          -> (a -> IO c) -- computation to run in-between
+          -> IO c
+    -}
+    withResource startPact stopPact $ f . fmap snd
+    bracket startPact stopPact $ f . fmap snd
+
+  where
+    startPact = do
+        mv <- newEmptyMVar
+        reqQ <- atomically $ newTBQueue pactQueueSize
+        pdb <- iopdb
+        bhdb <- iobhdb
+        dir <- iodir
+        a <- async $ initPactService version cid logger reqQ mempool mv
+                                     bhdb pdb dir Nothing False
+        return (a, reqQ)
+
+    stopPact (a, _) = cancel a
+
+    logger = genericLogger logLevel T.putStrLn
+    cid = someChainId version
+
+
 
 maxBalance :: Int
 maxBalance = 300000000000
@@ -151,17 +218,6 @@ expectedForkProd ForkInfo{..} = do
              ++ "\n\ttotal product: " ++ show (trunkProd * rBranchProd)
 
     return $ trunkProd * rBranchProd
-
-txsFromHeight :: Int -> IO (Vector PactTransaction)
-txsFromHeight 0 = error "txsFromHeight called for Genesis block"
-txsFromHeight 1 = do
-    d <- adminData
-    moduleStr <- readFile' $ testPactFilesDir ++ "test2.pact"
-    -- putStrLn $ "moduleStr: \n" ++ moduleStr ++ "\n"
-    return $ V.fromList
-        ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d } ] )
-
-txsFromHeight h = V.fromList <$> tailTransactions h
 
 tailTransactions :: Int -> IO [PactTransaction]
 tailTransactions h = do
@@ -318,22 +374,18 @@ showForkInfoFields ForkInfo{..} =
         ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
         ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
 
-
-----------------------------------------------------------------------------------------------------
--- Borrowed/modified from PactInProceApi test...
-----------------------------------------------------------------------------------------------------
-testMemPoolAccess :: ChainId -> MemPoolAccess
-testMemPoolAccess cid =
-  let pactCid = P.ChainId $ chainIdToText cid
-  in MemPoolAccess
-    { mpaGetBlock = \_validate bh hash _header ->
-        (getBlockFromHeight pactCid) (fromIntegral bh) hash
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
-    }
+testMemPoolAccess :: ChainId -> MVar Int -> MemPoolAccess
+testMemPoolAccess cid mvar =
+    let pactCid = P.ChainId $ chainIdToText cid
+    in MemPoolAccess
+      { mpaGetBlock = \_validate bh hash _header ->
+          (getBlockFromHeight pactCid mvar) (fromIntegral bh) hash
+      , mpaSetLastHeader = \_ -> return ()
+      , mpaProcessFork = \_ -> return ()
+      }
   where
-    getBlockFromHeight pCid bHeight _bHash = do
-        txs <- txsFromHeight bHeight
+    getBlockFromHeight pCid mv bHeight _bHash = do
+        txs <- txsFromHeight mv bHeight
         let f = modifyPayloadWithText . set (P.pMeta . pmCreationTime)
             g = modifyPayloadWithText . set (P.pMeta . pmTTL)
             h = modifyPayloadWithText . set (P.pMeta . pmChainId)
@@ -345,6 +397,21 @@ testMemPoolAccess cid =
                 in fmap ((h pCid) . (g ttl) . (f (toTxCreationTime currentTime))) tx
         -- trace ("ChainwebTransactions from mempool: " ++ show outtxs)
         return outtxs
+
+
+txsFromHeight :: MVar Int -> Int -> IO (Vector PactTransaction)
+txsFromHeight _mvar 0 = error "txsFromHeight called for Genesis block"
+txsFromHeight mvar 1 = do
+    _ <- modifyMVar mvar (\n -> return ((n + 1), (n + 1)))
+    d <- adminData
+    moduleStr <- readFile' $ testPactFilesDir ++ "test2.pact"
+    -- putStrLn $ "moduleStr: \n" ++ moduleStr ++ "\n"
+    return $ V.fromList
+        ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d } ] )
+
+txsFromHeight mvar _h = do
+    newCount <- modifyMVar mvar (\n -> return ((n + 1), (n + 1)))
+    V.fromList <$> tailTransactions newCount
 
 toCWTransactions :: P.ChainId -> Vector PactTransaction -> IO (Vector ChainwebTransaction)
 toCWTransactions pactCid txs = do
