@@ -40,6 +40,7 @@ module Chainweb.Version
 , window
 -- ** Date-based Transaction Disabling
 , txSilenceEndDate
+, txActivationDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -573,3 +574,17 @@ txSilenceEndDate FastTimedCPM{} = Nothing
 txSilenceEndDate Development = Nothing
 txSilenceEndDate Testnet03 = Nothing
 txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
+
+-- | KILLSWITCH: The date after which nodes in the 1.1.x series will
+-- spontaneously allow Transactions in the system. This constant can be removed
+-- once the date has passed, and /must not be used in core validation code/.
+--
+txActivationDate :: ChainwebVersion -> Maybe (Time Micros)
+txActivationDate Test{} = Nothing
+txActivationDate TimedConsensus{} = Nothing
+txActivationDate PowConsensus{} = Nothing
+txActivationDate TimedCPM{} = Nothing
+txActivationDate FastTimedCPM{} = Nothing
+txActivationDate Development = Nothing
+txActivationDate Testnet03 = Nothing
+txActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-06T00:00:00.0 |]
