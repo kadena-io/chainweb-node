@@ -1,6 +1,28 @@
 # `chainweb-node` Changelog
 
-## 1.0.5 (2019-11-??)
+## 1.0.6 (2019-11-26)
+
+This is a minor release that provides stability and performance improvements. It also
+upgrades the testnet version.
+
+Miners are advised to also upgrade to the most recent version of the mining
+application. Older versions of `chainweb-miner` may experience occasional delays
+of work update notifications when used with this `chainweb-node` version.
+
+* Improves the stability of Chainweb nodes, by closing a TCP connection leak on
+  nodes that had mining coordination enabled.
+  [#735](https://github.com/kadena-io/chainweb-node/pull/735)
+
+* Improve performance of Chainweb nodes, by changing the default memory
+  allocation parameters of the Haskell runtime. The default, built in RTS
+  settings are now `+RTS -N -A64M -H1G`.
+  [#737](https://github.com/kadena-io/chainweb-node/pull/737)
+
+* Upgrade the testnet version from `tesnet02` to `testnet03`.
+ [#736](https://github.com/kadena-io/chainweb-node/pull/736)
+
+
+## 1.0.5 (2019-11-21)
 
 This version changes the rules for Difficulty Adjustment in scenarios where
 there is a sudden loss of over 99% of the network hash power. While this is very
