@@ -50,9 +50,9 @@ insertHandler v mempool txsT = handleErrs (NoContent <$ begin)
         Left e -> throwM . DecodeException $ T.pack e
         Right t -> return t
 
-    -- | KILLSWITCH: The logic here involving `txActivationDate` can be removed
-    -- once that date itself has passed and Transaction are enabled. Until then,
-    -- this will prevent mempools from inserting data into each other.
+    -- | KILLSWITCH: The logic involving `txActivationDate` can be removed once
+    -- the actual date has passed. Until then, this serves as an additional
+    -- block against Transactions entering the system.
     --
     begin :: Handler ()
     begin = do
@@ -60,9 +60,9 @@ insertHandler v mempool txsT = handleErrs (NoContent <$ begin)
         case txActivationDate v of
             Just start | start < now -> pure ()
             _ -> do
-                 txs <- mapM go txsT
-                 let txV = V.fromList txs
-                 liftIO $ mempoolInsert mempool CheckedInsert txV
+                txs <- mapM go txsT
+                let txV = V.fromList txs
+                liftIO $ mempoolInsert mempool CheckedInsert txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]

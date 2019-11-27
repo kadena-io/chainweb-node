@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.0.5
+version:      1.0.6
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -88,6 +88,7 @@ common warning-flags
         -Wincomplete-uni-patterns
         -Widentities
         -funclutter-valid-hole-fits
+        -fmax-relevant-binds=0
 
         -- This needed because -Werror and missing-home-modules causes
         -- problems with ghci.
@@ -547,7 +548,7 @@ test-suite chainweb-tests
 --         , aeson >= 1.4.3
 --         , async >= 2.2
 --         , attoparsec >= 0.13
---         , base >= 4.11 && < 5
+--         , base >= 4.12 && < 5
 --         , base16-bytestring >= 0.1
 --         , base64-bytestring >= 1.0
 --         , bytes >= 0.15
@@ -622,7 +623,7 @@ executable chainweb-node
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N
+        "-with-rtsopts=-N -H1G -A64M"
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs

@@ -56,6 +56,7 @@ module Chainweb.CutDB
 , cutStm
 , awaitNewCut
 , awaitNewCutByChainId
+, awaitNewCutByChainIdStm
 , cutStream
 , addCutHashes
 , withCutDb
@@ -277,7 +278,14 @@ awaitNewCut cdb c = atomically $ do
 -- grown.
 --
 awaitNewCutByChainId :: CutDb cas -> ChainId -> Cut -> IO Cut
-awaitNewCutByChainId cdb cid c = atomically $ do
+awaitNewCutByChainId cdb cid c = atomically $ awaitNewCutByChainIdStm cdb cid c
+{-# INLINE awaitNewCutByChainId #-}
+
+-- | As in `awaitNewCut`, but only updates when the specified `ChainId` has
+-- grown.
+--
+awaitNewCutByChainIdStm :: CutDb cas -> ChainId -> Cut -> STM Cut
+awaitNewCutByChainIdStm cdb cid c = do
     c' <- _cutStm cdb
     let !b0 = HM.lookup cid $ _cutMap c
         !b1 = HM.lookup cid $ _cutMap c'
