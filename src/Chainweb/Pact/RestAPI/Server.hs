@@ -174,7 +174,7 @@ data PactCmdLog
   deriving (Show, Generic, ToJSON, NFData)
 
 
--- | KILLSWITCH: The logic here involving `txActivationDate` can be removed once
+-- | KILLSWITCH: The logic here involving `transferActivationDate` can be removed once
 -- the date itself has passed. Until then, this prevents any "real" Pact
 -- transactions from being submitted to the system.
 --
@@ -188,7 +188,7 @@ sendHandler
 sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
     now <- liftIO getCurrentTimeIntegral
-    case txActivationDate v of
+    case transferActivationDate v of
         Just end | now < end -> failWith "Transactions are disabled until 2019 Dec 6"
         _ -> case traverse validateCommand cmds of
             Right enriched -> do

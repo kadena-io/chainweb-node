@@ -66,7 +66,7 @@ import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, txActivationDate)
+import Chainweb.Version (ChainwebVersion, transferActivationDate)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -268,7 +268,7 @@ validateOne cfg v badmap now t h =
     -- then, this prevents any transaction from entering the mempool.
     --
     transactionsEnabled :: Either InsertError ()
-    transactionsEnabled = case txActivationDate v of
+    transactionsEnabled = case transferActivationDate v of
         Just start | now < start -> Left InsertErrorTransactionsDisabled
         _ -> pure ()
 
