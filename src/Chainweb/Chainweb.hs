@@ -786,16 +786,8 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    -- | KILLSWITCH: The logic here involving `txSilenceEndDate` here is to be
-    -- removed in a future version of Chain. This disables the Mempool API
-    -- entirely during the TX blackout period.
-    --
-    mempoolsToServe
-        :: ChainwebVersion
-        -> [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
-    mempoolsToServe v = case txSilenceEndDate v of
-        Just _ -> []
-        _ -> proj _chainResMempool
+    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe = proj _chainResMempool
 
     chainP2pToServe :: [(NetworkId, PeerDb)]
     chainP2pToServe =
@@ -826,7 +818,7 @@ runChainweb cw = do
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe (_chainwebVersion cw)
+            , _chainwebServerMempools = mempoolsToServe
             , _chainwebServerPayloadDbs = payloadDbsToServe
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe
@@ -863,8 +855,8 @@ runChainweb cw = do
     mempoolP2pConfig :: EnableConfig MempoolP2pConfig
     mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
 
-    -- Decide whether to enable the mempool sync clients
-    -- | KILLSWITCH: Reenable the mempool sync for Mainnet.
+    -- | Decide whether to enable the mempool sync clients.
+    --
     mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
@@ -876,7 +868,7 @@ runChainweb cw = do
             FastTimedCPM{} -> enabled c
             Development -> enabled c
             Testnet03 -> enabled c
-            Mainnet01 -> disabled
+            Mainnet01 -> enabled c
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"
