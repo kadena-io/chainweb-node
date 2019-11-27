@@ -197,6 +197,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
+                 | InsertErrorNoGas
                  | InsertErrorOther Text
   deriving (Generic, Eq)
 
@@ -206,12 +207,12 @@ instance Show InsertError
     show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
     show InsertErrorOversized = "Transaction gas limit exceeds block gas limit"
     show InsertErrorBadlisted =
-        "Transaction is badlisted because it previously failed to validate \
-        \(e.g. insufficient gas)"
+        "Transaction is badlisted because it previously failed to validate."
     show InsertErrorMetadataMismatch =
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
-    show InsertErrorTransactionsDisabled = "Transactions are disabled until December 5"
+    show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
+    show InsertErrorNoGas = "Sender account has insufficient gas."
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
 instance Exception InsertError

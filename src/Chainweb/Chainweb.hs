@@ -128,7 +128,6 @@ import Control.Monad
 import Control.Monad.Catch (throwM)
 
 import Data.Align (alignWith)
-import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
@@ -161,7 +160,6 @@ import System.LogLevel
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Hash as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
@@ -182,7 +180,6 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
-import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -494,9 +491,6 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     txcfg = Mempool.chainwebTransactionConfig
     maxRecentLog = 2048
 
-    toDupeResult :: Maybe a -> Maybe Mempool.InsertError
-    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
-
     preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     preInsertSingle tx = checkMetadata tx
 
@@ -514,17 +508,15 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
         -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
                                 (T2 Mempool.TransactionHash ChainwebTransaction)))
     preInsertBatch txs = do
-        let hashes = V.map (toPactHash . sfst) txs
         pex <- readMVar mv
-        rs <- _pactLookup pex (NoRewind cid) hashes >>= either throwM pure
+        rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
         pure $ alignWith f rs txs
       where
-        f (These r (T2 h t)) = maybe (Right (T2 h t)) (Left . T2 h) $ toDupeResult r
+        f (These r (T2 h t)) = case r of
+                                 Left e -> Left (T2 h e)
+                                 Right _ -> Right (T2 h t)
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
-
-    toPactHash :: Mempool.TransactionHash -> P.TypedHash h
-    toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
