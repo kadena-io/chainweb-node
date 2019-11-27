@@ -77,15 +77,15 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
+import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
 import Data.Text (Text)
-import qualified Data.Text.IO as T
 import Data.Text.Encoding
+import qualified Data.Text.IO as T
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -137,8 +137,9 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -146,7 +147,6 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-import Chainweb.Test.Utils
 
 -- ----------------------------------------------------------------------- --
 -- Test Exceptions
@@ -456,6 +456,8 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         , _pactLookup = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
+        , _pactPreInsertCheck = error
+            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactPreInsertCheck: not implemented"
         }
 
 -- | A test PactExecutionService for a chainweb
