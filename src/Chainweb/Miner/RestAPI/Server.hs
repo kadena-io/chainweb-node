@@ -20,7 +20,8 @@
 --
 module Chainweb.Miner.RestAPI.Server where
 
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', readTVarIO, readTVar, registerDelay)
+import Control.Concurrent.STM.TVar
+    (TVar, modifyTVar', readTVar, readTVarIO, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
 import Control.Monad.Catch (bracket)
@@ -34,6 +35,8 @@ import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 import Data.Tuple.Strict (T2(..), T3(..))
 
 import Network.HTTP.Types.Status
@@ -58,11 +61,10 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
     (ChainBytes(..), HeaderBytes(..), WorkBytes, workBytes)
 import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Miner.Pact (Miner, minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils (runGet, suncurry3)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -72,34 +74,24 @@ import Data.Singletons
 
 ---
 
--- | KILLSWITCH: The logic here involving `txSilenceEndDate` is to be removed in a
--- future version of Chainweb. This logic errors on remote requests for new
--- mining work, such that this Node can no longer meaningfully participate in
--- mining.
---
 workHandler
     :: Logger l
     => MiningCoordination l cas
-    -> ChainwebVersion
     -> Maybe ChainId
     -> Miner
     -> Handler WorkBytes
-workHandler mr v mcid m = do
-    now <- liftIO getCurrentTimeIntegral
-    case txSilenceEndDate v of
-        Just end | now > end ->
-            throwError err400 { errBody = "Node is out of date - please upgrade."}
-        _ -> do
-            MiningState ms <- liftIO . readTVarIO $ _coordState mr
-            when (M.size ms > _coordLimit mr) $ do
-                liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
-                throwError err503 { errBody = "Too many work requests" }
-            let !conf = _coordConf mr
-            when (_coordinationMode conf == Private
-                  && not (HS.member (view minerId m) (_coordinationMiners conf))) $ do
-                liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
-                throwError err403 { errBody = "Unauthorized Miner" }
-            liftIO $ workHandler' mr mcid m
+workHandler mr mcid m@(Miner (MinerId mid) _) = do
+    MiningState ms <- liftIO . readTVarIO $ _coordState mr
+    when (M.size ms > _coordLimit mr) $ do
+        liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
+        throwError err503 { errBody = "Too many work requests" }
+    let !conf = _coordConf mr
+    when (_coordinationMode conf == Private
+          && not (HS.member (view minerId m) (_coordinationMiners conf))) $ do
+        liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
+        let midb = TL.encodeUtf8 $ TL.fromStrict mid
+        throwError err403 { errBody = "Unauthorized Miner: " <> midb }
+    liftIO $ workHandler' mr mcid m
 
 workHandler'
     :: forall l cas
@@ -197,13 +189,12 @@ miningServer
     :: forall l cas (v :: ChainwebVersionT)
     .  Logger l
     => MiningCoordination l cas
-    -> ChainwebVersion
     -> Server (MiningApi v)
-miningServer mr v =
-    workHandler mr v
+miningServer mr =
+    workHandler mr
     :<|> liftIO . solvedHandler mr
     :<|> updatesHandler mr
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
-someMiningServer v@(FromSing (SChainwebVersion :: Sing vT)) mr =
-    SomeServer (Proxy @(MiningApi vT)) $ miningServer mr v
+someMiningServer (FromSing (SChainwebVersion :: Sing vT)) mr =
+    SomeServer (Proxy @(MiningApi vT)) $ miningServer mr

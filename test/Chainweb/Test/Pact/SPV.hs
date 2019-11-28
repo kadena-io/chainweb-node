@@ -302,7 +302,7 @@ txGenerator1 time pidv sid tid = do
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
-                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 10 0.01 100000 (toTxCreationTime time) txs
+                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 24 0.01 100000 (toTxCreationTime time) txs
                   `finally` writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
@@ -359,7 +359,7 @@ txGenerator2 time cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
@@ -384,7 +384,7 @@ txGenerator3 time cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
@@ -405,7 +405,7 @@ txGenerator4 time _cdbv pidv _ tid _ = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the correct target chain, with a proof
@@ -432,5 +432,5 @@ txGenerator5 time cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True

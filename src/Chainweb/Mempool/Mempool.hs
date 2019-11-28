@@ -198,7 +198,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
-                 | InsertErrorBuyGasFailed
+                 | InsertErrorNoGas
                  | InsertErrorModuleInstall
                  | InsertErrorCompileFailure PactError
                  | InsertErrorOther Text
@@ -210,14 +210,12 @@ instance Show InsertError
     show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
     show InsertErrorOversized = "Transaction gas limit exceeds block gas limit"
     show InsertErrorBadlisted =
-        "Transaction is badlisted because it previously failed to validate \
-        \(e.g. insufficient gas)"
+        "Transaction is badlisted because it previously failed to validate."
     show InsertErrorMetadataMismatch =
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
-    show InsertErrorTransactionsDisabled = "Transactions are disabled until December 5"
-    -- TODO: Write a better error message here?
-    show InsertErrorBuyGasFailed = "This transaction ran out of gas."
+    show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
+    show InsertErrorNoGas = "Sender account has insufficient gas."
     show InsertErrorModuleInstall = "This transaction attempts to install a module. This is currently disallowed."
     show (InsertErrorCompileFailure pe) = "This transaction's code fails to compile: " <> show pe
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
