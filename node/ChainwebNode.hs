@@ -449,7 +449,7 @@ withKillSwitch
     -> IO a
 withKillSwitch _ Nothing inner = inner
 withKillSwitch lf (Just t) inner = race timer inner >>= \case
-    Left () -> error "kill switch thread termianted unexpectedly"
+    Left () -> error "Kill switch thread terminated unexpectedly"
     Right a -> return a
   where
     timer = do
@@ -513,4 +513,3 @@ main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
             node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
-
