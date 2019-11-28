@@ -123,7 +123,7 @@ solvedHandler mr (HeaderBytes hbytes) = do
             let err = TL.encodeUtf8 $ TL.fromStrict e
             throwError err400 { errBody = "Decoding error: " <> err }
         Left _ ->
-            throwError err400 { errBody = "General exception occured in /solved handler" }
+            throwError err400 { errBody = "Unexpected encoding exception" }
         Right bh -> liftIO $ do
             publish lf ms (_coordCutDb mr) bh
             let !phash = _blockPayloadHash bh
