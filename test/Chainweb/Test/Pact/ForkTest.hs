@@ -102,22 +102,26 @@ ioTests _db _h0 = do
         -- withPact' testVersion Warn pdb bhdb (testMemPoolAccess cid mv) (return Nothing) (\reqQIO ->
         --     testProperty "prop_forkValidates" (prop_forkValidates bhdb _genBlock reqQIO))
         testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock)
-    _genBlock = genesisBlockHeader testVersion cid
-    cid = someChainId testVersion
+    _genBlock = genesisBlockHeader testVer cid
+    cid = someChainId testVer
 
-testVersion :: ChainwebVersion
-testVersion = FastTimedCPM petersonChainGraph
+testVer :: ChainwebVersion
+testVer = FastTimedCPM petersonChainGraph
 
 -- | Property: Fork requiring checkpointer rewind validates properly
 prop_forkValidates :: IO (PayloadDb HashMapCas) -> (IO BlockHeaderDb) -> ChainId -> BlockHeader -> Property
 prop_forkValidates pdb bhdb cid genBlock = monadicIO $ do
 
-    mVar <- newMVar (0 :: Int)
-    withPactProp testVersion Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing)
-    $ \reqQIO -> do
+  -- monadicIO :: Testable a => PropertyM IO a -> Property
 
-        mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
+    mVar <- liftIO $ newMVar (0 :: Int)
+    withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
+
+        -- need PropertyM IO here...
+        mapRef <- run $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
         db <- liftIO $ bhdb
+
+        -- genFork ::: PropertyM IO a
         fi <- genFork db mapRef genBlock
         liftIO $ putStrLn $ "Fork info: \n" ++ showForkInfoFields fi
 
@@ -127,7 +131,7 @@ prop_forkValidates pdb bhdb cid genBlock = monadicIO $ do
             liftIO $ putStrLn "Max account balance would be exceeded, letting this test pass"
             assert True
           else do
-            reqQ <- liftIO $ reqQIO
+            -- reqQ <- liftIO $ reqQIO
 
             let trunkBlockList = reverse (fiPreForkHeaders fi)
             liftIO $ putStrLn $ "list of TRUNK blocks: \n" ++ showHeaderFields trunkBlockList
@@ -159,9 +163,14 @@ withPactProp
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO (Maybe FilePath)
-    -> (IO PactQueue -> Property)
-    -> Property
-withPactProp version logLevel iopdb iobhdb mempool iodir f =
+
+    -- -> (IO PactQueue -> Property)
+    -> (PactQueue -> PropertyM IO ())
+    -- -> (PactQueue -> IO ())
+
+    -- -> Property
+    -> PropertyM IO ()
+withPactProp version logLevel iopdb iobhdb mempool iodir f = do
     {-  withResource
           :: IO a  --  initialize the resource
           -> (a -> IO ())  --  free the resource
@@ -174,8 +183,14 @@ withPactProp version logLevel iopdb iobhdb mempool iodir f =
           -> (a -> IO c) -- computation to run in-between
           -> IO c
     -}
-    withResource startPact stopPact $ f . fmap snd
-    bracket startPact stopPact $ f . fmap snd
+    -- withResource startPact stopPact $ f . fmap snd
+    -- bracket startPact stopPact $ f . fmap snd
+       -- run $ bracket startPact stopPact $ \(x, q) -> do
+            -- let h = f q `asTypeOf` _ -- :: PropertyM IO ()
+            -- f q
+      (x, q) <- liftIO $ startPact
+      let z = f q
+      liftIO $ cancel x
 
   where
     startPact = do
