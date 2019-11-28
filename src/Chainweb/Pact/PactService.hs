@@ -117,7 +117,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), txSilenceEndDate)
+import Chainweb.Version (ChainwebVersion(..), txEnabledDate)
 import Data.CAS (casLookupM)
 
 
@@ -968,7 +968,7 @@ execValidateBlock
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
     -- TODO: are we actually validating the output hash here?
-    validateSilenceDates currHeader plData
+    validateTxEnabled currHeader plData
     withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
         !result <- playOneBlock currHeader plData pdbenv
         return $! Save currHeader result
@@ -978,8 +978,8 @@ execValidateBlock currHeader plData = do
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-validateSilenceDates :: MonadThrow m => BlockHeader -> PayloadData -> m ()
-validateSilenceDates bh plData = case txSilenceEndDate (_blockChainwebVersion bh) of
+validateTxEnabled :: MonadThrow m => BlockHeader -> PayloadData -> m ()
+validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
     Just end | end > blockTime && not isGenesisBlock && not payloadIsEmpty ->
         throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded bh
     _ -> pure ()
