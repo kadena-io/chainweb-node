@@ -114,7 +114,8 @@ verifySPV cid cdbv typ proof = readMVar cdbv >>= go typ proof
             --  3. Extract tx outputs as a pact object and return the
             --  object.
 
-            TransactionOutput p <- verifyTransactionOutputProof cdb u
+            bh <- runTransactionOutputProof u
+            TransactionOutput p <- verifyTransactionOutputProofAt cdb u bh
 
             q <- case decodeStrict' p :: Maybe HashCommandResult of
               Nothing -> internalError "unable to decode spv transaction output"
@@ -161,7 +162,8 @@ verifyCont cid cdbv (ContProof cp) = do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- verifyTransactionOutputProof cdb u
+          bh <- runTransactionOutputProof u
+          TransactionOutput p <- verifyTransactionOutputProofAt cdb u bh
 
           q <- case decodeStrict' p :: Maybe HashCommandResult of
             Nothing -> internalError "unable to decode spv transaction output"

@@ -338,24 +338,23 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
 
     T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
       Left e ->
-        toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
+        toErr $ "transaction hash lookup failed: " <> sshow e
       Right v -> case v ^?! _head of
-        Nothing -> toErr $ "Transaction hash not found: " <> sshow ph
+        Nothing -> toErr $ "transaction hash not found: " <> sshow ph
         Just t -> return t
 
     idx <- liftIO (getTxIdx bdb pdb bhe ph) >>= \case
-      Left e -> toErr
-        $ "Internal error: Index lookup for hash failed: "
-        <> sshow e
+      Left e -> toErr $ "index lookup for hash failed: " <> sshow e
       Right i -> return i
 
     tid <- chainIdFromText ptid
     p <- liftIO (try $ createTransactionOutputProof cdb tid cid bhe idx) >>= \case
       Left e@SpvExceptionTargetNotReachable{} ->
-        toErr $ "SPV target not reachable: " <> spvErrOf e
+        toErr $ "target not reachable: " <> spvErrOf e
       Left e@SpvExceptionVerificationFailed{} ->
-        toErr $ "SPV verification failed: " <> spvErrOf e
-      Left e -> toErr $ "Internal error: SPV verification failed: " <> spvErrOf e
+        toErr $ "verification failed: " <> spvErrOf e
+      Left e ->
+        toErr $ "proof creation failed: " <> spvErrOf e
       Right q -> return q
 
     return $! b64 p
@@ -373,7 +372,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     logg = logFunctionJson (setComponent "spv-handler" l) Info
       . PactCmdLogSpv
 
-    toErr e = throwError $ err400 { errBody = e }
+    toErr e = throwError $ err400 { errBody = "Pact spv: " <> e }
 
     spvErrOf = BSL8.fromStrict
       . encodeUtf8
