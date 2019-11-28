@@ -53,8 +53,8 @@ runTransactionProof (TransactionProof _ p)
     = BlockHash $ MerkleLogHash $ runMerkleProof p
 
 -- | Verifies the proof against the current state of consensus. The result
--- confirms that the subject of the proof is included in the history of the
--- winning fork of target chain.
+-- confirms that the subject of the proof occurs in the history of the winning
+-- fork of the target chain.
 --
 verifyTransactionProof
     :: CutDb cas
@@ -67,9 +67,9 @@ verifyTransactionProof cutDb proof@(TransactionProof cid p) = do
   where
     h = runTransactionProof proof
 
--- | Verifies the proof against for the given block hash. The result confirms
--- that the subject of the proof is included in the history of the target chain
--- of the proof before the given block hash.
+-- | Verifies the proof for the given block hash. The result confirms that the
+-- subject of the proof occurs in the history of the target chain before the
+-- given block hash.
 --
 -- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
 -- chain.
@@ -97,8 +97,8 @@ runTransactionOutputProof (TransactionOutputProof _ p)
     = BlockHash $ MerkleLogHash $ runMerkleProof p
 
 -- | Verifies the proof against the current state of consensus. The result
--- confirms that the subject of the proof is included in the history of the
--- winning fork of target chain.
+-- confirms that the subject of the proof occurs in the history of the winning
+-- fork of the target chain.
 --
 verifyTransactionOutputProof
     :: CutDb cas
@@ -111,9 +111,9 @@ verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
   where
     h = runTransactionOutputProof proof
 
--- | Verifies the proof against for the given block hash. The result confirms
--- that the subject of the proof is included in the history of the target chain
--- of the proof before the given block hash.
+-- | Verifies the proof for the given block hash. The result confirms that the
+-- subject of the proof occurs in the history of the target chain before the
+-- given block hash.
 --
 -- Throws 'TreeDbKeyNotFound' if the given block hash doesn't exist on target
 -- chain.
