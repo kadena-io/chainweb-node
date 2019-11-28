@@ -94,7 +94,6 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHash
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types (ModuleCache)
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types
 import Chainweb.Transaction
@@ -326,7 +325,7 @@ runPayload
 runPayload cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
-    
+
     case payload of
       Exec pm ->
         applyExec interp pm signers chash nsp
@@ -611,7 +610,7 @@ initialGasOf :: PayloadWithText -> Gas
 initialGasOf cmd = gasFee
   where
     feePerByte :: Decimal = 0.01
-    
+
     contProofSize =
       case _pPayload (payloadObj cmd) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
@@ -628,7 +627,7 @@ txSizeAccelerationFee costPerByte = total
   where
     total = (costPerByte / bytePenalty) ^ power
     bytePenalty = 512
-    power :: Integer = 7 
+    power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
 
 -- | Set the module cache of a pact 'EvalState'

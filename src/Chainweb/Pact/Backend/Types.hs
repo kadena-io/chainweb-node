@@ -86,7 +86,6 @@ module Chainweb.Pact.Backend.Types
       -- * optics
     , psMempoolAccess
     , psCheckpointEnv
-    , psSpvSupport
     , psPublicData
     , psStateValidated
     , psPdb
@@ -123,12 +122,9 @@ import GHC.Generics
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
-import Pact.Types.ChainMeta (PublicData(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
-import Pact.Types.Gas (GasModel)
-import Pact.Types.SPV
 
 -- internal modules
 import Chainweb.BlockHash
@@ -138,6 +134,7 @@ import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Miner.Pact (MinerRewards(..))
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
+import qualified Chainweb.Version as CW (HasChainwebVersion(..), HasChainId(..))
 
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
@@ -320,13 +317,20 @@ newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
 data PactServiceEnv cas = PactServiceEnv
     { _psMempoolAccess :: !(Maybe MemPoolAccess)
     , _psCheckpointEnv :: !CheckpointEnv
-    , _psSpvSupport :: !SPVSupport
     , _psPublicData :: !PublicData
     , _psPdb :: !(PayloadDb cas)
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
     }
+
+instance CW.HasChainwebVersion (PactServiceEnv c) where
+    _chainwebVersion = CW._chainwebVersion . _psBlockHeaderDb
+    {-# INLINE _chainwebVersion #-}
+
+instance CW.HasChainId (PactServiceEnv c) where
+    _chainId = CW._chainId . _psBlockHeaderDb
+    {-# INLINE _chainId #-}
 
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
