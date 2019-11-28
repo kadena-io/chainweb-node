@@ -47,7 +47,6 @@ import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
-import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
@@ -169,17 +168,6 @@ chainChoice c choice = case choice of
       new <- randomChainId c
       bool (pure new) (loop cid) $ new == cid
 
--- | KILLSWITCH: This extra logic involving `txSilenceEndDate` is to be removed in
--- a future version of Chainweb. It prevents this Node from generating any new
--- Cuts after a specified date.
---
-publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
-publish lf ms cdb bh = do
-    now <- getCurrentTimeIntegral
-    case txSilenceEndDate $ _chainwebVersion bh of
-        Just end | now > end -> pure ()
-        _ -> publish' lf ms cdb bh
-
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and
 -- publishes the result to the `Cut` network.
@@ -187,8 +175,8 @@ publish lf ms cdb bh = do
 -- There are a number of "fail fast" conditions which will kill the candidate
 -- `BlockHeader` before it enters the Cut pipeline.
 --
-publish' :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
-publish' lf (MiningState ms) cdb bh = do
+publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
+publish lf (MiningState ms) cdb bh = do
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
@@ -196,21 +184,23 @@ publish' lf (MiningState ms) cdb bh = do
         -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
         -- Payload we know about, reject it.
         --
-        T3 m p pl <- M.lookup (T2 bct phash) ms ?? "BlockHeader given with no associated Payload"
+        T3 m p pl <- M.lookup (T2 bct phash) ms
+            ?? OrphanedBlock (ObjectEncoded bh) "Unknown" "No associated Payload"
 
         let !miner = m ^. minerId . _Unwrapped
-            !nonce = _blockNonce bh
 
         -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
         -- Hash) is trivially incorrect, reject it.
         --
         unless (prop_block_pow bh) . hoistEither .
-            Left $ "Invalid POW hash given for nonce: " <> sshow nonce
+            Left $ OrphanedBlock (ObjectEncoded bh) miner "Invalid POW hash"
 
         -- Fail Early: If the `BlockHeader` is already stale and can't be
         -- appended to the best `Cut` we know about, reject it.
         --
-        c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
+        c' <- tryMonotonicCutExtension c bh
+            !? OrphanedBlock (ObjectEncoded bh) miner "Mined block for outdated Cut"
+
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
             --
@@ -224,7 +214,7 @@ publish' lf (MiningState ms) cdb bh = do
                         _payloadWithOutputsTransactions pl
 
             now <- getCurrentTimeIntegral
-            pure . JsonLog $ NewMinedBlock
+            pure $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pl
                 , _minedBlockSize = int bytes
@@ -232,7 +222,7 @@ publish' lf (MiningState ms) cdb bh = do
                 , _minedBlockMiner = miner
                 , _minedBlockDiscoveredAt = now
                 }
-    either (lf @T.Text Info) (lf Info) res
+    either (lf Info . JsonLog) (lf Info . JsonLog) res
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.

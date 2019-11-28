@@ -67,7 +67,7 @@ import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, txSilenceEndDate)
+import Chainweb.Version (ChainwebVersion, transferActivationDate)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -276,12 +276,12 @@ validateOne cfg v badmap now t h =
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
 
-    -- | KILLSWITCH: This is to be removed in a future version of Chainweb. This
-    -- prevents any transaction from entering the mempool.
+    -- | KILLSWITCH 2019-12-05T16:00:00Z: This can be removed once the date itself has passed. Until
+    -- then, this prevents any transaction from entering the mempool.
     --
     transactionsEnabled :: Either InsertError ()
-    transactionsEnabled = case txSilenceEndDate v of
-        Just _ -> Left InsertErrorTransactionsDisabled
+    transactionsEnabled = case transferActivationDate v of
+        Just start | now < start -> Left InsertErrorTransactionsDisabled
         _ -> pure ()
 
     sizeOK :: Either InsertError ()
@@ -303,14 +303,12 @@ validateOne cfg v badmap now t h =
             , "It should be rounded to at most 12 decimal places."
             ]
 
-
     -- prop_tx_ttl_arrival
     ttlCheck :: Either InsertError ()
     ttlCheck = txTTLCheck txcfg now t
 
     notInBadMap :: Either InsertError ()
     notInBadMap = maybe (Right ()) (const $ Left InsertErrorBadlisted) $ HashMap.lookup h badmap
-
 
 -- | Check the TTL of a transaction.
 txTTLCheck :: TransactionConfig t -> Time Micros -> t -> Either InsertError ()
