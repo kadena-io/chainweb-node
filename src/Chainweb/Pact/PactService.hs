@@ -61,11 +61,12 @@ import Data.Foldable (foldl', toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing)
+import Data.Ord (comparing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -516,29 +517,27 @@ _liftCPErr = either internalError' return
 
 
 data Uniqueness = Duplicate | Unique
-data AbleToBuyGas = BuyGasFailed | BuyGasPassed
-type BuyGasValidation = T3 ChainwebTransaction Uniqueness AbleToBuyGas
 
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
 --
 preBlockCheck
     :: Miner
+    -> ChainwebVersion
     -> PactDbEnv'
     -> Vector (T2 ChainwebTransaction Uniqueness)
     -- -> PactServiceM cas (Vector BuyGasValidation)
     -> PactServiceM cas (Vector PreBlockResult)
-preBlockCheck miner (PactDbEnv' dbEnv) txs = do
+preBlockCheck miner version (PactDbEnv' dbEnv) txs = do
         mc <- use psInitCache
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
   where
     f (T2 dl mcache) cmd = do
-        T2 mcache' !res <- runBuyGas dbEnv mcache cmd
-        pure $! T2 (DL.snoc dl res) mcache'
-        -- case res of
-        --   Left _ -> pure $! T2 (DL.snoc dl res) mcache'
-        --   Right _ -> do
-        --     T2 mcache'' !res' <- runCompile dbEnv mcache' cmd
-            -- pure $! T2 (DL.snoc dl res') mcache''
+        T2 mcache' res <- runBuyGas dbEnv mcache cmd
+        case res of
+          Left _ -> pure $! T2 (DL.snoc dl res) mcache'
+          Right _ -> do
+            T2 mcache'' !res' <- runCompile version dbEnv mcache' cmd
+            pure $! T2 (DL.snoc dl res') mcache''
 
     createGasEnv
         :: P.PactDbEnv db
@@ -581,55 +580,40 @@ preBlockCheck miner (PactDbEnv' dbEnv) txs = do
           Right t ->
             return $! T2 (_txCache t) (Right tx)
 
-    -- compileExps (mkTextInfo _pcCode) _pcExps
-
-    _runCompile
-        :: P.PactDbEnv a
+    runCompile
+        ::  ChainwebVersion
+        -> P.PactDbEnv a
         -> ModuleCache
         -> T2 ChainwebTransaction Uniqueness
         -> PactServiceM cas (T2 ModuleCache PreBlockResult)
-    _runCompile _ mcache (T2 tx Duplicate) =
-      return $ T2 mcache $ Left $ T2 tx InsertErrorDuplicate
-    _runCompile _db mcache (T2 tx Unique) =
-        finalize $ case payload of
-          P.Exec (P.ExecMsg parsedCode _) ->
-            case compileCode parsedCode of
-              Left perr -> Left $ T2 tx (InsertErrorCompileFailure perr)
-              Right terms ->
-                if and [False | TModule {} <- terms]
-                then Left $ T2 tx InsertErrorModuleInstall
-                else Right tx
-          P.Continuation _cont -> Right tx
+    runCompile v env initmc t = case txSilenceEndDate v of
+        Nothing -> return $ T2 initmc $ case t of
+          T2 _ Duplicate -> Left $ T2 (sfst t) InsertErrorDuplicate
+          T2 _ Unique ->  Right $ sfst t
+        Just (Time silenceTime) -> do
+          Time curTime <- liftIO $ getCurrentTimeIntegral
+          case comparing timeSpanToMicros curTime silenceTime of
+            LT -> return $ T2 initmc $ case t of
+              T2 _ Duplicate -> Left $ T2 (sfst t) InsertErrorDuplicate
+              T2 _ Unique -> Right $ sfst t
+            _ -> go env initmc t
       where
-        payload = P._pPayload $ payloadObj $ P._cmdPayload tx
-        finalize result = return $ T2 mcache result
-        compileCode p =
-          compileExps (mkTextInfo (P._pcCode p)) (P._pcExps p)
-
-    _runBuyGas
-        :: P.PactDbEnv a
-        -> ModuleCache
-        -> T2 ChainwebTransaction Uniqueness
-        -> PactServiceM cas (T2 ModuleCache BuyGasValidation)
-    _runBuyGas _ mcache (T2 tx Duplicate) = return $ T2 mcache (T3 tx Duplicate BuyGasFailed)
-    _runBuyGas db mcache (T2 tx Unique) = do
-        let cmd = payloadObj <$> tx
-            gasPrice = gasPriceOf cmd
-            gasLimit = fromIntegral $ gasLimitOf cmd
-            txst = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
-
-        buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
-
-        cr <- liftIO
-          $! P.catchesPactError
-          $! execTransactionM buyGasEnv txst
-          $! buyGas cmd miner
-
-        case cr of
-            Left _ ->
-              return (T2 mcache (T3 tx Unique BuyGasFailed))  -- TODO throw InsertError instead
-            Right t ->
-              return $! T2 (_txCache t) (T3 tx Unique BuyGasPassed)
+        go _ mcache (T2 tx Duplicate) = do
+          return $ T2 mcache $ Left $ T2 tx InsertErrorDuplicate
+        go _db mcache (T2 tx Unique) =
+            finalize $ case payload of
+              P.Exec (P.ExecMsg parsedCode _) ->
+                case compileCode parsedCode of
+                  Left perr -> Left $ T2 tx (InsertErrorCompileFailure perr)
+                  Right terms -> foldr bailOnModule (Right tx) terms
+              P.Continuation _cont -> Right tx
+          where
+            bailOnModule (TModule {}) _ = Left $ T2 tx InsertErrorModuleInstall
+            bailOnModule _ b =  b
+            payload = P._pPayload $ payloadObj $ P._cmdPayload tx
+            finalize result = return $ T2 mcache result
+            compileCode p =
+              compileExps (mkTextInfo (P._pcCode p)) (P._pcExps p)
 
 -- | The principal validation logic for groups of Pact Transactions.
 --
@@ -661,19 +645,8 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
     validate (Right tx) =
       pure $! all ($ tx) [checkTimes]
 
-{-
-    validate :: T3 ChainwebTransaction Uniqueness AbleToBuyGas -> IO Bool
-    validate (T3 _ Duplicate _) = pure False
-    validate (T3 _ _ BuyGasFailed) = pure False
-    validate (T3 tx Unique BuyGasPassed) =
-      pure $! all ($ tx) [checkTimes]
--}
-
     checkTimes :: ChainwebTransaction -> Bool
     checkTimes = timingsCheck blockOriginationTime . fmap payloadObj
-
--- type RunGas = Vector (T2 ChainwebTransaction Uniqueness)
-  -- -> IO (Vector (T3 ChainwebTransaction Uniqueness AbleToBuyGas))
 
 type PreBlockResult = Either (T2 ChainwebTransaction InsertError) ChainwebTransaction
 
@@ -682,8 +655,7 @@ type PreBlockCheck = Vector (T2 ChainwebTransaction Uniqueness) -> IO (Vector Pr
 
 
 skipDebitGas :: PreBlockCheck
-skipDebitGas = return . fmap (\(T2 a _b) -> Right a)
-  -- return . fmap (\(T2 a b) -> (T3 a b BuyGasPassed))
+skipDebitGas = pure . fmap (\(T2 a _b) -> Right a)
 
 
 -- | Read row from coin-table defined in coin contract, retrieving balance and keyset
@@ -776,19 +748,21 @@ execNewBlock mpAccess parentHeader miner creationTime =
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
+    -- This should be safe!
+    version = _blockChainwebVersion parentHeader
+
     doPreBlock pdbenv = do
       cp <- getCheckpointer
       psEnv <- ask
       psState <- get
-      let runDebitGas :: PreBlockCheck
-          runDebitGas txs = fst <$!> runPactServiceM psState psEnv runGas
-            where
-              runGas = preBlockCheck miner pdbenv txs
+      let runPreBlockCheck :: PreBlockCheck
+          runPreBlockCheck txs = fst <$!> runPactServiceM psState psEnv (preBlockCheck miner version pdbenv txs)
+
           validate bhi _bha txs = do
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
             -- which we determined was unnecessary and was a db hit
-            validateChainwebTxs cp creationTime bhi txs runDebitGas
+            validateChainwebTxs cp creationTime bhi txs runPreBlockCheck
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
 

@@ -158,10 +158,11 @@ testMemPoolAccess txsPerBlock accounts t = mempty
               Right !r -> do
                   modifyMVar' mVarAccounts
                     (const $ M.fromList $ zip as kss)
-                  vs <- validate bHeight hash (V.fromList $ toList r)
+                  let txs = V.fromList $ toList r
+                  vs <- validate bHeight hash txs
                   -- TODO: something better should go here
                   unless (and vs) $ throwM $ userError "at blockheight 1"
-                  return $! V.fromList $ toList r
+                  return $! txs
 
         | otherwise =
           withMVar mVarAccounts $ \accs -> do
