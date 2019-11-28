@@ -46,6 +46,7 @@ import Configuration.Utils.Validation (validateFilePath)
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
+import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Error.Class (throwError)
@@ -432,6 +433,15 @@ mkTelemetryLogger mgr = configureHandler
 -- -------------------------------------------------------------------------- --
 -- Kill Switch
 
+newtype KillSwitch = KillSwitch T.Text
+
+instance Show KillSwitch where
+    show (KillSwitch t) = "kill switch triggered: " <> T.unpack t
+
+instance Exception KillSwitch where
+    fromException = asyncExceptionFromException
+    toException = asyncExceptionToException
+
 withKillSwitch
     :: (LogLevel -> T.Text -> IO ())
     -> Maybe UTCTime
@@ -447,7 +457,7 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
             now <- getCurrentTime
             when (now >= t) $ do
                 lf Error killMessage
-                error $ T.unpack killMessage
+                throw $ KillSwitch killMessage
 
             let w = diffUTCTime t now
             let micros = round $ w * 1000000
