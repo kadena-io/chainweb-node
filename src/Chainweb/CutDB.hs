@@ -49,7 +49,6 @@ module Chainweb.CutDB
 , cutDbPayloadCas
 , cutDbPayloadStore
 , cutDbStore
-, member
 , cut
 , _cut
 , _cutStm
@@ -67,6 +66,11 @@ module Chainweb.CutDB
 , blockDiffStream
 , cutStreamToHeaderStream
 , cutStreamToHeaderDiffStream
+
+-- * Membership Queries
+, member
+, memberOfHeader
+, memberOfM
 
 -- * Some CutDb
 , CutDbT(..)
@@ -291,17 +295,6 @@ awaitNewCutByChainIdStm cdb cid c = do
         !b1 = HM.lookup cid $ _cutMap c'
     when (b1 == b0) retry
     return c'
-
-member :: CutDb cas -> ChainId -> BlockHash -> IO Bool
-member db cid h = do
-    th <- maxEntry chainDb
-    lookup chainDb h >>= \case
-        Nothing -> return False
-        Just lh -> do
-            fh <- forkEntry chainDb th lh
-            return $! fh == lh
-  where
-    chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
 cutDbQueueSize :: CutDb cas -> IO Natural
 cutDbQueueSize = pQueueSize . _cutDbQueue
@@ -655,6 +648,47 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
                     return $! Left cv
                 e -> throwM e
+
+-- -------------------------------------------------------------------------- --
+-- Membership Queries
+
+memberOfHeader
+    :: CutDb cas
+    -> ChainId
+    -> BlockHash
+        -- ^ the block hash to look up (the member)
+    -> BlockHeader
+        -- ^ the context, i.e. the branch of the chain that contains the member
+    -> IO Bool
+memberOfHeader db cid h ctx = do
+    lookup chainDb h >>= \case
+        Nothing -> return False
+        Just lh -> seekAncestor chainDb ctx (int $ _blockHeight lh) >>= \case
+            Nothing -> return False
+            Just x -> return $ _blockHash x == h
+  where
+    chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
+
+memberOfM
+    :: CutDb cas
+    -> ChainId
+    -> BlockHash
+        -- ^ the block hash to look up (the member)
+    -> BlockHash
+        -- ^ the context, i.e. the branch of the chain that contains the member
+    -> IO Bool
+memberOfM db cid h ctx = do
+    th <- lookupM chainDb ctx
+    memberOfHeader db cid h th
+  where
+    chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
+
+member :: CutDb cas -> ChainId -> BlockHash -> IO Bool
+member db cid h = do
+    th <- maxEntry chainDb
+    memberOfHeader db cid h th
+  where
+    chainDb = db ^?! cutDbWebBlockHeaderDb . ixg cid
 
 -- -------------------------------------------------------------------------- --
 -- Some CutDB
