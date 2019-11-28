@@ -20,6 +20,7 @@ module Chainweb.SPV.VerifyProof
 -- * Transaction Output Proofs
 , runTransactionOutputProof
 , verifyTransactionOutputProof
+, verifyTransactionOutputProofAt
 ) where
 
 import Control.Monad.Catch
@@ -77,6 +78,18 @@ verifyTransactionOutputProof
     -> IO TransactionOutput
 verifyTransactionOutputProof cutDb proof@(TransactionOutputProof cid p) = do
     unlessM (member cutDb cid h) $ throwM
+        $ SpvExceptionVerificationFailed "target header is not in the chain"
+    proofSubject p
+  where
+    h = runTransactionOutputProof proof
+
+verifyTransactionOutputProofAt
+    :: CutDb cas
+    -> TransactionOutputProof SHA512t_256
+    -> BlockHash
+    -> IO TransactionOutput
+verifyTransactionOutputProofAt cutDb proof@(TransactionOutputProof cid p) ctx = do
+    unlessM (memberOfM cutDb cid h ctx) $ throwM
         $ SpvExceptionVerificationFailed "target header is not in the chain"
     proofSubject p
   where
