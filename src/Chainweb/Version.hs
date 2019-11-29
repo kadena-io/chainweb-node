@@ -39,7 +39,8 @@ module Chainweb.Version
 , WindowWidth(..)
 , window
 -- ** Date-based Transaction Disabling
-, txSilenceEndDate
+, txEnabledDate
+, transferActivationDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -564,12 +565,29 @@ window Development = Just $ WindowWidth 120
 window Testnet03 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
 
-txSilenceEndDate :: ChainwebVersion -> Maybe (Time Micros)
-txSilenceEndDate Test{} = Nothing
-txSilenceEndDate TimedConsensus{} = Nothing
-txSilenceEndDate PowConsensus{} = Nothing
-txSilenceEndDate TimedCPM{} = Nothing
-txSilenceEndDate FastTimedCPM{} = Nothing
-txSilenceEndDate Development = Nothing
-txSilenceEndDate Testnet03 = Nothing
-txSilenceEndDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
+-- | This is used in a core validation rule and has been present for several
+-- versions of the node software. Changing it risks a fork in the network.
+--
+txEnabledDate :: ChainwebVersion -> Maybe (Time Micros)
+txEnabledDate Test{} = Nothing
+txEnabledDate TimedConsensus{} = Nothing
+txEnabledDate PowConsensus{} = Nothing
+txEnabledDate TimedCPM{} = Nothing
+txEnabledDate FastTimedCPM{} = Nothing
+txEnabledDate Development = Nothing
+txEnabledDate Testnet03 = Nothing
+txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
+
+-- | KILLSWITCH: The date after which nodes in the 1.1.x series will
+-- spontaneously allow Transactions in the system. This constant can be removed
+-- once the date has passed, and /must not be used in core validation code/.
+--
+transferActivationDate :: ChainwebVersion -> Maybe (Time Micros)
+transferActivationDate Test{} = Nothing
+transferActivationDate TimedConsensus{} = Nothing
+transferActivationDate PowConsensus{} = Nothing
+transferActivationDate TimedCPM{} = Nothing
+transferActivationDate FastTimedCPM{} = Nothing
+transferActivationDate Development = Nothing
+transferActivationDate Testnet03 = Nothing
+transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
