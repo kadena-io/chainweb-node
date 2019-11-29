@@ -28,14 +28,20 @@ module TXG.Repl
   , chain
   , chain0
   , host
+  , verToChainId
+  , listenResponse
+  , mkCmdStr
   , mkKey
   , mkKeyCombined
   , k2g
   , mkGuard
   , mkGuardCombined
+  , pollResponse
+  , randomCmd
   , stockKey
   , mkKeyset
   , signedCode
+  , verToPactNetId
 
   , module Chainweb.ChainId
   , module Chainweb.Version
@@ -43,24 +49,43 @@ module TXG.Repl
   , module TXG.Simulate.Contracts.CoinContract
   ) where
 
+import Control.Exception
+import Control.Lens hiding ((.=), from, to)
+
+import Data.Aeson.Types (Parser)
 import Data.Aeson
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS8
+import Data.ByteString.Random
 import Data.Decimal
+import Data.Foldable
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
+import           Data.Ratio
 import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
+import Data.Time.Clock.POSIX
+
+
+import Servant.Client
+
+import Test.RandomStrings
 import Text.Printf
+
 import Pact.ApiReq
+import Pact.GasModel.Utils
+import Pact.Parse
 import Pact.Types.API
+import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Scheme
 import Pact.Types.Util
+
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.Version
@@ -154,3 +179,79 @@ mkKeyset p ks = object
   [ "pred" .= p
   , "keys" .= ks
   ]
+
+sampleKeyPairCaps :: IO [SomeKeyPairCaps]
+sampleKeyPairCaps = do
+  s <- stockKey "sender00"
+  mkKeyPairs [s]
+
+mkCmdStr :: PublicMeta -> ChainwebVersion -> [SomeKeyPairCaps] -> String -> IO (Command Text)
+mkCmdStr meta ver kps str = do
+  cmd str Null meta kps (Just (verToPactNetId ver)) Nothing
+
+verToChainId :: ChainwebVersion -> ChainId
+verToChainId ver = foldr const err $ chainIds ver
+  where
+    err = error "Chainweb version has 0 chains"
+
+verToPactNetId :: ChainwebVersion -> P.NetworkId
+verToPactNetId cvw =
+  P.NetworkId $ T.pack $ show cvw
+
+pollResponse :: Network -> Either ClientError RequestKeys -> IO ()
+pollResponse _nw (Left err) = putStrLn $ "There was a failure in the send: " ++ show err
+pollResponse nw (Right rks) = do
+  pollResp <- poll nw rks
+  case pollResp of
+    Left err -> putStrLn $ "Poll error: " ++ show err
+    Right pollResponses -> putStrLn $ show pollResponses
+
+listenResponse :: Network -> Either ClientError RequestKeys -> IO ()
+listenResponse _nw (Left err) = putStrLn $ "There was a failure in the send: " ++ show err
+listenResponse nw (Right (RequestKeys (k :| []))) = do
+  listResp <- listen nw k
+  case listResp of
+    Left err -> putStrLn $ "Listen error: " ++ show err
+    Right listenResp -> putStrLn $ show listenResp
+-- listenResponse nw (Right (RequestKeys (rk :| rks))) =
+listenResponse _nw (Right _r) =
+  putStrLn $ "Listen can only be used with a single request key"
+
+randomCmd :: PublicMeta -> ChainwebVersion -> IO (Command Text)
+randomCmd meta ver = do
+  -- 100 strings, w/ lengths 10 to 30, 34 alphabetical and 18 of those upper-case.
+  rands <- randomStringsLen (randomString' randomASCII (3%4) (1%8)) (10, 30) 100
+  let someWords = "(" ++ unwords rands ++ ")"
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta ver kps someWords
+
+-- **************************************************
+-- Temp paste into Repl.hs if doing many code reloads:
+-- TODO: remove this before commit
+-- **************************************************
+_hostAddr :: HostAddress
+_hostAddr = host "us1.tn1.chainweb.com"
+
+_ver :: ChainwebVersion
+_ver = Development
+
+_cid :: ChainId
+_cid = verToChainId _ver
+
+_nw :: Network
+_nw = Network _ver _hostAddr _cid
+
+_metaIO :: IO PublicMeta
+_metaIO = makeMeta _cid
+
+_cmd1IO :: IO (Command Text)
+_cmd1IO = do
+  meta <- _metaIO
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps "(+ 1 1)"
+
+_cmd2IO :: IO (Command Text)
+_cmd2IO = do
+  meta <- _metaIO
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps "(+ 2 2)"
