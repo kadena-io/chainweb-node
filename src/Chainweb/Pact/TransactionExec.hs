@@ -48,6 +48,7 @@ module Chainweb.Pact.TransactionExec
 , buildExecParsedCode
 , jsonErrorResult
 , mkMagicCapSlot
+
 ) where
 
 import Control.Lens
@@ -214,16 +215,6 @@ applyGenesisCmd logger dbEnv pd spv cmd =
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
 
--- | No installs or history
-restrictiveExecutionConfig :: ExecutionConfig
-restrictiveExecutionConfig = ExecutionConfig False False
-
-permissiveExecutionConfig :: ExecutionConfig
-permissiveExecutionConfig = ExecutionConfig True True
-
--- | Only allow installs
-justInstallsExecutionConfig :: ExecutionConfig
-justInstallsExecutionConfig = ExecutionConfig True False
 
 applyCoinbase
     :: Logger
@@ -296,7 +287,7 @@ applyLocal logger dbEnv pd spv cmdIn mc =
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
-    tenv = TransactionEnv Local dbEnv logger pd' spv nid gasPrice rk (fromIntegral gasLimit)
+    tenv = TransactionEnv Local dbEnv logger pd' spv nid gasPrice rk (fromIntegral gasLimit) permissiveExecutionConfig
     gasmodel = tableGasModel defaultGasConfig
     txst = TransactionState mc mempty 0 Nothing gasmodel
     gas0 = initialGasOf (_cmdPayload cmdIn)

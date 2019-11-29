@@ -64,6 +64,13 @@ module Chainweb.Pact.Types
     -- * types
   , HashCommandResult
 
+
+  -- * Execution config
+  , restrictiveExecutionConfig
+  , permissiveExecutionConfig
+  , justInstallsExecutionConfig
+
+
   -- * defaults
   , emptyPayload
   , noCoinbase
@@ -95,7 +102,7 @@ import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
 import Pact.Types.PactValue
 import Pact.Types.Persistence (TxLog, ExecutionMode)
-import Pact.Types.Runtime (ExecutionConfig)
+import Pact.Types.Runtime (ExecutionConfig(..))
 import Pact.Types.SPV
 import Pact.Types.Term (PactId(..))
 
@@ -256,3 +263,16 @@ execTransactionM
     -> IO TransactionState
 execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
+
+
+
+-- | No installs or history
+restrictiveExecutionConfig :: ExecutionConfig
+restrictiveExecutionConfig = ExecutionConfig False False
+
+permissiveExecutionConfig :: ExecutionConfig
+permissiveExecutionConfig = ExecutionConfig True True
+
+-- | Only allow installs
+justInstallsExecutionConfig :: ExecutionConfig
+justInstallsExecutionConfig = ExecutionConfig True False
