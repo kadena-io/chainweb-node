@@ -48,6 +48,7 @@ module Chainweb.Pact.TransactionExec
 , buildExecParsedCode
 , jsonErrorResult
 , mkMagicCapSlot
+
 ) where
 
 import Control.Lens
@@ -140,14 +141,17 @@ applyCmd
       -- ^ command with payload to execute
     -> ModuleCache
       -- ^ cached module state
+    -> Bool
+      -- ^ execution config for module install
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 =
+applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
+    executionConfigNoHistory = ExecutionConfig ecMod False
     cenv = TransactionEnv Transactional pdbenv logger pd' spv nid gasPrice
-      requestKey (fromIntegral gasLimit)
+      requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
@@ -200,6 +204,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv Transactional dbEnv logger pd' spv nid 0.0 rk 0
+           justInstallsExecutionConfig
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
@@ -209,6 +214,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
+
 
 applyCoinbase
     :: Logger
@@ -227,10 +233,12 @@ applyCoinbase
       -- ^ treat
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph (EnforceCoinbaseFailure throwCritical) mc =
+applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
+  (EnforceCoinbaseFailure throwCritical) mc =
     evalTransactionM tenv txst go
   where
-    tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport Nothing 0.0 rk 0
+    tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
+           Nothing 0.0 rk 0 restrictiveExecutionConfig
     txst =TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = initStateInterpreter $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow ph)
@@ -279,7 +287,7 @@ applyLocal logger dbEnv pd spv cmdIn mc =
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
-    tenv = TransactionEnv Local dbEnv logger pd' spv nid gasPrice rk (fromIntegral gasLimit)
+    tenv = TransactionEnv Local dbEnv logger pd' spv nid gasPrice rk (fromIntegral gasLimit) permissiveExecutionConfig
     gasmodel = tableGasModel defaultGasConfig
     txst = TransactionState mc mempty 0 Nothing gasmodel
     gas0 = initialGasOf (_cmdPayload cmdIn)
@@ -326,7 +334,7 @@ runPayload
 runPayload cmd nsp = do
     g0 <- use txGasUsed
     interp <- gasInterpreter g0
-    
+
     case payload of
       Exec pm ->
         applyExec interp pm signers chash nsp
@@ -386,8 +394,8 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | null (_pcExps parsedCode) = throwCmdEx "No expressions found"
     | otherwise = do
 
-      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh)
-      er <- liftIO $! evalExec senderSigs interp eenv parsedCode
+      eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
+      er <- liftIO $! evalExec interp eenv parsedCode
 
       for_ (_erExec er) $ \pe -> debug
         $ "applyExec: new pact added: "
@@ -427,8 +435,8 @@ applyContinuation'
     -> NamespacePolicy
     -> TransactionM p EvalResult
 applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
-    eenv <- mkEvalEnv nsp $ MsgData d pactStep hsh
-    er <- liftIO $! evalContinuation senderSigs interp eenv cm
+    eenv <- mkEvalEnv nsp $ MsgData d pactStep hsh senderSigs
+    er <- liftIO $! evalContinuation interp eenv cm
 
     setTxResultState er
 
@@ -446,8 +454,8 @@ buyGas cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
     initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
-    interp mc = Interpreter $ \start end withRollback input ->
-      withRollback (put (initState mc) >> start (run input) >>= end)
+    interp mc = Interpreter $ \input ->
+      put (initState mc) >> run input
     run input = do
       findPayer >>= \r -> case r of
         Nothing -> input
@@ -469,7 +477,7 @@ buyGas cmd (Miner mid mks) = go
         Nothing -> fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $ GasId (_pePactId pe))
 
-findPayer :: Eval e (Maybe (RunEval e -> RunEval e))
+findPayer :: Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
 findPayer = runMaybeT $ do
     (!m,!qn,!as) <- MaybeT findPayerCap
     pMod <- MaybeT $ lookupModule qn m
@@ -578,8 +586,8 @@ initCapabilities cs = set (evalCapabilities . capStack) cs def
 {-# INLINABLE initCapabilities #-}
 
 initStateInterpreter :: EvalState -> Interpreter p
-initStateInterpreter s = Interpreter $ \start end withRollback runInput ->
-    withRollback (put s >> start runInput >>= end)
+initStateInterpreter s = Interpreter $ (put s >>)
+
 
 checkTooBigTx
     :: Gas
@@ -611,7 +619,7 @@ initialGasOf :: PayloadWithText -> Gas
 initialGasOf cmd = gasFee
   where
     feePerByte :: Decimal = 0.01
-    
+
     contProofSize =
       case _pPayload (payloadObj cmd) of
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
@@ -628,7 +636,7 @@ txSizeAccelerationFee costPerByte = total
   where
     total = (costPerByte / bytePenalty) ^ power
     bytePenalty = 512
-    power :: Integer = 7 
+    power :: Integer = 7
 {-# INLINE txSizeAccelerationFee #-}
 
 -- | Set the module cache of a pact 'EvalState'
@@ -664,7 +672,7 @@ mkEvalEnv nsp msg = do
 
     return $ setupEvalEnv (_txDbEnv tenv) Nothing (_txMode tenv)
       msg initRefStore genv
-      nsp (_txSpvSupport tenv) (_txPublicData tenv)
+      nsp (_txSpvSupport tenv) (_txPublicData tenv) (_txExecutionConfig tenv)
 
 -- | Managed namespace policy CAF
 --
