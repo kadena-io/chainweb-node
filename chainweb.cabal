@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.0.5
+version:      1.0.6
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -87,6 +87,8 @@ common warning-flags
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Widentities
+        -funclutter-valid-hole-fits
+        -fmax-relevant-binds=0
 
         -- This needed because -Werror and missing-home-modules causes
         -- problems with ghci.
@@ -95,7 +97,7 @@ common warning-flags
 custom-setup
     setup-depends:
           Cabal
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , bytestring >= 0.10
         , directory >= 1.3
         , filepath >= 1.4
@@ -291,7 +293,7 @@ library
         , asn1-types >=0.3
         , async >= 2.2
         , attoparsec >= 0.13
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
         , binary >= 0.8
@@ -462,7 +464,7 @@ test-suite chainweb-tests
         , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , async >= 2.2
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
         , bytes >= 0.15
@@ -546,7 +548,7 @@ test-suite chainweb-tests
 --         , aeson >= 1.4.3
 --         , async >= 2.2
 --         , attoparsec >= 0.13
---         , base >= 4.11 && < 5
+--         , base >= 4.12 && < 5
 --         , base16-bytestring >= 0.1
 --         , base64-bytestring >= 1.0
 --         , bytes >= 0.15
@@ -621,7 +623,7 @@ executable chainweb-node
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N
+        "-with-rtsopts=-N -H1G -A64M"
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
@@ -638,7 +640,7 @@ executable chainweb-node
         -- external
         , aeson >= 1.4.3
         , async >= 2.2
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , chainweb-storage >= 0.1
         , configuration-tools >= 0.4.1
         , deepseq >= 1.4
@@ -651,6 +653,7 @@ executable chainweb-node
         , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
+        , time >= 1.8
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
@@ -701,7 +704,7 @@ executable cwtool
         , aeson-pretty >= 0.8
         , async >= 2.2
         , attoparsec >= 0.13
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
         , bytes >= 0.15
