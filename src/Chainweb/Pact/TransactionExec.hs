@@ -73,6 +73,7 @@ import Data.Tuple.Strict (T2(..))
 
 import Pact.Eval (liftTerm, lookupModule)
 import Pact.Gas (freeGasEnv)
+import Pact.Gas.Table
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (parseExprs)
@@ -149,31 +150,20 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
     executionConfigNoHistory = ExecutionConfig ecMod False
     cenv = TransactionEnv Transactional pdbenv logger pd' spv nid gasPrice
-      requestKey gasLimit executionConfigNoHistory
+      requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     gasPrice = gasPriceOf cmd
-    gasLimit = fromIntegral $ gasLimitOf cmd
+    gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
 
     applyBuyGas =
       catchesPactError (buyGas cmd miner) >>= \case
         Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
-        Right _ -> checkTooBigTx applyPayload
-
-    checkTooBigTx next
-      | initialGas >= gasLimit = do
-          txGasUsed .= gasLimit -- all gas is consumed
-
-          let !pe = PactError GasError def []
-                $ "Tx too big (" <> pretty initialGas <> "), limit "
-                <> pretty gasLimit
-
-          jsonErrorResult pe "Tx too big"
-      | otherwise = next
+        Right _ -> checkTooBigTx initialGas gasLimit applyPayload
 
     applyPayload = do
       txGasModel .= gasModel
@@ -291,33 +281,41 @@ applyLocal
       -- ^ Contains block height, time, prev hash + metadata
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
-    -> Command (Payload PublicMeta ParsedCode)
+    -> Command PayloadWithText
       -- ^ command with payload to execute
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv pd spv cmd mc =
+applyLocal logger dbEnv pd spv cmdIn mc =
     evalTransactionM tenv txst go
   where
+    cmd = payloadObj <$> cmdIn
     pd' = set pdPublicMeta (publicMetaOf cmd) pd
     rk = cmdToRequestKey cmd
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
-    tenv = TransactionEnv Local dbEnv logger pd' spv nid 0.0 rk 0
-           permissiveExecutionConfig
-    txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
+    gasPrice = gasPriceOf cmd
+    gasLimit = gasLimitOf cmd
+    tenv = TransactionEnv Local dbEnv logger pd' spv nid gasPrice rk (fromIntegral gasLimit)
+    gasmodel = tableGasModel defaultGasConfig
+    txst = TransactionState mc mempty 0 Nothing gasmodel
+    gas0 = initialGasOf (_cmdPayload cmdIn)
+
+    applyPayload em = do
+      interp <- gasInterpreter gas0
+      cr <- catchesPactError $!
+        applyExec interp em signers chash managedNamespacePolicy
+
+      case cr of
+        Left e -> jsonErrorResult e "applyLocal"
+        Right r -> return $! r { _crMetaData = Just (toJSON pd') }
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
         Exec !pm -> return pm
         _ -> throwCmdEx "local continuations not supported"
 
-      cr <- catchesPactError $!
-        applyExec defaultInterpreter em signers chash managedNamespacePolicy
-
-      case cr of
-        Left e -> jsonErrorResult e "applyLocal"
-        Right r -> return $! r { _crMetaData = Just (toJSON pd') }
+      checkTooBigTx gas0 gasLimit (applyPayload em)
 
 jsonErrorResult
     :: PactError
@@ -343,12 +341,8 @@ runPayload
     -> NamespacePolicy
     -> TransactionM p (CommandResult [TxLog Value])
 runPayload cmd nsp = do
-    mcache <- use txCache
     g0 <- use txGasUsed
-
-    let interp = initStateInterpreter
-          $ set evalGas g0
-          $ setModuleCache mcache def
+    interp <- gasInterpreter g0
 
     case payload of
       Exec pm ->
@@ -604,6 +598,29 @@ initStateInterpreter :: EvalState -> Interpreter p
 initStateInterpreter s = Interpreter $ (put s >>)
 
 
+checkTooBigTx
+    :: Gas
+    -> GasLimit
+    -> TransactionM p (CommandResult [TxLog Value])
+    -> TransactionM p (CommandResult [TxLog Value])
+checkTooBigTx initialGas gasLimit next
+  | initialGas >= (fromIntegral gasLimit) = do
+      txGasUsed .= (fromIntegral gasLimit) -- all gas is consumed
+
+      let !pe = PactError GasError def []
+            $ "Tx too big (" <> pretty initialGas <> "), limit "
+            <> pretty gasLimit
+
+      jsonErrorResult pe "Tx too big"
+  | otherwise = next
+
+gasInterpreter :: Gas -> TransactionM db (Interpreter p)
+gasInterpreter g = do
+    mc <- use txCache
+    return $ initStateInterpreter
+        $ set evalGas g
+        $ setModuleCache mc def
+
 -- | Initial gas charged for transaction size
 --   ignoring the size of a continuation proof, if present
 --
@@ -617,8 +634,19 @@ initialGasOf cmd = gasFee
         Continuation (ContMsg _ _ _ _ (Just (ContProof p))) -> B.length p
         _ -> 0
     txSize = SB.length (payloadBytes cmd) - contProofSize
-    gasFee = round $ fromIntegral txSize * feePerByte
+
+    costPerByte = fromIntegral txSize * feePerByte
+    sizePenalty = txSizeAccelerationFee costPerByte
+    gasFee = ceiling (costPerByte + sizePenalty)
 {-# INLINE initialGasOf #-}
+
+txSizeAccelerationFee :: Decimal -> Decimal
+txSizeAccelerationFee costPerByte = total
+  where
+    total = (costPerByte / bytePenalty) ^ power
+    bytePenalty = 512
+    power :: Integer = 7
+{-# INLINE txSizeAccelerationFee #-}
 
 -- | Set the module cache of a pact 'EvalState'
 --
