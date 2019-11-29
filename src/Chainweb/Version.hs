@@ -38,9 +38,10 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
--- ** Date-based Transaction Disabling
+-- ** Date- and Version-based Transaction Disabling
 , txEnabledDate
 , transferActivationDate
+, enableUserContracts
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -591,3 +592,9 @@ transferActivationDate FastTimedCPM{} = Nothing
 transferActivationDate Development = Nothing
 transferActivationDate Testnet03 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
+
+
+-- | Enable user contract install
+enableUserContracts :: ChainwebVersion -> Bool
+enableUserContracts Mainnet01 = False
+enableUserContracts _ = True

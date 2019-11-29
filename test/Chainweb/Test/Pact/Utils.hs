@@ -399,7 +399,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs True)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -422,7 +422,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
+      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs True)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
@@ -555,7 +555,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing mempty)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
+        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs True)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 

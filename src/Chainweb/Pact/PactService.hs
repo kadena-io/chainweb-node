@@ -118,7 +118,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), txEnabledDate)
+import Chainweb.Version (ChainwebVersion(..), txEnabledDate, enableUserContracts)
 import Data.CAS (casLookupM)
 
 
@@ -198,6 +198,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
           gasModel = tableGasModel defaultGasConfig
       let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
                                 bhDb gasModel rs
+                                (enableUserContracts ver)
       evalStateT (runReaderT act pse) (PactServiceState Nothing mempty)
   where
     loggers = pactLoggers chainwebLogger
@@ -542,7 +543,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         l <- view $ psCheckpointEnv . cpeLogger
         pd <- set P.pdPublicMeta pm <$!> view psPublicData
         spv <- view psSpvSupport
-        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl
+        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig
       where
         !pm = publicMetaOf cmd
         !nid = networkIdOf cmd
@@ -1064,6 +1065,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     T2 result mcache' <- liftIO $ if isGenesis
         then applyGenesisCmd logger dbEnv pd spv (payloadObj <$> cmdIn)
         else applyCmd logger dbEnv miner (_psGasModel psEnv) pd spv cmdIn mcache
+             (_psEnableUserContracts psEnv)
 
     when isGenesis $
       psInitCache <>= mcache'
