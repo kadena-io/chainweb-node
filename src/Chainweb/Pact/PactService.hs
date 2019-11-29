@@ -39,7 +39,8 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception (SomeAsyncException)
+import Control.DeepSeq
+import Control.Exception (SomeAsyncException, evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -1078,17 +1079,18 @@ toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do
+    vtrans <- fmap V.fromList $
+              mapM toCWTransaction $
+              toList (_payloadDataTransactions plData)
+    let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
+        let ls = map T.pack theLefts
         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
-            <> (T.intercalate ". " $ T.pack <$> theLefts)
-    return $! V.fromList (rights eithers)
+            <> (T.intercalate ". " ls)
+    return $! V.fromList theRights
   where
-    toCWTransaction bs = codecDecode chainwebPayloadCodec bs
-    !transSeq = _payloadDataTransactions plData
-    !transList = toList transSeq
-    !bytes = _transactionBytes <$!> transList
-    !eithers = toCWTransaction <$!> bytes
-    theLefts = lefts eithers
+    toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
+                                          _transactionBytes bs))
 
 execPreInsertCheckReq
     :: PayloadCas cas
