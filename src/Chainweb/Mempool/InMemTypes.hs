@@ -33,13 +33,16 @@ import qualified Data.Vector as V
 
 import GHC.Generics
 
+import Pact.Types.Gas (GasLimit(..), GasPrice(..))
+
 -- internal imports
 
 import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 
 ------------------------------------------------------------------------------
-type PendingMap = HashMap TransactionHash SB.ShortByteString
+type PendingEntry = T3 GasPrice GasLimit SB.ShortByteString
+type PendingMap = HashMap TransactionHash PendingEntry
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.

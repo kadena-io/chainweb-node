@@ -268,7 +268,7 @@ instance ToParamSchema ChainwebVersion where
             , PowConsensus petersonChainGraph
             , TimedCPM petersonChainGraph
             , Development
-            , Testnet03
+            , Testnet04
             , Mainnet01
             ])
 
@@ -285,7 +285,7 @@ instance ToSchema ChainId where
     declareNamedSchema _ = pure . NamedSchema (Just "ChainId") $ mempty
         & description ?~ "Unique identifier for a Chainweb Chain"
         & type_ .~ Just SwaggerInteger
-        & example ?~ toJSON (someChainId Testnet03)
+        & example ?~ toJSON (someChainId Testnet04)
 
 instance ToSchema PeerId where
     declareNamedSchema _ = declareNamedSchema (Proxy @V4.UUID)
@@ -441,7 +441,7 @@ instance ToSchema ChainwebVersion where
     declareNamedSchema _ = pure . NamedSchema (Just "ChainwebVersion") $ mempty
         & description ?~ "Unique identifier for a Chainweb network"
         & type_ .~ Just SwaggerString
-        & example ?~ toJSON Testnet03
+        & example ?~ toJSON Testnet04
 
 instance ToSchema MerkleLogHash where
     declareNamedSchema _ = pure $ NamedSchema (Just "MerkleLogHash") mempty
