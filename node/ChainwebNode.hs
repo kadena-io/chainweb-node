@@ -43,8 +43,10 @@ module Main
 import Configuration.Utils hiding (Error)
 import Configuration.Utils.Validation (validateFilePath)
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
+import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Error.Class (throwError)
@@ -54,6 +56,7 @@ import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
+import Data.Time
 import Data.Typeable
 
 import GHC.Generics hiding (from)
@@ -428,6 +431,52 @@ mkTelemetryLogger mgr = configureHandler
     $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
+-- Kill Switch
+
+newtype KillSwitch = KillSwitch T.Text
+
+instance Show KillSwitch where
+    show (KillSwitch t) = "kill switch triggered: " <> T.unpack t
+
+instance Exception KillSwitch where
+    fromException = asyncExceptionFromException
+    toException = asyncExceptionToException
+
+withKillSwitch
+    :: (LogLevel -> T.Text -> IO ())
+    -> Maybe UTCTime
+    -> IO a
+    -> IO a
+withKillSwitch _ Nothing inner = inner
+withKillSwitch lf (Just t) inner = race timer inner >>= \case
+    Left () -> error "Kill switch thread terminated unexpectedly"
+    Right a -> return a
+  where
+    timer = do
+        runForever lf "KillSwitch" $ do
+            now <- getCurrentTime
+            when (now >= t) $ do
+                lf Error killMessage
+                throw $ KillSwitch killMessage
+
+            let w = diffUTCTime t now
+            let micros = round $ w * 1000000
+            lf Warn warning
+            threadDelay $ min (10 * 60 * 1000000) micros
+
+    warning :: T.Text
+    warning = T.concat
+        [ "This version of chainweb node will stop to work at " <> sshow t <> "."
+        , " Please upgrade to a new version before that date."
+        ]
+
+    killMessage :: T.Text
+    killMessage = T.concat
+        [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
+        , " Please upgrade to a new version."
+        ]
+
+-- -------------------------------------------------------------------------- --
 -- Encode Package Info into Log mesage scopes
 
 pkgInfoScopes :: [(T.Text, T.Text)]
@@ -443,6 +492,11 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
+-- KILLSWITCH 2020-01-15T00:00:00Z for version 1.1
+--
+killSwitchDate :: Maybe String
+killSwitchDate = Just "2020-01-15T00:00:00Z"
+
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
@@ -453,4 +507,9 @@ mainInfo = programInfoValidate
 main :: IO ()
 main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
-    withNodeLogger (_nodeConfigLog conf) v $ node conf
+    withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
+        kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
+        withKillSwitch (logFunctionText logger) kt $
+            node conf logger
+  where
+    timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
