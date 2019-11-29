@@ -93,6 +93,7 @@ module Chainweb.Pact.Backend.Types
     , psMinerRewards
     , psGasModel
     , psInitCache
+    , psEnableUserContracts
     ) where
 
 import Control.Exception
@@ -322,6 +323,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
+    , _psEnableUserContracts :: !Bool
     }
 
 instance CW.HasChainwebVersion (PactServiceEnv c) where

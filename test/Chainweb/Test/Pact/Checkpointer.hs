@@ -192,7 +192,8 @@ checkpointerTest name initdata =
                   execMsg <- buildExecParsedCode eData eCode
 
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0 (RequestKey h') 0
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
                       cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
                   evalTransactionM cmdenv cmdst $
@@ -204,7 +205,8 @@ checkpointerTest name initdata =
                   let contMsg = ContMsg pactId step False Null Nothing
 
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
-                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def noSPVSupport Nothing 0.0 (RequestKey h') 0
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
                       cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
                   evalTransactionM cmdenv cmdst $

@@ -24,7 +24,7 @@ import Control.Concurrent.STM.TVar
     (TVar, modifyTVar', readTVar, readTVarIO, registerDelay)
 import Control.Lens (over, view)
 import Control.Monad (when)
-import Control.Monad.Catch (bracket)
+import Control.Monad.Catch (bracket, try)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
@@ -65,7 +65,7 @@ import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Utils (runGet, suncurry3)
+import Chainweb.Utils (EncodingException(..), runGet, suncurry3)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -115,15 +115,21 @@ workHandler' mr mcid m = do
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
 solvedHandler
-    :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> IO NoContent
+    :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> Handler NoContent
 solvedHandler mr (HeaderBytes hbytes) = do
-    ms <- readTVarIO tms
-    bh <- runGet decodeBlockHeaderWithoutHash hbytes
-    publish lf ms (_coordCutDb mr) bh
-    let !phash = _blockPayloadHash bh
-        !bct = _blockCreationTime bh
-    atomically . modifyTVar' tms . over _Unwrapped $ M.delete (T2 bct phash)
-    pure NoContent
+    ms <- liftIO $ readTVarIO tms
+    liftIO (try $ runGet decodeBlockHeaderWithoutHash hbytes) >>= \case
+        Left (DecodeException e) -> do
+            let err = TL.encodeUtf8 $ TL.fromStrict e
+            throwError err400 { errBody = "Decoding error: " <> err }
+        Left _ ->
+            throwError err400 { errBody = "Unexpected encoding exception" }
+        Right bh -> liftIO $ do
+            publish lf ms (_coordCutDb mr) bh
+            let !phash = _blockPayloadHash bh
+                !bct = _blockCreationTime bh
+            atomically . modifyTVar' tms . over _Unwrapped $ M.delete (T2 bct phash)
+            pure NoContent
   where
     tms :: TVar MiningState
     tms = _coordState mr
@@ -190,10 +196,7 @@ miningServer
     .  Logger l
     => MiningCoordination l cas
     -> Server (MiningApi v)
-miningServer mr =
-    workHandler mr
-    :<|> liftIO . solvedHandler mr
-    :<|> updatesHandler mr
+miningServer mr = workHandler mr :<|> solvedHandler mr :<|> updatesHandler mr
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
 someMiningServer (FromSing (SChainwebVersion :: Sing vT)) mr =
