@@ -653,6 +653,7 @@ executable chainweb-node
         , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
+        , time >= 1.8
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
