@@ -286,7 +286,7 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
 -- new `ChainwebVersion` value!
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Development = "development"
-chainwebVersionToText Testnet04 = "testnet03"
+chainwebVersionToText Testnet04 = "testnet04"
 chainwebVersionToText Mainnet01 = "mainnet01"
 chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
@@ -297,7 +297,7 @@ chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "development" = pure Development
-chainwebVersionFromText "testnet03" = pure Testnet04
+chainwebVersionFromText "testnet04" = pure Testnet04
 chainwebVersionFromText "mainnet01" = pure Mainnet01
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
@@ -328,7 +328,7 @@ chainwebVersions = HM.fromList $
     <> f TimedCPM "timedCPM"
     <> f FastTimedCPM "fastTimedCPM"
     <> [ ("development", Development)
-       , ("testnet03", Testnet04)
+       , ("testnet04", Testnet04)
        , ("mainnet01", Mainnet01)
        ]
   where
