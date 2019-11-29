@@ -39,7 +39,8 @@ module Chainweb.Pact.PactService
 ------------------------------------------------------------------------------
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
-import Control.Exception (SomeAsyncException)
+import Control.DeepSeq
+import Control.Exception (SomeAsyncException, evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -117,7 +118,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), txEnabledDate)
+import Chainweb.Version (ChainwebVersion(..), txEnabledDate, enableUserContracts)
 import Data.CAS (casLookupM)
 
 
@@ -191,7 +192,7 @@ initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb act = do
           !gasModel = tableGasModel defaultGasConfig
           !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
 
-      let !pse = PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
+      let !pse = PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs (enableUserContracts ver)
           !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
 
       evalPactServiceM pst pse act
@@ -229,7 +230,7 @@ initialPayloadState v@FastTimedCPM{} cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
 initialPayloadState v@Development cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Testnet03 cid =
+initialPayloadState v@Testnet04 cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
 initialPayloadState v@Mainnet01 cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
@@ -543,7 +544,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         pd <- mkPublicData' (publicMetaOf cmd) ph
         spv <- pactSPV <$> view psBlockHeaderDb <*> pure ph
-        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl
+        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
@@ -697,6 +698,8 @@ execNewBlock mpAccess parentHeader miner creationTime =
   do
     updateMempool
     withDiscardedBatch $ do
+      -- set block data for attempted gas buy
+      setBlockData parentHeader
       rewindTo newblockRewindLimit target
       -- set tx block state data
       newTrans <- withCheckpointer target "preBlock" doPreBlock
@@ -732,9 +735,6 @@ execNewBlock mpAccess parentHeader miner creationTime =
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
-
-        -- set block data service state
-        setBlockData parentHeader
 
         -- Reject bad coinbase transactions in new block.
         results <- execTransactions (Just pHash) miner newTrans (EnforceCoinbaseFailure True) pdbenv
@@ -801,12 +801,15 @@ execLocal cmd = withDiscardedBatch $ do
                        (Just !p) -> return p
     let target = Just (succ bhe, bhash)
     bhDb <- asks _psBlockHeaderDb
+
+    parentHeader <- liftIO $! lookupM bhDb bhash
+
     -- NOTE: On local calls, there might be code which needs the results of
     -- (chain-data). In such a case, the function `setBlockData` provides the
     -- necessary information for this call to return sensible values.
-    parentHeader <- liftIO $! lookupM bhDb bhash
+    setBlockData parentHeader
+
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
-        setBlockData parentHeader
         PactServiceEnv{..} <- ask
         mc <- use psInitCache
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
@@ -1054,13 +1057,14 @@ applyPactCmd
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     logger <- view (psCheckpointEnv . cpeLogger)
     gasModel <- view psGasModel
+    excfg <- view psEnableUserContracts
 
     T2 result mcache' <- if isGenesis
       then liftIO $! applyGenesisCmd logger dbEnv def P.noSPVSupport (payloadObj <$> cmdIn)
       else do
         pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
-        liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache
+        liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
 
     when isGenesis $
       psInitCache <>= mcache'
@@ -1076,17 +1080,18 @@ toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
 
 transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
 transactionsFromPayload plData = do
+    vtrans <- fmap V.fromList $
+              mapM toCWTransaction $
+              toList (_payloadDataTransactions plData)
+    let (theLefts, theRights) = partitionEithers $ V.toList vtrans
     unless (null theLefts) $ do
+        let ls = map T.pack theLefts
         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
-            <> (T.intercalate ". " $ T.pack <$> theLefts)
-    return $! V.fromList (rights eithers)
+            <> (T.intercalate ". " ls)
+    return $! V.fromList theRights
   where
-    toCWTransaction bs = codecDecode chainwebPayloadCodec bs
-    !transSeq = _payloadDataTransactions plData
-    !transList = toList transSeq
-    !bytes = _transactionBytes <$!> transList
-    !eithers = toCWTransaction <$!> bytes
-    theLefts = lefts eithers
+    toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
+                                          _transactionBytes bs))
 
 execPreInsertCheckReq
     :: PayloadCas cas

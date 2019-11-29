@@ -395,7 +395,7 @@ testPactCtx v cid bhdb pdb = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs)
+        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
@@ -417,7 +417,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-      <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs)
+      <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
@@ -545,7 +545,7 @@ withPactCtxSQLite v bhdbIO pdbIO f =
           t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs)
+        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True)
       evalPactServiceM_ ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 

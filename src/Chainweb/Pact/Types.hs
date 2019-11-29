@@ -48,6 +48,7 @@ module Chainweb.Pact.Types
   , txNetworkId
   , txGasPrice
   , txRequestKey
+  , txExecutionConfig
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -63,6 +64,7 @@ module Chainweb.Pact.Types
   , psBlockHeaderDb
   , psGasModel
   , psMinerRewards
+  , psEnableUserContracts
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -83,6 +85,11 @@ module Chainweb.Pact.Types
 
     -- * types
   , ModuleCache
+
+  -- * Execution config
+  , restrictiveExecutionConfig
+  , permissiveExecutionConfig
+  , justInstallsExecutionConfig
   ) where
 
 import Control.Lens hiding ((.=))
@@ -110,7 +117,7 @@ import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.Persistence (TxLog, ExecutionMode)
-import Pact.Types.Runtime (ModuleData)
+import Pact.Types.Runtime (ModuleData, ExecutionConfig(..))
 import Pact.Types.SPV
 import Pact.Types.Term (PactId(..), Ref)
 
@@ -141,6 +148,16 @@ data PactDbStatePersist = PactDbStatePersist
     }
 makeLenses ''PactDbStatePersist
 
+-- | No installs or history
+restrictiveExecutionConfig :: ExecutionConfig
+restrictiveExecutionConfig = ExecutionConfig False False
+
+permissiveExecutionConfig :: ExecutionConfig
+permissiveExecutionConfig = ExecutionConfig True True
+
+-- | Only allow installs
+justInstallsExecutionConfig :: ExecutionConfig
+justInstallsExecutionConfig = ExecutionConfig True False
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -186,6 +203,7 @@ data TransactionEnv db = TransactionEnv
     , _txGasPrice :: !GasPrice
     , _txRequestKey :: !RequestKey
     , _txGasLimit :: !Gas
+    , _txExecutionConfig :: !ExecutionConfig
     }
 makeLenses ''TransactionEnv
 
@@ -261,6 +279,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
+    , _psEnableUserContracts :: !Bool
     }
 makeLenses ''PactServiceEnv
 

@@ -51,8 +51,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Text.Encoding (encodeUtf8)
-import Data.Thyme.Clock
-import Data.Thyme.Calendar
 
 import NeatInterpolation
 
