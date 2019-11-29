@@ -23,6 +23,8 @@ module Chainweb.BlockHeader.Genesis
   , genesisParentBlockHash
   , genesisBlockTarget
   , genesisTime
+    -- * No-op payloads
+  , emptyPayload
   ) where
 
 import Control.Arrow ((&&&))
@@ -57,12 +59,12 @@ import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Pact.Types (emptyPayload)
+import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Time
+import Chainweb.Utils
 import Chainweb.Version
 
----
 
 -- -------------------------------------------------------------------------- --
 -- Genesis BlockHeader
@@ -86,6 +88,16 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 --
 genesisBlockTarget :: HashTarget
 genesisBlockTarget = maxTarget
+
+-- | Empty payload marking no-op transaction payloads for deprecated
+-- versions.
+--
+emptyPayload :: PayloadWithOutputs
+emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
+  where
+    (BlockPayload h i o) = newBlockPayload miner coinbase mempty
+    miner = MinerData $ encodeToByteString noMiner
+    coinbase = CoinbaseOutput $ encodeToByteString noCoinbase
 
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.

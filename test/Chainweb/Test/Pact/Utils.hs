@@ -51,7 +51,7 @@ module Chainweb.Test.Pact.Utils
 , PactTransaction(..)
 , testPactCtx
 , destroyTestPactCtx
-, evalPactServiceM
+, evalPactServiceM_
 , withPactCtx
 , withPactCtxSQLite
 , testWebPactExecutionService
@@ -68,11 +68,8 @@ module Chainweb.Test.Pact.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.State.Strict
-import Control.Monad.Trans.Reader
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
@@ -86,6 +83,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 import Data.Text.Encoding
 import qualified Data.Text.IO as T
+import Data.Tuple.Strict
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -123,7 +121,6 @@ import Pact.Types.Util (toB16Text)
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
-import Chainweb.ChainId (chainIdToText)
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -135,6 +132,7 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Utils
@@ -376,9 +374,9 @@ data PactTransaction = PactTransaction
   , _pactData :: Maybe Value
   } deriving (Eq, Show)
 
-evalPactServiceM :: TestPactCtx cas -> PactServiceM cas a -> IO a
-evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
-    (a,s') <- runStateT (runReaderT pact (_testPactCtxEnv ctx)) s
+evalPactServiceM_ :: TestPactCtx cas -> PactServiceM cas a -> IO a
+evalPactServiceM_ ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
+    T2 a s' <- runPactServiceM s (_testPactCtxEnv ctx) pact
     return (s',a)
 
 destroyTestPactCtx :: TestPactCtx cas -> IO ()
@@ -394,15 +392,16 @@ testPactCtx
 testPactCtx v cid bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
+        t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
-        <$> newMVar (PactServiceState Nothing mempty)
-        <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb (constGasModel 0) rs)
-    evalPactServiceM ctx (initialPayloadState v cid)
+        <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs)
+    evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-    pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+
 
 testPactCtxSQLite
   :: PayloadCas cas
@@ -415,15 +414,16 @@ testPactCtxSQLite
 testPactCtxSQLite v cid bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
+        t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
-      <$> newMVar (PactServiceState Nothing mempty)
-      <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb (constGasModel 0) rs)
-    evalPactServiceM ctx (initialPayloadState v cid)
+      <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+      <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs)
+    evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
-    pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+
 
 -- | A test PactExecutionService for a single chain
 --
@@ -442,9 +442,9 @@ testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p t -> evalPactServiceM ctx $ execNewBlock mempoolAccess p m t
+        { _pactNewBlock = \m p t -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m t
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock h d
+            evalPactServiceM_ ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         , _pactLookup = error
@@ -493,7 +493,7 @@ withPactCtx v bhdbIO pdbIO f =
     withResource start destroyTestPactCtx $
     \ctxIO -> f $ \pact -> do
         ctx <- ctxIO
-        evalPactServiceM ctx pact
+        evalPactServiceM_ ctx pact
   where
     start = do
         bhdb <- bhdbIO
@@ -529,23 +529,24 @@ withPactCtxSQLite v bhdbIO pdbIO f =
     freeSQLiteResource $ \io -> do
       withResource (start io) (destroy io) $ \ctxIO -> f $ \toPact -> do
           (ctx, dbSt) <- ctxIO
-          evalPactServiceM ctx (toPact dbSt)
+          evalPactServiceM_ ctx (toPact dbSt)
   where
     destroy = const (destroyTestPactCtx . fst)
     start ios = do
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
           cid = someChainId v
-          pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios
       (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
       let rs = readRewards v
+          t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
       !ctx <- TestPactCtx
-        <$!> newMVar (PactServiceState Nothing mempty)
-        <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb (constGasModel 0) rs)
-      evalPactServiceM ctx (initialPayloadState v cid)
+        <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs)
+      evalPactServiceM_ ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
