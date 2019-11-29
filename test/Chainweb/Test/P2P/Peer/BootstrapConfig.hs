@@ -41,10 +41,10 @@ bootstrapPeerConfig v@TimedCPM{} = testBootstrapPeerConfig v
 bootstrapPeerConfig v@FastTimedCPM{} = testBootstrapPeerConfig v
 bootstrapPeerConfig Development = error
     $ "bootstrap peer config isn't defined for chainweb version Development"
-bootstrapPeerConfig Testnet03 = error
-    $ "bootstrap peer config isn't defined for chainweb version Testnet03"
+bootstrapPeerConfig Testnet04 = error
+    $ "bootstrap peer config isn't defined for chainweb version Testnet04"
 bootstrapPeerConfig Mainnet01 = error
-    $ "bootstrap peer config isn't defined for chainweb version Testnet03"
+    $ "bootstrap peer config isn't defined for chainweb version Testnet04"
 
 testBootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
 testBootstrapPeerConfig v =
@@ -73,8 +73,8 @@ bootstrapCertificate TimedCPM{} = testBootstrapCertificate
 bootstrapCertificate FastTimedCPM{} = testBootstrapCertificate
 bootstrapCertificate Development = error
     $ "bootstrap certificate isn't defined for chainweb version Development"
-bootstrapCertificate Testnet03 = error
-    $ "bootstrap certificate isn't defined for chainweb version Testnet03"
+bootstrapCertificate Testnet04 = error
+    $ "bootstrap certificate isn't defined for chainweb version Testnet04"
 bootstrapCertificate Mainnet01 = error
     $ "bootstrap certificate isn't defined for chainweb version Mainnet01"
 
@@ -135,8 +135,8 @@ bootstrapKey TimedCPM{} = testBootstrapKey
 bootstrapKey FastTimedCPM{} = testBootstrapKey
 bootstrapKey Development = error
     $ "bootstrap key isn't defined for chainweb version Development"
-bootstrapKey Testnet03 = error
-    $ "bootstrap key isn't defined for chainweb version Testnet03"
+bootstrapKey Testnet04 = error
+    $ "bootstrap key isn't defined for chainweb version Testnet04"
 bootstrapKey Mainnet01 = error
     $ "bootstrap key isn't defined for chainweb version Mainnet01"
 

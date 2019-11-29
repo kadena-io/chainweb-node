@@ -170,7 +170,7 @@ withChainResourcesStandalone
         TimedCPM{} -> mkPactExecutionService requestQ
         FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
-        Testnet03 -> mkPactExecutionService requestQ
+        Testnet04 -> mkPactExecutionService requestQ
         Mainnet01 -> mkPactExecutionService requestQ
 
 withChainwebInternalStandalone
