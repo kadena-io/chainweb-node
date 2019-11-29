@@ -22,17 +22,17 @@ import Data.Text (Text)
 
 import NeatInterpolation (text)
 
-import Pact.Gas (freeGasEnv)
+import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
+import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
-import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.SPV (noSPVSupport)
 
 import Test.Tasty
@@ -50,6 +50,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
+import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 
@@ -187,16 +188,30 @@ checkpointerTest name initdata =
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
+
                   execMsg <- buildExecParsedCode eData eCode
-                  applyExec' cmdenv defaultInterpreter execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+
+                  let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
+                      cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+
+                  evalTransactionM cmdenv cmdst $
+                    applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
 
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
-                  applyContinuation' cmdenv defaultInterpreter contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+
+                  let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
+                      cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+
+                  evalTransactionM cmdenv cmdst $
+                    applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
+
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------

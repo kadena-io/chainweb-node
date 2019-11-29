@@ -131,6 +131,10 @@ jobs:
       run: cabal v2-build --only-dependencies
     - name: Build
       run: cabal v2-build chainweb-node
+    - name: Run Tests
+      run: cabal v2-run chainweb-tests -- --hide-successes
+    - name: Run Benchmarks and Certificate Validation Tests
+      run: cabal v2-run cwtool -- slow-tests
     - name: Sync dist cache
       if: always() && (matrix.distcache == 'true')
       run: eval $SYNC_TO_DIST_CACHE
@@ -150,12 +154,18 @@ jobs:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: dist-newstyle/artifacts/applications
 
+    # Publish to S3
     - name: Publish applications to S3
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
-        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
         tar -C ./dist-newstyle/artifacts/applications/ -czf $BINFILE chainweb-node
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/
-        aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$BINFILE --acl public-read
+    - name: Link latest-build application in S3
+      if: contains(github.ref, 'master')
+      run: |
+        export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
+        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
+        aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$LATEST_BINFILE --acl public-read
+

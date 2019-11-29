@@ -48,7 +48,7 @@ module Chainweb.Chainweb
 , defaultTransactionIndexConfig
 , pTransactionIndexConfig
 
--- * Configuration
+-- * Chainweb Configuration
 , ChainwebConfiguration(..)
 , configNodeId
 , configChainwebVersion
@@ -58,6 +58,7 @@ module Chainweb.Chainweb
 , configP2p
 , configTransactionIndex
 , configBlockGasLimit
+, configThrottling
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -93,7 +94,6 @@ module Chainweb.Chainweb
 , runMiner
 
 -- * Throttler
-, ThrottlingConfig(..)
 , mkGenericThrottler
 , mkMiningThrottler
 , mkPutPeerThrottler
@@ -101,8 +101,19 @@ module Chainweb.Chainweb
 , checkPathPrefix
 , mkThrottler
 
+, ThrottlingConfig(..)
+, throttlingRate
+, throttlingLocalRate
+, throttlingMiningRate
+, throttlingPeerRate
+, defaultThrottlingConfig
+
 -- * Cut Config
 , CutConfig(..)
+, cutIncludeOrigin
+, cutPruneChainDatabase
+, cutFetchTimeout
+, cutInitialCutHeightLimit
 , defaultCutConfig
 ) where
 
@@ -117,7 +128,6 @@ import Control.Monad
 import Control.Monad.Catch (throwM)
 
 import Data.Align (alignWith)
-import qualified Data.ByteString.Short as SB
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
@@ -138,6 +148,8 @@ import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Throttle
 
+import Numeric.Natural (Natural)
+
 import Prelude hiding (log)
 
 import System.Clock
@@ -148,7 +160,6 @@ import System.LogLevel
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Hash as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
@@ -169,7 +180,6 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
-import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -236,7 +246,7 @@ makeLenses ''ThrottlingConfig
 defaultThrottlingConfig :: ThrottlingConfig
 defaultThrottlingConfig = ThrottlingConfig
     { _throttlingRate = 50 -- per second
-    , _throttlingMiningRate = 2 --  per second
+    , _throttlingMiningRate = 5 --  per second
     , _throttlingPeerRate = 11 -- per second, one for each p2p network
     , _throttlingLocalRate = 0.1  -- per 10 seconds
     }
@@ -302,6 +312,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configThrottling :: !ThrottlingConfig
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
+    , _configPactQueueSize :: !Natural
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -330,7 +341,8 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 100_000
+    , _configBlockGasLimit = 1_000_000 --TODO determine default for 1.1 rollout
+    , _configPactQueueSize = 2000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -346,6 +358,7 @@ instance ToJSON ChainwebConfiguration where
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
         , "blockGasLimit" .= _configBlockGasLimit o
+        , "pactQueueSize" .= _configPactQueueSize o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -361,6 +374,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "blockGasLimit" % o
+        <*< configPactQueueSize ..: "pactQueueSize" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -386,6 +400,9 @@ pChainwebConfiguration = id
     <*< configBlockGasLimit .:: jsonOption
         % long "block-gas-limit"
         <> help "the sum of all transaction gas fees in a block must not exceed this number"
+    <*< configPactQueueSize .:: jsonOption
+        % long "pact-queue-size"
+        <> help "max size of pact internal queue"
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -474,9 +491,6 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     txcfg = Mempool.chainwebTransactionConfig
     maxRecentLog = 2048
 
-    toDupeResult :: Maybe a -> Maybe Mempool.InsertError
-    toDupeResult = fmap (const Mempool.InsertErrorDuplicate)
-
     preInsertSingle :: ChainwebTransaction -> Either Mempool.InsertError ChainwebTransaction
     preInsertSingle tx = checkMetadata tx
 
@@ -494,17 +508,15 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
         -> IO (V.Vector (Either (T2 Mempool.TransactionHash Mempool.InsertError)
                                 (T2 Mempool.TransactionHash ChainwebTransaction)))
     preInsertBatch txs = do
-        let hashes = V.map (toPactHash . sfst) txs
         pex <- readMVar mv
-        rs <- _pactLookup pex (NoRewind cid) hashes >>= either throwM pure
+        rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
         pure $ alignWith f rs txs
       where
-        f (These r (T2 h t)) = maybe (Right (T2 h t)) (Left . T2 h) $ toDupeResult r
+        f (These r (T2 h t)) = case r of
+                                 Left e -> Left (T2 h e)
+                                 Right _ -> Right (T2 h t)
         f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
         f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
-
-    toPactHash :: Mempool.TransactionHash -> P.TypedHash h
-    toPactHash (Mempool.TransactionHash h) = P.TypedHash $ SB.fromShort h
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
@@ -543,7 +555,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg cdbv payloadDb prune dbDir nodeid
-                     resetDb)
+                     resetDb (_configPactQueueSize conf))
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
@@ -774,16 +786,8 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    -- | KILLSWITCH: The logic here involving `txSilenceEndDate` here is to be
-    -- removed in a future version of Chain. This disables the Mempool API
-    -- entirely during the TX blackout period.
-    --
-    mempoolsToServe
-        :: ChainwebVersion
-        -> [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
-    mempoolsToServe v = case txSilenceEndDate v of
-        Just _ -> []
-        _ -> proj _chainResMempool
+    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
+    mempoolsToServe = proj _chainResMempool
 
     chainP2pToServe :: [(NetworkId, PeerDb)]
     chainP2pToServe =
@@ -814,7 +818,7 @@ runChainweb cw = do
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe (_chainwebVersion cw)
+            , _chainwebServerMempools = mempoolsToServe
             , _chainwebServerPayloadDbs = payloadDbsToServe
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe
@@ -851,8 +855,8 @@ runChainweb cw = do
     mempoolP2pConfig :: EnableConfig MempoolP2pConfig
     mempoolP2pConfig = _configMempoolP2p $ _chainwebConfig cw
 
-    -- Decide whether to enable the mempool sync clients
-    -- | KILLSWITCH: Reenable the mempool sync for Mainnet.
+    -- | Decide whether to enable the mempool sync clients.
+    --
     mempoolSyncClients :: IO [IO ()]
     mempoolSyncClients = case enabledConfig mempoolP2pConfig of
         Nothing -> disabled
@@ -863,8 +867,8 @@ runChainweb cw = do
             TimedCPM{} -> enabled c
             FastTimedCPM{} -> enabled c
             Development -> enabled c
-            Testnet02 -> enabled c
-            Mainnet01 -> disabled
+            Testnet04 -> enabled c
+            Mainnet01 -> enabled c
       where
         disabled = do
             logg Info "Mempool p2p sync disabled"

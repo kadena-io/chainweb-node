@@ -25,6 +25,8 @@ import Data.List (sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
+import Numeric.Natural (Natural)
+
 import P2P.Node.Configuration
 import P2P.Peer
 
@@ -105,9 +107,12 @@ withChainResourcesStandalone
     -> Maybe NodeId
     -> Bool
       -- ^ reset database directory
+    -> Natural
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir nodeid resetDb inner =
+withChainResourcesStandalone
+  v cid rdb peer logger mempoolCfg0 cdbv payloadDb
+  prune dbDir nodeid resetDb pactQueueSize inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
         pexMv <- newEmptyMVar
         let mempoolCfg = mempoolCfg0 pexMv
@@ -116,7 +121,7 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
               withPactService' v cid (setComponent "pact" logger)
-                    mpa cdbv cdb payloadDb dbDir nodeid resetDb $
+                    mpa cdbv cdb payloadDb dbDir nodeid resetDb pactQueueSize $
                 \requestQ -> do
                       -- prune blockheader db
                       when prune $ do
@@ -165,7 +170,7 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
         TimedCPM{} -> mkPactExecutionService requestQ
         FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
-        Testnet02 -> mkPactExecutionService requestQ
+        Testnet04 -> mkPactExecutionService requestQ
         Mainnet01 -> mkPactExecutionService requestQ
 
 withChainwebInternalStandalone
@@ -187,7 +192,8 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
       (\cid -> do
           let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
           withChainResourcesStandalone v cid rocksDb peer (chainLogger cid)
-                mcfg cdbv payloadDb prune dbDir nodeid resetDb)
+                mcfg cdbv payloadDb prune dbDir nodeid
+                resetDb (_configPactQueueSize conf))
 
       -- initialize global resources after all chain resources are
       -- initialized

@@ -50,7 +50,7 @@ makeLenses ''MempoolP2pConfig
 defaultMempoolP2pConfig :: MempoolP2pConfig
 defaultMempoolP2pConfig = MempoolP2pConfig
     { _mempoolP2pConfigMaxSessionCount = 6
-    , _mempoolP2pConfigSessionTimeout = 120
+    , _mempoolP2pConfigSessionTimeout = 300
     , _mempoolP2pConfigPollInterval = 30
     }
 

@@ -198,7 +198,7 @@ chainweb-node --config-file=minimal-config.yaml
 
 ## Mine for a Chainweb Network
 
-Detailed mining instructions can be found in our [Mining Guide](https://github.com/kadena-io/chainweb-node/blob/master/miner/README.org).
+Detailed mining instructions can be found in our [Mining Guide](https://github.com/kadena-io/chainweb-miner/blob/master/README.org).
 
 ## Chainweb Design
 

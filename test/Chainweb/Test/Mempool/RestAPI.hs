@@ -22,7 +22,6 @@ import Chainweb.Graph
 import Chainweb.Logger (GenericLogger)
 import qualified Chainweb.Mempool.InMem as InMem
 import Chainweb.Mempool.InMemTypes (InMemConfig(..))
-import qualified Chainweb.Mempool.InMemTypes as InMem
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.RestAPI.Client as MClient
 import Chainweb.RestAPI
@@ -55,13 +54,12 @@ newTestServer :: IO TestServer
 newTestServer = mask_ $ do
     checkMv <- newMVar (pure . V.map Right)
     let inMemCfg = InMemConfig txcfg mockBlockGasLimit 2048 Right (checkMvFunc checkMv)
-    let blocksizeLimit = InMem._inmemTxBlockSizeLimit inMemCfg
     inmemMv <- newEmptyMVar
     envMv <- newEmptyMVar
     tid <- forkIOWithUnmask $ server inMemCfg inmemMv envMv
     inmem <- takeMVar inmemMv
     env <- takeMVar envMv
-    let remoteMp0 = MClient.toMempool version chain txcfg blocksizeLimit env
+    let remoteMp0 = MClient.toMempool version chain txcfg env
     -- allow remoteMp to call the local mempool's getBlock (for testing)
     let remoteMp = remoteMp0 { mempoolGetBlock = \a b c -> mempoolGetBlock inmem a b c }
     return $! TestServer remoteMp inmem checkMv tid

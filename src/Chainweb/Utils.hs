@@ -174,6 +174,8 @@ module Chainweb.Utils
 , suncurry
 , suncurry3
 , rwipe3
+, _T2
+, _T3
 
 -- * Approximate thread delays
 , approximateThreadDelay
@@ -1157,6 +1159,14 @@ suncurry3 k (T3 a b c) = k a b c
 rwipe3 :: T3 a b c -> T2 b c
 rwipe3 (T3 _ b c) = T2 b c
 {-# INLINE rwipe3 #-}
+
+_T2 :: Iso (T2 a b) (T2 s t) (a,b) (s,t)
+_T2 = iso (\(T2 a b) -> (a,b)) (uncurry T2)
+{-# INLINE _T2 #-}
+
+_T3 :: Iso (T3 a b c) (T3 s t u) (a,b,c) (s,t,u)
+_T3 = iso (\(T3 a b c) -> (a,b,c)) (\(a,b,c) -> T3 a b c)
+{-# INLINE _T3 #-}
 
 -- -------------------------------------------------------------------------- --
 -- Approximate thread delays

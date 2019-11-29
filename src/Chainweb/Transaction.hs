@@ -12,6 +12,8 @@ module Chainweb.Transaction
   , HashableTrans(..)
   , PayloadWithText
   , chainwebPayloadCodec
+  , encodePayload
+  , decodePayload
   , gasLimitOf
   , gasPriceOf
   , timeToLiveOf
@@ -96,10 +98,13 @@ instance Hashable (HashableTrans PayloadWithText) where
 chainwebPayloadCodec :: Codec (Command PayloadWithText)
 chainwebPayloadCodec = Codec enc dec
   where
-    enc c = encodeToByteString $ fmap (decodeUtf8 . SB.fromShort . _payloadBytes) c
+    enc c = encodeToByteString $ fmap (decodeUtf8 . encodePayload) c
     dec bs = case Aeson.decodeStrict' bs of
                Just cmd -> traverse (decodePayload . encodeUtf8) cmd
                Nothing -> Left "decode PayloadWithText failed"
+
+encodePayload :: PayloadWithText -> ByteString
+encodePayload = SB.fromShort . _payloadBytes
 
 decodePayload :: ByteString -> Either String PayloadWithText
 decodePayload bs = case Aeson.decodeStrict' bs of

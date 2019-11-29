@@ -44,6 +44,8 @@ import qualified Data.Text as T
 
 import qualified Network.HTTP.Client as HTTP
 
+import Numeric.Natural (Natural)
+
 import Prelude hiding (log)
 
 import System.LogLevel
@@ -125,16 +127,19 @@ withChainResources
     -> Maybe NodeId
     -> Bool
         -- ^ reset database directory
+    -> Natural
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResources v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir nodeid resetDb inner =
+withChainResources
+  v cid rdb peer logger mempoolCfg0 cdbv payloadDb
+  prune dbDir nodeid resetDb pactQueueSize inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdbv cdb
-                        payloadDb dbDir nodeid resetDb $ \requestQ -> do
+                        payloadDb dbDir nodeid resetDb pactQueueSize $ \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"
@@ -177,7 +182,7 @@ withChainResources v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir 
         TimedCPM{} -> mkPactExecutionService requestQ
         FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
-        Testnet02 -> mkPactExecutionService requestQ
+        Testnet04 -> mkPactExecutionService requestQ
         Mainnet01 -> mkPactExecutionService requestQ
 
 -- -------------------------------------------------------------------------- --
@@ -224,7 +229,7 @@ mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
     logg Debug "mempool sync session finished"
     return True
   where
-    peerMempool = MPC.toMempool v cid txcfg gaslimit env
+    peerMempool = MPC.toMempool v cid txcfg env
 
     -- FIXME Potentially dangerous down-cast.
     syncIntervalUs :: Int
@@ -235,6 +240,5 @@ mempoolSyncP2pSession chain (Seconds pollInterval) logg0 env _ = do
 
     pool = _chainResMempool chain
     txcfg = Mempool.mempoolTxConfig pool
-    gaslimit = Mempool.mempoolBlockGasLimit pool
     cid = _chainId chain
     v = _chainwebVersion chain

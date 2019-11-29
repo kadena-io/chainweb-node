@@ -47,7 +47,9 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
+import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Text.Encoding (encodeUtf8)
 import Data.Thyme.Clock
 import Data.Thyme.Calendar
@@ -72,6 +74,7 @@ import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
+import Pact.Types.Hash (Hash)
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
@@ -92,6 +95,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Transaction
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -157,9 +161,6 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "genesis allocations" $
                 testGroup "caplistTests"
                 [ caplistTest iot net ]
-              , after AllSucceed "caplist tests" $
-                testGroup "gasBuyingErrors"
-                [ invalidBuyGasTest iot net ]
               ]
     ]
 
@@ -179,14 +180,10 @@ localTest iot nio = do
     SubmitBatch batch <- testBatch iot mv
     let cmd = head $ toList batch
     sid <- mkChainId v (0 :: Int)
-    res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
-    checkCommandResult res
-  where
-    checkCommandResult (Left e) = throwM $ LocalFailure (show e)
-    checkCommandResult (Right cr) =
-        let (PactResult e) = _crResult cr
-        in assertEqual "expect /local to succeed and return 3" e
-                       (Right (PLiteral $ LDecimal 3))
+    res <- local sid cenv cmd
+    let (PactResult e) = _crResult res
+    assertEqual "expect /local to return gas for tx" (_crGas res) 5
+    assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
 localChainDataTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
@@ -245,18 +242,45 @@ sendValidationTest iot nio =
         expectSendFailure $ flip runClientM cenv $ do
             pactSendApiClient v sid batch3
 
-  where
-    expectSendFailure act = do
-        m <- (wrap `catch` h)
-        maybe (return ()) (\msg -> assertBool msg False) m
-      where
-        wrap = do
-            let ef out = Just ("expected exception on bad tx, got: "
-                               <> show out)
-            act >>= return . either (const Nothing) ef
+        step "check insufficient gas"
+        (SubmitBatch batch4) <- testBatch' iot 10000 mv
+        let b4 = SubmitBatch $ fmap mungeGasPrice batch4
+        expectSendFailure $ flip runClientM cenv $
+            pactSendApiClient v sid b4
 
-        h :: SomeException -> IO (Maybe String)
-        h _ = return Nothing
+        step "check bad sender"
+        batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
+        expectSendFailure $ flip runClientM cenv $
+            pactSendApiClient v sid batch5
+
+  where
+    mkBadGasTxBatch code senderName senderKeyPair capList = do
+      ks <- testKeyPairs senderKeyPair capList
+      t <- toTxCreationTime <$> iot
+      let ttl = 2 * 24 * 60 * 60
+          pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
+      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
+      cmds <- mapM cmd (0 NEL.:| [1..5])
+      return $ SubmitBatch cmds
+
+    decodeOne = either error id . decodePayload . encodeUtf8
+    mungeGasPrice = fmap (T.decodeUtf8 . encodePayload . mungePayload . decodeOne)
+      where
+        mungePayload =
+            modifyPayloadWithText (set (pMeta . Pact.pmGasPrice) 10000000000)
+
+expectSendFailure :: Show a => IO (Either b a) -> IO ()
+expectSendFailure act = do
+    m <- (wrap `catch` h)
+    maybe (return ()) (\msg -> assertBool msg False) m
+  where
+    wrap = do
+        let ef out = Just ("expected exception on bad tx, got: "
+                           <> show out)
+        act >>= return . either (const Nothing) ef
+
+    h :: SomeException -> IO (Maybe String)
+    h _ = return Nothing
 
 
 spvTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -315,7 +339,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     cenv <- fmap _getClientEnv nio
     sid <- mkChainId v (0 :: Int)
 
-    let run batch expectation = flip runClientM cenv $ do
+    let runSend batch expectation = flip runClientM cenv $ do
           void $ liftIO $ step "sendApiClient: submit transaction"
           rks <- liftIO $ sending sid cenv batch
 
@@ -323,31 +347,40 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
           (PollResponses resp) <- liftIO $ polling sid cenv rks expectation
           return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
 
+    let runLocal (SubmitBatch cmds) = do
+          void $ step "localApiClient: submit transaction"
+          local sid cenv (head $ toList cmds)
+
     -- batch with big tx and insufficient gas
     batch0 <- mkTxBatch txcode0 A.Null 1
 
     -- batch to test that gas for tx size discounted from the total gas supply
-    batch1 <- mkTxBatch txcode1 A.Null 4
+    batch1 <- mkTxBatch txcode1 A.Null 5
 
-    res0 <- run batch0 ExpectPactError
-    res1 <- run batch1 ExpectPactError
+    res0Send <- runSend batch0 ExpectPactError
+    res1Send <- runSend batch1 ExpectPactError
+
+    res0Local <- runLocal batch0
+    res1Local <- runLocal batch1
 
     void $ liftIO $ step "when tx too big, gas pact error thrown"
-    case res0 of
+    assertEqual "LOCAL: expect gas error for big tx" gasError0 (Just $ resultOf res0Local)
+    case res0Send of
       Left e -> assertFailure $ "test failure for big tx with insuffient gas: " <> show e
-      Right cr -> assertEqual "expect gas error for big tx" gasError0 (resultOf <$> cr)
+      Right cr -> assertEqual "SEND: expect gas error for big tx" gasError0 (resultOf <$> cr)
 
     void $ liftIO $ step "discounts initial gas charge from gas available for pact execution"
-    case res1 of
+    assertEqual "LOCAL: expect gas error after discounting initial gas charge" gasError1 (Just $ resultOf res1Local)
+    case res1Send of
       Left e -> assertFailure $ "test failure for discounting initial gas charge: " <> show e
-      Right cr -> assertEqual "expect gas error after discounting initial gas charge" gasError1 (resultOf <$> cr)
+      Right cr -> assertEqual "SEND: expect gas error after discounting initial gas charge" gasError1 (resultOf <$> cr)
 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Tx too big (3), limit 1"
+      Pact.PactError Pact.GasError def [] "Tx too big (4), limit 1"
     gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (1) exceeded: 2"
+      Pact.PactError Pact.GasError def [] "Gas limit (5) exceeded: 6"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair Nothing
@@ -359,42 +392,6 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
     txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
     txcode1 = txcode0 <> "(identity 1)"
-
-
-invalidBuyGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
-invalidBuyGasTest iot nio = testCaseSteps "invalid buy gas transactions tests" $ \step -> do
-    cenv <- fmap _getClientEnv nio
-    sid <- mkChainId v (0 :: Int)
-
-    let run batch expectation = flip runClientM cenv $ do
-          void $ liftIO $ step "sendApiClient: submit transaction"
-          rks <- liftIO $ sending sid cenv batch
-
-          void $ liftIO $ step "pollApiClient: polling for request key"
-          (PollResponses resp) <- liftIO $ polling sid cenv rks expectation
-
-          return (HashMap.lookup (NEL.head $ _rkRequestKeys rks) resp)
-
-    -- batch with incorrect sender
-    batch0 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
-    res0 <- catches (Right <$> run batch0 ExpectPactResult)
-      [ Handler (\(e :: PactTestFailure) -> return $ Left e) ]
-
-    void $ liftIO $ step "tx signed with incorrect sender should fail buy gas validation"
-    case res0 of
-      Left (PollingFailure s) -> assertEqual "tx with incorrect sender" "polling check failed" s
-      Left e -> assertFailure $ "test failure for tx with incorrect sender: " <> show e
-      Right cr -> assertFailure $ "test failure for tx with incorrect sender: " <> show cr
-
-  where
-    mkBadGasTxBatch code senderName senderKeyPair capList = do
-      ks <- testKeyPairs senderKeyPair capList
-      t <- toTxCreationTime <$> iot
-      let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
-      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
-      cmds <- mapM cmd (0 NEL.:| [1..5])
-      return $ SubmitBatch cmds
 
 
 caplistTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -465,7 +462,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       void $ liftIO $ polling sid cenv rks0 ExpectPactResult
 
       testCaseStep "localApiClient: submit local account balance request"
-      pactLocalApiClient v sid $ head (toList batch1)
+      liftIO $ local sid cenv $ head (toList batch1)
 
     case p of
       Left e -> assertFailure $ "test failure: " <> show e
@@ -517,7 +514,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       SubmitBatch batch2 <- liftIO
         $ mkSingletonBatch iot allocation02KeyPair' tx5 n5 (pm "allocation02") Nothing
 
-      pactLocalApiClient v sid $ head (toList batch2)
+      liftIO $ local sid cenv $ head (toList batch2)
 
     case r of
       Left e -> assertFailure $ "test failure: " <> show e
@@ -537,7 +534,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099938.51) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1099995.84) -- balance = (1k + 1mm) - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
@@ -562,7 +559,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099918.43) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1099995.13) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
         ]
 
@@ -607,6 +604,29 @@ getClientEnv url = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
     mgr <- HTTP.newTlsManagerWith mgrSettings
     return $ mkClientEnv mgr url
+
+-- | Calls to /local via the pact local api client with retry
+--
+local
+    :: ChainId
+    -> ClientEnv
+    -> Command Text
+    -> IO (CommandResult Hash)
+local sid cenv cmd =
+    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+      debug
+        $ "requesting local cmd for " <> (take 18 $ show cmd)
+        <> " [" <> show (view rsIterNumberL s) <> "]"
+
+      -- send a single spv request and return the result
+      --
+      runClientM (pactLocalApiClient v sid cmd) cenv >>= \case
+        Left e -> throwM $ LocalFailure (show e)
+        Right t -> return t
+  where
+    h _ = Handler $ \case
+      LocalFailure _ -> return True
+      _ -> return False
 
 -- | Request an SPV proof using exponential retry logic
 --

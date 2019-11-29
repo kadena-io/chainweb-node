@@ -1,4 +1,5 @@
-pactSrc: pkgs: hackGet: self: super: with pkgs.haskell.lib;
+{ pactSrc, pkgs, hackGet }:
+self: super: with pkgs.haskell.lib;
 let # Working on getting this function upstreamed into nixpkgs, but
     # this actually gets things directly from hackage and doesn't
     # depend on the state of nixpkgs.  Should allow us to have fewer
@@ -10,11 +11,14 @@ let # Working on getting this function upstreamed into nixpkgs, but
            inherit sha256;
          }) {};
 
-    convertCabalTestsAndBenchmarksToExecutables = p: overrideCabal p (drv: {
-      preConfigure = (drv.preConfigure or "") + ''
-        sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
-      '';
-    });
+    # Includes test suite and benchmark binaries in the output derivation.
+    # Has the side effect of causing nix-build to not run them.
+    convertCabalTestsAndBenchmarksToExecutables = p:
+      overrideCabal p (drv: {
+        preConfigure = (drv.preConfigure or "") + ''
+          sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
+        '';
+      });
 
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
@@ -28,6 +32,12 @@ let # Working on getting this function upstreamed into nixpkgs, but
         rev = "17a5fb130926582eff081eeb1b94cb6c7097c67a";
         sha256 = "03ihjgwqpif68870wwsgz1s4yz45zql1slky1lj4ixfxbig06md4";
       }) {});
+
+      aeson = enableCabalFlag (dontCheck (callHackageDirect {
+        pkg = "aeson";
+        ver = "1.4.6.0";
+        sha256 = "05rj0fv5y65dk17v24p3qypvrakkhdj41vrxnyk4wimgaw2g5lq4";
+      })) "cffi";
 
       configuration-tools = dontCheck (callHackageDirect {
         pkg = "configuration-tools";

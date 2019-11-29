@@ -35,6 +35,7 @@ import Pact.Types.Hash
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -72,6 +73,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
                 | LookupPactTxsMsg LookupPactTxsReq
+                | PreInsertCheckMsg PreInsertCheckReq
                 | CloseMsg
                 deriving (Show)
 
@@ -107,6 +109,14 @@ data LookupPactTxsReq = LookupPactTxsReq
 instance Show LookupPactTxsReq where
     show (LookupPactTxsReq m _ _) =
         "LookupPactTxsReq@" ++ show m
+
+data PreInsertCheckReq = PreInsertCheckReq
+    { _preInsCheckTxs :: !(Vector ChainwebTransaction)
+    , _preInsCheckResult :: !(PactExMVar (Vector (Either InsertError ())))
+    }
+instance Show PreInsertCheckReq where
+    show (PreInsertCheckReq v _) =
+        "PreInsertCheckReq@" ++ show v
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey
