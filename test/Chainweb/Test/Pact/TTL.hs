@@ -55,7 +55,7 @@ import Chainweb.Version
 
 
 testVer :: ChainwebVersion
-testVer = Development
+testVer = FastTimedCPM peterson
 
 tests :: ScheduledTest
 tests =
