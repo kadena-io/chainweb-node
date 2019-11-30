@@ -40,15 +40,19 @@ import Chainweb.Pact.Types
 
 app :: Name -> [Term Name] -> Term Name
 app f as = TApp (App (TVar f def) as def) def
+{-# INLINE app #-}
 
 qn :: ModuleName -> Text -> Name
 qn mn d = QName $ QualifiedName mn d def
+{-# INLINE qn #-}
 
 bn :: Text -> Name
 bn n = Name $ BareName n def
+{-# INLINE bn #-}
 
 strLit :: Text -> Term Name
 strLit s = TLiteral (LString s) def
+{-# INLINE strLit #-}
 
 strArgSetter :: Int -> ASetter' (Term Name) Text
 strArgSetter idx = tApp . appArgs . ix idx . tLiteral . _LString
@@ -64,10 +68,13 @@ buyGasTemplate =
   ,strArgSetter 0
   ,strArgSetter 1
   )
+{-# NOINLINE buyGasTemplate #-}
 
 
 dummyParsedCode :: ParsedCode
 dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) def]
+{-# NOINLINE dummyParsedCode #-}
+
 
 mkBuyGasTerm
   :: MinerId   -- ^ Id of the miner to fund
@@ -93,6 +100,8 @@ coinbaseTemplate =
    ,app (bn "read-keyset") [strLit "miner-keyset"]
    ,app (bn "read-decimal") [strLit "reward"]]
   ,strArgSetter 0)
+{-# NOINLINE coinbaseTemplate #-}
+
 
 mkCoinbaseTerm :: MinerId -> MinerKeys -> ParsedDecimal -> (Term Name,ExecMsg ParsedCode)
 mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm,execMsg)
