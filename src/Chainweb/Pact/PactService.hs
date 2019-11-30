@@ -60,7 +60,7 @@ import Data.Either
 import Data.Foldable (foldl', toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -91,7 +91,6 @@ import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
 import Pact.Types.RPC
 import qualified Pact.Types.Runtime as P
-import qualified Pact.Types.SPV as P
 import Pact.Types.Term (Term(..))
 
 ------------------------------------------------------------------------------
