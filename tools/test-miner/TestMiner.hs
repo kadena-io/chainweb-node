@@ -62,7 +62,7 @@ checkMinerOutput nonceB targetBytes blockBytes0 = do
         return (ok, hashBytes)
   where
     !blockBytes = nonceB <> B.drop 8 blockBytes0
-    hashBytes = SB.fromShort $ powHashBytes $ powHash Testnet03 blockBytes
+    hashBytes = SB.fromShort $ powHashBytes $ powHash Testnet04 blockBytes
 
 makeBlock :: IO ByteString
 makeBlock = MWC.withSystemRandom $ \gen -> do

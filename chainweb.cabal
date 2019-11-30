@@ -653,6 +653,7 @@ executable chainweb-node
         , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
+        , time >= 1.8
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
 
@@ -742,6 +743,8 @@ executable cwtool
         , process >= 1.5
         , primitive >= 0.6
         , random >= 1.1
+        , random-bytestring >= 0.1
+        , random-strings
         , resourcet >= 1.2
         , rocksdb-haskell >= 1.0
         , servant >= 0.16
