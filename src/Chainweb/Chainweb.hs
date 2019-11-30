@@ -616,10 +616,11 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
                 withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
-                    withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
+                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
+                        let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         inner Chainweb
-                            { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                            { _chainwebHostAddress = haddr
                             , _chainwebChains = cs
                             , _chainwebCutResources = cuts
                             , _chainwebMiner = m
