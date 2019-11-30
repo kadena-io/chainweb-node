@@ -575,7 +575,7 @@ txEnabledDate TimedConsensus{} = Nothing
 txEnabledDate PowConsensus{} = Nothing
 txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
-txEnabledDate Development = Nothing
+txEnabledDate Development = Just [timeMicrosQQ| 2019-11-29T03:00:00.0 |]
 txEnabledDate Testnet04 = Nothing
 txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
 
@@ -589,7 +589,7 @@ transferActivationDate TimedConsensus{} = Nothing
 transferActivationDate PowConsensus{} = Nothing
 transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Nothing
+transferActivationDate Development = Just [timeMicrosQQ| 2019-11-29T04:00:00.0 |]
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
 
