@@ -68,20 +68,20 @@ import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
+import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
-import Chainweb.Test.ForkGen
+-- import Chainweb.Test.ForkGen
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.Version
-
 
 main :: IO ()
 main =
@@ -93,14 +93,11 @@ main =
 ioTests :: BlockHeaderDb -> BlockHeader -> IO TestTree
 ioTests _db _h0 = do
     return theTT
-    -- testGroupSch "pact-fork-quickcheck-tests" [theTT]
   where
     theTT =
         withRocksResource $ \rocksIO ->
         withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
         withPayloadDb $ \pdb ->
-        -- withPact' testVersion Warn pdb bhdb (testMemPoolAccess cid mv) (return Nothing) (\reqQIO ->
-        --     testProperty "prop_forkValidates" (prop_forkValidates bhdb _genBlock reqQIO))
         testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock)
     _genBlock = genesisBlockHeader testVer cid
     cid = someChainId testVer
@@ -109,52 +106,43 @@ testVer :: ChainwebVersion
 testVer = FastTimedCPM petersonChainGraph
 
 -- | Property: Fork requiring checkpointer rewind validates properly
-prop_forkValidates :: IO (PayloadDb HashMapCas) -> (IO BlockHeaderDb) -> ChainId -> BlockHeader -> Property
-prop_forkValidates pdb bhdb cid genBlock = monadicIO $ do
-
-  -- monadicIO :: Testable a => PropertyM IO a -> Property
-
-    mVar <- liftIO $ newMVar (0 :: Int)
-    withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
-
-        -- need PropertyM IO here...
-        mapRef <- run $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
-        db <- liftIO $ bhdb
-
-        -- genFork ::: PropertyM IO a
-        fi <- genFork db mapRef genBlock
-        liftIO $ putStrLn $ "Fork info: \n" ++ showForkInfoFields fi
-
-        expected <- liftIO $ expectedForkProd fi
-        if expected >= maxBalance
-          then do -- this shouldn't happen...
-            liftIO $ putStrLn "Max account balance would be exceeded, letting this test pass"
-            assert True
-          else do
-            -- reqQ <- liftIO $ reqQIO
-
-            let trunkBlockList = reverse (fiPreForkHeaders fi)
-            liftIO $ putStrLn $ "list of TRUNK blocks: \n" ++ showHeaderFields trunkBlockList
-            (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <- liftIO $
-                runBlocks db (head trunkBlockList) ((length (tail trunkBlockList)) - 1) reqQ bhdb
-            liftIO $ putStrLn $ "Last TRUNK block returned: \n" ++ showHeaderFields [parentFromTrunk]
-
-            let leftBlockList = reverse (fiLeftForkHeaders fi)
-            liftIO $ putStrLn $ "parent for the LEFT block: \n" ++ showHeaderFields [parentFromTrunk]
-            liftIO $ putStrLn $ "list of LEFT blocks: \n" ++ showHeaderFields leftBlockList
-            (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
-                runBlocks db parentFromTrunk ((length leftBlockList) - 1) reqQ bhdb
-
-            let rightBlockList = reverse (fiRightForkHeaders fi)
-            liftIO $ putStrLn $ "parent for the RIGHT block: \n" ++ showHeaderFields [parentFromTrunk]
-            liftIO $ putStrLn $ "list of RIGHT blocks: \n" ++ showHeaderFields rightBlockList
-            (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
-                runBlocks db parentFromTrunk ((length rightBlockList) - 1) reqQ bhdb
-
-            liftIO $ putStrLn $ "Expected: " ++ show expected
-            liftIO $ putStrLn $ "newBlock results: " ++ show nbRightRes
-            liftIO $ putStrLn $ "validateBlock results: " ++ show vbRightRes
-            assert (nbRightRes == vbRightRes)
+prop_forkValidates
+    :: IO (PayloadDb HashMapCas)
+    -> (IO BlockHeaderDb)
+    -> ChainId
+    -> BlockHeader
+    -> Property
+prop_forkValidates pdb bhdb cid genBlock = do
+    ioProperty $ do
+        (trunk, left, right) <- generate genForkLengths
+        mVar <- newMVar (0 :: Int)
+        withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
+            db <- bhdb
+            putStrLn $ "\ngenForkLengths:"
+                        ++ "\n\ttrunk: " ++ show trunk
+                        ++ " (" ++ show (trunk + 1) ++ " including genesis block) "
+                        ++ " (" ++ show (trunk + 2) ++ " including the fork point)"
+                        ++ "\n\tleft: " ++ show left
+                        ++ "\n\tright: " ++ show right
+            expected <- expectedForkProd (trunk, left, right)
+            if expected >= maxBalance
+              then do -- this shouldn't happen...
+                putStrLn "Max account balance would be exceeded, letting this test pass"
+                return $ property Discard
+              else do
+                (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <-
+                    runBlocks db genBlock  (trunk - 2) reqQ bhdb -- '-2' for genesis block and 0-based
+                putStrLn $ "Last TRUNK block returned: \n" ++ showHeaderFields [parentFromTrunk]
+                putStrLn $ "parent for the LEFT block: \n" ++ showHeaderFields [parentFromTrunk]
+                (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
+                    runBlocks db parentFromTrunk (left - 1) reqQ bhdb
+                putStrLn $ "parent for the RIGHT block: \n" ++ showHeaderFields [parentFromTrunk]
+                (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
+                    runBlocks db parentFromTrunk (right - 1) reqQ bhdb
+                putStrLn $ "Expected: " ++ show expected
+                putStrLn $ "newBlock results: " ++ show nbRightRes
+                putStrLn $ "validateBlock results: " ++ show vbRightRes
+                return $ property (nbRightRes == vbRightRes)
 
 withPactProp
     :: ChainwebVersion
@@ -163,75 +151,59 @@ withPactProp
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO (Maybe FilePath)
-
-    -- -> (IO PactQueue -> Property)
-    -> (PactQueue -> PropertyM IO ())
-    -- -> (PactQueue -> IO ())
-
-    -- -> Property
-    -> PropertyM IO ()
+    -> (PactQueue -> IO Property)
+    -> IO Property
 withPactProp version logLevel iopdb iobhdb mempool iodir f = do
-    {-  withResource
-          :: IO a  --  initialize the resource
-          -> (a -> IO ())  --  free the resource
-          -> TestTree
-          -> TestTree
-
-        Control.Exception.bracket
-          :: IO a   -- computation to run first ("acquire resource")
-          -> (a -> IO b) -- computation to run last ("release resource")
-          -> (a -> IO c) -- computation to run in-between
-          -> IO c
-    -}
-    -- withResource startPact stopPact $ f . fmap snd
-    -- bracket startPact stopPact $ f . fmap snd
-       -- run $ bracket startPact stopPact $ \(x, q) -> do
-            -- let h = f q `asTypeOf` _ -- :: PropertyM IO ()
-            -- f q
-      (x, q) <- liftIO $ startPact
-      let z = f q
-      liftIO $ cancel x
+    bracket startPact stopPact $ \(_x, q) -> f q
 
   where
+    startPact :: IO (Async (), TBQueue RequestMsg)
     startPact = do
         mv <- newEmptyMVar
         reqQ <- atomically $ newTBQueue pactQueueSize
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ initPactService version cid logger reqQ mempool mv
-                                     bhdb pdb dir Nothing False
+        a <- async $ PS.initPactService version cid logger reqQ mempool mv
+                         bhdb pdb dir Nothing False
         return (a, reqQ)
 
+    stopPact :: (Async a, TBQueue a2) -> IO ()
     stopPact (a, _) = cancel a
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
 
-
+genForkLengths :: Gen (Int, Int, Int)
+genForkLengths = do
+    let maxTotalLen = 12
+    trunk <- choose (1, 2)
+    let actualTrunkLen = trunk + 2 -- including the genesis and fork point, trunk length is +2 nodes
+    left <- choose (1, 4)
+    right <- choose ((left + 1), maxTotalLen - (actualTrunkLen + left))
+    return (trunk, left, right)
 
 maxBalance :: Int
 maxBalance = 300000000000
 
-expectedForkProd :: ForkInfo -> IO Int
-expectedForkProd ForkInfo{..} = do
+expectedForkProd :: (Int, Int, Int) -> IO Int
+expectedForkProd (trunk, left, right) = do
     -- list of blocks consists of fork followed by left branch followed by right branch
-    let rightRangeLo = fiLeftBranchHeight -- 0 based range
-    let rightRangeHi = rightRangeLo + (fiRightBranchHeight - fiForkHeight - 1)
-    let trunkProd = prodFromHeight (fiForkHeight - 1) -- (prodFromHeight is 0 based)
+    let rightRangeLo = trunk + left
+    let rightRangeHi = rightRangeLo + right - 1
+    let trunkProd = prodFromHeight (trunk - 1) -- (prodFromHeight is 0 based)
     let rBranchProd = prodFromRange rightRangeLo rightRangeHi
     putStrLn $ "expectedForkProd - "
-             ++ "\n\ttrunk height: " ++ show fiForkHeight
-             ++ "\n\tleft height: " ++ show fiLeftBranchHeight
-             ++ "\n\tright height: " ++ show fiRightBranchHeight
+             ++ "\n\ttrunk height: " ++ show trunk
+             ++ "\n\tleft height: " ++ show left
+             ++ "\n\tright height: " ++ show right
 
-             ++ "\n\tright range lo: " ++ show rightRangeLo ++ " (0 based)"
-             ++ "\n\tright range hi: " ++ show rightRangeHi ++ " (0 based)"
+             ++ "\n\tright range lo: " ++ show rightRangeLo
+             ++ "\n\tright range hi: " ++ show rightRangeHi
 
              ++ "\n\ttrunkProd: " ++ show trunkProd
              ++ "\n\trBranchProd: " ++ show rBranchProd
              ++ "\n\ttotal product: " ++ show (trunkProd * rBranchProd)
-
     return $ trunkProd * rBranchProd
 
 tailTransactions :: Int -> IO [PactTransaction]
@@ -382,12 +354,6 @@ showHeaderFields bhs =
          ++ "\n\tBlock creation time: " ++ show _blockCreationTime
          ++ "\n\tHash: " ++ show _blockHash
          ++ "\n\tParent hash: " ++ show _blockParent)
-
-showForkInfoFields :: ForkInfo -> String
-showForkInfoFields ForkInfo{..} =
-        "ForkInfo - forkHeight: " ++ show fiForkHeight
-        ++ ", leftBranchHeight: " ++ show fiLeftBranchHeight
-        ++ ", rightBranchHeight: " ++ show fiRightBranchHeight
 
 testMemPoolAccess :: ChainId -> MVar Int -> MemPoolAccess
 testMemPoolAccess cid mvar =
