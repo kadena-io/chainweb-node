@@ -543,7 +543,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
              Just a -> return a
 
         pd <- mkPublicData' (publicMetaOf cmd) ph
-        spv <- pactSPV <$> view psBlockHeaderDb <*> pure ph
+        spv <- use psSpvSupport
         return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig
       where
         !nid = networkIdOf cmd
@@ -698,10 +698,8 @@ execNewBlock mpAccess parentHeader miner creationTime =
   do
     updateMempool
     withDiscardedBatch $ do
-      -- set block data for attempted gas buy
       setBlockData parentHeader
       rewindTo newblockRewindLimit target
-      -- set tx block state data
       newTrans <- withCheckpointer target "preBlock" doPreBlock
       withCheckpointer target "execNewBlock" (doNewBlock newTrans)
 
@@ -851,7 +849,6 @@ playOneBlock
     -> PactDbEnv'
     -> PactServiceM cas PayloadWithOutputs
 playOneBlock currHeader plData pdbenv = do
-
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
@@ -891,9 +888,9 @@ playOneBlock currHeader plData pdbenv = do
 
     go m txs =
       if isGenesisBlock
-      -- reject bad coinbase in genesis
       then do
         setBlockData currHeader
+        -- reject bad coinbase in genesis
         execTransactions Nothing m txs (EnforceCoinbaseFailure True) pdbenv
       else do
         bhDb <- asks _psBlockHeaderDb
@@ -997,10 +994,8 @@ execTransactions
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-
     coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
-
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
