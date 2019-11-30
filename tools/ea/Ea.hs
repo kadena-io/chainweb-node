@@ -65,7 +65,6 @@ import Pact.ApiReq (mkApiReq)
 import Pact.Parse
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
-import Pact.Types.SPV (noSPVSupport)
 
 ---
 
@@ -133,7 +132,7 @@ genPayloadModule v tag txFiles =
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger noSPVSupport
+        payloadWO <- initPactService' v cid logger
                          bhdb pdb Nothing Nothing False $
                          execNewGenesisBlock noMiner (V.fromList cwTxs)
 

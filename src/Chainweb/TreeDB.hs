@@ -67,6 +67,11 @@ module Chainweb.TreeDB
 , collectForkBlocks
 , seekAncestor
 
+-- * Membership Queries
+, onLongestBranch
+, ancestorOf
+, ancestorOfEntry
+
 -- * properties
 , properties
 ) where
@@ -845,6 +850,47 @@ seekAncestor db h r
             Nothing -> throwM $ TreeDbAncestorMissing @db h (int r)
                 $ "branch traversal yields no result"
             x -> return x
+
+-- -------------------------------------------------------------------------- --
+-- Membership Queries
+
+ancestorOfEntry
+    :: forall db
+    . TreeDb db
+    => db
+    -> DbKey db
+        -- ^ the block hash to look up (the member)
+    -> DbEntry db
+        -- ^ the context, i.e. the branch of the chain that contains the member
+    -> IO Bool
+ancestorOfEntry db h ctx = lookup db h >>= \case
+    Nothing -> return False
+    Just lh -> seekAncestor db ctx (rank lh) >>= \case
+        Nothing -> return False
+        Just x -> return $ key x == h
+
+ancestorOf
+    :: forall db
+    . TreeDb db
+    => db
+    -> DbKey db
+        -- ^ the block hash to look up (the member)
+    -> DbKey db
+        -- ^ the context, i.e. the branch of the chain that contains the member
+    -> IO Bool
+ancestorOf db h ctx = do
+    th <- lookupM db ctx
+    ancestorOfEntry db h th
+
+onLongestBranch
+    :: forall db
+    . TreeDb db
+    => db
+    -> DbKey db
+    -> IO Bool
+onLongestBranch db h = do
+    th <- maxEntry db
+    ancestorOfEntry db h th
 
 -- -------------------------------------------------------------------------- --
 -- Properties

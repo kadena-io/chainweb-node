@@ -95,7 +95,6 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHash
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types (ModuleCache)
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types
 import Chainweb.Transaction
