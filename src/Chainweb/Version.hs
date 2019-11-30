@@ -589,7 +589,7 @@ transferActivationDate TimedConsensus{} = Nothing
 transferActivationDate PowConsensus{} = Nothing
 transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Just [timeMicrosQQ| 2019-11-29T04:00:00.0 |]
+transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T04:00:00.0 |]
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
 
