@@ -173,7 +173,7 @@ runMiner v mr =
         then case window v of
                  Nothing -> testMiner
                  Just _ -> powMiner
-        else mempoolNoopMiner lf (_minerChainResources mr)
+        else mempoolNoopMiner lf (_chainResMempool <$> _minerChainResources mr)
 
   where
     enabled = _nodeMiningEnabled $ _minerResConfig mr

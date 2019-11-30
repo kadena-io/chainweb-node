@@ -43,9 +43,9 @@ import qualified System.Random.MWC.Distributions as MWC
 
 import Chainweb.BlockHeader
 import Chainweb.ChainId
-import Chainweb.Chainweb.ChainResources
 import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
+import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
@@ -54,6 +54,7 @@ import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Seconds(..))
+import Chainweb.Transaction
 import Chainweb.Utils (approximateThreadDelay, int, runForever, runGet)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -107,7 +108,7 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 -- regularly to prune mempool.
 mempoolNoopMiner
     :: LogFunction
-    -> HashMap ChainId (ChainResources logger)
+    -> HashMap ChainId (MempoolBackend ChainwebTransaction)
     -> IO ()
 mempoolNoopMiner lf chainRes =
     runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" loop
@@ -116,7 +117,7 @@ mempoolNoopMiner lf chainRes =
         mapM_ runOne $ HashMap.toList chainRes
         approximateThreadDelay 60000000 -- wake up once a minute
 
-    runOne (_, cr) = Mempool.mempoolPrune $ _chainResMempool cr
+    runOne (_, cr) = Mempool.mempoolPrune cr
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --

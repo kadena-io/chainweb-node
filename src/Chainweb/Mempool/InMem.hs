@@ -627,6 +627,10 @@ getMempoolStats m = do
 
 ------------------------------------------------------------------------------
 -- | Prune the mempool's pending map and badmap.
+--
+-- Complexity is linear in the size of the mempool, which is fine if it isn't
+-- applied to often and at a constant rate.
+--
 pruneInMem
     :: forall t . NFData t
     => MVar (InMemoryMempoolData t)
