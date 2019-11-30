@@ -198,6 +198,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
                  | InsertErrorNoGas
+                 | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
   deriving (Generic, Eq)
 
@@ -213,6 +214,7 @@ instance Show InsertError
         \endpoint"
     show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
     show InsertErrorNoGas = "Sender account has insufficient gas."
+    show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
 instance Exception InsertError
