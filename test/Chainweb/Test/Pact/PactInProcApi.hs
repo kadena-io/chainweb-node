@@ -54,8 +54,8 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
-testVersion :: ChainwebVersion
-testVersion = Development
+testVer :: ChainwebVersion
+testVer = FastTimedCPM peterson
 
 tests :: ScheduledTest
 tests = ScheduledTest label $
