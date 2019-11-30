@@ -9,7 +9,7 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Chainweb.Test.Pact.ForkTest
-  ( ioTests
+  ( tests
   ) where
 
 import Control.Concurrent.Async
@@ -75,7 +75,6 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
--- import Chainweb.Test.ForkGen
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -83,6 +82,7 @@ import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.Version
 
+-- TODO: remove this
 main :: IO ()
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
@@ -90,6 +90,7 @@ main =
     tt <- ioTests db h0
     defaultMain tt
 
+-- TODO: remove this
 ioTests :: BlockHeaderDb -> BlockHeader -> IO TestTree
 ioTests _db _h0 = do
     return theTT
@@ -99,6 +100,16 @@ ioTests _db _h0 = do
         withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
         withPayloadDb $ \pdb ->
         testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock)
+    _genBlock = genesisBlockHeader testVer cid
+    cid = someChainId testVer
+
+tests :: ScheduledTest
+tests = ScheduledTest "Pact checkpointer forking test" $
+    withRocksResource $ \rocksIO ->
+    withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
+    withPayloadDb $ \pdb ->
+    testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock)
+  where
     _genBlock = genesisBlockHeader testVer cid
     cid = someChainId testVer
 

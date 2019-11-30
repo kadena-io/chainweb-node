@@ -415,7 +415,6 @@ test-suite chainweb-tests
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
-        Chainweb.Test.ForkGen
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
         Chainweb.Test.Mempool.InMem

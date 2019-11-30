@@ -72,8 +72,6 @@ import System.LogLevel
 
 import Prelude hiding (lookup)
 
-import Debug.Trace (trace)
-
 ------------------------------------------------------------------------------
 -- external pact modules
 
@@ -396,8 +394,8 @@ validateHashes
     -> Either PactException PayloadWithOutputs
 validateHashes bHeader pwo pData =
     if newHash == prevHash
-    then trace "Right in validateHashes" (Right pwo)
-    else trace "Left in validateHashes" (Left $ BlockValidationFailure $ A.object
+    then Right pwo
+    else (Left $ BlockValidationFailure $ A.object
          [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
          , "actual" A..= newHash
          , "expected" A..= prevHash
@@ -597,12 +595,6 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
               uniqueness <- (bool Unique Duplicate . isJust)
                 <$> _cpLookupProcessedTx cp (P._cmdHash t)
               return $! T2 t uniqueness
-
-        t2s <- V.mapM (\tx -> f tx) txs
-        valParams <- doBuyGas t2s
-        putStrLn "Uniqueness, ableToBuyGasNess from validateChainwebTxs: "
-        _ <- forM valParams $ \(T3 _a b c) -> do
-          putStrLn $ show b ++ " " ++ show c
 
         txs' <- liftIO $ V.mapM f txs
         doBuyGas txs' >>= V.mapM validate

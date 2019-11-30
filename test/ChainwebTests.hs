@@ -34,6 +34,7 @@ import qualified Chainweb.Test.Miner.Core
 import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.ChainData
 import qualified Chainweb.Test.Pact.Checkpointer
+import qualified Chainweb.Test.Pact.ForkTest
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactReplay
@@ -82,7 +83,7 @@ mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
 pactTestSuite :: RocksDb -> ScheduledTest
 pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
-        [ Chainweb.Test.Pact.PactExec.tests
+    [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
@@ -90,6 +91,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.ChainData.tests
         , Chainweb.Test.Pact.TTL.tests
         , Chainweb.Test.Pact.RewardsTest.tests
+        , Chainweb.Test.Pact.ForkTest.tests
         ]
 
 suite :: RocksDb -> [ScheduledTest]
