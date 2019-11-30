@@ -109,7 +109,7 @@ usePowHash PowConsensus{} f = f $ Proxy @Blake2s_256
 usePowHash TimedCPM{} f = f $ Proxy @Blake2s_256
 usePowHash FastTimedCPM{} f = f $ Proxy @Blake2s_256
 usePowHash Development f = f $ Proxy @Blake2s_256
-usePowHash Testnet03 f = f $ Proxy @Blake2s_256
+usePowHash Testnet04 f = f $ Proxy @Blake2s_256
 usePowHash Mainnet01 f = f $ Proxy @Blake2s_256
 
 -- | This Miner makes low-level assumptions about the chainweb protocol. It may

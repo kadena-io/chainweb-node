@@ -87,6 +87,12 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "1hnwvhz9w07z2mlq75iz0bysz586d828725k1bx8mjqvc86ncv8m";
       };
 
+      random-strings = callHackageDirect {
+        pkg = "random-strings";
+        ver = "0.1.1.0";
+        sha256 = "1d70i6hcdxrjnk05x0525lmb8wqzy9n0ipr8qd9fxpba89w24jc5";
+      };
+
       rocksdb-haskell = dontCheck super.rocksdb-haskell;
 
       scheduler = callHackageDirect {

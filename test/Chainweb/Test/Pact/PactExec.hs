@@ -48,7 +48,6 @@ import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.PactService (execTransactions)
-import Chainweb.Pact.TransactionExec (EnforceCoinbaseFailure(..))
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
@@ -71,7 +70,7 @@ tests = ScheduledTest label $
         withResource newPayloadDb killPdb $ \pdb ->
         withRocksResource $ \rocksIO ->
         testGroup label
-    [ withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
         \ctx -> testGroup "single transactions" $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
@@ -80,12 +79,12 @@ tests = ScheduledTest label $
             , execTxsTest ctx "testTfrGas" testTfrGas
             , execTxsTest ctx "testGasPayer" testGasPayer
             ]
-    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
       -- failures mess up cp state so run alone
-    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
       \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
-    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
       \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
 
     ]

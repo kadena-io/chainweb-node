@@ -60,7 +60,7 @@ import Data.Either
 import Data.Foldable (foldl', toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -102,7 +102,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId (ChainId, chainIdToText)
-import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -122,7 +121,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), txEnabledDate, enableUserContracts)
+import Chainweb.Version (ChainwebVersion(..), HasChainwebVersion(..), HasChainId(..), txEnabledDate, enableUserContracts)
 import Data.CAS (casLookupM)
 
 
@@ -150,19 +149,15 @@ initPactService
     -> logger
     -> PactQueue
     -> MemPoolAccess
-    -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess cdbv bhDb pdb dbDir nodeid resetDb =
-    initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid resetDb go
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb dbDir nodeid resetDb =
+    initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid resetDb go
   where
-    spv :: P.SPVSupport
-    spv = pactSPV cid cdbv
-
     go = initialPayloadState ver cid >> serviceRequests mempoolAccess reqQ
 
 initPactService'
@@ -171,7 +166,6 @@ initPactService'
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> P.SPVSupport
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
@@ -179,8 +173,7 @@ initPactService'
     -> Bool
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
-                 doResetDb act = do
+initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb act = do
     sqlitedir <- getSqliteDir
     when doResetDb $ resetDb sqlitedir
     createDirectoryIfMissing True sqlitedir
@@ -200,8 +193,7 @@ initPactService' ver cid chainwebLogger spv bhDb pdb dbDir nodeid
 
       let !rs = readRewards ver
           gasModel = tableGasModel defaultGasConfig
-      let !pse = PactServiceEnv Nothing checkpointEnv spv def pdb
-                                bhDb gasModel rs
+      let !pse = PactServiceEnv Nothing checkpointEnv def pdb bhDb gasModel rs
                                 (enableUserContracts ver)
       evalStateT (runReaderT act pse) (PactServiceState Nothing mempty)
   where
@@ -238,7 +230,7 @@ initialPayloadState v@FastTimedCPM{} cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
 initialPayloadState v@Development cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Testnet03 cid =
+initialPayloadState v@Testnet04 cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
 initialPayloadState v@Mainnet01 cid =
     initializeCoinContract v cid $ genesisBlockPayload v cid
@@ -301,8 +293,23 @@ serviceRequests memPoolAccess reqQ = do
                     execLookupPactTxs restorePoint txHashes
                 go
             PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
+
+                -- FIXME what can we use as parent hash here?
+                -- PublicData has "", but that's not a valid BlockHash.
+                --
+                -- For now grab the last header from the block hash, but that
+                -- can be @Nothing@.
+                -- Or should we use the consensus state?
+                --
+                cp <- view $ psCheckpointEnv . cpeCheckpointer
+                latestHash <- liftIO (_cpGetLatestBlock cp) >>= \case
+                    Nothing -> fmap _blockHash $ genesisBlockHeader
+                        <$> view chainwebVersion
+                        <*> view chainId
+                    Just (_, x) -> return x
+
                 tryOne "execPreInsertCheckReq" resultVar $
-                    fmap (V.map (() <$)) $ execPreInsertCheckReq txs
+                    fmap (V.map (() <$)) $ execPreInsertCheckReq latestHash txs
                 go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
@@ -523,9 +530,10 @@ _liftCPErr = either internalError' return
 attemptBuyGas
     :: Miner
     -> PactDbEnv'
+    -> BlockHash
     -> Vector (Either InsertError ChainwebTransaction)
     -> PactServiceM cas (Vector (Either InsertError ChainwebTransaction))
-attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
+attemptBuyGas miner (PactDbEnv' dbEnv) parentHash txs = do
         mc <- use psInitCache
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
   where
@@ -542,7 +550,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
     createGasEnv db cmd gp gl = do
         l <- view $ psCheckpointEnv . cpeLogger
         pd <- set P.pdPublicMeta pm <$!> view psPublicData
-        spv <- view psSpvSupport
+        spv <- pactSPV <$> view psBlockHeaderDb <*> pure parentHash
         return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig
       where
         !pm = publicMetaOf cmd
@@ -734,7 +742,7 @@ execNewBlock mpAccess parentHeader miner creationTime =
       let runDebitGas :: RunGas
           runDebitGas txs = fst <$!> runPactServiceM psState psEnv runGas
             where
-              runGas = attemptBuyGas miner pdbenv txs
+              runGas = attemptBuyGas miner pdbenv (_blockHash parentHeader) txs
           validate bhi _bha txs = do
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
@@ -822,12 +830,13 @@ execLocal cmd = withDiscardedBatch $ do
     -- (chain-data). In such a case, the function `withBlockData` provides the
     -- necessary information for this call to return sensible values.
     parentHeader <- liftIO $! lookupM bhDb bhash
+    let spv = pactSPV bhDb bhash
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         mc <- use psInitCache
         r <- withBlockData parentHeader $
              liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv
-                _psPublicData _psSpvSupport cmd mc
+                _psPublicData spv cmd mc
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -1018,9 +1027,13 @@ execTransactions
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
+    ver <- asks _chainwebVersion
+    cid <- asks _chainId
+    let genBlockHash = _blockHash $ genesisBlockHeader ver cid
+        parentHash = fromMaybe genBlockHash nonGenesisParentHash
 
     coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
-    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
+    txOuts <- applyPactCmds isGenesis pactdbenv parentHash ctxs miner mc
 
     return $! Transactions (paired txOuts) coinOut
   where
@@ -1056,29 +1069,31 @@ runCoinbase (Just parentHash) dbEnv miner enfCBFail mc = do
 applyPactCmds
     :: Bool
     -> P.PactDbEnv p
+    -> BlockHash
     -> Vector ChainwebTransaction
     -> Miner
     -> ModuleCache
     -> PactServiceM cas (Vector HashCommandResult)
-applyPactCmds isGenesis env cmds miner mc =
+applyPactCmds isGenesis env parentHash cmds miner mc =
     V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) cmds
   where
-    f  (T2 dl mcache) cmd = applyPactCmd isGenesis env cmd miner mcache dl
+    f  (T2 dl mcache) cmd = applyPactCmd isGenesis env parentHash cmd miner mcache dl
 
 -- | Apply a single Pact command
 applyPactCmd
     :: Bool
     -> P.PactDbEnv p
+    -> BlockHash
     -> ChainwebTransaction
     -> Miner
     -> ModuleCache
     -> DList HashCommandResult
     -> PactServiceM cas (T2 (DList HashCommandResult) ModuleCache)
-applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
+applyPactCmd isGenesis dbEnv parentHash cmdIn miner mcache dl = do
     psEnv <- ask
     let !logger   = _cpeLogger . _psCheckpointEnv $ psEnv
         !pd       = _psPublicData psEnv
-        !spv      = _psSpvSupport psEnv
+        !spv      = pactSPV (_psBlockHeaderDb psEnv) parentHash
         pactHash  = P._cmdHash cmdIn
 
     T2 result mcache' <- liftIO $ if isGenesis
@@ -1115,9 +1130,10 @@ transactionsFromPayload plData = do
 
 execPreInsertCheckReq
     :: PayloadCas cas
-    => Vector ChainwebTransaction
+    => BlockHash
+    -> Vector ChainwebTransaction
     -> PactServiceM cas (Vector (Either Mempool.InsertError ChainwebTransaction))
-execPreInsertCheckReq txs = do
+execPreInsertCheckReq parentHash txs = do
     cp <- getCheckpointer
     b <- liftIO $ _cpGetLatestBlock cp
     case b of
@@ -1133,7 +1149,7 @@ execPreInsertCheckReq txs = do
 
   where
     runGas pdb psEnv psState ts =
-        fst <$!> runPactServiceM psState psEnv (attemptBuyGas noMiner pdb ts)
+        fst <$!> runPactServiceM psState psEnv (attemptBuyGas noMiner pdb parentHash ts)
 
 execLookupPactTxs
     :: PayloadCas cas

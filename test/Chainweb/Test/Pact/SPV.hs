@@ -178,7 +178,7 @@ roundtrip
 roundtrip sid0 tid0 burn create =
   withAll v $ \sqlenv0s -> withAll v $ \sqlenv1s -> withAll v $ \sqlenv2s -> do
     -- Pact service that is used to initialize the cut data base
-    let pactIO bhdb pdb = testWebPactExecutionService v Nothing
+    let pactIO bhdb pdb = testWebPactExecutionService v
                               (return bhdb) (return pdb)
                               (return mempty) sqlenv0s
     withTempRocksDb "chainweb-spv-tests" $ \rdb ->
@@ -201,7 +201,7 @@ roundtrip sid0 tid0 burn create =
             t1 <- getCurrentTimeIntegral
             txGen1 <- burn t1 pidv sid tid
 
-            pact1 <- testWebPactExecutionService v (Just cdb)
+            pact1 <- testWebPactExecutionService v
                          (return webHeaderDb) (return pdb)
                          (chainToMPA txGen1) sqlenv1s
             syncPact cutDb pact1
@@ -241,7 +241,7 @@ roundtrip sid0 tid0 burn create =
             t2 <- getCurrentTimeIntegral
             txGen2 <- create t2 cdb pidv sid tid (height sid c1)
 
-            pact2 <- testWebPactExecutionService v (Just cdb)
+            pact2 <- testWebPactExecutionService v
                          (return webHeaderDb) (return pdb)
                          (chainToMPA txGen2) sqlenv2s
             syncPact cutDb pact2
