@@ -23,7 +23,6 @@ module Chainweb.Pact.Service.PactInProcApi
     ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
@@ -38,7 +37,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId
-import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
@@ -61,7 +59,6 @@ withPactService
     -> ChainId
     -> logger
     -> MempoolConsensus
-    -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
@@ -71,8 +68,8 @@ withPactService
     -> (PactQueue -> IO a)
     -> IO a
 withPactService
-  ver cid logger mpc cdbv bhdb pdb dbDir nodeid resetDb pactQueueSize action =
-    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid resetDb
+  ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize action =
+    withPactService' ver cid logger mpa bhdb pdb dbDir nodeid resetDb
                      pactQueueSize action
   where
     mpa = pactMemPoolAccess mpc logger
@@ -86,7 +83,6 @@ withPactService'
     -> ChainId
     -> logger
     -> MemPoolAccess
-    -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
@@ -96,7 +92,7 @@ withPactService'
     -> (PactQueue -> IO a)
     -> IO a
 withPactService'
-  ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb pactQueueSize action = do
+  ver cid logger memPoolAccess bhDb pdb dbDir nodeid resetDb pactQueueSize action = do
     reqQ <- atomically $ newTBQueue pactQueueSize
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
@@ -105,7 +101,7 @@ withPactService'
     client reqQ = action reqQ
     server reqQ = runForever logg "pact-service" $
         PS.initPactService
-            ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
+            ver cid logger reqQ memPoolAccess bhDb pdb dbDir nodeid resetDb
     logg = logFunction logger
 
 pactMemPoolAccess

@@ -114,6 +114,7 @@ toMempoolBackend v mempool = do
       , mempoolInsertCheck = insertCheck
       , mempoolMarkValidated = markValidated
       , mempoolGetBlock = getBlock
+      , mempoolPrune = prune
       , mempoolGetPendingTransactions = getPending
       , mempoolClear = clear
       }
@@ -130,6 +131,7 @@ toMempoolBackend v mempool = do
     markValidated = markValidatedInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
+    prune = pruneInMem lockMVar
     clear = clearInMem lockMVar
 
 
@@ -199,10 +201,11 @@ lookupInMem txcfg lock txs = do
   where
     lookupOne q txHash = lookupQ q txHash <|> pure Missing
     codec = txCodec txcfg
-    fixup (T3 _ _ bs) =
-        either (const Missing) Pending
-            $! codecDecode codec
-            $! SB.fromShort bs
+    fixup pe =
+        let bs = _inmemPeBytes pe
+        in either (const Missing) Pending
+               $! codecDecode codec
+               $! SB.fromShort bs
     lookupQ q txHash = fixup <$!> HashMap.lookup txHash q
 
 
@@ -382,7 +385,8 @@ insertInMem cfg v lock runCheck txs0 = do
         let !gp = txGasPrice txcfg tx
             !gl = txGasLimit txcfg tx
             !bytes = SB.toShort $! encodeTx tx
-            !x = T3 gp gl bytes
+            !expTime = txMetaExpiryTime $ txMetadata txcfg tx
+            !x = PendingEntry gp gl bytes expTime
         in T2 (HashMap.insert txhash x pending) (soFar . (txhash:))
 
 
@@ -398,10 +402,16 @@ getBlockInMem
     -> IO (Vector t)
 getBlockInMem cfg lock txValidate bheight phash = do
     withMVar lock $ \mdata -> do
-        !psq <- readIORef $ _inmemPending mdata
         now <- getCurrentTimeIntegral
-        !badmap <- pruneBadMap now <$!> readIORef (_inmemBadMap mdata)
+
+        -- drop any expired transactions.
+        pruneInternal mdata now
+        !psq <- readIORef (_inmemPending mdata)
+        !badmap <- readIORef (_inmemBadMap mdata)
         let size0 = _inmemTxBlockSizeLimit cfg
+
+        -- get our batch of output transactions, along with a new pending map
+        -- and badmap
         T3 psq' badmap' out <- go psq badmap size0 []
 
         -- put the txs chosen for the block back into the map -- they don't get
@@ -415,12 +425,15 @@ getBlockInMem cfg lock txValidate bheight phash = do
         V.unsafeFreeze mout
 
   where
-    pruneBadMap now = HashMap.filter (> now)
-
-    ins !m !(h,(b,t)) = HashMap.insert h (T3 (txGasPrice txcfg t) (txGasLimit txcfg t) b) m
+    ins !m !(h,(b,t)) =
+        let !pe = PendingEntry (txGasPrice txcfg t)
+                               (txGasLimit txcfg t)
+                               b
+                               (txMetaExpiryTime $ txMetadata txcfg t)
+        in HashMap.insert h pe m
 
     insBadMap !m !(h,(_,t)) = let endTime = txMetaExpiryTime (txMetadata txcfg t)
-                          in HashMap.insert h endTime m
+                              in HashMap.insert h endTime m
 
     del !psq (h, _) = HashMap.delete h psq
 
@@ -470,14 +483,13 @@ getBlockInMem cfg lock txValidate bheight phash = do
         -> IO [(TransactionHash, (SB.ShortByteString, t))]
     nextBatch !psq !remainingGas = do
         let !pendingTxs0 = V.fromList $ HashMap.toList psq
-        let cmp (T3 gp0 _ _) (T3 gp1 _ _) = compare (Down gp0) (Down gp1)
         mPendingTxs <- V.unsafeThaw pendingTxs0
-        TimSort.sortBy (cmp `on` snd) mPendingTxs
+        TimSort.sortBy (compare `on` snd) mPendingTxs
         !pendingTxs <- V.unsafeFreeze mPendingTxs
         return $! getBatch pendingTxs remainingGas [] 0
 
     getBatch
-        :: Vector (TransactionHash, T3 GasPrice GasLimit SB.ShortByteString)
+        :: Vector (TransactionHash, PendingEntry)
         -> GasLimit
         -> [(TransactionHash, (SB.ShortByteString, t))]
         -> Int
@@ -488,7 +500,8 @@ getBlockInMem cfg lock txValidate bheight phash = do
       | V.null pendingTxs = soFar
       | inARow >= maxInARow || sz <= 0 = soFar
       | otherwise = do
-            let (T2 (h, (T3 _ _ txbytes)) !pendingTxs') = unconsV pendingTxs
+            let (T2 (h, pe) !pendingTxs') = unconsV pendingTxs
+            let !txbytes = _inmemPeBytes pe
             let !tx = decodeTx txbytes
             let !txSz = getSize tx
             if txSz <= sz
@@ -611,3 +624,40 @@ getMempoolStats m = do
         <$!> (HashMap.size <$!> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
         <*> (HashMap.size <$!> readIORef (_inmemBadMap d))
+
+------------------------------------------------------------------------------
+-- | Prune the mempool's pending map and badmap.
+--
+-- Complexity is linear in the size of the mempool, which is fine if it isn't
+-- applied to often and at a constant rate.
+--
+pruneInMem
+    :: forall t . NFData t
+    => MVar (InMemoryMempoolData t)
+    -> IO ()
+pruneInMem lock = do
+    now <- getCurrentTimeIntegral
+    withMVar lock $ \mdata -> pruneInternal mdata now
+
+
+------------------------------------------------------------------------------
+pruneInternal
+    :: forall t . NFData t
+    => InMemoryMempoolData t
+    -> Time Micros
+    -> IO ()
+pruneInternal mdata now = do
+    let pref = _inmemPending mdata
+    !pending <- readIORef pref
+    !pending' <- evaluate $ force $ HashMap.filter flt pending
+    writeIORef pref pending'
+
+    let bref = _inmemBadMap mdata
+    !badmap <- (force . pruneBadMap) <$!> readIORef bref
+    writeIORef bref badmap
+
+  where
+    -- keep transactions that expire in the future.
+    flt pe = _inmemPeExpires pe > now
+    pruneBadMap = HashMap.filter (> now)
+

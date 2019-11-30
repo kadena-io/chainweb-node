@@ -121,7 +121,7 @@ import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Concurrent.MVar (MVar, readMVar)
 import Control.Error.Util (note)
 import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
@@ -548,17 +548,16 @@ withChainwebInternal
     -> IO a
 withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     initializePayloadDb v payloadDb
-    cdbv <- newEmptyMVar
     concurrentWith
         -- initialize chains concurrently
         (\cid -> do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
-                     mcfg cdbv payloadDb prune dbDir nodeid
+                     mcfg payloadDb prune dbDir nodeid
                      resetDb (_configPactQueueSize conf))
 
         -- initialize global resources after all chain resources are initialized
-        (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
+        (\cs -> global (HM.fromList $ zip cidsList cs))
         cidsList
   where
     prune :: Bool
@@ -579,9 +578,8 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     -- Initialize global resources
     global
         :: HM.HashMap ChainId (ChainResources logger)
-        -> MVar (CutDb RocksDbCas)
         -> IO a
-    global cs cdbv = do
+    global cs = do
         let !webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             !pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             !cutLogger = setComponent "cut" logger
@@ -603,9 +601,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
             localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
 
-            -- update the cutdb mvar used by pact service with cutdb
-            void $! putMVar cdbv mCutDb
-
             -- synchronize pact dbs with latest cut before we start the server
             -- and clients and begin mining.
             --
@@ -621,10 +616,11 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             withPactData cs cuts $ \pactData -> do
                 logg Info "start initializing miner resources"
                 withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc ->
-                    withMinerResources mLogger (_miningInNode mConf) mCutDb $ \m -> do
+                    withMinerResources mLogger (_miningInNode mConf) cs mCutDb $ \m -> do
                         logg Info "finished initializing miner resources"
+                        let !haddr = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
                         inner Chainweb
-                            { _chainwebHostAddress = _peerConfigAddr $ _p2pConfigPeer $ _configP2p conf
+                            { _chainwebHostAddress = haddr
                             , _chainwebChains = cs
                             , _chainwebCutResources = cuts
                             , _chainwebMiner = m
