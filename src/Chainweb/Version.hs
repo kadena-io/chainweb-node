@@ -575,7 +575,7 @@ txEnabledDate TimedConsensus{} = Nothing
 txEnabledDate PowConsensus{} = Nothing
 txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
-txEnabledDate Development = Just [timeMicrosQQ| 2019-11-29T03:00:00.0 |]
+txEnabledDate Development = Just [timeMicrosQQ| 2019-11-30T03:00:00.0 |]
 txEnabledDate Testnet04 = Nothing
 txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
 
