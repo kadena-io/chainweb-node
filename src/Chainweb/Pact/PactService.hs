@@ -998,7 +998,6 @@ execTransactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
 
-    get >>= liftIO . print
     coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
 

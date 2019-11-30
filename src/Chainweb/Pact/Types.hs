@@ -301,13 +301,6 @@ data PactServiceState = PactServiceState
     }
 makeLenses ''PactServiceState
 
-instance Show PactServiceState where
-  show PactServiceState{..} = "PactServiceState{ <header>, <cache>, "
-    <> show _psBlockHeight <> ", "
-    <> show _psBlockTime <> ", "
-    <> show _psParentHash <> ", "
-    <> "<spv> }"
-
 -- | Construct the transaction 'PublicData' from given public
 -- metadata and the current pact service state.
 --
