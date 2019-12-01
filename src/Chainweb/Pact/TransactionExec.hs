@@ -44,7 +44,6 @@ module Chainweb.Pact.TransactionExec
 
   -- * Utilities
 , buildExecParsedCode
-, jsonErrorResult
 , mkMagicCapSlot
 
 ) where
@@ -159,11 +158,14 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
+    redeemAllGas r = do
+      txGasUsed .= fromIntegral gasLimit
+      applyRedeem r
 
     applyBuyGas =
       catchesPactError (buyGas cmd miner) >>= \case
         Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
-        Right _ -> checkTooBigTx initialGas gasLimit applyPayload
+        Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
     applyPayload = do
       txGasModel .= gasModel
@@ -173,7 +175,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
       case cr of
         Left e -> do
           r <- jsonErrorResult e "tx failure for request key when running cmd"
-          applyRedeem r
+          redeemAllGas r
         Right r -> applyRedeem r
 
     applyRedeem cr = do
@@ -181,7 +183,8 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
 
       r <- catchesPactError $! redeemGas cmd
       case r of
-        Left e -> jsonErrorResult e "tx failure for request key while redeeming gas"
+        -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
+        Left e -> fatal $ "tx failure for request key while redeeming gas: " <> sshow e
         Right _ -> do
           logs <- use txLogs
           return $! set crLogs (Just logs) cr
@@ -310,7 +313,7 @@ applyLocal logger dbEnv pd spv cmdIn mc =
         Exec !pm -> return pm
         _ -> throwCmdEx "local continuations not supported"
 
-      checkTooBigTx gas0 gasLimit (applyPayload em)
+      checkTooBigTx gas0 gasLimit (applyPayload em) return
 
 jsonErrorResult
     :: PactError
@@ -318,10 +321,9 @@ jsonErrorResult
     -> TransactionM p (CommandResult [TxLog Value])
 jsonErrorResult err msg = do
     logs <- use txLogs
-    gas <- use txGasUsed
+    gas <- view txGasLimit -- error means all gas was charged
     rk <- view txRequestKey
     l <- view txLogger
-
     liftIO
       $! logLog l "ERROR"
       $! T.unpack msg
@@ -563,8 +565,9 @@ checkTooBigTx
     :: Gas
     -> GasLimit
     -> TransactionM p (CommandResult [TxLog Value])
+    -> (CommandResult [TxLog Value] -> TransactionM p (CommandResult [TxLog Value]))
     -> TransactionM p (CommandResult [TxLog Value])
-checkTooBigTx initialGas gasLimit next
+checkTooBigTx initialGas gasLimit next onFail
   | initialGas >= (fromIntegral gasLimit) = do
       txGasUsed .= (fromIntegral gasLimit) -- all gas is consumed
 
@@ -572,7 +575,9 @@ checkTooBigTx initialGas gasLimit next
             $ "Tx too big (" <> pretty initialGas <> "), limit "
             <> pretty gasLimit
 
-      jsonErrorResult pe "Tx too big"
+      r <- jsonErrorResult pe "Tx too big"
+      onFail r
+
   | otherwise = next
 
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)
