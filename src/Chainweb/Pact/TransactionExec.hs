@@ -171,7 +171,9 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
 
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
-        Left e -> jsonErrorResult e "tx failure for request key when running cmd"
+        Left e -> do
+          r <- jsonErrorResult e "tx failure for request key when running cmd"
+          applyRedeem r
         Right r -> applyRedeem r
 
     applyRedeem cr = do
