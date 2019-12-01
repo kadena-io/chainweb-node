@@ -95,6 +95,10 @@ prop_forkValidates pdb bhdb cid genBlock =
         mVar <- newMVar (0 :: Int)
         withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
             db <- bhdb
+            putStrLn $ "\ngenForkLengths:"
+                        ++ "\n\ttrunk: " ++ show trunk
+                        ++ "\n\tleft: " ++ show left
+                        ++ "\n\tright: " ++ show right
             expected <- expectedForkProd (trunk, left, right)
             if expected >= maxBalance
               then do -- this shouldn't happen...
@@ -219,9 +223,7 @@ txAsIntResult txOut = do
           let res = P._crResult cmd
           case res of
               P.PactResult (Right (P.PLiteral (P.LDecimal n))) -> return $ fromEnum n
-              _someOther -> do
-                  putStrLn "\ntxAsIntResult - Could not decode the Int result"
-                  return 0
+              _someOther -> return 0
 
 runNewBlock
     :: BlockHeader
