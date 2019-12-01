@@ -1106,6 +1106,7 @@ applyPactCmd isGenesis dbEnv parentHash cmdIn miner mcache dl = do
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp pactHash
+    -- unless isGenesis $ liftIO $ putStrLn (take 300 $ show result)
     let !res = toHashCommandResult result
     pure $! T2 (DL.snoc dl res) mcache'
 

@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module      :  Chainweb.Pact.Templates
@@ -21,6 +22,9 @@
 module Chainweb.Pact.Templates
   ( mkBuyGasTerm
   , mkCoinbaseTerm
+  , mkDirectBuyGasTerm
+  , mkDirectRedeemGasTerm
+  , mkDummyExec
   ) where
 
 
@@ -28,6 +32,7 @@ import Control.Lens
 import Data.Aeson hiding ((.=))
 import qualified Data.Aeson as A
 import Data.Default (def)
+import Data.Decimal
 import Data.Text (Text)
 
 import Pact.Parse
@@ -75,6 +80,9 @@ dummyParsedCode :: ParsedCode
 dummyParsedCode = ParsedCode "1" [ELiteral $ LiteralExp (LInteger 1) def]
 {-# NOINLINE dummyParsedCode #-}
 
+mkDummyExec :: Value -> ExecMsg ParsedCode
+mkDummyExec v = ExecMsg dummyParsedCode v
+
 
 mkBuyGasTerm
   :: MinerId   -- ^ Id of the miner to fund
@@ -85,7 +93,7 @@ mkBuyGasTerm
 mkBuyGasTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm,execMsg)
   where (term,senderS,minerS) = buyGasTemplate
         populatedTerm = set senderS sender $ set minerS mid term
-        execMsg = ExecMsg dummyParsedCode buyGasData
+        execMsg = mkDummyExec buyGasData
         buyGasData = object
           [ "miner-keyset" A..= ks
           , "total" A..= total
@@ -108,9 +116,76 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm,execMsg)
   where
     (term,minerS) = coinbaseTemplate
     populatedTerm = set minerS mid term
-    execMsg = ExecMsg dummyParsedCode coinbaseData
+    execMsg = mkDummyExec coinbaseData
     coinbaseData = object
       [ "miner-keyset" A..= ks
       , "reward" A..= reward
       ]
 {-# INLINABLE mkCoinbaseTerm #-}
+
+
+directBuyGasTemplate :: (Term Name,ASetter' (Term Name) Text,ASetter' (Term Name) Decimal)
+directBuyGasTemplate =
+  (app (qn "coin" "buy-gas")
+   [strLit "sender"
+   ,TLiteral (LDecimal 0) def
+   ]
+  ,strArgSetter 0
+  ,tApp . appArgs . ix 1 . tLiteral . _LDecimal
+  )
+{-# NOINLINE directBuyGasTemplate #-}
+
+
+
+-- TODO backport to Pact
+makePrisms ''Guard
+
+
+directRedeemGasTemplate
+  :: (Term Name
+     ,ASetter' (Term Name) Text
+     ,ASetter' (Term Name) KeySet
+     ,ASetter' (Term Name) Text
+     ,ASetter' (Term Name) Decimal
+     )
+directRedeemGasTemplate =
+  (app (qn "coin" "redeem-gas")
+   [strLit "mid"
+   ,TGuard (GKeySet (KeySet mempty (bn ""))) def
+   ,strLit "sender"
+   ,TLiteral (LDecimal 0) def
+   ]
+  ,strArgSetter 0
+  ,tApp . appArgs . ix 1 . tGuard . _GKeySet
+  ,strArgSetter 2
+  ,tApp . appArgs . ix 3 . tLiteral . _LDecimal
+  )
+{-# NOINLINE directRedeemGasTemplate #-}
+
+
+mkDirectBuyGasTerm
+  :: Text      -- ^ Address of the sender from the command
+  -> GasSupply -- ^ The gas limit total * price
+  -> Term Name
+mkDirectBuyGasTerm sender (GasSupply (ParsedDecimal s)) = populatedTerm
+  where (term,senderS,totalS) = directBuyGasTemplate
+        populatedTerm = set senderS sender $ set totalS s term
+{-# INLINABLE mkDirectBuyGasTerm #-}
+
+mkDirectRedeemGasTerm
+  :: MinerId   -- ^ Id of the miner to fund
+  -> MinerKeys -- ^ Miner keyset
+  -> Text      -- ^ Address of the sender from the command
+  -> GasSupply -- ^ The gas limit total * price
+  -> GasSupply -- ^ the fee
+  -> (Term Name,Value)
+mkDirectRedeemGasTerm (MinerId mid) (MinerKeys ks) sender
+  (GasSupply (ParsedDecimal s)) fee = (populatedTerm,redeemData)
+  where (term,minerS,minerKeySetS,senderS,totalS) = directRedeemGasTemplate
+        populatedTerm =
+          set minerS mid $
+          set minerKeySetS ks $
+          set senderS sender $
+          set totalS s term
+        redeemData = object [ "fee" A..= fee ]
+{-# INLINABLE mkDirectRedeemGasTerm #-}
