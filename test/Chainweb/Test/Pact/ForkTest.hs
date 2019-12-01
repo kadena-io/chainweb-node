@@ -9,7 +9,8 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Chainweb.Test.Pact.ForkTest
-  ( tests
+  ( test
+  , scheduledTest
   ) where
 
 import Control.Concurrent.Async
@@ -82,29 +83,8 @@ import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.Version
 
--- TODO: remove this
-main :: IO ()
-main =
-    withTempRocksDb "chainweb-tests" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db -> do
-    tt <- ioTests db h0
-    defaultMain tt
-
--- TODO: remove this
-ioTests :: BlockHeaderDb -> BlockHeader -> IO TestTree
-ioTests _db _h0 = do
-    return theTT
-  where
-    theTT =
-        withRocksResource $ \rocksIO ->
-        withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
-        withPayloadDb $ \pdb ->
-        testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock)
-    _genBlock = genesisBlockHeader testVer cid
-    cid = someChainId testVer
-
-tests :: ScheduledTest
-tests = ScheduledTest "Pact checkpointer forking test" $
+test :: TestTree
+test =
     withRocksResource $ \rocksIO ->
     withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
     withPayloadDb $ \pdb ->
@@ -112,6 +92,9 @@ tests = ScheduledTest "Pact checkpointer forking test" $
   where
     _genBlock = genesisBlockHeader testVer cid
     cid = someChainId testVer
+
+scheduledTest :: ScheduledTest
+scheduledTest = ScheduledTest "Pact checkpointer forking test" $ test
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM petersonChainGraph
@@ -124,17 +107,11 @@ prop_forkValidates
     -> BlockHeader
     -> Property
 prop_forkValidates pdb bhdb cid genBlock = do
-    ioProperty $ do
+    again $ ioProperty $ do
         (trunk, left, right) <- generate genForkLengths
         mVar <- newMVar (0 :: Int)
         withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
             db <- bhdb
-            putStrLn $ "\ngenForkLengths:"
-                        ++ "\n\ttrunk: " ++ show trunk
-                        ++ " (" ++ show (trunk + 1) ++ " including genesis block) "
-                        ++ " (" ++ show (trunk + 2) ++ " including the fork point)"
-                        ++ "\n\tleft: " ++ show left
-                        ++ "\n\tright: " ++ show right
             expected <- expectedForkProd (trunk, left, right)
             if expected >= maxBalance
               then do -- this shouldn't happen...
@@ -142,17 +119,14 @@ prop_forkValidates pdb bhdb cid genBlock = do
                 return $ property Discard
               else do
                 (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <-
-                    runBlocks db genBlock  (trunk - 2) reqQ bhdb -- '-2' for genesis block and 0-based
-                putStrLn $ "Last TRUNK block returned: \n" ++ showHeaderFields [parentFromTrunk]
-                putStrLn $ "parent for the LEFT block: \n" ++ showHeaderFields [parentFromTrunk]
+                    runBlocks db genBlock (trunk - 2) reqQ bhdb -- '-2' for genesis block and 0-based
                 (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
                     runBlocks db parentFromTrunk (left - 1) reqQ bhdb
-                putStrLn $ "parent for the RIGHT block: \n" ++ showHeaderFields [parentFromTrunk]
                 (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
                     runBlocks db parentFromTrunk (right - 1) reqQ bhdb
-                putStrLn $ "Expected: " ++ show expected
-                putStrLn $ "newBlock results: " ++ show nbRightRes
-                putStrLn $ "validateBlock results: " ++ show vbRightRes
+                -- putStrLn $ "Expected: " ++ show expected
+                --     ++ ", newBlock results: " ++ show nbRightRes
+                --     ++ ", validateBlock results: " ++ show vbRightRes
                 return $ property (nbRightRes == vbRightRes)
 
 withPactProp
@@ -166,7 +140,6 @@ withPactProp
     -> IO Property
 withPactProp version logLevel iopdb iobhdb mempool iodir f = do
     bracket startPact stopPact $ \(_x, q) -> f q
-
   where
     startPact :: IO (Async (), TBQueue RequestMsg)
     startPact = do
@@ -188,10 +161,9 @@ withPactProp version logLevel iopdb iobhdb mempool iodir f = do
 genForkLengths :: Gen (Int, Int, Int)
 genForkLengths = do
     let maxTotalLen = 12
-    trunk <- choose (1, 2)
-    let actualTrunkLen = trunk + 2 -- including the genesis and fork point, trunk length is +2 nodes
+    trunk <- choose (3, 4)
     left <- choose (1, 4)
-    right <- choose ((left + 1), maxTotalLen - (actualTrunkLen + left))
+    right <- choose ((left + 1), maxTotalLen - (trunk + left))
     return (trunk, left, right)
 
 maxBalance :: Int
@@ -204,24 +176,12 @@ expectedForkProd (trunk, left, right) = do
     let rightRangeHi = rightRangeLo + right - 1
     let trunkProd = prodFromHeight (trunk - 1) -- (prodFromHeight is 0 based)
     let rBranchProd = prodFromRange rightRangeLo rightRangeHi
-    putStrLn $ "expectedForkProd - "
-             ++ "\n\ttrunk height: " ++ show trunk
-             ++ "\n\tleft height: " ++ show left
-             ++ "\n\tright height: " ++ show right
-
-             ++ "\n\tright range lo: " ++ show rightRangeLo
-             ++ "\n\tright range hi: " ++ show rightRangeHi
-
-             ++ "\n\ttrunkProd: " ++ show trunkProd
-             ++ "\n\trBranchProd: " ++ show rBranchProd
-             ++ "\n\ttotal product: " ++ show (trunkProd * rBranchProd)
     return $ trunkProd * rBranchProd
 
 tailTransactions :: Int -> IO [PactTransaction]
 tailTransactions h = do
     d <- adminData
     let txStr = "(free.test1.multiply-transfer \"Acct1\" \"Acct2\" " ++ show (valFromHeight h) ++ ".0)"
-    putStrLn $ "tailTransaction - Tx for height " ++ show h ++ " is: " ++ txStr
     return [ PactTransaction { _pactCode = T.pack txStr, _pactData = d } ]
 
 runBlocks
@@ -266,8 +226,6 @@ asSingleResult :: Vector TransactionOutput -> IO Int
 asSingleResult txOuts = do
   theInts <- traverse (\txOut -> txAsIntResult txOut) txOuts
   let theSum = V.sum theInts
-  putStrLn $ "asSingleResult - Summing this vector: " ++ show theInts
-             ++ " into: " ++ show theSum
   return theSum
 
 txAsIntResult :: TransactionOutput -> IO Int
@@ -279,7 +237,6 @@ txAsIntResult txOut = do
             return 0
         Just cmd -> do
           let res = P._crResult cmd
-          putStrLn $ "\ntxAsIntResult - PactResult is: " ++ show res
           case res of
               P.PactResult (Right (P.PLiteral (P.LDecimal n))) -> return $ fromEnum n
               _someOther -> do
@@ -292,18 +249,8 @@ runNewBlock
     -> PactQueue
     -> (IO BlockHeaderDb)
     -> IO (MVar (Either PactException PayloadWithOutputs))
-runNewBlock parentBlock reqQ iodb = do
-    putStrLn $ "\nrunNewBlock...\n\t" ++ showHeaderFields [parentBlock]
+runNewBlock parentBlock reqQ _iodb = do
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-
-    -- TODO: remove this -- Test calling loookup on the parent block
-    db <- iodb
-    res <- TDB.lookup db (_blockHash parentBlock)
-    let str = case res of
-          Nothing -> "lookup of parent in TreeDB returned Nothing"
-          Just _dbe -> "lookup of parent in TreeDB returned a 'Just'"
-    putStrLn $ "About to call newBlock, " ++ str
-
     newBlock noMiner parentBlock (BlockCreationTime blockTime) reqQ
 
 -- validate the same transactions as sent to newBlock
@@ -313,7 +260,6 @@ runValidateBlock
     -> PactQueue
     -> IO (MVar (Either PactException PayloadWithOutputs))
 runValidateBlock plwo blockHeader reqQ = do
-    putStrLn $ "\nrunValidateBlock -- the current block:" ++ showHeaderFields [blockHeader]
     let plData = payloadWithOutputsToPayloadData plwo
     validateBlock blockHeader plData reqQ
 
@@ -323,14 +269,11 @@ mkProperNewBlock
     -> BlockHeader
     -> (IO BlockHeader)
 mkProperNewBlock db plwo parentHeader = do
-
     let adjParents = BlockHashRecord HM.empty
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
     let plData = payloadWithOutputsToPayloadData plwo
     creationTime <- getCurrentTimeIntegral
     let newHeader = newBlockHeader adjParents matchingPlHash (Nonce 0) creationTime parentHeader
-
-    putStrLn $ "\nmkProperNewBlock - new header: " ++ showHeaderFields [newHeader]
     liftIO $ TDB.insert db newHeader
     return newHeader
 
@@ -387,9 +330,7 @@ testMemPoolAccess cid mvar =
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60 -- 24 hours
                 in fmap ((h pCid) . (g ttl) . (f (toTxCreationTime currentTime))) tx
-        -- trace ("ChainwebTransactions from mempool: " ++ show outtxs)
         return outtxs
-
 
 txsFromHeight :: MVar Int -> Int -> IO (Vector PactTransaction)
 txsFromHeight _mvar 0 = error "txsFromHeight called for Genesis block"
@@ -397,7 +338,6 @@ txsFromHeight mvar 1 = do
     _ <- modifyMVar mvar (\n -> return ((n + 1), (n + 1)))
     d <- adminData
     moduleStr <- readFile' $ testPactFilesDir ++ "test2.pact"
-    -- putStrLn $ "moduleStr: \n" ++ moduleStr ++ "\n"
     return $ V.fromList
         ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d } ] )
 

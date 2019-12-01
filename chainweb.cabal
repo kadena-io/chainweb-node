@@ -338,14 +338,12 @@ library
         , pact >= 2.6
         , paths >= 0.2
         , pem >=0.2
-        , primes >= 0.2
         , process >= 1.5
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
-        , safe >= 0.3
         , safeio >= 0.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
@@ -427,7 +425,6 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
-        Chainweb.Test.Pact.ForkTest
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
@@ -481,7 +478,6 @@ test-suite chainweb-tests
         , http-client-tls >=0.3
         , pact >= 2.6
         , paths >= 0.2
-        , primes >= 0.2
         , quickcheck-instances >= 0.3
         , random >= 1.1
         , random-bytestring >= 0.1
@@ -489,7 +485,6 @@ test-suite chainweb-tests
         , resource-pool >= 0.2
         , resourcet >= 1.2
         , retry >= 0.7
-        , safe >= 0.3
         , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16
@@ -696,6 +691,8 @@ executable cwtool
         Chain2Gexf
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
+        Chainweb.Test.Pact.ForkTest
+        Chainweb.Test.Pact.Utils
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
         Ea
@@ -741,6 +738,7 @@ executable cwtool
         , data-default >= 0.7
         , deepseq >= 1.4
         , directory >= 1.3
+        , extra >= 1.6
         , file-embed
         , filepath
         , errors >= 2.3
@@ -764,10 +762,12 @@ executable cwtool
         , pact >= 2.6
         , paths >= 0.2
         , pretty-simple >= 2.1
+        , primes >= 0.2
         , process >= 1.5
         , primitive >= 0.6
         , random >= 1.1
         , resourcet >= 1.2
+        , safe >= 0.3
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
