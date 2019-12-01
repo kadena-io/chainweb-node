@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -94,7 +92,7 @@ test =
     cid = someChainId testVer
 
 scheduledTest :: ScheduledTest
-scheduledTest = ScheduledTest "Pact checkpointer forking test" $ test
+scheduledTest = ScheduledTest "Pact checkpointer forking test" test
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM petersonChainGraph
@@ -106,7 +104,7 @@ prop_forkValidates
     -> ChainId
     -> BlockHeader
     -> Property
-prop_forkValidates pdb bhdb cid genBlock = do
+prop_forkValidates pdb bhdb cid genBlock =
     again $ ioProperty $ do
         (trunk, left, right) <- generate genForkLengths
         mVar <- newMVar (0 :: Int)
@@ -124,9 +122,6 @@ prop_forkValidates pdb bhdb cid genBlock = do
                     runBlocks db parentFromTrunk (left - 1) reqQ bhdb
                 (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
                     runBlocks db parentFromTrunk (right - 1) reqQ bhdb
-                -- putStrLn $ "Expected: " ++ show expected
-                --     ++ ", newBlock results: " ++ show nbRightRes
-                --     ++ ", validateBlock results: " ++ show vbRightRes
                 return $ property (nbRightRes == vbRightRes)
 
 withPactProp
@@ -138,7 +133,7 @@ withPactProp
     -> IO (Maybe FilePath)
     -> (PactQueue -> IO Property)
     -> IO Property
-withPactProp version logLevel iopdb iobhdb mempool iodir f = do
+withPactProp version logLevel iopdb iobhdb mempool iodir f =
     bracket startPact stopPact $ \(_x, q) -> f q
   where
     startPact :: IO (Async (), TBQueue RequestMsg)
@@ -163,7 +158,7 @@ genForkLengths = do
     let maxTotalLen = 12
     trunk <- choose (3, 4)
     left <- choose (1, 4)
-    right <- choose ((left + 1), maxTotalLen - (trunk + left))
+    right <- choose (left + 1, maxTotalLen - (trunk + left))
     return (trunk, left, right)
 
 maxBalance :: Int
@@ -189,7 +184,7 @@ runBlocks
   -> BlockHeader
   -> Int
   -> PactQueue
-  -> (IO BlockHeaderDb)
+  -> IO BlockHeaderDb
   -> IO (Int, Int, BlockHeader)
 runBlocks db parent 0 reqQ iodb = processBlock db parent reqQ iodb
 runBlocks db parent count reqQ iodb = do
@@ -200,7 +195,7 @@ processBlock
     :: BlockHeaderDb
     -> BlockHeader
     -> PactQueue
-    -> (IO BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO (Int, Int, BlockHeader)
 processBlock db parent reqQ iodb = do
     mvNew <- runNewBlock parent reqQ iodb
@@ -214,40 +209,37 @@ getResult :: MVar (Either PactException PayloadWithOutputs) -> IO (PayloadWithOu
 getResult mvar = do
     res <- takeMVar mvar
     case res of
-        (Left pactEx) -> throwIO $ pactEx
+        (Left pactEx) -> throwIO pactEx
         (Right plwo) -> do
-            -- putStrLn $ "Result as plwo: " ++ show plwo
             let outs = V.map snd (_payloadWithOutputsTransactions plwo)
             n <- asSingleResult outs
-            -- putStrLn $ "Result as Int: " ++ show n
             return (plwo, n)
 
 asSingleResult :: Vector TransactionOutput -> IO Int
 asSingleResult txOuts = do
-  theInts <- traverse (\txOut -> txAsIntResult txOut) txOuts
+  theInts <- traverse txAsIntResult txOuts
   let theSum = V.sum theInts
   return theSum
 
 txAsIntResult :: TransactionOutput -> IO Int
 txAsIntResult txOut = do
     let theBytes = _transactionOutputBytes txOut
-    theInt <- case A.decode (toS theBytes) :: Maybe (P.CommandResult P.Hash) of
+    case A.decode (toS theBytes) :: Maybe (P.CommandResult P.Hash) of
         Nothing -> do
-            putStrLn $ "\ntxAsIntResult - Nothing"
+            putStrLn "\ntxAsIntResult - Nothing"
             return 0
         Just cmd -> do
           let res = P._crResult cmd
           case res of
               P.PactResult (Right (P.PLiteral (P.LDecimal n))) -> return $ fromEnum n
               _someOther -> do
-                  putStrLn $ "\ntxAsIntResult - Could not decode the Int result"
+                  putStrLn "\ntxAsIntResult - Could not decode the Int result"
                   return 0
-    return theInt
 
 runNewBlock
     :: BlockHeader
     -> PactQueue
-    -> (IO BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO (MVar (Either PactException PayloadWithOutputs))
 runNewBlock parentBlock reqQ _iodb = do
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
@@ -267,7 +259,7 @@ mkProperNewBlock
     :: BlockHeaderDb
     -> PayloadWithOutputs
     -> BlockHeader
-    -> (IO BlockHeader)
+    -> IO BlockHeader
 mkProperNewBlock db plwo parentHeader = do
     let adjParents = BlockHashRecord HM.empty
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
@@ -283,7 +275,7 @@ prodFromRange :: Int -> Int -> Int
 prodFromRange lo hi =
   let xs = nPrimes hi
       range = drop (lo - 1) xs
-  in foldr (\x r -> x * r) 1 range
+  in foldr (*) 1 range
 
 prodFromHeight :: Int -> Int
 prodFromHeight h =
@@ -298,8 +290,8 @@ nPrimes n | n <= 0    = [0]
           | n == 1    = [1]
           | otherwise = 1 : take (n-1) primes :: [Int]
 
-showHeaderFields :: [BlockHeader] -> String
-showHeaderFields bhs =
+_showHeaderFields :: [BlockHeader] -> String
+_showHeaderFields bhs =
     foldl' f "" bhs
   where
     f r BlockHeader{..} = r ++
@@ -329,20 +321,20 @@ testMemPoolAccess cid mvar =
         currentTime <- getCurrentTimeIntegral
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60 -- 24 hours
-                in fmap ((h pCid) . (g ttl) . (f (toTxCreationTime currentTime))) tx
+                in fmap (h pCid . g ttl . f (toTxCreationTime currentTime)) tx
         return outtxs
 
 txsFromHeight :: MVar Int -> Int -> IO (Vector PactTransaction)
 txsFromHeight _mvar 0 = error "txsFromHeight called for Genesis block"
 txsFromHeight mvar 1 = do
-    _ <- modifyMVar mvar (\n -> return ((n + 1), (n + 1)))
+    _ <- modifyMVar mvar (\n -> return (n + 1, n + 1))
     d <- adminData
     moduleStr <- readFile' $ testPactFilesDir ++ "test2.pact"
     return $ V.fromList
-        ( [ PactTransaction { _pactCode = (T.pack moduleStr) , _pactData = d } ] )
+        ( [ PactTransaction { _pactCode = T.pack moduleStr , _pactData = d } ] )
 
 txsFromHeight mvar _h = do
-    newCount <- modifyMVar mvar (\n -> return ((n + 1), (n + 1)))
+    newCount <- modifyMVar mvar (\n -> return (n + 1, n + 1))
     V.fromList <$> tailTransactions newCount
 
 toCWTransactions :: P.ChainId -> Vector PactTransaction -> IO (Vector ChainwebTransaction)
