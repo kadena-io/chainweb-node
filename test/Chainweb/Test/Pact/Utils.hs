@@ -60,7 +60,6 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
-, withPact'
 , WithPactCtxSQLite
 -- * miscellaneous
 , ChainwebNetwork(..)
@@ -78,15 +77,15 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
+import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
 import Data.Text (Text)
-import qualified Data.Text.IO as T
 import Data.Text.Encoding
+import qualified Data.Text.IO as T
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -135,12 +134,12 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.SPV
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -148,7 +147,6 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-import Chainweb.Test.Utils
 
 -- ----------------------------------------------------------------------- --
 -- Test Exceptions
@@ -400,7 +398,7 @@ testPactCtx v cid cdbv bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
     ctx <- TestPactCtx
-        <$> newMVar (PactServiceState Nothing)
+        <$> newMVar (PactServiceState Nothing mempty)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
@@ -423,7 +421,7 @@ testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
     ctx <- TestPactCtx
-      <$> newMVar (PactServiceState Nothing)
+      <$> newMVar (PactServiceState Nothing mempty)
       <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
@@ -458,6 +456,8 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         , _pactLookup = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
+        , _pactPreInsertCheck = error
+            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactPreInsertCheck: not implemented"
         }
 
 -- | A test PactExecutionService for a chainweb
@@ -554,7 +554,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
       let rs = readRewards v
       !ctx <- TestPactCtx
-        <$!> newMVar (PactServiceState Nothing)
+        <$!> newMVar (PactServiceState Nothing mempty)
         <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
@@ -619,37 +619,21 @@ withPact
     -> (IO PactQueue -> TestTree)
     -> TestTree
 withPact version logLevel iopdb iobhdb mempool iodir f =
-    withPact' version logLevel iopdb iobhdb mempool (Just <$> iodir) f
-
--- similar to withPact, but allowing the FilePath argument to be 'Nothing'
-withPact'
-    :: ChainwebVersion
-    -> LogLevel
-    -> IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> MemPoolAccess
-    -> IO (Maybe FilePath)
-    -> (IO PactQueue -> TestTree)
-    -> TestTree
-withPact' version logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
         mv <- newEmptyMVar
-        reqQ <- atomically $ newTBQueue pactQueueSize
+        reqQ <- atomically $ newTBQueue 2000
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
         a <- async $ initPactService version cid logger reqQ mempool mv
-                                     bhdb pdb dir Nothing False
+                                     bhdb pdb (Just dir) Nothing False
         return (a, reqQ)
 
     stopPact (a, _) = cancel a
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
-
-
-
 
 newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }

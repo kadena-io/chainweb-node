@@ -74,7 +74,6 @@ main =
     adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
     adj x = x
 
-
 mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
 mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
     $ schedule Sequential [Chainweb.Test.Mempool.Consensus.tests db genesisBlock]
@@ -82,7 +81,7 @@ mempoolTestSuite db genesisBlock = testGroupSch "Mempool Consensus Tests"
 pactTestSuite :: RocksDb -> ScheduledTest
 pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
     $ schedule Sequential
-    [ Chainweb.Test.Pact.PactExec.tests
+        [ Chainweb.Test.Pact.PactExec.tests
         , Chainweb.Test.Pact.Checkpointer.tests
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
