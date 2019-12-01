@@ -138,7 +138,7 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
     fun :: P.LoggerLogFun
     fun _ (P.LogName n) cat msg = do
         let namedLogger = addLabel ("logger", T.pack n) logger
-        logFunctionText namedLogger (pactLogLevel cat) $ T.pack ("wat: " <> msg)
+        logFunctionText namedLogger (pactLogLevel cat) $ T.pack msg
 
 initPactService
     :: Logger logger
