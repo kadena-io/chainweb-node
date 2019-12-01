@@ -83,6 +83,7 @@ import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
+import Data.Maybe
 import Data.Text (Text)
 import Data.Text.Encoding
 import qualified Data.Text.IO as T
@@ -354,7 +355,7 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def
   where
-    f _ b "ERROR" d = doLog error b "ERROR" d
+    f _ b "ERROR" d = doLog (\_ -> return ()) b "ERROR" d
     f _ b "DEBUG" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
     f _ b "INFO" d | not showAll = doLog (\_ -> return ()) b "INFO" d
     f _ b "DDL" d | not showAll = doLog (\_ -> return ()) b "DDL" d
@@ -521,9 +522,10 @@ withPactCtxSQLite
   => ChainwebVersion
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)
+  -> Maybe GasModel
   -> (WithPactCtxSQLite cas -> TestTree)
   -> TestTree
-withPactCtxSQLite v bhdbIO pdbIO f =
+withPactCtxSQLite v bhdbIO pdbIO gasModel f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io -> do
@@ -542,9 +544,10 @@ withPactCtxSQLite v bhdbIO pdbIO f =
       (_,s) <- ios
       (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
       let rs = readRewards v
+          gm = fromMaybe (constGasModel 0) gasModel
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing mempty)
-        <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb (constGasModel 0) rs True)
+        <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb gm rs True)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 

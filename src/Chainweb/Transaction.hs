@@ -19,7 +19,6 @@ module Chainweb.Transaction
   , timeToLiveOf
   , creationTimeOf
   , mkPayloadWithText
-  , modifyPayloadWithText
   , payloadBytes
   , payloadObj
   ) where
@@ -71,14 +70,6 @@ mkPayloadWithText p = PayloadWithText {
     , _payloadObj = p
     }
 
-modifyPayloadWithText
-    :: (Payload PublicMeta ParsedCode -> Payload PublicMeta ParsedCode)
-    -> PayloadWithText
-    -> PayloadWithText
-modifyPayloadWithText f pwt = mkPayloadWithText newPayload
-  where
-    oldPayload = _payloadObj pwt
-    newPayload = f oldPayload
 
 type ChainwebTransaction = Command PayloadWithText
 
