@@ -27,20 +27,24 @@ module Chainweb.Test.Pact.SPV
 , invalidProof
 ) where
 
+import Control.Arrow ((***))
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally, throwIO)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch (catch)
+import Control.Monad
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Lazy (toStrict)
+import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function
 import Data.Functor (void)
+import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (isInfixOf)
-import Data.Text (pack)
+import Data.Text (pack,Text)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 import qualified Data.Vector as Vector
@@ -72,6 +76,9 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Types
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.Types
 import Chainweb.SPV.CreateProof
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
@@ -196,6 +203,7 @@ roundtrip sid0 tid0 burn create =
 
             let webStoreDb = view cutDbWebBlockHeaderStore cutDb
             let webHeaderDb = _webBlockHeaderStoreCas webStoreDb
+            let payloadDb = view cutDbPayloadCas cutDb
 
             -- pact service, that is used to extend the cut data base
             t1 <- getCurrentTimeIntegral
@@ -252,6 +260,20 @@ roundtrip sid0 tid0 burn create =
 
             return (True, "test succeeded")
 
+cutToPayloadOutputs
+  :: PayloadCas cas
+  => Cut
+  -> PayloadDb cas
+  -> IO (HM.HashMap Chainweb.ChainId (Vector (Command Text,HashCommandResult)))
+cutToPayloadOutputs c pdb = do
+  forM (_cutMap c) $ \bh -> do
+    outs <- casLookupM pdb (_blockPayloadHash bh)
+    let txs = Vector.map (toTx *** toCR) (_payloadWithOutputsTransactions outs)
+        toTx :: Transaction -> Command Text
+        toTx (Transaction t) = fromJuste $ decodeStrict' t
+        toCR :: TransactionOutput -> HashCommandResult
+        toCR (TransactionOutput t) = fromJuste $ decodeStrict' t
+    return txs
 
 chainToMPA :: TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess
 chainToMPA f cid = MemPoolAccess
