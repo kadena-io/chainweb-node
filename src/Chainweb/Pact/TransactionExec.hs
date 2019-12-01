@@ -174,6 +174,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e -> do
+          txGasUsed .= gasLimit
           r <- jsonErrorResult e "tx failure for request key when running cmd"
           redeemAllGas r
         Right r -> applyRedeem r
@@ -305,7 +306,9 @@ applyLocal logger dbEnv pd spv cmdIn mc =
         applyExec interp em signers chash managedNamespacePolicy
 
       case cr of
-        Left e -> jsonErrorResult e "applyLocal"
+        Left e -> do
+          txGasUsed .= gasLImit
+          jsonErrorResult e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (toJSON pd') }
 
     go = do
