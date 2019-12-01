@@ -1103,9 +1103,6 @@ applyPactCmd isGenesis dbEnv parentHash cmdIn miner mcache dl = do
     when isGenesis $
       psInitCache <>= mcache'
 
-    when isGenesis $
-      psInitCache <>= mcache'
-
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp pactHash
@@ -1152,27 +1149,6 @@ execPreInsertCheckReq parentHash txs = do
   where
     runGas pdb psEnv psState ts =
         fst <$!> runPactServiceM psState psEnv (attemptBuyGas noMiner pdb parentHash ts)
-
-execPreInsertCheckReq
-    :: PayloadCas cas
-    => Vector ChainwebTransaction
-    -> PactServiceM cas (Vector (Either Mempool.InsertError ()))
-execPreInsertCheckReq txs = do
-    cp <- getCheckpointer
-    b <- liftIO $ _cpGetLatestBlock cp
-    case b of
-        Nothing -> return $! V.map (const (Right ())) txs
-        Just (h, ha) ->
-            withCheckpointer (Just (h+1, ha)) "execPreInsertCheckReq" $ \pdb -> do
-                now <- liftIO getCurrentTimeIntegral
-                psEnv <- ask
-                psState <- get
-                liftIO (Discard <$>
-                        validateChainwebTxs cp (BlockCreationTime now) (h + 1) txs
-                              (runGas pdb psEnv psState))
-  where
-    runGas pdb psEnv psState ts =
-        fst <$!> runPactServiceM psState psEnv (attemptBuyGas noMiner pdb ts)
 
 execLookupPactTxs
     :: PayloadCas cas
