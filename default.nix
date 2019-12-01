@@ -1,1 +1,2 @@
-(import ./project.nix {}).ghc.chainweb
+{ system ? builtins.currentSystem }:
+(import ./project.nix {}).proj.ghc.chainweb

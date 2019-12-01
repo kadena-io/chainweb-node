@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.0.2
+version:      1.0.6
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -66,6 +66,11 @@ flag debug
     default: False
     manual:True
 
+flag ghc-flags
+    description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
+    default: False
+    manual: True
+
 common debugging-flags
     if flag(debug)
         ghc-options:
@@ -82,6 +87,8 @@ common warning-flags
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
         -Widentities
+        -funclutter-valid-hole-fits
+        -fmax-relevant-binds=0
 
         -- This needed because -Werror and missing-home-modules causes
         -- problems with ghci.
@@ -90,7 +97,7 @@ common warning-flags
 custom-setup
     setup-depends:
           Cabal
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , bytestring >= 0.10
         , directory >= 1.3
         , filepath >= 1.4
@@ -249,6 +256,7 @@ library
 
         -- pact
         , Chainweb.Pact.Backend.Bench
+        , Chainweb.Pact.Backend.ForkingBench
         , Chainweb.Pact.Backend.ChainwebPactDb
         , Chainweb.Pact.Backend.InMemoryCheckpointer
         , Chainweb.Pact.Backend.RelationalCheckpointer
@@ -265,6 +273,7 @@ library
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
+        , Chainweb.Pact.Templates
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
@@ -285,7 +294,7 @@ library
         , asn1-types >=0.3
         , async >= 2.2
         , attoparsec >= 0.13
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
         , binary >= 0.8
@@ -312,6 +321,7 @@ library
         , errors >= 2.3
         , exceptions >= 0.8
         , extra >= 1.6
+        , fake >= 0.1.1.1
         , file-embed >= 0.0
         , generic-lens >= 1.1
         , hashable >= 1.2
@@ -394,6 +404,9 @@ library
     if flag(use_systemd) && os(linux)
         build-depends: systemd >= 1.2
         cpp-options: -DWITH_SYSTEMD=1
+    if flag(ghc-flags)
+        ghc-options: -fplugin GhcFlags.Plugin
+        build-depends: ghcflags
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Test suite
@@ -452,7 +465,7 @@ test-suite chainweb-tests
         , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , async >= 2.2
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
         , base64-bytestring >= 1.0
         , bytes >= 0.15
@@ -505,6 +518,7 @@ test-suite chainweb-tests
         , these >= 1 && < 1.1
         , time >= 1.8
         , transformers >= 0.5
+        , thyme == 0.3.6.0
         , unordered-containers >= 0.2
         , vector >= 0.12
         , wai >= 3.2
@@ -535,7 +549,7 @@ test-suite chainweb-tests
 --         , aeson >= 1.4.3
 --         , async >= 2.2
 --         , attoparsec >= 0.13
---         , base >= 4.11 && < 5
+--         , base >= 4.12 && < 5
 --         , base16-bytestring >= 0.1
 --         , base64-bytestring >= 1.0
 --         , bytes >= 0.15
@@ -610,7 +624,7 @@ executable chainweb-node
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N
+        "-with-rtsopts=-N -H1G -A64M"
         -rtsopts
     hs-source-dirs: node
     main-is: ChainwebNode.hs
@@ -627,7 +641,7 @@ executable chainweb-node
         -- external
         , aeson >= 1.4.3
         , async >= 2.2
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , chainweb-storage >= 0.1
         , configuration-tools >= 0.4.1
         , deepseq >= 1.4
@@ -640,43 +654,9 @@ executable chainweb-node
         , mtl >= 2.2
         , streaming >= 0.2
         , text >= 1.2
+        , time >= 1.8
         , unordered-containers >= 0.2
         , yet-another-logger >= 0.3.1
-
-executable chainweb-miner
-    import: warning-flags
-    default-language: Haskell2010
-    ghc-options:
-        -threaded
-        -with-rtsopts=-N
-        -O2
-    hs-source-dirs: miner
-    main-is: Miner.hs
-    build-depends:
-        -- internal
-          chainweb
-
-        -- external
-        , base >= 4.11 && < 5
-        , bytestring >= 0.10
-        , connection >= 0.2
-        , generic-lens >= 1.2
-        , http-client >= 0.5
-        , http-client-tls >= 0.3
-        , http-types >= 0.12
-        , mwc-random >= 0.13
-        , optparse-applicative >= 0.14
-        , pact >= 2.6
-        , paths >= 0.2
-        , retry >= 0.7
-        , rio >= 0.1.5
-        , scheduler >= 1.4.1
-        , servant-client >= 0.16
-        , streaming >= 0.2
-        , streaming-events >= 1.0
-        , strict-tuple >= 0.1.3
-        , time >= 1.8
-        , wai-extra >= 3.0
 
 executable cwtool
     import: warning-flags, debugging-flags
@@ -684,7 +664,7 @@ executable cwtool
     ghc-options:
         -threaded
         -with-rtsopts=-N
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -697,7 +677,9 @@ executable cwtool
         Chainweb.Test.Utils
         Ea
         Ea.Genesis
+        GenConf
         Gexf
+        HeaderDump
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
@@ -725,7 +707,7 @@ executable cwtool
         , aeson-pretty >= 0.8
         , async >= 2.2
         , attoparsec >= 0.13
-        , base >= 4.11 && < 5
+        , base >= 4.12 && < 5
         , base-prelude >= 1.3
         , base16-bytestring >= 0.1
         , bytes >= 0.15
@@ -766,8 +748,11 @@ executable cwtool
         , process >= 1.5
         , primitive >= 0.6
         , random >= 1.1
+        , random-bytestring >= 0.1
+        , random-strings
         , resourcet >= 1.2
         , safe >= 0.3
+        , rocksdb-haskell >= 1.0
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
@@ -802,6 +787,7 @@ benchmark bench
     default-language: Haskell2010
     ghc-options:
         -threaded
+        -rtsopts
         -with-rtsopts=-N
     hs-source-dirs: bench
     main-is: Bench.hs

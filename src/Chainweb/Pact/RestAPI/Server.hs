@@ -82,12 +82,14 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
@@ -172,9 +174,9 @@ data PactCmdLog
   deriving (Show, Generic, ToJSON, NFData)
 
 
--- | KILLSWITCH: The logic here involving `txSilenceEndDate` is to be removed in a
--- future version of Chainweb. This prevents any "real" Pact transactions from
--- being submitted to the system.
+-- | KILLSWITCH 2019-12-05T16:00:00Z: The logic here involving `transferActivationDate` can be removed once
+-- the date itself has passed. Until then, this prevents any "real" Pact
+-- transactions from being submitted to the system.
 --
 sendHandler
     :: Logger logger
@@ -185,8 +187,9 @@ sendHandler
     -> Handler RequestKeys
 sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    case txSilenceEndDate v of
-        Just _ -> failWith "Transactions are disabled until December 5"
+    now <- liftIO getCurrentTimeIntegral
+    case transferActivationDate v of
+        Just end | now < end -> failWith "Transactions are disabled until 2019 Dec 6"
         _ -> case traverse validateCommand cmds of
             Right enriched -> do
                 let txs = V.fromList $ NEL.toList enriched
@@ -335,10 +338,7 @@ spvHandler
 spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
     liftIO $! logg (sshow ph)
 
-    cut <- liftIO $! CutDB._cut cdb
-    bh <- liftIO $! lookupCutM cid cut
-
-    T2 bhe _bha <- liftIO (_pactLookup pe (Right bh) (pure ph)) >>= \case
+    T2 bhe _bha <- liftIO (_pactLookup pe (NoRewind cid) (pure ph)) >>= \case
       Left e ->
         toErr $ "Internal error: transaction hash lookup failed: " <> sshow e
       Right v -> case v ^?! _head of
@@ -394,7 +394,7 @@ internalPoll
 internalPoll cutR cid chain cut requestKeys0 = do
     -- get leaf block header for our chain from current best cut
     chainLeaf <- lookupCutM cid cut
-    results0 <- _pactLookup pactEx (Right chainLeaf) requestKeys >>= either throwM return
+    results0 <- _pactLookup pactEx (DoRewind chainLeaf) requestKeys >>= either throwM return
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
     let results = V.map (\(a, b) -> (a, fromJuste b)) $

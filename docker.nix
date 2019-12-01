@@ -1,9 +1,9 @@
-{ nixpkgs ? import <nixpkgs> { system = "x86_64-linux"; }, skipTests ? true }:
+{ nixpkgs ? (import ./project.nix { system = "x86_64-linux"; }).rp.nixpkgs, skipTests ? true }:
 
 let
     inherit (nixpkgs) pkgs;
     inherit (nixpkgs.haskell.lib) justStaticExecutables dontCheck;
-    chainwebDrv = ( import ./. { system = "x86_64-linux"; } ).ghc.chainweb;
+    chainwebDrv = ( import ./. { system = "x86_64-linux"; } );
     chainwebStatic = justStaticExecutables
                      (if skipTests then dontCheck chainwebDrv else chainwebDrv);
 in

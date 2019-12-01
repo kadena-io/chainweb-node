@@ -124,7 +124,6 @@ import Pact.Types.Util (toB16Text)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId (chainIdToText)
-import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -136,7 +135,6 @@ import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Pact.SPV
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Utils
@@ -390,45 +388,41 @@ testPactCtx
     :: PayloadCas cas
     => ChainwebVersion
     -> Version.ChainId
-    -> Maybe (MVar (CutDb cas))
     -> BlockHeaderDb
     -> PayloadDb cas
     -> IO (TestPactCtx cas)
-testPactCtx v cid cdbv bhdb pdb = do
+testPactCtx v cid bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
+        <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb (constGasModel 0) rs True)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 testPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
   -> Version.ChainId
-  -> Maybe (MVar (CutDb cas))
   -> BlockHeaderDb
   -> PayloadDb cas
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
-testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
+testPactCtxSQLite v cid bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
+      <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb (constGasModel 0) rs True)
     evalPactServiceM ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
-    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
     pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
 
 -- | A test PactExecutionService for a single chain
@@ -437,17 +431,16 @@ testPactExecutionService
     :: PayloadCas cas
     => ChainwebVersion
     -> Version.ChainId
-    -> Maybe (MVar (CutDb cas))
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
     -> MemPoolAccess
        -- ^ transaction generator
     -> SQLiteEnv
     -> IO PactExecutionService
-testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
+testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
     bhdb <- bhdbIO
     pdb <- pdbIO
-    ctx <- testPactCtxSQLite v cid cutDB bhdb pdb sqlenv
+    ctx <- testPactCtxSQLite v cid bhdb pdb sqlenv
     return $ PactExecutionService
         { _pactNewBlock = \m p t -> evalPactServiceM ctx $ execNewBlock mempoolAccess p m t
         , _pactValidateBlock = \h d ->
@@ -465,14 +458,13 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
 testWebPactExecutionService
     :: PayloadCas cas
     => ChainwebVersion
-    -> Maybe (MVar (CutDb cas))
     -> IO WebBlockHeaderDb
     -> IO (PayloadDb cas)
     -> (Version.ChainId -> MemPoolAccess)
        -- ^ transaction generator
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
-testWebPactExecutionService v cutDB webdbIO pdbIO mempoolAccess sqlenvs
+testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
     = fmap mkWebPactExecutionService
     $ fmap HM.fromList
     $ traverse mkPact
@@ -485,7 +477,7 @@ testWebPactExecutionService v cutDB webdbIO pdbIO mempoolAccess sqlenvs
         let bhdbs = _webBlockHeaderDb webdb
         let bhdb = fromJuste $ HM.lookup c bhdbs
         let bhdbIO = return bhdb
-        (c,) <$> testPactExecutionService v c cutDB bhdbIO pdbIO (mempoolAccess c) sqlenv
+        (c,) <$> testPactExecutionService v c bhdbIO pdbIO (mempoolAccess c) sqlenv
 
 -- | This enforces that only a single test can use the pact context at a time.
 -- It's up to the user to ensure that tests are scheduled in the right order.
@@ -493,12 +485,11 @@ testWebPactExecutionService v cutDB webdbIO pdbIO mempoolAccess sqlenvs
 withPactCtx
     :: PayloadCas cas
     => ChainwebVersion
-    -> Maybe (MVar (CutDb cas))
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
     -> ((forall a . PactServiceM cas a -> IO a) -> TestTree)
     -> TestTree
-withPactCtx v cutDB bhdbIO pdbIO f =
+withPactCtx v bhdbIO pdbIO f =
     withResource start destroyTestPactCtx $
     \ctxIO -> f $ \pact -> do
         ctx <- ctxIO
@@ -507,7 +498,7 @@ withPactCtx v cutDB bhdbIO pdbIO f =
     start = do
         bhdb <- bhdbIO
         pdb <- pdbIO
-        testPactCtx v (someChainId v) cutDB bhdb pdb
+        testPactCtx v (someChainId v) bhdb pdb
 
 initializeSQLite :: IO (IO (), SQLiteEnv)
 initializeSQLite = do
@@ -528,24 +519,22 @@ type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO
 withPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
-  -> Maybe (MVar (CutDb cas))
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)
   -> (WithPactCtxSQLite cas -> TestTree)
   -> TestTree
-withPactCtxSQLite v cutDB bhdbIO pdbIO f =
+withPactCtxSQLite v bhdbIO pdbIO f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io -> do
-      withResource (start io cutDB) (destroy io) $ \ctxIO -> f $ \toPact -> do
+      withResource (start io) (destroy io) $ \ctxIO -> f $ \toPact -> do
           (ctx, dbSt) <- ctxIO
           evalPactServiceM ctx (toPact dbSt)
   where
     destroy = const (destroyTestPactCtx . fst)
-    start ios cdbv = do
+    start ios = do
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
-          spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
           cid = someChainId v
           pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
       bhdb <- bhdbIO
@@ -555,7 +544,7 @@ withPactCtxSQLite v cutDB bhdbIO pdbIO f =
       let rs = readRewards v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing mempty)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
+        <*> pure (PactServiceEnv Nothing cpe pd pdb bhdb (constGasModel 0) rs True)
       evalPactServiceM ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
@@ -622,12 +611,11 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
-        mv <- newEmptyMVar
         reqQ <- atomically $ newTBQueue 2000
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ initPactService version cid logger reqQ mempool mv
+        a <- async $ initPactService version cid logger reqQ mempool
                                      bhdb pdb (Just dir) Nothing False
         return (a, reqQ)
 

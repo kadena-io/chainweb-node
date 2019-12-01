@@ -142,7 +142,7 @@ powHash PowConsensus{} = cryptoHash @Blake2s_256
 powHash TimedCPM{} = cryptoHash @Blake2s_256
 powHash FastTimedCPM{} = cryptoHash @Blake2s_256
 powHash Development = cryptoHash @Blake2s_256
-powHash Testnet02 = cryptoHash @Blake2s_256
+powHash Testnet04 = cryptoHash @Blake2s_256
 powHash Mainnet01 = cryptoHash @Blake2s_256
 
 cryptoHash :: forall a . HashAlgorithm a => B.ByteString -> PowHash

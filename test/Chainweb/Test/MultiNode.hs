@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -147,20 +148,33 @@ config v n nid = defaultChainwebConfiguration v
         -- at last no being a clique) and to also limit the number of
         -- port allocations
 
-    & set (configP2p . p2pConfigSessionTimeout) 60
+    & set (configP2p . p2pConfigSessionTimeout) 20
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
 
-    & set (configMiner . enableConfigEnabled) True
-    & set (configMiner . enableConfigConfig . configTestMiners) (MinerCount n)
-        -- The number of test miners being used.
-    & set (configMiner . enableConfigConfig . configMinerInfo) noMiner
+    & set (configMining . miningInNode) miner
 
     & set configReintroTxs True
         -- enable transaction re-introduction
 
     & set (configTransactionIndex . enableConfigEnabled) True
         -- enable transaction index
+
+    & set configThrottling throttling
+        -- throttling is effectively disabled to not slow down the test nodes
+  where
+    miner = NodeMiningConfig
+        { _nodeMiningEnabled = True
+        , _nodeMiner = noMiner
+        , _nodeTestMiners = MinerCount n
+        }
+
+    throttling = defaultThrottlingConfig
+        { _throttlingRate = 10000 -- per second
+        , _throttlingMiningRate = 10000 --  per second
+        , _throttlingPeerRate = 10000 -- per second, one for each p2p network
+        , _throttlingLocalRate = 10000  -- per 10 seconds
+        }
 
 -- | Set the bootstrap node port of a 'ChainwebConfiguration'
 --

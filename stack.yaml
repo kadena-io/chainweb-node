@@ -1,6 +1,6 @@
-resolver: lts-14.13
+resolver: lts-14.14
 
-ghc-options: {"$locals": -ddump-to-file -ddump-hi -funclutter-valid-hole-fits -fmax-relevant-binds=0}
+#ghc-options: {"$locals": -ddump-to-file -ddump-hi -funclutter-valid-hole-fits -fmax-relevant-binds=0}
 
 extra-deps:
   # --- Missing from Stackage --- #
@@ -14,7 +14,7 @@ extra-deps:
   - streaming-events-1.0.0
   - strict-tuple-0.1.3
   - yet-another-logger-0.3.1
-
+  - random-strings-0.1.1.0
   # --- Transitive Pact Dependencies --- #
   - ed25519-donna-0.1.1
   - sbv-8.2
@@ -28,6 +28,6 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 34783f9639a87b391382fe063e87737766fcdbb1
+    commit: 3763fecf23122cdd2352377564f3c47dc497ee17
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a

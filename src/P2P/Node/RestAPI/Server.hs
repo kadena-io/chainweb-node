@@ -95,6 +95,7 @@ peerGetHandler db nid limit next = do
         . SP.zip (SP.each [0..])
         . SP.each
         . toAscList (Proxy @HostAddressIdx)
+        . getEQ (SuccessiveFailures 0)
         $ getEQ nid sn
     return $! over pageItems (fmap snd) page
   where
@@ -108,15 +109,11 @@ peerPutHandler
     -> NetworkId
     -> PeerInfo
     -> Handler NoContent
-peerPutHandler db v nid e -- TODO consider connection test here for bad peer
-    | isReservedHostAddress (_peerAddr e) = throwError $ err400
-        { errBody = "Invalid hostaddress. Hostaddress is private or from a reserved IP range"
+peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
+    Left failure -> throwError $ err400
+        { errBody = "Invalid hostaddress: " <> sshow failure
         }
-    | otherwise = liftIO (guardPeerDb v nid db e) >>= \case
-        Left failure -> throwError $ err400
-            { errBody = "Invalid hostaddress. The given host isn't reachable. (" <> sshow failure <> ")"
-            }
-        Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
+    Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --
 -- P2P API Server

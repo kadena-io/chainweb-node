@@ -50,20 +50,19 @@ toMempool
     => ChainwebVersion
     -> ChainId
     -> TransactionConfig t
-    -> GasLimit
     -> ClientEnv
     -> MempoolBackend t
-toMempool version chain txcfg blocksizeLimit env =
+toMempool version chain txcfg env =
     MempoolBackend
     { mempoolTxConfig = txcfg
-    , mempoolBlockGasLimit = blocksizeLimit
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
     , mempoolInsertCheck = \_ -> unsupported
     , mempoolMarkValidated = \_ -> unsupported
-    , mempoolGetBlock = \_ _ _ _ -> unsupported
+    , mempoolGetBlock = \_ _ _ -> unsupported
     , mempoolGetPendingTransactions = getPending
+    , mempoolPrune = unsupported
     , mempoolClear = clear
     }
   where

@@ -178,7 +178,7 @@ roundtrip
 roundtrip sid0 tid0 burn create =
   withAll v $ \sqlenv0s -> withAll v $ \sqlenv1s -> withAll v $ \sqlenv2s -> do
     -- Pact service that is used to initialize the cut data base
-    let pactIO bhdb pdb = testWebPactExecutionService v Nothing
+    let pactIO bhdb pdb = testWebPactExecutionService v
                               (return bhdb) (return pdb)
                               (return mempty) sqlenv0s
     withTempRocksDb "chainweb-spv-tests" $ \rdb ->
@@ -201,7 +201,7 @@ roundtrip sid0 tid0 burn create =
             t1 <- getCurrentTimeIntegral
             txGen1 <- burn t1 pidv sid tid
 
-            pact1 <- testWebPactExecutionService v (Just cdb)
+            pact1 <- testWebPactExecutionService v
                          (return webHeaderDb) (return pdb)
                          (chainToMPA txGen1) sqlenv1s
             syncPact cutDb pact1
@@ -241,7 +241,7 @@ roundtrip sid0 tid0 burn create =
             t2 <- getCurrentTimeIntegral
             txGen2 <- create t2 cdb pidv sid tid (height sid c1)
 
-            pact2 <- testWebPactExecutionService v (Just cdb)
+            pact2 <- testWebPactExecutionService v
                          (return webHeaderDb) (return pdb)
                          (chainToMPA txGen2) sqlenv2s
             syncPact cutDb pact2
@@ -302,7 +302,7 @@ txGenerator1 time pidv sid tid = do
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
-                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 10 0.01 100000 (toTxCreationTime time) txs
+                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 24 0.01 100000 (toTxCreationTime time) txs
                   `finally` writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
@@ -359,7 +359,7 @@ txGenerator2 time cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
@@ -384,7 +384,7 @@ txGenerator3 time cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
@@ -405,7 +405,7 @@ txGenerator4 time _cdbv pidv _ tid _ = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the correct target chain, with a proof
@@ -432,5 +432,5 @@ txGenerator5 time cdbv pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 10 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True

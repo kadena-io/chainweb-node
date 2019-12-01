@@ -83,7 +83,7 @@ instance Show GChainId where
 --
 data Genesis = Genesis
   { _version :: ChainwebVersion
-    -- ^ chainweb version (e.g. Testnet02)
+    -- ^ chainweb version (e.g. Testnet04)
   , _tag :: Text
     -- ^ Module name tag
   , _txChainId :: GChainId
@@ -202,7 +202,7 @@ fastAllocations = "pact/genesis/devnet/allocations.yaml"
 
 testnet0 :: Genesis
 testnet0 = Genesis
-    { _version = Testnet02
+    { _version = Testnet04
     , _tag = "Testnet"
     , _txChainId = Zero
     , _coinbase = Just test0Grants

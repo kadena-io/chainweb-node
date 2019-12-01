@@ -125,7 +125,7 @@ withTestCutDb rdb v n pactIO logfun f = do
     pact <- pactIO webDb payloadDb
     withLocalWebBlockHeaderStore mgr webDb $ \headerStore ->
         withLocalPayloadStore mgr payloadDb pact $ \payloadStore ->
-            withCutDb (defaultCutDbConfig v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
+            withCutDb (defaultCutDbParams v cutFetchTimeout) logfun headerStore payloadStore cutHashesDb $ \cutDb -> do
                 foldM_ (\c _ -> view _1 <$> mine defaultMiner pact cutDb c) (genesisCut v) [0..n]
                 f cutDb
 
@@ -280,7 +280,7 @@ startTestPayload rdb v logfun n = do
     mgr <- HTTP.newManager HTTP.defaultManagerSettings
     (pserver, pstore) <- startLocalPayloadStore mgr payloadDb
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
-    cutDb <- startCutDb (defaultCutDbConfig v cutFetchTimeout) logfun hstore pstore cutHashesDb
+    cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) logfun hstore pstore cutHashesDb
     foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
     return (pserver, hserver, cutDb, payloadDb)
 
@@ -486,6 +486,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
 
   , _pactLocal = \_t -> error "Unimplemented"
   , _pactLookup = error "Unimplemented"
+  , _pactPreInsertCheck = error "_pactPreInsertCheck: unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

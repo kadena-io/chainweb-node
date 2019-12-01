@@ -19,11 +19,14 @@ module Chainweb.Miner.Miners
   ( -- * Local Mining
     localPOW
   , localTest
+  , mempoolNoopMiner
     -- * Remote Mining
   , transferableBytes
   ) where
 
 import Data.Bytes.Put (runPutS)
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict (T2(..), T3(..))
 
@@ -39,8 +42,11 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
+import Chainweb.Mempool.Mempool
+import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
@@ -48,7 +54,8 @@ import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Seconds(..))
-import Chainweb.Utils (int, runForever, runGet)
+import Chainweb.Transaction
+import Chainweb.Utils (approximateThreadDelay, int, runForever, runGet)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -95,6 +102,22 @@ localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest
 
     work :: BlockHeader -> IO BlockHeader
     work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
+
+-- | A miner that grabs new blocks from mempool and discards them. Mempool
+-- pruning happens during new-block time, so we need to ask for a new block
+-- regularly to prune mempool.
+mempoolNoopMiner
+    :: LogFunction
+    -> HashMap ChainId (MempoolBackend ChainwebTransaction)
+    -> IO ()
+mempoolNoopMiner lf chainRes =
+    runForever lf "Chainweb.Miner.Miners.mempoolNoopMiner" loop
+  where
+    loop = do
+        mapM_ runOne $ HashMap.toList chainRes
+        approximateThreadDelay 60000000 -- wake up once a minute
+
+    runOne (_, cr) = Mempool.mempoolPrune cr
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --

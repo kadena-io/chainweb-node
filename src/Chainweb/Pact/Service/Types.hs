@@ -35,6 +35,7 @@ import Pact.Types.Hash
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 import Chainweb.Payload
@@ -49,6 +50,7 @@ data PactException
   | TransactionValidationException [(PactHash, Text)]
   | PactDuplicateTableError Text
   | TransactionDecodeFailure Text
+  | RewindLimitExceeded Text BlockHeight BlockHeight
   -- The only argument Text is the duplicate table name.
   deriving (Eq,Generic)
 
@@ -71,6 +73,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
                 | LookupPactTxsMsg LookupPactTxsReq
+                | PreInsertCheckMsg PreInsertCheckReq
                 | CloseMsg
                 deriving (Show)
 
@@ -98,7 +101,7 @@ data LocalReq = LocalReq
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !(Maybe (T2 BlockHeight BlockHash))
+    { _lookupRestorePoint :: !Rewind
         -- here if the restore point is "Nothing" it means "we don't care"
     , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
@@ -106,6 +109,14 @@ data LookupPactTxsReq = LookupPactTxsReq
 instance Show LookupPactTxsReq where
     show (LookupPactTxsReq m _ _) =
         "LookupPactTxsReq@" ++ show m
+
+data PreInsertCheckReq = PreInsertCheckReq
+    { _preInsCheckTxs :: !(Vector ChainwebTransaction)
+    , _preInsCheckResult :: !(PactExMVar (Vector (Either InsertError ())))
+    }
+instance Show PreInsertCheckReq where
+    show (PreInsertCheckReq v _) =
+        "PreInsertCheckReq@" ++ show v
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey
