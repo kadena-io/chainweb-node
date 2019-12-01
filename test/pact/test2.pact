@@ -96,4 +96,3 @@
 (create-table accounts)
 (create-global-accounts)
 (transfer "Acct1" "Acct2" 1.0)
-(multiply-transfer "Acct1" "Acct2" 1.0)

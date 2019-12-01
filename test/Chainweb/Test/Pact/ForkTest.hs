@@ -3,9 +3,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-# OPTIONS_GHC -Wno-unused-binds #-}
-{-# OPTIONS_GHC -Wno-unused-imports #-}
-
 module Chainweb.Test.Pact.ForkTest
   ( test
   , scheduledTest
@@ -19,38 +16,28 @@ import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.STM
 
-import Data.Aeson (Value)
 import qualified Data.Aeson as A
 import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
-import Data.HashSet (HashSet)
-import Data.Int
-import Data.IORef
 import Data.List
 import Data.Numbers.Primes
 import Data.String.Conv (toS)
-import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import Safe
+import GHC.Natural
 
 import System.IO.Extra
 import System.LogLevel
 
 import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
 import Pact.Types.ChainMeta
 import Pact.Parse
-import Pact.Server.PactService
 import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Hash as P
@@ -64,12 +51,10 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Logger
-import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.BlockValidation
-import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
@@ -124,6 +109,9 @@ prop_forkValidates pdb bhdb cid genBlock =
                     runBlocks db parentFromTrunk (right - 1) reqQ bhdb
                 return $ property (nbRightRes == vbRightRes)
 
+forkTestQueueSize :: Natural
+forkTestQueueSize = 1024
+
 withPactProp
     :: ChainwebVersion
     -> LogLevel
@@ -138,12 +126,11 @@ withPactProp version logLevel iopdb iobhdb mempool iodir f =
   where
     startPact :: IO (Async (), TBQueue RequestMsg)
     startPact = do
-        mv <- newEmptyMVar
-        reqQ <- atomically $ newTBQueue pactQueueSize
+        reqQ <- atomically $ newTBQueue forkTestQueueSize
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ PS.initPactService version cid logger reqQ mempool mv
+        a <- async $ PS.initPactService version cid logger reqQ mempool
                          bhdb pdb dir Nothing False
         return (a, reqQ)
 
@@ -263,7 +250,6 @@ mkProperNewBlock
 mkProperNewBlock db plwo parentHeader = do
     let adjParents = BlockHashRecord HM.empty
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
-    let plData = payloadWithOutputsToPayloadData plwo
     creationTime <- getCurrentTimeIntegral
     let newHeader = newBlockHeader adjParents matchingPlHash (Nonce 0) creationTime parentHeader
     liftIO $ TDB.insert db newHeader
