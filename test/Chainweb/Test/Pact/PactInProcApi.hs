@@ -103,6 +103,17 @@ _getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
   where
     gbh0 = genesisBlockHeader testVersion cid
 
+-- moved here, should NEVER be in production code:
+-- you can't modify a payload without recomputing hash/signatures
+modifyPayloadWithText
+    :: (Payload PublicMeta ParsedCode -> Payload PublicMeta ParsedCode)
+    -> PayloadWithText
+    -> PayloadWithText
+modifyPayloadWithText f pwt = mkPayloadWithText newPayload
+  where
+    oldPayload = _payloadObj pwt
+    newPayload = f oldPayload
+
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = MemPoolAccess
     { mpaGetBlock = \validate bh hash _header ->
