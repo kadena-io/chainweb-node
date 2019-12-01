@@ -27,23 +27,26 @@ module Chainweb.Test.Pact.SPV
 , invalidProof
 ) where
 
+import Control.Arrow ((***))
 import Control.Concurrent.MVar
-import Control.Exception (SomeException, finally, throwIO)
+import Control.Exception (SomeException, finally)
 import Control.Lens hiding ((.=))
-import Control.Monad.Catch (catch)
+import Control.Monad
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Lazy (toStrict)
+import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function
-import Data.Functor (void)
+import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (isInfixOf)
-import Data.Text (pack)
+import Data.Text (pack,Text)
 import qualified Data.Text.IO as T
 import Data.Vector (Vector, fromList)
 import qualified Data.Vector as Vector
+import Data.Word
 
 import NeatInterpolation (text)
 
@@ -72,10 +75,14 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Types
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.Types
 import Chainweb.SPV.CreateProof
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
@@ -113,8 +120,6 @@ gorder = int . order . _chainGraph $ v
 height :: Chainweb.ChainId -> Cut -> BlockHeight
 height cid c = _blockHeight $ c ^?! ixg cid
 
-handle :: SomeException -> IO (Bool, String)
-handle e = return (False, show e)
 
 -- debugging
 _handle' :: SomeException -> IO (Bool, String)
@@ -123,40 +128,40 @@ _handle' e =
       s = show e
     in logg System.LogLevel.Error (pack s) >> return (False, s)
 
--- | expected failures take this form.
---
-expectFailure :: String -> IO (Bool, String) -> Assertion
-expectFailure err test = do
-    (b, s) <- catch test handle
-    if err `isInfixOf` s then
-      assertBool "Unexpected success" $ not b
-    else throwIO $ userError s
-
-
--- | expected successes take this form
---
-expectSuccess :: IO (Bool, String) -> Assertion
-expectSuccess test = do
-    (b, s) <- catch test handle
-    assertBool ("Unexpected failure: " <> s) b
 
 -- -------------------------------------------------------------------------- --
 -- tests
 
 standard :: Assertion
-standard = expectSuccess $ roundtrip 0 1 txGenerator1 txGenerator2
+standard = do
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator2
+  checkResult c1 0 "ObjectMap"
+  checkResult c3 1 "Write succeeded"
+
 
 wrongChain :: Assertion
-wrongChain = expectFailure "enforceYield: yield provenance" $
-    roundtrip 0 1 txGenerator1 txGenerator3
+wrongChain = do
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator3
+  checkResult c1 0 "ObjectMap"
+  checkResult c3 1 "Failure: enforceYield: yield provenance"
 
 invalidProof :: Assertion
-invalidProof = expectFailure "resumePact: no previous execution found" $
-    roundtrip 0 1 txGenerator1 txGenerator4
+invalidProof = do
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator4
+  checkResult c1 0 "ObjectMap"
+  checkResult c3 1 "Failure: resumePact: no previous execution found"
 
 wrongChainProof :: Assertion
-wrongChainProof = expectFailure "cannot redeem continuation proof on wrong target chain" $
-    roundtrip 0 1 txGenerator1 txGenerator5
+wrongChainProof = do
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator5
+  checkResult c1 0 "ObjectMap"
+  checkResult c3 1 "cannot redeem continuation proof on wrong target chain"
+  return ()
+
+checkResult :: HasCallStack => CutOutputs -> Word32 -> String -> Assertion
+checkResult co ci expect =
+  assertSatisfies ("result on chain " ++ show ci ++ " contains '" ++ show expect ++ "'")
+    (HM.lookup (unsafeChainId ci) co) (isInfixOf expect . show)
 
 
 withAll :: ChainwebVersion -> ([SQLiteEnv] -> IO c) -> IO c
@@ -174,7 +179,7 @@ roundtrip
       -- ^ burn tx generator
     -> CreatesGenerator
       -- ^ create tx generator
-    -> IO (Bool, String)
+    -> IO (CutOutputs, CutOutputs)
 roundtrip sid0 tid0 burn create =
   withAll v $ \sqlenv0s -> withAll v $ \sqlenv1s -> withAll v $ \sqlenv2s -> do
     -- Pact service that is used to initialize the cut data base
@@ -196,6 +201,7 @@ roundtrip sid0 tid0 burn create =
 
             let webStoreDb = view cutDbWebBlockHeaderStore cutDb
             let webHeaderDb = _webBlockHeaderStoreCas webStoreDb
+            let payloadDb = view cutDbPayloadCas cutDb
 
             -- pact service, that is used to extend the cut data base
             t1 <- getCurrentTimeIntegral
@@ -208,12 +214,17 @@ roundtrip sid0 tid0 burn create =
 
             c0 <- _cut cutDb
 
+            -- _debugCut "c0" c0 payloadDb
+
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
             -- to ensure we synchronize the cutdb across all chains
 
             c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
                 ((<) `on` height sid) c0
+
+            -- _debugCut "c1" c1 payloadDb
+
 
             -- A proof can only be constructed if the block hash of the source
             -- block is included in the block hash of the target. Extending the
@@ -237,6 +248,8 @@ roundtrip sid0 tid0 burn create =
             c2 <- fmap fromJuste $ extendAwait cutDb pact1 10 $ \c ->
                 height tid c > diam + height sid c1
 
+            -- _debugCut "c2" c2 payloadDb
+
             -- execute '(coin.create-coin ...)' using the  correct chain id and block height
             t2 <- getCurrentTimeIntegral
             txGen2 <- create t2 cdb pidv sid tid (height sid c1)
@@ -247,11 +260,39 @@ roundtrip sid0 tid0 burn create =
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
-            void $ fmap fromJuste $ extendAwait cutDb pact2 ((diam + 1) * gorder) $
+            c3 <- fmap fromJuste $ extendAwait cutDb pact2 ((diam + 1) * gorder) $
                 ((<) `on` height tid) c2
 
-            return (True, "test succeeded")
+            -- _debugCut "c3" c3 payloadDb
 
+            (,) <$> cutToPayloadOutputs c1 payloadDb <*>
+              cutToPayloadOutputs c3 payloadDb
+
+_debugCut :: PayloadCas cas => String -> Cut -> PayloadDb cas -> IO ()
+_debugCut msg c pdb = do
+  putStrLn $ "CUT: =============== " ++ msg
+  outs <- cutToPayloadOutputs c pdb
+  forM_ (HM.toList outs) $ \(cid,vs) -> do
+    putStrLn $ "Chain: " ++ show cid
+    forM_ vs $ \(cmd,pr) -> do
+      putStrLn $ show (_cmdHash cmd) ++ ": " ++ show pr
+
+type CutOutputs = HM.HashMap Chainweb.ChainId (Vector (Command Text,HashCommandResult))
+
+cutToPayloadOutputs
+  :: PayloadCas cas
+  => Cut
+  -> PayloadDb cas
+  -> IO CutOutputs
+cutToPayloadOutputs c pdb = do
+  forM (_cutMap c) $ \bh -> do
+    outs <- casLookupM pdb (_blockPayloadHash bh)
+    let txs = Vector.map (toTx *** toCR) (_payloadWithOutputsTransactions outs)
+        toTx :: Transaction -> Command Text
+        toTx (Transaction t) = fromJuste $ decodeStrict' t
+        toCR :: TransactionOutput -> HashCommandResult
+        toCR (TransactionOutput t) = fromJuste $ decodeStrict' t
+    return txs
 
 chainToMPA :: TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess
 chainToMPA f cid = MemPoolAccess
