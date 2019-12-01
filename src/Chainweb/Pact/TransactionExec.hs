@@ -172,7 +172,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
       cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
       case cr of
         Left e -> do
-          txGasUsed .= gasLimit -- TODO: pact errors need to track gas tally
+          txGasUsed .= gasLimit
           r <- jsonErrorResult e "tx failure for request key when running cmd"
           applyRedeem r
         Right r -> applyRedeem r
