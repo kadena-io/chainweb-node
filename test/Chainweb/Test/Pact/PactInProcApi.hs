@@ -111,7 +111,7 @@ modifyPayloadWithText
     -> PayloadWithText
 modifyPayloadWithText f pwt = mkPayloadWithText newPayload
   where
-    oldPayload = _payloadObj pwt
+    oldPayload = payloadObj pwt
     newPayload = f oldPayload
 
 testMemPoolAccess :: MemPoolAccess
