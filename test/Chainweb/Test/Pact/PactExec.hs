@@ -71,7 +71,7 @@ tests = ScheduledTest label $
         withResource newPayloadDb killPdb $ \pdb ->
         withRocksResource $ \rocksIO ->
         testGroup label
-    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
+    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
         \ctx -> testGroup "single transactions" $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
@@ -80,13 +80,15 @@ tests = ScheduledTest label $
             , execTxsTest ctx "testTfrGas" testTfrGas
             , execTxsTest ctx "testGasPayer" testGasPayer
             ]
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
       -- failures mess up cp state so run alone
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
+      \ctx -> _schTest $ execTxsTest ctx "testFailureRedeem" testFailureRedeem
 
     ]
   where
@@ -191,6 +193,10 @@ checkPactResultSuccess :: HasCallStack => String -> PactResult -> (PactValue -> 
 checkPactResultSuccess _ (PactResult (Right pv)) test = test pv
 checkPactResultSuccess msg (PactResult (Left e)) _ = assertFailure $ msg ++ ": expected tx success, got " ++ show e
 
+checkPactResultFailure :: HasCallStack => String -> PactResult -> String -> Assertion
+checkPactResultFailure msg (PactResult (Right pv)) _ = assertFailure $ msg ++ ": expected tx failure, got " ++ show pv
+checkPactResultFailure msg (PactResult (Left e)) expectErr = assertSatisfies msg e ((isInfixOf expectErr).show)
+
 testTfrNoGasFails :: TxsTest
 testTfrNoGasFails = (txs,assertResultFail "Expected missing (GAS) failure" "Keyset failure")
   where
@@ -271,6 +277,32 @@ testGasPayer = (txs,checkResultSuccess test)
       checkPactResultSuccess "setupUser" setupUser $ assertEqual "setupUser" (pString "Write succeeded")
       checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct" (pString "Write succeeded")
       checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
+    test r = assertFailure $ "Expected 5 results, got: " ++ show r
+
+testFailureRedeem :: TxsTest
+testFailureRedeem = (txs,checkResultSuccess test)
+  where
+    txs = ks >>= \ks' ->
+      mkTestExecTransactions "sender00" "0" ks' "testFailureRedeem" 1000 0.01 1000000 0 $
+        V.fromList exps
+    ks = testKeyPairs sender00KeyPair Nothing
+    exps = map (`PactTransaction` Nothing)
+      ["(coin.get-balance \"sender00\")"
+      ,"(coin.get-balance \"miner\")"
+      ,"(enforce false \"forced error\")"
+      ,"(coin.get-balance \"sender00\")"
+      ,"(coin.get-balance \"miner\")"]
+    test [sbal0,mbal0,ferror,sbal1,mbal1] = do
+      -- sender 00 first is 100000000 - full gas debit during tx (10)
+      checkPactResultSuccess "sender bal 0" sbal0 $ assertEqual "sender bal 0" (pDecimal 99999990)
+      -- miner first is reward + epsilon tx size gas for [0]
+      checkPactResultSuccess "miner bal 0" mbal0 $ assertEqual "miner bal 0" (pDecimal 2.344523)
+      -- this should reward 10 more to miner
+      checkPactResultFailure "forced error" ferror "forced error"
+      -- sender 00 second is down epsilon size costs from [0,1] + 10 for error + 10 full gas debit during tx ~ 99999980
+      checkPactResultSuccess "sender bal 1" sbal1 $ assertEqual "sender bal 1" (pDecimal 99999979.92)
+      -- miner second is up 10 from error plus epsilon from [1,2,3] ~ 12
+      checkPactResultSuccess "miner bal 1" mbal1 $ assertEqual "miner bal 1" (pDecimal 12.424523)
     test r = assertFailure $ "Expected 5 results, got: " ++ show r
 
 
