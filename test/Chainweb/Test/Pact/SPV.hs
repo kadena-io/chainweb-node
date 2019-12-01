@@ -140,19 +140,19 @@ standard = do
 
 
 wrongChain :: Assertion
-wrongChain = do -- expectFailure "enforceYield: yield provenance" $
+wrongChain = do
   (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator3
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: enforceYield: yield provenance"
 
 invalidProof :: Assertion
-invalidProof = do -- expectFailure "resumePact: no previous execution found" $
+invalidProof = do
   (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator4
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: resumePact: no previous execution found"
 
 wrongChainProof :: Assertion
-wrongChainProof = do -- expectFailure "cannot redeem continuation proof on wrong target chain" $
+wrongChainProof = do
   (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator5
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "cannot redeem continuation proof on wrong target chain"
@@ -160,7 +160,7 @@ wrongChainProof = do -- expectFailure "cannot redeem continuation proof on wrong
 
 checkResult :: HasCallStack => CutOutputs -> Word32 -> String -> Assertion
 checkResult co ci expect =
-  assertSatisfies ("Success result on chain " ++ show ci ++ " contains '" ++ show expect ++ "'")
+  assertSatisfies ("result on chain " ++ show ci ++ " contains '" ++ show expect ++ "'")
     (HM.lookup (unsafeChainId ci) co) (isInfixOf expect . show)
 
 
