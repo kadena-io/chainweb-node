@@ -303,7 +303,7 @@ applyLocal logger dbEnv pd spv cmdIn mc =
         applyExec interp em signers chash managedNamespacePolicy
 
       case cr of
-        Left e -> dos
+        Left e -> do
           txGasUsed .= gasLImit
           jsonErrorResult e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (toJSON pd') }
