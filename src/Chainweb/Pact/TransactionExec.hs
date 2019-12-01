@@ -305,8 +305,7 @@ applyLocal logger dbEnv pd spv cmdIn mc =
         applyExec interp em signers chash managedNamespacePolicy
 
       case cr of
-        Left e -> do
-          jsonErrorResult e "applyLocal"
+        Left e -> jsonErrorResult e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (toJSON pd') }
 
     go = do
