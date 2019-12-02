@@ -62,6 +62,7 @@ toMempool version chain txcfg env =
     , mempoolMarkValidated = \_ -> unsupported
     , mempoolGetBlock = \_ _ _ -> unsupported
     , mempoolGetPendingTransactions = getPending
+    , mempoolPrune = unsupported
     , mempoolClear = clear
     }
   where

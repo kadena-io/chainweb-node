@@ -23,12 +23,10 @@ module Chainweb.Pact.Types
   , pdbspRestoreFile
   , pdbspPactDbState
 
+    -- * Misc helpers
   , Transactions(..)
-  , toCoinbaseOutput, fromCoinbaseOutput
   , GasSupply(..)
   , GasId(..)
-  , PactServiceEnv(..)
-  , PactServiceState(..)
   , EnforceCoinbaseFailure(..)
 
     -- * Transaction State
@@ -50,6 +48,7 @@ module Chainweb.Pact.Types
   , txNetworkId
   , txGasPrice
   , txRequestKey
+  , txExecutionConfig
 
     -- * Transaction Execution Monad
   , TransactionM(..)
@@ -57,17 +56,40 @@ module Chainweb.Pact.Types
   , evalTransactionM
   , execTransactionM
 
-    -- * Rewind data type
-  , Rewind(..)
+    -- * Pact Service Env
+  , PactServiceEnv(..)
+  , psMempoolAccess
+  , psCheckpointEnv
+  , psPdb
+  , psBlockHeaderDb
+  , psGasModel
+  , psMinerRewards
+  , psEnableUserContracts
+
+    -- * Pact Service State
+  , PactServiceState(..)
+  , psStateValidated
+  , psInitCache
+  , psBlockHeight
+  , psBlockTime
+  , psParentHash
+  , psSpvSupport
+
+    -- * Pact Service Monad
+  , PactServiceM(..)
+  , runPactServiceM
+  , evalPactServiceM
+  , execPactServiceM
+  , mkPublicData
+  , mkPublicData'
 
     -- * types
-  , HashCommandResult
+  , ModuleCache
 
-  -- * defaults
-  , emptyPayload
-  , noCoinbase
-    -- * module exports
-  , module Chainweb.Pact.Backend.Types
+  -- * Execution config
+  , restrictiveExecutionConfig
+  , permissiveExecutionConfig
+  , justInstallsExecutionConfig
   ) where
 
 import Control.Lens hiding ((.=))
@@ -78,6 +100,8 @@ import Control.Monad.State.Strict
 
 
 import Data.Aeson
+import Data.HashMap.Strict (HashMap)
+import Data.Text (Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 
@@ -88,56 +112,55 @@ import Pact.Parse (ParsedDecimal)
 import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
-import Pact.Types.Exp
 import Pact.Types.Gas
-import qualified Pact.Types.Hash as H
+import Pact.Types.Hash
 import Pact.Types.Logger
-import Pact.Types.PactValue
+import Pact.Types.Names
 import Pact.Types.Persistence (TxLog, ExecutionMode)
+import Pact.Types.Runtime (ModuleData, ExecutionConfig(..))
 import Pact.Types.SPV
-import Pact.Types.Term (PactId(..))
+import Pact.Types.Term (PactId(..), Ref)
 
 -- internal chainweb modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
 
-type HashCommandResult = CommandResult H.Hash
 
 data Transactions = Transactions
-    { _transactionPairs :: !(Vector (Transaction, HashCommandResult))
-    , _transactionCoinbase :: !HashCommandResult
+    { _transactionPairs :: !(Vector (Transaction, CommandResult Hash))
+    , _transactionCoinbase :: !(CommandResult Hash)
     } deriving (Eq, Show)
-
-
-emptyPayload :: PayloadWithOutputs
-emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
-  where
-    (BlockPayload h i o) = newBlockPayload miner coinbase mempty
-    miner = MinerData $ encodeToByteString noMiner
-    coinbase = toCoinbaseOutput noCoinbase
-
-noCoinbase :: CommandResult a
-noCoinbase = CommandResult (RequestKey H.pactInitialHash) Nothing
-             (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
-             0 Nothing Nothing Nothing
-
-toCoinbaseOutput :: HashCommandResult -> CoinbaseOutput
-toCoinbaseOutput = CoinbaseOutput . encodeToByteString
-
-fromCoinbaseOutput :: MonadThrow m => CoinbaseOutput -> m HashCommandResult
-fromCoinbaseOutput = decodeStrictOrThrow' . _coinbaseOutput
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
     , _pdbspPactDbState :: !PactDbState
     }
 makeLenses ''PactDbStatePersist
+
+-- | No installs or history
+restrictiveExecutionConfig :: ExecutionConfig
+restrictiveExecutionConfig = ExecutionConfig False False
+
+permissiveExecutionConfig :: ExecutionConfig
+permissiveExecutionConfig = ExecutionConfig True True
+
+-- | Only allow installs
+justInstallsExecutionConfig :: ExecutionConfig
+justInstallsExecutionConfig = ExecutionConfig True False
+
+-- -------------------------------------------------------------------------- --
+-- Coinbase output utils
 
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
@@ -151,20 +174,11 @@ newtype GasId = GasId PactId deriving (Eq, Show)
 --
 newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
--- | This data type marks whether or not a particular header is
--- expected to rewind or not. In the case of 'NoRewind', no
--- header data is given, and a chain id is given instead for
--- routing purposes
---
-data Rewind
-    = DoRewind !BlockHeader
-    | NoRewind {-# UNPACK #-} !ChainId
-    deriving (Eq, Show)
 
-instance HasChainId Rewind where
-    _chainId = \case
-      DoRewind !bh -> _chainId bh
-      NoRewind !cid -> cid
+type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
+
+-- -------------------------------------------------------------------- --
+-- Tx Execution Service Monad
 
 -- | Transaction execution state
 --
@@ -189,6 +203,7 @@ data TransactionEnv db = TransactionEnv
     , _txGasPrice :: !GasPrice
     , _txRequestKey :: !RequestKey
     , _txGasLimit :: !Gas
+    , _txExecutionConfig :: !ExecutionConfig
     }
 makeLenses ''TransactionEnv
 
@@ -253,3 +268,108 @@ execTransactionM
     -> IO TransactionState
 execTransactionM tenv txst act
     = execStateT (runReaderT (_unTransactionM act) tenv) txst
+
+-- -------------------------------------------------------------------- --
+-- Pact Service Monad
+
+data PactServiceEnv cas = PactServiceEnv
+    { _psMempoolAccess :: !(Maybe MemPoolAccess)
+    , _psCheckpointEnv :: !CheckpointEnv
+    , _psPdb :: !(PayloadDb cas)
+    , _psBlockHeaderDb :: !BlockHeaderDb
+    , _psGasModel :: !GasModel
+    , _psMinerRewards :: !MinerRewards
+    , _psEnableUserContracts :: !Bool
+    }
+makeLenses ''PactServiceEnv
+
+instance HasChainwebVersion (PactServiceEnv c) where
+    _chainwebVersion = _chainwebVersion . _psBlockHeaderDb
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainId (PactServiceEnv c) where
+    _chainId = _chainId . _psBlockHeaderDb
+    {-# INLINE _chainId #-}
+
+data PactServiceState = PactServiceState
+    { _psStateValidated :: !(Maybe BlockHeader)
+    , _psInitCache :: !ModuleCache
+    , _psBlockHeight :: {-# UNPACK #-} !BlockHeight
+    , _psBlockTime :: {-# UNPACK #-} !BlockCreationTime
+    , _psParentHash :: !(Maybe BlockHash)
+    , _psSpvSupport :: !SPVSupport
+    }
+makeLenses ''PactServiceState
+
+-- | Construct the transaction 'PublicData' from given public
+-- metadata and the current pact service state.
+--
+mkPublicData :: Text -> PublicMeta -> PactServiceM cas PublicData
+mkPublicData src pm = do
+    BlockHash ph <- use psParentHash >>= \case
+        Nothing -> internalError
+          $ "mkPublicData: "
+          <> src
+          <> ": Parent hash not set"
+        Just a -> return a
+    BlockHeight !bh <- use psBlockHeight
+    BlockCreationTime (Time (TimeSpan (Micros !bt))) <- use psBlockTime
+    return $ PublicData pm bh bt (toText ph)
+
+-- | A useful variant of 'mkPublicData' which constructs a transaction 'PublicData'
+-- instance given both public meta and blockheader info
+--
+mkPublicData' :: PublicMeta -> BlockHash -> PactServiceM cas PublicData
+mkPublicData' pm (BlockHash ph)= do
+    BlockHeight !bh <- use psBlockHeight
+    BlockCreationTime (Time (TimeSpan (Micros !bt))) <- use psBlockTime
+    return $ PublicData pm bh bt (toText ph)
+
+
+newtype PactServiceM cas a = PactServiceM
+  { _unPactServiceM ::
+       ReaderT (PactServiceEnv cas) (StateT PactServiceState IO) a
+  } deriving
+    ( Functor, Applicative, Monad
+    , MonadReader (PactServiceEnv cas)
+    , MonadState PactServiceState
+    , MonadThrow, MonadCatch, MonadMask
+    , MonadIO
+    , MonadFail
+    )
+
+-- | Run a 'PactServiceM' computation given some initial
+-- reader and state values, returning final value and
+-- final program state
+--
+runPactServiceM
+    :: PactServiceState
+    -> PactServiceEnv cas
+    -> PactServiceM cas a
+    -> IO (T2 a PactServiceState)
+runPactServiceM st env act
+    = view (from _T2)
+    <$> runStateT (runReaderT (_unPactServiceM act) env) st
+
+
+-- | Run a 'PactServiceM' computation given some initial
+-- reader and state values, discarding final state
+--
+evalPactServiceM
+    :: PactServiceState
+    -> PactServiceEnv cas
+    -> PactServiceM cas a
+    -> IO a
+evalPactServiceM st env act
+    = evalStateT (runReaderT (_unPactServiceM act) env) st
+
+-- | Run a 'PactServiceM' computation given some initial
+-- reader and state values, discarding final state
+--
+execPactServiceM
+    :: PactServiceState
+    -> PactServiceEnv cas
+    -> PactServiceM cas a
+    -> IO PactServiceState
+execPactServiceM st env act
+    = execStateT (runReaderT (_unPactServiceM act) env) st

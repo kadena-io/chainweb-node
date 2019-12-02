@@ -23,6 +23,8 @@ module Chainweb.BlockHeader.Genesis
   , genesisParentBlockHash
   , genesisBlockTarget
   , genesisTime
+    -- * No-op payloads
+  , emptyPayload
   ) where
 
 import Control.Arrow ((&&&))
@@ -57,12 +59,12 @@ import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
-import Chainweb.Pact.Types (emptyPayload)
+import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Time
+import Chainweb.Utils
 import Chainweb.Version
 
----
 
 -- -------------------------------------------------------------------------- --
 -- Genesis BlockHeader
@@ -87,6 +89,16 @@ genesisParentBlockHash v p = BlockHash $ MerkleLogHash
 genesisBlockTarget :: HashTarget
 genesisBlockTarget = maxTarget
 
+-- | Empty payload marking no-op transaction payloads for deprecated
+-- versions.
+--
+emptyPayload :: PayloadWithOutputs
+emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
+  where
+    (BlockPayload h i o) = newBlockPayload miner coinbase mempty
+    miner = MinerData $ encodeToByteString noMiner
+    coinbase = CoinbaseOutput $ encodeToByteString noCoinbase
+
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
 --
@@ -97,7 +109,7 @@ genesisTime PowConsensus{} = BlockCreationTime epoch
 genesisTime TimedCPM{} = BlockCreationTime epoch
 genesisTime FastTimedCPM{} = BlockCreationTime epoch
 genesisTime Development = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-genesisTime Testnet03 = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+genesisTime Testnet04 = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 genesisTime Mainnet01 = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
@@ -126,7 +138,7 @@ genesisBlockPayload Development cid = case chainIdInt @Int cid of
     _ -> DNN.payloadBlock
 
 -- Production Instances
-genesisBlockPayload Testnet03 cid = case chainIdInt @Int cid of
+genesisBlockPayload Testnet04 cid = case chainIdInt @Int cid of
     0 -> PN0.payloadBlock
     _ -> PNN.payloadBlock
 

@@ -8,11 +8,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | A mock in-memory mempool backend that does not persist to disk.
+-- | An in-memory mempool backend that does not persist to disk.
 module Chainweb.Mempool.InMemTypes
   ( InMemConfig(..)
   , InMemoryMempool(..)
   , InMemoryMempoolData(..)
+  , PendingEntry(..)
   , PendingMap
   , RecentItem
   , RecentLog(..)
@@ -26,12 +27,16 @@ import Control.DeepSeq
 
 import Data.Aeson
 import qualified Data.ByteString.Short as SB
+import Data.Function (on)
 import Data.HashMap.Strict (HashMap)
 import Data.IORef (IORef)
+import Data.Ord
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import GHC.Generics
+
+import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 
 -- internal imports
 
@@ -39,7 +44,17 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Time (Micros(..), Time(..))
 
 ------------------------------------------------------------------------------
-type PendingMap = HashMap TransactionHash SB.ShortByteString
+data PendingEntry = PendingEntry
+    { _inmemPeGasPrice :: !GasPrice
+    , _inmemPeGasLimit :: !GasLimit
+    , _inmemPeBytes :: !SB.ShortByteString
+    , _inmemPeExpires :: !(Time Micros)
+    } deriving (Eq, Generic, Show, NFData)
+
+instance Ord PendingEntry where
+    compare = compare `on` (Down . _inmemPeGasPrice)
+
+type PendingMap = HashMap TransactionHash PendingEntry
 
 ------------------------------------------------------------------------------
 -- | Configuration for in-memory mempool.

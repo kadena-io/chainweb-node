@@ -62,7 +62,6 @@ import Chainweb.Cut.CutHashes
 import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -490,5 +489,5 @@ fakePact = WebPactExecutionService $ PactExecutionService
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
-    coinbase = toCoinbaseOutput noCoinbase
+    coinbase = CoinbaseOutput $ encodeToByteString noCoinbase
     fakeMiner = MinerData "fakeMiner"

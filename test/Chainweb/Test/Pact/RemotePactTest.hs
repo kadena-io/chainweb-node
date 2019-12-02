@@ -1,13 +1,15 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -28,7 +30,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , PollingExpectation(..)
 ) where
 
-import Control.Concurrent hiding (newMVar, putMVar, readMVar, modifyMVar)
+import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Lens
@@ -42,6 +44,7 @@ import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
+import Data.List
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -49,7 +52,6 @@ import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import Data.Text.Encoding (encodeUtf8)
 
 import NeatInterpolation
@@ -72,10 +74,11 @@ import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
-import Pact.Types.Hash (Hash)
-import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
+import Pact.Types.Gas
+import Pact.Types.Hash (Hash)
+import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
 import Pact.Types.Term
 
@@ -87,18 +90,17 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact (noMiner)
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
 import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Transaction
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Miner.Config
-import Chainweb.Miner.Pact (noMiner)
 
 import Data.CAS.RocksDB
 
@@ -126,6 +128,9 @@ cid = head . toList $ chainIds v
 
 pactCid :: HasCallStack => Pact.ChainId
 pactCid = Pact.ChainId $ chainIdToText cid
+
+gp :: GasPrice
+gp = 0.1
 
 -- ------------------------------------------------------------------------- --
 -- Tests. GHCI use `runSchedRocks tests`
@@ -172,7 +177,7 @@ localTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
     cenv <- fmap _getClientEnv nio
     mv <- newMVar 0
-    SubmitBatch batch <- testBatch iot mv
+    SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
     sid <- mkChainId v (0 :: Int)
     res <- local sid cenv cmd
@@ -186,28 +191,29 @@ sendValidationTest iot nio =
         step "check sending poisoned TTL batch"
         cenv <- fmap _getClientEnv nio
         mv <- newMVar 0
-        SubmitBatch batch1 <- testBatch' iot 10000 mv
-        SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv
+        SubmitBatch batch1 <- testBatch' iot 10000 mv gp
+        SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp
         let batch = SubmitBatch $ batch1 <> batch2
-        sid <- mkChainId v (0 :: Int)
-        expectSendFailure $ flip runClientM cenv $ do
-            pactSendApiClient v sid batch
+        expectSendFailure "Transaction time is invalid or TTL is expired" $
+          flip runClientM cenv $
+            pactSendApiClient v cid batch
 
         step "check sending mismatched chain id"
-        batch3 <- testBatch'' "40" iot 20000 mv
-        expectSendFailure $ flip runClientM cenv $ do
-            pactSendApiClient v sid batch3
+        cid0 <- mkChainId v (0 :: Int)
+        batch3 <- testBatch'' "40" iot 20000 mv gp
+        expectSendFailure "Transaction metadata (chain id, chainweb version) conflicts with this endpoint" $
+          flip runClientM cenv $
+            pactSendApiClient v cid0 batch3
 
         step "check insufficient gas"
-        (SubmitBatch batch4) <- testBatch' iot 10000 mv
-        let b4 = SubmitBatch $ fmap mungeGasPrice batch4
-        expectSendFailure $ flip runClientM cenv $
-            pactSendApiClient v sid b4
+        batch4 <- testBatch' iot 10000 mv 10000000000
+        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+            pactSendApiClient v cid batch4
 
         step "check bad sender"
         batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
-        expectSendFailure $ flip runClientM cenv $
-            pactSendApiClient v sid batch5
+        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+            pactSendApiClient v cid0 batch5
 
   where
     mkBadGasTxBatch code senderName senderKeyPair capList = do
@@ -219,24 +225,16 @@ sendValidationTest iot nio =
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
-    decodeOne = either error id . decodePayload . encodeUtf8
-    mungeGasPrice = fmap (T.decodeUtf8 . encodePayload . mungePayload . decodeOne)
-      where
-        mungePayload =
-            modifyPayloadWithText (set (pMeta . Pact.pmGasPrice) 10000000000)
-
-expectSendFailure :: Show a => IO (Either b a) -> IO ()
-expectSendFailure act = do
-    m <- (wrap `catch` h)
-    maybe (return ()) (\msg -> assertBool msg False) m
+expectSendFailure :: (Show a,Show b) => String -> IO (Either b a) -> Assertion
+expectSendFailure expectErr act = do
+  r :: Either SomeException (Either b a) <- try act
+  case r of
+    (Right (Left e)) -> test $ show e
+    (Right (Right out)) -> assertFailure $ "expected exception on bad tx, got: "
+                           <> show out
+    (Left e) -> test $ show e
   where
-    wrap = do
-        let ef out = Just ("expected exception on bad tx, got: "
-                           <> show out)
-        act >>= return . either (const Nothing) ef
-
-    h :: SomeException -> IO (Maybe String)
-    h _ = return Nothing
+    test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (isInfixOf expectErr)
 
 
 spvTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -553,7 +551,7 @@ withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) 
         testSend iot mNonce cenv
 
 testSend :: IO (Time Integer) -> MVar Int -> ClientEnv -> IO RequestKeys
-testSend iot mNonce env = testBatch iot mNonce >>= sending cid env
+testSend iot mNonce env = testBatch iot mNonce gp >>= sending cid env
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
@@ -675,8 +673,8 @@ polling sid cenv rks pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
-testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> IO SubmitBatch
-testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
+testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
     kps <- testKeyPairs sender00KeyPair Nothing
@@ -684,12 +682,12 @@ testBatch'' chain iot ttl mnonce = modifyMVar mnonce $ \(!nn) -> do
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
-    pm = Pact.PublicMeta chain "sender00" 1000 0.1 (fromInteger ttl)
+    pm = Pact.PublicMeta chain "sender00" 1000 gp' (fromInteger ttl)
 
-testBatch' :: IO (Time Integer) -> Integer -> MVar Int -> IO SubmitBatch
+testBatch' :: IO (Time Integer) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch' = testBatch'' pactCid
 
-testBatch :: IO (Time Integer) -> MVar Int -> IO SubmitBatch
+testBatch :: IO (Time Integer) -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch iot mnonce = testBatch' iot ttl mnonce
   where
     ttl = 2 * 24 * 60 * 60
@@ -707,6 +705,7 @@ withNodes rdb n f = withResource start
     (cancel . fst)
     (f . fmap (ChainwebNetwork . snd))
   where
+    start :: IO (Async (), ClientEnv)
     start = do
         peerInfoVar <- newEmptyMVar
         a <- async $ runTestNodes rdb Warn v n peerInfoVar
@@ -782,6 +781,7 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configMining . miningInNode) miner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
+    & set (configBlockGasLimit) 1_000_000
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True

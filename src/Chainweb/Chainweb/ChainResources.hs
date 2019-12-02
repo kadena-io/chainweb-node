@@ -55,7 +55,6 @@ import System.LogLevel
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
-import Chainweb.CutDB (CutDb)
 import Chainweb.Graph
 import Chainweb.Logger
 import qualified Chainweb.Mempool.Consensus as MPCon
@@ -118,7 +117,6 @@ withChainResources
     -> PeerResources logger
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
-    -> MVar (CutDb cas)
     -> PayloadDb cas
     -> Bool
         -- ^ whether to prune the chain database
@@ -131,14 +129,14 @@ withChainResources
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb peer logger mempoolCfg0 cdbv payloadDb
+  v cid rdb peer logger mempoolCfg0 payloadDb
   prune dbDir nodeid resetDb pactQueueSize inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
-        withPactService v cid (setComponent "pact" logger) mpc cdbv cdb
+        withPactService v cid (setComponent "pact" logger) mpc cdb
                         payloadDb dbDir nodeid resetDb pactQueueSize $ \requestQ -> do
             -- prune block header db
             when prune $ do
@@ -182,7 +180,7 @@ withChainResources
         TimedCPM{} -> mkPactExecutionService requestQ
         FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
-        Testnet03 -> mkPactExecutionService requestQ
+        Testnet04 -> mkPactExecutionService requestQ
         Mainnet01 -> mkPactExecutionService requestQ
 
 -- -------------------------------------------------------------------------- --

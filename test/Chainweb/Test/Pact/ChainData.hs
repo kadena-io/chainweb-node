@@ -79,7 +79,7 @@ import Chainweb.Version
 -- Tests
 
 testVer :: ChainwebVersion
-testVer = Development
+testVer = FastTimedCPM peterson
 
 testChainId :: ChainId
 testChainId = someChainId testVer

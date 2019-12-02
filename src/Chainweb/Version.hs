@@ -38,9 +38,10 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
--- ** Date-based Transaction Disabling
+-- ** Date- and Version-based Transaction Disabling
 , txEnabledDate
 , transferActivationDate
+, enableUserContracts
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -220,7 +221,7 @@ data ChainwebVersion
     -----------------------
     -- PRODUCTION INSTANCES
     -----------------------
-    | Testnet03
+    | Testnet04
     | Mainnet01
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
@@ -249,13 +250,13 @@ chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Development = 0x00000001
-chainwebVersionId Testnet03 = 0x00000006
+chainwebVersionId Testnet04 = 0x00000007
 chainwebVersionId Mainnet01 = 0x00000005
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromChainwebVersionId 0x00000001 = Development
-fromChainwebVersionId 0x00000006 = Testnet03
+fromChainwebVersionId 0x00000007 = Testnet04
 fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
@@ -286,7 +287,7 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
 -- new `ChainwebVersion` value!
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Development = "development"
-chainwebVersionToText Testnet03 = "testnet03"
+chainwebVersionToText Testnet04 = "testnet04"
 chainwebVersionToText Mainnet01 = "mainnet01"
 chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
@@ -297,7 +298,7 @@ chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "development" = pure Development
-chainwebVersionFromText "testnet03" = pure Testnet03
+chainwebVersionFromText "testnet04" = pure Testnet04
 chainwebVersionFromText "mainnet01" = pure Mainnet01
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
@@ -328,7 +329,7 @@ chainwebVersions = HM.fromList $
     <> f TimedCPM "timedCPM"
     <> f FastTimedCPM "fastTimedCPM"
     <> [ ("development", Development)
-       , ("testnet03", Testnet03)
+       , ("testnet04", Testnet04)
        , ("mainnet01", Mainnet01)
        ]
   where
@@ -398,7 +399,7 @@ testVersionToCode TimedCPM{} = 0x80000003
 testVersionToCode FastTimedCPM{} = 0x80000004
 testVersionToCode Development =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
-testVersionToCode Testnet03 =
+testVersionToCode Testnet04 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 testVersionToCode Mainnet01 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
@@ -513,7 +514,7 @@ chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph (FastTimedCPM g) = g
 chainwebVersionGraph Development = petersonChainGraph
-chainwebVersionGraph Testnet03 = petersonChainGraph
+chainwebVersionGraph Testnet04 = petersonChainGraph
 chainwebVersionGraph Mainnet01 = petersonChainGraph
 
 instance HasChainGraph ChainwebVersion where
@@ -540,7 +541,7 @@ blockRate TimedCPM{} = BlockRate 4
 blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Development = BlockRate 30
-blockRate Testnet03 = BlockRate 30
+blockRate Testnet04 = BlockRate 30
 blockRate Mainnet01 = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
@@ -562,7 +563,7 @@ window FastTimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
-window Testnet03 = Just $ WindowWidth 120
+window Testnet04 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
 
 -- | This is used in a core validation rule and has been present for several
@@ -574,8 +575,8 @@ txEnabledDate TimedConsensus{} = Nothing
 txEnabledDate PowConsensus{} = Nothing
 txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
-txEnabledDate Development = Nothing
-txEnabledDate Testnet03 = Nothing
+txEnabledDate Development = Just [timeMicrosQQ| 2019-11-30T05:00:00.0 |]
+txEnabledDate Testnet04 = Nothing
 txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
 
 -- | KILLSWITCH: The date after which nodes in the 1.1.x series will
@@ -588,6 +589,12 @@ transferActivationDate TimedConsensus{} = Nothing
 transferActivationDate PowConsensus{} = Nothing
 transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Nothing
-transferActivationDate Testnet03 = Nothing
+transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |]
+transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
+
+
+-- | Enable user contract install
+enableUserContracts :: ChainwebVersion -> Bool
+enableUserContracts Mainnet01 = False
+enableUserContracts _ = True

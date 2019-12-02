@@ -26,7 +26,6 @@ module Chainweb.Pact.SPV
 
 import GHC.Stack
 
-import Control.Concurrent.MVar
 import Control.Error
 import Control.Lens hiding (index)
 import Control.Monad.Catch
@@ -44,11 +43,10 @@ import qualified Streaming.Prelude as S
 
 -- internal chainweb modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.CutDB (CutDb)
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -72,32 +70,32 @@ import Pact.Types.SPV
 -- | Spv support for pact
 --
 pactSPV
-    :: forall cas
-    . CW.ChainId
-      -- ^ chain id of the running pact service
-    -> MVar (CutDb cas)
+    :: BlockHeaderDb
       -- ^ handle into the cutdb
+    -> BlockHash
+      -- ^ the context for verifying the proof
     -> SPVSupport
-pactSPV cid cdbv = SPVSupport (verifySPV cid cdbv) (verifyCont cid cdbv)
+pactSPV bdb bh = SPVSupport (verifySPV bdb bh) (verifyCont bdb bh)
 
 -- | SPV transaction verification support. Calls to 'verify-spv' in Pact
 -- will thread through this function and verify an SPV receipt, making the
 -- requisite calls to the SPV api and verifying the output proof.
 --
 verifySPV
-    :: forall cas
-    . CW.ChainId
-    -> MVar (CutDb cas)
+    :: BlockHeaderDb
       -- ^ handle into the cut db
+    -> BlockHash
+        -- ^ the context for verifying the proof
     -> Text
       -- ^ TXOUT or TXIN - defines the type of proof
       -- used in validation
     -> Object Name
       -- ^ the 'TransactionOutputProof' object to validate
     -> IO (Either Text (Object Name))
-verifySPV cid cdbv typ proof = readMVar cdbv >>= go typ proof
+verifySPV bdb bh typ proof = go typ proof
   where
-    go s o cdb = case s of
+    cid = CW._chainId bdb
+    go s o = case s of
       "TXOUT" -> case extractProof o of
         Left t -> return (Left t)
         Right u
@@ -114,9 +112,9 @@ verifySPV cid cdbv typ proof = readMVar cdbv >>= go typ proof
             --  3. Extract tx outputs as a pact object and return the
             --  object.
 
-            TransactionOutput p <- verifyTransactionOutputProof cdb u
+            TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u bh
 
-            q <- case decodeStrict' p :: Maybe HashCommandResult of
+            q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
               Nothing -> internalError "unable to decode spv transaction output"
               Just cr -> return cr
 
@@ -135,15 +133,14 @@ verifySPV cid cdbv typ proof = readMVar cdbv >>= go typ proof
 -- in Pact, providing a validation that the yield data of a cross-chain pact is valid.
 --
 verifyCont
-    :: forall cas
-    . CW.ChainId
-    -> MVar (CutDb cas)
+    :: BlockHeaderDb
       -- ^ handle into the cut db
+    -> BlockHash
+        -- ^ the context for verifying the proof
     -> ContProof
       -- ^ bytestring of 'TransactionOutputP roof' object to validate
     -> IO (Either Text PactExec)
-verifyCont cid cdbv (ContProof cp) = do
-    cdb <- readMVar cdbv
+verifyCont bdb bh (ContProof cp) = do
     t <- decodeB64UrlNoPaddingText $ T.decodeUtf8 cp
     case decodeStrict' t of
       Nothing -> internalError "unable to decode continuation proof"
@@ -161,9 +158,9 @@ verifyCont cid cdbv (ContProof cp) = do
           --  3. Extract continuation 'PactExec' from decoded result
           --  and return the cont exec object
 
-          TransactionOutput p <- verifyTransactionOutputProof cdb u
+          TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u bh
 
-          q <- case decodeStrict' p :: Maybe HashCommandResult of
+          q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
             Nothing -> internalError "unable to decode spv transaction output"
             Just cr -> return cr
 
@@ -172,6 +169,8 @@ verifyCont cid cdbv (ContProof cp) = do
             Just pe -> return $! Right pe
 
           return r
+  where
+    cid = CW._chainId bdb
 
 -- | Extract a 'TransactionOutputProof' from a generic pact object
 --
