@@ -148,12 +148,11 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
     executionConfigNoHistory = ExecutionConfig ecMod False
-    cenv = TransactionEnv Transactional pdbenv logger pd' spv nid gasPrice
+    cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
-    pd' = set pdPublicMeta (publicMetaOf cmd) pd
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
@@ -204,10 +203,9 @@ applyGenesisCmd
 applyGenesisCmd logger dbEnv pd spv cmd =
     second _txCache <$!> runTransactionM tenv txst go
   where
-    pd' = set pdPublicMeta (publicMetaOf cmd) pd
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
-    tenv = TransactionEnv Transactional dbEnv logger pd' spv nid 0.0 rk 0
+    tenv = TransactionEnv Transactional dbEnv logger pd spv nid 0.0 rk 0
            justInstallsExecutionConfig
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
@@ -287,14 +285,14 @@ applyLocal logger dbEnv pd spv cmdIn mc =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
-    pd' = set pdPublicMeta (publicMetaOf cmd) pd
     rk = cmdToRequestKey cmd
     nid = networkIdOf cmd
     chash = toUntypedHash $ _cmdHash cmd
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
-    tenv = TransactionEnv Local dbEnv logger pd' spv nid gasPrice rk (fromIntegral gasLimit) permissiveExecutionConfig
+    tenv = TransactionEnv Local dbEnv logger pd spv nid gasPrice
+           rk (fromIntegral gasLimit) permissiveExecutionConfig
     gasmodel = tableGasModel defaultGasConfig
     txst = TransactionState mc mempty 0 Nothing gasmodel
     gas0 = initialGasOf (_cmdPayload cmdIn)
@@ -306,7 +304,7 @@ applyLocal logger dbEnv pd spv cmdIn mc =
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
-        Right r -> return $! r { _crMetaData = Just (toJSON pd') }
+        Right r -> return $! r { _crMetaData = Just (toJSON pd) }
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
@@ -473,7 +471,7 @@ buyGas cmd (Miner mid mks) = go
       mcache <- use txCache
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
 
-      let (buyGasTerm,buyGasCmd) = mkBuyGasTerm mid mks sender supply
+      let (!buyGasTerm, !buyGasCmd) = mkBuyGasTerm mid mks sender supply
           interp mc = Interpreter $ \_input ->
             put (initState mc) >> run (pure <$> eval buyGasTerm)
 
@@ -482,7 +480,7 @@ buyGas cmd (Miner mid mks) = go
 
       case _erExec result of
         Nothing -> fatal "buyGas: Internal error - empty continuation"
-        Just pe -> void $! txGasId .= (Just $ GasId (_pePactId pe))
+        Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
 
 
 
@@ -681,13 +679,13 @@ buildExecParsedCode value code = maybe (go Null) go value
 
 -- | Retrieve public metadata from a command
 --
-publicMetaOf :: Command (Payload PublicMeta c) -> PublicMeta
+publicMetaOf :: Command (Payload PublicMeta ParsedCode) -> PublicMeta
 publicMetaOf = _pMeta . _cmdPayload
 {-# INLINE publicMetaOf #-}
 
 -- | Retrieve the optional Network identifier from a command
 --
-networkIdOf :: Command (Payload a b) -> Maybe NetworkId
+networkIdOf :: Command (Payload PublicMeta ParsedCode) -> Maybe NetworkId
 networkIdOf = _pNetworkId . _cmdPayload
 {-# INLINE networkIdOf #-}
 
@@ -708,7 +706,7 @@ toCoinUnit = roundTo 12
 
 -- | Log request keys at DEBUG when successful
 --
-debug :: forall db. Text -> TransactionM db ()
+debug :: Text -> TransactionM db ()
 debug s = do
     l <- view txLogger
     rk <- view txRequestKey
@@ -717,7 +715,7 @@ debug s = do
 
 -- | Denotes fatal failure points in the tx exec process
 --
-fatal :: forall db a. Text -> TransactionM db a
+fatal :: Text -> TransactionM db a
 fatal e = do
     l <- view txLogger
     rk <- view txRequestKey
