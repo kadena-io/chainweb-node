@@ -95,7 +95,7 @@ prop_forkValidates pdb bhdb cid genBlock =
         mVar <- newMVar (0 :: Int)
         withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
             db <- bhdb
-            putStrLn $ "\nTesting fork lengths:"
+            putStrLn $ "Testing fork lengths:"
                         ++ " trunk: " ++ show trunk
                         ++ ", left: " ++ show left
                         ++ ", right: " ++ show right
