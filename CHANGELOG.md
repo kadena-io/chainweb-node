@@ -1,5 +1,54 @@
 # `chainweb-node` Changelog
 
+## 1.1
+
+This is a major release that turns on coin transfers. All node operators should
+upgrade ASAP. If you do not upgrade, your node will stop working on December 5,
+2019.
+
+* Improve logging for orphan blocks.
+  [#752](https://github.com/kadena-io/chainweb-node/pull/752)
+
+* Finalize gas model.
+  [#744](https://github.com/kadena-io/chainweb-node/pull/744)
+
+* Updates to staged transaction rollout behavior.
+  [#743](https://github.com/kadena-io/chainweb-node/pull/743)
+  [#755](https://github.com/kadena-io/chainweb-node/pull/755)
+  [#759](https://github.com/kadena-io/chainweb-node/pull/759)
+  [#766](https://github.com/kadena-io/chainweb-node/pull/766)
+  [#768](https://github.com/kadena-io/chainweb-node/pull/768)
+  [#769](https://github.com/kadena-io/chainweb-node/pull/769)
+  [#771](https://github.com/kadena-io/chainweb-node/pull/771)
+
+* Improve cut DB membership queries.
+  [#756](https://github.com/kadena-io/chainweb-node/pull/756)
+
+* Better error handling for /mining/solved endpoint.
+  [#762](https://github.com/kadena-io/chainweb-node/pull/762)
+
+* Increase mempool session timeout.
+  [#761](https://github.com/kadena-io/chainweb-node/pull/761)
+
+* Mempool performance improvements
+  [#732](https://github.com/kadena-io/chainweb-node/pull/732)
+  [#742](https://github.com/kadena-io/chainweb-node/pull/742)
+
+* Upgrade the testnet version from `testnet03` to `testnet04`.
+  [#765](https://github.com/kadena-io/chainweb-node/pull/765)
+
+* Better error message when gas limit exceeded.
+  [#748](https://github.com/kadena-io/chainweb-node/pull/748)
+
+* Refactor Pact service state handling and chain data.
+  [#767](https://github.com/kadena-io/chainweb-node/pull/767)
+
+* Fix bug in miner redeem on failed payloads.
+  [#773](https://github.com/kadena-io/chainweb-node/pull/773)
+
+* Set default block gas limit of 6000.
+  [#776](https://github.com/kadena-io/chainweb-node/pull/776)
+
 ## 1.0.6 (2019-11-26)
 
 This is a minor release that provides stability and performance improvements. It also
@@ -18,7 +67,7 @@ of work update notifications when used with this `chainweb-node` version.
   settings are now `+RTS -N -A64M -H1G`.
   [#737](https://github.com/kadena-io/chainweb-node/pull/737)
 
-* Upgrade the testnet version from `tesnet02` to `testnet03`.
+* Upgrade the testnet version from `testnet02` to `testnet03`.
  [#736](https://github.com/kadena-io/chainweb-node/pull/736)
 
 
