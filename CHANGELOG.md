@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 1.1
+## 1.1 (2019-12-02)
 
 This is a major release that turns on coin transfers. All node operators should
 upgrade ASAP. If you do not upgrade, your node will stop working on December 5,
