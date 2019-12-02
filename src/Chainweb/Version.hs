@@ -597,4 +597,5 @@ transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
 -- | Enable user contract install
 enableUserContracts :: ChainwebVersion -> Bool
 enableUserContracts Mainnet01 = False
+enableUserContracts Development = False -- only for this PR do not merge
 enableUserContracts _ = True
