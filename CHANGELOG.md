@@ -32,7 +32,7 @@ upgrade ASAP. If you do not upgrade, your node will stop working on December 5,
 * Increase mempool session timeout.
   [#761](https://github.com/kadena-io/chainweb-node/pull/761)
 
-* Mempool performance improvements
+* Mempool performance improvements.
   [#732](https://github.com/kadena-io/chainweb-node/pull/732)
   [#742](https://github.com/kadena-io/chainweb-node/pull/742)
 
