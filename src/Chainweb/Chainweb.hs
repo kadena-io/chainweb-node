@@ -341,7 +341,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 1_000_000 --TODO determine default for 1.1 rollout
+    , _configBlockGasLimit = 5000
     , _configPactQueueSize = 2000
     }
 
