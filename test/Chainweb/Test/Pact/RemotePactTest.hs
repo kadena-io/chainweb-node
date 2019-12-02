@@ -1,13 +1,15 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
@@ -28,7 +30,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , PollingExpectation(..)
 ) where
 
-import Control.Concurrent hiding (newMVar, putMVar, readMVar, modifyMVar)
+import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.Lens
@@ -72,11 +74,11 @@ import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
-import Pact.Types.Hash (Hash)
-import qualified Pact.Types.PactError as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Gas
+import Pact.Types.Hash (Hash)
+import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
 import Pact.Types.Term
 
@@ -88,6 +90,8 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
+import Chainweb.Miner.Config
+import Chainweb.Miner.Pact (noMiner)
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
@@ -97,8 +101,6 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Miner.Config
-import Chainweb.Miner.Pact (noMiner)
 
 import Data.CAS.RocksDB
 
@@ -741,6 +743,7 @@ withNodes rdb n f = withResource start
     (cancel . fst)
     (f . fmap (ChainwebNetwork . snd))
   where
+    start :: IO (Async (), ClientEnv)
     start = do
         peerInfoVar <- newEmptyMVar
         a <- async $ runTestNodes rdb Warn v n peerInfoVar
@@ -816,6 +819,7 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configMining . miningInNode) miner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
+    & set (configBlockGasLimit) 1_000_000
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
