@@ -99,6 +99,7 @@ data MempoolStats = MempoolStats
     { _mStatsPendingCount :: {-# UNPACK #-} !Int
     , _mStatsRecentCount :: {-# UNPACK #-} !Int
     , _mStatsBadlistCount :: {-# UNPACK #-} !Int
+    , _mStatsChainId :: {-# UNPACK #-} !Int
     }
-    deriving (Show, Eq, Ord, Generic)
+    deriving stock (Show, Eq, Ord, Generic)
     deriving anyclass (ToJSON, NFData)

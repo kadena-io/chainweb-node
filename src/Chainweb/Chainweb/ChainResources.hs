@@ -134,7 +134,7 @@ withChainResources
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
-      Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
+      Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg cid v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
                         payloadDb dbDir nodeid resetDb pactQueueSize $ \requestQ -> do

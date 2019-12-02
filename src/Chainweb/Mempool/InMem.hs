@@ -67,7 +67,7 @@ import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, transferActivationDate)
+import Chainweb.Version
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -154,10 +154,11 @@ withInMemoryMempool_ :: Logger logger
                      => NFData t
                      => logger
                      -> InMemConfig t
+                     -> ChainId
                      -> ChainwebVersion
                      -> (MempoolBackend t -> IO a)
                      -> IO a
-withInMemoryMempool_ l cfg v f = do
+withInMemoryMempool_ l cfg cid v f = do
     let action inMem = do
           r <- race (monitor inMem) $ do
             back <- toMempoolBackend v inMem
@@ -167,11 +168,12 @@ withInMemoryMempool_ l cfg v f = do
             Right result -> return result
     bracket (makeInMemPool cfg) destroyInMemPool action
   where
+    monitor :: InMemoryMempool t -> IO ()
     monitor m = do
         let lf = logFunction l
         logFunctionText l Info "Initialized Mempool Monitor"
         runForeverThrottled lf "Chainweb.Mempool.InMem.withInMemoryMempool_.monitor" 10 (10 * mega) $ do
-            stats <- getMempoolStats m
+            stats <- getMempoolStats cid m
             logFunctionText l Debug "got stats"
             logFunctionJson l Info stats
             logFunctionText l Debug "logged stats"
@@ -618,12 +620,13 @@ getRecentTxs maxNumRecent oldHw rlog
     pred (T2 x _) = x >= oldHw
 
 ------------------------------------------------------------------------------
-getMempoolStats :: InMemoryMempool t -> IO MempoolStats
-getMempoolStats m = do
+getMempoolStats :: ChainId -> InMemoryMempool t -> IO MempoolStats
+getMempoolStats cid m = do
     withMVar (_inmemDataLock m) $ \d -> MempoolStats
         <$!> (HashMap.size <$!> readIORef (_inmemPending d))
         <*> (length . _rlRecent <$!> readIORef (_inmemRecentLog d))
         <*> (HashMap.size <$!> readIORef (_inmemBadMap d))
+        <*> pure (chainIdInt cid)
 
 ------------------------------------------------------------------------------
 -- | Prune the mempool's pending map and badmap.
@@ -660,4 +663,3 @@ pruneInternal mdata now = do
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
     pruneBadMap = HashMap.filter (> now)
-

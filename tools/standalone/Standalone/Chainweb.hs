@@ -115,7 +115,7 @@ withChainResourcesStandalone
     withBlockHeaderDb rdb v cid $ \cdb -> do
         pexMv <- newEmptyMVar
         let mempoolCfg = mempoolCfg0 pexMv
-        Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
+        Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg cid v $ \mempool -> do
             -- placing mempool access shim here
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
