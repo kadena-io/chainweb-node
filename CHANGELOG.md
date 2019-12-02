@@ -12,7 +12,9 @@ upgrade ASAP. If you do not upgrade, your node will stop working on December 5,
 * Finalize gas model.
   [#744](https://github.com/kadena-io/chainweb-node/pull/744)
 
-* Updates to staged transaction rollout behavior.
+* Updates to staged transaction rollout behavior. Coin transactions will be
+  enabled on December 5, and the ability to deploy smart contracts will be
+  enabled on January 15.
   [#743](https://github.com/kadena-io/chainweb-node/pull/743)
   [#755](https://github.com/kadena-io/chainweb-node/pull/755)
   [#759](https://github.com/kadena-io/chainweb-node/pull/759)
