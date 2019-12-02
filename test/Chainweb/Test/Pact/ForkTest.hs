@@ -149,8 +149,12 @@ genForkLengths = do
     let maxTotalLen = 12
     trunk <- choose (3, 4)
     left <- choose (1, 4)
-    right <- choose (left + 1, maxTotalLen - (trunk + left))
+    let maxToTotal = maxTotalLen - (trunk + left)
+    let rightMax = min maxToTotal rewindMax
+    right <- choose (left + 1, rightMax)
     return (trunk, left, right)
+  where
+    rewindMax = 7
 
 maxBalance :: Int
 maxBalance = 300000000000
@@ -232,6 +236,8 @@ runNewBlock
     -> IO (MVar (Either PactException PayloadWithOutputs))
 runNewBlock parentBlock reqQ _iodb = do
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
+    putStrLn $ "Fork Test -- calling new block with PARENT block: "
+        ++ _showHeaderFields [parentBlock]
     newBlock noMiner parentBlock (BlockCreationTime blockTime) reqQ
 
 -- validate the same transactions as sent to newBlock
@@ -284,10 +290,10 @@ _showHeaderFields bhs =
   where
     f r BlockHeader{..} = r ++
         ("BlockHeader at height = " ++ show _blockHeight
-         ++ "\n\tChain id: " ++ show _blockChainId
-         ++ "\n\tBlock creation time: " ++ show _blockCreationTime
+         -- ++ "\n\tChain id: " ++ show _blockChainId
+         -- ++ "\n\tBlock creation time: " ++ show _blockCreationTime
          ++ "\n\tHash: " ++ show _blockHash
-         ++ "\n\tParent hash: " ++ show _blockParent)
+         ) -- ++ "\n\tParent hash: " ++ show _blockParent)
 
 testMemPoolAccess :: ChainId -> MVar Int -> MemPoolAccess
 testMemPoolAccess cid mvar =
@@ -329,3 +335,12 @@ toCWTransactions :: P.ChainId -> Vector PactTransaction -> IO (Vector ChainwebTr
 toCWTransactions pactCid txs = do
     ks <- testKeyPairs sender00KeyPair Nothing
     mkTestExecTransactions "sender00" pactCid ks "1" 100000 0.01 1000000 0 txs
+
+modifyPayloadWithText
+    :: (P.Payload PublicMeta P.ParsedCode -> P.Payload PublicMeta P.ParsedCode)
+    -> PayloadWithText
+    -> PayloadWithText
+modifyPayloadWithText f pwt = mkPayloadWithText newPayload
+  where
+    oldPayload = payloadObj pwt
+    newPayload = f oldPayload

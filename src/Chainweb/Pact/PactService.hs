@@ -1169,13 +1169,21 @@ execLookupPactTxs restorePoint txs
 
 findLatestValidBlock :: PactServiceM cas (Maybe BlockHeader)
 findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
-    Nothing -> return Nothing
-    Just (height, hash) -> go height hash
+    -- Nothing -> return Nothing
+    Nothing -> do
+      liftIO $ putStrLn $ "findLatestValidBlock - Nothing"
+      return Nothing
+    -- Just (height, hash) -> go height hash
+    Just (height, hash) -> do
+      liftIO $ putStrLn $ "findLatestValidBlock - height = " ++ show height
+          ++ ", hash = " ++ show hash
+      go height hash
   where
     go height hash = do
         bhdb <- view psBlockHeaderDb
         liftIO (lookup bhdb hash) >>= \case
             Nothing -> do
+                liftIO $ putStrLn "findLatestValidBlock, invalid lookup"
                 logInfo $ "Latest block isn't valid."
                     <> " Failed to lookup hash " <> sshow (height, hash) <> " in block header db."
                     <> " Continuing with parent."
