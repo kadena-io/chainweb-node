@@ -74,26 +74,7 @@ module Chainweb.Pact.Backend.Types
       -- * mempool
     , MemPoolAccess(..)
 
-      -- * pact service monad + types
-    , PactServiceEnv(..)
-    , PactServiceState(..)
-    , PactServiceM
-    , runPactServiceM
-
     , PactServiceException(..)
-    , ModuleCache
-
-      -- * optics
-    , psMempoolAccess
-    , psCheckpointEnv
-    , psPublicData
-    , psStateValidated
-    , psPdb
-    , psBlockHeaderDb
-    , psMinerRewards
-    , psGasModel
-    , psInitCache
-    , psEnableUserContracts
     ) where
 
 import Control.Exception
@@ -130,12 +111,8 @@ import Pact.Types.Runtime
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
-import Chainweb.Miner.Pact (MinerRewards(..))
-import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
-import qualified Chainweb.Version as CW (HasChainwebVersion(..), HasChainId(..))
 
 
 data Env' = forall a. Env' (PactDbEnv (DbEnv a))
@@ -315,42 +292,6 @@ makeLenses ''CheckpointEnv
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving newtype (Eq, Ord, Bits, Num)
 
-data PactServiceEnv cas = PactServiceEnv
-    { _psMempoolAccess :: !(Maybe MemPoolAccess)
-    , _psCheckpointEnv :: !CheckpointEnv
-    , _psPublicData :: !PublicData
-    , _psPdb :: !(PayloadDb cas)
-    , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: !GasModel
-    , _psMinerRewards :: !MinerRewards
-    , _psEnableUserContracts :: !Bool
-    }
-
-instance CW.HasChainwebVersion (PactServiceEnv c) where
-    _chainwebVersion = CW._chainwebVersion . _psBlockHeaderDb
-    {-# INLINE _chainwebVersion #-}
-
-instance CW.HasChainId (PactServiceEnv c) where
-    _chainId = CW._chainId . _psBlockHeaderDb
-    {-# INLINE _chainId #-}
-
-type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
-
-data PactServiceState = PactServiceState
-    { _psStateValidated :: Maybe BlockHeader
-    , _psInitCache :: !ModuleCache
-    }
-
-type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
-
-runPactServiceM
-    :: (PayloadCas cas)
-    => PactServiceState
-    -> PactServiceEnv cas
-    -> PactServiceM cas a
-    -> IO (a, PactServiceState)
-runPactServiceM s env action = runStateT (runReaderT action env) s
-
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
@@ -369,14 +310,10 @@ instance Semigroup MemPoolAccess where
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
 
-makeLenses ''PactServiceEnv
-makeLenses ''PactServiceState
-
-data PactServiceException = PactServiceIllegalRewind {
-    _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
-  , _latestBlock :: Maybe (BlockHeight, BlockHash)
-  }
-  deriving (Generic)
+data PactServiceException = PactServiceIllegalRewind
+    { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
+    , _latestBlock :: Maybe (BlockHeight, BlockHash)
+    } deriving (Generic)
 
 instance Show PactServiceException where
   show (PactServiceIllegalRewind att l)

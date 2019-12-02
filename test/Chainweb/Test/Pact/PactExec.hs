@@ -58,6 +58,7 @@ import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Exp
+import Pact.Types.Hash
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Pretty
@@ -121,8 +122,8 @@ data TestSource = File FilePath | Code String
   deriving (Show, Generic, ToJSON)
 
 data TestResponse a = TestResponse
-    { _trOutputs :: ![(a, HashCommandResult)]
-    , _trCoinBaseOutput :: !HashCommandResult
+    { _trOutputs :: ![(a, CommandResult Hash)]
+    , _trCoinBaseOutput :: !(CommandResult Hash)
     }
     deriving (Generic, ToJSON)
 
@@ -350,7 +351,7 @@ getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)
 getPactCode (File filePath) = pack <$> readFile' (testPactFilesDir ++ filePath)
 
-checkSuccessOnly :: HashCommandResult -> Assertion
+checkSuccessOnly :: CommandResult Hash -> Assertion
 checkSuccessOnly cr = case _crResult cr of
   PactResult (Right _) -> return ()
   r -> assertFailure $ "Failure status returned: " ++ show r

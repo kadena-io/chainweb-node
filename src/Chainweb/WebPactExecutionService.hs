@@ -17,11 +17,11 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis (emptyPayload)
 import Chainweb.ChainId
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.WebPactExecutionService.Types
 

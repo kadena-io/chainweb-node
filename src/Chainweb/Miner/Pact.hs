@@ -127,13 +127,13 @@ defaultMiner = Miner (MinerId "miner")
       ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
       "keys-all"
 
-{-# INLINE defaultMiner #-}
+{-# NOINLINE defaultMiner #-}
 
 -- | A trivial Miner.
 --
 noMiner :: Miner
 noMiner = Miner (MinerId "NoMiner") (MinerKeys $ mkKeySet [] "<")
-{-# INLINE noMiner #-}
+{-# NOINLINE noMiner #-}
 
 -- | Convert from Pact `Miner` to Chainweb `MinerData`.
 --
