@@ -916,7 +916,7 @@ playOneBlock currHeader plData pdbenv = do
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
         -- allow bad coinbase in validate
-        execTransactions (Just bParent) m txs (EnforceCoinbaseFailure False) pdbenv
+        execTransactions (Just bParent) m txs (EnforceCoinbaseFailure True) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
