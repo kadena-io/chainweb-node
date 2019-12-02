@@ -75,7 +75,6 @@ import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.SPV.CreateProof
@@ -277,7 +276,7 @@ _debugCut msg c pdb = do
     forM_ vs $ \(cmd,pr) -> do
       putStrLn $ show (_cmdHash cmd) ++ ": " ++ show pr
 
-type CutOutputs = HM.HashMap Chainweb.ChainId (Vector (Command Text,HashCommandResult))
+type CutOutputs = HM.HashMap Chainweb.ChainId (Vector (Command Text, CommandResult Hash))
 
 cutToPayloadOutputs
   :: PayloadCas cas
@@ -290,7 +289,7 @@ cutToPayloadOutputs c pdb = do
     let txs = Vector.map (toTx *** toCR) (_payloadWithOutputsTransactions outs)
         toTx :: Transaction -> Command Text
         toTx (Transaction t) = fromJuste $ decodeStrict' t
-        toCR :: TransactionOutput -> HashCommandResult
+        toCR :: TransactionOutput -> CommandResult Hash
         toCR (TransactionOutput t) = fromJuste $ decodeStrict' t
     return txs
 
