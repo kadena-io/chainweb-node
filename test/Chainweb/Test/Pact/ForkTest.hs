@@ -95,10 +95,10 @@ prop_forkValidates pdb bhdb cid genBlock =
         mVar <- newMVar (0 :: Int)
         withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
             db <- bhdb
-            putStrLn $ "\ngenForkLengths:"
-                        ++ "\n\ttrunk: " ++ show trunk
-                        ++ "\n\tleft: " ++ show left
-                        ++ "\n\tright: " ++ show right
+            putStrLn $ "\nTesting fork lengths:"
+                        ++ " trunk: " ++ show trunk
+                        ++ ", left: " ++ show left
+                        ++ ", right: " ++ show right
             expected <- expectedForkProd (trunk, left, right)
             if expected >= maxBalance
               then do -- this shouldn't happen...
@@ -135,7 +135,7 @@ withPactProp version logLevel iopdb iobhdb mempool iodir f =
         bhdb <- iobhdb
         dir <- iodir
         a <- async $ PS.initPactService version cid logger reqQ mempool
-                         bhdb pdb dir Nothing False
+                         bhdb pdb dir Nothing True -- last Param True means reset checkpointer db
         return (a, reqQ)
 
     stopPact :: (Async a, TBQueue a2) -> IO ()
@@ -220,9 +220,7 @@ txAsIntResult :: TransactionOutput -> IO Int
 txAsIntResult txOut = do
     let theBytes = _transactionOutputBytes txOut
     case A.decode (toS theBytes) :: Maybe (P.CommandResult P.Hash) of
-        Nothing -> do
-            putStrLn "\ntxAsIntResult - Nothing"
-            return 0
+        Nothing -> return 0
         Just cmd -> do
           let res = P._crResult cmd
           case res of
@@ -236,8 +234,6 @@ runNewBlock
     -> IO (MVar (Either PactException PayloadWithOutputs))
 runNewBlock parentBlock reqQ _iodb = do
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-    putStrLn $ "Fork Test -- calling new block with PARENT block: "
-        ++ _showHeaderFields [parentBlock]
     newBlock noMiner parentBlock (BlockCreationTime blockTime) reqQ
 
 -- validate the same transactions as sent to newBlock
