@@ -10,7 +10,7 @@
 module Chainweb.Pact.Service.PactQueue
     ( addRequest
     , getNextRequest
-    , PactQueue
+    , PactQueue(..)
     ) where
 
 import Control.Concurrent.STM.TBQueue
@@ -19,12 +19,19 @@ import Control.Monad.STM
 import Chainweb.Pact.Service.Types
 
 -- | The type of the Pact Queue
-type PactQueue = TBQueue RequestMsg
+newtype PactQueue = PactQueue (TBQueue RequestMsg, TBQueue RequestMsg)
 
 -- | Add a request to the Pact execution queue
 addRequest :: PactQueue -> RequestMsg -> IO ()
-addRequest q msg = atomically $ writeTBQueue q msg
+addRequest (PactQueue (rq, vq)) msg = atomically $
+    case msg of
+      ValidateBlockMsg _ -> writeTBQueue vq msg
+      _ -> writeTBQueue rq msg
 
 -- | Get the next available request from the Pact execution queue
 getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest q = atomically $ readTBQueue q
+getNextRequest (PactQueue (rq, vq)) = atomically $ do
+    mnext <- tryReadTBQueue vq
+    case mnext of
+      Nothing -> readTBQueue rq
+      Just next -> return next

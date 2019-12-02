@@ -615,7 +615,10 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
-        reqQ <- atomically $ newTBQueue 2000
+        reqQ <- fmap PactQueue $ atomically $ do
+            r <- newTBQueue 2000
+            v <- newTBQueue 2000
+            return (r, v)
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
