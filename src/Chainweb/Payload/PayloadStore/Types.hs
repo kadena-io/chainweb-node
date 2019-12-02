@@ -198,7 +198,6 @@ addPayload db txs txTree outs outTree = do
   where
     payload = blockPayload txs outs
 
-
 -- | Create block payload data from a sequence of transaction and insert it into
 -- the database.
 --

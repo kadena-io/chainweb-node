@@ -22,9 +22,12 @@ module Chainweb.Pact.Service.BlockValidation
 
 
 import Control.Concurrent.MVar.Strict
+
 import Data.Tuple.Strict
 import Data.Vector (Vector)
-import qualified Pact.Types.Hash as P
+
+import Pact.Types.Command
+import Pact.Types.Hash
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -32,7 +35,6 @@ import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
 
@@ -63,7 +65,7 @@ validateBlock bHeader plData reqQ = do
     addRequest reqQ msg
     return resultVar
 
-local :: ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException HashCommandResult))
+local :: ChainwebTransaction -> PactQueue -> IO (MVar (Either PactException (CommandResult Hash)))
 local ct reqQ = do
     !resultVar <- newEmptyMVar
     let !msg = LocalMsg LocalReq
@@ -74,7 +76,7 @@ local ct reqQ = do
 
 lookupPactTxs
     :: Rewind
-    -> Vector P.PactHash
+    -> Vector PactHash
     -> PactQueue
     -> IO (MVar (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash)))))
 lookupPactTxs restorePoint txs reqQ = do

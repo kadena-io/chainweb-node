@@ -47,7 +47,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -115,7 +114,7 @@ verifySPV bdb bh typ proof = go typ proof
 
             TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u bh
 
-            q <- case decodeStrict' p :: Maybe HashCommandResult of
+            q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
               Nothing -> internalError "unable to decode spv transaction output"
               Just cr -> return cr
 
@@ -161,7 +160,7 @@ verifyCont bdb bh (ContProof cp) = do
 
           TransactionOutput p <- verifyTransactionOutputProofAt_ bdb u bh
 
-          q <- case decodeStrict' p :: Maybe HashCommandResult of
+          q <- case decodeStrict' p :: Maybe (CommandResult Hash) of
             Nothing -> internalError "unable to decode spv transaction output"
             Just cr -> return cr
 
