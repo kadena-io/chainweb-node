@@ -1,8 +1,10 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -20,24 +22,23 @@ module HeaderDump
 ( main
 ) where
 
-import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
-import Chainweb.Logger
-import Chainweb.TreeDB
-import Chainweb.Utils
-import Chainweb.Version
-
 import Configuration.Utils
 import Configuration.Utils.Validation
 
+import Control.Arrow
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Catch (MonadThrow)
 import Control.Monad.Except
+import Control.Monad.Morph
 
 import Data.Aeson.Encode.Pretty hiding (Config)
+import Data.Bitraversable
 import qualified Data.ByteString.Lazy as BL
+import Data.CAS
 import Data.CAS.RocksDB
+import Data.Functor.Of
 import qualified Data.HashSet as HS
 import Data.LogMessage
 import Data.Semigroup hiding (option)
@@ -56,6 +57,21 @@ import qualified Streaming.Prelude as S
 import System.Directory
 import qualified System.Logger as Y
 import System.LogLevel
+
+-- internal modules
+
+import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
+import Chainweb.Logger
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.TreeDB
+import Chainweb.Utils
+import Chainweb.Version
+
+import Pact.Types.Command
+import Pact.Types.PactError
 
 -- -------------------------------------------------------------------------- --
 -- Configuration
@@ -164,8 +180,8 @@ mainWithConfig config = withLog $ \logger -> do
     withLog inner = Y.withHandleBackend_ logText (logconfig ^. Y.logConfigBackend)
         $ \backend -> Y.withLogger (logconfig ^. Y.logConfigLogger) backend inner
 
-main :: IO ()
-main = runWithConfiguration pinfo mainWithConfig
+main2 :: IO ()
+main2 = runWithConfiguration pinfo mainWithConfig
   where
     pinfo = programInfoValidate
         "Dump all block headers of a chain as JSON array"
@@ -224,4 +240,175 @@ withRocksDb_ path = bracket (openRocksDb_ path) closeRocksDb_
 
     closeRocksDb_ :: RocksDb -> IO ()
     closeRocksDb_ = R.close . _rocksDbHandle
+
+-- -------------------------------------------------------------------------- --
+-- Print Transactions
+
+mainWithConfig2 :: Config -> IO ()
+mainWithConfig2 config = withLog $ \logger -> do
+    liftIO $ run2 config $ logger
+        & addLabel ("version", toText $ _configChainwebVersion config)
+        & addLabel ("chain", toText $ _configChainId config)
+  where
+    logconfig = Y.defaultLogConfig
+        & Y.logConfigLogger . Y.loggerConfigThreshold .~ (_configLogLevel config)
+        & Y.logConfigBackend . Y.handleBackendConfigHandle .~ _configLogHandle config
+    withLog inner = Y.withHandleBackend_ logText (logconfig ^. Y.logConfigBackend)
+        $ \backend -> Y.withLogger (logconfig ^. Y.logConfigLogger) backend inner
+
+main :: IO ()
+main = runWithConfiguration pinfo mainWithConfig2
+  where
+    pinfo = programInfoValidate
+        "Dump all block headers of a chain as JSON array"
+        pConfig
+        defaultConfig
+        validateConfig
+
+run2 :: Logger l => Config -> l -> IO ()
+run2 config logger = withChainDbs logger config $ \pdb cdb -> do
+    txOutputsStream logger config pdb cdb $ \s -> s
+        & coinbaseResult
+        & failures
+        & S.mapM_ (T.putStrLn . T.decodeUtf8 . BL.toStrict . encodePretty)
+
+withChainDbs
+    :: Logger l
+    => l
+    -> Config
+    -> (forall cas . PayloadCas cas => PayloadDb cas -> BlockHeaderDb -> IO a)
+    -> IO a
+withChainDbs logger config inner = do
+    rocksDbDir <- getRocksDbDir
+    logg Info $ "using database at: " <> T.pack rocksDbDir
+    withRocksDb_ rocksDbDir $ \rdb -> do
+        let pdb = newPayloadDb rdb
+        initializePayloadDb v pdb
+        withBlockHeaderDb rdb v cid $ \cdb -> do
+            inner pdb cdb
+  where
+    logg :: LogFunctionText
+    logg = logFunction logger
+    v = _configChainwebVersion config
+    cid = _configChainId config
+
+    getRocksDbDir = case _configDatabaseDirectory config of
+        Nothing -> getXdgDirectory XdgData
+            $ "chainweb-node/" <> sshow v <> "/" <> "0" <> "/rocksDb"
+        Just d -> return d
+
+txOutputsStream
+    :: Logger l
+    => PayloadCas cas
+    => l
+    -> Config
+    -> PayloadDb cas
+    -> BlockHeaderDb
+    -> (S.Stream (Of (BlockHeight, PayloadWithOutputs)) IO () -> IO ())
+    -> IO ()
+txOutputsStream logger config pdb cdb inner = do
+    liftIO $ logg Info "start traversing block headers"
+    void $ entries cdb Nothing Nothing (MinRank <$> _configStart config) (MaxRank <$> _configEnd config) $ \s -> s
+        & void
+        & progress logg
+        & payloads pdb
+        & inner
+  where
+    logg :: LogFunctionText
+    logg = logFunction logger
+    v = _configChainwebVersion config
+    cid = _configChainId config
+
+progress :: LogFunctionText -> S.Stream (Of BlockHeader) IO a -> S.Stream (Of BlockHeader) IO a
+progress logg s = s
+    & S.chain (logg Debug . sshow)
+    & S.chain
+        (\x -> when (_blockHeight x `mod` 100 == 0) $
+            logg Info ("BlockHeight: " <> sshow (_blockHeight x))
+        )
+
+commands
+    :: PayloadCas cas
+    => PayloadDb cas
+    -> S.Stream (Of BlockHeader) IO ()
+    -> S.Stream (Of (BlockHeight, Command T.Text, CommandResult T.Text)) IO ()
+commands pdb s = s
+    & S.mapM
+        ( traverse (casLookupM pdb)
+        . (_blockHeight &&& _blockPayloadHash)
+        )
+    & flip S.for
+        ( S.each
+        . sequence
+        . fmap _payloadWithOutputsTransactions
+        )
+    & S.map (\(a,(b,c)) -> (a,b,c))
+    & S.map (bimap _transactionBytes _transactionOutputBytes)
+    & S.mapM (bitraverse decodeStrictOrThrow' decodeStrictOrThrow')
+
+payloads
+    :: MonadIO m
+    => PayloadCas cas
+    => PayloadDb cas
+    -> S.Stream (Of BlockHeader) m a
+    -> S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
+payloads pdb =  S.mapM
+    ( traverse (liftIO . casLookupM pdb)
+    . (_blockHeight &&& _blockPayloadHash)
+    )
+
+coinbase
+    :: Monad m
+    => S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
+    -> S.Stream (Of (BlockHeight, CoinbaseOutput)) m a
+coinbase = S.map $ fmap _payloadWithOutputsCoinbase
+
+coinbaseResult
+    :: MonadThrow m
+    => S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
+    -> S.Stream (Of (BlockHeight, CommandResult T.Text)) m a
+coinbaseResult = S.mapM
+    $ traverse (decodeStrictOrThrow' . _coinbaseOutput . _payloadWithOutputsCoinbase)
+
+failures
+    :: Monad m
+    => S.Stream (Of (BlockHeight, CommandResult T.Text)) m a
+    -> S.Stream (Of (BlockHeight, PactError)) m a
+failures = S.concat . S.map go . S.map (fmap _crResult)
+  where
+    go (a, PactResult x) = case x of
+        Left e -> Just (a, e)
+        Right _ -> Nothing
+
+-- -------------------------------------------------------------------------- --
+-- PayloadWithOutputs
+
+-- runOutputs :: Config -> LogFunction -> IO ()
+-- runOutputs config logg = do
+--     txOutputsStream config logg
+--         & S.chain (logg @T.Text Info . prettyCommandWithOutputs (_configPretty config))
+--         & S.foldM_
+--             (\c _ -> do
+--                 let c' = succ @Int c
+--                 when (c' `mod` 100 == 0) $
+--                     liftIO $ logg @T.Text Info ("total tx count: " <> sshow c')
+--                 return c'
+--             )
+--             (return 0)
+--             (const $ return ())
+
+prettyCommandWithOutputs :: Bool -> (BlockHeight, Command T.Text, CommandResult T.Text) -> T.Text
+prettyCommandWithOutputs p (bh, c, o) = T.decodeUtf8
+    $ BL.toStrict
+    $ (if p then encodePretty else encode)
+    $ object
+        [ "height" .= bh
+        , "sigs" .= _cmdSigs c
+        , "hash" .= _cmdHash c
+        , "payload" .= either
+            (const $ String $ _cmdPayload c)
+            (id @Value)
+            (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
+        , "output" .= o
+        ]
 
