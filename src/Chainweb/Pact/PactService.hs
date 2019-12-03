@@ -915,8 +915,9 @@ playOneBlock currHeader plData pdbenv = do
         bhDb <- asks _psBlockHeaderDb
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
-        -- allow bad coinbase in validate
-        execTransactions (Just bParent) m txs (EnforceCoinbaseFailure True) pdbenv
+        -- do NOT allow bad coinbase in validate after block height 100000
+        let ecf = EnforceCoinbaseFailure (_blockHeight currHeader >= 110000)
+        execTransactions (Just bParent) m txs ecf pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
