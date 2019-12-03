@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 -- |
 -- Module: Chainweb.Pact.Service.PactQueue
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -14,6 +15,7 @@ module Chainweb.Pact.Service.PactQueue
     ) where
 
 import Control.Concurrent.STM.TBQueue
+import Control.Monad.Extra (maybeM)
 import Control.Monad.STM
 
 import Chainweb.Pact.Service.Types
@@ -34,6 +36,4 @@ addRequest p msg = atomically $
 -- | Get the next available request from the Pact execution queue
 getNextRequest :: PactQueue -> IO RequestMsg
 getNextRequest p =
-    atomically $ maybeM (readTBQueue (pqPrimaryQueue p)) (tryReadTBQueue (pqValidationQueue p))
-  where
-    maybeM a b = b >>= maybe a pure
+  atomically $ maybeM (readTBQueue (pqPrimaryQueue p)) pure (tryReadTBQueue (pqValidationQueue p))
