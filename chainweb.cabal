@@ -273,7 +273,6 @@ library
         , Chainweb.Pact.Service.PactInProcApi
         , Chainweb.Pact.Service.PactQueue
         , Chainweb.Pact.Service.Types
-        , Chainweb.Pact.Templates
         , Chainweb.Pact.TransactionExec
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
