@@ -24,6 +24,7 @@ module Chainweb.Pact.Service.PactInProcApi
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TBQueue
+import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
 import Data.IORef
@@ -94,7 +95,15 @@ withPactService'
 withPactService'
   ver cid logger memPoolAccess bhDb pdb dbDir nodeid resetDb pactQueueSize action = do
     reqQ <-
-      atomically $ PactQueue <$> newTBQueue pactQueueSize <*> newTBQueue pactQueueSize
+      atomically $ do
+       primaryQueue <- newTBQueue pactQueueSize
+       secondaryQueue <- newTBQueue pactQueueSize
+       cachedRequests <- newTVar []
+       return PactQueue
+         { pqPrimaryQueue = primaryQueue
+         , pqSecondaryQueue = secondaryQueue
+         , pqCachedRequests = cachedRequests
+         }
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a

@@ -616,7 +616,15 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
   where
     startPact = do
         reqQ <-
-          atomically $ PactQueue <$> newTBQueue 2000 <*> newTBQueue 2000
+          atomically $ do
+              primaryQueue <- newTBQueue 2000
+              secondaryQueue <- newTBQueue 2000
+              cachedRequests <- newTVar []
+              return PactQueue
+                { pqPrimaryQueue = primaryQueue
+                , pqSecondaryQueue = secondaryQueue
+                , pqCachedRequests = cachedRequests
+                }
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
