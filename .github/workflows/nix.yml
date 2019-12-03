@@ -1,0 +1,43 @@
+name: Build binaries using nix-build
+
+on:
+  push:
+    branches:
+    - master
+    - docker-github
+
+jobs:
+  build:
+    name: Build master with nix on ubuntu-18.04
+    runs-on: 'ubuntu-18.04'
+    strategy:
+      fail-fast: false
+    steps:
+    # Setup
+    - name: Checkout repository
+      uses: actions/checkout@v1
+    - name: Install nix
+      run: |
+      	  sudo apt-get update
+          curl https://nixos.org/nix/install | sh
+          . $HOME/.nix-profile/etc/profile.d/nix.sh
+    - name: Install nix-cache
+      run: |
+          sudo mkdir /etc/nix
+          echo "substituters = http://nixcache.kadena.io https://nixcache.reflex-frp.org https://cache.nixos.org/" > /etc/nix/nix.conf
+          echo "trusted-public-keys = kadena-cache.local-1:8wj8JW8V9tmc5bgNNyPM18DYNA1ws3X/MChXh1AQy/Q= ryantrinkle.com-1:JJiAKaRv9mWgpVAz8dwewnZe0AzzEAzPkagE9SP5NWI= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" >> /etc/nix/nix.conf
+    - name: Install non-Haskell dependencies (ubuntu)
+      run: |
+          sudo apt-get update
+          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3      
+
+    # Build
+    - name: Build
+      run: nix-build --option extra-sandbox-paths '/etc/protocols /etc/services'
+
+    # Publish Artifacts
+    - name: Publish applications
+      uses: actions/upload-artifact@v1
+      with:
+        name: chainweb-applications.ubuntu.nix
+        path: sudo mv result/bin/
