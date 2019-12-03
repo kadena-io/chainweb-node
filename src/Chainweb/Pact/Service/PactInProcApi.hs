@@ -93,10 +93,8 @@ withPactService'
     -> IO a
 withPactService'
   ver cid logger memPoolAccess bhDb pdb dbDir nodeid resetDb pactQueueSize action = do
-    reqQ <- fmap PactQueue $ atomically $ do
-      r <- newTBQueue pactQueueSize
-      v <- newTBQueue pactQueueSize
-      return (r, v)
+    reqQ <-
+      atomically $ PactQueue <$> newTBQueue pactQueueSize <*> newTBQueue pactQueueSize
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a

@@ -344,10 +344,8 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     logger = genericLogger logLevel T.putStrLn
 
     startPact version l bhdb pdb mempool dir = do
-        reqQ <- fmap PactQueue $ atomically $ do
-          r <- newTBQueue pactQueueSize
-          v <- newTBQueue pactQueueSize
-          return (r, v)
+        reqQ <-
+          atomically $ PactQueue <$> newTBQueue pactQueueSize <*> newTBQueue pactQueueSize
         a <- async $ initPactService version cid l reqQ mempool
                                      bhdb pdb (Just dir) Nothing False
         return (a, reqQ)
