@@ -30,6 +30,8 @@ import qualified Data.Aeson as A
 import Data.Default (def)
 import Data.Text (Text)
 
+import Text.Trifecta.Delta (Delta(..))
+
 import Pact.Parse
 import Pact.Types.Command
 import Pact.Types.RPC
@@ -38,20 +40,24 @@ import Pact.Types.Runtime
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
 
+inf :: Info
+inf = Info $ Just (Code "",Parsed (Columns 0 0) 0)
+{-# NOINLINE inf #-}
+
 app :: Name -> [Term Name] -> Term Name
-app f as = TApp (App (TVar f def) as def) def
+app f as = TApp (App (TVar f inf) as inf) inf
 {-# INLINE app #-}
 
 qn :: ModuleName -> Text -> Name
-qn mn d = QName $ QualifiedName mn d def
+qn mn d = QName $ QualifiedName mn d inf
 {-# INLINE qn #-}
 
 bn :: Text -> Name
-bn n = Name $ BareName n def
+bn n = Name $ BareName n inf
 {-# INLINE bn #-}
 
 strLit :: Text -> Term Name
-strLit s = TLiteral (LString s) def
+strLit s = TLiteral (LString s) inf
 {-# INLINE strLit #-}
 
 strArgSetter :: Int -> ASetter' (Term Name) Text
