@@ -406,6 +406,7 @@ validateHashes bHeader pwo pData =
          , "expected" A..= prevHash
          , "payloadWithOutputs" A..= pwo
          , "otherMismatchs" A..= mismatchs
+         , "blockHeader" A..= bHeader
          ]
     where
       newHash = _payloadWithOutputsPayloadHash pwo
