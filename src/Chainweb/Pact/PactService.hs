@@ -122,7 +122,8 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), txEnabledDate, enableUserContracts)
+import Chainweb.Version
+    (ChainwebVersion(..), enableUserContracts, txEnabledDate)
 import Data.CAS (casLookupM)
 
 
@@ -406,7 +407,7 @@ validateHashes bHeader pwo pData =
          , "expected" A..= prevHash
          , "payloadWithOutputs" A..= pwo
          , "otherMismatchs" A..= mismatchs
-         , "blockHeader" A..= bHeader
+         , "blockHeader" A..= ObjectEncoded bHeader
          ]
     where
       newHash = _payloadWithOutputsPayloadHash pwo
