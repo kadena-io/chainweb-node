@@ -206,10 +206,9 @@ applyGenesisCmd
 applyGenesisCmd logger dbEnv pd spv cmd =
     second _txCache <$!> runTransactionM tenv txst go
   where
-    pd' = set pdPublicMeta (publicMetaOf cmd) pd
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
-    tenv = TransactionEnv Transactional dbEnv logger pd' spv nid 0.0 rk 0
+    tenv = TransactionEnv Transactional dbEnv logger pd spv nid 0.0 rk 0
            justInstallsExecutionConfig
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
@@ -323,7 +322,7 @@ jsonErrorResult
     -> TransactionM p (CommandResult [TxLog Value])
 jsonErrorResult err msg = do
     logs <- use txLogs
-    gas <- view txGasLimit -- error means all gas is used
+    gas <- view txGasLimit -- error means all gas was charged
     rk <- view txRequestKey
     l <- view txLogger
 
@@ -476,7 +475,7 @@ buyGas cmd (Miner mid mks) = go
       mcache <- use txCache
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
 
-      let (buyGasTerm,buyGasCmd) = mkBuyGasTerm mid mks sender supply
+      let (buyGasTerm, buyGasCmd) = mkBuyGasTerm mid mks sender supply
           interp mc = Interpreter $ \_input ->
             put (initState mc) >> run (pure <$> eval buyGasTerm)
 
@@ -486,8 +485,6 @@ buyGas cmd (Miner mid mks) = go
       case _erExec result of
         Nothing -> fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
-
-
 
 findPayer :: Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
 findPayer = runMaybeT $ do
