@@ -140,7 +140,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
+import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId, transferHardForkDate0)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
@@ -394,9 +394,10 @@ testPactCtx v cid bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+        f0 = transferHardForkDate0 v
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True)
+        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True f0)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
@@ -416,9 +417,10 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+        f0 = transferHardForkDate0 v
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-      <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True)
+      <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True f0)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
@@ -538,7 +540,6 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
           cid = someChainId v
-
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios
@@ -546,9 +547,10 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
       let rs = readRewards v
           t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
           gm = fromMaybe (constGasModel 0) gasModel
+          f0 = transferHardForkDate0 v
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb gm rs True)
+        <*> pure (PactServiceEnv Nothing cpe pdb bhdb gm rs True f0)
       evalPactServiceM_ ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
