@@ -100,6 +100,7 @@ import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
+import Chainweb.Version
 
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
@@ -224,7 +225,8 @@ applyGenesisCmd logger dbEnv pd spv cmd =
 
 
 applyCoinbase
-    :: Logger
+    :: ChainwebVersion
+    -> Logger
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -238,12 +240,10 @@ applyCoinbase
       -- ^ hash of the mined block
     -> EnforceCoinbaseFailure
       -- ^ enforce coinbase failure or not
-    -> Time Micros
-      -- ^ transfer hard fork date
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
-  (EnforceCoinbaseFailure throwCritical) forkTime mc
+applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
+  (EnforceCoinbaseFailure throwCritical) mc
   | blockTime >= forkTime = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
@@ -253,6 +253,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     let interp = initStateInterpreter initState
     go interp cexec
   where
+    forkTime = transferHardForkDate0 v
     blockTime =
       let (TxCreationTime (ParsedInteger !bt)) =
             view (pdPublicMeta . pmCreationTime) pd

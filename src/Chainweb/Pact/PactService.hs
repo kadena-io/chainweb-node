@@ -195,9 +195,8 @@ initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb act = do
       let !rs = readRewards ver
           !gasModel = tableGasModel defaultGasConfig
           !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
-          !d = transferHardForkDate0 ver
 
-      let !pse = PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs (enableUserContracts ver) d
+      let !pse = PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs (enableUserContracts ver)
           !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
 
       evalPactServiceM pst pse act
@@ -1035,14 +1034,13 @@ runCoinbase Nothing _ _ _ _ = return noCoinbase
 runCoinbase (Just parentHash) dbEnv miner enfCBFail mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
-    d <- view psHardForkDate0
-
+    v <- view chainwebVersion
     pd <- mkPublicData "coinbase" def
 
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-    cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash enfCBFail d mc
+    cr <- liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHash enfCBFail mc
     return $! toHashCommandResult cr
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
