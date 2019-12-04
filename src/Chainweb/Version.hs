@@ -42,6 +42,7 @@ module Chainweb.Version
 , txEnabledDate
 , transferActivationDate
 , enableUserContracts
+, transferHardForkDate0
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -593,6 +594,16 @@ transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
 
+
+transferHardForkDate0 :: ChainwebVersion -> Time (Micros)
+transferHardForkDate0 Test{} = epoch
+transferHardForkDate0 TimedConsensus{} = epoch
+transferHardForkDate0 PowConsensus{} = epoch
+transferHardForkDate0 TimedCPM{} = epoch
+transferHardForkDate0 FastTimedCPM{} = epoch
+transferHardForkDate0 Development = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
+transferHardForkDate0 Testnet04 = epoch
+transferHardForkDate0 Mainnet01 = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
 
 -- | Enable user contract install
 enableUserContracts :: ChainwebVersion -> Bool

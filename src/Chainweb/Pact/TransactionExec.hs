@@ -237,11 +237,13 @@ applyCoinbase
     -> BlockHash
       -- ^ hash of the mined block
     -> EnforceCoinbaseFailure
-      -- ^ treat
+      -- ^ enforce coinbase failure or not
+    -> Time Micros
+      -- ^ transfer hard fork date
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
 applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
-  (EnforceCoinbaseFailure throwCritical) mc
+  (EnforceCoinbaseFailure throwCritical) forkTime mc
   | blockTime >= forkTime = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
@@ -251,7 +253,6 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     let interp = initStateInterpreter initState
     go interp cexec
   where
-    forkTime = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
     blockTime =
       let (TxCreationTime (ParsedInteger !bt)) =
             view (pdPublicMeta . pmCreationTime) pd

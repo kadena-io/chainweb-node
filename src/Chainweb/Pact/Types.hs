@@ -65,6 +65,7 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psEnableUserContracts
+  , psHardForkDate0
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -280,6 +281,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
     , _psEnableUserContracts :: !Bool
+    , _psHardForkDate0 :: Time Micros
     }
 makeLenses ''PactServiceEnv
 
