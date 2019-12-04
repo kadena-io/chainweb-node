@@ -577,7 +577,7 @@ txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
 txEnabledDate Development = Just [timeMicrosQQ| 2019-11-30T05:00:00.0 |]
 txEnabledDate Testnet04 = Nothing
-txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-12T00:00:00.0 |]
+txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-12T01:00:00.0 |]
 
 -- | KILLSWITCH: The date after which nodes in the 1.1.x series will
 -- spontaneously allow Transactions in the system. This constant can be removed
