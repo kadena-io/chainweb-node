@@ -23,6 +23,9 @@ module HeaderDump
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Payload.PayloadStore.Types
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
@@ -37,6 +40,7 @@ import Control.Monad.Except
 
 import Data.Aeson.Encode.Pretty hiding (Config)
 import qualified Data.ByteString.Lazy as BL
+import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
 import Data.LogMessage
@@ -179,10 +183,11 @@ run config logger = do
     logg Info $ "using database at: " <> T.pack rocksDbDir
     withRocksDb_ rocksDbDir $ \rdb -> do
         void $ withBlockHeaderDb rdb v cid $ \cdb -> do
+            let pdb = newPayloadDb rdb
             logg Info "start dumping block headers"
             T.putStr "[\n"
             void $ entries cdb Nothing Nothing (MinRank <$> _configStart config) (MaxRank <$> _configEnd config) $ \s -> s
-                & S.map (encodeJson . ObjectEncoded)
+                & S.mapM (fmap encodeJson . blockHeaderWithCodeJSON pdb)
                 & S.intersperse ",\n"
                 & S.mapM_ T.putStr
             T.putStr "\n]"
@@ -225,3 +230,22 @@ withRocksDb_ path = bracket (openRocksDb_ path) closeRocksDb_
     closeRocksDb_ :: RocksDb -> IO ()
     closeRocksDb_ = R.close . _rocksDbHandle
 
+blockHeaderWithCodeJSON :: PayloadDb RocksDbCas -> BlockHeader -> IO Value
+blockHeaderWithCodeJSON pdb b = do
+    payload <- payloadWithOutputsToPayloadData
+        <$> casLookupM pdb (_blockPayloadHash b)
+    return $ object
+        [ "nonce" .= _blockNonce b
+        , "creationTime" .= _blockCreationTime b
+        , "parent" .= _blockParent b
+        , "adjacents" .= _blockAdjacentHashes b
+        , "target" .= _blockTarget b
+        , "payload" .= payload
+        , "chainId" .= _chainId b
+        , "weight" .= _blockWeight b
+        , "height" .= _blockHeight b
+        , "chainwebVersion" .= _blockChainwebVersion b
+        , "epochStart" .= _blockEpochStart b
+        , "featureFlags" .= _blockFlags b
+        , "hash" .= _blockHash b
+        ]
