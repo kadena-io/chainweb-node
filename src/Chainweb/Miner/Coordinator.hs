@@ -26,6 +26,7 @@ module Chainweb.Miner.Coordinator
   , MiningStats(..)
   , PrevTime(..)
   , ChainChoice(..)
+  , PrimedWork(..)
     -- * Functions
   , newWork
   , publish
@@ -66,7 +67,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Pact (Miner, minerId)
+import Chainweb.Miner.Pact (Miner, MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -79,6 +80,12 @@ import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
+
+-- | Precached payloads for Private Miners. This allows new work requests to be
+-- made as often as desired, without clogging the Pact queue.
+--
+newtype PrimedWork =
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (T2 PayloadWithOutputs BlockCreationTime)))
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
