@@ -21,6 +21,7 @@
 module Chainweb.Pact.Templates
 ( mkBuyGasTerm
 , mkCoinbaseTerm
+, mkCoinbaseCmd
 ) where
 
 
@@ -28,7 +29,7 @@ import Control.Lens
 import Data.Aeson hiding ((.=))
 import qualified Data.Aeson as A
 import Data.Default (def)
-import Data.Text (Text)
+import Data.Text (Text, pack)
 
 import Text.Trifecta.Delta (Delta(..))
 
@@ -41,6 +42,7 @@ import Pact.Types.Runtime
 
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Types
+import Chainweb.Pact.Service.Types
 
 
 inf :: Info
@@ -126,3 +128,34 @@ mkCoinbaseTerm (MinerId mid) (MinerKeys ks) reward = (populatedTerm, execMsg)
       , "reward" A..= reward
       ]
 {-# INLINABLE mkCoinbaseTerm #-}
+
+-- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'
+-- parameter is for any possible environmental data that needs to go into
+-- the 'ExecMsg'.
+--
+buildExecParsedCode :: Maybe Value -> Text -> IO (ExecMsg ParsedCode)
+buildExecParsedCode value code = maybe (go Null) go value
+  where
+    go v = case ParsedCode code <$> parseExprs code of
+      Right !t -> pure $! ExecMsg t v
+      -- if we can't construct coin contract calls, this should
+      -- fail fast
+      Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
+
+-- | To preserve pre-fork compatibility, this must be kept in until
+-- blocks dated before 2019-12-17 00:00:00 UTC
+--
+mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
+mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
+    buildExecParsedCode coinbaseData $ mconcat
+      [ "(coin.coinbase"
+      , " \"" <> mid <> "\""
+      , " (read-keyset \"miner-keyset\")"
+      , " (read-decimal \"reward\"))"
+      ]
+  where
+    coinbaseData = Just $ object
+      [ "miner-keyset" A..= ks
+      , "reward" A..= reward
+      ]
+{-# INLINABLE mkCoinbaseCmd #-}

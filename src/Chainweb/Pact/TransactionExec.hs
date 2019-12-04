@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -76,7 +77,7 @@ import Pact.Gas.Table
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
@@ -96,6 +97,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Types
+import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
 
@@ -239,9 +241,22 @@ applyCoinbase
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
 applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
-  (EnforceCoinbaseFailure throwCritical) mc =
-    evalTransactionM tenv txst go
+  (EnforceCoinbaseFailure throwCritical) mc
+  | blockTime >= forkTime = do
+    let (cterm, cexec) = mkCoinbaseTerm mid mks reward
+        interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
+    go interp cexec
+  | otherwise = do
+    cexec <- mkCoinbaseCmd mid mks reward
+    let interp = initStateInterpreter initState
+    go interp cexec
   where
+    forkTime = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
+    blockTime =
+      let (TxCreationTime (ParsedInteger !bt)) =
+            view (pdPublicMeta . pmCreationTime) pd
+      in Time (TimeSpan (Micros (fromIntegral bt)))
+
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -249,11 +264,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     chash = Pact.Hash (sshow ph)
     rk = RequestKey chash
 
-    go = do
-      let (cterm, cexec) = mkCoinbaseTerm mid mks reward
-          interp = Interpreter $ \_input -> do
-            put initState
-            pure <$> eval cterm
+    go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError $!
         applyExec' interp cexec mempty chash managedNamespacePolicy
 
@@ -270,6 +281,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
 
           return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
            (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
+
 
 applyLocal
     :: Logger
