@@ -276,9 +276,8 @@ validateOne cfg v badmap now t h =
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
 
-    -- | KILLSWITCH 2019-12-17T01:00:00Z: This can be removed once the date
-    -- itself has passed. Until then, this prevents any transaction from
-    -- entering the mempool.
+    -- | KILLSWITCH This can be removed once the date itself has passed. Until
+    -- then, this prevents any transaction from entering the mempool.
     --
     transactionsEnabled :: Either InsertError ()
     transactionsEnabled = case transferActivationDate v of

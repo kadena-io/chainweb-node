@@ -173,10 +173,9 @@ data PactCmdLog
   deriving (Show, Generic, ToJSON, NFData)
 
 
--- | KILLSWITCH 2019-12-17T01:00:00Z: The logic here involving
--- `transferActivationDate` can be removed once the date itself has passed.
--- Until then, this prevents any "real" Pact transactions from being submitted
--- to the system.
+-- | KILLSWITCH The logic here involving `transferActivationDate` can be removed
+-- once the date itself has passed. Until then, this prevents any "real" Pact
+-- transactions from being submitted to the system.
 --
 sendHandler
     :: Logger logger
