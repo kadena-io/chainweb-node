@@ -1,5 +1,41 @@
 # `chainweb-node` Changelog
 
+## 1.1 (2019-12-02)
+
+This is a major release that activates coin transfers on December 5 2019 16:00 UTC.
+All node operators should upgrade ASAP.
+1.0.x nodes will stop mining and fail to launch after December 5 2019 00:00 UTC.
+
+* Improve logging for orphan blocks. [#752]
+
+* Finalize gas model. [#744]
+
+* Updates to staged transaction rollout behavior. Coin transactions will be
+  enabled on December 5, and the ability to deploy smart contracts will be
+  enabled on January 15. [#743,#755,#759,#769]
+
+* Improve cut DB membership queries. [#756]
+
+* Better error handling for /mining/solved endpoint. [#762]
+
+* Increase mempool session timeout. [#761]
+
+* Improve mempool performance. [#732, #742]
+
+* Better error message when gas limit exceeded. [#748]
+
+* Refactor Pact service state handling and chain data. [#767]
+
+* Fix bug in miner redeem on failed payloads. [#773]
+
+* Set default block gas limit of 6000. [#776]
+
+* Tx compilation failure messages from mempool [#768]
+
+* Pre-compiled templates for gas buy/gas redeem/coinbase operations [#771]
+
+* Introduce configurable Pact execution parameters [#766]
+
 ## 1.0.6 (2019-11-26)
 
 This is a minor release that provides stability and performance improvements. It also
@@ -11,15 +47,15 @@ of work update notifications when used with this `chainweb-node` version.
 
 * Improves the stability of Chainweb nodes, by closing a TCP connection leak on
   nodes that had mining coordination enabled.
-  [#735](https://github.com/kadena-io/chainweb-node/pull/735)
+  [#735]
 
 * Improve performance of Chainweb nodes, by changing the default memory
   allocation parameters of the Haskell runtime. The default, built in RTS
   settings are now `+RTS -N -A64M -H1G`.
-  [#737](https://github.com/kadena-io/chainweb-node/pull/737)
+  [#737]
 
-* Upgrade the testnet version from `tesnet02` to `testnet03`.
- [#736](https://github.com/kadena-io/chainweb-node/pull/736)
+* Upgrade the testnet version from `testnet02` to `testnet03`.
+ [#736]
 
 
 ## 1.0.5 (2019-11-21)
@@ -34,18 +70,18 @@ this version as soon as possible.**
 
 - Emergency difficulty adjustment is disabled from chain height 80,000 onward.
   This is technically a fork, although it will hopefully never become relevant.
-  [#671](https://github.com/kadena-io/chainweb-node/pull/671)
+  [#671]
 
 ### Configuration Changes
 
 - Configuration options for logging blocks to Amberdata was removed.
-  [#717](https://github.com/kadena-io/chainweb-node/pull/717)
+  [#717]
 
 ### Bug Fixes
 
 - Parsing of the configuration file properties `p2p.peer.certificateChainFile`
   and `p2p.peer.keyFile` was fixed.
-  [#703](https://github.com/kadena-io/chainweb-node/pull/703)
+  [#703]
 
 ## 1.0.4 (2019-11-13)
 
