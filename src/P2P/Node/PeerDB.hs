@@ -56,6 +56,7 @@ module P2P.Node.PeerDB
 , makePeerDbPrivate
 , fromPeerEntryList
 , fromPeerInfoList
+, prunePeerDb
 
 -- * PeerSet
 , PeerSet
@@ -356,6 +357,25 @@ peerDbDelete (PeerDb _ lock var) i = withMVar lock
     . modifyTVar' var
     $ deletePeer i
 {-# INLINE peerDbDelete #-}
+
+-- | Delete peers that
+-- 1. not currently used, that
+-- 2. we haven't used since 12h, and that
+-- 3. have had more than 5 failed connection attempts.
+--
+prunePeerDb :: PeerDb -> IO ()
+prunePeerDb (PeerDb _ lock var) = do
+    withMVar lock $ \_ -> do
+        now <- getCurrentTime
+        let cutoff = Just $ addUTCTime ((-60) * 60 * 12) now
+        atomically $ modifyTVar' var $ \s ->
+            (getGT (ActiveSessionCount 0) s)
+            |||
+            (getLTE (SuccessiveFailures 5) s)
+            |||
+            (getGT (LastSuccess cutoff) s)
+            |||
+            (fromList $ filter _peerEntrySticky $ toList s)
 
 fromPeerEntryList :: [PeerEntry] -> IO PeerDb
 fromPeerEntryList peers = PeerDb False
