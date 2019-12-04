@@ -85,6 +85,7 @@ data MiningCoordination logger cas = MiningCoordination
     , _coord403s :: !(IORef Int)
     , _coordConf :: !CoordinationConfig
     , _coordUpdateStreamCount :: !(IORef Int)
+    , _coordPrimedWork :: !(TVar PrimedWork)
     }
 
 withMiningCoordination
@@ -115,7 +116,8 @@ withMiningCoordination logger conf cdb inner
                 , _coord503s = c503
                 , _coord403s = c403
                 , _coordConf = conf
-                , _coordUpdateStreamCount = l })
+                , _coordUpdateStreamCount = l
+                , _coordPrimedWork = m })
   where
     cids :: [ChainId]
     cids = HS.toList . chainIds $ _chainwebVersion cdb
@@ -125,16 +127,19 @@ withMiningCoordination logger conf cdb inner
     -- without interacting with the Pact Queue.
     --
     primeWork :: [Miner] -> TVar PrimedWork -> Cut -> ChainId -> IO ()
-    primeWork miners tpw cut cid = do
-        -- Even if the `cut` passed to the function is old, this call here will
-        -- immediately detect the newest `BlockHeader` on the given chain.
-        new <- awaitNewCutByChainId cdb cid cut
-        let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
-        -- Generate new payloads, one for each Miner we're managing --
-        payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
-        -- Update the cache in a single step --
-        atomically $ modifyTVar' tpw (\pw -> foldl' (updateCache cid) pw payloads)
-        primeWork miners tpw new cid  -- TODO runForever?
+    primeWork miners tpw c cid = runForever (logFunction logger) "primeWork" $ go c
+      where
+        go :: Cut -> IO a
+        go cut = do
+            -- Even if the `cut` passed to the function is old, this call here will
+            -- immediately detect the newest `BlockHeader` on the given chain.
+            new <- awaitNewCutByChainId cdb cid cut
+            let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
+            -- Generate new payloads, one for each Miner we're managing --
+            payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
+            -- Update the cache in a single step --
+            atomically $ modifyTVar' tpw (\pw -> foldl' (updateCache cid) pw payloads)
+            go new
 
     updateCache
         :: ChainId
@@ -258,7 +263,10 @@ runMiner v mr =
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        localTest lf v (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
+        tpw <- newTVarIO mempty
+        localTest lf v tpw (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = localPOW lf v (_nodeMiner conf) cdb
+    powMiner = do
+        tpw <- newTVarIO mempty
+        localPOW lf v tpw (_nodeMiner conf) cdb

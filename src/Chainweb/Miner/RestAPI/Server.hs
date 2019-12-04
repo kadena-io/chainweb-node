@@ -102,7 +102,7 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork (logFunction $ _coordLogger mr) (maybe Anything Suggestion mcid) m pact c
+    T3 p bh pl <- newWork (logFunction $ _coordLogger mr) (maybe Anything Suggestion mcid) m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 m p pl

@@ -156,7 +156,7 @@ createNewCut n t pay i c = do
     p = c ^?! ixg cid
 
     newHeader :: BlockHashRecord -> BlockHeader
-    newHeader as = newBlockHeader as pay n t p
+    newHeader as = newBlockHeader as pay n (BlockCreationTime t) p
 
     -- | Try to get all adjacent hashes dependencies.
     --

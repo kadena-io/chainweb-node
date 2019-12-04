@@ -35,6 +35,7 @@ module Chainweb.Miner.Coordinator
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 
+import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistEither, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
@@ -67,7 +68,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Pact (Miner, MinerId(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -75,8 +76,6 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
 import Data.LogMessage (JsonLog(..), LogFunction)
-
-import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -86,6 +85,7 @@ import Utils.Logging.Trace (trace)
 --
 newtype PrimedWork =
     PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (T2 PayloadWithOutputs BlockCreationTime)))
+    deriving newtype (Semigroup, Monoid)
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -119,9 +119,10 @@ newWork
     -> ChainChoice
     -> Miner
     -> PactExecutionService
+    -> TVar PrimedWork
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork logFun choice miner pact c = do
+newWork logFun choice miner@(Miner mid _) pact tpw c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -146,14 +147,18 @@ newWork logFun choice miner pact c = do
     -- TODO Consider instead some maximum amount of retries?
     --
     case getAdjacentParents c p of
-        Nothing -> newWork logFun (TriedLast cid) miner pact c
+        Nothing -> newWork logFun (TriedLast cid) miner pact tpw c
         Just adjParents -> do
-            -- Fetch a Pact Transaction payload. This is an expensive call
-            -- that shouldn't be repeated.
-            --
-            creationTime <- getCurrentTimeIntegral
-            payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
-                (_pactNewBlock pact miner p (BlockCreationTime creationTime))
+            PrimedWork pw <- readTVarIO tpw
+            T2 payload creationTime <- case HM.lookup mid pw >>= HM.lookup cid of
+                Just pt -> pure pt
+                Nothing -> do
+                    -- Fetch a Pact Transaction payload. This is an expensive call
+                    -- that shouldn't be repeated.
+                    --
+                    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+                    payload <- _pactNewBlock pact miner p creationTime
+                    pure $ T2 payload creationTime
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the

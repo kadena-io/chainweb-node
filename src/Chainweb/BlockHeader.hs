@@ -928,14 +928,14 @@ newBlockHeader
         -- ^ payload hash
     -> Nonce
         -- ^ Randomness to affect the block hash
-    -> Time Micros
+    -> BlockCreationTime
         -- ^ Creation time of the block
     -> BlockHeader
         -- ^ parent block header
     -> BlockHeader
 newBlockHeader adj pay nonce t b = fromLog $ newMerkleLog
     $ nonce
-    :+: BlockCreationTime t
+    :+: t
     :+: _blockHash b
     :+: target
     :+: pay
@@ -943,13 +943,13 @@ newBlockHeader adj pay nonce t b = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: epochStart b (BlockCreationTime t)
+    :+: epochStart b t
     :+: FeatureFlags 0
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId b
     v = _blockChainwebVersion b
-    target = powTarget b (BlockCreationTime t)
+    target = powTarget b t
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
@@ -977,7 +977,7 @@ testBlockHeader
         -- ^ parent block header
     -> BlockHeader
 testBlockHeader adj nonce b
-    = newBlockHeader adj (testBlockPayload b) nonce (add second t) b
+    = newBlockHeader adj (testBlockPayload b) nonce (BlockCreationTime $ add second t) b
   where
     BlockCreationTime t = _blockCreationTime b
 

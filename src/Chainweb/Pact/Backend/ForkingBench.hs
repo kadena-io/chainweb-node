@@ -6,11 +6,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Chainweb.Pact.Backend.ForkingBench
   (bench
@@ -19,7 +19,7 @@ module Chainweb.Pact.Backend.ForkingBench
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TBQueue
-import Control.Lens hiding ((.=), elements, from, to)
+import Control.Lens hiding (elements, from, to, (.=))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -28,8 +28,9 @@ import qualified Criterion.Main as C
 
 import Data.Aeson hiding (Error)
 import Data.Bool
-import Data.ByteString (ByteString)
 import Data.Bytes.Put
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 import Data.Char
 import Data.Decimal
 import Data.FileEmbed
@@ -37,18 +38,17 @@ import Data.Foldable (toList)
 import Data.IORef
 import Data.List (uncons)
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe
-import qualified Data.Map.Strict as M
-import Data.Map.Strict (Map)
-import Data.Text (Text)
-import Data.Text.Encoding
-import Data.Tuple.Strict
-import Data.Word
-import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as NEL
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
+import Data.Maybe
+import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Text.Encoding
 import qualified Data.Text.IO as T
+import Data.Tuple.Strict
 import qualified Data.Vector as V
+import Data.Word
 import qualified Data.Yaml as Y
 
 import Fake
@@ -58,8 +58,8 @@ import GHC.Generics hiding (from, to)
 
 import System.Directory
 import System.Environment
-import System.IO.Temp
 import System.IO.Extra
+import System.IO.Temp
 import System.LogLevel
 import System.Random
 
@@ -70,6 +70,7 @@ import Text.Printf
 import Pact.ApiReq
 import Pact.Parse
 import Pact.Types.Capability
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -78,7 +79,6 @@ import Pact.Types.Info
 import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Util hiding (unwrap)
-import qualified Pact.Types.ChainId as Pact
 
 -- chainweb imports
 
@@ -229,9 +229,9 @@ mineBlock
 mineBlock parentHeader nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- newBlock noMiner parentHeader (BlockCreationTime creationTime) r
+     mv <- newBlock noMiner parentHeader creationTime r
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -268,9 +268,9 @@ noMineBlock
 noMineBlock validate parentHeader nonce r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- newBlock noMiner parentHeader (BlockCreationTime creationTime) r
+     mv <- newBlock noMiner parentHeader creationTime r
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -369,7 +369,7 @@ createRocksResource = do
     return (dir, rocks)
 
 destroyRocksResource :: (FilePath, RocksDb) -> IO ()
-destroyRocksResource (dir, rocks)  =  do
+destroyRocksResource (dir, rocks) =  do
     closeRocksDb rocks
     destroyRocksDb dir
     doesDirectoryExist dir >>= flip when (removeDirectoryRecursive dir)
@@ -420,7 +420,7 @@ createCoinAccount v meta name = do
     pure (nameKeyset, res)
   where
     theCode = printf "(coin.transfer-create \"sender00\" \"%s\" (read-keyset \"%s\") 1000.0)" name name
-    isSenderAccount name'  =
+    isSenderAccount name' =
       elem name' (map getAccount coinAccountNames)
 
     getKeyset :: String -> IO [SomeKeyPairCaps]
