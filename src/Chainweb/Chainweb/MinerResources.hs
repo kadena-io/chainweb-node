@@ -39,7 +39,7 @@ import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (Concurrently(..), runConcurrently)
+import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
 import Control.Lens (at, over, view, (&), (?~), (^?!))
@@ -106,7 +106,7 @@ withMiningCoordination logger conf cdb inner
         l <- newIORef (_coordinationUpdateStreamLimit conf)
         fmap thd . runConcurrently $ (,,)
             <$> Concurrently (prune t c503 c403)
-            <*> Concurrently (primeWork miners m cut $ unsafeChainId 0)  -- TODO per chain
+            <*> Concurrently (mapConcurrently_ (primeWork miners m cut) cids)
             <*> Concurrently (inner . Just $ MiningCoordination
                 { _coordLogger = logger
                 , _coordCutDb = cdb
@@ -117,6 +117,9 @@ withMiningCoordination logger conf cdb inner
                 , _coordConf = conf
                 , _coordUpdateStreamCount = l })
   where
+    cids :: [ChainId]
+    cids = HS.toList . chainIds $ _chainwebVersion cdb
+
     -- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
@@ -145,9 +148,6 @@ withMiningCoordination logger conf cdb inner
     initialPayloads cut ms =
         PrimedWork . HM.fromList <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) ms
       where
-        cids :: [ChainId]
-        cids = HS.toList . chainIds $ _chainwebVersion cdb
-
         pairs :: [T2 ChainId ParentHeader]
         pairs = map (\cid -> T2 cid (ParentHeader (cut ^?! ixg cid))) cids
 
