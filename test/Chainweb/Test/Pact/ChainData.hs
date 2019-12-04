@@ -156,8 +156,8 @@ mineBlock
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
-     mv <- r >>= newBlock noMiner parentHeader (BlockCreationTime creationTime)
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+     mv <- r >>= newBlock noMiner parentHeader creationTime
      payload <- takeMVar mv >>= \case
         Right x -> return x
         Left e -> throwM $ TestException
