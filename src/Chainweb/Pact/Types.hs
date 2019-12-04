@@ -281,7 +281,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
     , _psEnableUserContracts :: !Bool
-    , _psHardForkDate0 :: Time Micros
+    , _psHardForkDate0 :: !(Time Micros)
     }
 makeLenses ''PactServiceEnv
 
