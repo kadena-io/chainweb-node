@@ -561,17 +561,17 @@ mkBuyGasCmd (MinerId mid) (MinerKeys ks) sender total =
 {-# INLINABLE mkBuyGasCmd #-}
 
 mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
-mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
+mkCoinbaseCmd (MinerId mid) (MinerKeys ks) _ =
     buildExecParsedCode coinbaseData $ mconcat
       [ "(coin.coinbase"
       , " \"" <> mid <> "\""
       , " (read-keyset \"miner-keyset\")"
-      , " (read-decimal \"reward\"))"
+      , " 100000.0)"
       ]
   where
     coinbaseData = Just $ object
       [ "miner-keyset" A..= ks
-      , "reward" A..= reward
+      --, "reward" A..= reward
       ]
 {-# INLINABLE mkCoinbaseCmd #-}
 
