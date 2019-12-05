@@ -96,6 +96,7 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 -- Internal imports
 
 import Chainweb.HostAddress (isReservedHostAddress)
+import Chainweb.NodeVersion
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
@@ -319,6 +320,7 @@ getNewPeerManager = readIORef newPeerManager
 data PeerValidationFailure
     = IsReservedHostAddress !PeerInfo
     | IsNotReachable !PeerInfo !T.Text
+    | NodeVersionNotAccepted !PeerInfo !NodeVersion
     deriving (Show, Eq, Ord, Generic, NFData, ToJSON)
 
 instance Exception PeerValidationFailure where
@@ -326,6 +328,8 @@ instance Exception PeerValidationFailure where
         = "The peer info " <> T.unpack (showInfo p) <> " is form a reserved IP address range"
     displayException (IsNotReachable p t)
         = "The peer info " <> T.unpack (showInfo p) <> " can't be reached: " <> T.unpack t
+    displayException (NodeVersionNotAccepted p v)
+        = "The peer info " <> T.unpack (showInfo p) <> " has a chainweb node version that is not acceptable: " <> T.unpack (toText v)
 
 -- | Removes candidate `PeerInfo` that are:
 --
@@ -349,7 +353,9 @@ guardPeerDb v nid peerDb pinf = do
         | isReserved -> return $ Left $ IsReservedHostAddress pinf
         | otherwise -> canConnect >>= \case
             Left e -> return $ Left $ IsNotReachable pinf (sshow e)
-            Right _ -> return $ Right pinf
+            Right nodeVersion -> if isAcceptedVersion nodeVersion
+                then return $ Right pinf
+                else return $ Left $ NodeVersionNotAccepted pinf nodeVersion
   where
     isKnown :: PeerSet -> Bool
     isKnown peers = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
@@ -367,8 +373,7 @@ guardPeerDb v nid peerDb pinf = do
     --
     canConnect = do
         mgr <- getNewPeerManager
-        let env = peerInfoClientEnv mgr pinf
-        runClientM (peerGetClient v nid (Just 0) Nothing) env
+        getNodeVersion mgr v (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
 
 guardPeerDbOfNode
     :: P2pNode
