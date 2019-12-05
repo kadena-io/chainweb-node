@@ -142,8 +142,10 @@ buildExecParsedCode value code = maybe (go Null) go value
       -- fail fast
       Left err -> internalError $ "buildExecParsedCode: parse failed: " <> pack err
 
--- | To preserve pre-fork compatibility, this must be kept in until
--- blocks dated before 2019-12-17 00:00:00 UTC
+-- | Build a coinbase 'ExecMsg' via string concatenation.
+--
+-- Note that this code will no longer be used as of 12/17/19. For more,
+-- see 'transferHardForkDate0'.
 --
 mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
 mkCoinbaseCmd (MinerId mid) (MinerKeys ks) reward =
