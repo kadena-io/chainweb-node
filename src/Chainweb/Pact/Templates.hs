@@ -144,7 +144,7 @@ buildExecParsedCode value code = maybe (go Null) go value
 
 -- | Build a coinbase 'ExecMsg' via string concatenation.
 --
--- Note that this code will no longer be used as of 12/17/19. For more,
+-- Note that this code is used only for blocks created before 12/17/19. For more,
 -- see 'transferHardForkDate0'.
 --
 mkCoinbaseCmd :: MinerId -> MinerKeys -> ParsedDecimal -> IO (ExecMsg ParsedCode)
