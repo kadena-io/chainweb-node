@@ -594,7 +594,7 @@ transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
 
--- | Coinbase prior to this date was vulnerable to Pact-Injection attacks. This date after
+-- | Coinbase prior to this date was vulnerable to Pact-Injection attacks. This date is after
 -- the latest block in the mainnet01 history where this attack was exploited. Blocks created after this date
 use validation logic that rejects blocks with injected code. a Any chainweb-node
 -- version that does not include this date (and the validation code that uses it) is at risk of
