@@ -594,7 +594,10 @@ transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
 
-
+    -- | Coinbase prior to this date was vulnerable to Pact-Injection attacks. This date after
+    -- then the latest block in mainnet01 history where this attack was exploited. Any chainweb-node
+    -- version that does not include this date (and the validation code that uses it) is at risk of
+    -- computing a fork after this date by accepting blocks with coin bases with pact injection.
 transferHardForkDate0 :: ChainwebVersion -> Time (Micros)
 transferHardForkDate0 Test{} = epoch
 transferHardForkDate0 TimedConsensus{} = epoch
