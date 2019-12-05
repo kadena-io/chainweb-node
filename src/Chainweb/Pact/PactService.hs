@@ -110,7 +110,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
+import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequests)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
@@ -272,34 +272,41 @@ serviceRequests memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
-    go = do
+
+    processMessage :: RequestMsg -> PactServiceM cas ()
+    processMessage msg = case msg of
+        CloseMsg -> return ()
+        LocalMsg LocalReq{..} -> do
+            tryOne "execLocal" _localResultVar $ execLocal _localRequest
+
+        NewBlockMsg NewBlockReq {..} -> do
+            tryOne "execNewBlock" _newResultVar $
+                execNewBlock memPoolAccess _newBlockHeader _newMiner
+                    _newCreationTime
+
+        ValidateBlockMsg ValidateBlockReq {..} -> do
+            tryOne' "execValidateBlock"
+                    _valResultVar
+                    (flip (validateHashes _valBlockHeader) _valPayloadData)
+                    (execValidateBlock _valBlockHeader _valPayloadData)
+
+        LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
+            tryOne "execLookupPactTxs" resultVar $
+                execLookupPactTxs restorePoint txHashes
+
+        PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
+            tryOne "execPreInsertCheckReq" resultVar $
+                fmap (V.map (() <$)) $ execPreInsertCheckReq txs
+
+
+    go = forever $ do
         logDebug "serviceRequests: wait"
-        msg <- liftIO $ getNextRequest reqQ
-        logDebug $ "serviceRequests: " <> sshow msg
-        case msg of
-            CloseMsg -> return ()
-            LocalMsg LocalReq{..} -> do
-                tryOne "execLocal" _localResultVar $ execLocal _localRequest
-                go
-            NewBlockMsg NewBlockReq {..} -> do
-                tryOne "execNewBlock" _newResultVar $
-                    execNewBlock memPoolAccess _newBlockHeader _newMiner
-                        _newCreationTime
-                go
-            ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne' "execValidateBlock"
-                        _valResultVar
-                        (flip (validateHashes _valBlockHeader) _valPayloadData)
-                        (execValidateBlock _valBlockHeader _valPayloadData)
-                go
-            LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
-                tryOne "execLookupPactTxs" resultVar $
-                    execLookupPactTxs restorePoint txHashes
-                go
-            PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
-                tryOne "execPreInsertCheckReq" resultVar $
-                    fmap (V.map (() <$)) $ execPreInsertCheckReq txs
-                go
+        msgs <- liftIO $ getNextRequests reqQ
+        forM_ msgs $ \msg -> do
+            logDebug $ "serviceRequests: " <> sshow msg
+            processMessage msg
+
+
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 

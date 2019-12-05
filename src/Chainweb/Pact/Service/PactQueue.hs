@@ -10,16 +10,16 @@
 
 module Chainweb.Pact.Service.PactQueue
     ( addRequest
-    , getNextRequest
+    , getNextRequests
     , PactQueue(..)
     ) where
 
 import Control.Concurrent.STM.TBQueue
-import Control.Concurrent.STM.TVar
 import Control.Monad.STM
 
-import qualified Data.DList as D
-import Data.List (uncons)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+
 
 import Chainweb.Pact.Service.Types
 
@@ -27,14 +27,13 @@ import Chainweb.Pact.Service.Types
 data PactQueue = PactQueue
   { pqPrimaryQueue :: TBQueue RequestMsg
   , pqSecondaryQueue :: TBQueue RequestMsg
-  , pqCachedRequests :: TVar [RequestMsg]
   }
 
 pqSecondaryReadLimit :: Int
-pqSecondaryReadLimit = 10
+pqSecondaryReadLimit = 1
 
 pqPrimaryReadLimit :: Int
-pqPrimaryReadLimit = 30
+pqPrimaryReadLimit = 1
 
 -- | Add a request to the Pact execution queue
 addRequest :: PactQueue -> RequestMsg -> IO ()
@@ -44,22 +43,16 @@ addRequest p msg = atomically $
       -- NewBlockMsg _ -> writeTBQueue (pqPrimaryQueue p) msg -- maybe
       _ -> writeTBQueue (pqSecondaryQueue p) msg
 
--- | Get the next available request from the Pact execution queue
-getNextRequest :: PactQueue -> IO RequestMsg
-getNextRequest p = atomically $ do
-    xxs <- uncons <$> readTVar (pqCachedRequests p)
-    case xxs of
-      Just (x, xs) -> do
-        writeTVar (pqCachedRequests p) xs
-        return x
-      Nothing -> do
-        mReqs <- D.fromList <$> mapM (const $ tryReadTBQueue (pqPrimaryQueue p)) [1.. pqPrimaryReadLimit]
-        nReqs <- D.fromList <$> mapM (const $ tryReadTBQueue (pqSecondaryQueue p)) [1.. pqSecondaryReadLimit]
-        case uncons $ formRequests $ D.append mReqs nReqs of
-          Nothing -> readTBQueue (pqPrimaryQueue p)
-          Just (a, as) -> do
-                writeTVar (pqCachedRequests p) as
-                return a
-  where
-    formRequests :: D.DList (Maybe RequestMsg) -> [RequestMsg]
-    formRequests dl = foldMap (maybe id (:)) dl []
+getNextRequests :: PactQueue -> IO (Vector RequestMsg)
+getNextRequests p = atomically $ do
+  let step q1 q2 (n1,n2)
+        | n1 <= 0 && n2 <= 0 = do
+            return Nothing
+        | n1 <= 0 = do
+            m <- tryReadTBQueue q2
+            return $ fmap (\m' -> (m', (n1,n2-1))) m
+        | otherwise = do
+            m <- tryReadTBQueue q1
+            return $ fmap (\m' -> (m', (n1-1,n2))) m
+
+  V.unfoldrM (step (pqPrimaryQueue p) (pqSecondaryQueue p)) (pqPrimaryReadLimit, pqSecondaryReadLimit)

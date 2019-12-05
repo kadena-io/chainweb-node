@@ -348,11 +348,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
           atomically $ do
             primaryQueue <- newTBQueue pactQueueSize
             secondaryQueue <- newTBQueue pactQueueSize
-            cachedRequests <- newTVar []
             return PactQueue
               { pqPrimaryQueue = primaryQueue
               , pqSecondaryQueue = secondaryQueue
-              , pqCachedRequests = cachedRequests
               }
         a <- async $ initPactService version cid l reqQ mempool
                                      bhdb pdb (Just dir) Nothing False
