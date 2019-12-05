@@ -247,16 +247,13 @@ blockHeaderWithCodeJSON pdb b = do
 
     let minerdata' = _payloadDataMiner payload
 
-    miner' <- toJSON <$> fromMinerData minerdata'
+    minerInfo <- toJSON <$> fromMinerData minerdata'
 
-    case f (toPayloadValue payload) miner' of
-      Nothing -> error "something wrong went here"
-      Just v -> return v
+    return $ toPayloadValue payload
+      & key "minerData"
+      .~ minerInfo
+
   where
-    f :: Value -> Value -> Maybe Value
-    f v m = Just v
-      & key "miner"
-      .~ Just m
     toPayloadValue payload =
       object
         [ "nonce" .= _blockNonce b
