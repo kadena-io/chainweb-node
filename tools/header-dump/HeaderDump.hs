@@ -23,28 +23,38 @@ module HeaderDump
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger
+import Chainweb.Miner.Pact
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.Payload.PayloadStore.Types
-import Chainweb.TreeDB
+import Chainweb.Transaction
+import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils
 import Chainweb.Version
 
 import Configuration.Utils
 import Configuration.Utils.Validation
 
+import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Catch hiding (bracket)
 import Control.Monad.Except
 
 import Data.Aeson.Encode.Pretty hiding (Config)
-import qualified Data.ByteString.Lazy as BL
+import Data.Aeson.Lens
 import Data.CAS
 import Data.CAS.RocksDB
-import qualified Data.HashSet as HS
+import Data.Either
+import Data.Foldable
 import Data.LogMessage
 import Data.Semigroup hiding (option)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -234,7 +244,21 @@ blockHeaderWithCodeJSON :: PayloadDb RocksDbCas -> BlockHeader -> IO Value
 blockHeaderWithCodeJSON pdb b = do
     payload <- payloadWithOutputsToPayloadData
         <$> casLookupM pdb (_blockPayloadHash b)
-    return $ object
+
+    let minerdata' = _payloadDataMiner payload
+
+    miner' <- toJSON <$> fromMinerData minerdata'
+
+    case f (toPayloadValue payload) miner' of
+      Nothing -> error "something wrong went here"
+      Just v -> return v
+  where
+    f :: Value -> Value -> Maybe Value
+    f v m = Just v
+      & key "miner"
+      .~ Just m
+    toPayloadValue payload =
+      object
         [ "nonce" .= _blockNonce b
         , "creationTime" .= _blockCreationTime b
         , "parent" .= _blockParent b
@@ -249,3 +273,18 @@ blockHeaderWithCodeJSON pdb b = do
         , "featureFlags" .= _blockFlags b
         , "hash" .= _blockHash b
         ]
+
+_transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
+_transactionsFromPayload plData = do
+    vtrans <- fmap V.fromList $
+              mapM toCWTransaction $
+              toList (_payloadDataTransactions plData)
+    let (theLefts, theRights) = partitionEithers $ V.toList vtrans
+    unless (null theLefts) $ do
+        let ls = map T.pack theLefts
+        throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
+            <> (T.intercalate ". " ls)
+    return $! V.fromList theRights
+  where
+    toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
+                                          _transactionBytes bs))
