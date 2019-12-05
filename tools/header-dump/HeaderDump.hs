@@ -245,9 +245,7 @@ blockHeaderWithCodeJSON pdb b = do
     payload <- payloadWithOutputsToPayloadData
         <$> casLookupM pdb (_blockPayloadHash b)
 
-    let minerdata' = _payloadDataMiner payload
-
-    minerInfo <- toJSON <$> fromMinerData minerdata'
+    minerInfo <- toJSON <$> fromMinerData (_payloadDataMiner payload)
 
     return $ toPayloadValue payload
       & key "minerData"
