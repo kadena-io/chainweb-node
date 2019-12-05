@@ -606,7 +606,7 @@ transferHardForkDate0 TimedConsensus{} = epoch
 transferHardForkDate0 PowConsensus{} = epoch
 transferHardForkDate0 TimedCPM{} = epoch
 transferHardForkDate0 FastTimedCPM{} = epoch
-transferHardForkDate0 Development = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
+transferHardForkDate0 Development = epoch
 transferHardForkDate0 Testnet04 = epoch
 transferHardForkDate0 Mainnet01 = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
 {-# INLINE transferHardForkDate0 #-}
