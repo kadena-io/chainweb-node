@@ -608,7 +608,7 @@ transferHardForkDate0 FastTimedCPM{} = epoch
 transferHardForkDate0 Development = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
 transferHardForkDate0 Testnet04 = epoch
 transferHardForkDate0 Mainnet01 = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
-{-# INLINE transferHardForDate0 #-}
+{-# INLINE transferHardForkDate0 #-}
 
 -- | Enable user contract install
 enableUserContracts :: ChainwebVersion -> Bool
