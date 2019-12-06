@@ -28,6 +28,7 @@ module Chainweb.Pact.Types
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
+  , EnforceNewBlockFailure(..)
 
     -- * Transaction State
   , TransactionState(..)
@@ -174,6 +175,9 @@ newtype GasId = GasId PactId deriving (Eq, Show)
 --
 newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
+-- | Enforce failure when called from new block phase
+--
+newtype EnforceNewBlockFailure = EnforceNewBlockFailure Bool
 
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 

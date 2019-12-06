@@ -317,7 +317,7 @@ execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData
     trans <- goldenTestTransactions . V.fromList $ fmap (k d) cmdStrs
-    results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans (EnforceCoinbaseFailure True)
+    results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans (EnforceCoinbaseFailure True) (EnforceNewBlockFailure True)
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) outputs)
@@ -336,7 +336,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- try $ runPact $ execTransactions (Just nullBlockHash) defaultMiner trans (EnforceCoinbaseFailure True)
+      results' <- try $ runPact $ execTransactions (Just nullBlockHash) defaultMiner trans (EnforceCoinbaseFailure True) (EnforceNewBlockFailure True)
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
