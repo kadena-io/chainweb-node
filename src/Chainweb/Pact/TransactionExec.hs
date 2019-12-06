@@ -255,7 +255,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     let interp = initStateInterpreter initState
     go interp cexec
   where
-    forkTime = transferHardForkDate0 v
+    forkTime = vuln797FixDate v
     blockTime =
       let (TxCreationTime (ParsedInteger !bt)) =
             view (pdPublicMeta . pmCreationTime) pd

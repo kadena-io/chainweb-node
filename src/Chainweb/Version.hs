@@ -42,7 +42,7 @@ module Chainweb.Version
 , txEnabledDate
 , transferActivationDate
 , enableUserContracts
-, transferHardForkDate0
+, vuln797FixDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -600,16 +600,16 @@ transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
 -- version that does not include this date (and the validation code that uses it) is at risk of
 -- computing a fork after this date by accepting blocks with coin bases with pact injection.
 --
-transferHardForkDate0 :: ChainwebVersion -> Time (Micros)
-transferHardForkDate0 Test{} = epoch
-transferHardForkDate0 TimedConsensus{} = epoch
-transferHardForkDate0 PowConsensus{} = epoch
-transferHardForkDate0 TimedCPM{} = epoch
-transferHardForkDate0 FastTimedCPM{} = epoch
-transferHardForkDate0 Development = epoch
-transferHardForkDate0 Testnet04 = epoch
-transferHardForkDate0 Mainnet01 = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
-{-# INLINE transferHardForkDate0 #-}
+vuln797FixDate :: ChainwebVersion -> Time (Micros)
+vuln797FixDate Test{} = epoch
+vuln797FixDate TimedConsensus{} = epoch
+vuln797FixDate PowConsensus{} = epoch
+vuln797FixDate TimedCPM{} = epoch
+vuln797FixDate FastTimedCPM{} = epoch
+vuln797FixDate Development = epoch
+vuln797FixDate Testnet04 = epoch
+vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
+{-# INLINE vuln797FixDate #-}
 
 -- | Enable user contract install
 enableUserContracts :: ChainwebVersion -> Bool
