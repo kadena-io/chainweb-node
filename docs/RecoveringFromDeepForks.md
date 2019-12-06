@@ -31,15 +31,15 @@ peer or from Kadena support, this may be the fastest way to catch up a lagging
 or forked node.
 
 ```
-home# ssh root@remote-node
+our-node# ssh root@remote-node
 remote-node# systemctl stop chainweb
 remote-node# tar cvzf chainweb-db.tar.gz .local/share/chainweb-node
 remote-node# systemctl start chainweb
 remote-node# exit
-home# systemctl stop chainweb
-home# rm -Rf ~/.local/share/chainweb-node
-home# ssh root@remote-node 'cat chainweb.db.tar.gz' | tar xvzf -
-home# systemctl start chainweb
+our-node# systemctl stop chainweb
+our-node# rm -Rf ~/.local/share/chainweb-node
+our-node# ssh root@remote-node 'cat chainweb.db.tar.gz' | tar xvzf -
+our-node# systemctl start chainweb
 ```
 
 ## Recovery method B: restart node with a cut height limit
