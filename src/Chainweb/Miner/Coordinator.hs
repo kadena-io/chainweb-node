@@ -77,6 +77,8 @@ import Chainweb.Version
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
+import Utils.Logging.Trace (trace)
+
 -- -------------------------------------------------------------------------- --
 -- Miner
 
@@ -157,7 +159,8 @@ newWork logFun choice miner@(Miner mid _) pact tpw c = do
                     -- that shouldn't be repeated.
                     --
                     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-                    payload <- _pactNewBlock pact miner p creationTime
+                    payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
+                        (_pactNewBlock pact miner p creationTime)
                     pure $ T2 payload creationTime
 
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
