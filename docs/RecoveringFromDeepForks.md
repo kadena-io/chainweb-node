@@ -80,3 +80,13 @@ chainweb:
 
 This will disallow nodes that are not in your bootstrap list from communicating
 with you, so that you can catch up faster.
+
+
+### Using `chainweb-forks`
+
+The [chainweb-forks](https://github.com/kadena-community/chainweb-forks) tool
+may be also be used to debug/diagnose the fork between two nodes.
+
+```
+TODO: chainweb-forks example
+```
