@@ -564,7 +564,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         cidsList
   where
     -- TODO: configurable
-    deepForkLimit = 1000
+    deepForkLimit = _configDeepForkLimit conf
 
     prune :: Bool
     prune = _cutPruneChainDatabase $ _configCuts conf
