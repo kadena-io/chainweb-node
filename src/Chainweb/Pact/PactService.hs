@@ -40,7 +40,7 @@ module Chainweb.Pact.PactService
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.DeepSeq
-import Control.Exception (SomeAsyncException, evaluate)
+import Control.Exception (AsyncException(..), SomeAsyncException, evaluate)
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -71,6 +71,7 @@ import qualified Data.Vector as V
 import Data.Word
 
 import System.Directory
+import System.IO
 import System.LogLevel
 
 import Prelude hiding (lookup)
@@ -988,15 +989,40 @@ execValidateBlock
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
     -- TODO: are we actually validating the output hash here?
+    psEnv <- ask
+    let forkLimit = fromIntegral $ view psDeepForkLimit psEnv
     validateTxEnabled currHeader plData
-    withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
-        !result <- playOneBlock currHeader plData pdbenv
-        return $! Save currHeader result
+    handle handleEx $ withBatch $ do
+        rewindTo (Just forkLimit) mb
+        withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
+            !result <- playOneBlock currHeader plData pdbenv
+            return $! Save currHeader result
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
+
+    -- TODO: knob to configure whether this rewind is fatal
+    fatalRewindError a h1 h2 = do
+        -- TODO: improve error message, give instructions
+        let msg = concat [ "Fatal error: rewind limit exceeded: "
+                         , show a
+                         , ", "
+                         , show h1
+                         , ", "
+                         , show h2
+                         ]
+        liftIO $ hPutStrLn stderr msg
+
+        -- TODO: will this work? is it the best way? If we exit the process
+        -- then it will be difficult to test this. An alternative is to put the
+        -- "handle fatal error" routine into the PactServiceEnv
+        throwM UserInterrupt
+
+    -- Handle RewindLimitExceeded, rethrow everything else
+    handleEx (RewindLimitExceeded a h1 h2) = fatalRewindError a h1 h2
+    handleEx e = throwM e
 
 validateTxEnabled :: BlockHeader -> PayloadData -> PactServiceM cas ()
 validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
