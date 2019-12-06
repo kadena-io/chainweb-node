@@ -78,6 +78,11 @@ tests =
           withTime $ \iot ->
             withPact testVer Quiet pdb bhdb (dupegenMemPoolAccess iot) dir 100000
             (testCase "reject-dupes" . testDupes genblock pdb bhdb)
+        , after AllSucceed "reject-dupes" $
+          withTime $ \iot ->
+            let deepForkLimit = 4 -- lol ... is it possible to get lazier?
+            in withPact testVer Quiet pdb bhdb (testMemPoolAccess iot) dir deepForkLimit
+            (testCase "deep-fork-limit" . testDeepForkLimit deepForkLimit pdb bhdb)
         ]
   where
     genblock = genesisBlockHeader testVer cid
@@ -226,6 +231,55 @@ testDupes genesisBlock iopdb iobhdb rr = do
 
         h :: SomeException -> IO (Maybe String)
         h _ = return Nothing
+
+testDeepForkLimit
+  :: Word64
+  -> IO (PayloadDb HashMapCas)
+  -> IO (BlockHeaderDb)
+  -> IO PactQueue
+  -> Assertion
+testDeepForkLimit deepForkLimit iopdb iobhdb rr = do
+    bhdb <- iobhdb
+    maxblock <- maxEntry bhdb
+    nonceCounterMain <- newIORef (fromIntegral $ _blockHeight maxblock)
+
+    -- mine the main line a bit more
+
+    void $ mineLine maxblock nonceCounterMain (deepForkLimit + 1)
+
+    -- how far it mines doesn't really matter
+    void $ do
+      nCounter <- newIORef (fromIntegral $ _blockHeight maxblock)
+      expectException deepForkLimit $ mineLine maxblock nCounter 1
+
+  where
+    expectException limit act = do
+        m <- wrap `catch` h
+        maybe mempty (\msg -> assertBool msg False) m
+      where
+        wrap = do
+          void $ act
+          let msg = concat [ "expected exception on a deep fork longer than "
+                           , show limit
+                           ]
+          return $ Just msg
+
+        h :: SomeException -> IO (Maybe String)
+        h = mempty
+
+
+    mineLine start ncounter len =
+      evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) rr) start
+        where
+          startHeight = fromIntegral $ _blockHeight start
+          go = do
+              r <- ask
+              pblock <- get
+              n <- liftIO $ Nonce <$> readIORef ncounter
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
+              liftIO $ modifyIORef' ncounter succ
+              put newblock
+              return ret
 
 
 mineBlock

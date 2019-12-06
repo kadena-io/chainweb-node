@@ -67,6 +67,7 @@ module Chainweb.Pact.Types
   , psMinerRewards
   , psEnableUserContracts
   , psDeepForkLimit
+  , psOnFatalError
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -92,6 +93,8 @@ module Chainweb.Pact.Types
   , restrictiveExecutionConfig
   , permissiveExecutionConfig
   , justInstallsExecutionConfig
+  -- * miscellaneous
+  , defaultOnFatalError
   ) where
 
 import Control.Lens hiding ((.=))
@@ -103,10 +106,13 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.HashMap.Strict (HashMap)
-import Data.Text (Text)
+import Data.Text (pack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import Data.Word
+import qualified Data.Text.IO as T
+
+import System.Exit
 
 -- internal pact modules
 
@@ -284,6 +290,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psMinerRewards :: !MinerRewards
     , _psEnableUserContracts :: !Bool
     , _psDeepForkLimit :: {-# UNPACK #-} !Word64
+    , _psOnFatalError :: forall a. PactException -> Text -> IO a
     }
 makeLenses ''PactServiceEnv
 
@@ -309,6 +316,12 @@ defaultPactServiceEnv
 defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs =
     PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
         (enableUserContracts ver) defaultDeepForkLimit
+        defaultOnFatalError
+
+defaultOnFatalError :: forall a. PactException -> Text -> IO a
+defaultOnFatalError pex t = do
+    T.putStrLn (pack (show pex) <> "\n" <> t)
+    exitFailure
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)
