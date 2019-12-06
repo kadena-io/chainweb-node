@@ -397,7 +397,7 @@ testPactCtx v cid bhdb pdb = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True 100000 defaultOnFatalError)
+        <*> pure (defaultPactServiceEnv v cpe pdb bhdb (constGasModel 0) rs )
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
@@ -420,7 +420,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-      <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True 100000 defaultOnFatalError)
+      <*> pure (defaultPactServiceEnv v cpe pdb bhdb (constGasModel 0) rs)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
@@ -550,7 +550,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
           gm = fromMaybe (constGasModel 0) gasModel
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb gm rs True 100000 defaultOnFatalError)
+        <*> pure (defaultPactServiceEnv v cpe pdb bhdb gm rs)
       evalPactServiceM_ ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 

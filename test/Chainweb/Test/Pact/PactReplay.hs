@@ -80,7 +80,7 @@ tests =
             (testCase "reject-dupes" . testDupes genblock pdb bhdb)
         , after AllSucceed "reject-dupes" $
           withTime $ \iot ->
-            let deepForkLimit = 4 -- lol ... is it possible to get lazier?
+            let deepForkLimit = 4
             in withPact testVer Quiet pdb bhdb (testMemPoolAccess iot) dir deepForkLimit
             (testCase "deep-fork-limit" . testDeepForkLimit deepForkLimit pdb bhdb)
         ]
