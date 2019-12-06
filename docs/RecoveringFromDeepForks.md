@@ -65,3 +65,18 @@ chainweb:
 
 Watch the logs. If the node joins the correct fork, revert your changes to
 `chainweb-config.yaml` (it should not be necessary to restart the node).
+
+
+### Using `p2p.private = true`
+
+If you want to make sure you catch up to a specific node only, you can set the
+`private` flag in `chainweb-config.yaml`:
+
+```
+chainweb:
+  p2p:
+    private: true
+```
+
+This will disallow nodes that are not in your bootstrap list from communicating
+with you, so that you can catch up faster.
