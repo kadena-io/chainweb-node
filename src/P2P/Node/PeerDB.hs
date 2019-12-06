@@ -293,8 +293,10 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
 --
 -- If the 'PeerAddr' exist with the same peer-id, the chain-id is added.
 --
-addPeerInfo :: NetworkId -> PeerInfo -> PeerSet -> PeerSet
-addPeerInfo nid = addPeerEntry . newPeerEntry nid
+addPeerInfo :: NetworkId -> PeerInfo -> UTCTime -> PeerSet -> PeerSet
+addPeerInfo nid pinf now = addPeerEntry $ (newPeerEntry nid pinf)
+    { _peerEntryLastSuccess = LastSuccess (Just now)
+    }
 
 -- | Delete a peer, identified by its host address, from the 'PeerSet'. The peer
 -- is delete for all network ids.
@@ -341,11 +343,13 @@ peerDbSizeSTM (PeerDb _ _ var) = int . size <$!> readTVar var
 --
 peerDbInsert :: PeerDb -> NetworkId -> PeerInfo -> IO ()
 peerDbInsert (PeerDb True _ _) _ _ = return ()
-peerDbInsert (PeerDb _ lock var) nid i = withMVar lock
-    . const
-    . atomically
-    . modifyTVar' var
-    $ addPeerInfo nid i
+peerDbInsert (PeerDb _ lock var) nid i = do
+    now <- getCurrentTime
+    withMVar lock
+        . const
+        . atomically
+        . modifyTVar' var
+        $ addPeerInfo nid i now
 {-# INLINE peerDbInsert #-}
 
 -- | Delete a peer, identified by its host address, from the peer database.
