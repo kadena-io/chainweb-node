@@ -1005,15 +1005,24 @@ execValidateBlock currHeader plData = do
 
     -- TODO: knob to configure whether this rewind is fatal
     fatalRewindError a h1 h2 = do
-        -- TODO: improve error message, give instructions
-        let msg = mconcat [ "Fatal error: rewind limit exceeded: "
-                         , show a
-                         , ", "
-                         , show h1
-                         , ", "
-                         , show h2
-                         ]
-        liftIO $ hPutStrLn stderr msg
+        let msg = concat [
+              "Fatal error: "
+              , T.unpack a
+              , ". Our previous cut block height: "
+              , show h1
+              , ", fork ancestor's block height: "
+              , show h2
+              , ".\nOffending new block: \n"
+              , show currHeader
+              , "\n\n"
+              -- TODO: rename user-facing options as `reorg-limit`
+              , "Your node is part of a losing fork longer than your \
+                \reorg-limit, which\nis a situation that requires manual \
+                \intervention. \n\
+                \For information on recovering from this, please consult:\n\
+                \    https://github.com/kadena-io/chainweb-node/blob/master/\
+                \docs/RecoveringFromDeepForks.md"
+              ]
 
         -- TODO: will this work? is it the best way? If we exit the process
         -- then it will be difficult to test this. An alternative is to put the
