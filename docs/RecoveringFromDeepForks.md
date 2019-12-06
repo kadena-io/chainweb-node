@@ -52,7 +52,7 @@ cumulative cut height that will rewind us behind this block. Select:
 cut_height_limit = (height_ancestor - 50) * num_chains
 ```
 
-And restart the node with the following changes to `chainweb.yaml`:
+And restart the node with the following changes to `chainweb-config.yaml`:
 
 ```
 chainweb:
@@ -64,4 +64,4 @@ chainweb:
 (Here replace `$cut_height_limit` with the value computed above).
 
 Watch the logs. If the node joins the correct fork, revert your changes to
-`chainweb.yaml` (it should not be necessary to restart the node).
+`chainweb-config.yaml` (it should not be necessary to restart the node).
