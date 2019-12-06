@@ -341,7 +341,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configTransactionIndex = defaultEnableConfig defaultTransactionIndexConfig
     , _configThrottling = defaultThrottlingConfig
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
-    , _configBlockGasLimit = 5000
+    , _configBlockGasLimit = 6000
     , _configPactQueueSize = 2000
     }
 
@@ -357,7 +357,7 @@ instance ToJSON ChainwebConfiguration where
         , "transactionIndex" .= _configTransactionIndex o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
-        , "blockGasLimit" .= _configBlockGasLimit o
+        , "gasLimitOfBlock" .= _configBlockGasLimit o
         , "pactQueueSize" .= _configPactQueueSize o
         ]
 
@@ -373,7 +373,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
-        <*< configBlockGasLimit ..: "blockGasLimit" % o
+        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration

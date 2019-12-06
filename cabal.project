@@ -24,4 +24,5 @@ source-repository-package
     tag: 17a5fb130926582eff081eeb1b94cb6c7097c67a
 
 constraints:
-      base-unicode-symbols < 0.2.4
+      base-unicode-symbols < 0.2.4,
+      megaparsec < 8

@@ -577,7 +577,7 @@ txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
 txEnabledDate Development = Just [timeMicrosQQ| 2019-11-30T05:00:00.0 |]
 txEnabledDate Testnet04 = Nothing
-txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T00:00:00.0 |]
+txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
 
 -- | KILLSWITCH: The date after which nodes in the 1.1.x series will
 -- spontaneously allow Transactions in the system. This constant can be removed
@@ -591,7 +591,7 @@ transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
 transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |]
 transferActivationDate Testnet04 = Nothing
-transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-05T16:00:00.0 |]
+transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
 
 
 -- | Enable user contract install
