@@ -5,6 +5,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -27,6 +28,7 @@ module Chainweb.Miner.Coordinator
   , PrevTime(..)
   , ChainChoice(..)
   , PrimedWork(..)
+  , CachedPayload
     -- * Functions
   , newWork
   , publish
@@ -34,6 +36,7 @@ module Chainweb.Miner.Coordinator
 
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
+import Data.Coerce (coerce)
 
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
@@ -68,6 +71,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
+import Chainweb.Miner.Config (CoordinationMode(..))
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
@@ -86,8 +90,10 @@ import Utils.Logging.Trace (trace)
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (T2 PayloadWithOutputs BlockCreationTime)))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe CachedPayload)))
     deriving newtype (Semigroup, Monoid)
+
+type CachedPayload = T2 PayloadWithOutputs BlockCreationTime
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
@@ -118,13 +124,14 @@ data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 --
 newWork
     :: LogFunction
+    -> CoordinationMode
     -> ChainChoice
     -> Miner
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork logFun choice miner@(Miner mid _) pact tpw c = do
+newWork logFun mode choice miner@(Miner mid _) pact tpw c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -134,43 +141,35 @@ newWork logFun choice miner@(Miner mid _) pact tpw c = do
     -- contain at least a genesis block, so this otherwise naughty
     -- `^?!` will always succeed.
     --
-    let !p = c ^?! ixg cid
+    let !p = ParentHeader (c ^?! ixg cid)
 
-    -- Check if the chain can be mined on by determining if adjacent parents
-    -- also exist. If they don't, we test other chains on this same `Cut`,
-    -- since we still believe this `Cut` to be good.
-    --
-    -- Note that if the caller did specify a specific chain to mine on, we only
-    -- attempt this once. We assume they'd rather have /some/ work on /some/
-    -- chain rather than no work on their chosen chain. This will also help
-    -- rebalance "selfish" mining, for remote clients who claim that they want
-    -- to focus their hash power on a certain chain.
-    --
-    -- TODO Consider instead some maximum amount of retries?
-    --
-    case getAdjacentParents c p of
-        Nothing -> newWork logFun (TriedLast cid) miner pact tpw c
-        Just adjParents -> do
-            PrimedWork pw <- readTVarIO tpw
-            T2 payload creationTime <- case HM.lookup mid pw >>= HM.lookup cid of
-                Just pt -> pure pt
-                Nothing -> do
-                    -- Fetch a Pact Transaction payload. This is an expensive call
-                    -- that shouldn't be repeated.
-                    --
-                    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-                    payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
-                        (_pactNewBlock pact miner p creationTime)
-                    pure $ T2 payload creationTime
-
+    bool (public p) (private cid p <$> readTVarIO tpw) (mode == Private) >>= \case
+        -- The proposed Chain wasn't mineable, either because the adjacent
+        -- parents weren't available, or because the chain is mid-update.
+        Nothing -> newWork logFun mode (TriedLast cid) miner pact tpw c
+        Just (T2 (T2 payload creationTime) adjParents) -> do
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
             -- core Mining logic.
             --
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
+            pure $ T3 (PrevTime . _blockCreationTime $ coerce p) header payload
+  where
+    private :: ChainId -> ParentHeader -> PrimedWork -> Maybe (T2 CachedPayload BlockHashRecord)
+    private cid (ParentHeader p) (PrimedWork pw) = T2
+        <$> (HM.lookup mid pw >>= HM.lookup cid >>= id)
+        <*> getAdjacentParents c p
 
-            pure $ T3 (PrevTime $ _blockCreationTime p) header payload
+    public :: ParentHeader -> IO (Maybe (T2 CachedPayload BlockHashRecord))
+    public (ParentHeader p) = case getAdjacentParents c p of
+        Nothing -> pure Nothing
+        Just adj -> do
+            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+            -- This is an expensive call --
+            payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
+                (_pactNewBlock pact miner p creationTime)
+            pure . Just $ T2 (T2 payload creationTime) adj
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of

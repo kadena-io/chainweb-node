@@ -240,7 +240,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              (ParentHeader parentHeader)
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
@@ -279,7 +279,7 @@ noMineBlock validate parentHeader nonce r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              (ParentHeader parentHeader)
 
      when validate $ do
        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r

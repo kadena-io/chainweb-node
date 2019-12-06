@@ -134,12 +134,20 @@ withMiningCoordination logger conf cdb inner
             -- Even if the `cut` passed to the function is old, this call here will
             -- immediately detect the newest `BlockHeader` on the given chain.
             new <- awaitNewCutByChainId cdb cid cut
-            let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
+            -- Temporarily block this chain from being considered for queries --
+            atomically $ modifyTVar' tpw (silenceChain cid)
             -- Generate new payloads, one for each Miner we're managing --
+            let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
             payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
             -- Update the cache in a single step --
             atomically $ modifyTVar' tpw (\pw -> foldl' (updateCache cid) pw payloads)
             go new
+
+    -- | Declare that a particular Chain is temporarily unavailable for new work
+    -- requests while a new payload is being formed.
+    --
+    silenceChain :: ChainId -> PrimedWork -> PrimedWork
+    silenceChain cid (PrimedWork pw) = PrimedWork (pw & traverse . at cid ?~ Nothing)
 
     updateCache
         :: ChainId
@@ -147,7 +155,7 @@ withMiningCoordination logger conf cdb inner
         -> T2 Miner (T2 PayloadWithOutputs BlockCreationTime)
         -> PrimedWork
     updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
-        PrimedWork (pw & at mid . traverse . at cid ?~ payload)
+        PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
 
     initialPayloads :: Cut -> [Miner] -> IO PrimedWork
     initialPayloads cut ms =
@@ -161,8 +169,9 @@ withMiningCoordination logger conf cdb inner
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (T2 PayloadWithOutputs BlockCreationTime))
-    fromCut m cut = HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) <$> getPayload bh m) cut
+      -> IO (HM.HashMap ChainId (Maybe (T2 PayloadWithOutputs BlockCreationTime)))
+    fromCut m cut =
+        HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) . Just <$> getPayload bh m) cut
 
     getPayload :: ParentHeader -> Miner -> IO (T2 PayloadWithOutputs BlockCreationTime)
     getPayload (ParentHeader parent) m = do

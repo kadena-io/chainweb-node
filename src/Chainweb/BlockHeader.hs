@@ -930,10 +930,10 @@ newBlockHeader
         -- ^ Randomness to affect the block hash
     -> BlockCreationTime
         -- ^ Creation time of the block
-    -> BlockHeader
+    -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader adj pay nonce t b = fromLog $ newMerkleLog
+newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
     $ nonce
     :+: t
     :+: _blockHash b
@@ -973,11 +973,11 @@ testBlockHeader
         -- ^ Adjacent parent hashes
     -> Nonce
         -- ^ Randomness to affect the block hash
-    -> BlockHeader
+    -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader adj nonce b
-    = newBlockHeader adj (testBlockPayload b) nonce (BlockCreationTime $ add second t) b
+testBlockHeader adj nonce p@(ParentHeader b) =
+    newBlockHeader adj (testBlockPayload b) nonce (BlockCreationTime $ add second t) p
   where
     BlockCreationTime t = _blockCreationTime b
 
@@ -986,17 +986,17 @@ testBlockHeader adj nonce b
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeaders :: BlockHeader -> [BlockHeader]
-testBlockHeaders = unfoldr (Just . (id &&& id) . f)
+testBlockHeaders :: ParentHeader -> [BlockHeader]
+testBlockHeaders (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
   where
-    f b = testBlockHeader (BlockHashRecord mempty) (_blockNonce b) b
+    f b = testBlockHeader (BlockHashRecord mempty) (_blockNonce b) $ ParentHeader b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
-testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
+testBlockHeadersWithNonce :: Nonce -> ParentHeader -> [BlockHeader]
+testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
   where
-    f b = testBlockHeader (BlockHashRecord mempty) n b
+    f b = testBlockHeader (BlockHashRecord mempty) n $ ParentHeader b
