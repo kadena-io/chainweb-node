@@ -66,16 +66,23 @@ tests =
     withTemporaryDir $ \dir ->
     testGroup label
         [ withTime $ \iot ->
-          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadTTL badttl) iot) dir $ \reqQIO ->
-            testCase "reject-tx-with-badttl" $ testTTL genblock pdb bhdb reqQIO
+          withPact testVer Quiet pdb bhdb
+                   (testMemPoolAccess (BadTTL badttl) iot) dir 100000
+                   (testCase "reject-tx-with-badttl" .
+                    testTTL genblock pdb bhdb)
         , after AllSucceed "reject-tx-with-badttl" $
           withTime $ \iot ->
-          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadTxTime addtime) iot) dir $ \reqQIO ->
-            testCase "reject-tx-with-badtxtime" $ testTTL genblock pdb bhdb reqQIO
+          withPact testVer Quiet pdb bhdb
+                   (testMemPoolAccess (BadTxTime addtime) iot) dir 100000
+                   (testCase "reject-tx-with-badtxtime" .
+                    testTTL genblock pdb bhdb)
         , after AllSucceed "reject-tx-with-badtxtime" $
           withTime $ \iot ->
-          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadExpirationTime addtime 1) iot) dir $ \reqQIO ->
-            testCase "reject-tx-with-badexpirationtime" $ testTTL genblock pdb bhdb reqQIO
+          withPact testVer Quiet pdb bhdb
+                   (testMemPoolAccess (BadExpirationTime addtime 1) iot) dir
+                   100000
+                   (testCase "reject-tx-with-badexpirationtime" .
+                    testTTL genblock pdb bhdb)
         ]
   where
     genblock = genesisBlockHeader testVer cid

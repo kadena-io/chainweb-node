@@ -5,8 +5,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 -- |
 -- Module: Ea
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -133,7 +133,7 @@ genPayloadModule v tag txFiles =
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
         payloadWO <- initPactService' v cid logger
-                         bhdb pdb Nothing Nothing False $
+                         bhdb pdb Nothing Nothing False 1000 $
                          execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

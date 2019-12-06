@@ -86,9 +86,9 @@ chainDataTest t time =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
-    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir $ \reqQIO ->
-        testCase ("chain-data." <> T.unpack t) $
-            run genblock pdb bhdb reqQIO
+    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir 100000
+        (testCase ("chain-data." <> T.unpack t) .
+         run genblock pdb bhdb)
   where
     genblock = genesisBlockHeader testVer testChainId
 

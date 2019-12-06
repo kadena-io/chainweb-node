@@ -66,15 +66,18 @@ tests =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     testGroup label
-        [ withTime $ \iot -> withPact testVer Warn pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
-            testCase "initial-playthrough" $
-            firstPlayThrough genblock pdb bhdb reqQIO
+        [ withTime $ \iot ->
+            withPact testVer Warn pdb bhdb (testMemPoolAccess iot) dir 100000
+                (testCase "initial-playthrough" .
+                 firstPlayThrough genblock pdb bhdb)
         , after AllSucceed "initial-playthrough" $
-          withTime $ \iot -> withPact testVer Warn pdb bhdb (testMemPoolAccess iot) dir $ \reqQIO ->
-            testCase "on-restart" $ onRestart pdb bhdb reqQIO
+          withTime $ \iot ->
+            withPact testVer Warn pdb bhdb (testMemPoolAccess iot) dir 100000
+                (testCase "on-restart" . onRestart pdb bhdb)
         , after AllSucceed "on-restart" $
-          withTime $ \iot -> withPact testVer Quiet pdb bhdb (dupegenMemPoolAccess iot) dir $ \reqQIO ->
-            testCase "reject-dupes" $ testDupes genblock pdb bhdb reqQIO
+          withTime $ \iot ->
+            withPact testVer Quiet pdb bhdb (dupegenMemPoolAccess iot) dir 100000
+            (testCase "reject-dupes" . testDupes genblock pdb bhdb)
         ]
   where
     genblock = genesisBlockHeader testVer cid

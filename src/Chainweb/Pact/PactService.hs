@@ -68,6 +68,7 @@ import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Word
 
 import System.Directory
 import System.LogLevel
@@ -101,7 +102,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
-
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
@@ -122,10 +122,9 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), txEnabledDate, enableUserContracts)
+import Chainweb.Version
 import Data.CAS (casLookupM)
-
-
+------------------------------------------------------------------------------
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -155,11 +154,14 @@ initPactService
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
+    -> Word64
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb dbDir nodeid resetDb =
-    initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid resetDb go
-  where
-    go = initialPayloadState ver cid >> serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb dbDir
+                nodeid resetDb deepForkLimit =
+    initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid resetDb
+                     deepForkLimit $ do
+        initialPayloadState ver cid
+        serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -172,9 +174,11 @@ initPactService'
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
+    -> Word64
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb act = do
+initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb
+                 deepForkLimit act = do
     sqlitedir <- getSqliteDir
     when doResetDb $ resetDb sqlitedir
     createDirectoryIfMissing True sqlitedir
@@ -195,8 +199,8 @@ initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb act = do
       let !rs = readRewards ver
           !gasModel = tableGasModel defaultGasConfig
           !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
-
-      let !pse = PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs (enableUserContracts ver)
+          !pse = set psDeepForkLimit deepForkLimit $
+                 defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs
           !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
 
       evalPactServiceM pst pse act

@@ -65,12 +65,14 @@ withPactService
     -> Maybe NodeId
     -> Bool
     -> Natural
+    -> Natural
     -> (PactQueue -> IO a)
     -> IO a
 withPactService
-  ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize action =
+  ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize deepForkLimit
+  action =
     withPactService' ver cid logger mpa bhdb pdb dbDir nodeid resetDb
-                     pactQueueSize action
+                     pactQueueSize deepForkLimit action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -89,19 +91,23 @@ withPactService'
     -> Maybe NodeId
     -> Bool
     -> Natural
+    -> Natural
     -> (PactQueue -> IO a)
     -> IO a
 withPactService'
-  ver cid logger memPoolAccess bhDb pdb dbDir nodeid resetDb pactQueueSize action = do
+  ver cid logger memPoolAccess bhDb pdb dbDir nodeid resetDb pactQueueSize
+  deepForkLimit0 action = do
     reqQ <- atomically $ newTBQueue pactQueueSize
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
   where
+    deepForkLimit = fromIntegral deepForkLimit0
     client reqQ = action reqQ
     server reqQ = runForever logg "pact-service" $
         PS.initPactService
             ver cid logger reqQ memPoolAccess bhDb pdb dbDir nodeid resetDb
+            deepForkLimit
     logg = logFunction logger
 
 pactMemPoolAccess

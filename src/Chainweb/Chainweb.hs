@@ -554,12 +554,15 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg payloadDb prune dbDir nodeid
-                     resetDb (_configPactQueueSize conf))
+                     resetDb deepForkLimit (_configPactQueueSize conf))
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs))
         cidsList
   where
+    -- TODO: configurable
+    deepForkLimit = 1000
+
     prune :: Bool
     prune = _cutPruneChainDatabase $ _configCuts conf
 
