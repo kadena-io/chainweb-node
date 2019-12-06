@@ -400,7 +400,12 @@ peerDbInsertList peers (PeerDb _ lock var) =
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList _ _ (PeerDb True _ _) = return ()
-peerDbInsertPeerInfoList nid ps db = peerDbInsertList (newPeerEntry nid <$> ps) db
+peerDbInsertPeerInfoList nid ps db = do
+    now <- getCurrentTime
+    peerDbInsertList (mkEntry now <$> ps) db
+  where
+    mkEntry now x = newPeerEntry nid x
+        & set peerEntryLastSuccess (LastSuccess (Just now))
 
 peerDbInsertPeerInfoList_ :: Bool -> NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _) = return ()
