@@ -61,10 +61,11 @@ import Text.Printf
 
 import Pact.ApiReq (mkExec, ApiKeyPair(..), mkKeyPairs)
 import Pact.Parse
-import qualified Pact.Types.ChainId as CM
-import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 import Pact.Types.Crypto
+import Pact.Types.Gas
+import qualified Pact.Types.ChainId as CM
+import qualified Pact.Types.ChainMeta as CM
 
 -- CHAINWEB
 
@@ -182,22 +183,22 @@ distinctPairSenders = fakeInt 0 9 >>= go
       if n == m then go n else return (append n, append m)
 
 -- hardcoded sender (sender00)
-makeMeta :: ChainId -> IO CM.PublicMeta
-makeMeta cid = do
+makeMeta :: ChainId -> CM.TTLSeconds -> GasPrice -> GasLimit -> IO CM.PublicMeta
+makeMeta cid ttl gasPrice gasLimit = do
     t <- toTxCreationTime <$> getCurrentTimeIntegral
     return $ CM.PublicMeta
         {
           CM._pmChainId = CM.ChainId $ toText cid
         , CM._pmSender = "sender00"
-        , CM._pmGasLimit = 10000
-        , CM._pmGasPrice = 0.001
-        , CM._pmTTL = 3600
+        , CM._pmGasLimit = gasLimit -- default 5000
+        , CM._pmGasPrice = gasPrice -- default 0.001
+        , CM._pmTTL = ttl -- default 3600
         , CM._pmCreationTime = t
         }
 
-makeMetaWithSender :: String -> ChainId -> IO CM.PublicMeta
-makeMetaWithSender sender cid =
-    set CM.pmSender (T.pack sender) <$> makeMeta cid
+makeMetaWithSender :: String -> CM.TTLSeconds -> GasPrice -> GasLimit -> ChainId -> IO CM.PublicMeta
+makeMetaWithSender sender ttl gasPrice gasLimit cid =
+    set CM.pmSender (T.pack sender) <$> makeMeta cid ttl gasPrice gasLimit
 
 newtype ContractName = ContractName { getContractName :: String }
   deriving (Eq, Ord, Show, Generic)

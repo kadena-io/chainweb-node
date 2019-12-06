@@ -137,7 +137,7 @@ generateSimpleTransactions = do
       kps <- testSomeKeyPairs
 
       let theData = object ["test-admin-keyset" .= fmap (formatB16PubKey . fst) kps]
-      meta <- Sim.makeMeta cid
+      meta <- Sim.makeMeta cid undefined undefined undefined
       (Nothing,) <$> mkExec theCode theData meta (NEL.toList kps) (Just $ CI.NetworkId $ toText v) Nothing
 
 -- | O(1). The head value is moved to the end.
@@ -198,7 +198,7 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
               CoinAccountBalance account -> acclookup account
               CoinTransfer (SenderName sn) rcvr amt -> (mkTransferCaps rcvr amt) $ acclookup sn
               CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> (mkTransferCaps rcvr amt) (acc, guardd)
-      meta <- Sim.makeMetaWithSender sender cid
+      meta <- Sim.makeMetaWithSender sender undefined undefined undefined cid
       (msg,) <$> createCoinContractRequest version (meta { CM._pmGasLimit = 7000}) ks coinContractRequest
 
     mkTransferCaps :: ReceiverName -> Sim.Amount -> (Sim.Account, NonEmpty SomeKeyPairCaps) -> (Sim.Account, NonEmpty SomeKeyPairCaps)
@@ -218,10 +218,10 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
           Nothing ->
             error "This account does not have an associated keyset!"
           Just keyset -> do
-            meta <- Sim.makeMeta cid
+            meta <- Sim.makeMeta cid undefined undefined undefined
             simplePayReq v meta paymentsRequest $ Just keyset
         SPRequestGetBalance _account -> do
-          meta <- Sim.makeMeta cid
+          meta <- Sim.makeMeta cid undefined undefined undefined
           simplePayReq v meta paymentsRequest Nothing
         _ -> error "SimplePayments.CreateAccount code generation not supported"
 
@@ -230,7 +230,7 @@ sendTransactions
   -> ChainId
   -> NonEmpty (Command Text)
   -> IO (Either ClientError RequestKeys)
-sendTransactions (TXGConfig _ _ cenv v _ _) cid cmds =
+sendTransactions (TXGConfig _ _ cenv v _ _ _ _ _) cid cmds =
   runClientM (pactSendApiClient v cid $ SubmitBatch cmds) cenv
 
 loop
@@ -262,9 +262,9 @@ type ContractLoader
 
 loadContracts :: Args -> HostAddress -> NonEmpty ContractLoader -> IO ()
 loadContracts config host contractLoaders = do
-  TXGConfig _ _ ce v _ (Verbose vb) <- mkTXGConfig Nothing config host
+  TXGConfig _ _ ce v _ (Verbose vb) tgasLimit tgasPrice ttl' <- mkTXGConfig Nothing config host
   forM_ (nodeChainIds config) $ \cid -> do
-    !meta <- Sim.makeMeta cid
+    !meta <- Sim.makeMeta cid ttl' tgasPrice tgasLimit
     ts <- testSomeKeyPairs
     contracts <- traverse (\f -> f meta ts) contractLoaders
     pollresponse <- runExceptT $ do
@@ -282,14 +282,14 @@ realTransactions
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 realTransactions config host tv distribution = do
-  cfg@(TXGConfig _ _ ce v _ _) <- liftIO $ mkTXGConfig (Just distribution) config host
+  cfg@(TXGConfig _ _ ce v _ _ tgasLimit tgasPrice ttl') <- liftIO $ mkTXGConfig (Just distribution) config host
 
   let chains = maybe (versionChains $ nodeVersion config) NES.fromList
                . NEL.nonEmpty
                $ nodeChainIds config
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
-    !meta <- liftIO $ Sim.makeMeta cid
+    !meta <- liftIO $ Sim.makeMeta cid ttl' tgasPrice tgasLimit
     (paymentKS, paymentAcc) <- liftIO $ NEL.unzip <$> Sim.createPaymentsAccounts v meta
     (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts v meta
     pollresponse <- liftIO . runExceptT $ do
@@ -343,7 +343,7 @@ realCoinTransactions config host tv distribution = do
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
     let f (Sim.Account sender) = do
-          meta <- liftIO $ Sim.makeMetaWithSender sender cid
+          meta <- liftIO $ Sim.makeMetaWithSender sender undefined undefined undefined cid
           Sim.createCoinAccount (confVersion cfg) meta sender
     (coinKS, _coinAcc) <-
         liftIO $ unzip <$> traverse f Sim.coinAccountNames
@@ -396,7 +396,7 @@ simpleExpressions config host tv distribution = do
 
 pollRequestKeys :: Args -> HostAddress -> RequestKey -> IO ()
 pollRequestKeys config host rkey = do
-  TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
+  TXGConfig _ _ ce v _ _ _ _ _ <- mkTXGConfig Nothing config host
   response <- runClientM (pactPollApiClient v cid . Poll $ pure rkey) ce
   case response of
     Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
@@ -411,7 +411,7 @@ pollRequestKeys config host rkey = do
 
 listenerRequestKey :: Args -> HostAddress -> ListenerRequest -> IO ()
 listenerRequestKey config host listenerRequest = do
-  TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
+  TXGConfig _ _ ce v _ _ _ _ _ <- mkTXGConfig Nothing config host
   runClientM (pactListenApiClient v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print r >> exitSuccess
@@ -429,7 +429,7 @@ singleTransaction args host (SingleTX c cid)
   | otherwise = do
       cfg <- mkTXGConfig Nothing args host
       kps <- testSomeKeyPairs
-      meta <- Sim.makeMeta cid
+      meta <- Sim.makeMeta cid undefined undefined undefined
       let v = confVersion cfg
       cmd <- mkExec (T.unpack c) (datum kps) meta (NEL.toList kps) (Just $ CI.NetworkId $ toText v) Nothing
       runExceptT (f cfg cmd) >>= \case
@@ -440,7 +440,7 @@ singleTransaction args host (SingleTX c cid)
     datum kps = object ["test-admin-keyset" .= fmap (formatB16PubKey . fst) kps]
 
     f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
-    f cfg@(TXGConfig _ _ ce v _ _) cmd = do
+    f cfg@(TXGConfig _ _ ce v _ _ _ _ _) cmd = do
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
       ExceptT $ runClientM (pactListenApiClient v cid $ ListenerRequest rk) ce
 
@@ -450,7 +450,7 @@ inMempool args host (cid, txhashes)
     | not . HS.member cid . chainIds $ nodeVersion args =
       putStrLn "Invalid target ChainId" >> exitWith (ExitFailure 1)
     | otherwise = do
-        (TXGConfig _ _ ce v _ _) <- mkTXGConfig Nothing args host
+        (TXGConfig _ _ ce v _ _ _ _ _) <- mkTXGConfig Nothing args host
         runClientM (isMempoolMember v cid txhashes) ce >>= \case
           Left e -> print e >> exitWith (ExitFailure 1)
           Right res -> pPrintNoColor res
