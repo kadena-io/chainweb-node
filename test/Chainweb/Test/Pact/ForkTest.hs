@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -66,6 +67,13 @@ import Chainweb.Transaction
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.Version
 
+debug :: String -> IO ()
+#if DEBUG_TEST
+debug = putStrLn
+#else
+debug = const $ return ()
+#endif
+
 test :: TestTree
 test =
     withRocksResource $ \rocksIO ->
@@ -95,14 +103,14 @@ prop_forkValidates pdb bhdb cid genBlock =
         mVar <- newMVar (0 :: Int)
         withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
             db <- bhdb
-            putStrLn $ "Testing fork lengths:"
+            debug $ "Testing fork lengths:"
                         ++ " trunk: " ++ show trunk
                         ++ ", left: " ++ show left
                         ++ ", right: " ++ show right
             expected <- expectedForkProd (trunk, left, right)
             if expected >= maxBalance
               then do -- this shouldn't happen...
-                putStrLn "Max account balance would be exceeded, letting this test pass"
+                debug "Max account balance would be exceeded, letting this test pass"
                 return $ property Discard
               else do
                 (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <-
@@ -330,7 +338,7 @@ txsFromHeight mvar _h = do
 toCWTransactions :: P.ChainId -> Vector PactTransaction -> IO (Vector ChainwebTransaction)
 toCWTransactions pactCid txs = do
     ks <- testKeyPairs sender00KeyPair Nothing
-    mkTestExecTransactions "sender00" pactCid ks "1" 100000 0.01 1000000 0 txs
+    mkTestExecTransactions "sender00" pactCid ks "1" 100000 0.00001 1000000 0 txs
 
 modifyPayloadWithText
     :: (P.Payload PublicMeta P.ParsedCode -> P.Payload PublicMeta P.ParsedCode)
