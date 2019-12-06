@@ -28,6 +28,10 @@ module TXG.Simulate.Contracts.Common
   , parseBytes
     -- * Utils
   , stockKey
+    -- * useful constants
+  , defGasLimit
+  , defGasPrice
+  , defTTL
   ) where
 
 import Control.Lens hiding ((.=), elements, uncons)
@@ -190,11 +194,20 @@ makeMeta cid ttl gasPrice gasLimit = do
         {
           CM._pmChainId = CM.ChainId $ toText cid
         , CM._pmSender = "sender00"
-        , CM._pmGasLimit = gasLimit -- default 5000
-        , CM._pmGasPrice = gasPrice -- default 0.001
-        , CM._pmTTL = ttl -- default 3600
+        , CM._pmGasLimit = gasLimit
+        , CM._pmGasPrice = gasPrice
+        , CM._pmTTL = ttl
         , CM._pmCreationTime = t
         }
+
+defGasLimit :: GasLimit
+defGasLimit = 600
+
+defGasPrice :: GasPrice
+defGasPrice = 0.001
+
+defTTL :: CM.TTLSeconds
+defTTL = 3600
 
 makeMetaWithSender :: String -> CM.TTLSeconds -> GasPrice -> GasLimit -> ChainId -> IO CM.PublicMeta
 makeMetaWithSender sender ttl gasPrice gasLimit cid =

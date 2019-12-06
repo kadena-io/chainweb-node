@@ -227,9 +227,9 @@ defaultArgs = Args
   , logHandleConfig = U.StdOut
   , batchSize       = BatchSize 1
   , verbose         = Verbose False
-  , gasLimit = 5000
-  , gasPrice = 0.01
-  , timetolive = 3600
+  , gasLimit = Sim.defGasLimit
+  , gasPrice = Sim.defGasPrice
+  , timetolive = Sim.defTTL
   }
   where
     v :: ChainwebVersion

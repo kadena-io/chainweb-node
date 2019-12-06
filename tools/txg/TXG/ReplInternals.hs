@@ -35,7 +35,6 @@ import Pact.Types.ChainId (NetworkId(..))
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Gas
 
 -- chainweb imports
 
@@ -165,16 +164,6 @@ defPubMeta = def
     & set pmGasLimit 1000
     & set pmGasPrice 0.0000001
     & set pmTTL 28800
-
-defGasLimit :: GasLimit
-defGasLimit = 5000
-
-defGasPrice :: GasPrice
-defGasPrice = 0.001
-
-defTTL :: TTLSeconds
-defTTL = 3600
-
 
 
 generateDefaultSimpleCommands :: Int -> IO [Command Text]

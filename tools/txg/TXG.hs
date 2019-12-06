@@ -209,7 +209,7 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
               CoinTransfer (SenderName sn) rcvr amt -> (mkTransferCaps rcvr amt) $ acclookup sn
               CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> (mkTransferCaps rcvr amt) (acc, guardd)
       meta <- Sim.makeMetaWithSender sender ttl gp gl cid
-      (msg,) <$> createCoinContractRequest version (meta { CM._pmGasLimit = 7000}) ks coinContractRequest
+      (msg,) <$> createCoinContractRequest version meta ks coinContractRequest
 
     mkTransferCaps :: ReceiverName -> Sim.Amount -> (Sim.Account, NonEmpty SomeKeyPairCaps) -> (Sim.Account, NonEmpty SomeKeyPairCaps)
     mkTransferCaps (ReceiverName (Sim.Account r)) (Sim.Amount m) (s@(Sim.Account ss),ks) = (s, (caps <$) <$> ks)
