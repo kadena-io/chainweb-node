@@ -71,8 +71,8 @@ isAcceptedVersion = (<=) minAcceptedVersion
 -- -------------------------------------------------------------------------- --
 -- Query Remote Version
 
-requestTimeout :: Int
-requestTimeout = 4 * 1000000
+requestTimeoutMicros :: Int
+requestTimeoutMicros = 4 * 1000000
 
 getNodeVersion
     :: HTTP.Manager
@@ -115,7 +115,7 @@ req ver addr endpoint = HTTP.defaultRequest
         , sshow ver
         , endpoint
         ]
-    , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeout
+    , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeoutMicros
     , HTTP.checkResponse = HTTP.throwErrorStatusCodes
     , HTTP.requestHeaders = [chainwebNodeVersionHeader]
     }
@@ -130,7 +130,7 @@ cutReq ver addr = HTTP.defaultRequest
     , HTTP.host = hostnameBytes (_hostAddressHost addr)
     , HTTP.port = int (_hostAddressPort addr)
     , HTTP.path = "/chainweb/0.0/" <> sshow ver <> "/cut"
-    , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeout
+    , HTTP.responseTimeout = HTTP.responseTimeoutMicro requestTimeoutMicros
     , HTTP.checkResponse = HTTP.throwErrorStatusCodes
     , HTTP.requestHeaders = [chainwebNodeVersionHeader]
     }
