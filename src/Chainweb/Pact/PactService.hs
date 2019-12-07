@@ -1018,9 +1018,9 @@ execTransactions
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHash miner ctxs enfCBFail enbFail (PactDbEnv' pactdbenv) = do
+execTransactions nonGenesisParentHash miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail enbFail mc
+    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
@@ -1039,7 +1039,7 @@ runCoinbase
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult P.Hash)
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
-runCoinbase (Just parentHash) dbEnv miner enfCBFail enbFail mc = do
+runCoinbase (Just parentHash) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
     v <- view chainwebVersion
@@ -1048,7 +1048,7 @@ runCoinbase (Just parentHash) dbEnv miner enfCBFail enbFail mc = do
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-    cr <- liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHash enfCBFail enbFail mc
+    cr <- liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHash enfCBFail usePrecomp mc
     return $! toHashCommandResult cr
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
