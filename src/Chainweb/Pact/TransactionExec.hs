@@ -244,8 +244,8 @@ applyCoinbase
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
 applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
-  (EnforceCoinbaseFailure throwCritical) (CoinbaseUsePrecompiled enablePC) mc
-  | blockTime >= forkTime || enablePC = do
+  (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
+  | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
     go interp cexec
@@ -255,6 +255,8 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     go interp cexec
   where
     forkTime = vuln797FixDate v
+    fork1_3InEffect = blockTime >= forkTime
+    throwCritical = fork1_3InEffect || enfCBFailure
     blockTime =
       let (TxCreationTime (ParsedInteger !bt)) =
             view (pdPublicMeta . pmCreationTime) pd
