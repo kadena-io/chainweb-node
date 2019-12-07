@@ -235,9 +235,9 @@ mineBlock
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- r >>= newBlock noMiner parentHeader (BlockCreationTime creationTime)
+     mv <- r >>= newBlock noMiner parentHeader creationTime
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
@@ -245,7 +245,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              (ParentHeader parentHeader)
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 

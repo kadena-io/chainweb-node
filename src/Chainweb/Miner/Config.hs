@@ -43,7 +43,7 @@ import Control.Lens (lens, view)
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
 
-import qualified Data.HashSet as HS
+import qualified Data.Set as S
 
 import GHC.Generics (Generic)
 
@@ -53,7 +53,7 @@ import Pact.Types.Term (mkKeySet)
 
 -- internal modules
 
-import Chainweb.Miner.Pact (Miner(..), MinerId, MinerKeys(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerKeys(..), minerId)
 import Chainweb.Time (Seconds)
 
 ---
@@ -106,10 +106,10 @@ data CoordinationConfig = CoordinationConfig
       -- present on the node.
     , _coordinationMode :: !CoordinationMode
       -- ^ `Public` or `Private`.
-    , _coordinationMiners :: !(HS.HashSet MinerId)
+    , _coordinationMiners :: !(S.Set Miner)
       -- ^ When the mode is set to `Private`, this field must contain at least
-      -- one `MinerId` (i.e. account name) in order for work requests to be
-      -- made.
+      -- one `Miner` identity in order for work requests to be made.
+      -- Further, such miners are eligible for "Primed Coordination".
     , _coordinationReqLimit :: !Int
       -- ^ The number of @/mining/work/@ requests that can be made to this node
       -- in a 5 minute period.
@@ -128,14 +128,16 @@ coordinationLimit = lens _coordinationReqLimit (\m c -> m { _coordinationReqLimi
 coordinationMode :: Lens' CoordinationConfig CoordinationMode
 coordinationMode = lens _coordinationMode (\m c -> m { _coordinationMode = c })
 
-coordinationMiners :: Lens' CoordinationConfig (HS.HashSet MinerId)
+coordinationMiners :: Lens' CoordinationConfig (S.Set Miner)
 coordinationMiners = lens _coordinationMiners (\m c -> m { _coordinationMiners = c })
 
 coordinationUpdateStreamLimit :: Lens' CoordinationConfig Int
-coordinationUpdateStreamLimit = lens _coordinationUpdateStreamLimit (\m c -> m { _coordinationUpdateStreamLimit = c })
+coordinationUpdateStreamLimit =
+    lens _coordinationUpdateStreamLimit (\m c -> m { _coordinationUpdateStreamLimit = c })
 
 coordinationUpdateStreamTimeout :: Lens' CoordinationConfig Seconds
-coordinationUpdateStreamTimeout = lens _coordinationUpdateStreamTimeout (\m c -> m { _coordinationUpdateStreamTimeout = c })
+coordinationUpdateStreamTimeout =
+    lens _coordinationUpdateStreamTimeout (\m c -> m { _coordinationUpdateStreamTimeout = c })
 
 instance ToJSON CoordinationConfig where
     toJSON o = object
