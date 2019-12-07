@@ -538,7 +538,6 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
       let loggers = pactTestLogger False
           logger = newLogger loggers $ LogName "PactService"
           cid = someChainId v
-
       bhdb <- bhdbIO
       pdb <- pdbIO
       (_,s) <- ios
