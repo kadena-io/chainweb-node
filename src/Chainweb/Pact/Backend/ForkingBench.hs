@@ -346,7 +346,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
     startPact version l bhdb pdb mempool dir = do
         reqQ <- atomically $ newTBQueue pactQueueSize
         a <- async $ initPactService version cid l reqQ mempool
-                                     bhdb pdb (Just dir) Nothing False
+                                     bhdb pdb (Just dir) Nothing False 100000
         return (a, reqQ)
 
     stopPact (a, _) = cancel a

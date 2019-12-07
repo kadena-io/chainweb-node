@@ -59,6 +59,7 @@ module Chainweb.Chainweb
 , configTransactionIndex
 , configBlockGasLimit
 , configThrottling
+, configDeepForkLimit
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -313,6 +314,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configPactQueueSize :: !Natural
+    , _configDeepForkLimit :: !Natural
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -343,6 +345,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 6000
     , _configPactQueueSize = 2000
+    , _configDeepForkLimit = 1000
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -554,12 +557,15 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg payloadDb prune dbDir nodeid
-                     resetDb (_configPactQueueSize conf))
+                     resetDb deepForkLimit (_configPactQueueSize conf))
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs))
         cidsList
   where
+    -- TODO: configurable
+    deepForkLimit = _configDeepForkLimit conf
+
     prune :: Bool
     prune = _cutPruneChainDatabase $ _configCuts conf
 

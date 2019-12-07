@@ -85,6 +85,7 @@ import Data.Text (Text)
 import Data.Text.Encoding
 import qualified Data.Text.IO as T
 import Data.Tuple.Strict
+import Data.Word
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -396,12 +397,13 @@ testPactCtx v cid bhdb pdb = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True)
+        <*> pure (defaultPactServiceEnv v cpe pdb bhdb (constGasModel 0) rs )
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
+
 
 
 testPactCtxSQLite
@@ -418,7 +420,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-      <*> pure (PactServiceEnv Nothing cpe pdb bhdb (constGasModel 0) rs True)
+      <*> pure (defaultPactServiceEnv v cpe pdb bhdb (constGasModel 0) rs)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
@@ -547,7 +549,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
           gm = fromMaybe (constGasModel 0) gasModel
       !ctx <- TestPactCtx
         <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (PactServiceEnv Nothing cpe pdb bhdb gm rs True)
+        <*> pure (defaultPactServiceEnv v cpe pdb bhdb gm rs)
       evalPactServiceM_ ctx (initialPayloadState v cid)
       return (ctx, dbSt)
 
@@ -608,9 +610,10 @@ withPact
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO FilePath
+    -> Word64
     -> (IO PactQueue -> TestTree)
     -> TestTree
-withPact version logLevel iopdb iobhdb mempool iodir f =
+withPact version logLevel iopdb iobhdb mempool iodir deepForkLimit f =
     withResource startPact stopPact $ f . fmap snd
   where
     startPact = do
@@ -618,8 +621,9 @@ withPact version logLevel iopdb iobhdb mempool iodir f =
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ initPactService version cid logger reqQ mempool
-                                     bhdb pdb (Just dir) Nothing False
+        a <- async $
+             initPactService version cid logger reqQ mempool bhdb pdb (Just dir)
+                             Nothing False deepForkLimit
         return (a, reqQ)
 
     stopPact (a, _) = cancel a

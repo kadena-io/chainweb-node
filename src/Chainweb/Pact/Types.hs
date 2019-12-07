@@ -4,10 +4,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -59,6 +59,7 @@ module Chainweb.Pact.Types
 
     -- * Pact Service Env
   , PactServiceEnv(..)
+  , defaultPactServiceEnv
   , psMempoolAccess
   , psCheckpointEnv
   , psPdb
@@ -66,6 +67,8 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psEnableUserContracts
+  , psDeepForkLimit
+  , psOnFatalError
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -91,6 +94,8 @@ module Chainweb.Pact.Types
   , restrictiveExecutionConfig
   , permissiveExecutionConfig
   , justInstallsExecutionConfig
+  -- * miscellaneous
+  , defaultOnFatalError
   ) where
 
 import Control.Lens hiding ((.=))
@@ -102,9 +107,13 @@ import Control.Monad.State.Strict
 
 import Data.Aeson
 import Data.HashMap.Strict (HashMap)
-import Data.Text (Text)
+import Data.Text (pack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
+import Data.Word
+import qualified Data.Text.IO as T
+
+import System.Exit
 
 -- internal pact modules
 
@@ -117,8 +126,8 @@ import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
-import Pact.Types.Persistence (TxLog, ExecutionMode)
-import Pact.Types.Runtime (ModuleData, ExecutionConfig(..))
+import Pact.Types.Persistence (ExecutionMode, TxLog)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData)
 import Pact.Types.SPV
 import Pact.Types.Term (PactId(..), Ref)
 
@@ -284,6 +293,8 @@ data PactServiceEnv cas = PactServiceEnv
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
     , _psEnableUserContracts :: !Bool
+    , _psDeepForkLimit :: {-# UNPACK #-} !Word64
+    , _psOnFatalError :: forall a. PactException -> Text -> IO a
     }
 makeLenses ''PactServiceEnv
 
@@ -294,6 +305,27 @@ instance HasChainwebVersion (PactServiceEnv c) where
 instance HasChainId (PactServiceEnv c) where
     _chainId = _chainId . _psBlockHeaderDb
     {-# INLINE _chainId #-}
+
+defaultDeepForkLimit :: Word64
+defaultDeepForkLimit = 1000
+
+defaultPactServiceEnv
+    :: ChainwebVersion
+    -> CheckpointEnv
+    -> PayloadDb cas
+    -> BlockHeaderDb
+    -> GasModel
+    -> MinerRewards
+    -> PactServiceEnv cas
+defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs =
+    PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
+        (enableUserContracts ver) defaultDeepForkLimit
+        defaultOnFatalError
+
+defaultOnFatalError :: forall a. PactException -> Text -> IO a
+defaultOnFatalError pex t = do
+    T.putStrLn (pack (show pex) <> "\n" <> t)
+    exitFailure
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)

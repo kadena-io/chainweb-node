@@ -120,7 +120,7 @@ withChainResourcesStandalone
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
               withPactService' v cid (setComponent "pact" logger)
-                    mpa cdb payloadDb dbDir nodeid resetDb pactQueueSize $
+                    mpa cdb payloadDb dbDir nodeid resetDb pactQueueSize 1000 $
                 \requestQ -> do
                       -- prune blockheader db
                       when prune $ do
