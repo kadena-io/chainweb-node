@@ -240,13 +240,13 @@ applyCoinbase
       -- ^ hash of the mined block
     -> EnforceCoinbaseFailure
       -- ^ enforce coinbase failure or not
-    -> EnforceNewBlockFailure
-      -- ^ enforce failure when called from 'execNewBlock'
+    -> CoinbaseUsePrecompiled
+      -- ^ always enable precompilation
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
 applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
-  (EnforceCoinbaseFailure throwCritical) (EnforceNewBlockFailure isNewBlock) mc
-  | blockTime >= forkTime || isNewBlock = do
+  (EnforceCoinbaseFailure throwCritical) (CoinbaseUsePrecompiled enablePC) mc
+  | blockTime >= forkTime || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
     go interp cexec

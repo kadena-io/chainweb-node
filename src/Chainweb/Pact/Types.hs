@@ -28,7 +28,7 @@ module Chainweb.Pact.Types
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
-  , EnforceNewBlockFailure(..)
+  , CoinbaseUsePrecompiled(..)
 
     -- * Transaction State
   , TransactionState(..)
@@ -170,14 +170,14 @@ instance Show GasSupply where show (GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 
--- | Whether to ignore coinbase failures, or "enforce" (fail block)
+-- | Whether to enforce coinbase failures, failing the block,
+-- or be backward-compatible and allow.
 -- Backward-compat fix is to enforce in new block, but ignore in validate.
 --
 newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
--- | Enforce failure when called from new block phase
---
-newtype EnforceNewBlockFailure = EnforceNewBlockFailure Bool
+-- | Always use precompiled templates in coinbase or use date rule.
+newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 

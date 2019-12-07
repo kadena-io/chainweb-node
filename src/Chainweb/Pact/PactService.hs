@@ -752,11 +752,10 @@ execNewBlock mpAccess parentHeader miner creationTime =
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        let !ecb = EnforceCoinbaseFailure True
-            !enb = EnforceNewBlockFailure True
-
-        -- Reject bad coinbase transactions in new block.
-        results <- execTransactions (Just pHash) miner newTrans ecb enb pdbenv
+        -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
+        results <- execTransactions (Just pHash) miner newTrans
+                   (EnforceCoinbaseFailure True)
+                   (CoinbaseUsePrecompiled True) pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -804,11 +803,11 @@ execNewGenesisBlock
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
-        let !ecb = EnforceCoinbaseFailure True
-            !enb = EnforceNewBlockFailure True
 
-        -- Reject bad coinbase txs in genesis.
-        results <- execTransactions Nothing miner newTrans ecb enb pdbenv
+        -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
+        results <- execTransactions Nothing miner newTrans
+                   (EnforceCoinbaseFailure True)
+                   (CoinbaseUsePrecompiled False) pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal
@@ -911,21 +910,19 @@ playOneBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    go m txs = do
-      let !ecb = EnforceCoinbaseFailure True
-          !enb = EnforceNewBlockFailure False
-
-      if isGenesisBlock
+    go m txs = if isGenesisBlock
       then do
         setBlockData currHeader
-        -- reject bad coinbase in genesis
-        execTransactions Nothing m txs ecb enb pdbenv
+        -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
+        execTransactions Nothing m txs
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
         bhDb <- asks _psBlockHeaderDb
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
-        -- allow bad coinbase in validate
-        execTransactions (Just bParent) m txs (EnforceCoinbaseFailure False) enb pdbenv
+        -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
+        execTransactions (Just bParent) m txs
+          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -1018,7 +1015,7 @@ execTransactions
     -> Miner
     -> Vector ChainwebTransaction
     -> EnforceCoinbaseFailure
-    -> EnforceNewBlockFailure
+    -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail enbFail (PactDbEnv' pactdbenv) = do
@@ -1038,7 +1035,7 @@ runCoinbase
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
-    -> EnforceNewBlockFailure
+    -> CoinbaseUsePrecompiled
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult P.Hash)
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
