@@ -66,7 +66,7 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psEnableUserContracts
-  , psDeepForkLimit
+  , psReorgLimit
   , psOnFatalError
 
     -- * Pact Service State
@@ -95,6 +95,7 @@ module Chainweb.Pact.Types
   , justInstallsExecutionConfig
   -- * miscellaneous
   , defaultOnFatalError
+  , defaultReorgLimit
   ) where
 
 import Control.Lens hiding ((.=))
@@ -289,7 +290,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
     , _psEnableUserContracts :: !Bool
-    , _psDeepForkLimit :: {-# UNPACK #-} !Word64
+    , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     }
 makeLenses ''PactServiceEnv
@@ -302,8 +303,8 @@ instance HasChainId (PactServiceEnv c) where
     _chainId = _chainId . _psBlockHeaderDb
     {-# INLINE _chainId #-}
 
-defaultDeepForkLimit :: Word64
-defaultDeepForkLimit = 1000
+defaultReorgLimit :: Word64
+defaultReorgLimit = 480
 
 defaultPactServiceEnv
     :: ChainwebVersion
@@ -315,7 +316,7 @@ defaultPactServiceEnv
     -> PactServiceEnv cas
 defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs =
     PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
-        (enableUserContracts ver) defaultDeepForkLimit
+        (enableUserContracts ver) defaultReorgLimit
         defaultOnFatalError
 
 defaultOnFatalError :: forall a. PactException -> Text -> IO a

@@ -397,14 +397,23 @@ testPactCtx v cid bhdb pdb = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (defaultPactServiceEnv v cpe pdb bhdb (constGasModel 0) rs )
+        <*> pure (pactServiceEnv cpe rs)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-
-
+    pactServiceEnv cpe rs = PactServiceEnv
+        { _psMempoolAccess = Nothing
+        , _psCheckpointEnv = cpe
+        , _psPdb = pdb
+        , _psBlockHeaderDb = bhdb
+        , _psGasModel = constGasModel 0
+        , _psMinerRewards = rs
+        , _psEnableUserContracts = True
+        , _psReorgLimit = defaultReorgLimit
+        , _psOnFatalError = defaultOnFatalError
+        }
 
 testPactCtxSQLite
   :: PayloadCas cas
@@ -420,12 +429,23 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-      <*> pure (defaultPactServiceEnv v cpe pdb bhdb (constGasModel 0) rs)
+      <*> pure (pactServiceEnv cpe rs)
     evalPactServiceM_ ctx (initialPayloadState v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
+    pactServiceEnv cpe rs = PactServiceEnv
+        { _psMempoolAccess = Nothing
+        , _psCheckpointEnv = cpe
+        , _psPdb = pdb
+        , _psBlockHeaderDb = bhdb
+        , _psGasModel = constGasModel 0
+        , _psMinerRewards = rs
+        , _psEnableUserContracts = True
+        , _psReorgLimit = defaultReorgLimit
+        , _psOnFatalError = defaultOnFatalError
+        }
 
 
 -- | A test PactExecutionService for a single chain
@@ -537,22 +557,34 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
   where
     destroy = const (destroyTestPactCtx . fst)
     start ios = do
-      let loggers = pactTestLogger False
-          logger = newLogger loggers $ LogName "PactService"
-          cid = someChainId v
+        let loggers = pactTestLogger False
+            logger = newLogger loggers $ LogName "PactService"
+            cid = someChainId v
 
-      bhdb <- bhdbIO
-      pdb <- pdbIO
-      (_,s) <- ios
-      (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
-      let rs = readRewards v
-          t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
-          gm = fromMaybe (constGasModel 0) gasModel
-      !ctx <- TestPactCtx
-        <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
-        <*> pure (defaultPactServiceEnv v cpe pdb bhdb gm rs)
-      evalPactServiceM_ ctx (initialPayloadState v cid)
-      return (ctx, dbSt)
+        bhdb <- bhdbIO
+        pdb <- pdbIO
+        (_,s) <- ios
+        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
+        let rs = readRewards v
+            t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+            gm = fromMaybe (constGasModel 0) gasModel
+        !ctx <- TestPactCtx
+          <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+          <*> pure (pactServiceEnv cpe pdb bhdb gm rs)
+        evalPactServiceM_ ctx (initialPayloadState v cid)
+        return (ctx, dbSt)
+      where
+        pactServiceEnv cpe pdb bhdb gm rs = PactServiceEnv
+            { _psMempoolAccess = Nothing
+            , _psCheckpointEnv = cpe
+            , _psPdb = pdb
+            , _psBlockHeaderDb = bhdb
+            , _psGasModel = gm
+            , _psMinerRewards = rs
+            , _psEnableUserContracts = True
+            , _psReorgLimit = defaultReorgLimit
+            , _psOnFatalError = defaultOnFatalError
+            }
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
 withMVarResource value = withResource (newMVar value) (const $ return ())

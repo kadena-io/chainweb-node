@@ -179,7 +179,7 @@ initPactService'
     -> PactServiceM cas a
     -> IO a
 initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb
-                 deepForkLimit act = do
+                 reorgLimit act = do
     sqlitedir <- getSqliteDir
     when doResetDb $ resetDb sqlitedir
     createDirectoryIfMissing True sqlitedir
@@ -200,8 +200,17 @@ initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb
       let !rs = readRewards ver
           !gasModel = tableGasModel defaultGasConfig
           !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
-          !pse = set psDeepForkLimit deepForkLimit $
-                 defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs
+          !pse = PactServiceEnv
+                 { _psMempoolAccess = Nothing
+                 , _psCheckpointEnv = checkpointEnv
+                 , _psPdb = pdb
+                 , _psBlockHeaderDb = bhDb
+                 , _psGasModel = gasModel
+                 , _psMinerRewards = rs
+                 , _psEnableUserContracts = enableUserContracts ver
+                 , _psReorgLimit = reorgLimit
+                 , _psOnFatalError = defaultOnFatalError
+                 }
           !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
 
       evalPactServiceM pst pse act
@@ -990,10 +999,10 @@ execValidateBlock
 execValidateBlock currHeader plData = do
     -- TODO: are we actually validating the output hash here?
     psEnv <- ask
-    let forkLimit = fromIntegral $ view psDeepForkLimit psEnv
+    let reorgLimit = fromIntegral $ view psReorgLimit psEnv
     validateTxEnabled currHeader plData
     handle handleEx $ withBatch $ do
-        rewindTo (Just forkLimit) mb
+        rewindTo (Just reorgLimit) mb
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result

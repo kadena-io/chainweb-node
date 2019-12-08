@@ -59,7 +59,7 @@ module Chainweb.Chainweb
 , configTransactionIndex
 , configBlockGasLimit
 , configThrottling
-, configDeepForkLimit
+, configReorgLimit
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -314,7 +314,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configPactQueueSize :: !Natural
-    , _configDeepForkLimit :: !Natural
+    , _configReorgLimit :: !Natural
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -345,7 +345,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 6000
     , _configPactQueueSize = 2000
-    , _configDeepForkLimit = 1000
+    , _configReorgLimit = 480
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -362,6 +362,7 @@ instance ToJSON ChainwebConfiguration where
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
         , "pactQueueSize" .= _configPactQueueSize o
+        , "reorgLimit" .= _configReorgLimit o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -378,6 +379,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
+        <*< configReorgLimit ..: "reorgLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -406,6 +408,12 @@ pChainwebConfiguration = id
     <*< configPactQueueSize .:: jsonOption
         % long "pact-queue-size"
         <> help "max size of pact internal queue"
+    <*< configReorgLimit .:: jsonOption
+        % long "reorg-limit"
+        <> help "Max allowed reorg depth.\
+                \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
+                \ more information. "
+
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -563,8 +571,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
         (\cs -> global (HM.fromList $ zip cidsList cs))
         cidsList
   where
-    -- TODO: configurable
-    deepForkLimit = _configDeepForkLimit conf
+    deepForkLimit = _configReorgLimit conf
 
     prune :: Bool
     prune = _cutPruneChainDatabase $ _configCuts conf
