@@ -184,6 +184,7 @@ library
         , Chainweb.Miner.RestAPI.Client
         , Chainweb.Miner.RestAPI.Server
         , Chainweb.NodeId
+        , Chainweb.NodeVersion
         , Chainweb.Payload
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
