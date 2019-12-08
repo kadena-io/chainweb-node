@@ -604,7 +604,7 @@ vuln797FixDate TimedCPM{} = epoch
 vuln797FixDate FastTimedCPM{} = epoch
 vuln797FixDate Development = epoch
 vuln797FixDate Testnet04 = epoch
-vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
+vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 {-# INLINE vuln797FixDate #-}
 
 -- | Enable user contract install
