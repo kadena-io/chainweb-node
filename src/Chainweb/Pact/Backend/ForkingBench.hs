@@ -229,9 +229,9 @@ mineBlock
 mineBlock parentHeader nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- newBlock noMiner parentHeader (BlockCreationTime creationTime) r
+     mv <- newBlock noMiner parentHeader creationTime r
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -240,7 +240,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              (ParentHeader parentHeader)
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
@@ -268,9 +268,9 @@ noMineBlock
 noMineBlock validate parentHeader nonce r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- newBlock noMiner parentHeader (BlockCreationTime creationTime) r
+     mv <- newBlock noMiner parentHeader creationTime r
 
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -279,7 +279,7 @@ noMineBlock validate parentHeader nonce r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              (ParentHeader parentHeader)
 
      when validate $ do
        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r

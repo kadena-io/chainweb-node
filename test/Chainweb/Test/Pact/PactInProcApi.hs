@@ -99,7 +99,7 @@ goldenBytes label (Right a) = return $ BL.fromStrict $ Y.encode $ object
     ]
 
 _getBlockHeaders :: ChainId -> Int -> [BlockHeader]
-_getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
+_getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders $ ParentHeader gbh0)
   where
     gbh0 = genesisBlockHeader testVersion cid
 
