@@ -165,6 +165,7 @@ defPubMeta = def
     & set pmGasPrice 0.0000001
     & set pmTTL 28800
 
+
 generateDefaultSimpleCommands :: Int -> IO [Command Text]
 generateDefaultSimpleCommands batchsize =
     replicateM batchsize $ getStdRandom (runState go) >>= cmdStr
