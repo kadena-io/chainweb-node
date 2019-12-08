@@ -209,7 +209,7 @@ initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb
                  , _psMinerRewards = rs
                  , _psEnableUserContracts = enableUserContracts ver
                  , _psReorgLimit = reorgLimit
-                 , _psOnFatalError = defaultOnFatalError
+                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                  }
           !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
 

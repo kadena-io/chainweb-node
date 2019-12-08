@@ -99,6 +99,7 @@ module Chainweb.Pact.Types
   , defaultReorgLimit
   ) where
 
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Control.Monad.Fail
@@ -106,15 +107,14 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 
-import Data.Aeson
+import Data.Aeson hiding (Error)
 import Data.HashMap.Strict (HashMap)
-import Data.Text (pack, Text)
+import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import Data.Word
-import qualified Data.Text.IO as T
 
-import System.Exit
+import System.LogLevel
 
 -- internal pact modules
 
@@ -317,16 +317,29 @@ defaultPactServiceEnv
     -> BlockHeaderDb
     -> GasModel
     -> MinerRewards
+    -> (LogLevel -> Text -> IO ())
     -> PactServiceEnv cas
-defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs =
+defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs logFunc =
     PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
         (enableUserContracts ver) defaultReorgLimit
-        defaultOnFatalError
+        (defaultOnFatalError logFunc)
 
-defaultOnFatalError :: forall a. PactException -> Text -> IO a
-defaultOnFatalError pex t = do
-    T.putStrLn (pack (show pex) <> "\n" <> t)
-    exitFailure
+newtype ReorgLimitExceeded = ReorgLimitExceeded Text
+
+instance Show ReorgLimitExceeded where
+  show (ReorgLimitExceeded t) = "reorg limit exceeded: \n" <> unpack t
+
+instance Exception ReorgLimitExceeded where
+    fromException = asyncExceptionFromException
+    toException = asyncExceptionToException
+
+
+defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
+defaultOnFatalError lf pex t = do
+    lf Error errMsg
+    throw $ ReorgLimitExceeded errMsg
+  where
+    errMsg = pack (show pex) <> "\n" <> t
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)

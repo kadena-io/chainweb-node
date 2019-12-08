@@ -412,7 +412,7 @@ testPactCtx v cid bhdb pdb = do
         , _psMinerRewards = rs
         , _psEnableUserContracts = True
         , _psReorgLimit = defaultReorgLimit
-        , _psOnFatalError = defaultOnFatalError
+        , _psOnFatalError = defaultOnFatalError mempty
         }
 
 testPactCtxSQLite
@@ -444,7 +444,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
         , _psMinerRewards = rs
         , _psEnableUserContracts = True
         , _psReorgLimit = defaultReorgLimit
-        , _psOnFatalError = defaultOnFatalError
+        , _psOnFatalError = defaultOnFatalError mempty
         }
 
 
@@ -583,7 +583,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
             , _psMinerRewards = rs
             , _psEnableUserContracts = True
             , _psReorgLimit = defaultReorgLimit
-            , _psOnFatalError = defaultOnFatalError
+            , _psOnFatalError = defaultOnFatalError mempty
             }
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
