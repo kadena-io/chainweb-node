@@ -176,7 +176,8 @@ withMiningCoordination logger conf cdb inner
     getPayload :: ParentHeader -> Miner -> IO (T2 PayloadWithOutputs BlockCreationTime)
     getPayload (ParentHeader parent) m = do
         creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-        payload <- _pactNewBlock pact m parent creationTime
+        payload <- trace logFun "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock" () 1
+            (_pactNewBlock pact m parent creationTime)
         pure $ T2 payload creationTime
 
     pact :: PactExecutionService
