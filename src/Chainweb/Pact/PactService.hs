@@ -757,8 +757,10 @@ execNewBlock mpAccess parentHeader miner creationTime =
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        -- Reject bad coinbase transactions in new block.
-        results <- execTransactions (Just pHash) miner newTrans (EnforceCoinbaseFailure True) pdbenv
+        -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
+        results <- execTransactions (Just pHash) miner newTrans
+                   (EnforceCoinbaseFailure True)
+                   (CoinbaseUsePrecompiled True) pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -806,8 +808,11 @@ execNewGenesisBlock
     -> PactServiceM cas PayloadWithOutputs
 execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
-        -- Reject bad coinbase txs in genesis.
-        results <- execTransactions Nothing miner newTrans (EnforceCoinbaseFailure True) pdbenv
+
+        -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
+        results <- execTransactions Nothing miner newTrans
+                   (EnforceCoinbaseFailure True)
+                   (CoinbaseUsePrecompiled False) pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal
@@ -910,18 +915,19 @@ playOneBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    go m txs =
-      if isGenesisBlock
+    go m txs = if isGenesisBlock
       then do
         setBlockData currHeader
-        -- reject bad coinbase in genesis
-        execTransactions Nothing m txs (EnforceCoinbaseFailure True) pdbenv
+        -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
+        execTransactions Nothing m txs
+          (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
         bhDb <- asks _psBlockHeaderDb
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
-        -- allow bad coinbase in validate
-        execTransactions (Just bParent) m txs (EnforceCoinbaseFailure False) pdbenv
+        -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
+        execTransactions (Just bParent) m txs
+          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -1049,11 +1055,12 @@ execTransactions
     -> Miner
     -> Vector ChainwebTransaction
     -> EnforceCoinbaseFailure
+    -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHash miner ctxs enfCBFail (PactDbEnv' pactdbenv) = do
+execTransactions nonGenesisParentHash miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail mc
+    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
@@ -1068,19 +1075,20 @@ runCoinbase
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
+    -> CoinbaseUsePrecompiled
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult P.Hash)
-runCoinbase Nothing _ _ _ _ = return noCoinbase
-runCoinbase (Just parentHash) dbEnv miner enfCBFail mc = do
+runCoinbase Nothing _ _ _ _ _ = return noCoinbase
+runCoinbase (Just parentHash) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
-
+    v <- view chainwebVersion
     pd <- mkPublicData "coinbase" def
 
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-    cr <- liftIO $! applyCoinbase logger dbEnv miner reward pd parentHash enfCBFail mc
+    cr <- liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHash enfCBFail usePrecomp mc
     return $! toHashCommandResult cr
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
