@@ -49,16 +49,17 @@ import Control.Monad.Primitive
 import Control.Monad.Reader hiding (local)
 import Control.Monad.State.Strict
 
+import Data.ByteString (ByteString)
+import Data.Decimal
+import Data.Generics.Product.Fields (field)
+import Data.Map (Map)
+import Data.Sequence.NonEmpty (NESeq(..))
+import Data.Text (Text)
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.ByteString (ByteString)
-import Data.Generics.Product.Fields (field)
-import Data.Map (Map)
-import Data.Sequence.NonEmpty (NESeq(..))
-import Data.Text (Text)
 
 import Network.HTTP.Client hiding (Proxy, host)
 import Network.HTTP.Client.TLS
@@ -76,7 +77,10 @@ import Chainweb.Mempool.Mempool (TransactionHash)
 import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
 import Chainweb.Version
 
+import Pact.Parse
+import Pact.Types.ChainMeta
 import Pact.Types.Command (SomeKeyPairCaps)
+import Pact.Types.Gas
 
 import qualified TXG.Simulate.Contracts.Common as Sim
 import qualified Utils.Logging.Config as U
@@ -179,6 +183,9 @@ data Args = Args
   , logHandleConfig :: !U.HandleConfig
   , batchSize :: !BatchSize
   , verbose :: !Verbose
+  , gasLimit :: GasLimit
+  , gasPrice :: GasPrice
+  , timetolive :: TTLSeconds
   } deriving (Show, Generic)
 
 instance ToJSON Args where
@@ -190,7 +197,10 @@ instance ToJSON Args where
     , "chainwebVersion" .= nodeVersion o
     , "logHandle"       .= logHandleConfig o
     , "batchSize"       .= batchSize o
-    , "verbose"       .= verbose o
+    , "verbose"         .= verbose o
+    , "gasLimit"        .= gasLimit o
+    , "gasPrice"        .= gasPrice o
+    , "timetolive"      .= timetolive o
     ]
 
 instance FromJSON (Args -> Args) where
@@ -203,6 +213,9 @@ instance FromJSON (Args -> Args) where
     <*< field @"logHandleConfig" ..: "logging"         % o
     <*< field @"batchSize"       ..: "batchSize"       % o
     <*< field @"verbose"         ..: "verbose"         % o
+    <*< field @"gasLimit"        ..: "gasLimit"        % o
+    <*< field @"gasPrice"        ..: "gasPrice"        % o
+    <*< field @"timetolive"      ..: "timetolive"      % o
 
 defaultArgs :: Args
 defaultArgs = Args
@@ -213,7 +226,11 @@ defaultArgs = Args
   , nodeVersion     = v
   , logHandleConfig = U.StdOut
   , batchSize       = BatchSize 1
-  , verbose         = Verbose False}
+  , verbose         = Verbose False
+  , gasLimit = Sim.defGasLimit
+  , gasPrice = Sim.defGasPrice
+  , timetolive = Sim.defTTL
+  }
   where
     v :: ChainwebVersion
     v = fromJuste $ chainwebVersionFromText "timedCPM-peterson"
@@ -242,7 +259,27 @@ scriptConfigParser = id
       % long "verbose"
       <> metavar "BOOL"
       <> help "Whether to print out details of each transaction in a 'send' call"
+  <*< field @"gasLimit" .:: option parseGasLimit
+      % long "gasLimit"
+      <> metavar "INT"
+      <> help "The gas limit of each auto-generated transaction"
+  <*< field @"gasPrice" .:: option parseGasPrice
+      % long "gasPrice"
+      <> metavar "DECIMAL"
+      <> help "The gas price of each auto-generated transaction"
+  <*< field @"timetolive" .:: option parseTTL
+      % long "time-to-live"
+      <> metavar "SECONDS"
+      <> help "The time to live (in seconds) of each auto-generated transaction"
   where
+    parseGasLimit =
+        GasLimit . ParsedInteger <$> read' @Integer "Cannot read gasLimit."
+    parseGasPrice =
+        GasPrice . ParsedDecimal <$> read' @Decimal "Cannot read gasPrice."
+    parseTTL =
+        TTLSeconds . ParsedInteger <$> read' @Integer "Cannot read time-to-live."
+    read' :: Read a => String -> ReadM a
+    read' msg = eitherReader (bimap (const msg) id . readEither)
     pChainId = textOption
       % long "node-chain-id"
       <> short 'i'
@@ -278,6 +315,9 @@ data TXGConfig = TXGConfig
   , confVersion :: !ChainwebVersion
   , confBatchSize :: !BatchSize
   , confVerbose :: !Verbose
+  , confGasLimit :: GasLimit
+  , confGasPrice :: GasPrice
+  , confTTL :: TTLSeconds
   } deriving (Generic)
 
 mkTXGConfig :: Maybe TimingDistribution -> Args -> HostAddress -> IO TXGConfig
@@ -287,6 +327,9 @@ mkTXGConfig mdistribution config host =
   <*> pure (nodeVersion config)
   <*> pure (batchSize config)
   <*> pure (verbose config)
+  <*> pure (gasLimit config)
+  <*> pure (gasPrice config)
+  <*> pure (timetolive config)
   where
     cenv :: IO ClientEnv
     cenv = do

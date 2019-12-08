@@ -42,6 +42,7 @@ module Chainweb.Version
 , txEnabledDate
 , transferActivationDate
 , enableUserContracts
+, vuln797FixDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -593,6 +594,18 @@ transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
 
+-- | Time after which fixes for vuln797 will be validated in blocks.
+--
+vuln797FixDate :: ChainwebVersion -> Time (Micros)
+vuln797FixDate Test{} = epoch
+vuln797FixDate TimedConsensus{} = epoch
+vuln797FixDate PowConsensus{} = epoch
+vuln797FixDate TimedCPM{} = epoch
+vuln797FixDate FastTimedCPM{} = epoch
+vuln797FixDate Development = epoch
+vuln797FixDate Testnet04 = epoch
+vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-17T00:00:00.0 |]
+{-# INLINE vuln797FixDate #-}
 
 -- | Enable user contract install
 enableUserContracts :: ChainwebVersion -> Bool
