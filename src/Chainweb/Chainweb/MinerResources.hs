@@ -69,6 +69,7 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
