@@ -1,4 +1,4 @@
-(interface fungible-v1
+(interface fungible-v2
 
   " Standard for fungible coins and tokens as specified in KIP-0002. "
 
@@ -38,6 +38,21 @@
 
    ; ----------------------------------------------------------------------
    ; Functionality
+
+
+  (defun transfer:string
+    ( sender:string
+      receiver:string
+      amount:decimal
+    )
+    @doc " Transfer AMOUNT between accounts SENDER and RECEIVER. \
+         \ Fails if either SENDER or RECEIVER does not exist."
+    @model [ (property conserves-mass)
+             (property (> amount 0.0))
+             (property (!= sender ""))
+             (property (!= receiver ""))
+             (property (!= sender receiver)) ]
+    )
 
    (defun transfer-create:string
      ( sender:string

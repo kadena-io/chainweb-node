@@ -16,7 +16,7 @@
           (<= (length account) 256)))
     ]
 
-  (implements fungible-v1)
+  (implements fungible-v2)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
