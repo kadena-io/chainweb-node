@@ -9,11 +9,33 @@ All node operators need to update no later than 2019-12-10T20:00:00.
 
 * Enforce lower bound on acceptable node versions (#793)
 
-* prune peer db and update peer selection (#788)
-
-* Primed mining coordination (#791)
+* Prune peer db and update peer selection (#788)
 
 * Limit checkpointer rewind depth (#795)
+
+* Improved mining coordination efficiency (#791)
+
+Note that this change involves a breaking change to the config file.
+
+What was previously:
+```yaml
+      miners:
+      - foobar  # just an account name
+      - cfd7816f15bd9413e5163308e18bf1b13925f3182aeac9b30ed303e8571ce997
+```
+Must now be:
+
+```yaml
+      miners:
+      - account: foobar
+        predicate: keys-all
+        public-keys:
+        - 3438e5bcfd086c5eeee1a2f227b7624df889773e00bd623babf5fc72c8f9aa63
+      - account: cfd7816f15bd9413e5163308e18bf1b13925f3182aeac9b30ed303e8571ce997
+        predicate: keys-all
+        public-keys:
+        - cfd7816f15bd9413e5163308e18bf1b13925f3182aeac9b30ed303e8571ce997
+```
 
 ## 1.2 (2019-12-04)
 
