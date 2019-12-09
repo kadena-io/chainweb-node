@@ -576,7 +576,7 @@ txEnabledDate TimedConsensus{} = Nothing
 txEnabledDate PowConsensus{} = Nothing
 txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
-txEnabledDate Development = Just [timeMicrosQQ| 2019-11-30T05:00:00.0 |]
+txEnabledDate Development = Just [timeMicrosQQ| 2019-12-09T03:00:00.0 |]
 txEnabledDate Testnet04 = Nothing
 txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
 
@@ -590,7 +590,7 @@ transferActivationDate TimedConsensus{} = Nothing
 transferActivationDate PowConsensus{} = Nothing
 transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |]
+transferActivationDate Development = Just [timeMicrosQQ| 2019-12-09T03:00:00.0 |]
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
 
@@ -602,7 +602,7 @@ vuln797FixDate TimedConsensus{} = epoch
 vuln797FixDate PowConsensus{} = epoch
 vuln797FixDate TimedCPM{} = epoch
 vuln797FixDate FastTimedCPM{} = epoch
-vuln797FixDate Development = epoch
+vuln797FixDate Development = [timeMicrosQQ| 2019-12-09T02:30:00.0 |]
 vuln797FixDate Testnet04 = epoch
 vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 {-# INLINE vuln797FixDate #-}
