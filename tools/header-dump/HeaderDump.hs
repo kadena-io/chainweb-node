@@ -23,24 +23,39 @@ module HeaderDump
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger
-import Chainweb.TreeDB
+import Chainweb.Miner.Pact
+import Chainweb.Pact.Service.Types
+import Chainweb.Payload
+import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Transaction
+import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils
 import Chainweb.Version
 
 import Configuration.Utils
 import Configuration.Utils.Validation
 
+import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
+import Control.Monad.Catch hiding (bracket)
 import Control.Monad.Except
 
 import Data.Aeson.Encode.Pretty hiding (Config)
-import qualified Data.ByteString.Lazy as BL
+import Data.Aeson.Lens
+import Data.CAS
 import Data.CAS.RocksDB
-import qualified Data.HashSet as HS
+import Data.Either
+import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
 import Data.Semigroup hiding (option)
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashSet as HS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -179,10 +194,11 @@ run config logger = do
     logg Info $ "using database at: " <> T.pack rocksDbDir
     withRocksDb_ rocksDbDir $ \rdb -> do
         void $ withBlockHeaderDb rdb v cid $ \cdb -> do
+            let pdb = newPayloadDb rdb
             logg Info "start dumping block headers"
             T.putStr "[\n"
             void $ entries cdb Nothing Nothing (MinRank <$> _configStart config) (MaxRank <$> _configEnd config) $ \s -> s
-                & S.map (encodeJson . ObjectEncoded)
+                & S.mapM (fmap encodeJson . blockHeaderWithCodeJSON pdb)
                 & S.intersperse ",\n"
                 & S.mapM_ T.putStr
             T.putStr "\n]"
@@ -225,3 +241,47 @@ withRocksDb_ path = bracket (openRocksDb_ path) closeRocksDb_
     closeRocksDb_ :: RocksDb -> IO ()
     closeRocksDb_ = R.close . _rocksDbHandle
 
+blockHeaderWithCodeJSON :: PayloadDb RocksDbCas -> BlockHeader -> IO Value
+blockHeaderWithCodeJSON pdb b = do
+
+    payload <- payloadWithOutputsToPayloadData
+        <$> casLookupM pdb (_blockPayloadHash b)
+
+    minerInfo <- toJSON <$> fromMinerData (_payloadDataMiner payload)
+
+    return $ toPayloadValue payload
+      & key "payload" . _Object
+      %~ HM.insert "minerInfo" minerInfo . HM.delete "minerData"
+
+  where
+    toPayloadValue payload =
+      object
+        [ "nonce" .= _blockNonce b
+        , "creationTime" .= _blockCreationTime b
+        , "parent" .= _blockParent b
+        , "adjacents" .= _blockAdjacentHashes b
+        , "target" .= _blockTarget b
+        , "payload" .= payload
+        , "chainId" .= _chainId b
+        , "weight" .= _blockWeight b
+        , "height" .= _blockHeight b
+        , "chainwebVersion" .= _blockChainwebVersion b
+        , "epochStart" .= _blockEpochStart b
+        , "featureFlags" .= _blockFlags b
+        , "hash" .= _blockHash b
+        ]
+
+_transactionsFromPayload :: PayloadData -> IO (Vector ChainwebTransaction)
+_transactionsFromPayload plData = do
+    vtrans <- fmap V.fromList $
+              mapM toCWTransaction $
+              toList (_payloadDataTransactions plData)
+    let (theLefts, theRights) = partitionEithers $ V.toList vtrans
+    unless (null theLefts) $ do
+        let ls = map T.pack theLefts
+        throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
+            <> (T.intercalate ". " ls)
+    return $! V.fromList theRights
+  where
+    toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
+                                          _transactionBytes bs))
