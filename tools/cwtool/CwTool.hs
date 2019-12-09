@@ -93,10 +93,9 @@ topLevelCommands =
       "Dump Block Headers to a JSON array"
       HeaderDump.main
   , CommandSpec
-      "decode" -- TODO: there is probably a better title to use here
-      "decodeB64UrlNoPaddingText" -- TODO: there is probably a better title to use here
+      "b64"
+      "Command line utlis for Chainweb's base64 encode/decode"
       EncodeDecodeB64Util.main
-      -- TODO: Might want to put in all variants here?
   ]
 
 printHelp :: [CommandSpec] -> IO ()
