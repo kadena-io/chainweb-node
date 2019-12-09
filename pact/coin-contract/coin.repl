@@ -42,7 +42,7 @@
   (get-balance 'emily))
 
 ;; create accounts should succeed and initialize with correct amounts and guards
-(env-gas 0) (env-gaslog)  (env-gaslimit 28346863940)
+(env-gas 0) (env-gaslog)
 (create-account 'emily (read-keyset 'emily))
 (env-gaslog)
 (expect

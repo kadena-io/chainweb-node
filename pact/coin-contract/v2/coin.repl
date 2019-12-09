@@ -823,4 +823,12 @@
 (expect-failure
   "Slashes fail without the presence of SLASH"
   "not granted: (coin.SLASH)"
-  (slash "emily" 1.0))
+  (slash "brandon" 1.0))
+
+(test-capability (SLASH))
+
+(env-keys ["brandon"])
+(expect
+  "Slashes succeed in the presence of SLASH"
+  "Write succeeded"
+  (slash "brandon" 1.0))

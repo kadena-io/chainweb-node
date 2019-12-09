@@ -577,6 +577,7 @@ initCapabilities cs = set (evalCapabilities . capStack) cs def
 initStateInterpreter :: EvalState -> Interpreter p
 initStateInterpreter s = Interpreter $ (put s >>)
 
+
 -- | Check whether the cost of running a tx is more than the allowed
 -- gas limit and do some action depending on the outcome
 --
