@@ -143,7 +143,7 @@ withPactProp version logLevel iopdb iobhdb mempool iodir f =
         bhdb <- iobhdb
         dir <- iodir
         a <- async $ PS.initPactService version cid logger reqQ mempool
-                         bhdb pdb dir Nothing True -- last Param True means reset checkpointer db
+                         bhdb pdb dir Nothing True 1000 -- True means reset checkpointer db
         return (a, reqQ)
 
     stopPact :: (Async a, TBQueue a2) -> IO ()
@@ -262,8 +262,9 @@ mkProperNewBlock
 mkProperNewBlock db plwo parentHeader = do
     let adjParents = BlockHashRecord HM.empty
     let matchingPlHash = _payloadWithOutputsPayloadHash plwo
-    creationTime <- getCurrentTimeIntegral
-    let newHeader = newBlockHeader adjParents matchingPlHash (Nonce 0) creationTime parentHeader
+    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+    let newHeader = newBlockHeader adjParents matchingPlHash (Nonce 0)
+                    creationTime (ParentHeader parentHeader)
     liftIO $ TDB.insert db newHeader
     return newHeader
 
