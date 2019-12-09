@@ -76,7 +76,8 @@ genesisBh :: MonadIO m => BlockHeaderDb -> m BlockHeader
 genesisBh db = head <$> headers db
 
 missingKey :: MonadIO m => BlockHeaderDb -> m (DbKey BlockHeaderDb)
-missingKey db = key . head . testBlockHeadersWithNonce (Nonce 34523) <$> genesisBh db
+missingKey db =
+    key . head . testBlockHeadersWithNonce (Nonce 34523) . ParentHeader <$> genesisBh db
 
 -- -------------------------------------------------------------------------- --
 -- Response Predicates
@@ -125,7 +126,7 @@ httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
 httpHeaderTests envIO cid =
     testGroup ("http header tests for chain " <> sshow cid) $
         [ go "headerClient" $ \v h -> headerClient' v cid (key h)
-        , go "headerPutClient" $ \v h -> headerPutClient' v cid (head $ testBlockHeaders h)
+        , go "headerPutClient" $ \v h -> headerPutClient' v cid (head $ testBlockHeaders $ ParentHeader h)
         , go "headersClient" $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
         , go "hashesClient" $ \v _ -> hashesClient' v cid Nothing Nothing Nothing Nothing
         , go "branchHashesClient" $ \v _ -> branchHashesClient' v cid Nothing Nothing Nothing
@@ -194,7 +195,7 @@ simpleClientSession envIO cid =
             (Actual gen1)
 
         void $ liftIO $ step "headerPutClient: put 3 new blocks"
-        let newHeaders = take 3 $ testBlockHeaders gbh0
+        let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
         forM_ newHeaders $ \h -> do
             void $ liftIO $ step $ "headerPutClient: " <> T.unpack (encodeToText (_blockHash h))
             void $ headerPutClient version cid h
@@ -304,7 +305,7 @@ simpleClientSession envIO cid =
         -- branch hashes with fork
 
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
-        let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) gbh0
+        let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
         forM_ newHeaders2 $ \h -> do
             void $ liftIO $ step $ "headerPutClient: " <> T.unpack (encodeToText (_blockHash h))
             void $ headerPutClient version cid h
@@ -345,7 +346,7 @@ putNewBlockHeader :: IO TestClientEnv_ -> TestTree
 putNewBlockHeader = simpleTest "put new block header" isRight $ \h0 ->
     headerPutClient (_chainwebVersion h0) (_chainId h0)
         . head
-        $ testBlockHeadersWithNonce (Nonce 1) h0
+        $ testBlockHeadersWithNonce (Nonce 1) (ParentHeader h0)
 
 putExisting :: IO TestClientEnv_ -> TestTree
 putExisting = simpleTest "put existing block header" isRight $ \h0 ->
@@ -358,6 +359,7 @@ putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
         headerPutClient (_chainwebVersion h0) (_chainId h0)
             . head
             . testBlockHeadersWithNonce (Nonce 2)
+            . ParentHeader
             $ genesisBlockHeader v cid
   where
     v = Test petersonChainGraph
@@ -366,13 +368,13 @@ putMissingParent :: IO TestClientEnv_ -> TestTree
 putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->
     headerPutClient (_chainwebVersion h0) (_chainId h0)
         . (!! 2)
-        $ testBlockHeadersWithNonce (Nonce 3) h0
+        $ testBlockHeadersWithNonce (Nonce 3) (ParentHeader h0)
 
 put5NewBlockHeaders :: IO TestClientEnv_ -> TestTree
 put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
     mapM_ (headerPutClient (_chainwebVersion h0) (_chainId h0))
         . take 5
-        $ testBlockHeadersWithNonce (Nonce 4) h0
+        $ testBlockHeadersWithNonce (Nonce 4) (ParentHeader h0)
 
 putTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 putTests rdb tls version =
@@ -488,4 +490,3 @@ testPageLimitHashesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
 testPageLimitHashesClient version = pagingTest "hashesClient" hashes id False request
   where
     request cid l n = hashesClient version cid l n Nothing Nothing
-

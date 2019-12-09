@@ -86,9 +86,9 @@ chainDataTest t time =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
-    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir $ \reqQIO ->
-        testCase ("chain-data." <> T.unpack t) $
-            run genblock pdb bhdb reqQIO
+    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir 100000
+        (testCase ("chain-data." <> T.unpack t) .
+         run genblock pdb bhdb)
   where
     genblock = genesisBlockHeader testVer testChainId
 
@@ -156,8 +156,8 @@ mineBlock
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
-     mv <- r >>= newBlock noMiner parentHeader (BlockCreationTime creationTime)
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+     mv <- r >>= newBlock noMiner parentHeader creationTime
      payload <- takeMVar mv >>= \case
         Right x -> return x
         Left e -> throwM $ TestException
@@ -173,7 +173,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              (ParentHeader parentHeader)
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 

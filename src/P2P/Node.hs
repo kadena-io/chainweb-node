@@ -96,6 +96,7 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 -- Internal imports
 
 import Chainweb.HostAddress (isReservedHostAddress)
+import Chainweb.NodeVersion
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
@@ -319,6 +320,7 @@ getNewPeerManager = readIORef newPeerManager
 data PeerValidationFailure
     = IsReservedHostAddress !PeerInfo
     | IsNotReachable !PeerInfo !T.Text
+    | NodeVersionNotAccepted !PeerInfo !NodeVersion
     deriving (Show, Eq, Ord, Generic, NFData, ToJSON)
 
 instance Exception PeerValidationFailure where
@@ -326,6 +328,8 @@ instance Exception PeerValidationFailure where
         = "The peer info " <> T.unpack (showInfo p) <> " is form a reserved IP address range"
     displayException (IsNotReachable p t)
         = "The peer info " <> T.unpack (showInfo p) <> " can't be reached: " <> T.unpack t
+    displayException (NodeVersionNotAccepted p v)
+        = "The peer info " <> T.unpack (showInfo p) <> " has a chainweb node version that is not acceptable: " <> T.unpack (toText v)
 
 -- | Removes candidate `PeerInfo` that are:
 --
@@ -345,15 +349,14 @@ guardPeerDb
 guardPeerDb v nid peerDb pinf = do
     peers <- peerDbSnapshot peerDb
     if
-        | isKnown peers -> return $ Right pinf
+        | isKnown peers pinf -> return $ Right pinf
         | isReserved -> return $ Left $ IsReservedHostAddress pinf
         | otherwise -> canConnect >>= \case
             Left e -> return $ Left $ IsNotReachable pinf (sshow e)
-            Right _ -> return $ Right pinf
+            Right nodeVersion -> if isAcceptedVersion nodeVersion
+                then return $ Right pinf
+                else return $ Left $ NodeVersionNotAccepted pinf nodeVersion
   where
-    isKnown :: PeerSet -> Bool
-    isKnown peers = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
-
     isReserved :: Bool
     isReserved = case v of
         Mainnet01 -> isReservedHostAddress (_peerAddr pinf)
@@ -367,8 +370,10 @@ guardPeerDb v nid peerDb pinf = do
     --
     canConnect = do
         mgr <- getNewPeerManager
-        let env = peerInfoClientEnv mgr pinf
-        runClientM (peerGetClient v nid (Just 0) Nothing) env
+        getNodeVersion mgr v (_peerAddr pinf) (Just $ networkIdToText nid <> "/peer")
+
+isKnown :: PeerSet -> PeerInfo -> Bool
+isKnown peers pinf = not . IXS.null $ IXS.getEQ (_peerAddr pinf) peers
 
 guardPeerDbOfNode
     :: P2pNode
@@ -397,30 +402,36 @@ peerClientEnv node = peerInfoClientEnv (_p2pNodeManager node)
 -- TODO: handle paging
 --
 syncFromPeer :: P2pNode -> PeerInfo -> IO Bool
-syncFromPeer node info = runClientM sync env >>= \case
-    Left e
-        | isCertMismatch e -> do
-            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknown certificate. Deleting peer from peer db"
-            peerDbDelete (_p2pNodePeerDb node) info
-            return False
-        | otherwise -> do
-            logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
-            return False
-    Right p -> do
-        caps <- getNumCapabilities
-        goods <- fmap catMaybes
-            $ traverseConcurrently (ParN $ int caps) (guardPeerDbOfNode node)
-            $ filter (\i -> me /= _peerId i)
-            $ _pageItems p
-        peerDbInsertPeerInfoList
-            (_p2pNodeNetworkId node)
-            goods
-            (_p2pNodePeerDb node)
-        return True
+syncFromPeer node info = do
+    prunePeerDb peerDb
+    runClientM sync env >>= \case
+        Left e
+            | isCertMismatch e -> do
+                logg node Warn $ "failed to sync peers from " <> showInfo info <> ": unknown certificate. Deleting peer from peer db"
+                peerDbDelete (_p2pNodePeerDb node) info
+                return False
+            | otherwise -> do
+                logg node Warn $ "failed to sync peers from " <> showInfo info <> ": " <> sshow e
+                return False
+        Right p -> do
+            peers <- peerDbSnapshot peerDb
+            goods <- fmap catMaybes
+                $ traverseConcurrently (ParN 16) (guardPeerDbOfNode node)
+                $ take 32
+                    -- limit the maximum number of new unknown peers to 32
+                $ filter (\i -> me /= _peerId i)
+                $ filter (not . isKnown peers)
+                $ _pageItems p
+            peerDbInsertPeerInfoList
+                (_p2pNodeNetworkId node)
+                goods
+                (_p2pNodePeerDb node)
+            return True
   where
     env = peerClientEnv node info
     v = _p2pNodeChainwebVersion node
     nid = _p2pNodeNetworkId node
+    peerDb = _p2pNodePeerDb node
 
     me :: Maybe PeerId
     me = _peerId $ _p2pNodePeerInfo node
@@ -490,6 +501,12 @@ findNextPeer conf node = do
             check (pid /= myPid)
             return n
 
+    -- Classify the peers by priority
+    --
+    let base = IXS.getEQ (_p2pNodeNetworkId node) peers
+
+#if 0
+
     -- random circular shift of a set
     let shift i s = uncurry (++)
             $ swap
@@ -501,12 +518,6 @@ findNextPeer conf node = do
             i <- randomR node (0, max 1 (IXS.size s) - 1)
             return $! shift i s
 
-    -- Classify the peers by priority
-    --
-    let base = IXS.getEQ (_p2pNodeNetworkId node) peers
-#if 0
-    searchSpace <- shift base
-#else
     -- TODO: how expensive is this? should be cache the classification?
     --
     let p0 = IXS.getGT (ActiveSessionCount 0) $ IXS.getLTE (SuccessiveFailures 1) base
@@ -514,9 +525,32 @@ findNextPeer conf node = do
         p2 = IXS.getGT (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
         p3 = IXS.getEQ (ActiveSessionCount 0) $ IXS.getGT (SuccessiveFailures 1) base
     searchSpace <- concat <$> traverse shiftR [p0, p1, p2, p3]
+    foldr (orElse . checkPeer) retry searchSpace
+
+#else
+
+    -- random circular shift of a set
+    let shift i s = uncurry (++)
+            $ swap
+            $ splitAt (fromIntegral i)
+            $ s
+
+        shiftR s = do
+            i <- randomR node (0, max 1 (length s) - 1)
+            return $! shift i s
+
+    let p0 = toList
+            $ IXS.getGT (ActiveSessionCount 0)
+            $ IXS.getLTE (SuccessiveFailures 1) base
+        p1 = fmap snd
+            $ IXS.groupAscBy @SuccessiveFailures
+            $ IXS.union
+                (IXS.getEQ (ActiveSessionCount 0) base)
+                (IXS.getGT (SuccessiveFailures 1) base)
+    searchSpace <- concat <$> traverse shiftR (p0: p1)
+    foldr (orElse . checkPeer) retry searchSpace
 #endif
 
-    foldr (orElse . checkPeer) retry searchSpace
   where
     peerDbVar = _p2pNodePeerDb node
     sessionsVar = _p2pNodeSessions node

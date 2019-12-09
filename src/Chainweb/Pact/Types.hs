@@ -4,10 +4,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RankNTypes #-}
 -- |
 -- Module: Chainweb.Pact.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -28,6 +28,7 @@ module Chainweb.Pact.Types
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
+  , CoinbaseUsePrecompiled(..)
 
     -- * Transaction State
   , TransactionState(..)
@@ -58,6 +59,7 @@ module Chainweb.Pact.Types
 
     -- * Pact Service Env
   , PactServiceEnv(..)
+  , defaultPactServiceEnv
   , psMempoolAccess
   , psCheckpointEnv
   , psPdb
@@ -65,6 +67,8 @@ module Chainweb.Pact.Types
   , psGasModel
   , psMinerRewards
   , psEnableUserContracts
+  , psReorgLimit
+  , psOnFatalError
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -90,8 +94,12 @@ module Chainweb.Pact.Types
   , restrictiveExecutionConfig
   , permissiveExecutionConfig
   , justInstallsExecutionConfig
+  -- * miscellaneous
+  , defaultOnFatalError
+  , defaultReorgLimit
   ) where
 
+import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Control.Monad.Fail
@@ -99,11 +107,14 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 
-import Data.Aeson
+import Data.Aeson hiding (Error)
 import Data.HashMap.Strict (HashMap)
-import Data.Text (Text)
+import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
+import Data.Word
+
+import System.LogLevel
 
 -- internal pact modules
 
@@ -116,8 +127,8 @@ import Pact.Types.Gas
 import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
-import Pact.Types.Persistence (TxLog, ExecutionMode)
-import Pact.Types.Runtime (ModuleData, ExecutionConfig(..))
+import Pact.Types.Persistence (ExecutionMode, TxLog)
+import Pact.Types.Runtime (ExecutionConfig(..), ModuleData)
 import Pact.Types.SPV
 import Pact.Types.Term (PactId(..), Ref)
 
@@ -169,11 +180,14 @@ instance Show GasSupply where show (GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
 
--- | Whether to ignore coinbase failures, or "enforce" (fail block)
+-- | Whether to enforce coinbase failures, failing the block,
+-- or be backward-compatible and allow.
 -- Backward-compat fix is to enforce in new block, but ignore in validate.
 --
 newtype EnforceCoinbaseFailure = EnforceCoinbaseFailure Bool
 
+-- | Always use precompiled templates in coinbase or use date rule.
+newtype CoinbaseUsePrecompiled = CoinbaseUsePrecompiled Bool
 
 type ModuleCache = HashMap ModuleName (ModuleData Ref, Bool)
 
@@ -280,6 +294,8 @@ data PactServiceEnv cas = PactServiceEnv
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
     , _psEnableUserContracts :: !Bool
+    , _psReorgLimit :: {-# UNPACK #-} !Word64
+    , _psOnFatalError :: forall a. PactException -> Text -> IO a
     }
 makeLenses ''PactServiceEnv
 
@@ -290,6 +306,40 @@ instance HasChainwebVersion (PactServiceEnv c) where
 instance HasChainId (PactServiceEnv c) where
     _chainId = _chainId . _psBlockHeaderDb
     {-# INLINE _chainId #-}
+
+defaultReorgLimit :: Word64
+defaultReorgLimit = 480
+
+defaultPactServiceEnv
+    :: ChainwebVersion
+    -> CheckpointEnv
+    -> PayloadDb cas
+    -> BlockHeaderDb
+    -> GasModel
+    -> MinerRewards
+    -> (LogLevel -> Text -> IO ())
+    -> PactServiceEnv cas
+defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs logFunc =
+    PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
+        (enableUserContracts ver) defaultReorgLimit
+        (defaultOnFatalError logFunc)
+
+newtype ReorgLimitExceeded = ReorgLimitExceeded Text
+
+instance Show ReorgLimitExceeded where
+  show (ReorgLimitExceeded t) = "reorg limit exceeded: \n" <> unpack t
+
+instance Exception ReorgLimitExceeded where
+    fromException = asyncExceptionFromException
+    toException = asyncExceptionToException
+
+
+defaultOnFatalError :: forall a. (LogLevel -> Text -> IO ()) -> PactException -> Text -> IO a
+defaultOnFatalError lf pex t = do
+    lf Error errMsg
+    throw $ ReorgLimitExceeded errMsg
+  where
+    errMsg = pack (show pex) <> "\n" <> t
 
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)

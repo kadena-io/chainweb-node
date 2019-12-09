@@ -167,8 +167,11 @@ module Chainweb.Utils
 , concurrentWith
 , withLink
 
+-- * Tuples
+, thd
+
 -- * Strict Tuples
-, sfst
+, sfst  -- TODO remove these
 , ssnd
 , scurry
 , suncurry
@@ -1148,6 +1151,14 @@ withLink act = do
   a <- async act
   link a
   return a
+
+
+-- -------------------------------------------------------------------------- --
+-- Tuples
+
+thd :: (a,b,c) -> c
+thd (_,_,c) = c
+{-# INLINE thd #-}
 
 -- -------------------------------------------------------------------------- --
 -- Strict Tuple

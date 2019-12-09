@@ -126,18 +126,21 @@ withChainResources
     -> Bool
         -- ^ reset database directory
     -> Natural
+    -> Natural
+        -- ^ deep fork limit
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb peer logger mempoolCfg0 payloadDb
-  prune dbDir nodeid resetDb pactQueueSize inner =
+  v cid rdb peer logger mempoolCfg0 payloadDb prune dbDir nodeid resetDb
+  pactQueueSize deepForkLimit inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
-                        payloadDb dbDir nodeid resetDb pactQueueSize $ \requestQ -> do
+                        payloadDb dbDir nodeid resetDb pactQueueSize
+                        deepForkLimit $ \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"
