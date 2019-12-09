@@ -48,6 +48,10 @@
     "Magic capability constraining genesis transactions"
     true)
 
+  (defcap SLASH ()
+    "Magic capability for reversing coinbase operations"
+    true)
+
   (defcap DEBIT (sender:string)
     "Capability for managing debiting operations"
     (enforce-guard (at 'guard (read coin-table sender)))
@@ -324,6 +328,20 @@
     (require-capability (COINBASE))
     (with-capability (CREDIT account)
       (credit account account-guard amount))
+    )
+
+  (defun slash:string (account:string amount:decimal)
+    @doc "Internal function for the termination of coins. This function \
+         \cannot be used outside of the coin contract."
+
+    @model [ (property (valid-account account)) ]
+
+    (validate-account account)
+    (enforce-unit amount)
+
+    (require-capability (SLASH))
+    (with-capability (DEBIT account)
+      (debit account amount))
     )
 
   (defpact fund-tx (sender:string miner:string miner-guard:guard total:decimal)
