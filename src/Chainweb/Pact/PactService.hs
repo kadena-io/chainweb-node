@@ -1030,7 +1030,6 @@ execValidateBlock currHeader plData = do
               , ".\nOffending new block: \n"
               , show currHeader
               , "\n\n"
-              -- TODO: rename user-facing options as `reorg-limit`
               , "Your node is part of a losing fork longer than your \
                 \reorg-limit, which\nis a situation that requires manual \
                 \intervention. \n\
