@@ -4,11 +4,11 @@
 
 (begin-tx)
 (env-gas 0) (env-gaslog)
-(load "fungible-v1.pact")
+(load "fungible-v2.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading fungible contract"
-  757 (env-gas))
+  846 (env-gas))
 
 (env-gas 0) (env-gaslog)
 (load "coin.pact")
