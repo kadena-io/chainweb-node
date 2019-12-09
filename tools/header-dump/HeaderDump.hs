@@ -242,13 +242,14 @@ withRocksDb_ path = bracket (openRocksDb_ path) closeRocksDb_
 
 blockHeaderWithCodeJSON :: PayloadDb RocksDbCas -> BlockHeader -> IO Value
 blockHeaderWithCodeJSON pdb b = do
+
     payload <- payloadWithOutputsToPayloadData
         <$> casLookupM pdb (_blockPayloadHash b)
 
     minerInfo <- toJSON <$> fromMinerData (_payloadDataMiner payload)
 
     return $ toPayloadValue payload
-      & key "minerData"
+      & key "payload" . key "minerData"
       .~ minerInfo
 
   where
