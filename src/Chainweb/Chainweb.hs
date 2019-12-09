@@ -181,6 +181,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
+import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -345,7 +346,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 6000
     , _configPactQueueSize = 2000
-    , _configReorgLimit = 480
+    , _configReorgLimit = int defaultReorgLimit
     }
 
 instance ToJSON ChainwebConfiguration where
