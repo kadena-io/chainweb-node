@@ -7,6 +7,7 @@ import Text.Printf
 
 import qualified Chain2Gexf
 import qualified Ea
+import qualified EncodeDecodeB64Util
 import qualified GenConf
 import qualified HeaderDump
 import qualified RunNodes
@@ -91,6 +92,11 @@ topLevelCommands =
       "header-dump"
       "Dump Block Headers to a JSON array"
       HeaderDump.main
+  , CommandSpec
+      "decode" -- TODO: there is probably a better title to use here
+      "decodeB64UrlNoPaddingText" -- TODO: there is probably a better title to use here
+      EncodeDecodeB64Util.main
+      -- TODO: Might want to put in all variants here?
   ]
 
 printHelp :: [CommandSpec] -> IO ()
