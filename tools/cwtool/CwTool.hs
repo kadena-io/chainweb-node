@@ -7,6 +7,7 @@ import Text.Printf
 
 import qualified Chain2Gexf
 import qualified Ea
+import qualified EncodeDecodeB64Util
 import qualified GenConf
 import qualified HeaderDump
 import qualified RunNodes
@@ -91,6 +92,10 @@ topLevelCommands =
       "header-dump"
       "Dump Block Headers to a JSON array"
       HeaderDump.main
+  , CommandSpec
+      "b64"
+      "Command line utlis for Chainweb's base64 encode/decode"
+      EncodeDecodeB64Util.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()
