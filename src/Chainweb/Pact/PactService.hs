@@ -68,8 +68,10 @@ import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Data.Word
 
 import System.Directory
+import System.IO
 import System.LogLevel
 
 import Prelude hiding (lookup)
@@ -101,7 +103,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
-
 import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
@@ -124,8 +125,7 @@ import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
 import Chainweb.Version
 import Data.CAS (casLookupM)
-
-
+------------------------------------------------------------------------------
 
 pactLogLevel :: String -> LogLevel
 pactLogLevel "INFO" = Info
@@ -155,11 +155,14 @@ initPactService
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
+    -> Word64
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb dbDir nodeid resetDb =
-    initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid resetDb go
-  where
-    go = initialPayloadState ver cid >> serviceRequests mempoolAccess reqQ
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb dbDir
+                nodeid resetDb deepForkLimit =
+    initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid resetDb
+                     deepForkLimit $ do
+        initialPayloadState ver cid
+        serviceRequests mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -172,9 +175,11 @@ initPactService'
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
+    -> Word64
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb act = do
+initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb
+                 reorgLimit act = do
     sqlitedir <- getSqliteDir
     when doResetDb $ resetDb sqlitedir
     createDirectoryIfMissing True sqlitedir
@@ -195,8 +200,17 @@ initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb act = do
       let !rs = readRewards ver
           !gasModel = tableGasModel defaultGasConfig
           !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
-
-      let !pse = PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs (enableUserContracts ver)
+          !pse = PactServiceEnv
+                 { _psMempoolAccess = Nothing
+                 , _psCheckpointEnv = checkpointEnv
+                 , _psPdb = pdb
+                 , _psBlockHeaderDb = bhDb
+                 , _psGasModel = gasModel
+                 , _psMinerRewards = rs
+                 , _psEnableUserContracts = enableUserContracts ver
+                 , _psReorgLimit = reorgLimit
+                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
+                 }
           !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
 
       evalPactServiceM pst pse act
@@ -990,15 +1004,49 @@ execValidateBlock
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
     -- TODO: are we actually validating the output hash here?
+    psEnv <- ask
+    let reorgLimit = fromIntegral $ view psReorgLimit psEnv
     validateTxEnabled currHeader plData
-    withBatch $ withCheckpointerRewind mb "execValidateBlock" $ \pdbenv -> do
-        !result <- playOneBlock currHeader plData pdbenv
-        return $! Save currHeader result
+    handle handleEx $ withBatch $ do
+        rewindTo (Just reorgLimit) mb
+        withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
+            !result <- playOneBlock currHeader plData pdbenv
+            return $! Save currHeader result
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
+
+    -- TODO: knob to configure whether this rewind is fatal
+    fatalRewindError a h1 h2 = do
+        let msg = concat [
+              "Fatal error: "
+              , T.unpack a
+              , ". Our previous cut block height: "
+              , show h1
+              , ", fork ancestor's block height: "
+              , show h2
+              , ".\nOffending new block: \n"
+              , show currHeader
+              , "\n\n"
+              , "Your node is part of a losing fork longer than your \
+                \reorg-limit, which\nis a situation that requires manual \
+                \intervention. \n\
+                \For information on recovering from this, please consult:\n\
+                \    https://github.com/kadena-io/chainweb-node/blob/master/\
+                \docs/RecoveringFromDeepForks.md"
+              ]
+
+        -- TODO: will this work? is it the best way? If we exit the process
+        -- then it will be difficult to test this. An alternative is to put the
+        -- "handle fatal error" routine into the PactServiceEnv
+        killFunction <- asks _psOnFatalError
+        liftIO $ killFunction (RewindLimitExceeded a h1 h2) (T.pack msg)
+
+    -- Handle RewindLimitExceeded, rethrow everything else
+    handleEx (RewindLimitExceeded a h1 h2) = fatalRewindError a h1 h2
+    handleEx e = throwM e
 
 validateTxEnabled :: BlockHeader -> PayloadData -> PactServiceM cas ()
 validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of

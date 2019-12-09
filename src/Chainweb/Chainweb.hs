@@ -59,6 +59,7 @@ module Chainweb.Chainweb
 , configTransactionIndex
 , configBlockGasLimit
 , configThrottling
+, configReorgLimit
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -180,6 +181,7 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
+import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -313,6 +315,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configMempoolP2p :: !(EnableConfig MempoolP2pConfig)
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configPactQueueSize :: !Natural
+    , _configReorgLimit :: !Natural
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -343,6 +346,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configMempoolP2p = defaultEnableConfig defaultMempoolP2pConfig
     , _configBlockGasLimit = 6000
     , _configPactQueueSize = 2000
+    , _configReorgLimit = int defaultReorgLimit
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -359,6 +363,7 @@ instance ToJSON ChainwebConfiguration where
         , "mempoolP2p" .= _configMempoolP2p o
         , "gasLimitOfBlock" .= _configBlockGasLimit o
         , "pactQueueSize" .= _configPactQueueSize o
+        , "reorgLimit" .= _configReorgLimit o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -375,6 +380,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configMempoolP2p %.: "mempoolP2p" % o
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
+        <*< configReorgLimit ..: "reorgLimit" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -403,6 +409,12 @@ pChainwebConfiguration = id
     <*< configPactQueueSize .:: jsonOption
         % long "pact-queue-size"
         <> help "max size of pact internal queue"
+    <*< configReorgLimit .:: jsonOption
+        % long "reorg-limit"
+        <> help "Max allowed reorg depth.\
+                \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
+                \ more information. "
+
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -554,12 +566,14 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg payloadDb prune dbDir nodeid
-                     resetDb (_configPactQueueSize conf))
+                     resetDb deepForkLimit (_configPactQueueSize conf))
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs))
         cidsList
   where
+    deepForkLimit = _configReorgLimit conf
+
     prune :: Bool
     prune = _cutPruneChainDatabase $ _configCuts conf
 
