@@ -49,6 +49,7 @@ import Data.CAS
 import Data.CAS.RocksDB
 import Data.Either
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 import Data.LogMessage
 import Data.Semigroup hiding (option)
 import Data.Vector (Vector)
@@ -249,8 +250,8 @@ blockHeaderWithCodeJSON pdb b = do
     minerInfo <- toJSON <$> fromMinerData (_payloadDataMiner payload)
 
     return $ toPayloadValue payload
-      & key "payload" . key "minerData"
-      .~ minerInfo
+      & key "payload" . _Object
+      %~ HM.insert "minerInfo" minerInfo . HM.delete "minerData"
 
   where
     toPayloadValue payload =
