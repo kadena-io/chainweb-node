@@ -64,11 +64,11 @@ tests = ScheduledTest label $
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withPayloadDb $ \pdb ->
     testGroup label
-    [ withPact testVersion Warn pdb bhdb testMemPoolAccess dir $ \reqQIO ->
-        newBlockTest "new-block-0" reqQIO
+    [ withPact testVersion Warn pdb bhdb testMemPoolAccess dir 100000
+          (newBlockTest "new-block-0")
     , after AllSucceed "new-block-0" $
-      withPact testVersion Warn pdb bhdb testEmptyMemPool dir $ \reqQIO ->
-        newBlockTest "empty-block-tests" reqQIO
+      withPact testVersion Warn pdb bhdb testEmptyMemPool dir 100000
+          (newBlockTest "empty-block-tests")
     ]
   where
     label = "Chainweb.Test.Pact.PactInProcApi"
@@ -99,7 +99,7 @@ goldenBytes label (Right a) = return $ BL.fromStrict $ Y.encode $ object
     ]
 
 _getBlockHeaders :: ChainId -> Int -> [BlockHeader]
-_getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders gbh0)
+_getBlockHeaders cid n = gbh0 : take (n - 1) (testBlockHeaders $ ParentHeader gbh0)
   where
     gbh0 = genesisBlockHeader testVersion cid
 

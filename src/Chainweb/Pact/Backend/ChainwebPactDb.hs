@@ -5,7 +5,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |
@@ -77,7 +76,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (internalError, PactException(..))
+import Chainweb.Pact.Service.Types (PactException(..), internalError)
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -787,4 +786,4 @@ getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
 -- Careful doing this! It's expensive and for our use case, probably pointless.
 -- We should reserve vacuuming for an offline process
 vacuumDb :: BlockHandler SQLiteEnv ()
-vacuumDb = callDb "vaccumDb" (`exec_` "VACUUM;")
+vacuumDb = callDb "vacuumDb" (`exec_` "VACUUM;")

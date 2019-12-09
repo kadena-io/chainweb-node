@@ -242,7 +242,7 @@ _nw :: Network
 _nw = Network _ver _hostAddr _cid
 
 _metaIO :: IO PublicMeta
-_metaIO = makeMeta _cid
+_metaIO = makeMeta _cid defTTL defGasPrice defGasLimit
 
 _cmd1IO :: IO (Command Text)
 _cmd1IO = do

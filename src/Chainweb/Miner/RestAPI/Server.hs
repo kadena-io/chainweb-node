@@ -31,10 +31,10 @@ import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Generics.Wrapped (_Unwrapped)
-import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
+import qualified Data.Set as S
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -61,7 +61,7 @@ import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
     (ChainBytes(..), HeaderBytes(..), WorkBytes, workBytes)
 import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerId(..))
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
@@ -87,7 +87,7 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
         throwError err503 { errBody = "Too many work requests" }
     let !conf = _coordConf mr
     when (_coordinationMode conf == Private
-          && not (HS.member (view minerId m) (_coordinationMiners conf))) $ do
+          && not (S.member m (_coordinationMiners conf))) $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
         throwError err403 { errBody = "Unauthorized Miner: " <> midb }
@@ -102,12 +102,21 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork (logFunction $ _coordLogger mr) (maybe Anything Suggestion mcid) m pact c
+    T3 p bh pl <- newWork logf mode choice m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 m p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
+    logf :: LogFunction
+    logf = logFunction $ _coordLogger mr
+
+    mode :: CoordinationMode
+    mode = _coordinationMode $ _coordConf mr
+
+    choice :: ChainChoice
+    choice = maybe Anything Suggestion mcid
+
     cdb :: CutDb cas
     cdb = _coordCutDb mr
 

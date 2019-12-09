@@ -66,16 +66,23 @@ tests =
     withTemporaryDir $ \dir ->
     testGroup label
         [ withTime $ \iot ->
-          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadTTL badttl) iot) dir $ \reqQIO ->
-            testCase "reject-tx-with-badttl" $ testTTL genblock pdb bhdb reqQIO
+          withPact testVer Quiet pdb bhdb
+                   (testMemPoolAccess (BadTTL badttl) iot) dir 100000
+                   (testCase "reject-tx-with-badttl" .
+                    testTTL genblock pdb bhdb)
         , after AllSucceed "reject-tx-with-badttl" $
           withTime $ \iot ->
-          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadTxTime addtime) iot) dir $ \reqQIO ->
-            testCase "reject-tx-with-badtxtime" $ testTTL genblock pdb bhdb reqQIO
+          withPact testVer Quiet pdb bhdb
+                   (testMemPoolAccess (BadTxTime addtime) iot) dir 100000
+                   (testCase "reject-tx-with-badtxtime" .
+                    testTTL genblock pdb bhdb)
         , after AllSucceed "reject-tx-with-badtxtime" $
           withTime $ \iot ->
-          withPact testVer Quiet pdb bhdb (testMemPoolAccess (BadExpirationTime addtime 1) iot) dir $ \reqQIO ->
-            testCase "reject-tx-with-badexpirationtime" $ testTTL genblock pdb bhdb reqQIO
+          withPact testVer Quiet pdb bhdb
+                   (testMemPoolAccess (BadExpirationTime addtime 1) iot) dir
+                   100000
+                   (testCase "reject-tx-with-badexpirationtime" .
+                    testTTL genblock pdb bhdb)
         ]
   where
     genblock = genesisBlockHeader testVer cid
@@ -182,9 +189,9 @@ mineBlock
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- getCurrentTimeIntegral
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- r >>= newBlock noMiner parentHeader (BlockCreationTime creationTime)
+     mv <- r >>= newBlock noMiner parentHeader creationTime
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
@@ -192,7 +199,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              (ParentHeader parentHeader)
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
