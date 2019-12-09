@@ -1,5 +1,27 @@
 # `chainweb-node` Changelog
 
+## 1.3 (2019-12-08)
+
+CRITICAL SECURITY UPDATE [2 of 3]: addressing vulnerability #797.
+All node operators need to update no later than 2019-12-10T20:00:00.
+
+* [SECURITY] Address vulnerability 797 via precompiled statements (#798)
+
+* Enforce lower bound on acceptable node versions (#793)
+
+* prune peer db and update peer selection (#788)
+
+* Primed mining coordination (#791)
+
+* Limit checkpointer rewind depth (#795)
+
+## 1.2 (2019-12-04)
+
+CRITICAL SECURITY UPDATE [1 of 3]: postponing transfers in order to address a late-breaking vulnerability #797.
+All node operators need to update by 2019-12-05T00:00:00.
+
+* [SECURITY] Postpone transfers to 2019-12-17T01:00:00:00 UTC [#789]
+
 ## 1.1 (2019-12-02)
 
 This is a major release that activates coin transfers on December 5 2019 16:00 UTC.
