@@ -60,8 +60,11 @@ instance FromJSON NodeVersion where
     parseJSON = parseJsonFromText "NodeVersion"
     {-# INLINE parseJSON #-}
 
+-- | Node verison 1.3 performs a centralized hard fork at 2019-12-10T21:00:00Z.
+-- From that date onward any node with version < 1.3 is rejected.
+--
 minAcceptedVersion :: NodeVersion
-minAcceptedVersion = NodeVersion [1,2]
+minAcceptedVersion = NodeVersion [1,3]
 {-# INLINE minAcceptedVersion #-}
 
 isAcceptedVersion :: NodeVersion -> Bool
