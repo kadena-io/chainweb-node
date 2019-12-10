@@ -76,7 +76,7 @@ import Pact.Gas.Table
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
@@ -257,10 +257,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     forkTime = vuln797FixDate v
     fork1_3InEffect = blockTime >= forkTime
     throwCritical = fork1_3InEffect || enfCBFailure
-    blockTime =
-      let (TxCreationTime (ParsedInteger !bt)) =
-            view (pdPublicMeta . pmCreationTime) pd
-      in Time (TimeSpan (Micros (fromIntegral bt)))
+    blockTime = Time (TimeSpan (Micros $ _pdBlockTime pd))
 
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
