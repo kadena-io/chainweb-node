@@ -47,11 +47,11 @@
     )
     @doc " Transfer AMOUNT between accounts SENDER and RECEIVER. \
          \ Fails if either SENDER or RECEIVER does not exist."
-    @model [ (property conserves-mass)
-             (property (> amount 0.0))
+    @model [ (property (> amount 0.0))
              (property (!= sender ""))
              (property (!= receiver ""))
-             (property (!= sender receiver)) ]
+             (property (!= sender receiver))
+           ]
     )
 
    (defun transfer-create:string

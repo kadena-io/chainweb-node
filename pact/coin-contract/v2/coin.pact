@@ -320,7 +320,9 @@
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
 
-    @model [ (property (valid-account account)) ]
+    @model [ (property (valid-account account))
+             (property (> amount 0.0))
+           ]
 
     (validate-account account)
     (enforce-unit amount)
@@ -331,10 +333,11 @@
     )
 
   (defun slash:string (account:string amount:decimal)
-    @doc "Internal function for the termination of coins. This function \
-         \cannot be used outside of the coin contract."
-
-    @model [ (property (valid-account account)) ]
+    @doc "Slash allows the termination of coins. This function \
+         \is protected by the SLASH capability"
+    @model [ (property (valid-account account))
+             (property (> amount 0.0))
+           ]
 
     (validate-account account)
     (enforce-unit amount)
@@ -431,7 +434,6 @@
       amount:decimal )
 
     @model [ (property (> amount 0.0))
-             (property (!= receiver ""))
              (property (valid-account sender))
              (property (valid-account receiver))
            ]
