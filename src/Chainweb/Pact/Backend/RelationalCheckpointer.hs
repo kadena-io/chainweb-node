@@ -47,6 +47,7 @@ import Pact.Types.SQLite
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.ChainwebPactDb
+import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
@@ -69,7 +70,9 @@ initRelationalCheckpointer'
 initRelationalCheckpointer' bstate sqlenv loggr = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
-    runBlockEnv db $ initSchema
+    runBlockEnv db $ do
+        checkpointDb
+        initSchema
     return $!
       (PactDbEnv' (PactDbEnv chainwebPactDb db),
        CheckpointEnv
@@ -90,6 +93,16 @@ initRelationalCheckpointer' bstate sqlenv loggr = do
               }
         , _cpeLogger = loggr
         })
+  where
+    logg x y = liftIO $ logLog loggr x y
+    checkpointDb = do
+        logg "INFO" "checkpointing sqlite WAL..."
+        c <- view (bdbenvDb . sConn)
+        e <- liftIO $ wal_checkpoint_v2 c
+        case e of
+          Left s -> logg "WARN" ("sqlite WAL checkpoint failed: " ++ show s)
+          Right _ -> logg "INFO" "sqlite WAL successfully checkpointed."
+
 
 type Db = MVar (BlockEnv SQLiteEnv)
 

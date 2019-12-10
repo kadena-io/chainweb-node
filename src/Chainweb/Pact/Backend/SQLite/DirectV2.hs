@@ -5,8 +5,8 @@ import qualified Data.ByteString as BS
 import Foreign
 import Foreign.C.String
 
-import Database.SQLite3.Direct
 import Database.SQLite3.Bindings.Types
+import Database.SQLite3.Direct
 
 -- chainweb
 import Chainweb.Pact.Backend.SQLite.V2
@@ -28,6 +28,7 @@ open_v2 (Utf8 path) (SQLiteFlag flag) mzvfs =
                 _ <- close db -- This is harmless if db is null.
                 return $ Left (err, msg)
               Right () ->
+                -- TODO: rewrite avoiding error
                 if db == Database nullPtr
                 then error "sqlite3_open_v2 unexpectedly returned NULL"
                 else return $ Right db
@@ -44,3 +45,16 @@ close_v2 (Database db) =
 toResult :: a -> CError -> Either Error a
 toResult a (CError 0) = Right a
 toResult _ code = Left $ decodeError code
+
+wal_checkpoint_v2
+    :: Database
+    -> IO (Either Error (Int, Int))
+wal_checkpoint_v2 (Database db) =
+    alloca $ \p1 ->
+    alloca $ \p2 -> do
+        poke p1 0
+        poke p2 0
+        e <- c_sqlite3_wal_checkpoint_v2 db nullPtr 3 p1 p2
+        x <- peek p1
+        y <- peek p2
+        return $! toResult (fromIntegral x, fromIntegral y) e

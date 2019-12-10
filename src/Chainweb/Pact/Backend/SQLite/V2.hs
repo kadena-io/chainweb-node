@@ -12,3 +12,12 @@ foreign import ccall "sqlite3_open_v2"
 
 foreign import ccall "sqlite3_close_v2"
     c_sqlite3_close_v2 :: Ptr CDatabase -> IO CError
+
+foreign import ccall "sqlite3_wal_checkpoint_v2"
+    c_sqlite3_wal_checkpoint_v2
+        :: Ptr CDatabase
+        -> CString
+        -> CInt
+        -> Ptr CInt
+        -> Ptr CInt
+        -> IO CError
