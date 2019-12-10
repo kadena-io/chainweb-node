@@ -40,7 +40,7 @@
     "Magic capability to protect gas buy and redeem"
     true)
 
-  (defcap COINBASE ()
+  (defcap COINBASE (account:string amount:decimal)
     "Magic capability to protect miner reward"
     true)
 
@@ -48,8 +48,8 @@
     "Magic capability constraining genesis transactions"
     true)
 
-  (defcap SLASH ()
-    "Magic capability for reversing coinbase operations"
+  (defcap SLASH (account:string amount:decimal)
+    @doc "Magic auto-managed capability for slash transactions"
     true)
 
   (defcap DEBIT (sender:string)
@@ -60,6 +60,11 @@
   (defcap CREDIT (receiver:string)
     "Capability for managing crediting operations"
     (enforce (!= receiver "") "valid receiver"))
+
+  (defcap ROTATE (guard:guard)
+    @doc "Autonomously managed capability for guard rotation"
+    @managed
+    true)
 
   (defcap TRANSFER:bool
     ( sender:string
@@ -249,16 +254,18 @@
     )
 
   (defun rotate:string (account:string new-guard:guard)
+    (install-capability (ROTATE new-guard))
+    (with-capability (ROTATE new-guard)
+      (with-read coin-table account
+        { "guard" := old-guard }
+        
+        (enforce-guard old-guard)
+        (enforce-guard new-guard)
 
-    (with-read coin-table account
-      { "guard" := old-guard }
-
-      (enforce-guard old-guard)
-      (enforce-guard new-guard)
-
-      (update coin-table account
-        { "guard" : new-guard }
-        )))
+        (update coin-table account
+          { "guard" : new-guard }
+          )))
+    )
 
 
   (defun precision:integer
@@ -327,7 +334,7 @@
     (validate-account account)
     (enforce-unit amount)
 
-    (require-capability (COINBASE))
+    (require-capability (COINBASE account amount))
     (with-capability (CREDIT account)
       (credit account account-guard amount))
     )
@@ -342,7 +349,7 @@
     (validate-account account)
     (enforce-unit amount)
 
-    (require-capability (SLASH))
+    (require-capability (SLASH account amount))
     (with-capability (DEBIT account)
       (debit account amount))
     )

@@ -8,14 +8,14 @@
 (env-gaslog)
 (expect
   "Gas cost of loading fungible contract"
-  846 (env-gas))
+  840 (env-gas))
 
 (env-gas 0) (env-gaslog)
 (load "coin.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  3635 (env-gas))
+  3801 (env-gas))
 (commit-tx)
 
 (verify 'coin)
@@ -455,18 +455,20 @@
 
 (expect-failure
   "coinbase fails when capability is not in scope"
-  "not granted: (coin.COINBASE)"
+  "not granted"
   (coinbase 'emily (read-keyset 'emily) 0.0))
 
-(test-capability (COINBASE))
+(test-capability (COINBASE 'emily 1.0))
 
 (coinbase 'emily (read-keyset 'emily) 1.0)
 
+(test-capability (COINBASE 'emily 0.0))
 (expect-failure
   "coinbasing trivial or negative amounts fails fast"
   "positive"
   (coinbase 'emily (read-keyset 'emily) 0.0))
 
+(test-capability (COINBASE 'emily -1.0))
 (expect-failure
   "coinbasing trivial or negative amounts fails fast"
   "positive"
@@ -484,6 +486,7 @@
   "row not found"
   (get-balance 'miner2))
 
+(test-capability (COINBASE 'miner2 1.0))
 (coinbase 'miner2 (read-keyset 'miner2) 1.0)
 
 (expect
@@ -556,7 +559,12 @@
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
 
 ; account details will now feature rotated guard
-(rotate 'emily (read-keyset 'doug))
+(env-keys ["keys1", "keys2"])
+(expect-failure
+  "guard rotation fails when ROTATE is not scoped"
+  "not granted"
+  (rotate 'emily (read-keyset 'doug)))
+
 (expect
   "account info for 'emily uses 'doug keyset after rotation"
   "Account: 0.6 Guard: KeySet {keys: [keys2],pred: keys-all}"
@@ -645,7 +653,7 @@
   (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
 
 ;;coinbase
-(test-capability (COINBASE))
+(test-capability (COINBASE 'doug UNIT_GOOD))
 (expect
   "min coinbase succeeds"
   "Write succeeded"
@@ -822,21 +830,23 @@
 
 (expect-failure
   "Slashes fail without the presence of SLASH"
-  "not granted: (coin.SLASH)"
+  "not granted"
   (slash "brandon" 1.0))
 
-(test-capability (SLASH))
-
 (env-keys ["brandon"])
+
+(test-capability (SLASH "brandon" 1.0))
+
 (expect
   "Slashes succeed in the presence of SLASH"
   "Write succeeded"
   (slash "brandon" 1.0))
 
+(test-capability (SLASH "brandon" -1.0))
 (expect-failure
   "Cannot slash negative amounts"
   "debit amount must be positive"
-  (slash "brandon" (- 1.0)))
+  (slash "brandon" -1.0))
 
 (expect-failure
   "Cannot slash amounts that don't conform to unit standards"
