@@ -602,7 +602,7 @@ vuln797FixDate TimedConsensus{} = epoch
 vuln797FixDate PowConsensus{} = epoch
 vuln797FixDate TimedCPM{} = epoch
 vuln797FixDate FastTimedCPM{} = epoch
-vuln797FixDate Development = [timeMicrosQQ| 2019-12-10T04:00:00.0 |]
+vuln797FixDate Development = [timeMicrosQQ| 2019-12-10T04:15:00.0 |]
 vuln797FixDate Testnet04 = epoch
 vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 {-# INLINE vuln797FixDate #-}
