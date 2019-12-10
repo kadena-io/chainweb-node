@@ -65,6 +65,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Test.Pact.Utils
@@ -153,7 +154,7 @@ chainDataLocalAssertTest asserter t time =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
-    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir $ \reqQIO ->
+    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir defaultReorgLimit $ \reqQIO ->
         testCase ("<LOCAL>chain-data." <> T.unpack t) $ do
             onlyLocal genblock pdb bhdb reqQIO (Just asserter)
   where
