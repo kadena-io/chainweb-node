@@ -706,7 +706,7 @@ executable cwtool
         , QuickCheck >= 2.12.6
         , aeson >= 1.4
         , aeson-pretty >= 0.8
-        , lens-aeson >= 1.1
+        , lens-aeson >= 1.0.2
         , async >= 2.2
         , attoparsec >= 0.13
         , base >= 4.12 && < 5
