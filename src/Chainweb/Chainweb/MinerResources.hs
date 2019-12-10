@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -28,38 +29,47 @@ module Chainweb.Chainweb.MinerResources
 
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
+import Data.List (foldl')
 import qualified Data.Map.Strict as M
-import Data.Tuple.Strict (T3(..))
+import qualified Data.Set as S
+import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar (TVar, modifyTVar', newTVarIO, readTVar)
-import Control.Lens (over)
+import Control.Concurrent.STM.TVar
+import Control.Lens (at, over, view, (&), (?~), (^?!))
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockCreationTime(..))
+import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
-import Chainweb.CutDB (CutDb)
+import Chainweb.Cut (Cut, _cutMap)
+import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
-    (MiningState(..), MiningStats(..), PrevTime(..))
 import Chainweb.Miner.Miners
+import Chainweb.Miner.Pact (Miner(..), minerId)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
+import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStorePact)
+import Chainweb.Sync.WebBlockHeaderStore (PactExecutionService, _pactNewBlock)
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (runForever)
-import Chainweb.Version (ChainwebVersion(..), window)
+import Chainweb.Utils (fromJuste, ixg, runForever, thd)
+import Chainweb.Version
+import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
 import Data.LogMessage (JsonLog(..), LogFunction)
+import Utils.Logging.Trace (trace)
 
 -- -------------------------------------------------------------------------- --
 -- Miner
@@ -76,6 +86,7 @@ data MiningCoordination logger cas = MiningCoordination
     , _coord403s :: !(IORef Int)
     , _coordConf :: !CoordinationConfig
     , _coordUpdateStreamCount :: !(IORef Int)
+    , _coordPrimedWork :: !(TVar PrimedWork)
     }
 
 withMiningCoordination
@@ -85,24 +96,97 @@ withMiningCoordination
     -> CutDb cas
     -> (Maybe (MiningCoordination logger cas) -> IO a)
     -> IO a
-withMiningCoordination logger conf cutDb inner
+withMiningCoordination logger conf cdb inner
     | not (_coordinationEnabled conf) = inner Nothing
     | otherwise = do
+        cut <- _cut cdb
         t <- newTVarIO mempty
+        let !miners = S.toList $ _coordinationMiners conf
+        m <- initialPayloads cut miners >>= newTVarIO
         c503 <- newIORef 0
         c403 <- newIORef 0
         l <- newIORef (_coordinationUpdateStreamLimit conf)
-        fmap snd . concurrently (prune t c503 c403) $ inner . Just $ MiningCoordination
-            { _coordLogger = logger
-            , _coordCutDb = cutDb
-            , _coordState = t
-            , _coordLimit = _coordinationReqLimit conf
-            , _coord503s = c503
-            , _coord403s = c403
-            , _coordConf = conf
-            , _coordUpdateStreamCount = l
-            }
+        fmap thd . runConcurrently $ (,,)
+            <$> Concurrently (prune t c503 c403)
+            <*> Concurrently (mapConcurrently_ (primeWork miners m cut) cids)
+            <*> Concurrently (inner . Just $ MiningCoordination
+                { _coordLogger = logger
+                , _coordCutDb = cdb
+                , _coordState = t
+                , _coordLimit = _coordinationReqLimit conf
+                , _coord503s = c503
+                , _coord403s = c403
+                , _coordConf = conf
+                , _coordUpdateStreamCount = l
+                , _coordPrimedWork = m })
   where
+    cids :: [ChainId]
+    cids = HS.toList . chainIds $ _chainwebVersion cdb
+
+    -- | THREAD: Keep a live-updated cache of Payloads for specific miners, such
+    -- that when they request new work, the block can be instantly constructed
+    -- without interacting with the Pact Queue.
+    --
+    primeWork :: [Miner] -> TVar PrimedWork -> Cut -> ChainId -> IO ()
+    primeWork miners tpw c cid = runForever (logFunction logger) "primeWork" $ go c
+      where
+        go :: Cut -> IO a
+        go cut = do
+            -- Even if the `cut` passed to the function is old, this call here will
+            -- immediately detect the newest `BlockHeader` on the given chain.
+            new <- awaitNewCutByChainId cdb cid cut
+            -- Temporarily block this chain from being considered for queries --
+            atomically $ modifyTVar' tpw (silenceChain cid)
+            -- Generate new payloads, one for each Miner we're managing --
+            let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
+            payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
+            -- Update the cache in a single step --
+            atomically $ modifyTVar' tpw (\pw -> foldl' (updateCache cid) pw payloads)
+            go new
+
+    -- | Declare that a particular Chain is temporarily unavailable for new work
+    -- requests while a new payload is being formed.
+    --
+    silenceChain :: ChainId -> PrimedWork -> PrimedWork
+    silenceChain cid (PrimedWork pw) = PrimedWork (pw & traverse . at cid ?~ Nothing)
+
+    updateCache
+        :: ChainId
+        -> PrimedWork
+        -> T2 Miner (T2 PayloadWithOutputs BlockCreationTime)
+        -> PrimedWork
+    updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
+        PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
+
+    initialPayloads :: Cut -> [Miner] -> IO PrimedWork
+    initialPayloads cut ms =
+        PrimedWork . HM.fromList <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) ms
+      where
+        pairs :: [T2 ChainId ParentHeader]
+        pairs = map (\cid -> T2 cid (ParentHeader (cut ^?! ixg cid))) cids
+
+    -- | Based on a `Cut`, form payloads for each chain for a given `Miner`.
+    --
+    fromCut
+      :: Miner
+      -> [T2 ChainId ParentHeader]
+      -> IO (HM.HashMap ChainId (Maybe (T2 PayloadWithOutputs BlockCreationTime)))
+    fromCut m cut =
+        HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) . Just <$> getPayload bh m) cut
+
+    getPayload :: ParentHeader -> Miner -> IO (T2 PayloadWithOutputs BlockCreationTime)
+    getPayload (ParentHeader parent) m = do
+        creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+        payload <- trace (logFunction logger) "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
+            () 1 (_pactNewBlock pact m parent creationTime)
+        pure $ T2 payload creationTime
+
+    pact :: PactExecutionService
+    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+
+    -- | THREAD: Periodically clear out the cached payloads kept for Mining
+    -- Coordination.
+    --
     prune :: TVar MiningState -> IORef Int -> IORef Int -> IO ()
     prune t c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
         let !d = 30_000_000  -- 30 seconds
@@ -190,7 +274,10 @@ runMiner v mr =
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        localTest lf v (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
+        tpw <- newTVarIO mempty
+        localTest lf v tpw (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = localPOW lf v (_nodeMiner conf) cdb
+    powMiner = do
+        tpw <- newTVarIO mempty
+        localPOW lf v tpw (_nodeMiner conf) cdb

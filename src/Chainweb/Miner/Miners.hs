@@ -32,6 +32,7 @@ import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
+import Control.Concurrent.STM.TVar (TVar)
 import Control.Lens (view)
 
 import Numeric.Natural (Natural)
@@ -47,7 +48,7 @@ import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
-import Chainweb.Miner.Config (MinerCount(..))
+import Chainweb.Miner.Config (CoordinationMode(..), MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner)
@@ -71,17 +72,18 @@ import Data.LogMessage (LogFunction)
 localTest
     :: LogFunction
     -> ChainwebVersion
+    -> TVar PrimedWork
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
+localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork lf Anything m pact c
+        T3 p bh pl <- newWork lf Public Anything m pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
             ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
@@ -121,13 +123,13 @@ mempoolNoopMiner lf chainRes =
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: LogFunction -> ChainwebVersion -> Miner -> CutDb cas -> IO ()
-localPOW lf v m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
+localPOW :: LogFunction -> ChainwebVersion -> TVar PrimedWork -> Miner -> CutDb cas -> IO ()
+localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork lf Anything m pact c
+        T3 p bh pl <- newWork lf Public Anything m pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
             ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
