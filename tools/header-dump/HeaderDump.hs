@@ -38,6 +38,7 @@ import Data.Bitraversable
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS
 import Data.CAS.RocksDB
+import qualified Data.CaseInsenstive as CI
 import Data.Functor.Of
 import qualified Data.HashSet as HS
 import Data.LogMessage
@@ -63,6 +64,7 @@ import System.LogLevel
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger
+import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -76,6 +78,30 @@ import Pact.Types.PactError
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
+data Output
+    = Header
+    | Miner
+    | CoinbaseOutput
+    | CoinebaseResult
+    | CoinbaseFailures
+    deriving (Show, Eq, Ord, Generic, Enum, Bounded)
+
+instance FromJSON Output where
+    parseJSON = withText "Output" $ \t -> case CI.mk t of
+        "header" -> Header
+        "miner" -> Miner
+        "coinbase-output" -> CoinbaseOutput
+        "coinbase-result" -> CoinebaseResult
+        "coinbase-failures" -> CoinbaseFailures
+        o -> fail $ "unknown result type: " <> sshow o
+
+instance ToJSON Output where
+    toJSON Header = "header"
+    toJSON Miner = "miner"
+    toJSON CoinbaseOutput = "coinbase-output"
+    toJSON CoinebaseResult = "coinbase-result"
+    toJSON CoinBaseFailures = "coinbase-failures"
+
 data Config = Config
     { _configLogHandle :: !Y.LoggerHandleConfig
     , _configLogLevel :: !Y.LogLevel
@@ -85,7 +111,7 @@ data Config = Config
     , _configPretty :: !Bool
     , _configStart :: !(Maybe (Min Natural))
     , _configEnd :: !(Maybe (Max Natural))
-
+    , _configTyp :: !Output
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -101,6 +127,7 @@ defaultConfig = Config
     , _configDatabaseDirectory = Nothing
     , _configStart = Nothing
     , _configEnd = Nothing
+    , _configOutput = Header
     }
   where
     devVersion = Development
@@ -115,6 +142,7 @@ instance ToJSON Config where
         , "databaseDirectory" .= _configDatabaseDirectory o
         , "start" .= _configStart o
         , "end" .= _configEnd o
+        , "output" .= _configOutput o
         ]
 
 instance FromJSON (Config -> Config) where
@@ -127,6 +155,7 @@ instance FromJSON (Config -> Config) where
         <*< configDatabaseDirectory ..: "databaseDirectory" % o
         <*< configStart ..: "start" % o
         <*< configEnd ..: "end" % o
+        <*< configOutput ..: "output" % o
 
 pConfig :: MParser Config
 pConfig = id
@@ -155,6 +184,10 @@ pConfig = id
         % long "end"
         <> short 'e'
         <> help "end block height"
+    <*< configOutput .:: jsonOption
+        % long "output"
+        <> short 'o'
+        <> help "output type"
 
 validateConfig :: ConfigValidation Config []
 validateConfig o = do
@@ -269,7 +302,9 @@ run2 :: Logger l => Config -> l -> IO ()
 run2 config logger = withChainDbs logger config $ \pdb cdb -> do
     txOutputsStream logger config pdb cdb $ \s -> s
         & coinbaseResult
-        & failures
+        -- & failures
+        -- & miner
+        -- & S.filter (\(_, Miner mid mkeys) -> _minerId mid /= "noMiner")
         & S.mapM_ (T.putStrLn . T.decodeUtf8 . BL.toStrict . encodePretty)
 
 withChainDbs
@@ -296,6 +331,33 @@ withChainDbs logger config inner = do
         Nothing -> getXdgDirectory XdgData
             $ "chainweb-node/" <> sshow v <> "/" <> "0" <> "/rocksDb"
         Just d -> return d
+
+run3 :: Logger l => Config -> l -> IO ()
+run3 config logger = withChainDbs logger config $ \pdb cdb -> do
+    liftIO $ logg Info "start traversing block headers"
+    void $ entries cdb Nothing Nothing (MinRank <$> _configStart config) (MaxRank <$> _configEnd config) $ \s -> s
+        & void
+        & progress logg
+
+        & case _configOutput config of
+            Header -> S.map ObjectEncoded
+            Miner -> miner
+                & S.filter (\(_, Miner mid mkeys) -> _minerId mid /= "noMiner")
+            CoinbaseOutput -> payloads
+                & coinbaseOutput
+            CoinebaseResult -> payloads
+                & coinbaseResult
+            CoinBaseFailures -> payloads
+                & coinbaseResult
+                & failures
+
+        & S.map encodeJson
+        & S.mapM_ T.putStrLn
+  where
+    encodeJson
+        | _configPretty config = T.decodeUtf8 . BL.toStrict . encodePretty
+        | otherwise = encodeToText
+
 
 txOutputsStream
     :: Logger l
@@ -346,6 +408,14 @@ commands pdb s = s
     & S.map (bimap _transactionBytes _transactionOutputBytes)
     & S.mapM (bitraverse decodeStrictOrThrow' decodeStrictOrThrow')
 
+miner
+    :: MonadThrow m
+    => S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
+    -> S.Stream (Of (BlockHeight, Miner)) m a
+miner = S.mapM
+    --  $ traverse (decodeStrictOrThrow' . _minerData . _payloadWithOutputsMiner)
+    $ traverse (decodeStrictOrThrow' . _minerData . _payloadWithOutputsMiner)
+
 payloads
     :: MonadIO m
     => PayloadCas cas
@@ -357,11 +427,11 @@ payloads pdb =  S.mapM
     . (_blockHeight &&& _blockPayloadHash)
     )
 
-coinbase
+coinbaseOutput
     :: Monad m
     => S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
     -> S.Stream (Of (BlockHeight, CoinbaseOutput)) m a
-coinbase = S.map $ fmap _payloadWithOutputsCoinbase
+coinbaseOutput = S.map $ fmap _payloadWithOutputsCoinbase
 
 coinbaseResult
     :: MonadThrow m
