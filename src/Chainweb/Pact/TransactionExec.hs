@@ -44,6 +44,7 @@ module Chainweb.Pact.TransactionExec
 
   -- * Utilities
 , buildExecParsedCode
+, jsonErrorResult
 , mkMagicCapSlot
 
 ) where
@@ -75,7 +76,7 @@ import Pact.Gas.Table
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
@@ -95,8 +96,10 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Types
+import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
+import Chainweb.Version
 
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
@@ -157,6 +160,7 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
+
     redeemAllGas r = do
       txGasUsed .= fromIntegral gasLimit
       applyRedeem r
@@ -182,8 +186,9 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
 
       r <- catchesPactError $! redeemGas cmd
       case r of
-        -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
-        Left e -> fatal $ "tx failure for request key while redeeming gas: " <> sshow e
+        Left e ->
+          -- redeem gas failure is fatal (block-failing) so miner doesn't lose coins
+          fatal $ "tx failure for request key while redeeming gas: " <> sshow e
         Right _ -> do
           logs <- use txLogs
           return $! set crLogs (Just logs) cr
@@ -219,7 +224,8 @@ applyGenesisCmd logger dbEnv pd spv cmd =
 
 
 applyCoinbase
-    :: Logger
+    :: ChainwebVersion
+    -> Logger
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -232,13 +238,30 @@ applyCoinbase
     -> BlockHash
       -- ^ hash of the mined block
     -> EnforceCoinbaseFailure
-      -- ^ treat
+      -- ^ enforce coinbase failure or not
+    -> CoinbaseUsePrecompiled
+      -- ^ always enable precompilation
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
-  (EnforceCoinbaseFailure throwCritical) mc =
-    evalTransactionM tenv txst go
+applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
+  (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
+  | fork1_3InEffect || enablePC = do
+    let (cterm, cexec) = mkCoinbaseTerm mid mks reward
+        interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
+    go interp cexec
+  | otherwise = do
+    cexec <- mkCoinbaseCmd mid mks reward
+    let interp = initStateInterpreter initState
+    go interp cexec
   where
+    forkTime = vuln797FixDate v
+    fork1_3InEffect = blockTime >= forkTime
+    throwCritical = fork1_3InEffect || enfCBFailure
+    blockTime =
+      let (TxCreationTime (ParsedInteger !bt)) =
+            view (pdPublicMeta . pmCreationTime) pd
+      in Time (TimeSpan (Micros (fromIntegral bt)))
+
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
@@ -246,11 +269,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     chash = Pact.Hash (sshow ph)
     rk = RequestKey chash
 
-    go = do
-      let (cterm,cexec) = mkCoinbaseTerm mid mks reward
-          interp = Interpreter $ \_input -> do
-            put initState
-            pure <$> eval cterm
+    go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError $!
         applyExec' interp cexec mempty chash managedNamespacePolicy
 
@@ -267,6 +286,7 @@ applyCoinbase logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
 
           return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
            (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
+
 
 applyLocal
     :: Logger
@@ -322,6 +342,7 @@ jsonErrorResult err msg = do
     gas <- view txGasLimit -- error means all gas was charged
     rk <- view txRequestKey
     l <- view txLogger
+
     liftIO
       $! logLog l "ERROR"
       $! T.unpack msg
@@ -471,7 +492,7 @@ buyGas cmd (Miner mid mks) = go
       mcache <- use txCache
       supply <- gasSupplyOf <$> view txGasLimit <*> view txGasPrice
 
-      let (!buyGasTerm, !buyGasCmd) = mkBuyGasTerm mid mks sender supply
+      let (buyGasTerm, buyGasCmd) = mkBuyGasTerm mid mks sender supply
           interp mc = Interpreter $ \_input ->
             put (initState mc) >> run (pure <$> eval buyGasTerm)
 
@@ -481,8 +502,6 @@ buyGas cmd (Miner mid mks) = go
       case _erExec result of
         Nothing -> fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
-
-
 
 findPayer :: Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
 findPayer = runMaybeT $ do
@@ -558,7 +577,9 @@ initCapabilities cs = set (evalCapabilities . capStack) cs def
 initStateInterpreter :: EvalState -> Interpreter p
 initStateInterpreter s = Interpreter $ (put s >>)
 
-
+-- | Check whether the cost of running a tx is more than the allowed
+-- gas limit and do some action depending on the outcome
+--
 checkTooBigTx
     :: Gas
     -> GasLimit
@@ -575,7 +596,6 @@ checkTooBigTx initialGas gasLimit next onFail
 
       r <- jsonErrorResult pe "Tx too big"
       onFail r
-
   | otherwise = next
 
 gasInterpreter :: Gas -> TransactionM db (Interpreter p)

@@ -50,8 +50,8 @@ insertHandler v mempool txsT = handleErrs (NoContent <$ begin)
         Left e -> throwM . DecodeException $ T.pack e
         Right t -> return t
 
-    -- | KILLSWITCH 2019-12-05T16:00:00Z: The logic involving `transferActivationDate` can be removed once
-    -- the actual date has passed. Until then, this serves as an additional
+    -- | KILLSWITCH The logic involving `transferActivationDate` can be removed
+    -- once the actual date has passed. Until then, this serves as an additional
     -- block against Transactions entering the system.
     --
     begin :: Handler ()

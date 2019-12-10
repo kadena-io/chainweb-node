@@ -56,6 +56,7 @@ module P2P.Node.PeerDB
 , makePeerDbPrivate
 , fromPeerEntryList
 , fromPeerInfoList
+, prunePeerDb
 
 -- * PeerSet
 , PeerSet
@@ -292,8 +293,10 @@ addPeerEntry b m = m & case getOne (getEQ addr m) of
 --
 -- If the 'PeerAddr' exist with the same peer-id, the chain-id is added.
 --
-addPeerInfo :: NetworkId -> PeerInfo -> PeerSet -> PeerSet
-addPeerInfo nid = addPeerEntry . newPeerEntry nid
+addPeerInfo :: NetworkId -> PeerInfo -> UTCTime -> PeerSet -> PeerSet
+addPeerInfo nid pinf now = addPeerEntry $ (newPeerEntry nid pinf)
+    { _peerEntryLastSuccess = LastSuccess (Just now)
+    }
 
 -- | Delete a peer, identified by its host address, from the 'PeerSet'. The peer
 -- is delete for all network ids.
@@ -340,11 +343,13 @@ peerDbSizeSTM (PeerDb _ _ var) = int . size <$!> readTVar var
 --
 peerDbInsert :: PeerDb -> NetworkId -> PeerInfo -> IO ()
 peerDbInsert (PeerDb True _ _) _ _ = return ()
-peerDbInsert (PeerDb _ lock var) nid i = withMVar lock
-    . const
-    . atomically
-    . modifyTVar' var
-    $ addPeerInfo nid i
+peerDbInsert (PeerDb _ lock var) nid i = do
+    now <- getCurrentTime
+    withMVar lock
+        . const
+        . atomically
+        . modifyTVar' var
+        $ addPeerInfo nid i now
 {-# INLINE peerDbInsert #-}
 
 -- | Delete a peer, identified by its host address, from the peer database.
@@ -356,6 +361,25 @@ peerDbDelete (PeerDb _ lock var) i = withMVar lock
     . modifyTVar' var
     $ deletePeer i
 {-# INLINE peerDbDelete #-}
+
+-- | Delete peers that
+-- 1. not currently used, that
+-- 2. we haven't used since 12h, and that
+-- 3. have had more than 5 failed connection attempts.
+--
+prunePeerDb :: PeerDb -> IO ()
+prunePeerDb (PeerDb _ lock var) = do
+    withMVar lock $ \_ -> do
+        now <- getCurrentTime
+        let cutoff = Just $ addUTCTime ((-60) * 60 * 12) now
+        atomically $ modifyTVar' var $ \s ->
+            (getGT (ActiveSessionCount 0) s)
+            |||
+            (getLTE (SuccessiveFailures 5) s)
+            |||
+            (getGT (LastSuccess cutoff) s)
+            |||
+            (fromList $ filter _peerEntrySticky $ toList s)
 
 fromPeerEntryList :: [PeerEntry] -> IO PeerDb
 fromPeerEntryList peers = PeerDb False
@@ -376,7 +400,12 @@ peerDbInsertList peers (PeerDb _ lock var) =
 
 peerDbInsertPeerInfoList :: NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList _ _ (PeerDb True _ _) = return ()
-peerDbInsertPeerInfoList nid ps db = peerDbInsertList (newPeerEntry nid <$> ps) db
+peerDbInsertPeerInfoList nid ps db = do
+    now <- getCurrentTime
+    peerDbInsertList (mkEntry now <$> ps) db
+  where
+    mkEntry now x = newPeerEntry nid x
+        & set peerEntryLastSuccess (LastSuccess (Just now))
 
 peerDbInsertPeerInfoList_ :: Bool -> NetworkId -> [PeerInfo] -> PeerDb -> IO ()
 peerDbInsertPeerInfoList_ _ _ _ (PeerDb True _ _) = return ()
