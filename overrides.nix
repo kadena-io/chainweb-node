@@ -69,12 +69,6 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "1dhfyfycy0wakw4j7rr01a7v70yms7dw3h60k5af7pi9v700wyb4";
       };
 
-      lens-aeson = callHackageDirect {
-        pkg = "lens-aeson";
-        ver = "1.1";
-        sha256 = "0bx7ay7dx6ljhy1a6bmjdz52vfwmx8af8sd96p38yc0m9irjz02h";
-      };
-
       massiv = callHackageDirect {
         pkg = "massiv";
         ver = "0.4.2.0";

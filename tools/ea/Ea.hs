@@ -132,9 +132,9 @@ genPayloadModule v tag txFiles =
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger
-                         bhdb pdb Nothing Nothing False 1000 $
-                         execNewGenesisBlock noMiner (V.fromList cwTxs)
+        payloadWO <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
+            initPactService' v cid logger bhdb pdb env 1000 $
+                execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
             modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
