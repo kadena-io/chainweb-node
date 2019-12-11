@@ -48,7 +48,7 @@
     "Magic capability constraining genesis transactions"
     true)
 
-  (defcap REMEDIATE ()
+  (defcap REMEDIATE (account:string amount:decimal)
     "Magic capability for remediation transactions"
     true)
 
@@ -344,7 +344,6 @@
              (property (> amount 0.0))
            ]
 
-    (require-capability (REMEDIATE))
     (validate-account account)
 
     (enforce (> amount 0.0)
@@ -352,6 +351,7 @@
 
     (enforce-unit amount)
 
+    (require-capability (REMEDIATE account amount))
     (with-read coin-table account
       { "balance" := balance }
 
