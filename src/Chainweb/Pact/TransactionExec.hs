@@ -106,31 +106,19 @@ import Chainweb.Version
 -- constrain coinbase calls.
 --
 magic_COINBASE :: Text -> Decimal -> CapSlot UserCapability
-magic_COINBASE mid d = mkMagicCapSlot "COINBASE"
-    [ PLiteral $ LString mid
-    , PLiteral $ LDecimal d
-    ]
-
--- | "Magic" capability 'SLASH' used in the coin contract to
--- constrain slash calls.
---
-_magic_SLASH :: Text -> Decimal -> CapSlot UserCapability
-_magic_SLASH mid d = mkMagicCapSlot "SLASH"
-    [ PLiteral $ LString mid
-    , PLiteral $ LDecimal d
-    ]
+magic_COINBASE mid d = mkMagicCapSlot "COINBASE" []
 
 -- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
 --
 magic_GAS :: CapSlot UserCapability
-magic_GAS = mkMagicCapSlot "GAS" mempty
+magic_GAS = mkMagicCapSlot "GAS"
 
 -- | "Magic" capability 'GENESIS' used in the coin contract to
 -- constrain genesis-only allocations
 --
 magic_GENESIS :: CapSlot UserCapability
-magic_GENESIS = mkMagicCapSlot "GENESIS" mempty
+magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 
 -- | The main entry point to executing transactions. From here,
@@ -226,7 +214,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
            justInstallsExecutionConfig
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
-    interp = initStateInterpreter $ initCapabilities [magic_GENESIS]
+    interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
     go = do
       cr <- catchesPactError $! runGenesis cmd permissiveNamespacePolicy interp
@@ -255,7 +243,7 @@ applyCoinbase
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyCoinbase v logger dbEnv (Miner mid@(MinerId m) mks) reward@(ParsedDecimal d) pd ph
+applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
@@ -274,7 +262,7 @@ applyCoinbase v logger dbEnv (Miner mid@(MinerId m) mks) reward@(ParsedDecimal d
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
-    initState = initCapabilities [magic_COINBASE m d]
+    initState = initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow ph)
     rk = RequestKey chash
 
@@ -685,12 +673,12 @@ managedNamespacePolicy = SmartNamespacePolicy False
 
 -- | Builder for "magic" capabilities given a magic cap name
 --
-mkMagicCapSlot :: Text -> [PactValue] -> CapSlot UserCapability
-mkMagicCapSlot cname cargs = CapSlot CapCallStack cap []
+mkMagicCapSlot :: Text -> CapSlot UserCapability
+mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
     mn = ModuleName "coin" Nothing
     fqn = QualifiedName mn cname def
-    cap = SigCapability fqn cargs
+    cap = SigCapability fqn []
 {-# INLINE mkMagicCapSlot #-}
 
 -- | Build the 'ExecMsg' for some pact code fed to the function. The 'value'

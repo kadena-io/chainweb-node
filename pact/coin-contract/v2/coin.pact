@@ -40,7 +40,7 @@
     "Magic capability to protect gas buy and redeem"
     true)
 
-  (defcap COINBASE (account:string amount:decimal)
+  (defcap COINBASE ()
     "Magic capability to protect miner reward"
     true)
 
@@ -258,7 +258,7 @@
     (with-capability (ROTATE new-guard)
       (with-read coin-table account
         { "guard" := old-guard }
-        
+
         (enforce-guard old-guard)
         (enforce-guard new-guard)
 
@@ -334,7 +334,7 @@
     (validate-account account)
     (enforce-unit amount)
 
-    (require-capability (COINBASE account amount))
+    (require-capability (COINBASE))
     (with-capability (CREDIT account)
       (credit account account-guard amount))
     )
