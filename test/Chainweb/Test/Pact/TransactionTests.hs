@@ -9,9 +9,9 @@
 -- Maintainer: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
 --
--- Test the 'Coin Contract' pact code
+-- Test func in TransactionExec
 --
-module Chainweb.Test.CoinContract ( tests ) where
+module Chainweb.Test.Pact.TransactionTests ( tests ) where
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -35,7 +35,7 @@ import Chainweb.Pact.TransactionExec
 
 
 tests :: TestTree
-tests = testGroup "Chainweb.Test.CoinContract"
+tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   [ testGroup "Pact Command Parsing"
     [ testCase "Build Exec with Data" buildExecWithData
     , testCase "Build Exec without Data" buildExecWithoutData

@@ -25,7 +25,6 @@ import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeaderDB
-import qualified Chainweb.Test.CoinContract
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
@@ -41,6 +40,7 @@ import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.RewardsTest
 import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.Pact.TTL
+import qualified Chainweb.Test.Pact.TransactionTests
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
@@ -100,7 +100,7 @@ suite rdb =
             , Chainweb.Test.TreeDB.Persistence.tests rdb
             , testProperties "Chainweb.TreeDB" Chainweb.TreeDB.properties
             ]
-        , Chainweb.Test.CoinContract.tests
+        , Chainweb.Test.Pact.TransactionTests.tests
         , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Roundtrips.tests
         , Chainweb.Test.RestAPI.tests rdb

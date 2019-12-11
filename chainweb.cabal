@@ -426,7 +426,6 @@ test-suite chainweb-tests
     other-modules:
         Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeaderDB
-        Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
@@ -445,6 +444,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.PactReplay
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
+        Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.Pact.TTL
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
