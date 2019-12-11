@@ -105,8 +105,8 @@ import Chainweb.Version
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
 --
-magic_COINBASE :: Text -> Decimal -> CapSlot UserCapability
-magic_COINBASE mid d = mkMagicCapSlot "COINBASE" []
+magic_COINBASE :: CapSlot UserCapability
+magic_COINBASE = mkMagicCapSlot "COINBASE"
 
 -- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
@@ -677,7 +677,7 @@ mkMagicCapSlot :: Text -> CapSlot UserCapability
 mkMagicCapSlot c = CapSlot CapCallStack cap []
   where
     mn = ModuleName "coin" Nothing
-    fqn = QualifiedName mn cname def
+    fqn = QualifiedName mn c def
     cap = SigCapability fqn []
 {-# INLINE mkMagicCapSlot #-}
 
