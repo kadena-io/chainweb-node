@@ -15,7 +15,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  3818 (env-gas))
+  3827 (env-gas))
 (commit-tx)
 
 (verify 'coin)
