@@ -68,6 +68,7 @@ module Chainweb.Test.Pact.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
+import Control.Lens (_3, view)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -647,19 +648,19 @@ withPact
     -> (IO PactQueue -> TestTree)
     -> TestTree
 withPact version logLevel iopdb iobhdb mempool iodir deepForkLimit f =
-    withResource startPact stopPact $ f . fmap snd
+    withResource startPact stopPact $ f . fmap (view _3)
   where
     startPact = do
         reqQ <- atomically $ newTBQueue 2000
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
+        sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
         a <- async $
-             initPactService version cid logger reqQ mempool bhdb pdb (Just dir)
-                             Nothing False deepForkLimit
-        return (a, reqQ)
+             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv deepForkLimit
+        return (a, sqlEnv, reqQ)
 
-    stopPact (a, _) = cancel a
+    stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version

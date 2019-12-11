@@ -33,7 +33,7 @@ import Data.Text (Text, pack)
 
 import Text.Trifecta.Delta (Delta(..))
 
--- *  internal modules
+-- internal modules
 
 import Pact.Parse
 import Pact.Types.Command

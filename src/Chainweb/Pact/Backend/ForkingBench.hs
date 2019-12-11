@@ -296,11 +296,12 @@ data Resources
     , payloadDb :: !(PayloadDb HashMapCas)
     , blockHeaderDb :: !BlockHeaderDb
     , tempDir :: !FilePath
-    , pactService :: (Async (), PactQueue)
-    , mainTrunkBlocks :: [T3 BlockHeader BlockHeader PayloadWithOutputs]
-    , coinAccounts :: MVar (Map Account (NonEmpty SomeKeyPairCaps))
-    , nonceCounter :: IORef Word64
-    , txPerBlock :: IORef Int
+    , pactService :: !(Async (), PactQueue)
+    , mainTrunkBlocks :: ![T3 BlockHeader BlockHeader PayloadWithOutputs]
+    , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
+    , nonceCounter :: !(IORef Word64)
+    , txPerBlock :: !(IORef Int)
+    , sqlEnv :: !SQLiteEnv
     }
 
 type RunPactService =
@@ -325,14 +326,16 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
+        sqlEnv <- startSqliteDb testVer cid logger (Just tempDir) Nothing False
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts time) tempDir
+          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts time) sqlEnv
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}
 
     destroy (NoopNFData (Resources {..})) = do
       stopPact pactService
+      stopSqliteDb sqlEnv
       destroyRocksResource rocksDbAndDir
       destroyPayloadDb payloadDb
 
@@ -343,10 +346,9 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
 
     logger = genericLogger logLevel T.putStrLn
 
-    startPact version l bhdb pdb mempool dir = do
+    startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- atomically $ newTBQueue pactQueueSize
-        a <- async $ initPactService version cid l reqQ mempool
-                                     bhdb pdb (Just dir) Nothing False 100000
+        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv 100000
         return (a, reqQ)
 
     stopPact (a, _) = cancel a

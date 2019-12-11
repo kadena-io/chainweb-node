@@ -458,17 +458,17 @@
   "not granted"
   (coinbase 'emily (read-keyset 'emily) 0.0))
 
-(test-capability (COINBASE 'emily 1.0))
+(test-capability (COINBASE))
 
 (coinbase 'emily (read-keyset 'emily) 1.0)
 
-(test-capability (COINBASE 'emily 0.0))
+(test-capability (COINBASE))
 (expect-failure
   "coinbasing trivial or negative amounts fails fast"
   "positive"
   (coinbase 'emily (read-keyset 'emily) 0.0))
 
-(test-capability (COINBASE 'emily -1.0))
+(test-capability (COINBASE))
 (expect-failure
   "coinbasing trivial or negative amounts fails fast"
   "positive"
@@ -486,7 +486,7 @@
   "row not found"
   (get-balance 'miner2))
 
-(test-capability (COINBASE 'miner2 1.0))
+(test-capability (COINBASE))
 (coinbase 'miner2 (read-keyset 'miner2) 1.0)
 
 (expect
@@ -653,7 +653,7 @@
   (transfer-crosschain 'emily 'doug (read-keyset 'doug) "chain" UNIT_BAD))
 
 ;;coinbase
-(test-capability (COINBASE 'doug UNIT_GOOD))
+(test-capability (COINBASE))
 (expect
   "min coinbase succeeds"
   "Write succeeded"
