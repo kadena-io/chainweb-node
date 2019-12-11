@@ -29,6 +29,7 @@ module Chainweb.Miner.Coordinator
   , ChainChoice(..)
   , PrimedWork(..)
   , CachedPayload
+  , Whitelisted(..), whitelisted
     -- * Functions
   , newWork
   , publish
@@ -121,18 +122,27 @@ newtype PrevTime = PrevTime BlockCreationTime
 
 data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 
+-- | A `Miner` defined in the nodes `miners` list. Should be subject to Primed
+-- Coordination.
+--
+newtype Whitelisted = Whitelisted Miner
+
+whitelisted :: Either Miner Whitelisted -> Miner
+whitelisted (Left m) = m
+whitelisted (Right (Whitelisted m)) = m
+
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
     :: LogFunction
     -> CoordinationMode
     -> ChainChoice
-    -> Miner
+    -> Either Miner Whitelisted
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork logFun mode choice miner@(Miner mid _) pact tpw c = do
+newWork logFun mode choice eminer pact tpw c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -144,10 +154,10 @@ newWork logFun mode choice miner@(Miner mid _) pact tpw c = do
     --
     let !p = ParentHeader (c ^?! ixg cid)
 
-    bool (public p) (private cid p <$> readTVarIO tpw) (mode == Private) >>= \case
+    either (public p) (\m -> primed m cid p <$> readTVarIO tpw) eminer >>= \case
         -- The proposed Chain wasn't mineable, either because the adjacent
         -- parents weren't available, or because the chain is mid-update.
-        Nothing -> newWork logFun mode (TriedLast cid) miner pact tpw c
+        Nothing -> newWork logFun mode (TriedLast cid) eminer pact tpw c
         Just (T2 (T2 payload creationTime) adjParents) -> do
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
@@ -157,13 +167,18 @@ newWork logFun mode choice miner@(Miner mid _) pact tpw c = do
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
             pure $ T3 (PrevTime . _blockCreationTime $ coerce p) header payload
   where
-    private :: ChainId -> ParentHeader -> PrimedWork -> Maybe (T2 CachedPayload BlockHashRecord)
-    private cid (ParentHeader p) (PrimedWork pw) = T2
+    primed
+        :: Whitelisted
+        -> ChainId
+        -> ParentHeader
+        -> PrimedWork
+        -> Maybe (T2 CachedPayload BlockHashRecord)
+    primed (Whitelisted (Miner mid _)) cid (ParentHeader p) (PrimedWork pw) = T2
         <$> (HM.lookup mid pw >>= HM.lookup cid >>= id)
         <*> getAdjacentParents c p
 
-    public :: ParentHeader -> IO (Maybe (T2 CachedPayload BlockHashRecord))
-    public (ParentHeader p) = case getAdjacentParents c p of
+    public :: ParentHeader -> Miner -> IO (Maybe (T2 CachedPayload BlockHashRecord))
+    public (ParentHeader p) miner = case getAdjacentParents c p of
         Nothing -> pure Nothing
         Just adj -> do
             creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
