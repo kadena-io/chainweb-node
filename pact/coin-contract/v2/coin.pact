@@ -48,8 +48,8 @@
     "Magic capability constraining genesis transactions"
     true)
 
-  (defcap SLASH (account:string amount:decimal)
-    @doc "Magic auto-managed capability for slash transactions"
+  (defcap REMEDIATE (account:string amount:decimal)
+    "Magic capability for remediation transactions"
     true)
 
   (defcap DEBIT (sender:string)
@@ -337,7 +337,7 @@
       (credit account account-guard amount))
     )
 
-  (defun slash:string (account:string amount:decimal)
+  (defun remediate:string (account:string amount:decimal)
     @doc "Slash allows the termination of coins. This function \
          \is protected by the SLASH capability"
     @model [ (property (valid-account account))
@@ -347,7 +347,7 @@
     (validate-account account)
     (enforce-unit amount)
 
-    (require-capability (SLASH account amount))
+    (require-capability (REMEDIATE account amount))
     (with-capability (DEBIT account)
       (debit account amount))
     )
