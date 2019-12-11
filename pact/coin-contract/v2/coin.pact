@@ -254,13 +254,11 @@
     )
 
   (defun rotate:string (account:string new-guard:guard)
-    (install-capability (ROTATE new-guard))
     (with-capability (ROTATE new-guard)
       (with-read coin-table account
         { "guard" := old-guard }
 
         (enforce-guard old-guard)
-        (enforce-guard new-guard)
 
         (update coin-table account
           { "guard" : new-guard }

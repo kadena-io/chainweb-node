@@ -15,7 +15,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  3801 (env-gas))
+  3782 (env-gas))
 (commit-tx)
 
 (verify 'coin)
@@ -562,7 +562,15 @@
 (env-keys ["keys1", "keys2"])
 (expect-failure
   "guard rotation fails when ROTATE is not scoped"
-  "not granted"
+  "Managed capability not installed"
+  (rotate 'emily (read-keyset 'doug)))
+
+(env-sigs [{'key: "keys1", 'caps: [(coin.ROTATE (read-keyset 'doug))]}])
+(install-capability (ROTATE (read-keyset 'doug)))
+
+(expect
+  "guard rotation succeeds when ROTATE is scoped"
+  "Write succeeded"
   (rotate 'emily (read-keyset 'doug)))
 
 (expect
