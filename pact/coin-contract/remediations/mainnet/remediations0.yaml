@@ -1,0 +1,7 @@
+# mainnet remediations chain 0
+
+code: |-
+  (coin.remediate "foo" 1337.7)
+  (coin.remediate "bar" 1337.9)
+nonce: mainnet-remediations-0
+keyPairs: []
