@@ -15,7 +15,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  3782 (env-gas))
+  3818 (env-gas))
 (commit-tx)
 
 (verify 'coin)
@@ -565,8 +565,8 @@
   "Managed capability not installed"
   (rotate 'emily (read-keyset 'doug)))
 
-(env-sigs [{'key: "keys1", 'caps: [(coin.ROTATE (read-keyset 'doug))]}])
-(install-capability (ROTATE (read-keyset 'doug)))
+(env-sigs [{'key: "keys1", 'caps: [(coin.ROTATE "emily")]}])
+(install-capability (ROTATE "emily"))
 
 (expect
   "guard rotation succeeds when ROTATE is scoped"
@@ -843,19 +843,16 @@
   "not granted"
   (remediate "brandon" 1.0))
 
-(env-keys ["brandon"])
-
-(test-capability (REMEDIATE "brandon" 1.0))
+(test-capability (REMEDIATE))
 
 (expect
   "Remediations succeed in the presence of REMEDIATE"
   "Write succeeded"
   (remediate "brandon" 1.0))
 
-(test-capability (REMEDIATE "brandon" -1.0))
 (expect-failure
-  "Cannot remedaite negative amounts"
-  "debit amount must be positive"
+  "Cannot remediate negative amounts"
+  "Remediation amount must be positive"
   (remediate "brandon" -1.0))
 
 (expect-failure

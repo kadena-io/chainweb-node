@@ -48,7 +48,7 @@
     "Magic capability constraining genesis transactions"
     true)
 
-  (defcap REMEDIATE (account:string amount:decimal)
+  (defcap REMEDIATE ()
     "Magic capability for remediation transactions"
     true)
 
@@ -61,7 +61,7 @@
     "Capability for managing crediting operations"
     (enforce (!= receiver "") "valid receiver"))
 
-  (defcap ROTATE (guard:guard)
+  (defcap ROTATE (account:string)
     @doc "Autonomously managed capability for guard rotation"
     @managed
     true)
@@ -254,7 +254,7 @@
     )
 
   (defun rotate:string (account:string new-guard:guard)
-    (with-capability (ROTATE new-guard)
+    (with-capability (ROTATE account)
       (with-read coin-table account
         { "guard" := old-guard }
 
@@ -344,12 +344,22 @@
              (property (> amount 0.0))
            ]
 
+    (require-capability (REMEDIATE))
     (validate-account account)
+
+    (enforce (> amount 0.0)
+      "Remediation amount must be positive")
+
     (enforce-unit amount)
 
-    (require-capability (REMEDIATE account amount))
-    (with-capability (DEBIT account)
-      (debit account amount))
+    (with-read coin-table account
+      { "balance" := balance }
+
+      (enforce (<= amount balance) "Insufficient funds")
+
+      (update coin-table account
+        { "balance" : (- balance amount) }
+        ))
     )
 
   (defpact fund-tx (sender:string miner:string miner-guard:guard total:decimal)
