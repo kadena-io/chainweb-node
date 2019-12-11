@@ -47,6 +47,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.NodeId
+import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -119,9 +120,9 @@ withChainResourcesStandalone
             -- placing mempool access shim here
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
-              withPactService' v cid (setComponent "pact" logger)
-                    mpa cdb payloadDb dbDir nodeid resetDb pactQueueSize 1000 $
-                \requestQ -> do
+              withSqliteDb v cid logger dbDir nodeid resetDb $ \sqlenv ->
+                withPactService' v cid (setComponent "pact" logger) mpa cdb payloadDb sqlenv pactQueueSize 1000 $
+                  \requestQ -> do
                       -- prune blockheader db
                       when prune $ do
                           logg Info "start pruning block header database"
