@@ -21,9 +21,12 @@
 -- Pact service for Chainweb
 --
 module Chainweb.Pact.PactService
-    (
+    ( -- * SQLite Database
+      withSqliteDb
+    , startSqliteDb
+    , stopSqliteDb
       -- * For Chainweb
-      initialPayloadState
+    , initialPayloadState
     , execNewBlock
     , execValidateBlock
     , execTransactions
@@ -103,7 +106,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
-import Chainweb.ChainId (ChainId, chainIdToText)
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -125,6 +127,71 @@ import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils
 import Chainweb.Version
 import Data.CAS (casLookupM)
+
+-- -------------------------------------------------------------------------- --
+
+withSqliteDb
+    :: Logger logger
+    => ChainwebVersion
+    -> ChainId
+    -> logger
+    -> Maybe FilePath
+    -> Maybe NodeId
+    -> Bool
+    -> (SQLiteEnv -> IO a)
+    -> IO a
+withSqliteDb ver cid logger dbDir nodeid resetDb = bracket
+    (startSqliteDb ver cid logger dbDir nodeid resetDb)
+    stopSqliteDb
+
+startSqliteDb
+    :: Logger logger
+    => ChainwebVersion
+    -> ChainId
+    -> logger
+    -> Maybe FilePath
+    -> Maybe NodeId
+    -> Bool
+    -> IO SQLiteEnv
+startSqliteDb ver cid logger dbDir nodeid doResetDb = do
+    sqlitedir <- getSqliteDir
+    when doResetDb $ resetDb sqlitedir
+    createDirectoryIfMissing True sqlitedir
+    textLog Info $ mconcat
+        [ "opened sqlitedb for "
+        , sshow cid
+        , " in directory "
+        , sshow sqlitedir
+        ]
+    let sqlitefile = getSqliteFile sqlitedir
+    textLog Info $ "opening sqlitedb named " <> T.pack sqlitefile
+    openSQLiteConnection sqlitefile chainwebPragmas
+  where
+    textLog = logFunctionText logger
+
+    resetDb sqlitedir = do
+      exist <- doesDirectoryExist sqlitedir
+      when exist $ removeDirectoryRecursive sqlitedir
+
+    getSqliteFile dir = mconcat
+        [ dir
+        , "/pact-v1-chain-"
+        , T.unpack (chainIdToText cid)
+        , ".sqlite"
+        ]
+
+    getSqliteDir = case dbDir of
+        Nothing -> getXdgDirectory XdgData $ mconcat
+            [ "chainweb-node/"
+            , show ver
+            , maybe mempty (("/" <>) . T.unpack . toText) nodeid
+            , "/sqlite"
+            ]
+        Just d -> return (d <> "sqlite")
+
+stopSqliteDb :: SQLiteEnv -> IO ()
+stopSqliteDb = closeSQLiteConnection
+
 ------------------------------------------------------------------------------
 
 pactLogLevel :: String -> LogLevel
@@ -152,15 +219,11 @@ initPactService
     -> MemPoolAccess
     -> BlockHeaderDb
     -> PayloadDb cas
-    -> Maybe FilePath
-    -> Maybe NodeId
-    -> Bool
+    -> SQLiteEnv
     -> Word64
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb dbDir
-                nodeid resetDb deepForkLimit =
-    initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid resetDb
-                     deepForkLimit $ do
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
+    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
         initialPayloadState ver cid
         serviceRequests mempoolAccess reqQ
 
@@ -172,67 +235,31 @@ initPactService'
     -> logger
     -> BlockHeaderDb
     -> PayloadDb cas
-    -> Maybe FilePath
-    -> Maybe NodeId
-    -> Bool
+    -> SQLiteEnv
     -> Word64
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb dbDir nodeid doResetDb
-                 reorgLimit act = do
-    sqlitedir <- getSqliteDir
-    when doResetDb $ resetDb sqlitedir
-    createDirectoryIfMissing True sqlitedir
-    logFunctionText chainwebLogger Info $
-        mconcat [ "opened sqlitedb for "
-                , sshow cid
-                , " in directory "
-                , sshow sqlitedir ]
-
-    let sqlitefile = getSqliteFile sqlitedir
-    logFunctionText chainwebLogger Info $
-        "opening sqlitedb named " <> T.pack sqlitefile
-
-    withSQLiteConnection sqlitefile chainwebPragmas False $ \sqlenv -> do
-      checkpointEnv <- initRelationalCheckpointer
-                           initBlockState sqlenv logger
-
-      let !rs = readRewards ver
-          !gasModel = officialGasModel
-          !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
-          !pse = PactServiceEnv
-                 { _psMempoolAccess = Nothing
-                 , _psCheckpointEnv = checkpointEnv
-                 , _psPdb = pdb
-                 , _psBlockHeaderDb = bhDb
-                 , _psGasModel = gasModel
-                 , _psMinerRewards = rs
-                 , _psEnableUserContracts = enableUserContracts ver
-                 , _psReorgLimit = reorgLimit
-                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
-                 }
-          !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
-
-      evalPactServiceM pst pse act
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
+    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
+    let !rs = readRewards ver
+        !gasModel = officialGasModel
+        !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+        !pse = PactServiceEnv
+                { _psMempoolAccess = Nothing
+                , _psCheckpointEnv = checkpointEnv
+                , _psPdb = pdb
+                , _psBlockHeaderDb = bhDb
+                , _psGasModel = gasModel
+                , _psMinerRewards = rs
+                , _psEnableUserContracts = enableUserContracts ver
+                , _psReorgLimit = reorgLimit
+                , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
+                }
+        !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
+    evalPactServiceM pst pse act
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
-
-    resetDb sqlitedir = do
-      exist <- doesDirectoryExist sqlitedir
-      when exist $ removeDirectoryRecursive sqlitedir
-
-    getSqliteFile dir = mconcat [
-        dir, "/pact-v1-chain-", T.unpack (chainIdToText cid), ".sqlite"]
-
-    getSqliteDir =
-        case dbDir of
-            Nothing -> getXdgDirectory XdgData $
-                       mconcat [ "chainweb-node/"
-                               , show ver
-                               , maybe mempty (("/" <>) . T.unpack . toText) nodeid
-                               , "/sqlite" ]
-            Just d -> return (d <> "sqlite")
 
 initialPayloadState
     :: PayloadCas cas
