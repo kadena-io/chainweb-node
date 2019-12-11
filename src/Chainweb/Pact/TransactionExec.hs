@@ -106,7 +106,7 @@ import Chainweb.Version
 -- constrain coinbase calls.
 --
 magic_COINBASE :: CapSlot UserCapability
-magic_COINBASE = mkMagicCapSlot "COINBASE" []
+magic_COINBASE = mkMagicCapSlot "COINBASE"
 
 -- | "Magic" capability 'GAS' used in the coin contract to
 -- constrain gas buy/redeem calls.
