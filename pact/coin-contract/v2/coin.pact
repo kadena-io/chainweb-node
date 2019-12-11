@@ -338,8 +338,8 @@
     )
 
   (defun remediate:string (account:string amount:decimal)
-    @doc "Slash allows the termination of coins. This function \
-         \is protected by the SLASH capability"
+    @doc "Allows for remediation transactions. This function \
+         \is protected by the REMEDIATE capability"
     @model [ (property (valid-account account))
              (property (> amount 0.0))
            ]
