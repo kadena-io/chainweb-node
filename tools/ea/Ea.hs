@@ -27,7 +27,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Ea ( main ) where
+module Ea ( main, genTxModules ) where
 
 import BasePrelude
 
@@ -188,12 +188,28 @@ mkChainwebTxs txFiles = do
 encodeJSON :: ToJSON a => a -> ByteString
 encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })
 
--------------------------
--- Transaction Generation
--------------------------
+------------------------------------------------------
+-- Transaction Generation for coin v2 and remediations
+------------------------------------------------------
 
-genTxModule :: ChainwebVersion -> Text -> [FilePath] -> IO ()
-genTxModule _v tag txFiles = do
+genTxModules :: IO ()
+genTxModules = genDevTxs >> genMainnetTxs >> putStrLn "Done."
+  where
+    gen tag remeds = genTxModule tag $ upgrades <> remeds
+    genDevTxs = gen "DevOther"
+      ["pact/coin-contract/remediations/devother/remediations.yaml"]
+    genMain :: Int -> IO ()
+    genMain chain = gen ("Mainnet" <> sshow chain)
+      ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
+    genMainnetTxs = do
+      genMain 0
+    upgrades = [ "pact/coin-contract/v2/load-coin-contract-v2.yaml"
+               , "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
+               ]
+
+genTxModule :: Text -> [FilePath] -> IO ()
+genTxModule tag txFiles = do
+  putStrLn $ "Generating tx module for " ++ show tag
   cwTxs <- mkChainwebTxs txFiles
 
   let encTxs = map quoteTx cwTxs
@@ -228,9 +244,3 @@ endTxModule :: [Text]
 endTxModule =
     [ "    ]"
     ]
-
-_genMainnet01Txs :: IO ()
-_genMainnet01Txs = genTxModule Mainnet01 "Mainnet0"
-  [ "pact/coin-contract/v2/load-coin-contract-v2.yaml"
-  , "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
-  ]
