@@ -1,19 +1,26 @@
 # `chainweb-node` Changelog
 
+## 1.3.1 (2019-12-09)
+
+* [SECURITY] fix issue with date comparison triggering block validation of fix for #797 [#810]
+
+* Don't vacuum SQLite databases on startup [#803]
+
+
 ## 1.3 (2019-12-08)
 
 CRITICAL SECURITY UPDATE [2 of 3]: addressing vulnerability #797.
 All node operators need to update no later than 2019-12-10T20:00:00.
 
-* [SECURITY] Address vulnerability 797 via precompiled statements (#798)
+* [SECURITY] Address vulnerability 797 via precompiled statements [#798]
 
-* Enforce lower bound on acceptable node versions (#793)
+* Enforce lower bound on acceptable node versions [#793]
 
-* Prune peer db and update peer selection (#788)
+* Prune peer db and update peer selection [#788]
 
-* Limit checkpointer rewind depth (#795)
+* Limit checkpointer rewind depth [#795]
 
-* Improved mining coordination efficiency (#791)
+* Improved mining coordination efficiency [#791]
 
 Note that this change involves a breaking change to the config file.
 
