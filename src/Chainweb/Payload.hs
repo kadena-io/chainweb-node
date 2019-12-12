@@ -246,6 +246,7 @@ newtype TransactionOutput = TransactionOutput
     { _transactionOutputBytes :: B.ByteString }
     deriving (Show, Eq, Ord, Generic)
     deriving newtype (BA.ByteArrayAccess)
+    deriving newtype (NFData)
 
 instance ToJSON TransactionOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
@@ -633,6 +634,7 @@ instance FromJSON OutputTree where
 newTransactionLog :: MinerData -> V.Vector Transaction -> BlockTransactionsLog
 newTransactionLog md txs =
   newMerkleLog $ md :+: MerkleLogBody txs
+{-# INLINE newTransactionLog #-}
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --
@@ -668,6 +670,7 @@ transactionLog txs tree
 --
 newBlockOutputLog :: CoinbaseOutput -> V.Vector TransactionOutput -> BlockOutputsLog
 newBlockOutputLog co tos = newMerkleLog $ co :+: MerkleLogBody tos
+{-# INLINE newBlockOutputLog #-}
 
 -- | This forces the 'MerkleTree' which can be an expensive operation.
 --

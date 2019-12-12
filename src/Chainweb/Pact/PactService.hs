@@ -106,6 +106,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
+import Chainweb.Crypto.MerkleLog (fromLog)
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -408,29 +409,30 @@ serviceRequests memPoolAccess reqQ = do
 
 toTransactionBytes :: P.Command Text -> Transaction
 toTransactionBytes cwTrans =
-    let plBytes = encodeToByteString cwTrans
+    let !plBytes = encodeToByteString cwTrans
     in Transaction { _transactionBytes = plBytes }
 
 
 toOutputBytes :: P.CommandResult P.Hash -> TransactionOutput
 toOutputBytes cr =
-    let outBytes = A.encode cr
-    in TransactionOutput { _transactionOutputBytes = toS outBytes }
+    let !outBytes = toS $! A.encode cr
+    in TransactionOutput { _transactionOutputBytes = outBytes }
 
 toPayloadWithOutputs :: Miner -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = _transactionPairs ts
-        trans = fst <$> oldSeq
-        transOuts = toOutputBytes . snd <$> oldSeq
-
-        miner = toMinerData mi
-        cb = CoinbaseOutput $ encodeToByteString $ _transactionCoinbase ts
-        blockTrans = snd $ newBlockTransactions miner trans
-        blockOuts = snd $ newBlockOutputs cb transOuts
-
-        blockPL = blockPayload blockTrans blockOuts
-        plData = payloadData blockTrans blockPL
+        !trans = force (fst <$!> oldSeq)
+        !transOuts = force (toOutputBytes . snd <$!> oldSeq)
+        !miner = toMinerData mi
+        !cb = CoinbaseOutput $! encodeToByteString $! _transactionCoinbase ts
+        !blockTrans = newBlockTrans miner trans
+        !blockOuts = newBlockOuts cb transOuts
+        !blockPL = blockPayload blockTrans blockOuts
+        !plData = payloadData blockTrans blockPL
      in payloadWithOutputs plData cb transOuts
+  where
+    newBlockTrans !m !txs = fromLog $! newTransactionLog m txs
+    newBlockOuts !cb !transOuts = fromLog $! newBlockOutputLog cb transOuts
 
 
 validateHashes
@@ -525,11 +527,11 @@ withCheckpointer target caller act = mask $ \restore -> do
     try (restore (act cenv)) >>= \case
         Left e -> discardTx >> throwM @_ @SomeException e
         Right (Discard !result) -> discardTx >> return result
-        Right (Save header !result) -> saveTx header >> return result
+        Right (Save !header !result) -> saveTx header >> return result
   where
     discardTx = finalizeCheckpointer _cpDiscard
     saveTx header = do
-        finalizeCheckpointer (flip _cpSave $ _blockHash header)
+        finalizeCheckpointer (flip _cpSave $! _blockHash header)
         psStateValidated .= Just header
 
 -- | Same as 'withCheckpointer' but rewinds the checkpointer state to the
@@ -597,10 +599,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         -> PactServiceM cas (T2 ModuleCache (Either InsertError ChainwebTransaction))
     runBuyGas _db mcache l@Left {} = return (T2 mcache l)
     runBuyGas db mcache (Right tx) = do
-        let cmd = payloadObj <$> tx
-            gasPrice = gasPriceOf cmd
-            gasLimit = fromIntegral $ gasLimitOf cmd
-            txst = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
+        let !cmd = payloadObj <$> tx
+            !gasPrice = gasPriceOf cmd
+            !gasLimit = fromIntegral $ gasLimitOf cmd
+            !txst = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
 
         buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
 
@@ -642,8 +644,8 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
     checkUnique t = do
       found <- _cpLookupProcessedTx cp (P._cmdHash t)
       case found of
-        Nothing -> pure $ Right t
-        Just _ -> pure $ Left $ InsertErrorDuplicate
+        Nothing -> pure $! Right t
+        Just _ -> pure $! Left $ InsertErrorDuplicate
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t | timingsCheck blockOriginationTime $ fmap payloadObj t = return $ Right t
@@ -709,7 +711,7 @@ readAccountBalance
       -- ^ account name
     -> IO (Maybe Decimal)
 readAccountBalance pdb account
-    = fmap sfst <$> readCoinAccount pdb account
+    = fmap sfst <$!> readCoinAccount pdb account
 
 -- | Read row from coin-table defined in coin contract, retrieving guard
 -- associated with account name
@@ -721,7 +723,7 @@ readAccountGuard
       -- ^ account name
     -> IO (Maybe (P.Guard (P.Term P.Name)))
 readAccountGuard pdb account
-    = fmap ssnd <$> readCoinAccount pdb account
+    = fmap ssnd <$!> readCoinAccount pdb account
 
 -- | Calculate miner reward. We want this to error hard in the case where
 -- block times have finally exceeded the 120-year range. Rewards are calculated
@@ -759,7 +761,7 @@ execNewBlock mpAccess parentHeader miner creationTime =
     withDiscardedBatch $ do
       setBlockData parentHeader
       rewindTo newblockRewindLimit target
-      newTrans <- withCheckpointer target "preBlock" doPreBlock
+      !newTrans <- withCheckpointer target "preBlock" doPreBlock
       withCheckpointer target "execNewBlock" (doNewBlock newTrans)
 
   where
@@ -794,9 +796,9 @@ execNewBlock mpAccess parentHeader miner creationTime =
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions (Just pHash) miner newTrans
-                   (EnforceCoinbaseFailure True)
-                   (CoinbaseUsePrecompiled True) pdbenv
+        !results <- execTransactions (Just pHash) miner newTrans
+                    (EnforceCoinbaseFailure True)
+                    (CoinbaseUsePrecompiled True) pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -846,10 +848,10 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
 
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
-        results <- execTransactions Nothing miner newTrans
-                   (EnforceCoinbaseFailure True)
-                   (CoinbaseUsePrecompiled False) pdbenv
-        return $! Discard (toPayloadWithOutputs miner results)
+        !results <- execTransactions Nothing miner newTrans
+                    (EnforceCoinbaseFailure True)
+                    (CoinbaseUsePrecompiled False) pdbenv
+        return $! Discard $! toPayloadWithOutputs miner results
 
 execLocal
     :: PayloadCas cas
@@ -913,11 +915,11 @@ playOneBlock
     -> PactDbEnv'
     -> PactServiceM cas PayloadWithOutputs
 playOneBlock currHeader plData pdbenv = do
-    miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
-    trans <- liftIO $ transactionsFromPayload plData
+    !miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
+    !trans <- force <$> liftIO (transactionsFromPayload plData)
     cp <- getCheckpointer
     allowModule <- view psEnableUserContracts
-    let creationTime = _blockCreationTime currHeader
+    let !creationTime = _blockCreationTime currHeader
     -- prop_tx_ttl_validate
     oks <- liftIO (
         fmap (either (const False) (const True)) <$>
@@ -951,7 +953,7 @@ playOneBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    go m txs = if isGenesisBlock
+    go !m !txs = if isGenesisBlock
       then do
         setBlockData currHeader
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
@@ -1094,9 +1096,9 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHash miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
-    mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail usePrecomp mc
-    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
+    !mc <- use psInitCache
+    !coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail usePrecomp mc
+    !txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHash
@@ -1137,9 +1139,9 @@ applyPactCmds
     -> ModuleCache
     -> PactServiceM cas (Vector (P.CommandResult P.Hash))
 applyPactCmds isGenesis env cmds miner mc =
-    V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) cmds
+    V.fromList . toList . sfst <$!> V.foldM f (T2 mempty mc) cmds
   where
-    f  (T2 dl mcache) cmd = applyPactCmd isGenesis env cmd miner mcache dl
+    f (T2 dl mcache) !cmd = applyPactCmd isGenesis env cmd miner mcache dl
 
 -- | Apply a single Pact command
 applyPactCmd
@@ -1150,7 +1152,7 @@ applyPactCmd
     -> ModuleCache
     -> DList (P.CommandResult P.Hash)
     -> PactServiceM cas (T2 (DList (P.CommandResult P.Hash)) ModuleCache)
-applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
+applyPactCmd !isGenesis dbEnv !cmdIn !miner !mcache dl = do
     logger <- view (psCheckpointEnv . cpeLogger)
     gasModel <- view psGasModel
     excfg <- view psEnableUserContracts
