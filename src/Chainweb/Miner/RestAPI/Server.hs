@@ -85,9 +85,9 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
         liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
         throwError err503 { errBody = "Too many work requests" }
     let !conf = _coordConf mr
-        !priv = S.member m $ _coordinationMiners conf
-        !miner = bool (Plebian m) (Primed m) priv
-    when (_coordinationMode conf == Private && priv) $ do
+        !primed = S.member m $ _coordinationMiners conf
+        !miner = bool (Plebian m) (Primed m) primed
+    when (_coordinationMode conf == Private && not primed) $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
         throwError err403 { errBody = "Unauthorized Miner: " <> midb }
