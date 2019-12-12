@@ -15,7 +15,7 @@
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  3827 (env-gas))
+  3818 (env-gas))
 (commit-tx)
 
 (verify 'coin)
@@ -843,7 +843,7 @@
   "not granted"
   (remediate "brandon" 1.0))
 
-(test-capability (REMEDIATE "brandon" 1.0))
+(test-capability (REMEDIATE))
 
 (expect
   "Remediations succeed in the presence of REMEDIATE"
