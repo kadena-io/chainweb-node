@@ -29,7 +29,7 @@ module Chainweb.Miner.Coordinator
   , ChainChoice(..)
   , PrimedWork(..)
   , CachedPayload
-  , Whitelisted(..), whitelisted
+  , MinerStatus(..), minerStatus
     -- * Functions
   , newWork
   , publish
@@ -122,14 +122,14 @@ newtype PrevTime = PrevTime BlockCreationTime
 
 data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 
--- | A `Miner` defined in the nodes `miners` list. Should be subject to Primed
--- Coordination.
+-- | A `Miner`'s status. Will be `Primed` if defined in the nodes `miners` list.
+-- This affects whether to serve the Miner primed payloads.
 --
-newtype Whitelisted = Whitelisted Miner
+data MinerStatus = Primed Miner | Plebian Miner
 
-whitelisted :: Either Miner Whitelisted -> Miner
-whitelisted (Left m) = m
-whitelisted (Right (Whitelisted m)) = m
+minerStatus :: MinerStatus -> Miner
+minerStatus (Primed m) = m
+minerStatus (Plebian m) = m
 
 -- | Construct a new `BlockHeader` to mine on.
 --
@@ -137,7 +137,7 @@ newWork
     :: LogFunction
     -> CoordinationMode
     -> ChainChoice
-    -> Either Miner Whitelisted
+    -> MinerStatus
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
@@ -154,7 +154,10 @@ newWork logFun mode choice eminer pact tpw c = do
     --
     let !p = ParentHeader (c ^?! ixg cid)
 
-    either (public p) (\m -> primed m cid p <$> readTVarIO tpw) eminer >>= \case
+    mr <- case eminer of
+        Primed m -> primed m cid p <$> readTVarIO tpw
+        Plebian m -> public p m
+    case mr of
         -- The proposed Chain wasn't mineable, either because the adjacent
         -- parents weren't available, or because the chain is mid-update.
         Nothing -> newWork logFun mode (TriedLast cid) eminer pact tpw c
@@ -168,12 +171,12 @@ newWork logFun mode choice eminer pact tpw c = do
             pure $ T3 (PrevTime . _blockCreationTime $ coerce p) header payload
   where
     primed
-        :: Whitelisted
+        :: Miner
         -> ChainId
         -> ParentHeader
         -> PrimedWork
         -> Maybe (T2 CachedPayload BlockHashRecord)
-    primed (Whitelisted (Miner mid _)) cid (ParentHeader p) (PrimedWork pw) = T2
+    primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = T2
         <$> (HM.lookup mid pw >>= HM.lookup cid >>= id)
         <*> getAdjacentParents c p
 

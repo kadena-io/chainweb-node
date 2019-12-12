@@ -31,7 +31,6 @@ import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Bool (bool)
-import Data.Either (isLeft)
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
@@ -86,8 +85,9 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
         liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
         throwError err503 { errBody = "Too many work requests" }
     let !conf = _coordConf mr
-        !miner = bool (Left m) (Right $ Whitelisted m) . S.member m $ _coordinationMiners conf
-    when (_coordinationMode conf == Private && isLeft miner) $ do
+        !priv = S.member m $ _coordinationMiners conf
+        !miner = bool (Plebian m) (Primed m) priv
+    when (_coordinationMode conf == Private && priv) $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
         throwError err403 { errBody = "Unauthorized Miner: " <> midb }
@@ -98,14 +98,14 @@ workHandler'
     .  Logger l
     => MiningCoordination l cas
     -> Maybe ChainId
-    -> Either Miner Whitelisted
+    -> MinerStatus
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
     T3 p bh pl <- newWork logf mode choice m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (whitelisted m) p pl
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (minerStatus m) p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     logf :: LogFunction
