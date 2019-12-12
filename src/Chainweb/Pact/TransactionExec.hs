@@ -124,8 +124,7 @@ magic_GENESIS :: CapSlot UserCapability
 magic_GENESIS = mkMagicCapSlot "GENESIS"
 
 
-type BuyGasResult db
-    = T4 (TransactionEnv db) TransactionState (CommandResult [TxLog Value]) (Command (Payload PublicMeta ParsedCode))
+
 
 applyBuyGas
     :: Logger
