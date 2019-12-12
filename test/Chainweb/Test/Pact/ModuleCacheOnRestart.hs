@@ -72,7 +72,9 @@ tests =
     genblock = genesisBlockHeader testVer testChainId
     action = initialPayloadState dummyLogger testVer testChainId
 
-data R a = Supply !(IO (MVar a)) | Check (IO a)
+data R a
+  = Supply !(IO (MVar a)) -- used for catching a value from a test
+  | Check (IO a) -- used to pass a value from a previously run test to another test
 
 withPact'
     :: PayloadCas cas
@@ -108,7 +110,10 @@ withPact' version logLevel iopdb iobhdb iodir deepForkLimit r act toTestTree =
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
 
--- we want a special version of initPactService'
+-- We want a special version of initPactService'. The reason we need this
+-- version is that initial version of initPactService' calls evalPactServicM,
+-- which only returns the value of running the PactServiceM monad. This version
+-- of the function needs both the final state and the value.
 initPactService''
     :: Logger logger
     => PayloadCas cas

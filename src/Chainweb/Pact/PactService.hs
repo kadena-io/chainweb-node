@@ -298,6 +298,8 @@ initializeCoinContract logger v cid pwo = do
           bhdb <- asks _psBlockHeaderDb
           reloadedCache <- liftIO $
               withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
+                  -- Note: initPactService' here creates its own isolated (in terms
+                  -- of it values) version of the PactServiceM monad. Yeah purity!
                   initPactService' v cid logger bhdb pdb sqlenv defaultReorgLimit $ do
                       -- it is reasonable to assume genesis doesn't exist here
                       validateGenesis
