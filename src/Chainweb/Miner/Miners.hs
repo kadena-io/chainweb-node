@@ -48,7 +48,7 @@ import Chainweb.CutDB
 import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
-import Chainweb.Miner.Config (CoordinationMode(..), MinerCount(..))
+import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner)
@@ -83,7 +83,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork lf Public Anything m pact tpw c
+        T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
             ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
@@ -129,7 +129,7 @@ localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork lf Public Anything m pact tpw c
+        T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
             ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
