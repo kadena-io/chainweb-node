@@ -29,6 +29,7 @@ module Chainweb.Miner.Coordinator
   , ChainChoice(..)
   , PrimedWork(..)
   , CachedPayload
+  , MinerStatus(..), minerStatus
     -- * Functions
   , newWork
   , publish
@@ -71,7 +72,6 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Config (CoordinationMode(..))
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
@@ -121,18 +121,26 @@ newtype PrevTime = PrevTime BlockCreationTime
 
 data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 
+-- | A `Miner`'s status. Will be `Primed` if defined in the nodes `miners` list.
+-- This affects whether to serve the Miner primed payloads.
+--
+data MinerStatus = Primed Miner | Plebian Miner
+
+minerStatus :: MinerStatus -> Miner
+minerStatus (Primed m) = m
+minerStatus (Plebian m) = m
+
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
     :: LogFunction
-    -> CoordinationMode
     -> ChainChoice
-    -> Miner
+    -> MinerStatus
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork logFun mode choice miner@(Miner mid _) pact tpw c = do
+newWork logFun choice eminer pact tpw c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -144,10 +152,13 @@ newWork logFun mode choice miner@(Miner mid _) pact tpw c = do
     --
     let !p = ParentHeader (c ^?! ixg cid)
 
-    bool (public p) (private cid p <$> readTVarIO tpw) (mode == Private) >>= \case
+    mr <- case eminer of
+        Primed m -> primed m cid p <$> readTVarIO tpw
+        Plebian m -> public p m
+    case mr of
         -- The proposed Chain wasn't mineable, either because the adjacent
         -- parents weren't available, or because the chain is mid-update.
-        Nothing -> newWork logFun mode (TriedLast cid) miner pact tpw c
+        Nothing -> newWork logFun (TriedLast cid) eminer pact tpw c
         Just (T2 (T2 payload creationTime) adjParents) -> do
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
@@ -157,13 +168,18 @@ newWork logFun mode choice miner@(Miner mid _) pact tpw c = do
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
             pure $ T3 (PrevTime . _blockCreationTime $ coerce p) header payload
   where
-    private :: ChainId -> ParentHeader -> PrimedWork -> Maybe (T2 CachedPayload BlockHashRecord)
-    private cid (ParentHeader p) (PrimedWork pw) = T2
+    primed
+        :: Miner
+        -> ChainId
+        -> ParentHeader
+        -> PrimedWork
+        -> Maybe (T2 CachedPayload BlockHashRecord)
+    primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = T2
         <$> (HM.lookup mid pw >>= HM.lookup cid >>= id)
         <*> getAdjacentParents c p
 
-    public :: ParentHeader -> IO (Maybe (T2 CachedPayload BlockHashRecord))
-    public (ParentHeader p) = case getAdjacentParents c p of
+    public :: ParentHeader -> Miner -> IO (Maybe (T2 CachedPayload BlockHashRecord))
+    public (ParentHeader p) miner = case getAdjacentParents c p of
         Nothing -> pure Nothing
         Just adj -> do
             creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
