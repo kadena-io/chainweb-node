@@ -70,7 +70,7 @@ tests =
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
     genblock = genesisBlockHeader testVer testChainId
-    action = initialPayloadState testVer testChainId
+    action = initialPayloadState dummyLogger testVer testChainId
 
 data R a = Supply !(IO (MVar a)) | Check (IO a)
 
