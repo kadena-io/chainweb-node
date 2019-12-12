@@ -43,6 +43,7 @@ module Chainweb.Version
 , transferActivationDate
 , enableUserContracts
 , vuln797FixDate
+, upgradeCoinV2Date
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -592,7 +593,7 @@ transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
 transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |]
 transferActivationDate Testnet04 = Nothing
-transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
+transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
 
 -- | Time after which fixes for vuln797 will be validated in blocks.
 --
@@ -611,3 +612,14 @@ vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 enableUserContracts :: ChainwebVersion -> Bool
 enableUserContracts Mainnet01 = False
 enableUserContracts _ = True
+
+-- | Upgrade coin v2 at time, or at block height 1
+upgradeCoinV2Date :: ChainwebVersion -> Maybe (Time Micros)
+upgradeCoinV2Date Test{} = Nothing
+upgradeCoinV2Date TimedConsensus{} = Nothing
+upgradeCoinV2Date PowConsensus{} = Nothing
+upgradeCoinV2Date TimedCPM{} = Nothing
+upgradeCoinV2Date FastTimedCPM{} = Nothing
+upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-13T00:00:00.0 |]
+upgradeCoinV2Date Testnet04 = Nothing
+upgradeCoinV2Date Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:00:00.0 |]
