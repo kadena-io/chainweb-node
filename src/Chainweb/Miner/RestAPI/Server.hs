@@ -102,7 +102,7 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork logf mode choice m pact (_coordPrimedWork mr) c
+    T3 p bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
     atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (minerStatus m) p pl
@@ -110,9 +110,6 @@ workHandler' mr mcid m = do
   where
     logf :: LogFunction
     logf = logFunction $ _coordLogger mr
-
-    mode :: CoordinationMode
-    mode = _coordinationMode $ _coordConf mr
 
     choice :: ChainChoice
     choice = maybe Anything Suggestion mcid

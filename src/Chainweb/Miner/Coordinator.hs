@@ -72,7 +72,6 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Config (CoordinationMode(..))
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
@@ -135,14 +134,13 @@ minerStatus (Plebian m) = m
 --
 newWork
     :: LogFunction
-    -> CoordinationMode
     -> ChainChoice
     -> MinerStatus
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork logFun mode choice eminer pact tpw c = do
+newWork logFun choice eminer pact tpw c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -160,7 +158,7 @@ newWork logFun mode choice eminer pact tpw c = do
     case mr of
         -- The proposed Chain wasn't mineable, either because the adjacent
         -- parents weren't available, or because the chain is mid-update.
-        Nothing -> newWork logFun mode (TriedLast cid) eminer pact tpw c
+        Nothing -> newWork logFun (TriedLast cid) eminer pact tpw c
         Just (T2 (T2 payload creationTime) adjParents) -> do
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
