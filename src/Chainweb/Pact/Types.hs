@@ -51,6 +51,13 @@ module Chainweb.Pact.Types
   , txRequestKey
   , txExecutionConfig
 
+    -- * Tx Buy Gas Result
+  , TxGasResult(..)
+  , txEnv
+  , txState
+  , txGasResult
+  , txCmd
+
     -- * Transaction Execution Monad
   , TransactionM(..)
   , runTransactionM
@@ -220,6 +227,16 @@ data TransactionEnv db = TransactionEnv
     , _txExecutionConfig :: !ExecutionConfig
     }
 makeLenses ''TransactionEnv
+
+-- | Intermediary data for post-buy gas commands
+--
+data TxGasResult db = TxGasResult
+    { _txEnv :: !(TransactionEnv db)
+    , _txState :: !TransactionState
+    , _txGasResult :: !(CommandResult [TxLog Value])
+    , _txCmd :: !(Command (Payload PublicMeta ParsedCode))
+    }
+makeLenses ''TxGasResult
 
 -- | The transaction monad used in transaction execute. The reader
 -- environment is the a Pact command env, writer is a list of json-ified

@@ -1136,7 +1136,8 @@ applyPactCmds
     -> Miner
     -> ModuleCache
     -> PactServiceM cas (Vector (P.CommandResult P.Hash))
-applyPactCmds isGenesis env cmds miner mc =
+applyPactCmds isGenesis env cmds miner mc = do
+    txs <- for cmds _
     V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) cmds
   where
     f  (T2 dl mcache) cmd = applyPactCmd isGenesis env cmd miner mcache dl
