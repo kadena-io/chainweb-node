@@ -27,7 +27,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Ea ( main ) where
+module Ea ( main, genTxModules ) where
 
 import BasePrelude
 
@@ -57,7 +57,7 @@ import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
-import Chainweb.Transaction (mkPayloadWithText)
+import Chainweb.Transaction (mkPayloadWithText, ChainwebTransaction, chainwebPayloadCodec)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
@@ -120,15 +120,7 @@ genPayloadModule :: ChainwebVersion -> Text -> [FilePath] -> IO ()
 genPayloadModule v tag txFiles =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
-        rawTxs <- traverse mkTx txFiles
-        cwTxs <- forM rawTxs $ \(_, cmd) -> do
-            let cmdBS = fmap TE.encodeUtf8 cmd
-                procCmd = verifyCommand cmdBS
-            case procCmd of
-                f@ProcFail{} -> fail (show f)
-                ProcSucc c -> do
-                  let t = toTxCreationTime (Time (TimeSpan 0))
-                  return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+        cwTxs <- mkChainwebTxs txFiles
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
@@ -142,12 +134,8 @@ genPayloadModule v tag txFiles =
 
         TIO.writeFile (T.unpack fileName) modl
   where
-    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
-    setTTL = set (cmdPayload . pMeta . pmTTL)
-    toTxCreationTime :: Time Integer -> TxCreationTime
-    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-      Seconds s -> TxCreationTime $ ParsedInteger s
     cid = someChainId v
+
 
 startModule :: Text -> [Text]
 startModule tag =
@@ -179,5 +167,80 @@ mkTx yamlFile = do
     (_,cmd) <- mkApiReq yamlFile
     pure (encodeJSON cmd,cmd)
 
+mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
+mkChainwebTxs txFiles = do
+  rawTxs <- traverse mkTx txFiles
+  forM rawTxs $ \(_, cmd) -> do
+    let cmdBS = fmap TE.encodeUtf8 cmd
+        procCmd = verifyCommand cmdBS
+    case procCmd of
+      f@ProcFail{} -> fail (show f)
+      ProcSucc c -> do
+        let t = toTxCreationTime (Time (TimeSpan 0))
+        return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+  where
+    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
+    setTTL = set (cmdPayload . pMeta . pmTTL)
+    toTxCreationTime :: Time Integer -> TxCreationTime
+    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+      Seconds s -> TxCreationTime $ ParsedInteger s
+
 encodeJSON :: ToJSON a => a -> ByteString
 encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })
+
+------------------------------------------------------
+-- Transaction Generation for coin v2 and remediations
+------------------------------------------------------
+
+genTxModules :: IO ()
+genTxModules = genDevTxs >> genMainnetTxs >> putStrLn "Done."
+  where
+    gen tag remeds = genTxModule tag $ upgrades <> remeds
+    genDevTxs = gen "DevOther"
+      ["pact/coin-contract/remediations/devother/remediations.yaml"]
+    genMain :: Int -> IO ()
+    genMain chain = gen ("Mainnet" <> sshow chain)
+      ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
+    genMainnetTxs = do
+      genMain 0
+    upgrades = [ "pact/coin-contract/v2/load-coin-contract-v2.yaml"
+               , "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
+               ]
+
+genTxModule :: Text -> [FilePath] -> IO ()
+genTxModule tag txFiles = do
+  putStrLn $ "Generating tx module for " ++ show tag
+  cwTxs <- mkChainwebTxs txFiles
+
+  let encTxs = map quoteTx cwTxs
+      quoteTx tx = "    \"" <> encTx tx <> "\""
+      encTx = encodeB64UrlNoPaddingText . codecEncode chainwebPayloadCodec
+      modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
+      fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
+
+  TIO.writeFile (T.unpack fileName) modl
+
+startTxModule :: Text -> [Text]
+startTxModule tag =
+    [ "{-# LANGUAGE OverloadedStrings #-}"
+    , ""
+    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
+    , ""
+    , "module Chainweb.Pact.Transactions." <> tag <> "Transactions ( transactions ) where"
+    , ""
+    , "import Data.Bifunctor (first)"
+    , ""
+    , "import Chainweb.Transaction"
+    , "import Chainweb.Utils"
+    , ""
+    , "transactions :: IO [ChainwebTransaction]"
+    , "transactions ="
+    , "  let decodeTx t ="
+    , "        fromEitherM . (first (userError . show)) . codecDecode chainwebPayloadCodec =<< decodeB64UrlNoPaddingText t"
+    , "  in mapM decodeTx ["
+    ]
+
+endTxModule :: [Text]
+endTxModule =
+    [ "    ]"
+    ]
