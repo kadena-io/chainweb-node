@@ -384,9 +384,3 @@ main = runWithConfiguration pinfo mainWithConfig
         pConfig
         defaultConfig
 
--- -------------------------------------------------------------------------- --
---
-
-run2 = do
-
-
