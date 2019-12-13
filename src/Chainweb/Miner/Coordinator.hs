@@ -110,8 +110,7 @@ data MiningStats = MiningStats
     { _statsCacheSize :: !Int
     , _stats503s :: !Int
     , _stats403s :: !Int
-    , _statsAvgTxs :: !Int
-    , _statsPrimedSize :: !Int }
+    , _statsAvgTxs :: !Int }
     deriving stock (Generic)
     deriving anyclass (ToJSON, NFData)
 

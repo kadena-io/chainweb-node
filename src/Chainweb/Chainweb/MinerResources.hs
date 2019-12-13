@@ -107,7 +107,7 @@ withMiningCoordination logger conf cdb inner
         c403 <- newIORef 0
         l <- newIORef (_coordinationUpdateStreamLimit conf)
         fmap thd . runConcurrently $ (,,)
-            <$> Concurrently (prune t m c503 c403)
+            <$> Concurrently (prune t c503 c403)
             <*> Concurrently (mapConcurrently_ (primeWork miners m cut) cids)
             <*> Concurrently (inner . Just $ MiningCoordination
                 { _coordLogger = logger
@@ -192,8 +192,8 @@ withMiningCoordination logger conf cdb inner
     -- | THREAD: Periodically clear out the cached payloads kept for Mining
     -- Coordination.
     --
-    prune :: TVar MiningState -> PrimedWork -> IORef Int -> IORef Int -> IO ()
-    prune t (PrimedWork pw) c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
+    prune :: TVar MiningState -> IORef Int -> IORef Int -> IO ()
+    prune t c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
         let !d = 30_000_000  -- 30 seconds
         let !maxAge = 300_000_000  -- 5 minutes
         threadDelay d
@@ -210,9 +210,7 @@ withMiningCoordination logger conf cdb inner
             { _statsCacheSize = M.size ms
             , _stats503s = count503
             , _stats403s = count403
-            , _statsAvgTxs = avgTxs m
-            , _statsPrimedSize = HM.foldl' (\acc xs -> acc + HM.size xs) 0 pw }
-    -- TODO Remove this PrimedSize! It's a pointless statistic now!
+            , _statsAvgTxs = avgTxs m }
 
     -- Filter for work items that are not older than maxAge
     --
