@@ -32,7 +32,6 @@ import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
-import Control.Concurrent.STM.TVar (TVar)
 import Control.Lens (view)
 
 import Numeric.Natural (Natural)
@@ -72,7 +71,7 @@ import Data.LogMessage (LogFunction)
 localTest
     :: LogFunction
     -> ChainwebVersion
-    -> TVar PrimedWork
+    -> PrimedWork
     -> Miner
     -> CutDb cas
     -> MWC.GenIO
@@ -123,7 +122,7 @@ mempoolNoopMiner lf chainRes =
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: LogFunction -> ChainwebVersion -> TVar PrimedWork -> Miner -> CutDb cas -> IO ()
+localPOW :: LogFunction -> ChainwebVersion -> PrimedWork -> Miner -> CutDb cas -> IO ()
 localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
     loop :: IO a

@@ -27,12 +27,12 @@ module Chainweb.Chainweb.MinerResources
   , withMiningCoordination
   ) where
 
+import Data.Foldable (traverse_)
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
-import Data.List (foldl')
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -40,9 +40,9 @@ import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM (STM, atomically)
 import Control.Concurrent.STM.TVar
-import Control.Lens (at, over, view, (&), (?~), (^?!))
+import Control.Lens (over, view, (^?!))
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
@@ -86,7 +86,7 @@ data MiningCoordination logger cas = MiningCoordination
     , _coord403s :: !(IORef Int)
     , _coordConf :: !CoordinationConfig
     , _coordUpdateStreamCount :: !(IORef Int)
-    , _coordPrimedWork :: !(TVar PrimedWork)
+    , _coordPrimedWork :: !PrimedWork
     }
 
 withMiningCoordination
@@ -102,7 +102,7 @@ withMiningCoordination logger conf cdb inner
         cut <- _cut cdb
         t <- newTVarIO mempty
         let !miners = S.toList $ _coordinationMiners conf
-        m <- initialPayloads cut miners >>= newTVarIO
+        m <- initialPayloads cut miners
         c503 <- newIORef 0
         c403 <- newIORef 0
         l <- newIORef (_coordinationUpdateStreamLimit conf)
@@ -127,7 +127,7 @@ withMiningCoordination logger conf cdb inner
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
     --
-    primeWork :: [Miner] -> TVar PrimedWork -> Cut -> ChainId -> IO ()
+    primeWork :: [Miner] -> PrimedWork -> Cut -> ChainId -> IO ()
     primeWork miners tpw c cid = runForever (logFunction logger) "primeWork" $ go c
       where
         go :: Cut -> IO a
@@ -136,27 +136,31 @@ withMiningCoordination logger conf cdb inner
             -- immediately detect the newest `BlockHeader` on the given chain.
             new <- awaitNewCutByChainId cdb cid cut
             -- Temporarily block this chain from being considered for queries --
-            atomically $ modifyTVar' tpw (silenceChain cid)
+            atomically $ silenceChain tpw cid
             -- Generate new payloads, one for each Miner we're managing --
             let !newParent = ParentHeader . fromJuste . HM.lookup cid $ _cutMap new
             payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
             -- Update the cache in a single step --
-            atomically $ modifyTVar' tpw (\pw -> foldl' (updateCache cid) pw payloads)
+            atomically $ traverse_ (updateCache tpw cid) payloads
             go new
 
     -- | Declare that a particular Chain is temporarily unavailable for new work
     -- requests while a new payload is being formed.
     --
-    silenceChain :: ChainId -> PrimedWork -> PrimedWork
-    silenceChain cid (PrimedWork pw) = PrimedWork (pw & traverse . at cid ?~ Nothing)
+    silenceChain :: PrimedWork -> ChainId -> STM ()
+    silenceChain (PrimedWork pw) cid = traverse_ g pw
+      where
+        g kut = traverse_ (\tcp -> writeTVar tcp Nothing) $ HM.lookup cid kut
 
     updateCache
-        :: ChainId
-        -> PrimedWork
+        :: PrimedWork
+        -> ChainId
         -> T2 Miner (T2 PayloadWithOutputs BlockCreationTime)
-        -> PrimedWork
-    updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
-        PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
+        -> STM ()
+    updateCache (PrimedWork pw) cid (T2 (Miner mid _) payload) =
+        case HM.lookup mid pw >>= HM.lookup cid of
+            Nothing -> pure ()
+            Just tcp -> writeTVar tcp $ Just payload
 
     initialPayloads :: Cut -> [Miner] -> IO PrimedWork
     initialPayloads cut ms =
@@ -170,9 +174,10 @@ withMiningCoordination logger conf cdb inner
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (Maybe (T2 PayloadWithOutputs BlockCreationTime)))
-    fromCut m cut =
-        HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) . Just <$> getPayload bh m) cut
+      -> IO (HM.HashMap ChainId (TVar (Maybe (T2 PayloadWithOutputs BlockCreationTime))))
+    fromCut m cut = HM.fromList <$> traverse g cut
+      where
+        g (T2 cid bh) = getPayload bh m >>= newTVarIO . Just >>= pure . (cid,)
 
     getPayload :: ParentHeader -> Miner -> IO (T2 PayloadWithOutputs BlockCreationTime)
     getPayload (ParentHeader parent) m = do
@@ -187,8 +192,8 @@ withMiningCoordination logger conf cdb inner
     -- | THREAD: Periodically clear out the cached payloads kept for Mining
     -- Coordination.
     --
-    prune :: TVar MiningState -> TVar PrimedWork -> IORef Int -> IORef Int -> IO ()
-    prune t tpw c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
+    prune :: TVar MiningState -> PrimedWork -> IORef Int -> IORef Int -> IO ()
+    prune t (PrimedWork pw) c503 c403 = runForever (logFunction logger) "MinerResources.prune" $ do
         let !d = 30_000_000  -- 30 seconds
         let !maxAge = 300_000_000  -- 5 minutes
         threadDelay d
@@ -199,7 +204,6 @@ withMiningCoordination logger conf cdb inner
             pure ms
         count503 <- readIORef c503
         count403 <- readIORef c403
-        PrimedWork pw <- readTVarIO tpw
         atomicWriteIORef c503 0
         atomicWriteIORef c403 0
         logFunction logger Info . JsonLog $ MiningStats
@@ -208,6 +212,7 @@ withMiningCoordination logger conf cdb inner
             , _stats403s = count403
             , _statsAvgTxs = avgTxs m
             , _statsPrimedSize = HM.foldl' (\acc xs -> acc + HM.size xs) 0 pw }
+    -- TODO Remove this PrimedSize! It's a pointless statistic now!
 
     -- Filter for work items that are not older than maxAge
     --
@@ -280,10 +285,7 @@ runMiner v mr =
     testMiner :: IO ()
     testMiner = do
         gen <- MWC.createSystemRandom
-        tpw <- newTVarIO mempty
-        localTest lf v tpw (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
+        localTest lf v mempty (_nodeMiner conf) cdb gen (_nodeTestMiners conf)
 
     powMiner :: IO ()
-    powMiner = do
-        tpw <- newTVarIO mempty
-        localPOW lf v tpw (_nodeMiner conf) cdb
+    powMiner = localPOW lf v mempty (_nodeMiner conf) cdb

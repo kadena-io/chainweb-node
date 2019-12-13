@@ -41,11 +41,12 @@ import Data.Coerce (coerce)
 
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Error.Util (hoistEither, (!?), (??))
+import Control.Error.Util (hoistEither, hoistMaybe, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
 import Control.Monad (unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
+import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
@@ -90,7 +91,7 @@ import Utils.Logging.Trace (trace)
 -- made as often as desired, without clogging the Pact queue.
 --
 newtype PrimedWork =
-    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe CachedPayload)))
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (TVar (Maybe CachedPayload))))
     deriving newtype (Semigroup, Monoid)
 
 type CachedPayload = T2 PayloadWithOutputs BlockCreationTime
@@ -137,7 +138,7 @@ newWork
     -> ChainChoice
     -> MinerStatus
     -> PactExecutionService
-    -> TVar PrimedWork
+    -> PrimedWork
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
 newWork logFun choice eminer pact tpw c = do
@@ -153,7 +154,7 @@ newWork logFun choice eminer pact tpw c = do
     let !p = ParentHeader (c ^?! ixg cid)
 
     mr <- case eminer of
-        Primed m -> primed m cid p <$> readTVarIO tpw
+        Primed m -> primed m cid p tpw
         Plebian m -> public p m
     case mr of
         -- The proposed Chain wasn't mineable, either because the adjacent
@@ -173,10 +174,13 @@ newWork logFun choice eminer pact tpw c = do
         -> ChainId
         -> ParentHeader
         -> PrimedWork
-        -> Maybe (T2 CachedPayload BlockHashRecord)
-    primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = T2
-        <$> (HM.lookup mid pw >>= HM.lookup cid >>= id)
-        <*> getAdjacentParents c p
+        -> IO (Maybe (T2 CachedPayload BlockHashRecord))
+    primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = runMaybeT $ do
+        kut <- hoistMaybe $ HM.lookup mid pw
+        tpl <- hoistMaybe $ HM.lookup cid kut
+        pay <- MaybeT $ readTVarIO tpl
+        adp <- hoistMaybe $ getAdjacentParents c p
+        pure $ T2 pay adp
 
     public :: ParentHeader -> Miner -> IO (Maybe (T2 CachedPayload BlockHashRecord))
     public (ParentHeader p) miner = case getAdjacentParents c p of
