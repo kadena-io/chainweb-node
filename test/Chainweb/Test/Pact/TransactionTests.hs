@@ -30,12 +30,14 @@ import Data.Default
 -- internal pact modules
 
 import Pact.Gas
+import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
 import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger
 import Pact.Types.PactValue
+import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.SPV
 import Pact.Interpreter
@@ -45,6 +47,7 @@ import Pact.Interpreter
 
 import Chainweb.BlockHash
 import Chainweb.Miner.Pact
+import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Test.Utils
@@ -67,12 +70,46 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
     , testCase "Ns Repl Tests" (ccReplTests "pact/namespaces/ns.repl")
     , testCase "Payer Repl Tests" (ccReplTests "pact/gas-payer/gas-payer-v1.repl")
     ]
-  , testGroup "Coinbase tests"
+  , testGroup "Precompiled Statements Tests"
+    [ testCase "Basic Injection Test" baseInjTest
+    , testCase "Fixed Injection Test" fixedInjTest
+    ]
+  , testGroup "Coinbase Vuln Fix Tests"
     [ testCase "testCoinbase" testCoinbase
     , testCoinbase797DateFix
     , testCase "testCoinbaseEnforceFailure" testCoinbaseEnforceFailure
     ]
   ]
+
+
+badMinerId :: MinerId
+badMinerId = MinerId ("alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha")
+
+minerKeys0 :: MinerKeys
+minerKeys0 = MinerKeys $ mkKeySet
+    ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+    "default"
+
+baseInjTest :: Assertion
+baseInjTest = mkCoinbaseCmd badMinerId minerKeys0 (ParsedDecimal 1.0) >>= \case
+    ExecMsg (ParsedCode pccode _pcexps) _pmdata ->
+      assertEqual "Precompiled exploit yields correct code" (unpack pccode) exploit
+  where
+    exploit = "(coin.coinbase \"alpha\" (read-keyset \"miner-keyset\") 9999999.99)"
+      <> "(coin.coinbase \"alpha\" (read-keyset \"miner-keyset\") (read-decimal \"reward\"))"
+
+fixedInjTest :: Assertion
+fixedInjTest = case exec of
+    ExecMsg (ParsedCode pccode _pcexps) _pmdata
+      | isInfixOf "coinbase" pccode -> assertFailure
+        $ "Precompiled statement contains exploitable code: "
+        <> unpack pccode
+      | isInfixOf "read-keyset" pccode -> assertFailure
+        $ "Precompiled statement contains exploitable code: "
+        <> unpack pccode
+      | otherwise -> return ()
+  where
+    (_, exec) = mkCoinbaseTerm badMinerId minerKeys0 (ParsedDecimal 1.0)
 
 
 buildExecWithData :: Assertion
@@ -205,7 +242,7 @@ testCoinbaseEnforceFailure = do
         if isInfixOf "Coinbase tx failure" (sshow e) then
           return ()
         else assertFailure $ "Coinbase failed for unknown reason: " <> show e
-      Right _ -> assertFailure "Coinbase did not failure on bad miner id"
+      Right _ -> assertFailure "Coinbase did not fail for bad miner id"
   where
     miner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
     pubData = PublicData def blockHeight' blockTime (toText blockHash')
