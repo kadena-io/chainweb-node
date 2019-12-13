@@ -204,7 +204,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       Right l -> assertFailure $ "wrong return type: " <> show l
 
   where
-    doCoinbase pdb mc t localCmd precompile testResult = do
+    doCoinbaseExploit pdb mc t localCmd precompile testResult = do
       let pd = PublicData def blockHeight' t (toText blockHash')
 
       void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd blockHsh
