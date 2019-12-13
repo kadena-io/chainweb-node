@@ -376,7 +376,7 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
     applyTxs txsIO = do
       infoLog $ "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
-      locally (txExecutionConfig . ecAllowModuleInstall) (const True) $
+      local (set (txExecutionConfig . ecAllowModuleInstall) True) $
         mapM_ applyTx txs
       mc <- use txCache
       return $ Just mc
