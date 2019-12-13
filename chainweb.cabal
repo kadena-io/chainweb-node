@@ -714,6 +714,7 @@ executable cwtool
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
+        , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
@@ -736,6 +737,7 @@ executable cwtool
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
+        , mmorph >= 1.1
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2

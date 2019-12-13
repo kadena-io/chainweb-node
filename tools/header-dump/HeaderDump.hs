@@ -7,6 +7,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -22,23 +23,22 @@ module HeaderDump
 ( main
 ) where
 
-import Configuration.Utils
+import Configuration.Utils hiding (Lens)
 import Configuration.Utils.Validation
 
 import Control.Arrow
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch (MonadThrow)
+import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Except
-import Control.Monad.Morph
 
 import Data.Aeson.Encode.Pretty hiding (Config)
 import Data.Bitraversable
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS
 import Data.CAS.RocksDB
-import qualified Data.CaseInsenstive as CI
+import qualified Data.CaseInsensitive as CI
 import Data.Functor.Of
 import qualified Data.HashSet as HS
 import Data.LogMessage
@@ -46,6 +46,7 @@ import Data.Semigroup hiding (option)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
+import qualified Data.Vector as V
 
 import qualified Database.RocksDB.Base as R
 
@@ -80,27 +81,44 @@ import Pact.Types.PactError
 
 data Output
     = Header
-    | Miner
-    | CoinbaseOutput
-    | CoinebaseResult
-    | CoinbaseFailures
+    | OutputMiner
+    | OutputCoinbaseOutput
+    | OutputCoinebaseResult
+    | CoinbaseFailure
+    | OutputTransaction
+    | OutputPayload
+    | OutputRawPayload
+    | OutputAll
     deriving (Show, Eq, Ord, Generic, Enum, Bounded)
 
+instance HasTextRepresentation Output where
+    fromText a = case CI.mk a of
+        "header" -> return Header
+        "miner" -> return OutputMiner
+        "coinbase-output" -> return OutputCoinbaseOutput
+        "coinbase-result" -> return OutputCoinebaseResult
+        "coinbase-failure" -> return CoinbaseFailure
+        "transaction" -> return OutputTransaction
+        "payload" -> return OutputPayload
+        "raw-payload" -> return OutputRawPayload
+        "all" -> return OutputAll
+        o -> throwM $ DecodeException $ "unknown result type: " <> sshow o
+
+    toText Header = "header"
+    toText OutputMiner = "miner"
+    toText OutputCoinbaseOutput = "coinbase-output"
+    toText OutputCoinebaseResult = "coinbase-result"
+    toText CoinbaseFailure = "coinbase-failure"
+    toText OutputTransaction = "transaction"
+    toText OutputPayload = "payload"
+    toText OutputRawPayload = "raw-payload"
+    toText OutputAll = "all"
+
 instance FromJSON Output where
-    parseJSON = withText "Output" $ \t -> case CI.mk t of
-        "header" -> Header
-        "miner" -> Miner
-        "coinbase-output" -> CoinbaseOutput
-        "coinbase-result" -> CoinebaseResult
-        "coinbase-failures" -> CoinbaseFailures
-        o -> fail $ "unknown result type: " <> sshow o
+    parseJSON = parseJsonFromText "Output"
 
 instance ToJSON Output where
-    toJSON Header = "header"
-    toJSON Miner = "miner"
-    toJSON CoinbaseOutput = "coinbase-output"
-    toJSON CoinebaseResult = "coinbase-result"
-    toJSON CoinBaseFailures = "coinbase-failures"
+    toJSON = toJSON . toText
 
 data Config = Config
     { _configLogHandle :: !Y.LoggerHandleConfig
@@ -111,7 +129,7 @@ data Config = Config
     , _configPretty :: !Bool
     , _configStart :: !(Maybe (Min Natural))
     , _configEnd :: !(Maybe (Max Natural))
-    , _configTyp :: !Output
+    , _configOutput :: !Output
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -184,7 +202,7 @@ pConfig = id
         % long "end"
         <> short 'e'
         <> help "end block height"
-    <*< configOutput .:: jsonOption
+    <*< configOutput .:: textOption
         % long "output"
         <> short 'o'
         <> help "output type"
@@ -279,7 +297,7 @@ withRocksDb_ path = bracket (openRocksDb_ path) closeRocksDb_
 
 mainWithConfig2 :: Config -> IO ()
 mainWithConfig2 config = withLog $ \logger -> do
-    liftIO $ run2 config $ logger
+    liftIO $ run3 config $ logger
         & addLabel ("version", toText $ _configChainwebVersion config)
         & addLabel ("chain", toText $ _configChainId config)
   where
@@ -297,15 +315,6 @@ main = runWithConfiguration pinfo mainWithConfig2
         pConfig
         defaultConfig
         validateConfig
-
-run2 :: Logger l => Config -> l -> IO ()
-run2 config logger = withChainDbs logger config $ \pdb cdb -> do
-    txOutputsStream logger config pdb cdb $ \s -> s
-        & coinbaseResult
-        -- & failures
-        -- & miner
-        -- & S.filter (\(_, Miner mid mkeys) -> _minerId mid /= "noMiner")
-        & S.mapM_ (T.putStrLn . T.decodeUtf8 . BL.toStrict . encodePretty)
 
 withChainDbs
     :: Logger l
@@ -339,47 +348,69 @@ run3 config logger = withChainDbs logger config $ \pdb cdb -> do
         & void
         & progress logg
 
-        & case _configOutput config of
-            Header -> S.map ObjectEncoded
-            Miner -> miner
+        & \s -> case _configOutput config of
+            Header -> s
+                & S.map ObjectEncoded
+                & S.map encodeJson
+                & S.mapM_ T.putStrLn
+            OutputRawPayload -> s
+                & payloads pdb _1
+                & S.map encodeJson
+                & S.mapM_ T.putStrLn
+            OutputTransaction -> s
+                & payloads pdb _1
+                & transactionsWithOutputs
+                & S.map (encodeJson @(BlockHeight, V.Vector Value))
+                & S.mapM_ T.putStrLn
+            OutputMiner -> s
+                & payloads pdb _1
+                & miner
                 & S.filter (\(_, Miner mid mkeys) -> _minerId mid /= "noMiner")
-            CoinbaseOutput -> payloads
-                & coinbaseOutput
-            CoinebaseResult -> payloads
-                & coinbaseResult
-            CoinBaseFailures -> payloads
-                & coinbaseResult
+                & S.map encodeJson
+                & S.mapM_ T.putStrLn
+            OutputCoinbaseOutput -> s
+                & payloads1 pdb
+                & coinbaseOutput _2
+                & S.map encodeJson
+                & S.mapM_ T.putStrLn
+            OutputCoinebaseResult -> s
+                & payloads1 pdb
+                & coinbaseResult _2
+                & S.map encodeJson
+                & S.mapM_ T.putStrLn
+            CoinbaseFailure -> s
+                & payloads1 pdb
+                & coinbaseResult _2
                 & failures
+                & S.map encodeJson
+                & S.mapM_ T.putStrLn
+            -- OutputPayload -> s
+            --     & S.map (\h -> (h,h))
+            --     & payloads pdb
+            --     & moveRight
+            --     & transactionsWithOutputs
+            --     & moveRight
+            --     & S.map (encodeJson @((BlockHeader, BlockHeight), V.Vector Value))
+            --     & S.mapM_ T.putStrLn
+            OutputAll -> s
+                & S.map (\h -> (h,h))
+                & payloads pdb _2
+                & S.map (\(h,(a,b)) -> ((h,a),b))
+                & transactionsWithOutputs
+                & S.map (encodeJson @((BlockHeader, BlockHeight), V.Vector Value))
+                & S.mapM_ T.putStrLn
 
-        & S.map encodeJson
-        & S.mapM_ T.putStrLn
   where
+    logg :: LogFunctionText
+    logg = logFunction logger
+
+    encodeJson :: forall a . ToJSON a => a -> T.Text
     encodeJson
         | _configPretty config = T.decodeUtf8 . BL.toStrict . encodePretty
         | otherwise = encodeToText
 
-
-txOutputsStream
-    :: Logger l
-    => PayloadCas cas
-    => l
-    -> Config
-    -> PayloadDb cas
-    -> BlockHeaderDb
-    -> (S.Stream (Of (BlockHeight, PayloadWithOutputs)) IO () -> IO ())
-    -> IO ()
-txOutputsStream logger config pdb cdb inner = do
-    liftIO $ logg Info "start traversing block headers"
-    void $ entries cdb Nothing Nothing (MinRank <$> _configStart config) (MaxRank <$> _configEnd config) $ \s -> s
-        & void
-        & progress logg
-        & payloads pdb
-        & inner
-  where
-    logg :: LogFunctionText
-    logg = logFunction logger
-    v = _configChainwebVersion config
-    cid = _configChainId config
+moveRight :: Monad m => S.Stream (Of (a, (b,c))) m r -> S.Stream (Of ((a,b),c)) m r
+moveRight = S.map (\(a,(b,c)) -> ((a,b), c))
 
 progress :: LogFunctionText -> S.Stream (Of BlockHeader) IO a -> S.Stream (Of BlockHeader) IO a
 progress logg s = s
@@ -389,29 +420,10 @@ progress logg s = s
             logg Info ("BlockHeight: " <> sshow (_blockHeight x))
         )
 
-commands
-    :: PayloadCas cas
-    => PayloadDb cas
-    -> S.Stream (Of BlockHeader) IO ()
-    -> S.Stream (Of (BlockHeight, Command T.Text, CommandResult T.Text)) IO ()
-commands pdb s = s
-    & S.mapM
-        ( traverse (casLookupM pdb)
-        . (_blockHeight &&& _blockPayloadHash)
-        )
-    & flip S.for
-        ( S.each
-        . sequence
-        . fmap _payloadWithOutputsTransactions
-        )
-    & S.map (\(a,(b,c)) -> (a,b,c))
-    & S.map (bimap _transactionBytes _transactionOutputBytes)
-    & S.mapM (bitraverse decodeStrictOrThrow' decodeStrictOrThrow')
-
 miner
     :: MonadThrow m
-    => S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
-    -> S.Stream (Of (BlockHeight, Miner)) m a
+    => S.Stream (Of (x, PayloadWithOutputs)) m a
+    -> S.Stream (Of (x, Miner)) m a
 miner = S.mapM
     --  $ traverse (decodeStrictOrThrow' . _minerData . _payloadWithOutputsMiner)
     $ traverse (decodeStrictOrThrow' . _minerData . _payloadWithOutputsMiner)
@@ -420,55 +432,63 @@ payloads
     :: MonadIO m
     => PayloadCas cas
     => PayloadDb cas
-    -> S.Stream (Of BlockHeader) m a
-    -> S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
-payloads pdb =  S.mapM
-    ( traverse (liftIO . casLookupM pdb)
-    . (_blockHeight &&& _blockPayloadHash)
-    )
+    -> Lens a b BlockHeader (BlockHeight, PayloadWithOutputs)
+    -> S.Stream (Of a) m r
+    -> S.Stream (Of b) m r
+payloads pdb l =  S.mapM
+    $ l (traverse (liftIO . casLookupM pdb) . (_blockHeight &&& _blockPayloadHash))
 
 coinbaseOutput
     :: Monad m
-    => S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
-    -> S.Stream (Of (BlockHeight, CoinbaseOutput)) m a
-coinbaseOutput = S.map $ fmap _payloadWithOutputsCoinbase
+    => Lens a b PayloadWithOutputs CoinbaseOutput
+    -> S.Stream (Of a) m r
+    -> S.Stream (Of b) m r
+coinbaseOutput l = S.map $ over l _payloadWithOutputsCoinbase
 
 coinbaseResult
     :: MonadThrow m
-    => S.Stream (Of (BlockHeight, PayloadWithOutputs)) m a
-    -> S.Stream (Of (BlockHeight, CommandResult T.Text)) m a
-coinbaseResult = S.mapM
-    $ traverse (decodeStrictOrThrow' . _coinbaseOutput . _payloadWithOutputsCoinbase)
+    => Lens a b PayloadWithOutputs (CommandResult T.Text)
+    -> S.Stream (Of a) m r
+    -> S.Stream (Of b) m r
+coinbaseResult l = S.mapM
+    $ l (decodeStrictOrThrow' . _coinbaseOutput . _payloadWithOutputsCoinbase)
 
 failures
     :: Monad m
-    => S.Stream (Of (BlockHeight, CommandResult T.Text)) m a
-    -> S.Stream (Of (BlockHeight, PactError)) m a
+    => S.Stream (Of (x, CommandResult T.Text)) m a
+    -> S.Stream (Of (x, PactError)) m a
 failures = S.concat . S.map go . S.map (fmap _crResult)
   where
     go (a, PactResult x) = case x of
         Left e -> Just (a, e)
         Right _ -> Nothing
 
--- -------------------------------------------------------------------------- --
--- PayloadWithOutputs
+transactionsWithOutputs
+    :: MonadThrow m
+    => S.Stream (Of (x, PayloadWithOutputs)) m a
+    -> S.Stream (Of (x, V.Vector Value)) m a
+transactionsWithOutputs s = s
+    & S.map (fmap _payloadWithOutputsTransactions)
+    & S.map (\(a, b) -> (a, bimap _transactionBytes _transactionOutputBytes <$> b))
+    & S.mapM
+        (\(a, b) -> (a,)
+            <$> traverse (bitraverse decodeStrictOrThrow' decodeStrictOrThrow') b
+        )
+    & S.map (\(a, b) -> (a, prettyCommandWithOutputs True <$> b))
 
--- runOutputs :: Config -> LogFunction -> IO ()
--- runOutputs config logg = do
---     txOutputsStream config logg
---         & S.chain (logg @T.Text Info . prettyCommandWithOutputs (_configPretty config))
---         & S.foldM_
---             (\c _ -> do
---                 let c' = succ @Int c
---                 when (c' `mod` 100 == 0) $
---                     liftIO $ logg @T.Text Info ("total tx count: " <> sshow c')
---                 return c'
---             )
---             (return 0)
---             (const $ return ())
+prettyCommandWithOutputs :: Bool -> (Command T.Text, CommandResult T.Text) -> Value
+prettyCommandWithOutputs p (c, o) = object
+    [ "sigs" .= _cmdSigs c
+    , "hash" .= _cmdHash c
+    , "payload" .= either
+        (const $ String $ _cmdPayload c)
+        (id @Value)
+        (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
+    , "output" .= o
+    ]
 
-prettyCommandWithOutputs :: Bool -> (BlockHeight, Command T.Text, CommandResult T.Text) -> T.Text
-prettyCommandWithOutputs p (bh, c, o) = T.decodeUtf8
+prettyCommand :: Bool -> (BlockHeight, Command T.Text) -> T.Text
+prettyCommand p (bh, c) = T.decodeUtf8
     $ BL.toStrict
     $ (if p then encodePretty else encode)
     $ object
@@ -479,6 +499,5 @@ prettyCommandWithOutputs p (bh, c, o) = T.decodeUtf8
             (const $ String $ _cmdPayload c)
             (id @Value)
             (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
-        , "output" .= o
         ]
 
