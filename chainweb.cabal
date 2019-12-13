@@ -276,6 +276,7 @@ library
         , Chainweb.Pact.Service.Types
         , Chainweb.Pact.Templates
         , Chainweb.Pact.TransactionExec
+        , Chainweb.Pact.Transactions.Mainnet0Transactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
 
@@ -426,7 +427,6 @@ test-suite chainweb-tests
     other-modules:
         Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeaderDB
-        Chainweb.Test.CoinContract
         Chainweb.Test.CutDB
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
@@ -440,11 +440,13 @@ test-suite chainweb-tests
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
+        Chainweb.Test.Pact.ModuleCacheOnRestart
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
         Chainweb.Test.Pact.RemotePactTest
         Chainweb.Test.Pact.SPV
+        Chainweb.Test.Pact.TransactionTests
         Chainweb.Test.Pact.TTL
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI

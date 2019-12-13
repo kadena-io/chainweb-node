@@ -4,18 +4,18 @@
 
 (begin-tx)
 (env-gas 0) (env-gaslog)
-(load "fungible-v1.pact")
+(load "fungible-v2.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading fungible contract"
-  757 (env-gas))
+  840 (env-gas))
 
 (env-gas 0) (env-gaslog)
 (load "coin.pact")
 (env-gaslog)
 (expect
   "Gas cost of loading coin contract"
-  3635 (env-gas))
+  3818 (env-gas))
 (commit-tx)
 
 (verify 'coin)
@@ -455,18 +455,20 @@
 
 (expect-failure
   "coinbase fails when capability is not in scope"
-  "not granted: (coin.COINBASE)"
+  "not granted"
   (coinbase 'emily (read-keyset 'emily) 0.0))
 
 (test-capability (COINBASE))
 
 (coinbase 'emily (read-keyset 'emily) 1.0)
 
+(test-capability (COINBASE))
 (expect-failure
   "coinbasing trivial or negative amounts fails fast"
   "positive"
   (coinbase 'emily (read-keyset 'emily) 0.0))
 
+(test-capability (COINBASE))
 (expect-failure
   "coinbasing trivial or negative amounts fails fast"
   "positive"
@@ -484,6 +486,7 @@
   "row not found"
   (get-balance 'miner2))
 
+(test-capability (COINBASE))
 (coinbase 'miner2 (read-keyset 'miner2) 1.0)
 
 (expect
@@ -556,7 +559,20 @@
     (format "Account: {} Guard: {}" [(at 'balance i) (at 'guard i)])))
 
 ; account details will now feature rotated guard
-(rotate 'emily (read-keyset 'doug))
+(env-keys ["keys1", "keys2"])
+(expect-failure
+  "guard rotation fails when ROTATE is not scoped"
+  "Managed capability not installed"
+  (rotate 'emily (read-keyset 'doug)))
+
+(env-sigs [{'key: "keys1", 'caps: [(coin.ROTATE "emily")]}])
+(install-capability (ROTATE "emily"))
+
+(expect
+  "guard rotation succeeds when ROTATE is scoped"
+  "Write succeeded"
+  (rotate 'emily (read-keyset 'doug)))
+
 (expect
   "account info for 'emily uses 'doug keyset after rotation"
   "Account: 0.6 Guard: KeySet {keys: [keys2],pred: keys-all}"
@@ -594,6 +610,8 @@
   "min value ok"
   true
   (enforce-unit UNIT_GOOD))
+
+(env-keys ["keys1", "keys2"])
 
 (test-capability (TRANSFER "emily" "doug" UNIT_GOOD))
 ;; Transfer
@@ -813,3 +831,41 @@
   "gas-guard succeeds when GAS not present, but keyset is"
   true
   (gas-guard (keyset-ref-guard "bez")))
+
+(commit-tx)
+
+(begin-tx)
+
+(use coin)
+
+(expect-failure
+  "Remediations fail without the presence of REMEDIATE"
+  "not granted"
+  (remediate "brandon" 1.0))
+
+(test-capability (REMEDIATE))
+
+(expect
+  "Remediations succeed in the presence of REMEDIATE"
+  "Write succeeded"
+  (remediate "brandon" 1.0))
+
+(expect-failure
+  "Cannot remediate negative amounts"
+  "Remediation amount must be positive"
+  (remediate "brandon" -1.0))
+
+(expect-failure
+  "Cannot remediate amounts that don't conform to unit standards"
+  "Amount violates minimum precision"
+  (remediate "brandon" 1.0000000000001))
+
+(expect-failure
+  "Cannot remediate accounts that are too small"
+  "Account name does not conform to the min length requirement"
+  (remediate "br" 1.0))
+
+(expect-failure
+  "Cannot remediate accounts that are too large"
+  "Account name does not conform to the max length requirement"
+  (remediate "Classically, category theory is a useful tool not so much because of the light it sheds on any particular mathematical discipline but instead because categories are so ubiquitous: mathematical objects in many different settings (sets, groups, smooth manifolds, and so on) can be organized into categories. Moreover, many elementary mathematical concepts can be described in purely categorical terms and therefore make sense in each of these settings." 1.0))

@@ -223,6 +223,7 @@ localChainDataTest iot nio = do
           assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
+
 sendValidationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
     testCaseSteps "/send reports validation failure" $ \step -> do
