@@ -202,8 +202,7 @@ genTxModules = genDevTxs >> genMainnetTxs >> genOtherTxs >> putStrLn "Done."
     genMain :: Int -> IO ()
     genMain chain = gen ("Mainnet" <> sshow chain)
       ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
-    genMainnetTxs = do
-      genMain 0
+    genMainnetTxs = mapM_ genMain [0..9]
     upgrades = [ "pact/coin-contract/v2/load-coin-contract-v2.yaml"
                , "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
                ]
