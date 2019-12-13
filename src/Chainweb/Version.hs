@@ -620,6 +620,6 @@ upgradeCoinV2Date TimedConsensus{} = Nothing
 upgradeCoinV2Date PowConsensus{} = Nothing
 upgradeCoinV2Date TimedCPM{} = Nothing
 upgradeCoinV2Date FastTimedCPM{} = Nothing
-upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-13T22:15:00.0 |]
+upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-13T22:25:00.0 |]
 upgradeCoinV2Date Testnet04 = Nothing
 upgradeCoinV2Date Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:00:00.0 |]
