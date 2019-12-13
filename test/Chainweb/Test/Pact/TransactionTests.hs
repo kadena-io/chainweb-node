@@ -46,7 +46,6 @@ import Pact.Interpreter
 -- internal chainweb modules
 
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
@@ -55,6 +54,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Test.Pact.Utils
 
 
 coinRepl :: FilePath
@@ -242,17 +242,6 @@ testCoinbaseEnforceFailure = do
     blockHeight' = 123
     logger = newLogger neverLog ""
 
-testVersion :: ChainwebVersion
-testVersion = FastTimedCPM peterson
 
 testVersionHeader :: BlockHeader
-testVersionHeader = someBlockHeader testVersion 10
-
-epochCreationTime :: BlockCreationTime
-epochCreationTime = BlockCreationTime epoch
-
-someBlockHeader :: ChainwebVersion -> BlockHeight -> BlockHeader
-someBlockHeader v h = setHeight $ head (testBlockHeaders $ ParentHeader gbh0)
-  where
-    gbh0 = genesisBlockHeader v (unsafeChainId 0)
-    setHeight bh = bh { _blockHeight = h }
+testVersionHeader = someTestVersionHeader

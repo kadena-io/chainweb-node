@@ -64,6 +64,10 @@ module Chainweb.Test.Pact.Utils
 -- * miscellaneous
 , ChainwebNetwork(..)
 , dummyLogger
+, epochCreationTime
+, someTestVersionHeader
+, someBlockHeader
+, someBlockHeaderCreationTime
 ) where
 
 import Control.Concurrent.Async
@@ -107,7 +111,7 @@ import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
 import Pact.Parse
 import Pact.Types.Capability
-import Pact.Types.ChainId
+import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -124,7 +128,9 @@ import Pact.Types.Util (toB16Text)
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -271,7 +277,7 @@ goldenTestTransactions txs = do
 mkTestExecTransactions
     :: Text
       -- ^ sender
-    -> ChainId
+    -> P.ChainId
       -- ^ chain id of execution
     -> [SomeKeyPairCaps]
       -- ^ signer keys
@@ -316,7 +322,7 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
 mkTestContTransaction
     :: Text
       -- ^ sender
-    -> ChainId
+    -> P.ChainId
       -- ^ chain id of execution
     -> [SomeKeyPairCaps]
       -- ^ signer keys
@@ -670,3 +676,21 @@ newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
 
 dummyLogger :: GenericLogger
 dummyLogger = genericLogger Quiet T.putStrLn
+
+someTestVersion :: ChainwebVersion
+someTestVersion = FastTimedCPM peterson
+
+someTestVersionHeader :: BlockHeader
+someTestVersionHeader = someBlockHeader someTestVersion 10
+
+epochCreationTime :: BlockCreationTime
+epochCreationTime = BlockCreationTime epoch
+
+someBlockHeader :: ChainwebVersion -> BlockHeight -> BlockHeader
+someBlockHeader v h = setHeight $ head (testBlockHeaders $ ParentHeader gbh0)
+  where
+    gbh0 = genesisBlockHeader v (unsafeChainId 0)
+    setHeight bh = bh { _blockHeight = h }
+
+someBlockHeaderCreationTime :: (BlockHeader, BlockCreationTime)
+someBlockHeaderCreationTime = (someTestVersionHeader,epochCreationTime)
