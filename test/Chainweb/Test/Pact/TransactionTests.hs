@@ -82,13 +82,33 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   ]
 
 
-badMinerId :: MinerId
-badMinerId = MinerId ("alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha")
+-- ---------------------------------------------------------------------- --
+-- Coin Contract repl tests
 
-minerKeys0 :: MinerKeys
-minerKeys0 = MinerKeys $ mkKeySet
-    ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
-    "default"
+ccReplTests :: FilePath -> Assertion
+ccReplTests ccFile = do
+    (r, rst) <- execScript' (Script False ccFile) ccFile
+    either fail (\_ -> execRepl rst) r
+  where
+    execRepl rst = do
+      lst <- readMVar $! _eePactDbVar . _rEnv $ rst
+      for_ (_rlsTests lst) $ \tr ->
+        traverse_ (uncurry failCC) $ trFailure tr
+
+    failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
+
+loadCC :: IO (PactDbEnv LibState, ModuleCache)
+loadCC = do
+  (r, rst) <- execScript' (Script False coinRepl) coinRepl
+  either fail (const $ return ()) r
+  let pdb = PactDbEnv
+            (view (rEnv . eePactDb) rst)
+            (view (rEnv . eePactDbVar) rst)
+      mc = view (rEvalState . evalRefs . rsLoadedModules) rst
+  return (pdb,mc)
+
+-- ---------------------------------------------------------------------- --
+-- Template vuln tests
 
 baseInjTest :: Assertion
 baseInjTest = mkCoinbaseCmd badMinerId minerKeys0 (ParsedDecimal 1.0) >>= \case
@@ -119,44 +139,16 @@ buildExecWithData = void $ buildExecParsedCode
 buildExecWithoutData :: Assertion
 buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 
+badMinerId :: MinerId
+badMinerId = MinerId ("alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha")
 
-ccReplTests :: FilePath -> Assertion
-ccReplTests ccFile = do
-    (r, rst) <- execScript' (Script False ccFile) ccFile
-    either fail (\_ -> execRepl rst) r
-  where
-    execRepl rst = do
-      lst <- readMVar $! _eePactDbVar . _rEnv $ rst
-      for_ (_rlsTests lst) $ \tr ->
-        traverse_ (uncurry failCC) $ trFailure tr
+minerKeys0 :: MinerKeys
+minerKeys0 = MinerKeys $ mkKeySet
+    ["f880a433d6e2a13a32b6169030f56245efdd8c1b8a5027e9ce98a88e886bef27"]
+    "default"
 
-    failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
-
-loadCC :: IO (PactDbEnv LibState, ModuleCache)
-loadCC = do
-  (r, rst) <- execScript' (Script False coinRepl) coinRepl
-  either fail (const $ return ()) r
-  let pdb = PactDbEnv
-            (view (rEnv . eePactDb) rst)
-            (view (rEnv . eePactDbVar) rst)
-      mc = view (rEvalState . evalRefs . rsLoadedModules) rst
-  return (pdb,mc)
-
-
-testCoinbase :: Assertion
-testCoinbase = do
-  (pdb,mc) <- loadCC
-  void $ applyCoinbase toyVersion logger pdb miner 0.1 pubData blockHsh
-       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False)
-       mc
-  where
-    miner = noMiner
-    pubData = PublicData def blockHeight' blockTime (toText blockHash')
-    blockHsh@(BlockHash blockHash') = nullBlockHash
-    blockTime = toInt64 [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
-    toInt64 (Time (TimeSpan (Micros m))) = m
-    blockHeight' = 123
-    logger = newLogger neverLog ""
+-- ---------------------------------------------------------------------- --
+-- Vuln 792 fork tests
 
 testCoinbase797DateFix :: TestTree
 testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
@@ -166,7 +158,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     cmd <- buildExecParsedCode Nothing "(coin.get-balance \"tester01\")"
 
-    doCoinbase pdb mc preForkTime cmd False $ \pr -> case pr of
+    doCoinbaseExploit pdb mc preForkTime cmd False $ \pr -> case pr of
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 1000.1 -> return ()
@@ -178,7 +170,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     cmd' <- buildExecParsedCode Nothing
       "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
 
-    doCoinbase pdb mc postForkTime cmd' False $ \pr -> case pr of
+    doCoinbaseExploit pdb mc postForkTime cmd' False $ \pr -> case pr of
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.1 -> return ()
@@ -187,7 +179,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "pre-fork code injection fails, enforced precompile"
 
-    doCoinbase pdb mc preForkTime cmd' True $ \pr -> case pr of
+    doCoinbaseExploit pdb mc preForkTime cmd' True $ \pr -> case pr of
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.2 -> return ()
@@ -196,7 +188,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "post-fork code injection fails, enforced precompile"
 
-    doCoinbase pdb mc postForkTime cmd' True $ \pr -> case pr of
+    doCoinbaseExploit pdb mc postForkTime cmd' True $ \pr -> case pr of
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.3 -> return ()
