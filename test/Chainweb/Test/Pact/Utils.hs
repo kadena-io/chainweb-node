@@ -63,6 +63,7 @@ module Chainweb.Test.Pact.Utils
 , WithPactCtxSQLite
 -- * miscellaneous
 , ChainwebNetwork(..)
+, dummyLogger
 ) where
 
 import Control.Concurrent.Async
@@ -399,7 +400,7 @@ testPactCtx v cid bhdb pdb = do
     ctx <- TestPactCtx
         <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
         <*> pure (pactServiceEnv cpe rs)
-    evalPactServiceM_ ctx (initialPayloadState v cid)
+    evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
@@ -431,7 +432,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
     ctx <- TestPactCtx
       <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
-    evalPactServiceM_ ctx (initialPayloadState v cid)
+    evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
@@ -572,7 +573,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
         !ctx <- TestPactCtx
           <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
           <*> pure (pactServiceEnv cpe pdb bhdb gm rs)
-        evalPactServiceM_ ctx (initialPayloadState v cid)
+        evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
         return (ctx, dbSt)
       where
         pactServiceEnv cpe pdb bhdb gm rs = PactServiceEnv
@@ -666,3 +667,6 @@ withPact version logLevel iopdb iobhdb mempool iodir deepForkLimit f =
     cid = someChainId version
 
 newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
+
+dummyLogger :: GenericLogger
+dummyLogger = genericLogger Quiet T.putStrLn
