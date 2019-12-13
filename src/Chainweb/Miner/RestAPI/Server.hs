@@ -30,6 +30,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 
 import Data.Binary.Builder (fromByteString)
+import Data.Bool (bool)
 import Data.Generics.Wrapped (_Unwrapped)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
@@ -57,9 +58,7 @@ import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPayloadStore, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
-    (ChainChoice(..), MiningState(..), newWork, publish)
 import Chainweb.Miner.Core
-    (ChainBytes(..), HeaderBytes(..), WorkBytes, workBytes)
 import Chainweb.Miner.Miners (transferableBytes)
 import Chainweb.Miner.Pact (Miner(..), MinerId(..))
 import Chainweb.Miner.RestAPI (MiningApi)
@@ -86,33 +85,31 @@ workHandler mr mcid m@(Miner (MinerId mid) _) = do
         liftIO $ atomicModifyIORef' (_coord503s mr) (\c -> (c + 1, ()))
         throwError err503 { errBody = "Too many work requests" }
     let !conf = _coordConf mr
-    when (_coordinationMode conf == Private
-          && not (S.member m (_coordinationMiners conf))) $ do
+        !primed = S.member m $ _coordinationMiners conf
+        !miner = bool (Plebian m) (Primed m) primed
+    when (_coordinationMode conf == Private && not primed) $ do
         liftIO $ atomicModifyIORef' (_coord403s mr) (\c -> (c + 1, ()))
         let midb = TL.encodeUtf8 $ TL.fromStrict mid
         throwError err403 { errBody = "Unauthorized Miner: " <> midb }
-    liftIO $ workHandler' mr mcid m
+    liftIO $ workHandler' mr mcid miner
 
 workHandler'
     :: forall l cas
     .  Logger l
     => MiningCoordination l cas
     -> Maybe ChainId
-    -> Miner
+    -> MinerStatus
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork logf mode choice m pact (_coordPrimedWork mr) c
+    T3 p bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 m p pl
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (minerStatus m) p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     logf :: LogFunction
     logf = logFunction $ _coordLogger mr
-
-    mode :: CoordinationMode
-    mode = _coordinationMode $ _coordConf mr
 
     choice :: ChainChoice
     choice = maybe Anything Suggestion mcid
