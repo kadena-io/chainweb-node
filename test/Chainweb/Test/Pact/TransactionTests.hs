@@ -30,6 +30,7 @@ import Data.Default
 -- internal pact modules
 
 import Pact.Gas
+import Pact.Interpreter
 import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
@@ -40,7 +41,6 @@ import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.SPV
-import Pact.Interpreter
 
 
 -- internal chainweb modules
@@ -234,7 +234,7 @@ testCoinbaseEnforceFailure = do
       epochCreationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) ->
-        if isInfixOf "Coinbase tx failure" (sshow e) then
+        if isInfixOf "CoinbaseFailure" (sshow e) then
           return ()
         else assertFailure $ "Coinbase failed for unknown reason: " <> show e
       Right _ -> assertFailure "Coinbase did not fail for bad miner id"
