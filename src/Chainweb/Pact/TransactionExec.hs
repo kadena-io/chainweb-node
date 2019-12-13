@@ -50,10 +50,10 @@ module Chainweb.Pact.TransactionExec
 ) where
 
 import Control.Lens
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
-
 
 import Data.Aeson hiding ((.=))
 import qualified Data.Aeson as A
@@ -70,7 +70,7 @@ import Data.Tuple.Strict (T2(..))
 
 -- internal Pact modules
 
-import Pact.Eval (liftTerm, lookupModule, eval)
+import Pact.Eval (eval, liftTerm, lookupModule)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
@@ -92,7 +92,7 @@ import Pact.Types.SPV
 
 import Chainweb.BlockHash
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
@@ -271,7 +271,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
 
       case cr of
         Left e
-          | throwCritical -> fatal $ "Coinbase tx failure: " <> sshow e
+          | throwCritical -> throwM $ CoinbaseFailure $ sshow e
           | otherwise -> jsonErrorResult e "coinbase tx failure"
         Right er -> do
           debug
@@ -743,4 +743,4 @@ fatal e = do
       $! "critical transaction failure: "
       <> sshow rk <> ": " <> T.unpack e
 
-    internalError e
+    throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e

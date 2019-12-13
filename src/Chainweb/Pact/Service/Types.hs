@@ -47,6 +47,8 @@ import Chainweb.Version
 data PactException
   = BlockValidationFailure Value
   | PactInternalError Text
+  | PactTransactionExecError PactHash Text
+  | CoinbaseFailure Text
   | NoBlockValidatedYet
   | TransactionValidationException [(PactHash, Text)]
   | PactDuplicateTableError Text

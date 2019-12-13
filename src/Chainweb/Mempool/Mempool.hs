@@ -242,6 +242,9 @@ data MempoolBackend t = MempoolBackend {
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
 
+    -- | Mark a transaction as bad.
+  , mempoolAddToBadList :: TransactionHash -> IO ()
+
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
     --
@@ -277,6 +280,7 @@ noopMempool = do
     , mempoolInsert = noopInsert
     , mempoolInsertCheck = noopInsertCheck
     , mempoolMarkValidated = noopMV
+    , mempoolAddToBadList = noopAddToBadList
     , mempoolGetBlock = noopGetBlock
     , mempoolPrune = return ()
     , mempoolGetPendingTransactions = noopGetPending
@@ -296,6 +300,7 @@ noopMempool = do
     noopInsert = const $ const $ return ()
     noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()
+    noopAddToBadList = const $ return ()
     noopGetBlock _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
