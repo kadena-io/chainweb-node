@@ -1142,7 +1142,7 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-    (cr,upgradedCacheM) <-
+    (cr, upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
     return $! toHashCommandResult cr
 
