@@ -772,16 +772,22 @@ execNewBlock
     -> Miner
     -> BlockCreationTime
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parentHeader miner creationTime =
-  do
-    updateMempool
-    withDiscardedBatch $ do
-      setBlockData parentHeader
-      rewindTo newblockRewindLimit target
-      newTrans <- withCheckpointer target "preBlock" doPreBlock
-      withCheckpointer target "execNewBlock" (doNewBlock newTrans)
-
+execNewBlock mpAccess parentHeader miner creationTime = go
   where
+    go = handle onTxFailure $ do
+        updateMempool
+        withDiscardedBatch $ do
+          setBlockData parentHeader
+          rewindTo newblockRewindLimit target
+          newTrans <- withCheckpointer target "preBlock" doPreBlock
+          withCheckpointer target "execNewBlock" (doNewBlock newTrans)
+
+    onTxFailure e@(PactTransactionExecError rk _) = do
+        -- add the failing transaction to the mempool bad list, so it is not
+        -- re-selected for mining.
+        liftIO $ mpaBadlistTx mpAccess rk
+        throwM e
+    onTxFailure e = throwM e
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
