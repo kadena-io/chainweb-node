@@ -75,8 +75,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
     , testCase "Fixed Injection Test" fixedInjTest
     ]
   , testGroup "Coinbase Vuln Fix Tests"
-    [ testCase "testCoinbase" testCoinbase
-    , testCoinbase797DateFix
+    [ testCoinbase797DateFix
     , testCase "testCoinbaseEnforceFailure" testCoinbaseEnforceFailure
     ]
   ]
