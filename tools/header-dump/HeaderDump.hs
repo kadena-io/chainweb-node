@@ -22,6 +22,26 @@
 --
 module HeaderDump
 ( main
+, run
+, mainWithConfig
+, withChainDbs
+
+-- * Configuration
+, Output(..)
+, Config(..)
+, defaultConfig
+
+-- * Tools
+, progress
+, miner
+, payloads
+, coinbaseOutput
+, coinbaseResult
+, pactResult
+, failures
+, transactionsWithOutputs
+, commandValue
+, commandWithOutputsValue
 ) where
 
 import Configuration.Utils hiding (Lens)
