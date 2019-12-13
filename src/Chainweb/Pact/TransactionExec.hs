@@ -49,7 +49,6 @@ module Chainweb.Pact.TransactionExec
 
 ) where
 
-import Control.Monad.Catch
 import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Reader

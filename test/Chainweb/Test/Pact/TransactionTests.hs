@@ -22,7 +22,6 @@ import Control.Concurrent (readMVar)
 import Control.Exception (SomeException, try)
 import Control.Lens hiding ((.=))
 import Data.Aeson
-import Data.Default
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
 import Data.Text (isInfixOf,unpack)
