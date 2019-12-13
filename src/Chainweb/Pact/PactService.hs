@@ -224,7 +224,7 @@ initPactService
     -> IO ()
 initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
     initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
-        initialPayloadState ver cid
+        initialPayloadState chainwebLogger ver cid
         serviceRequests mempoolAccess reqQ
 
 initPactService'
@@ -242,7 +242,7 @@ initPactService'
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
-        !gasModel = tableGasModel defaultGasConfig
+        !gasModel = officialGasModel
         !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
@@ -262,37 +262,56 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
 
 initialPayloadState
-    :: PayloadCas cas
-    => ChainwebVersion
+    :: Logger logger
+    => PayloadCas cas
+    => logger
+    -> ChainwebVersion
     -> ChainId
     -> PactServiceM cas ()
-initialPayloadState Test{} _ = pure ()
-initialPayloadState TimedConsensus{} _ = pure ()
-initialPayloadState PowConsensus{} _ = pure ()
-initialPayloadState v@TimedCPM{} cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@FastTimedCPM{} cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Development cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Testnet04 cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Mainnet01 cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
+initialPayloadState _ Test{} _ = pure ()
+initialPayloadState _ TimedConsensus{} _ = pure ()
+initialPayloadState _ PowConsensus{} _ = pure ()
+initialPayloadState logger v@TimedCPM{} cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger v@FastTimedCPM{} cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger  v@Development cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger v@Testnet04 cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger v@Mainnet01 cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
 
 initializeCoinContract
-    :: forall cas. PayloadCas cas
-    => ChainwebVersion
+    :: forall cas logger. (PayloadCas cas, Logger logger)
+    => logger
+    -> ChainwebVersion
     -> ChainId
     -> PayloadWithOutputs
     -> PactServiceM cas ()
-initializeCoinContract v cid pwo = do
+initializeCoinContract logger v cid pwo = do
     cp <- getCheckpointer
     genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
-    unless genesisExists $ do
+    if genesisExists
+      then do
+          pdb <- asks _psPdb
+          bhdb <- asks _psBlockHeaderDb
+          reloadedCache <- liftIO $
+              withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
+                  -- Note: initPactService' here creates its own isolated (in terms
+                  -- of it values) version of the PactServiceM monad. Yeah purity!
+                  initPactService' v cid logger bhdb pdb sqlenv defaultReorgLimit $ do
+                      -- it is reasonable to assume genesis doesn't exist here
+                      validateGenesis
+                      gets _psInitCache
+          psInitCache .= reloadedCache
+      else validateGenesis
+
+  where
+    validateGenesis = do
         txs <- execValidateBlock genesisHeader inputPayloadData
         bitraverse_ throwM pure $ validateHashes genesisHeader txs inputPayloadData
-  where
+
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
 
@@ -876,7 +895,7 @@ execLocal cmd = withDiscardedBatch $ do
         mc <- use psInitCache
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv pd spv cmd mc
+        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -1248,3 +1267,20 @@ findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
 
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
+
+-- | Modified table gas module with free module loads
+--
+freeModuleLoadGasModel :: P.GasModel
+freeModuleLoadGasModel = modifiedGasModel
+  where
+    defGasModel = tableGasModel defaultGasConfig
+    fullRunFunction = P.runGasModel defGasModel
+    modifiedRunFunction name ga = case ga of
+      P.GPostRead (P.ReadModule {}) -> 0
+      _ -> fullRunFunction name ga
+    modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
+
+-- | Gas Model used in /send and /local
+--
+officialGasModel :: P.GasModel
+officialGasModel = freeModuleLoadGasModel
