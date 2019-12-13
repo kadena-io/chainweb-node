@@ -115,12 +115,10 @@ testTTL genesisBlock iopdb iobhdb rr = do
           return $ Just "Expected a transaction validation failure."
 
 testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess _ttlcase iot = MemPoolAccess
+testMemPoolAccess _ttlcase iot = mempty
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer

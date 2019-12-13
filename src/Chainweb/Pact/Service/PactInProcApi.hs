@@ -26,10 +26,13 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
+import qualified Data.ByteString.Short as SB
 import Data.IORef
 import Data.Vector (Vector)
 
 import Numeric.Natural (Natural)
+
+import qualified Pact.Types.Hash as Pact
 
 import System.LogLevel
 
@@ -111,7 +114,10 @@ pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
+    , mpaBadlistTx = \tx -> mempoolAddToBadList (mpcMempool mpc) (fromPactHash tx)
     }
+  where
+    fromPactHash (Pact.TypedHash h) = TransactionHash (SB.toShort h)
 
 pactMemPoolGetBlock
     :: Logger logger

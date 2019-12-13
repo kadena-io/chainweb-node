@@ -102,12 +102,10 @@ onRestart pdb bhdb r = do
     assertEqual "Invalid BlockHeight" 9 (_blockHeight b)
 
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess iot = MemPoolAccess
+testMemPoolAccess iot = mempty
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
@@ -145,6 +143,7 @@ dupegenMemPoolAccess iot = MemPoolAccess
             getTestBlock t validate bh hash _header
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
+    , mpaBadlistTx = \_ -> return ()
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
