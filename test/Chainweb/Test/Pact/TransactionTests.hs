@@ -24,7 +24,7 @@ import Control.Lens hiding ((.=))
 import Data.Aeson
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
-import Data.Text
+import Data.Text (isInfixOf,unpack)
 import Data.Default
 
 -- internal pact modules
@@ -45,7 +45,8 @@ import Pact.Interpreter
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
@@ -196,10 +197,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
   where
     doCoinbaseExploit pdb mc t localCmd precompile testResult = do
-      let pd = PublicData def blockHeight' t (toText blockHash')
+      let pd = PublicData def blockHeight' t ""
 
-      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd blockHsh
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
+      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd testVersionHeader
+        epochCreationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
           tenv = TransactionEnv Transactional pdb logger def
@@ -215,7 +216,6 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       (MinerId "tester01\" (read-keyset \"miner-keyset\") 1000.0)(coin.coinbase \"tester01")
       (MinerKeys $ mkKeySet ["b67e109352e8e33c8fe427715daad57d35d25d025914dd705b97db35b1bfbaa5"] "keys-all")
 
-    blockHsh@(BlockHash blockHash') = nullBlockHash
     preForkTime = toInt64 [timeMicrosQQ| 2019-12-09T01:00:00.0 |]
     postForkTime = toInt64 [timeMicrosQQ| 2019-12-11T01:00:00.0 |]
     toInt64 (Time (TimeSpan (Micros m))) = m
@@ -226,8 +226,8 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData blockHsh
-      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData testVersionHeader
+      epochCreationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) ->
         if isInfixOf "Coinbase tx failure" (sshow e) then
@@ -236,9 +236,23 @@ testCoinbaseEnforceFailure = do
       Right _ -> assertFailure "Coinbase did not fail for bad miner id"
   where
     miner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
-    pubData = PublicData def blockHeight' blockTime (toText blockHash')
-    blockHsh@(BlockHash blockHash') = nullBlockHash
+    pubData = PublicData def blockHeight' blockTime ""
     blockTime = toInt64 [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
     toInt64 (Time (TimeSpan (Micros m))) = m
     blockHeight' = 123
     logger = newLogger neverLog ""
+
+testVersion :: ChainwebVersion
+testVersion = FastTimedCPM peterson
+
+testVersionHeader :: BlockHeader
+testVersionHeader = someBlockHeader testVersion 10
+
+epochCreationTime :: BlockCreationTime
+epochCreationTime = BlockCreationTime epoch
+
+someBlockHeader :: ChainwebVersion -> BlockHeight -> BlockHeader
+someBlockHeader v h = setHeight $ head (testBlockHeaders $ ParentHeader gbh0)
+  where
+    gbh0 = genesisBlockHeader v (unsafeChainId 0)
+    setHeight bh = bh { _blockHeight = h }

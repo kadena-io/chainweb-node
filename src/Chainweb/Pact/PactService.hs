@@ -1144,7 +1144,16 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
     reward <- liftIO $! minerReward rs bh
     (cr, upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
+    void $ traverse upgradeInitCache upgradedCacheM
+
     return $! toHashCommandResult cr
+
+  where
+
+    upgradeInitCache newCache = do
+      logInfo $ "Updating init cache for upgrade"
+      psInitCache %= HM.union newCache
+
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
 -- The output vector is in the same order as the input (i.e. you can zip it

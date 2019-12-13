@@ -49,6 +49,7 @@ module Chainweb.Pact.TransactionExec
 
 ) where
 
+import Control.Monad.Catch
 import Control.Lens
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -81,7 +82,7 @@ import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
-import Pact.Types.Logger
+import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
@@ -373,6 +374,7 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
       liftIO $! logLog l "INFO" $! T.unpack s
 
     applyTxs txsIO = do
+      infoLog $ "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
       mapM_ applyTx txs
       mc <- use txCache
@@ -381,10 +383,16 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
     interp = initStateInterpreter $ installCoinModuleAdmin $ initCapabilities [magic_COINBASE]
 
     applyTx tx = do
-      infoLog $ "Running tx " <> T.take 256 (sshow tx)
-      void $ runGenesis tx permissiveNamespacePolicy interp
 
+      infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
+      r <- try $ runGenesis tx permissiveNamespacePolicy interp
+
+      case r of
+        Right _ -> return ()
+        Left (e :: SomeException) -> do
+          logError $ "Upgrade transaction failed! " <> sshow e
+          return ()
 
 
 
@@ -805,3 +813,6 @@ fatal e = do
       <> sshow rk <> ": " <> T.unpack e
 
     internalError e
+
+logError :: Text -> TransactionM db ()
+logError msg = view txLogger >>= \l -> liftIO $ logLog l "ERROR" (T.unpack msg)
