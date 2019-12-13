@@ -1,0 +1,7 @@
+# mainnet remediations chain 2
+
+code: |-
+  (coin.remediate "a30ffd3ba7fa08d4aafcfd9f15594d20e732b8fdda43f02470d76b7ebfa467e6" 92180.92000)
+  (coin.remediate "4069e72f62deb9dde8ee0686ee2908580131128b0a350e23890e9b46e61f166d" 46090.46000)
+nonce: mainnet-remediations-2
+keyPairs: []
