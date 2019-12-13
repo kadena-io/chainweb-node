@@ -381,7 +381,8 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
       mc <- use txCache
       return $ Just mc
 
-    interp = initStateInterpreter $ installCoinModuleAdmin $ initCapabilities [magic_COINBASE]
+    interp = initStateInterpreter $ installCoinModuleAdmin $
+      initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
 

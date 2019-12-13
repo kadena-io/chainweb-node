@@ -78,6 +78,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   , testGroup "Coinbase Vuln Fix Tests"
     [ testCoinbase797DateFix
     , testCase "testCoinbaseEnforceFailure" testCoinbaseEnforceFailure
+    , testCase "testCoinbaseUpgradeDevnet" testCoinbaseUpgradeDevnet
     ]
   ]
 
@@ -98,8 +99,11 @@ ccReplTests ccFile = do
     failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
 loadCC :: IO (PactDbEnv LibState, ModuleCache)
-loadCC = do
-  (r, rst) <- execScript' (Script False coinRepl) coinRepl
+loadCC = loadScript coinRepl
+
+loadScript :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
+loadScript fp = do
+  (r, rst) <- execScript' (Script False coinRepl) fp
   either fail (const $ return ()) r
   let pdb = PactDbEnv
             (view (rEnv . eePactDb) rst)
@@ -243,5 +247,34 @@ testCoinbaseEnforceFailure = do
     logger = newLogger neverLog ""
 
 
+testCoinbaseUpgradeDevnet :: Assertion
+testCoinbaseUpgradeDevnet = do
+    (pdb,mc) <- loadCC
+    r <- try $ applyCoinbase v logger pdb miner 0.1 pubData devnetHeader
+      creationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    case r of
+      Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
+      Right (cr,mcm) -> case (_crLogs cr,mcm) of
+        (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
+        (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
+        (Just logs,_) -> do
+          mapM_ (\l -> print (_txDomain l,_txKey l)) logs
+  where
+    v = Development
+    miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
+    pubData = PublicData def blockHeight' (toInt64 blockTime) ""
+    upgradeTime = fromJuste $ upgradeCoinV2Date v
+    blockTime = add (TimeSpan (Micros (- 1000))) upgradeTime
+    creationTime = BlockCreationTime $ add (TimeSpan (Micros 1000)) upgradeTime
+    toInt64 (Time (TimeSpan (Micros m))) = m
+    blockHeight' = 123
+    logger = newLogger alwaysLog ""
+    devnetHeader = setBlockTime blockTime $ someBlockHeader v (BlockHeight blockHeight')
+
+
+
 testVersionHeader :: BlockHeader
 testVersionHeader = someTestVersionHeader
+
+setBlockTime :: Time Micros -> BlockHeader -> BlockHeader
+setBlockTime c b = b { _blockCreationTime = BlockCreationTime c }
