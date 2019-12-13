@@ -92,7 +92,6 @@ import Pact.Types.SPV
 
 -- internal Chainweb modules
 
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types (internalError)

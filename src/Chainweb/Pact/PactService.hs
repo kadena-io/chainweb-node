@@ -947,8 +947,6 @@ playOneBlock currHeader plData pdbenv = do
       , " failed to validate"
       ]
 
-    bParent = _blockParent currHeader
-
     isGenesisBlock = isGenesisBlockHeader currHeader
 
     currCreationTime = _blockCreationTime currHeader
