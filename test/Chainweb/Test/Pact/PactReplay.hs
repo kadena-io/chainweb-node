@@ -244,29 +244,16 @@ testDeepForkLimit deepForkLimit iopdb iobhdb rr = do
     nonceCounterMain <- newIORef (fromIntegral $ _blockHeight maxblock)
 
     -- mine the main line a bit more
-
     void $ mineLine maxblock nonceCounterMain (deepForkLimit + 1)
 
     -- how far it mines doesn't really matter
-    void $ do
-      nCounter <- newIORef (fromIntegral $ _blockHeight maxblock)
-      expectException deepForkLimit $ mineLine maxblock nCounter 1
+    nCounter <- newIORef (fromIntegral $ _blockHeight maxblock)
+    try (mineLine maxblock nCounter 1) >>= \case
+        Left SomeException{} -> return ()
+        Right _ -> assertBool msg False
 
   where
-    expectException limit act = do
-        m <- wrap `catch` h
-        maybe mempty (\msg -> assertBool msg False) m
-      where
-        wrap = do
-          void $ act
-          let msg = concat [ "expected exception on a deep fork longer than "
-                           , show limit
-                           ]
-          return $ Just msg
-
-        h :: SomeException -> IO (Maybe String)
-        h = mempty
-
+    msg = "expected exception on a deep fork longer than " <> show deepForkLimit
 
     mineLine start ncounter len =
       evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) rr) start
