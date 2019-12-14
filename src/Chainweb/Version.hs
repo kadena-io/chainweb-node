@@ -578,7 +578,7 @@ txEnabledDate TimedConsensus{} = Nothing
 txEnabledDate PowConsensus{} = Nothing
 txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
-txEnabledDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
+txEnabledDate Development = Just [timeMicrosQQ| 2019-12-14T21:50:00.0 |]
 txEnabledDate Testnet04 = Nothing
 txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:30:00.0 |]
 
@@ -593,7 +593,7 @@ transferActivationDate TimedConsensus{} = Nothing
 transferActivationDate PowConsensus{} = Nothing
 transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
+transferActivationDate Development = Just [timeMicrosQQ| 2019-12-14T21:40:00.0 |]
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
 
@@ -623,6 +623,6 @@ upgradeCoinV2Date TimedConsensus{} = Nothing
 upgradeCoinV2Date PowConsensus{} = Nothing
 upgradeCoinV2Date TimedCPM{} = Nothing
 upgradeCoinV2Date FastTimedCPM{} = Nothing
-upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-14T18:50:00.0 |]
+upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-14T21:30:00.0 |]
 upgradeCoinV2Date Testnet04 = Nothing
 upgradeCoinV2Date Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:00:00.0 |]
