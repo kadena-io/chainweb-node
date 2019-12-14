@@ -570,6 +570,7 @@ window Mainnet01 = Just $ WindowWidth 120
 
 -- | This is used in a core validation rule and has been present for several
 -- versions of the node software. Changing it risks a fork in the network.
+-- Must be AFTER 'upgradeCoinV2Date', and BEFORE 'transferActivationDate' in mainnet.
 --
 txEnabledDate :: ChainwebVersion -> Maybe (Time Micros)
 txEnabledDate Test{} = Nothing
@@ -579,11 +580,12 @@ txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
 txEnabledDate Development = Just [timeMicrosQQ| 2019-11-30T05:00:00.0 |]
 txEnabledDate Testnet04 = Nothing
-txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
+txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:30:00.0 |]
 
 -- | KILLSWITCH: The date after which nodes in the 1.1.x series will
 -- spontaneously allow Transactions in the system. This constant can be removed
 -- once the date has passed, and /must not be used in core validation code/.
+-- Must be after 'txEnabledDate' in mainnet.
 --
 transferActivationDate :: ChainwebVersion -> Maybe (Time Micros)
 transferActivationDate Test{} = Nothing
@@ -614,6 +616,7 @@ enableUserContracts Mainnet01 = False
 enableUserContracts _ = True
 
 -- | Upgrade coin v2 at time, or at block height 1
+-- | Must be BEFORE 'txEnabledDate' in mainnet.
 upgradeCoinV2Date :: ChainwebVersion -> Maybe (Time Micros)
 upgradeCoinV2Date Test{} = Nothing
 upgradeCoinV2Date TimedConsensus{} = Nothing
