@@ -22,7 +22,7 @@ import Servant.Client (ClientM, Response, client)
 
 -- internal modules
 
-import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
+import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes, WorkStream)
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI (miningApi)
 import Chainweb.Version
@@ -45,4 +45,5 @@ clients
     -> (Maybe ChainId -> Miner -> ClientM WorkBytes)
     :<|> (HeaderBytes -> ClientM NoContent)
     :<|> (ChainBytes -> Method -> ClientM Response)
+    :<|> (WorkStream -> Method -> ClientM Response)
 clients (FromSing (SChainwebVersion :: Sing v)) = client (miningApi @v)

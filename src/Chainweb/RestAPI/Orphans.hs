@@ -55,7 +55,7 @@ import Chainweb.Difficulty hiding (properties)
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
-import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
+import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes, WorkStream)
 import Chainweb.Miner.Pact (Miner, defaultMiner)
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
@@ -451,6 +451,9 @@ instance ToSchema HeaderBytes where
         & description ?~ "An encoded BlockHeader"
         & minLength ?~ 302
         & maxLength ?~ 302
+
+instance ToSchema WorkStream where
+    declareNamedSchema _ = pure $ NamedSchema (Just "WorkStream") mempty
 
 -- | See the docs for `WorkBytes` for justification of the byte length.
 --

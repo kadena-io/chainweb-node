@@ -27,11 +27,12 @@ import Control.Monad (when)
 import Control.Monad.Catch (bracket, try)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.STM (atomically)
+import Control.Monad.STM (atomically, retry)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Bool (bool)
 import Data.Generics.Wrapped (_Unwrapped)
+import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as M
 import Data.Proxy (Proxy(..))
@@ -51,7 +52,7 @@ import System.Random
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
+import Chainweb.BlockHeader
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
 import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPayloadStore, _cut)
@@ -62,6 +63,7 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Miners (transferableBytes)
 import Chainweb.Miner.Pact (Miner(..), MinerId(..))
 import Chainweb.Miner.RestAPI (MiningApi)
+import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils (EncodingException(..), runGet, suncurry3)
@@ -197,12 +199,45 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respo
     ret503 respond = do
         respond $ responseLBS status503 [] "No more update streams available currently. Retry later."
 
+workStreamHandler
+    :: Logger l
+    => MiningCoordination l cas
+    -> WorkStream
+    -> Tagged Handler Application
+workStreamHandler mr (WorkStream c mid) = Tagged $ \req respond -> do
+    case HM.lookup mid pw >>= HM.lookup c of
+        Nothing -> eventSourceAppIO (pure CloseEvent) req respond
+        Just tcp -> eventSourceAppIO (go tcp) req respond
+  where
+    PrimedWork pw = _coordPrimedWork mr
+
+    go :: TVar (Maybe CachedPayload) -> IO ServerEvent
+    go tcp = do
+        -- Get freshest payload --
+        T2 pl bct <- atomically $ readTVar tcp >>= maybe retry pure
+        -- Get parent header --
+        p <- undefined
+        -- Form the BlockHeader --
+        let !phash = _payloadWithOutputsPayloadHash pl
+            !header = newBlockHeader undefined phash (Nonce 0) bct p  -- TODO adj!
+        -- Recache the Payload for `publish` --
+        -- TODO
+        -- Encode and send the Header --
+        pure $ event header
+
+    event :: BlockHeader -> ServerEvent
+    event bh = ServerEvent (Just $ fromByteString "New Work") Nothing [fromByteString wb]
+      where
+        T3 cid t h = transferableBytes bh
+        WorkBytes wb = workBytes cid t h
+
 miningServer
     :: forall l cas (v :: ChainwebVersionT)
     .  Logger l
     => MiningCoordination l cas
     -> Server (MiningApi v)
-miningServer mr = workHandler mr :<|> solvedHandler mr :<|> updatesHandler mr
+miningServer mr =
+    workHandler mr :<|> solvedHandler mr :<|> updatesHandler mr :<|> workStreamHandler mr
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
 someMiningServer (FromSing (SChainwebVersion :: Sing vT)) mr =
