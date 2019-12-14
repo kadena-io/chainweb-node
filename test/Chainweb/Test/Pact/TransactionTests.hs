@@ -21,7 +21,9 @@ import Test.Tasty.HUnit
 import Control.Concurrent (readMVar)
 import Control.Exception (SomeException, try)
 import Control.Lens hiding ((.=))
+import Control.Monad
 import Data.Aeson
+import Data.Aeson.Lens
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
 import Data.Text (isInfixOf,unpack)
@@ -249,7 +251,7 @@ testCoinbaseEnforceFailure = do
 
 testCoinbaseUpgradeDevnet :: Assertion
 testCoinbaseUpgradeDevnet = do
-    (pdb,mc) <- loadCC
+    (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
     r <- try $ applyCoinbase v logger pdb miner 0.1 pubData devnetHeader
       creationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
@@ -258,8 +260,26 @@ testCoinbaseUpgradeDevnet = do
         (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
         (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
         (Just logs,_) -> do
-          mapM_ (\l -> print (_txDomain l,_txKey l)) logs
+          void $ matchLogs logs
+            [("USER_coin_coin-table","abcd",Just 0.1)
+            ,("SYS_modules","fungible-v2",Nothing)
+            ,("SYS_modules","coin",Nothing)
+            ,("USER_coin_coin-table","sender07",Just 998662.3)
+            ,("USER_coin_coin-table","sender09",Just 998662.1)]
   where
+    matchLogs logs logTests
+      | length logs /= length logTests =
+          assertFailure $ "matchLogs: length mismatch " ++ show (length logs) ++
+          " /= " ++ show (length logTests)
+      | otherwise = zipWithM matchLog logs logTests
+    matchLog log' (domain,key',balanceM) = do
+          assertEqual "domain matches" domain (_txDomain log')
+          assertEqual "key matches" key' (_txKey log')
+          case balanceM of
+            Nothing -> return ()
+            Just bal ->
+              assertEqual "balance matches" (Just (Number bal))
+                (preview (_Object . ix "balance") (_txValue log'))
     v = Development
     miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
     pubData = PublicData def blockHeight' (toInt64 blockTime) ""
@@ -268,7 +288,7 @@ testCoinbaseUpgradeDevnet = do
     creationTime = BlockCreationTime $ add (TimeSpan (Micros 1000)) upgradeTime
     toInt64 (Time (TimeSpan (Micros m))) = m
     blockHeight' = 123
-    logger = newLogger alwaysLog ""
+    logger = newLogger neverLog "" -- set to alwaysLog to debug
     devnetHeader = setBlockTime blockTime $ someBlockHeader v (BlockHeight blockHeight')
 
 
