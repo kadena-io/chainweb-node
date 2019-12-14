@@ -819,7 +819,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions (Just pHash) miner newTrans
+        results <- execTransactions (Just (parentHeader,creationTime)) miner newTrans
                    (EnforceCoinbaseFailure True)
                    (CoinbaseUsePrecompiled True) pdbenv
 
@@ -972,9 +972,9 @@ playOneBlock currHeader plData pdbenv = do
       , " failed to validate"
       ]
 
-    bParent = _blockParent currHeader
-
     isGenesisBlock = isGenesisBlockHeader currHeader
+
+    currCreationTime = _blockCreationTime currHeader
 
     go m txs = if isGenesisBlock
       then do
@@ -987,7 +987,7 @@ playOneBlock currHeader plData pdbenv = do
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactions (Just bParent) m txs
+        execTransactions (Just (ph,currCreationTime)) m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
@@ -1111,27 +1111,27 @@ validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
     isGenesisBlock = isGenesisBlockHeader bh
 
 execTransactions
-    :: Maybe BlockHash
+    :: Maybe (BlockHeader,BlockCreationTime)
     -> Miner
     -> Vector ChainwebTransaction
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHash miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
+execTransactions nonGenesisParentHeaderCurrCreate miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail usePrecomp mc
+    coinOut <- runCoinbase nonGenesisParentHeaderCurrCreate pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
-    !isGenesis = isNothing nonGenesisParentHash
+    !isGenesis = isNothing nonGenesisParentHeaderCurrCreate
     cmdBSToTx = toTransactionBytes
       . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
     paired outs = V.zipWith (curry $ first cmdBSToTx) ctxs outs
 
 
 runCoinbase
-    :: Maybe BlockHash
+    :: Maybe (BlockHeader,BlockCreationTime)
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
@@ -1139,7 +1139,7 @@ runCoinbase
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult P.Hash)
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
-runCoinbase (Just parentHash) dbEnv miner enfCBFail usePrecomp mc = do
+runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
     v <- view chainwebVersion
@@ -1148,8 +1148,18 @@ runCoinbase (Just parentHash) dbEnv miner enfCBFail usePrecomp mc = do
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-    cr <- liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHash enfCBFail usePrecomp mc
+    (T2 cr upgradedCacheM) <-
+      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
+    void $ traverse upgradeInitCache upgradedCacheM
+
     return $! toHashCommandResult cr
+
+  where
+
+    upgradeInitCache newCache = do
+      logInfo $ "Updating init cache for upgrade"
+      psInitCache %= HM.union newCache
+
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
 -- The output vector is in the same order as the input (i.e. you can zip it

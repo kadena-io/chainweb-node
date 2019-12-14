@@ -43,6 +43,7 @@ module Chainweb.Version
 , transferActivationDate
 , enableUserContracts
 , vuln797FixDate
+, upgradeCoinV2Date
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -569,6 +570,7 @@ window Mainnet01 = Just $ WindowWidth 120
 
 -- | This is used in a core validation rule and has been present for several
 -- versions of the node software. Changing it risks a fork in the network.
+-- Must be AFTER 'upgradeCoinV2Date', and BEFORE 'transferActivationDate' in mainnet.
 --
 txEnabledDate :: ChainwebVersion -> Maybe (Time Micros)
 txEnabledDate Test{} = Nothing
@@ -578,11 +580,12 @@ txEnabledDate TimedCPM{} = Nothing
 txEnabledDate FastTimedCPM{} = Nothing
 txEnabledDate Development = Just [timeMicrosQQ| 2019-11-30T05:00:00.0 |]
 txEnabledDate Testnet04 = Nothing
-txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
+txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:30:00.0 |]
 
 -- | KILLSWITCH: The date after which nodes in the 1.1.x series will
 -- spontaneously allow Transactions in the system. This constant can be removed
 -- once the date has passed, and /must not be used in core validation code/.
+-- Must be after 'txEnabledDate' in mainnet.
 --
 transferActivationDate :: ChainwebVersion -> Maybe (Time Micros)
 transferActivationDate Test{} = Nothing
@@ -590,9 +593,9 @@ transferActivationDate TimedConsensus{} = Nothing
 transferActivationDate PowConsensus{} = Nothing
 transferActivationDate TimedCPM{} = Nothing
 transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Just [timeMicrosQQ| 2019-11-30T07:00:00.0 |]
+transferActivationDate Development = Just [timeMicrosQQ| 2019-12-13T23:25:00.0 |]
 transferActivationDate Testnet04 = Nothing
-transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T01:00:00.0 |]
+transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
 
 -- | Time after which fixes for vuln797 will be validated in blocks.
 --
@@ -611,3 +614,15 @@ vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 enableUserContracts :: ChainwebVersion -> Bool
 enableUserContracts Mainnet01 = False
 enableUserContracts _ = True
+
+-- | Upgrade coin v2 at time, or at block height 1
+-- | Must be BEFORE 'txEnabledDate' in mainnet.
+upgradeCoinV2Date :: ChainwebVersion -> Maybe (Time Micros)
+upgradeCoinV2Date Test{} = Nothing
+upgradeCoinV2Date TimedConsensus{} = Nothing
+upgradeCoinV2Date PowConsensus{} = Nothing
+upgradeCoinV2Date TimedCPM{} = Nothing
+upgradeCoinV2Date FastTimedCPM{} = Nothing
+upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-13T23:15:00.0 |]
+upgradeCoinV2Date Testnet04 = Nothing
+upgradeCoinV2Date Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:00:00.0 |]

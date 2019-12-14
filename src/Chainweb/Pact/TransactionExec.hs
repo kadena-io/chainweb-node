@@ -64,6 +64,7 @@ import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
@@ -80,7 +81,7 @@ import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Hash as Pact
-import Pact.Types.Logger
+import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
@@ -90,10 +91,11 @@ import Pact.Types.SPV
 
 -- internal Chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
+import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
@@ -234,15 +236,17 @@ applyCoinbase
       -- ^ Miner reward
     -> PublicData
       -- ^ Contains block height, time, prev hash + metadata
-    -> BlockHash
-      -- ^ hash of the mined block
+    -> BlockHeader
+      -- ^ parent header
+    -> BlockCreationTime
+      -- ^ current block creation time
     -> EnforceCoinbaseFailure
       -- ^ enforce coinbase failure or not
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
-    -> IO (CommandResult [TxLog Value])
-applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
+    -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
+applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentHeader currCreationTime
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
@@ -256,13 +260,13 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
     forkTime = vuln797FixDate v
     fork1_3InEffect = blockTime >= forkTime
     throwCritical = fork1_3InEffect || enfCBFailure
-    blockTime = Time (TimeSpan (Micros $ _pdBlockTime pd))
+    blockTime = blockTimeOf pd
 
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = initCapabilities [magic_COINBASE]
-    chash = Pact.Hash (sshow ph)
+    chash = Pact.Hash (sshow $ _blockHash parentHeader)
     rk = RequestKey chash
 
     go interp cexec = evalTransactionM tenv txst $! do
@@ -272,7 +276,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
       case cr of
         Left e
           | throwCritical -> throwM $ CoinbaseFailure $ sshow e
-          | otherwise -> jsonErrorResult e "coinbase tx failure"
+          | otherwise -> (`T2` Nothing) <$> jsonErrorResult e "coinbase tx failure"
         Right er -> do
           debug
             $! "successful coinbase of "
@@ -280,8 +284,14 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd ph
             <> " to "
             <> sshow mid
 
-          return $! CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-           (_erGas er) (Just $ _erLogs er) (_erExec er) Nothing
+          upgradedModuleCache <-
+            applyUpgrades v parentHeader currCreationTime
+          logs <- use txLogs
+
+          return $! T2
+            (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
+              (_erGas er) (Just $ logs) (_erExec er) Nothing)
+            upgradedModuleCache
 
 
 applyLocal
@@ -329,6 +339,67 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
         _ -> throwCmdEx "local continuations not supported"
 
       checkTooBigTx gas0 gasLimit (applyPayload em) return
+
+applyUpgrades
+  :: ChainwebVersion
+  -> BlockHeader
+  -> BlockCreationTime
+  -> TransactionM p (Maybe ModuleCache)
+applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
+  case upgradeCoinV2Date v of
+    Nothing -> testBlock1
+    Just t -> testUpgradeTime t
+  where
+
+    testBlock1 | parentBlockHeight == 0 = go
+               | otherwise = noop
+    parentBlockHeight = _blockHeight parentHeader
+
+    testUpgradeTime t | isUpgradeBlockTime t = go
+                      | otherwise = noop
+    isUpgradeBlockTime upgradeTime =
+      parentTime < upgradeTime
+      &&
+      upgradeTime <= currCreationTime
+    (BlockCreationTime parentTime) = _blockCreationTime parentHeader
+
+    noop = return Nothing
+
+    installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
+
+    go = applyTxs (upgradeTransactions v $ _blockChainId parentHeader)
+
+    infoLog s = do
+      l <- view txLogger
+      liftIO $! logLog l "INFO" $! T.unpack s
+
+    applyTxs txsIO = do
+      infoLog $ "Applying upgrade!"
+      txs <- map (fmap payloadObj) <$> liftIO txsIO
+      local (set (txExecutionConfig . ecAllowModuleInstall) True) $
+        mapM_ applyTx txs
+      mc <- use txCache
+      return $ Just mc
+
+    interp = initStateInterpreter $ installCoinModuleAdmin $
+      initCapabilities [mkMagicCapSlot "REMEDIATE"]
+
+    applyTx tx = do
+
+      infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
+
+      r <- try $ runGenesis tx permissiveNamespacePolicy interp
+
+      case r of
+        Right _ -> return ()
+        Left (e :: SomeException) -> do
+          logError $ "Upgrade transaction failed! " <> sshow e
+          return ()
+
+
+
+blockTimeOf :: PublicData -> Time Micros
+blockTimeOf pd = Time (TimeSpan (Micros $ _pdBlockTime pd))
 
 jsonErrorResult
     :: PactError
@@ -744,3 +815,6 @@ fatal e = do
       <> sshow rk <> ": " <> T.unpack e
 
     throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e
+
+logError :: Text -> TransactionM db ()
+logError msg = view txLogger >>= \l -> liftIO $ logLog l "ERROR" (T.unpack msg)
