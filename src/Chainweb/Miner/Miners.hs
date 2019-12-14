@@ -50,7 +50,7 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.Pact (Miner)
+import Chainweb.Miner.Pact (Miner, minerId)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Seconds(..))
@@ -85,7 +85,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
         T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
-            ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
+            ms = MiningState $ M.singleton (T2 bct phash) (T3 (view minerId m) p pl)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
@@ -131,7 +131,7 @@ localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
         T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
-            ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
+            ms = MiningState $ M.singleton (T2 bct phash) (T3 (view minerId m) p pl)
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop

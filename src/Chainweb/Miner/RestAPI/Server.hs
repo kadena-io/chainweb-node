@@ -22,8 +22,8 @@ module Chainweb.Miner.RestAPI.Server where
 
 import Control.Concurrent.STM.TVar
     (TVar, modifyTVar', readTVar, readTVarIO, registerDelay)
-import Control.Lens (over, view)
-import Control.Monad (when)
+import Control.Lens (over, view, (^?!))
+import Control.Monad (void, when)
 import Control.Monad.Catch (bracket, try)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
@@ -31,6 +31,7 @@ import Control.Monad.STM (atomically, retry)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Bool (bool)
+import Data.Coerce (coerce)
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -61,12 +62,12 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
 import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Miner.Pact (Miner(..), MinerId(..))
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Utils (EncodingException(..), runGet, suncurry3)
+import Chainweb.Utils (EncodingException(..), ixg, runGet, suncurry3)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
@@ -107,7 +108,7 @@ workHandler' mr mcid m = do
     T3 p bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (minerStatus m) p pl
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (view minerId $ minerStatus m) p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     logf :: LogFunction
@@ -204,32 +205,41 @@ workStreamHandler
     => MiningCoordination l cas
     -> WorkStream
     -> Tagged Handler Application
-workStreamHandler mr (WorkStream c mid) = Tagged $ \req respond -> do
-    case HM.lookup mid pw >>= HM.lookup c of
+workStreamHandler mr (WorkStream cid mid) = Tagged $ \req respond -> do
+    case HM.lookup mid pw >>= HM.lookup cid of
         Nothing -> eventSourceAppIO (pure CloseEvent) req respond
         Just tcp -> eventSourceAppIO (go tcp) req respond
   where
     PrimedWork pw = _coordPrimedWork mr
+    tu = _coordUpdate mr
+    cdb = _coordCutDb mr
 
     go :: TVar (Maybe CachedPayload) -> IO ServerEvent
     go tcp = do
         -- Get freshest payload --
         T2 pl bct <- atomically $ readTVar tcp >>= maybe retry pure
         -- Get parent header --
-        p <- undefined
+        c <- _cut cdb
+        let !p = ParentHeader (c ^?! ixg cid)
+        -- Await Adjacent Parents --
+        adj <- atomically $ do
+            void $ readTVar tu  -- A little trick.
+            maybe retry pure $ getAdjacentParents c p
         -- Form the BlockHeader --
         let !phash = _payloadWithOutputsPayloadHash pl
-            !header = newBlockHeader undefined phash (Nonce 0) bct p  -- TODO adj!
+            !header = newBlockHeader adj phash (Nonce 0) bct p  -- TODO adj!
         -- Recache the Payload for `publish` --
-        -- TODO
+        let prevTime = PrevTime . _blockCreationTime $ coerce p
+            cacheHdr = over _Unwrapped . M.insert (T2 bct phash) $ T3 mid prevTime pl
+        atomically $ modifyTVar' (_coordState mr) cacheHdr
         -- Encode and send the Header --
         pure $ event header
 
     event :: BlockHeader -> ServerEvent
     event bh = ServerEvent (Just $ fromByteString "New Work") Nothing [fromByteString wb]
       where
-        T3 cid t h = transferableBytes bh
-        WorkBytes wb = workBytes cid t h
+        T3 c t h = transferableBytes bh
+        WorkBytes wb = workBytes c t h
 
 miningServer
     :: forall l cas (v :: ChainwebVersionT)

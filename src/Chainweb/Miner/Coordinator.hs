@@ -33,6 +33,7 @@ module Chainweb.Miner.Coordinator
     -- * Functions
   , newWork
   , publish
+  , getAdjacentParents
   ) where
 
 import Data.Aeson (ToJSON)
@@ -42,7 +43,7 @@ import Data.Coerce (coerce)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistEither, hoistMaybe, (!?), (??))
-import Control.Lens (iforM, set, to, (^.), (^?!))
+import Control.Lens (iforM, set, to, (^?!))
 import Control.Monad (unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
@@ -50,7 +51,6 @@ import Control.Monad.Trans.Maybe (MaybeT(..))
 
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
-import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
@@ -73,7 +73,7 @@ import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerId(..))
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -100,7 +100,7 @@ type CachedPayload = T2 PayloadWithOutputs BlockCreationTime
 -- `publish`.
 --
 newtype MiningState = MiningState
-    (M.Map (T2 BlockCreationTime BlockPayloadHash) (T3 Miner PrevTime PayloadWithOutputs))
+    (M.Map (T2 BlockCreationTime BlockPayloadHash) (T3 MinerId PrevTime PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -174,7 +174,7 @@ newWork logFun choice eminer pact tpw c = do
         -> ParentHeader
         -> PrimedWork
         -> IO (Maybe (T2 CachedPayload BlockHashRecord))
-    primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = runMaybeT $ do
+    primed (Miner mid _) cid p (PrimedWork pw) = runMaybeT $ do
         kut <- hoistMaybe $ HM.lookup mid pw
         tpl <- hoistMaybe $ HM.lookup cid kut
         pay <- MaybeT $ readTVarIO tpl
@@ -182,13 +182,13 @@ newWork logFun choice eminer pact tpw c = do
         pure $ T2 pay adp
 
     public :: ParentHeader -> Miner -> IO (Maybe (T2 CachedPayload BlockHashRecord))
-    public (ParentHeader p) miner = case getAdjacentParents c p of
+    public p@(ParentHeader ph) miner = case getAdjacentParents c p of
         Nothing -> pure Nothing
         Just adj -> do
             creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
             -- This is an expensive call --
             payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
-                (_pactNewBlock pact miner p creationTime)
+                (_pactNewBlock pact miner ph creationTime)
             pure . Just $ T2 (T2 payload creationTime) adj
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
@@ -218,10 +218,8 @@ publish lf (MiningState ms) cdb bh = do
         -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
         -- Payload we know about, reject it.
         --
-        T3 m p pl <- M.lookup (T2 bct phash) ms
+        T3 (MinerId miner) p pl <- M.lookup (T2 bct phash) ms
             ?? OrphanedBlock (ObjectEncoded bh) "Unknown" "No associated Payload"
-
-        let !miner = m ^. minerId . _Unwrapped
 
         -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
         -- Hash) is trivially incorrect, reject it.
@@ -271,8 +269,8 @@ estimatedHashes (PrevTime p) b = floor $ (d % t) * 1000000
     d = case targetToDifficulty $ _blockTarget b of
         HashDifficulty (PowHashNat w) -> int w
 
-getAdjacentParents :: Cut -> BlockHeader -> Maybe BlockHashRecord
-getAdjacentParents c p = BlockHashRecord <$> newAdjHashes
+getAdjacentParents :: Cut -> ParentHeader -> Maybe BlockHashRecord
+getAdjacentParents c (ParentHeader p) = BlockHashRecord <$> newAdjHashes
   where
     -- | Try to get all adjacent hashes dependencies.
     --
