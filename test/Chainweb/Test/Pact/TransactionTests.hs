@@ -28,6 +28,7 @@ import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
 import Data.Text (isInfixOf,unpack)
 import Data.Default
+import Data.Tuple.Strict (T2(..))
 
 -- internal pact modules
 
@@ -256,7 +257,7 @@ testCoinbaseUpgradeDevnet = do
       creationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
-      Right (cr,mcm) -> case (_crLogs cr,mcm) of
+      Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
         (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
         (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
         (Just logs,_) -> do

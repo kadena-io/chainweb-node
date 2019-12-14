@@ -245,7 +245,7 @@ applyCoinbase
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
-    -> IO (CommandResult [TxLog Value], Maybe ModuleCache)
+    -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
 applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentHeader currCreationTime
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
@@ -276,7 +276,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
       case cr of
         Left e
           | throwCritical -> throwM $ CoinbaseFailure $ sshow e
-          | otherwise -> (,Nothing) <$> jsonErrorResult e "coinbase tx failure"
+          | otherwise -> (`T2` Nothing) <$> jsonErrorResult e "coinbase tx failure"
         Right er -> do
           debug
             $! "successful coinbase of "
@@ -288,9 +288,10 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
             applyUpgrades v parentHeader currCreationTime
           logs <- use txLogs
 
-          return $! (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
-                     (_erGas er) (Just $ logs) (_erExec er) Nothing
-                    ,upgradedModuleCache)
+          return $! T2
+            (CommandResult rk (_erTxId er) (PactResult (Right (last $ _erOutput er)))
+              (_erGas er) (Just $ logs) (_erExec er) Nothing)
+            upgradedModuleCache
 
 
 applyLocal
