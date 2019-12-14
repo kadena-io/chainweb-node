@@ -276,7 +276,19 @@ library
         , Chainweb.Pact.Service.Types
         , Chainweb.Pact.Templates
         , Chainweb.Pact.TransactionExec
+        , Chainweb.Pact.Transactions.DevelopmentTransactions
         , Chainweb.Pact.Transactions.Mainnet0Transactions
+        , Chainweb.Pact.Transactions.Mainnet1Transactions
+        , Chainweb.Pact.Transactions.Mainnet2Transactions
+        , Chainweb.Pact.Transactions.Mainnet3Transactions
+        , Chainweb.Pact.Transactions.Mainnet4Transactions
+        , Chainweb.Pact.Transactions.Mainnet5Transactions
+        , Chainweb.Pact.Transactions.Mainnet6Transactions
+        , Chainweb.Pact.Transactions.Mainnet7Transactions
+        , Chainweb.Pact.Transactions.Mainnet8Transactions
+        , Chainweb.Pact.Transactions.Mainnet9Transactions
+        , Chainweb.Pact.Transactions.OtherTransactions
+        , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types
         , Chainweb.Pact.Utils
 
@@ -488,6 +500,7 @@ test-suite chainweb-tests
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16
+        , lens-aeson
         , loglevel >= 0.1
         , mtl >= 2.2
         , neat-interpolation >= 0.3

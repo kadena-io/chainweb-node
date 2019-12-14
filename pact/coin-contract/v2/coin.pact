@@ -581,6 +581,3 @@
     )))
 
 )
-
-(create-table coin-table)
-(create-table allocation-table)
