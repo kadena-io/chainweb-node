@@ -582,7 +582,7 @@ attemptBuyGas
     -> Vector (Either InsertError ChainwebTransaction)
     -> PactServiceM cas (Vector (Either InsertError ChainwebTransaction))
 attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
-        mc <- use psInitCache
+        let mc = mempty -- mc <- use psInitCache INIT CACHE DISABLE
         V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) txs
   where
     f (T2 dl mcache) cmd = do
@@ -898,7 +898,7 @@ execLocal cmd = withDiscardedBatch $ do
 
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
-        mc <- use psInitCache
+        let mc = mempty -- mc <- use psInitCache INIT CACHE DISABLE
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
@@ -1119,9 +1119,10 @@ execTransactions
     -> PactDbEnv'
     -> PactServiceM cas Transactions
 execTransactions nonGenesisParentHeaderCurrCreate miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
-    mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHeaderCurrCreate pactdbenv miner enfCBFail usePrecomp mc
-    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
+    let mc = mempty -- mc <- use psInitCache INIT CACHE DISABLE
+
+    (T2 coinOut mc') <- runCoinbase nonGenesisParentHeaderCurrCreate pactdbenv miner enfCBFail usePrecomp mc
+    txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc'
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHeaderCurrCreate
@@ -1137,8 +1138,8 @@ runCoinbase
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> ModuleCache
-    -> PactServiceM cas (P.CommandResult P.Hash)
-runCoinbase Nothing _ _ _ _ _ = return noCoinbase
+    -> PactServiceM cas (T2 (P.CommandResult P.Hash) ModuleCache)
+runCoinbase Nothing _ _ _ _ mc = return $! T2 noCoinbase mc
 runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
@@ -1148,17 +1149,17 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-    (T2 cr upgradedCacheM) <-
+    (T2 cr mc') <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
-    void $ traverse upgradeInitCache upgradedCacheM
+    -- void $ traverse upgradeInitCache upgradedCacheM
 
-    return $! toHashCommandResult cr
+    return $! T2 (toHashCommandResult cr) mc'
 
   where
 
-    upgradeInitCache newCache = do
-      logInfo $ "Updating init cache for upgrade"
-      psInitCache %= HM.union newCache
+    -- upgradeInitCache newCache = do
+    --   logInfo $ "Updating init cache for upgrade"
+    --   psInitCache %= HM.union newCache
 
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.

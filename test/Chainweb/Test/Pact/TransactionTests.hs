@@ -257,10 +257,10 @@ testCoinbaseUpgradeDevnet = do
       creationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
-      Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
-        (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
-        (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
-        (Just logs,_) -> do
+      Right (T2 cr _) -> case _crLogs cr of
+        -- (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
+        Nothing -> assertFailure "Expected logs from successful upgrade"
+        Just logs -> do
           void $ matchLogs logs
             [("USER_coin_coin-table","abcd",Just 0.1)
             ,("SYS_modules","fungible-v2",Nothing)
