@@ -10,8 +10,10 @@
 module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
 import Control.Concurrent.MVar.Strict
+import Control.Lens
 
 import Data.Default
+import qualified Data.HashMap.Strict as HM
 import Data.Tuple.Strict (T2(..))
 import Data.Word
 import qualified Data.Text as T
@@ -27,6 +29,7 @@ import System.LogLevel
 import Pact.Gas.Table
 import Pact.Types.Logger hiding (Logger)
 import Pact.Types.SPV
+import Pact.Types.Runtime (mdModule,_MDModule,mHash)
 
 -- chainweb imports
 
@@ -104,11 +107,17 @@ withPact' version logLevel iopdb iobhdb iodir deepForkLimit r act toTestTree =
                   modifyMVar_ mcache (const (pure (_psInitCache pstate)))
               Check ioa -> do
                   a <- ioa
-                  assertBool "The module cache on restart is not the same" (a == (_psInitCache pstate))
+                  let a' = justModuleHashes $ filterNsCoin a
+                  let c' = justModuleHashes $ _psInitCache pstate
+                  let msg = "Module cache mismatch, found " <> show c'
+                            <> ", expected " <> show a'
+                  assertBool msg (a' == c') -- (_psInitCache pstate))
 
     stopPact (sqlEnv, _) = stopSqliteDb sqlEnv
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
+    filterNsCoin = HM.filterWithKey $ \k _ -> k `elem` ["coin","ns"]
+    justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 
 -- We want a special version of initPactService'. The reason we need this
 -- version is that initial version of initPactService' calls evalPactServicM,
