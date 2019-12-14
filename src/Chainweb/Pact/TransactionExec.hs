@@ -28,6 +28,7 @@ module Chainweb.Pact.TransactionExec
 , applyContinuation
 , applyContinuation'
 , runPayload
+, readInitModules
 
   -- * Gas Execution
 , buyGas
@@ -339,6 +340,38 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
         _ -> throwCmdEx "local continuations not supported"
 
       checkTooBigTx gas0 gasLimit (applyPayload em) return
+
+readInitModules
+    :: Logger
+      -- ^ Pact logger
+    -> PactDbEnv p
+      -- ^ Pact db environment
+    -> PublicData
+      -- ^ Contains block height, time, prev hash + metadata
+    -> IO ModuleCache
+readInitModules logger dbEnv pd =
+    evalTransactionM tenv txst go
+  where
+    rk = RequestKey chash
+    nid = Nothing
+    chash = pactInitialHash
+    tenv = TransactionEnv Local dbEnv logger pd noSPVSupport nid 0.0
+           rk 0 permissiveExecutionConfig
+    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    interp = defaultInterpreter
+
+    go :: TransactionM p ModuleCache
+    go = do
+      readExec <-
+        liftIO $ buildExecParsedCode Nothing
+        "coin.MINIMUM_PRECISION ns.GUARD_SUCCESS"
+      er <- catchesPactError $!
+        applyExec' interp readExec [] chash permissiveNamespacePolicy
+
+      case er of
+        Left e -> throwM $ PactInternalError $ "readInitModules failed: " <> sshow e
+        Right _ -> use txCache
+
 
 applyUpgrades
   :: ChainwebVersion

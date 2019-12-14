@@ -289,22 +289,11 @@ initializeCoinContract
     -> ChainId
     -> PayloadWithOutputs
     -> PactServiceM cas ()
-initializeCoinContract logger v cid pwo = do
+initializeCoinContract _logger v cid pwo = do
     cp <- getCheckpointer
     genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
     if genesisExists
-      then do
-          pdb <- asks _psPdb
-          bhdb <- asks _psBlockHeaderDb
-          reloadedCache <- liftIO $
-              withTempSQLiteConnection chainwebPragmas $ \sqlenv ->
-                  -- Note: initPactService' here creates its own isolated (in terms
-                  -- of it values) version of the PactServiceM monad. Yeah purity!
-                  initPactService' v cid logger bhdb pdb sqlenv defaultReorgLimit $ do
-                      -- it is reasonable to assume genesis doesn't exist here
-                      validateGenesis
-                      gets _psInitCache
-          psInitCache .= reloadedCache
+      then readContracts cp
       else validateGenesis
 
   where
@@ -320,6 +309,22 @@ initializeCoinContract logger v cid pwo = do
 
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
+
+    readContracts cp = do
+      mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
+      (bhe, bhash) <- case mbLatestBlock of
+        Nothing -> throwM NoBlockValidatedYet
+        (Just !p) -> return p
+      let target = Just (succ bhe, bhash)
+      bhdb <- asks _psBlockHeaderDb
+      parentHeader <- liftIO $! lookupM bhdb bhash
+      setBlockData parentHeader
+      withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
+        PactServiceEnv{..} <- ask
+        pd <- mkPublicData "readContracts" def
+        mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
+        psInitCache .= mc
+        return $! Discard ()
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
