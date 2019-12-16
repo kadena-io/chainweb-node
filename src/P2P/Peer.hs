@@ -452,9 +452,9 @@ bootstrapPeerInfos TimedConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos PowConsensus{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos TimedCPM{} = [testBootstrapPeerInfos]
 bootstrapPeerInfos FastTimedCPM{} = [testBootstrapPeerInfos]
-bootstrapPeerInfos Development = productionBootstrapPeerInfo
-bootstrapPeerInfos Testnet04 = productionBootstrapPeerInfo
-bootstrapPeerInfos Mainnet01 = productionBootstrapPeerInfo
+bootstrapPeerInfos Development = []
+bootstrapPeerInfos Testnet04 = testnetBootstrapPeerInfos
+bootstrapPeerInfos Mainnet01 = mainnetBootstrapPeerInfos
 
 testBootstrapPeerInfos :: PeerInfo
 testBootstrapPeerInfos =
@@ -476,21 +476,50 @@ testBootstrapPeerInfos =
             }
         }
 
-productionBootstrapPeerInfo :: [PeerInfo]
-productionBootstrapPeerInfo = map f testnetBootstrapHosts
-  where
-    f hn = PeerInfo
-        { _peerId = Nothing
-        , _peerAddr = HostAddress
-            { _hostAddressHost = hn
-            , _hostAddressPort = 443
-            }
+productionBootstrapPeerInfo :: [T.Text] -> [PeerInfo]
+productionBootstrapPeerInfo = fmap $ \hn -> PeerInfo
+    { _peerId = Nothing
+    , _peerAddr = HostAddress
+        { _hostAddressHost = unsafeHostnameFromText hn
+        , _hostAddressPort = 443
         }
+    }
 
 -- | Official TestNet bootstrap nodes.
 --
-testnetBootstrapHosts :: [Hostname]
-testnetBootstrapHosts = map unsafeHostnameFromText []
+-- This are always injected into the peer database as long as the
+-- '_configIgnoreBootstrapnodes' is not set.
+--
+testnetBootstrapPeerInfos :: [PeerInfo]
+testnetBootstrapPeerInfos = productionBootstrapPeerInfo
+    [ "us1.testnet.chainweb.com"
+    , "us2.testnet.chainweb.com"
+    , "eu1.testnet.chainweb.com"
+    , "eu2.testnet.chainweb.com"
+    , "ap1.testnet.chainweb.com"
+    , "ap2.testnet.chainweb.com"
+    ]
+
+-- | Official Mainnet bootstrap nodes.
+--
+-- This are always injected into the peer database as long as the
+-- '_configIgnoreBootstrapnodes' is not set.
+--
+mainnetBootstrapPeerInfos :: [PeerInfo]
+mainnetBootstrapPeerInfos = productionBootstrapPeerInfo
+    [ "us-w1.chainweb.com"
+    , "us-w2.chainweb.com"
+    , "us-w3.chainweb.com"
+    , "us-e1.chainweb.com"
+    , "us-e2.chainweb.com"
+    , "us-e3.chainweb.com"
+    , "fr1.chainweb.com"
+    , "fr2.chainweb.com"
+    , "fr3.chainweb.com"
+    , "jp1.chainweb.com"
+    , "jp2.chainweb.com"
+    , "jp3.chainweb.com"
+    ]
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Instances
