@@ -216,7 +216,7 @@ publish lf (MiningState ms) cdb bh = do
         -- Payload we know about, reject it.
         --
         T3 m p pl <- M.lookup (T2 bct phash) ms
-            ?? OrphanedBlock (ObjectEncoded bh) "Unknown" "No associated Payload"
+            ?? OrphanedBlock (ObjectEncoded bh) "Unknown" "No associated Payload" 0
 
         let !miner = m ^. minerId . _Unwrapped
 
@@ -224,13 +224,13 @@ publish lf (MiningState ms) cdb bh = do
         -- Hash) is trivially incorrect, reject it.
         --
         unless (prop_block_pow bh) . hoistEither .
-            Left $ OrphanedBlock (ObjectEncoded bh) miner "Invalid POW hash"
+            Left $ OrphanedBlock (ObjectEncoded bh) miner "Invalid POW hash" 1
 
         -- Fail Early: If the `BlockHeader` is already stale and can't be
         -- appended to the best `Cut` we know about, reject it.
         --
         c' <- tryMonotonicCutExtension c bh
-            !? OrphanedBlock (ObjectEncoded bh) miner "Mined block for outdated Cut"
+            !? OrphanedBlock (ObjectEncoded bh) miner "Mined block for outdated Cut" 2
 
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
@@ -251,8 +251,7 @@ publish lf (MiningState ms) cdb bh = do
                 , _minedBlockSize = int bytes
                 , _minedHashAttempts = estimatedHashes p bh
                 , _minedBlockMiner = miner
-                , _minedBlockDiscoveredAt = now
-                }
+                , _minedBlockDiscoveredAt = now }
     either (lf Info . JsonLog) (lf Info . JsonLog) res
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
