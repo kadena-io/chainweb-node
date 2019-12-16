@@ -1,0 +1,11 @@
+(begin-tx)
+(load "../../pact/coin-contract/fungible-v1.pact")
+(load "../../pact/coin-contract/coin.pact")
+(commit-tx)
+(begin-tx)
+
+(test-capability (coin.COINBASE))
+(env-data { "k": ["k"] })
+(coin.coinbase "sender07" (read-keyset "k") 1000000.0)
+(coin.coinbase "sender09" (read-keyset "k") 1000000.0)
+(commit-tx)

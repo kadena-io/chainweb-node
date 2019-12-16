@@ -1,0 +1,6 @@
+# mainnet remediations chain 4
+
+code: |-
+  (coin.remediate "a30ffd3ba7fa08d4aafcfd9f15594d20e732b8fdda43f02470d76b7ebfa467e6" 115226.15000)
+nonce: mainnet-remediations-4
+keyPairs: []
