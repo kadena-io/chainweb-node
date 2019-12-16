@@ -48,6 +48,6 @@ data OrphanedBlock = OrphanedBlock
     { _orphanedHeader :: !(ObjectEncoded BlockHeader)
     , _orphanedMiner :: !Text
     , _orphanedReason :: !Text
-    , _orhpanedCode :: !Int }
+    , _orphanedCode :: !Int }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)
