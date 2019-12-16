@@ -1,5 +1,24 @@
 # `chainweb-node` Changelog
 
+## 1.4 (2019-12-14)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2019-12-17T00:00:00Z**. Note administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-01-15T00:00:00Z**. Node administrators
+must update to the next version before that date.
+
+* All nodes in the miners list in the configuration file are served cached work
+  [#819]
+
+* Correct account balances that where compromised by vulnerability #797.
+  The adjustment will occur in the first block with a creation time after
+  2019-12-17T15:00:00Z on the respective chains. [#830]
+
+* Avoid opening and closing the pact SQLite database after pact validation
+  errors. [#817]
+
 ## 1.3.1 (2019-12-09)
 
 * [SECURITY] fix issue with date comparison triggering block validation of fix for #797 [#810]
