@@ -21,7 +21,6 @@
 module Chainweb.Miner.RestAPI.Server where
 
 import Control.Concurrent.STM.TVar
-    (TVar, modifyTVar', readTVar, readTVarIO, registerDelay)
 import Control.Lens (over, view, (^?!))
 import Control.Monad (void, when)
 import Control.Monad.Catch (bracket, try)
@@ -208,16 +207,21 @@ workStreamHandler
 workStreamHandler mr (WorkStream cid mid) = Tagged $ \req respond -> do
     case HM.lookup mid pw >>= HM.lookup cid of
         Nothing -> eventSourceAppIO (pure CloseEvent) req respond
-        Just tcp -> eventSourceAppIO (go tcp) req respond
+        Just tcp -> do
+            tbph <- newTVarIO Nothing
+            eventSourceAppIO (go tbph tcp) req respond
   where
     PrimedWork pw = _coordPrimedWork mr
     tu = _coordUpdate mr
     cdb = _coordCutDb mr
+    poph = _payloadWithOutputsPayloadHash
 
-    go :: TVar (Maybe CachedPayload) -> IO ServerEvent
-    go tcp = do
+    go :: TVar (Maybe BlockPayloadHash) -> TVar (Maybe CachedPayload) -> IO ServerEvent
+    go tbph tcp = do
         -- Get freshest payload --
-        T2 pl bct <- atomically $ readTVar tcp >>= maybe retry pure
+        T2 pl bct <- atomically $ readTVar tcp >>= \case
+            Nothing -> retry
+            Just p@(T2 pl _) -> readTVar tbph >>= bool (pure p) retry . (Just (poph pl) ==)
         -- Get parent header --
         c <- _cut cdb
         let !p = ParentHeader (c ^?! ixg cid)
@@ -227,11 +231,12 @@ workStreamHandler mr (WorkStream cid mid) = Tagged $ \req respond -> do
             maybe retry pure $ getAdjacentParents c p
         -- Form the BlockHeader --
         let !phash = _payloadWithOutputsPayloadHash pl
-            !header = newBlockHeader adj phash (Nonce 0) bct p  -- TODO adj!
+            !header = newBlockHeader adj phash (Nonce 0) bct p
         -- Recache the Payload for `publish` --
         let prevTime = PrevTime . _blockCreationTime $ coerce p
             cacheHdr = over _Unwrapped . M.insert (T2 bct phash) $ T3 mid prevTime pl
         atomically $ modifyTVar' (_coordState mr) cacheHdr
+        atomically . writeTVar tbph . Just $ poph pl
         -- Encode and send the Header --
         pure $ event header
 
