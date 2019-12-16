@@ -16,7 +16,7 @@
           (<= (length account) 256)))
     ]
 
-  (implements fungible-v1)
+  (implements fungible-v2)
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -48,6 +48,10 @@
     "Magic capability constraining genesis transactions"
     true)
 
+  (defcap REMEDIATE ()
+    "Magic capability for remediation transactions"
+    true)
+
   (defcap DEBIT (sender:string)
     "Capability for managing debiting operations"
     (enforce-guard (at 'guard (read coin-table sender)))
@@ -56,6 +60,11 @@
   (defcap CREDIT (receiver:string)
     "Capability for managing crediting operations"
     (enforce (!= receiver "") "valid receiver"))
+
+  (defcap ROTATE (account:string)
+    @doc "Autonomously managed capability for guard rotation"
+    @managed
+    true)
 
   (defcap TRANSFER:bool
     ( sender:string
@@ -234,7 +243,7 @@
       )
     )
 
-  (defun details:object{fungible-v1.account-details}
+  (defun details:object{fungible-v2.account-details}
     ( account:string )
     (with-read coin-table account
       { "balance" := bal
@@ -245,16 +254,16 @@
     )
 
   (defun rotate:string (account:string new-guard:guard)
+    (with-capability (ROTATE account)
+      (with-read coin-table account
+        { "guard" := old-guard }
 
-    (with-read coin-table account
-      { "guard" := old-guard }
+        (enforce-guard old-guard)
 
-      (enforce-guard old-guard)
-      (enforce-guard new-guard)
-
-      (update coin-table account
-        { "guard" : new-guard }
-        )))
+        (update coin-table account
+          { "guard" : new-guard }
+          )))
+    )
 
 
   (defun precision:integer
@@ -316,7 +325,9 @@
     @doc "Internal function for the initial creation of coins.  This function \
     \cannot be used outside of the coin contract."
 
-    @model [ (property (valid-account account)) ]
+    @model [ (property (valid-account account))
+             (property (> amount 0.0))
+           ]
 
     (validate-account account)
     (enforce-unit amount)
@@ -324,6 +335,31 @@
     (require-capability (COINBASE))
     (with-capability (CREDIT account)
       (credit account account-guard amount))
+    )
+
+  (defun remediate:string (account:string amount:decimal)
+    @doc "Allows for remediation transactions. This function \
+         \is protected by the REMEDIATE capability"
+    @model [ (property (valid-account account))
+             (property (> amount 0.0))
+           ]
+
+    (validate-account account)
+
+    (enforce (> amount 0.0)
+      "Remediation amount must be positive")
+
+    (enforce-unit amount)
+
+    (require-capability (REMEDIATE))
+    (with-read coin-table account
+      { "balance" := balance }
+
+      (enforce (<= amount balance) "Insufficient funds")
+
+      (update coin-table account
+        { "balance" : (- balance amount) }
+        ))
     )
 
   (defpact fund-tx (sender:string miner:string miner-guard:guard total:decimal)
@@ -413,7 +449,6 @@
       amount:decimal )
 
     @model [ (property (> amount 0.0))
-             (property (!= receiver ""))
              (property (valid-account sender))
              (property (valid-account receiver))
            ]
@@ -546,6 +581,3 @@
     )))
 
 )
-
-(create-table coin-table)
-(create-table allocation-table)

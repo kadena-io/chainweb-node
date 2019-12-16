@@ -302,13 +302,15 @@ data MemPoolAccess = MemPoolAccess
         -> IO (Vector ChainwebTransaction)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
+  , mpaBadlistTx :: P.PactHash -> IO ()
   }
 
 instance Semigroup MemPoolAccess where
-  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+  MemPoolAccess f g h i <> MemPoolAccess t u v w =
+      MemPoolAccess (f <> t) (g <> u) (h <> v) (i <> w)
 
 instance Monoid MemPoolAccess where
-  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
+  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty) (const mempty)
 
 data PactServiceException = PactServiceIllegalRewind
     { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)

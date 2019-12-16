@@ -226,7 +226,7 @@ initPactService
     -> IO ()
 initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
     initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
-        initialPayloadState ver cid
+        initialPayloadState chainwebLogger ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
 initPactService'
@@ -244,7 +244,7 @@ initPactService'
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
-        !gasModel = tableGasModel defaultGasConfig
+        !gasModel = officialGasModel
         !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
@@ -264,37 +264,45 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
 
 initialPayloadState
-    :: PayloadCas cas
-    => ChainwebVersion
+    :: Logger logger
+    => PayloadCas cas
+    => logger
+    -> ChainwebVersion
     -> ChainId
     -> PactServiceM cas ()
-initialPayloadState Test{} _ = pure ()
-initialPayloadState TimedConsensus{} _ = pure ()
-initialPayloadState PowConsensus{} _ = pure ()
-initialPayloadState v@TimedCPM{} cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@FastTimedCPM{} cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Development cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Testnet04 cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
-initialPayloadState v@Mainnet01 cid =
-    initializeCoinContract v cid $ genesisBlockPayload v cid
+initialPayloadState _ Test{} _ = pure ()
+initialPayloadState _ TimedConsensus{} _ = pure ()
+initialPayloadState _ PowConsensus{} _ = pure ()
+initialPayloadState logger v@TimedCPM{} cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger v@FastTimedCPM{} cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger  v@Development cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger v@Testnet04 cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
+initialPayloadState logger v@Mainnet01 cid =
+    initializeCoinContract logger v cid $ genesisBlockPayload v cid
 
 initializeCoinContract
-    :: forall cas. PayloadCas cas
-    => ChainwebVersion
+    :: forall cas logger. (PayloadCas cas, Logger logger)
+    => logger
+    -> ChainwebVersion
     -> ChainId
     -> PayloadWithOutputs
     -> PactServiceM cas ()
-initializeCoinContract v cid pwo = do
+initializeCoinContract _logger v cid pwo = do
     cp <- getCheckpointer
     genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
-    unless genesisExists $ do
+    if genesisExists
+      then readContracts cp
+      else validateGenesis
+
+  where
+    validateGenesis = do
         txs <- execValidateBlock genesisHeader inputPayloadData
         bitraverse_ throwM pure $ validateHashes genesisHeader txs inputPayloadData
-  where
+
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
 
@@ -303,6 +311,22 @@ initializeCoinContract v cid pwo = do
 
     genesisHeader :: BlockHeader
     genesisHeader = genesisBlockHeader v cid
+
+    readContracts cp = do
+      mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
+      (bhe, bhash) <- case mbLatestBlock of
+        Nothing -> throwM NoBlockValidatedYet
+        (Just !p) -> return p
+      let target = Just (succ bhe, bhash)
+      bhdb <- asks _psBlockHeaderDb
+      parentHeader <- liftIO $! lookupM bhdb bhash
+      setBlockData parentHeader
+      withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
+        PactServiceEnv{..} <- ask
+        pd <- mkPublicData "readContracts" def
+        mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
+        psInitCache .= mc
+        return $! Discard ()
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
@@ -763,16 +787,22 @@ execNewBlock
     -> Miner
     -> BlockCreationTime
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parentHeader miner creationTime =
-  do
-    updateMempool
-    withDiscardedBatch $ do
-      setBlockData parentHeader
-      rewindTo newblockRewindLimit target
-      newTrans <- withCheckpointer target "preBlock" doPreBlock
-      withCheckpointer target "execNewBlock" (doNewBlock newTrans)
-
+execNewBlock mpAccess parentHeader miner creationTime = go
   where
+    go = handle onTxFailure $ do
+        updateMempool
+        withDiscardedBatch $ do
+          setBlockData parentHeader
+          rewindTo newblockRewindLimit target
+          newTrans <- withCheckpointer target "preBlock" doPreBlock
+          withCheckpointer target "execNewBlock" (doNewBlock newTrans)
+
+    onTxFailure e@(PactTransactionExecError rk _) = do
+        -- add the failing transaction to the mempool bad list, so it is not
+        -- re-selected for mining.
+        liftIO $ mpaBadlistTx mpAccess rk
+        throwM e
+    onTxFailure e = throwM e
 
     -- This is intended to mitigate mining attempts during replay.
     -- In theory we shouldn't need to rewind much ever, but values
@@ -804,7 +834,7 @@ execNewBlock mpAccess parentHeader miner creationTime =
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions (Just pHash) miner newTrans
+        results <- execTransactions (Just (parentHeader,creationTime)) miner newTrans
                    (EnforceCoinbaseFailure True)
                    (CoinbaseUsePrecompiled True) pdbenv
 
@@ -886,7 +916,7 @@ execLocal cmd = withDiscardedBatch $ do
         mc <- use psInitCache
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv pd spv cmd mc
+        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -957,9 +987,9 @@ playOneBlock currHeader plData pdbenv = do
       , " failed to validate"
       ]
 
-    bParent = _blockParent currHeader
-
     isGenesisBlock = isGenesisBlockHeader currHeader
+
+    currCreationTime = _blockCreationTime currHeader
 
     go m txs = if isGenesisBlock
       then do
@@ -972,7 +1002,7 @@ playOneBlock currHeader plData pdbenv = do
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactions (Just bParent) m txs
+        execTransactions (Just (ph,currCreationTime)) m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
@@ -1096,27 +1126,27 @@ validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
     isGenesisBlock = isGenesisBlockHeader bh
 
 execTransactions
-    :: Maybe BlockHash
+    :: Maybe (BlockHeader,BlockCreationTime)
     -> Miner
     -> Vector ChainwebTransaction
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHash miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
+execTransactions nonGenesisParentHeaderCurrCreate miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHash pactdbenv miner enfCBFail usePrecomp mc
+    coinOut <- runCoinbase nonGenesisParentHeaderCurrCreate pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (paired txOuts) coinOut
   where
-    !isGenesis = isNothing nonGenesisParentHash
+    !isGenesis = isNothing nonGenesisParentHeaderCurrCreate
     cmdBSToTx = toTransactionBytes
       . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
     paired outs = V.zipWith (curry $ first cmdBSToTx) ctxs outs
 
 
 runCoinbase
-    :: Maybe BlockHash
+    :: Maybe (BlockHeader,BlockCreationTime)
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
@@ -1124,7 +1154,7 @@ runCoinbase
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult P.Hash)
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
-runCoinbase (Just parentHash) dbEnv miner enfCBFail usePrecomp mc = do
+runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
     v <- view chainwebVersion
@@ -1133,8 +1163,18 @@ runCoinbase (Just parentHash) dbEnv miner enfCBFail usePrecomp mc = do
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-    cr <- liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHash enfCBFail usePrecomp mc
+    (T2 cr upgradedCacheM) <-
+      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
+    void $ traverse upgradeInitCache upgradedCacheM
+
     return $! toHashCommandResult cr
+
+  where
+
+    upgradeInitCache newCache = do
+      logInfo $ "Updating init cache for upgrade"
+      psInitCache %= HM.union newCache
+
 
 -- | Apply multiple Pact commands, incrementing the transaction Id for each.
 -- The output vector is in the same order as the input (i.e. you can zip it
@@ -1258,3 +1298,20 @@ findLatestValidBlock = getCheckpointer >>= liftIO . _cpGetLatestBlock >>= \case
 
 getCheckpointer :: PactServiceM cas Checkpointer
 getCheckpointer = view (psCheckpointEnv . cpeCheckpointer)
+
+-- | Modified table gas module with free module loads
+--
+freeModuleLoadGasModel :: P.GasModel
+freeModuleLoadGasModel = modifiedGasModel
+  where
+    defGasModel = tableGasModel defaultGasConfig
+    fullRunFunction = P.runGasModel defGasModel
+    modifiedRunFunction name ga = case ga of
+      P.GPostRead (P.ReadModule {}) -> 0
+      _ -> fullRunFunction name ga
+    modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
+
+-- | Gas Model used in /send and /local
+--
+officialGasModel :: P.GasModel
+officialGasModel = freeModuleLoadGasModel

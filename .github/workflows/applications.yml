@@ -6,6 +6,7 @@ on:
     - master
     - lars/github-ci
     - github-ci
+    - release-candidate/*
 
 jobs:
   build:

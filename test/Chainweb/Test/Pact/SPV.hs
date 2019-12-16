@@ -294,10 +294,8 @@ cutToPayloadOutputs c pdb = do
     return txs
 
 chainToMPA :: TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess
-chainToMPA f cid = MemPoolAccess
+chainToMPA f cid = mempty
     { mpaGetBlock = const $ f cid
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork  = \_ -> return ()
     }
 
 -- -------------------------------------------------------------------------- --
