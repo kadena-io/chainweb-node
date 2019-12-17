@@ -51,6 +51,7 @@ import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import Data.String.Conv
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -58,6 +59,8 @@ import qualified Data.Vector as V
 import Database.SQLite3.Direct as SQ3
 
 import Prelude hiding (concat, log)
+
+import Text.Printf (printf)
 
 -- pact
 
@@ -648,12 +651,19 @@ createVersionedTable tablename db = do
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
     bCurrent <- getBCurrent
-    checkHistoryInvariant
+    checkHistoryInvariant bRestore (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
         GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
         EQ -> newChildBlock bCurrent
         LT -> rewindBlock bRestore
   where
+
+    futureRestorePointMessage :: BlockHeight -> BlockHeight -> Text
+    futureRestorePointMessage (BlockHeight restore) (BlockHeight succOfCurrent) = T.pack $
+      printf "handlePossibleRewind: The checkpointer attempted to restore to a block height(%d)\
+             \, which is greater than the \"to be saved\" block height(%d) in the checkpointer."
+      restore succOfCurrent
+
     getBCurrent = do
         r <- callDb "handlePossibleRewind" $ \db ->
              qry_ db "SELECT max(blockheight) AS current_block_height \
@@ -661,7 +671,7 @@ handlePossibleRewind bRestore hsh = do
         SInt bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r
         return $! BlockHeight (fromIntegral bh)
 
-    checkHistoryInvariant = do
+    checkHistoryInvariant restore succOfCurrent = do
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
         historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
@@ -672,7 +682,7 @@ handlePossibleRewind bRestore hsh = do
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (historyInvariant /= SInt 1) $
-          internalError "handlePossibleRewind: History invariant violation"
+          internalError $ futureRestorePointMessage restore succOfCurrent
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore
@@ -723,7 +733,7 @@ vacuumTablesAtRewind :: BlockHeight -> TxId -> HashSet BS.ByteString -> Database
 vacuumTablesAtRewind bh endingtx droppedtbls db = do
     let processMutatedTables ms = fmap (HashSet.fromList) . forM ms $ \case
           [SText (Utf8 tbl)] -> return tbl
-          _ -> internalError "rewindBlock: Couldn't resolve the name \
+          _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
                              \of the table to possibly vacuum."
     mutatedTables <- qry db
         "SELECT DISTINCT tablename\
