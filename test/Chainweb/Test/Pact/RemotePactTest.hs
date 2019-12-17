@@ -40,6 +40,7 @@ import Control.Monad.IO.Class
 import Control.Retry
 
 import qualified Data.Aeson as A
+import qualified Data.ByteString.Short as SB
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
@@ -77,7 +78,7 @@ import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
 import Pact.Types.Exp
 import Pact.Types.Gas
-import Pact.Types.Hash (Hash)
+import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.PactError as Pact
 import Pact.Types.PactValue
 import Pact.Types.Term
@@ -86,10 +87,12 @@ import Pact.Types.Term
 
 import Chainweb.ChainId
 import Chainweb.Chainweb
+import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
+import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.NodeId
@@ -149,6 +152,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 testGroup "remote spv" [spvTest iot net]
               , after AllSucceed "remote spv" $
                 sendValidationTest iot net
+              , after AllSucceed "remote spv" $
+                pollingBadlistTest net
               , after AllSucceed "remote spv" $
                 testCase "trivialLocalCheck" $
                 localTest iot net
@@ -222,6 +227,13 @@ localChainDataTest iot nio = do
         where
           assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
+
+pollingBadlistTest :: IO ChainwebNetwork -> TestTree
+pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
+    cenv <- fmap _getClientEnv nio
+    let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
+    sid <- liftIO $ mkChainId v (0 :: Int)
+    void $ polling sid cenv rks ExpectPactError
 
 
 sendValidationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
@@ -788,6 +800,7 @@ node rdb loglevel peerInfoVar conf = do
             let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
             putMVar peerInfoVar bootStrapInfo
 
+        poisonDeadBeef cw
         runChainweb cw `finally` do
             logFunctionText logger Info "write sample data"
             logFunctionText logger Info "shutdown node"
@@ -796,6 +809,18 @@ node rdb loglevel peerInfoVar conf = do
     nid = _configNodeId conf
     logger :: GenericLogger
     logger = addLabel ("node", toText nid) $ genericLogger loglevel print
+
+    poisonDeadBeef cw = mapM_ poison crs
+      where
+        crs = map snd $ HashMap.toList $ view chainwebChains cw
+        poison cr = mempoolAddToBadList (view chainResMempool cr) deadbeef
+
+deadbeef :: TransactionHash
+deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
+
+pactDeadBeef :: RequestKey
+pactDeadBeef = let (TransactionHash b) = deadbeef
+               in RequestKey $ Hash $ SB.fromShort b
 
 host :: Hostname
 host = unsafeHostnameFromText "::1"
