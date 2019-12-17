@@ -651,18 +651,12 @@ createVersionedTable tablename db = do
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
     bCurrent <- getBCurrent
-    checkHistoryInvariant bRestore (bCurrent + 1)
+    checkHistoryInvariant (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
         GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
         EQ -> newChildBlock bCurrent
         LT -> rewindBlock bRestore
   where
-
-    futureRestorePointMessage :: BlockHeight -> BlockHeight -> Text
-    futureRestorePointMessage (BlockHeight restore) (BlockHeight succOfCurrent) = T.pack $
-      printf "handlePossibleRewind: The checkpointer attempted to restore to a block height(%d)\
-             \, which is greater than the \"to be saved\" block height(%d) in the checkpointer."
-      restore succOfCurrent
 
     getBCurrent = do
         r <- callDb "handlePossibleRewind" $ \db ->
@@ -671,7 +665,7 @@ handlePossibleRewind bRestore hsh = do
         SInt bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r
         return $! BlockHeight (fromIntegral bh)
 
-    checkHistoryInvariant restore succOfCurrent = do
+    checkHistoryInvariant succOfCurrent = do
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
         historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
@@ -682,7 +676,22 @@ handlePossibleRewind bRestore hsh = do
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (historyInvariant /= SInt 1) $
-          internalError $ futureRestorePointMessage restore succOfCurrent
+          internalError $ historyInvariantMessage historyInvariant
+      where
+        historyInvariantMessage (SInt entryCount)
+            | entryCount < 0 = error "impossible"
+            | entryCount == 0 = futureRestorePointMessage
+            | otherwise = rowCountErrorMessage entryCount
+        historyInvariantMessage _ = error "impossible"
+
+        rowCountErrorMessage = T.pack .
+              printf "At this blockheight/blockhash (%d, %s) in BlockHistoryTable, there are %d entries." (fromIntegral bRestore :: Int) (show hsh)
+
+        futureRestorePointMessage :: Text
+        futureRestorePointMessage = T.pack $
+          printf "handlePossibleRewind: The checkpointer attempted to restore to a block height(%d)\
+                 \, which is greater than the \"to be saved\" block height(%d) in the checkpointer."
+          (_height bRestore) (_height succOfCurrent)
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore
