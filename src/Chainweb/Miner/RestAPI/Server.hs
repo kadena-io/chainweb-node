@@ -30,6 +30,7 @@ import Control.Monad.STM (atomically, retry)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Bool (bool)
+import qualified Data.ByteString.Base16 as BX
 import Data.Coerce (coerce)
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
@@ -241,7 +242,8 @@ workStreamHandler mr (WorkStream cid mid) = Tagged $ \req respond -> do
         pure $ event header
 
     event :: BlockHeader -> ServerEvent
-    event bh = ServerEvent (Just $ fromByteString "New Work") Nothing [fromByteString wb]
+    event bh =
+        ServerEvent (Just $ fromByteString "New Work") Nothing [fromByteString $ BX.encode wb]
       where
         T3 c t h = transferableBytes bh
         WorkBytes wb = workBytes c t h
