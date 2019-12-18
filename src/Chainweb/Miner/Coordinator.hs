@@ -208,6 +208,7 @@ chainChoice c choice = case choice of
 --
 publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish lf (MiningState ms) cdb bh = do
+    now <- getCurrentTimeIntegral
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
@@ -216,7 +217,7 @@ publish lf (MiningState ms) cdb bh = do
         -- Payload we know about, reject it.
         --
         T3 m p pl <- M.lookup (T2 bct phash) ms
-            ?? OrphanedBlock (ObjectEncoded bh) "Unknown" "No associated Payload"
+            ?? OrphanedBlock (ObjectEncoded bh) "Unknown" "No associated Payload" now
 
         let !miner = m ^. minerId . _Unwrapped
 
@@ -224,13 +225,13 @@ publish lf (MiningState ms) cdb bh = do
         -- Hash) is trivially incorrect, reject it.
         --
         unless (prop_block_pow bh) . hoistEither .
-            Left $ OrphanedBlock (ObjectEncoded bh) miner "Invalid POW hash"
+            Left $ OrphanedBlock (ObjectEncoded bh) miner "Invalid POW hash" now
 
         -- Fail Early: If the `BlockHeader` is already stale and can't be
         -- appended to the best `Cut` we know about, reject it.
         --
         c' <- tryMonotonicCutExtension c bh
-            !? OrphanedBlock (ObjectEncoded bh) miner "Mined block for outdated Cut"
+            !? OrphanedBlock (ObjectEncoded bh) miner "Mined block for outdated Cut" now
 
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
@@ -244,7 +245,6 @@ publish lf (MiningState ms) cdb bh = do
             let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                         _payloadWithOutputsTransactions pl
 
-            now <- getCurrentTimeIntegral
             pure $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pl
