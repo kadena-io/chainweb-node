@@ -18,6 +18,7 @@
 module Chainweb.Miner.Pact
 ( -- * Data
   MinerId(..)
+, legalMiner
 , MinerKeys(..)
 , Miner(..)
 , MinerRewards(..)
@@ -44,6 +45,7 @@ import Control.Monad.Catch (MonadThrow)
 
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
+import Data.Char (isLatin1)
 import qualified Data.Csv as CSV
 import Data.Decimal (roundTo)
 import Data.FileEmbed (embedFile)
@@ -53,7 +55,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.List (sort)
 import Data.String (IsString(..))
 import Data.String.Conv (toS)
-import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import Data.Word
 
@@ -62,7 +64,7 @@ import Data.Word
 import Chainweb.BlockHeader (BlockHeight(..))
 import Chainweb.Graph (HasChainGraph(..), order)
 import Chainweb.Payload (MinerData(..))
-import Chainweb.Utils
+import Chainweb.Utils hiding (len)
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), mkKeySet)
@@ -72,9 +74,17 @@ import Pact.Types.Term (KeySet(..), mkKeySet)
 
 -- | `MinerId` is a thin wrapper around `Text` to differentiate it from user
 -- addresses.
-newtype MinerId = MinerId { _minerId :: Text }
+newtype MinerId = MinerId { _minerId :: T.Text }
     deriving stock (Eq, Ord, Generic)
     deriving newtype (Show, ToJSON, FromJSON, IsString, NFData, Hashable)
+
+-- | Smart constructor for `MinerId`.
+legalMiner :: T.Text -> Either T.Text MinerId
+legalMiner m
+    | len >= 3 && len <= 256 && T.all isLatin1 m = Right $ MinerId m
+    | otherwise = Left "Invalid account name given."
+  where
+    len = T.length m
 
 -- | `MinerKeys` are a thin wrapper around a Pact `KeySet` to differentiate it
 -- from user keysets.

@@ -19,7 +19,6 @@ module Chainweb.Miner.Core
   , TargetBytes(..)
   , ChainBytes(..)
   , WorkBytes(..), workBytes, unWorkBytes
-  , WorkStream(..)
   , MiningResult(..)
   , usePowHash
   , mine
@@ -36,8 +35,6 @@ import Control.Monad.Trans.Except
 import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
-import Data.Aeson
-import Data.Aeson.Types (prependFailure, typeMismatch)
 import Data.Bifunctor (second)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Base16 as B16
@@ -62,24 +59,9 @@ import qualified System.Process as P
 -- internal modules
 
 import Chainweb.BlockHeader (Nonce(..))
-import Chainweb.Miner.Pact (MinerId)
-import Chainweb.Version (ChainId, ChainwebVersion(..))
+import Chainweb.Version (ChainwebVersion(..))
 
 ---
-
-data WorkStream = WorkStream
-    { _wsChain :: ChainId
-    , _wsMiner :: MinerId }
-
-instance FromJSON WorkStream where
-    parseJSON (Object v) = WorkStream
-        <$> v .: "chain"
-        <*> v .: "miner"
-    parseJSON invalid = prependFailure "Parsing WorkStream failed, "
-        (typeMismatch "Object" invalid)
-
-instance ToJSON WorkStream where
-    toJSON (WorkStream c m) = object ["chain" .= c, "miner" .= m]
 
 -- | Encoding of @ChainId + HashTarget + BlockHeader@ to be consumed by a remote
 -- Mining API.

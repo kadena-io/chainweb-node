@@ -203,9 +203,10 @@ updatesHandler mr (ChainBytes cbytes) = Tagged $ \req respond -> withLimit respo
 workStreamHandler
     :: Logger l
     => MiningCoordination l cas
-    -> WorkStream
+    -> ChainId
+    -> MinerId
     -> Tagged Handler Application
-workStreamHandler mr (WorkStream cid mid) = Tagged $ \req respond -> do
+workStreamHandler mr cid mid = Tagged $ \req respond -> do
     case HM.lookup mid pw >>= HM.lookup cid of
         Nothing -> eventSourceAppIO (pure CloseEvent) req respond
         Just tcp -> do

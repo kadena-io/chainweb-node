@@ -55,8 +55,8 @@ import Chainweb.Difficulty hiding (properties)
 import Chainweb.Graph
 import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
-import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes, WorkStream)
-import Chainweb.Miner.Pact (Miner, defaultMiner)
+import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
+import Chainweb.Miner.Pact (Miner, MinerId(..), defaultMiner, legalMiner)
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.SPV
@@ -115,6 +115,12 @@ instance FromHttpApiData ChainId where
 
 instance ToHttpApiData ChainId where
     toUrlPiece = chainIdToText
+
+instance FromHttpApiData MinerId where
+    parseUrlPiece = legalMiner
+
+instance ToHttpApiData MinerId where
+    toUrlPiece (MinerId m) = m
 
 instance FromHttpApiData BlockHeight where
     parseUrlPiece = fmap BlockHeight . parseUrlPiece
@@ -256,6 +262,12 @@ instance ToParamSchema ChainId where
     toParamSchema _ = mempty
         & type_ .~ Just SwaggerInteger
         & format ?~ "word32"
+
+instance ToParamSchema MinerId where
+    toParamSchema _ = mempty
+        & type_ .~ Just SwaggerString
+        & minLength ?~ 3
+        & maxLength ?~ 256
 
 -- FIXME: Invention of new `ChainwebVersion` values will not warn of pattern
 -- match issues here!
@@ -451,9 +463,6 @@ instance ToSchema HeaderBytes where
         & description ?~ "An encoded BlockHeader"
         & minLength ?~ 302
         & maxLength ?~ 302
-
-instance ToSchema WorkStream where
-    declareNamedSchema _ = pure $ NamedSchema (Just "WorkStream") mempty
 
 -- | See the docs for `WorkBytes` for justification of the byte length.
 --

@@ -27,8 +27,8 @@ import Servant.API
 
 -- internal modules
 
-import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes, WorkStream)
-import Chainweb.Miner.Pact (Miner)
+import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
+import Chainweb.Miner.Pact (Miner, MinerId)
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc, SomeApi(..))
 import Chainweb.Version
 
@@ -56,7 +56,8 @@ type MiningApi_ =
                   :> ReqBody '[OctetStream] ChainBytes
                   :> Raw
     :<|> "mining" :> "stream"
-                  :> ReqBody '[JSON] WorkStream
+                  :> Capture "chain" ChainId
+                  :> Capture "miner" MinerId
                   :> Raw
 
 type MiningApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc MiningApi_
