@@ -25,7 +25,10 @@ extra-deps:
 
   # --- Forced Upgrades --- #
   - generic-lens-1.2.0.1  # For generic newtype unwrapping
+  - http2-2.0.3
   - tls-1.5.2
+  - warp-3.3.5
+  - warp-tls-3.2.9
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
