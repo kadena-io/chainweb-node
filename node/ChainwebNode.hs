@@ -70,6 +70,7 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 
 import System.Directory
+import System.IO (hSetBuffering, stderr, BufferMode(LineBuffering))
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -507,6 +508,7 @@ mainInfo = programInfoValidate
 main :: IO ()
 main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
+    hSetBuffering stderr LineBuffering
     withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
         kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
         withKillSwitch (logFunctionText logger) kt $
