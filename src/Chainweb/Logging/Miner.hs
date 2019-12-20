@@ -46,7 +46,10 @@ data NewMinedBlock = NewMinedBlock
 
 data OrphanedBlock = OrphanedBlock
     { _orphanedHeader :: !(ObjectEncoded BlockHeader)
+    , _orphanedBestOnCut :: !(ObjectEncoded BlockHeader)
+    , _orphanedDiscoveredAt :: !(Time Micros)
     , _orphanedMiner :: !Text
-    , _orphanedReason :: Text }
+    , _orphanedReason :: !Text
+    }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (ToJSON, NFData)

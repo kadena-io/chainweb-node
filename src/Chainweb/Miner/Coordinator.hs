@@ -211,6 +211,7 @@ chainChoice c choice = case choice of
 --
 publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish lf (MiningState ms) cdb bh = do
+    now <- getCurrentTimeIntegral
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
@@ -219,19 +220,19 @@ publish lf (MiningState ms) cdb bh = do
         -- Payload we know about, reject it.
         --
         T3 (MinerId miner) p pl <- M.lookup (T2 bct phash) ms
-            ?? OrphanedBlock (ObjectEncoded bh) "Unknown" "No associated Payload"
+            ?? T2 "Unknown" "No associated Payload"
 
         -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
         -- Hash) is trivially incorrect, reject it.
         --
         unless (prop_block_pow bh) . hoistEither .
-            Left $ OrphanedBlock (ObjectEncoded bh) miner "Invalid POW hash"
+            Left $ T2 miner "Invalid POW hash"
 
         -- Fail Early: If the `BlockHeader` is already stale and can't be
         -- appended to the best `Cut` we know about, reject it.
         --
         c' <- tryMonotonicCutExtension c bh
-            !? OrphanedBlock (ObjectEncoded bh) miner "Mined block for outdated Cut"
+            !? T2 miner "Mined block for outdated Cut"
 
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
@@ -245,7 +246,6 @@ publish lf (MiningState ms) cdb bh = do
             let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                         _payloadWithOutputsTransactions pl
 
-            now <- getCurrentTimeIntegral
             pure $ NewMinedBlock
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pl
@@ -254,7 +254,13 @@ publish lf (MiningState ms) cdb bh = do
                 , _minedBlockMiner = miner
                 , _minedBlockDiscoveredAt = now
                 }
-    either (lf Info . JsonLog) (lf Info . JsonLog) res
+    case res of
+        -- The solution is already stale, so we can do whatever work we want to
+        -- here.
+        Left (T2 mnr msg) -> do
+            let !p = c ^?! ixg (_chainId bh)
+            lf Info . JsonLog $ OrphanedBlock (ObjectEncoded bh) (ObjectEncoded p) now mnr msg
+        Right r -> lf Info $ JsonLog r
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.
