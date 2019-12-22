@@ -193,18 +193,19 @@ encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })
 ------------------------------------------------------
 
 genTxModules :: IO ()
-genTxModules = genDevTxs >> genMainnetTxs >> putStrLn "Done."
+genTxModules = genDevTxs >> genMainnetTxs >> genOtherTxs >> putStrLn "Done."
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
-    genDevTxs = gen "DevOther"
+    genOtherTxs = gen "Other" []
+    genDevTxs = gen "Development"
       ["pact/coin-contract/remediations/devother/remediations.yaml"]
     genMain :: Int -> IO ()
     genMain chain = gen ("Mainnet" <> sshow chain)
       ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
-    genMainnetTxs = do
-      genMain 0
-    upgrades = [ "pact/coin-contract/v2/load-coin-contract-v2.yaml"
-               , "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
+    genMainnetTxs = mapM_ genMain [0..9]
+
+    upgrades = [ "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
+               , "pact/coin-contract/v2/load-coin-contract-v2.yaml"
                ]
 
 genTxModule :: Text -> [FilePath] -> IO ()

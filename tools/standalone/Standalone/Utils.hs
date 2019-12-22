@@ -11,9 +11,9 @@
 module Standalone.Utils where
 
 import Control.Concurrent.STM
+import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Lens hiding ((.=))
 
 import Data.Aeson
 import Data.ByteString (ByteString)
@@ -83,18 +83,14 @@ formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
 onlyCoinTransferMemPoolAccess :: ChainId -> Int -> MemPoolAccess
-onlyCoinTransferMemPoolAccess cid blocksize = MemPoolAccess
+onlyCoinTransferMemPoolAccess cid blocksize = mempty
     { mpaGetBlock = \_ _ _ _ -> getTestBlock (chainIdToText cid) blocksize
-    , mpaSetLastHeader = const $ return ()
-    , mpaProcessFork = const $ return ()
     }
 
 defaultMemPoolAccess :: ChainId -> Int -> MemPoolAccess
-defaultMemPoolAccess cid blocksize  = MemPoolAccess
+defaultMemPoolAccess cid blocksize = mempty
     { mpaGetBlock = \_preblockcheck height _hash _prevBlock ->
         makeBlock height cid blocksize ("(+ 1 2)", Nothing)
-    , mpaSetLastHeader = const $ return ()
-    , mpaProcessFork = const $ return ()
     }
   where
     makeBlock

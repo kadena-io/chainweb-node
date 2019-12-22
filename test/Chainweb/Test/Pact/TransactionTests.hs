@@ -21,15 +21,19 @@ import Test.Tasty.HUnit
 import Control.Concurrent (readMVar)
 import Control.Exception (SomeException, try)
 import Control.Lens hiding ((.=))
+import Control.Monad
 import Data.Aeson
+import Data.Aeson.Lens
 import Data.Foldable (for_, traverse_)
 import Data.Functor (void)
-import Data.Text
+import Data.Text (isInfixOf,unpack)
 import Data.Default
+import Data.Tuple.Strict (T2(..))
 
 -- internal pact modules
 
 import Pact.Gas
+import Pact.Interpreter
 import Pact.Parse
 import Pact.Repl
 import Pact.Repl.Types
@@ -40,12 +44,11 @@ import Pact.Types.PactValue
 import Pact.Types.RPC
 import Pact.Types.Runtime
 import Pact.Types.SPV
-import Pact.Interpreter
 
 
 -- internal chainweb modules
 
-import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
@@ -54,6 +57,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Test.Pact.Utils
 
 
 coinRepl :: FilePath
@@ -77,6 +81,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   , testGroup "Coinbase Vuln Fix Tests"
     [ testCoinbase797DateFix
     , testCase "testCoinbaseEnforceFailure" testCoinbaseEnforceFailure
+    , testCase "testCoinbaseUpgradeDevnet" testCoinbaseUpgradeDevnet
     ]
   ]
 
@@ -97,8 +102,11 @@ ccReplTests ccFile = do
     failCC i e = assertFailure $ renderInfo (_faInfo i) <> ": " <> unpack e
 
 loadCC :: IO (PactDbEnv LibState, ModuleCache)
-loadCC = do
-  (r, rst) <- execScript' (Script False coinRepl) coinRepl
+loadCC = loadScript coinRepl
+
+loadScript :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
+loadScript fp = do
+  (r, rst) <- execScript' (Script False coinRepl) fp
   either fail (const $ return ()) r
   let pdb = PactDbEnv
             (view (rEnv . eePactDb) rst)
@@ -196,10 +204,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
   where
     doCoinbaseExploit pdb mc t localCmd precompile testResult = do
-      let pd = PublicData def blockHeight' t (toText blockHash')
+      let pd = PublicData def blockHeight' t ""
 
-      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd blockHsh
-        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
+      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd testVersionHeader
+        epochCreationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
           tenv = TransactionEnv Transactional pdb logger def
@@ -215,7 +223,6 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       (MinerId "tester01\" (read-keyset \"miner-keyset\") 1000.0)(coin.coinbase \"tester01")
       (MinerKeys $ mkKeySet ["b67e109352e8e33c8fe427715daad57d35d25d025914dd705b97db35b1bfbaa5"] "keys-all")
 
-    blockHsh@(BlockHash blockHash') = nullBlockHash
     preForkTime = toInt64 [timeMicrosQQ| 2019-12-09T01:00:00.0 |]
     postForkTime = toInt64 [timeMicrosQQ| 2019-12-11T01:00:00.0 |]
     toInt64 (Time (TimeSpan (Micros m))) = m
@@ -226,19 +233,69 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData blockHsh
-      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData testVersionHeader
+      epochCreationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) ->
-        if isInfixOf "Coinbase tx failure" (sshow e) then
+        if isInfixOf "CoinbaseFailure" (sshow e) then
           return ()
         else assertFailure $ "Coinbase failed for unknown reason: " <> show e
       Right _ -> assertFailure "Coinbase did not fail for bad miner id"
   where
     miner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
-    pubData = PublicData def blockHeight' blockTime (toText blockHash')
-    blockHsh@(BlockHash blockHash') = nullBlockHash
+    pubData = PublicData def blockHeight' blockTime ""
     blockTime = toInt64 [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
     toInt64 (Time (TimeSpan (Micros m))) = m
     blockHeight' = 123
     logger = newLogger neverLog ""
+
+
+testCoinbaseUpgradeDevnet :: Assertion
+testCoinbaseUpgradeDevnet = do
+    (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
+    r <- try $ applyCoinbase v logger pdb miner 0.1 pubData devnetHeader
+      creationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    case r of
+      Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
+      Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
+        (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
+        (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
+        (Just logs,_) -> do
+          void $ matchLogs logs
+            [("USER_coin_coin-table","abcd",Just 0.1)
+            ,("SYS_modules","fungible-v2",Nothing)
+            ,("SYS_modules","coin",Nothing)
+            ,("USER_coin_coin-table","sender07",Just 998662.3)
+            ,("USER_coin_coin-table","sender09",Just 998662.1)]
+  where
+    matchLogs logs logTests
+      | length logs /= length logTests =
+          assertFailure $ "matchLogs: length mismatch " ++ show (length logs) ++
+          " /= " ++ show (length logTests)
+      | otherwise = zipWithM matchLog logs logTests
+    matchLog log' (domain,key',balanceM) = do
+          assertEqual "domain matches" domain (_txDomain log')
+          assertEqual "key matches" key' (_txKey log')
+          case balanceM of
+            Nothing -> return ()
+            Just bal ->
+              assertEqual "balance matches" (Just (Number bal))
+                (preview (_Object . ix "balance") (_txValue log'))
+    v = Development
+    miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
+    pubData = PublicData def blockHeight' (toInt64 blockTime) ""
+    upgradeTime = fromJuste $ upgradeCoinV2Date v
+    blockTime = add (TimeSpan (Micros (- 1000))) upgradeTime
+    creationTime = BlockCreationTime $ add (TimeSpan (Micros 1000)) upgradeTime
+    toInt64 (Time (TimeSpan (Micros m))) = m
+    blockHeight' = 123
+    logger = newLogger neverLog "" -- set to alwaysLog to debug
+    devnetHeader = setBlockTime blockTime $ someBlockHeader v (BlockHeight blockHeight')
+
+
+
+testVersionHeader :: BlockHeader
+testVersionHeader = someTestVersionHeader
+
+setBlockTime :: Time Micros -> BlockHeader -> BlockHeader
+setBlockTime c b = b { _blockCreationTime = BlockCreationTime c }
