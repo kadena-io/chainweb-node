@@ -171,10 +171,6 @@ module Chainweb.Utils
 , thd
 
 -- * Strict Tuples
-, sfst  -- TODO remove these
-, ssnd
-, scurry
-, suncurry
 , suncurry3
 , rwipe3
 , _T2

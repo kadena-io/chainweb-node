@@ -68,7 +68,7 @@ import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), sfst, ssnd)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word

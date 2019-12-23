@@ -138,7 +138,7 @@ import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
 import Data.These (These(..))
-import Data.Tuple.Strict (T2(..))
+import Data.Tuple.Strict (T2(..), ssnd)
 import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)

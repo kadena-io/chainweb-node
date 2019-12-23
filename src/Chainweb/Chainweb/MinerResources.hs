@@ -35,7 +35,7 @@ import qualified Data.HashSet as HS
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T2(..), T3(..), suncurry)
 import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
@@ -170,10 +170,10 @@ withMiningCoordination logger conf cdb inner
       :: Miner
       -> [T2 ChainId ParentHeader]
       -> IO (HM.HashMap ChainId (TVar (Maybe CachedPayload)))
-    fromCut m cut = HM.fromList <$> traverse g cut
+    fromCut m cut = HM.fromList <$> traverse (fmap (suncurry (,)) . traverse g) cut
       where
-        g :: T2 t ParentHeader -> IO (t, TVar (Maybe CachedPayload))
-        g (T2 cid bh) = getPayload bh m >>= newTVarIO . Just >>= pure . (cid,)
+        g :: ParentHeader -> IO (TVar (Maybe CachedPayload))
+        g bh = getPayload bh m >>= newTVarIO . Just
 
     getPayload :: ParentHeader -> Miner -> IO CachedPayload
     getPayload (ParentHeader parent) m = do
