@@ -210,19 +210,19 @@ workStreamHandler mr cid mid = Tagged $ \req respond -> do
     case HM.lookup mid pw >>= HM.lookup cid of
         Nothing -> eventSourceAppIO (pure CloseEvent) req respond
         Just tcp -> do
-            tbph <- newTVarIO Nothing
-            eventSourceAppIO (go tbph tcp) req respond
+            prv <- newTVarIO Nothing
+            eventSourceAppIO (go prv tcp) req respond
   where
     PrimedWork pw = _coordPrimedWork mr
     cdb = _coordCutDb mr
     poph = _payloadWithOutputsPayloadHash
 
     go :: TVar (Maybe BlockPayloadHash) -> TVar (Maybe CachedPayload) -> IO ServerEvent
-    go tbph tcp = do
+    go prv tcp = do
         -- Get freshest (unique) payload --
         T2 pl bct <- atomically $ readTVar tcp >>= \case
             Nothing -> retry
-            Just p@(T2 pl _) -> readTVar tbph >>= bool (pure p) retry . (Just (poph pl) ==)
+            Just p@(T2 pl _) -> readTVar prv >>= bool (pure p) retry . (Just (poph pl) ==)
         -- Get Adjacent Parents --
         T2 p adj <- atomically $ do
             c <- _cutStm cdb
@@ -236,7 +236,7 @@ workStreamHandler mr cid mid = Tagged $ \req respond -> do
         let prevTime = PrevTime . _blockCreationTime $ coerce p
             cacheHdr = over _Unwrapped . M.insert (T2 bct phash) $ T3 mid prevTime pl
         atomically $ modifyTVar' (_coordState mr) cacheHdr
-        atomically . writeTVar tbph . Just $ poph pl
+        atomically . writeTVar prv . Just $ poph pl
         -- Encode and send the Header --
         pure $ event header
 
