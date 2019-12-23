@@ -22,7 +22,7 @@ module Chainweb.Miner.RestAPI.Server where
 
 import Control.Concurrent.STM.TVar
 import Control.Lens (over, view, (^?!))
-import Control.Monad (void, when)
+import Control.Monad (when)
 import Control.Monad.Catch (bracket, try)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
@@ -56,7 +56,7 @@ import System.Random
 import Chainweb.BlockHeader
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
-import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPayloadStore, _cut)
+import Chainweb.CutDB
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
@@ -214,23 +214,21 @@ workStreamHandler mr cid mid = Tagged $ \req respond -> do
             eventSourceAppIO (go tbph tcp) req respond
   where
     PrimedWork pw = _coordPrimedWork mr
-    tu = _coordUpdate mr
     cdb = _coordCutDb mr
     poph = _payloadWithOutputsPayloadHash
 
     go :: TVar (Maybe BlockPayloadHash) -> TVar (Maybe CachedPayload) -> IO ServerEvent
     go tbph tcp = do
-        -- Get freshest payload --
+        -- Get freshest (unique) payload --
         T2 pl bct <- atomically $ readTVar tcp >>= \case
             Nothing -> retry
             Just p@(T2 pl _) -> readTVar tbph >>= bool (pure p) retry . (Just (poph pl) ==)
-        -- Get parent header --
-        c <- _cut cdb
-        let !p = ParentHeader (c ^?! ixg cid)
-        -- Await Adjacent Parents --
-        adj <- atomically $ do
-            void $ readTVar tu  -- A little trick.
-            maybe retry pure $ getAdjacentParents c p
+        -- Get Adjacent Parents --
+        T2 p adj <- atomically $ do
+            c <- _cutStm cdb
+            let !p = ParentHeader (c ^?! ixg cid)
+            adj <- maybe retry pure $ getAdjacentParents c p
+            pure $ T2 p adj
         -- Form the BlockHeader --
         let !phash = _payloadWithOutputsPayloadHash pl
             !header = newBlockHeader adj phash (Nonce 0) bct p

@@ -87,7 +87,6 @@ data MiningCoordination logger cas = MiningCoordination
     , _coordConf :: !CoordinationConfig
     , _coordUpdateStreamCount :: !(IORef Int)
     , _coordPrimedWork :: !PrimedWork
-    , _coordUpdate :: !(TVar ())
     }
 
 withMiningCoordination
@@ -107,10 +106,9 @@ withMiningCoordination logger conf cdb inner
         c503 <- newIORef 0
         c403 <- newIORef 0
         l <- newIORef (_coordinationUpdateStreamLimit conf)
-        u <- newTVarIO ()
         fmap thd . runConcurrently $ (,,)
             <$> Concurrently (prune t c503 c403)
-            <*> Concurrently (mapConcurrently_ (primeWork u miners m cut) cids)
+            <*> Concurrently (mapConcurrently_ (primeWork miners m cut) cids)
             <*> Concurrently (inner . Just $ MiningCoordination
                 { _coordLogger = logger
                 , _coordCutDb = cdb
@@ -120,8 +118,7 @@ withMiningCoordination logger conf cdb inner
                 , _coord403s = c403
                 , _coordConf = conf
                 , _coordUpdateStreamCount = l
-                , _coordPrimedWork = m
-                , _coordUpdate = u })
+                , _coordPrimedWork = m })
   where
     cids :: [ChainId]
     cids = HS.toList . chainIds $ _chainwebVersion cdb
@@ -130,8 +127,8 @@ withMiningCoordination logger conf cdb inner
     -- that when they request new work, the block can be instantly constructed
     -- without interacting with the Pact Queue.
     --
-    primeWork :: TVar () -> [Miner] -> PrimedWork -> Cut -> ChainId -> IO ()
-    primeWork tu miners tpw c cid = runForever (logFunction logger) "primeWork" $ go c
+    primeWork :: [Miner] -> PrimedWork -> Cut -> ChainId -> IO ()
+    primeWork miners tpw c cid = runForever (logFunction logger) "primeWork" $ go c
       where
         go :: Cut -> IO a
         go cut = do
@@ -145,8 +142,6 @@ withMiningCoordination logger conf cdb inner
             payloads <- traverse (\m -> T2 m <$> getPayload newParent m) miners
             -- Update the cache in a single step --
             atomically $ traverse_ (updateCache tpw cid) payloads
-            -- Tell other threads that some update has happened --
-            atomically $ writeTVar tu ()
             go new
 
     -- | Declare that a particular Chain is temporarily unavailable for new work
