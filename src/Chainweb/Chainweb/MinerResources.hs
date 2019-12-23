@@ -150,17 +150,12 @@ withMiningCoordination logger conf cdb inner
     silenceChain :: PrimedWork -> ChainId -> STM ()
     silenceChain (PrimedWork pw) cid = traverse_ g pw
       where
-        g kut = traverse_ (\tcp -> writeTVar tcp Nothing) $ HM.lookup cid kut
+        g :: HashMap ChainId (TVar (Maybe a)) -> STM ()
+        g = traverse_ (`writeTVar` Nothing) . HM.lookup cid
 
-    updateCache
-        :: PrimedWork
-        -> ChainId
-        -> T2 Miner (T2 PayloadWithOutputs BlockCreationTime)
-        -> STM ()
-    updateCache (PrimedWork pw) cid (T2 (Miner mid _) payload) =
-        case HM.lookup mid pw >>= HM.lookup cid of
-            Nothing -> pure ()
-            Just tcp -> writeTVar tcp $ Just payload
+    updateCache :: PrimedWork -> ChainId -> T2 Miner CachedPayload -> STM ()
+    updateCache (PrimedWork pw) cid (T2 (Miner mid _) pl) =
+        traverse_ (\tcp -> writeTVar tcp $ Just pl) $ HM.lookup mid pw >>= HM.lookup cid
 
     initialPayloads :: Cut -> [Miner] -> IO PrimedWork
     initialPayloads cut ms =
@@ -174,12 +169,13 @@ withMiningCoordination logger conf cdb inner
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (TVar (Maybe (T2 PayloadWithOutputs BlockCreationTime))))
+      -> IO (HM.HashMap ChainId (TVar (Maybe CachedPayload)))
     fromCut m cut = HM.fromList <$> traverse g cut
       where
+        g :: T2 t ParentHeader -> IO (t, TVar (Maybe CachedPayload))
         g (T2 cid bh) = getPayload bh m >>= newTVarIO . Just >>= pure . (cid,)
 
-    getPayload :: ParentHeader -> Miner -> IO (T2 PayloadWithOutputs BlockCreationTime)
+    getPayload :: ParentHeader -> Miner -> IO CachedPayload
     getPayload (ParentHeader parent) m = do
         creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
         payload <- trace (logFunction logger) "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
