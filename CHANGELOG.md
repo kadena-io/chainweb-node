@@ -1,5 +1,44 @@
 # `chainweb-node` Changelog
 
+## 1.4.x
+
+#### New Mining API
+
+A new endpoint `/mining/stream` provides a long-living flow of new work to
+compatible mining clients. The full path is as follows:
+
+```
+GET /chainweb/0.0/mainnet01/mining/stream/<chain-id>/<miner-account>
+```
+
+This is the most efficient way for a mining client or pool software to receive
+new, valid work from their node. Overall strain on the node is now even less.
+
+##### Notes for Pool Administrators and Mining Client Authors
+
+Notice that this is a per-chain subscription. To receive new work from all 10
+chains, please open a concurrent thread for each chain, and keep them open. New
+work will appear in a stream a few hundred milliseconds after your node learns
+about new a block from the network.
+
+The endpoint is an HTTP **Event Stream**, and each data block comes in the
+following format:
+
+```
+event:New Work
+data:00000000e4501217cef33e53f85e8b306dc50b7e67b22fe73a619b4c89cca8eb6f03030000000000000000006ec5bdc0669a0500c741ad2907c1c46e5f14a29a0e0fd8cd674c2dcc1d2ded2fb4144d67e133655b030002000000d4d3e008af14b0bf9c7fd18873f2d154e50c9c9d372759f2830ae2417f93d8d503000000e7baba04e6af33161788e4af66e18470ce0e743f3256aa98425f39e3e536b6720500000059b300025dc1688810acae9597619924198ddca6536bcea4df35b72196bbfd21e4501217cef33e53f85e8b306dc50b7e67b22fe73a619b4c89cca8eb6f03030082721f0a1729038e5890d922d6bb54bc1598c9d17a5faf858ce74eb00f7e390b00000000ff62e703000000000000000000000000000000000000000000000000000000008a0000000000000005000000494d9ee4619a05000000000000000000
+```
+
+The `data` itself is Hex-encoded, to comply with the Event Stream protocol. Once
+decoded, the data has the same format as given by
+[`/mining/work`](https://github.com/kadena-io/chainweb-miner/blob/37019600f9187aad6ff50c8f397800bd48c7fdc8/README.org#work-requests).
+
+For the time being, you must call this endpoint with `HTTP 1.1` or the stream
+may cut off early.
+
+The old mining endpoints `/mining/work` and `/mining/updates` still work, but
+may be removed in a future release.
+
 ## 1.4 (2019-12-14)
 
 This version replaces all previous versions. Any prior version will stop working
@@ -24,7 +63,6 @@ must update to the next version before that date.
 * [SECURITY] fix issue with date comparison triggering block validation of fix for #797 [#810]
 
 * Don't vacuum SQLite databases on startup [#803]
-
 
 ## 1.3 (2019-12-08)
 
