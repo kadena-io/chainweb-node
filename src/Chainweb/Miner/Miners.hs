@@ -50,7 +50,7 @@ import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.Pact (Miner, minerId)
+import Chainweb.Miner.Pact (Miner(..))
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Seconds(..))
@@ -77,7 +77,8 @@ localTest
     -> MWC.GenIO
     -> MinerCount
     -> IO ()
-localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.localTest" loop
+localTest lf v tpw m@(Miner mid _) cdb gen miners =
+    runForever lf "Chainweb.Miner.Miners.localTest" loop
   where
     loop :: IO a
     loop = do
@@ -85,7 +86,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
         T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
-            ms = MiningState $ M.singleton (T2 bct phash) (T3 (view minerId m) p pl)
+            ms = MiningState $ M.singleton (T2 bct phash) (T3 mid p pl)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
@@ -123,7 +124,7 @@ mempoolNoopMiner lf chainRes =
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
 localPOW :: LogFunction -> ChainwebVersion -> PrimedWork -> Miner -> CutDb cas -> IO ()
-localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
+localPOW lf v tpw m@(Miner mid _) cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
     loop :: IO a
     loop = do
@@ -131,7 +132,7 @@ localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
         T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
         let !phash = _blockPayloadHash bh
             !bct = _blockCreationTime bh
-            ms = MiningState $ M.singleton (T2 bct phash) (T3 (view minerId m) p pl)
+            ms = MiningState $ M.singleton (T2 bct phash) (T3 mid p pl)
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop

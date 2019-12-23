@@ -26,7 +26,7 @@ import Control.Monad (when)
 import Control.Monad.Catch (bracket, try)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.STM (atomically, retry)
+import Control.Monad.STM (atomically, check, retry)
 
 import Data.Binary.Builder (fromByteString)
 import Data.Bool (bool)
@@ -108,7 +108,8 @@ workHandler' mr mcid m = do
     T3 p bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (view minerId $ minerStatus m) p pl
+        updt = over _Unwrapped . M.insert (T2 bct phash)
+    atomically . modifyTVar' (_coordState mr) . updt $ T3 (view minerId $ minerStatus m) p pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     logf :: LogFunction
@@ -222,13 +223,12 @@ workStreamHandler mr cid mid = Tagged $ \req respond -> do
         -- Get freshest (unique) payload --
         T2 pl bct <- atomically $ readTVar tcp >>= \case
             Nothing -> retry
-            Just p@(T2 pl _) -> readTVar prv >>= bool (pure p) retry . (Just (poph pl) ==)
+            Just p@(T2 pl _) -> readTVar prv >>= check . (Just (poph pl) /=) >> pure p
         -- Get Adjacent Parents --
         T2 p adj <- atomically $ do
             c <- _cutStm cdb
             let !p = ParentHeader (c ^?! ixg cid)
-            adj <- maybe retry pure $ getAdjacentParents c p
-            pure $ T2 p adj
+            T2 p <$> maybe retry pure (getAdjacentParents c p)
         -- Form the BlockHeader --
         let !phash = _payloadWithOutputsPayloadHash pl
             !header = newBlockHeader adj phash (Nonce 0) bct p
