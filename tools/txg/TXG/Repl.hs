@@ -255,3 +255,25 @@ _cmd2IO = do
   meta <- _metaIO
   kps <- sampleKeyPairCaps
   mkCmdStr meta _ver kps "(+ 2 2)"
+
+_cmdSIO :: String -> IO (Command Text)
+_cmdSIO s = do
+  meta <- _metaIO
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps s
+
+_sendIt :: (Command Text) -> IO (Either ClientError RequestKeys)
+_sendIt theCmd = send _nw [theCmd]
+
+----------------------------------------------------------------------------------------------------
+-- Some useful commands to send
+----------------------------------------------------------------------------------------------------
+_sendlm :: IO (Either ClientError RequestKeys)
+_sendlm = do
+  theCmd <- _cmdSIO "(list-modules)"
+  _sendIt theCmd
+
+_tblRows :: IO (Either ClientError RequestKeys)
+_tblRows = do
+  theCmd <- _cmdSIO $ "(free.csv-import.table-len)"
+  _sendIt theCmd
