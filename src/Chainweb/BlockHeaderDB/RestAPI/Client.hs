@@ -58,6 +58,7 @@ import Control.Monad.Identity
 import Data.Kind
 import Data.Proxy
 import Data.Singletons
+import Data.Text (Text)
 
 import GHC.TypeLits
 
@@ -130,14 +131,14 @@ headerClient_
     . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => DbKey BlockHeaderDb
-    -> ClientM BlockHeader
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeader)
 headerClient_ = headerClientContentType_ @v @c @JSON
 
 headerClient
     :: ChainwebVersion
     -> ChainId
     -> DbKey BlockHeaderDb
-    -> ClientM BlockHeader
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeader)
 headerClient = headerClientJson
 
 headerClientContentType_
@@ -148,14 +149,14 @@ headerClientContentType_
     => SupportedRespBodyContentType ct x BlockHeader
     => (HeaderApi v c) ~ x
     => BlockHash
-    -> ClientM BlockHeader
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeader)
 headerClientContentType_ = client (Proxy @(SetRespBodyContentType ct x))
 
 headerClientJson
     :: ChainwebVersion
     -> ChainId
     -> DbKey BlockHeaderDb
-    -> ClientM BlockHeader
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeader)
 headerClientJson v c k = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
@@ -165,7 +166,7 @@ headerClientJsonPretty
     :: ChainwebVersion
     -> ChainId
     -> BlockHash
-    -> ClientM BlockHeader
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeader)
 headerClientJsonPretty v c k = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
@@ -175,7 +176,7 @@ headerClientJsonBinary
     :: ChainwebVersion
     -> ChainId
     -> BlockHash
-    -> ClientM BlockHeader
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeader)
 headerClientJsonBinary v c k = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
@@ -245,7 +246,7 @@ headersClient_
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> ClientM BlockHeaderPage
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeaderPage)
 headersClient_ = headersClientContentType_ @v @c @JSON
 
 headersClient
@@ -263,7 +264,7 @@ headersClient
         -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
     -> Maybe MaxRank
         -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
-    -> ClientM BlockHeaderPage
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeaderPage)
 headersClient = headersClientJson
 
 headersClientContentType_
@@ -277,7 +278,7 @@ headersClientContentType_
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> ClientM BlockHeaderPage
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeaderPage)
 headersClientContentType_ = client $ Proxy @(SetRespBodyContentType ct (HeadersApi v c))
 
 headersClientJson
@@ -295,7 +296,7 @@ headersClientJson
         -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
     -> Maybe MaxRank
         -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
-    -> ClientM BlockHeaderPage
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeaderPage)
 headersClientJson v c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
@@ -316,7 +317,7 @@ headersClientJsonPretty
         -- ^ Filter: no header of `BlockHeight` lower than this will be returned.
     -> Maybe MaxRank
         -- ^ Filter: no header of `BlockHeight` higher than this will be returned.
-    -> ClientM BlockHeaderPage
+    -> ClientM (Headers '[Header "Vary" Text] BlockHeaderPage)
 headersClientJsonPretty v c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
@@ -446,4 +447,3 @@ hashesClient v c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ hashesClient_ @v @c limit start minr maxr
-

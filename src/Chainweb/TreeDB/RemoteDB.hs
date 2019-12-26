@@ -27,6 +27,7 @@ import qualified Data.Text as T
 
 import Numeric.Natural
 
+import Servant.API.ResponseHeaders
 import Servant.Client hiding (client)
 
 import Streaming
@@ -63,7 +64,7 @@ instance TreeDb RemoteDb where
     maxEntry = error "Chainweb.TreeDB.RemoteDB.RemoteDb.maxEntry: not implemented"
 
     -- If other default functions rely on this, it could be quite inefficient.
-    lookup (RemoteDb env alog ver cid) k = hush <$> runClientM client env
+    lookup (RemoteDb env alog ver cid) k = hush . fmap getResponse <$> runClientM client env
       where
         client = logServantError alog "failed to query tree db entry"
             $ headerClient ver cid k
@@ -80,7 +81,7 @@ instance TreeDb RemoteDb where
       where
         client :: Maybe (NextItem BlockHash) -> ClientM (Page (NextItem BlockHash) BlockHeader)
         client nxt = logServantError alog "failed to query tree db entries"
-            $ headersClient ver cid limit nxt minr maxr
+            $ fmap getResponse $ headersClient ver cid limit nxt minr maxr
 
     branchKeys (RemoteDb env alog ver cid) next limit minr maxr lower upper f
         = f $ callAndPage client next 0 env

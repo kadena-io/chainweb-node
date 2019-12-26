@@ -293,7 +293,7 @@ type HeadersApi_
     = "header"
     :> PageParams (NextItem BlockHash)
     :> FilterParams
-    :> Get '[JSON, JsonBlockHeaderObject] BlockHeaderPage
+    :> Get '[JSON, JsonBlockHeaderObject] (Headers '[Header "Vary" Text] BlockHeaderPage)
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
 --
@@ -316,7 +316,7 @@ headersApi = Proxy
 type HeaderApi_
     = "header"
     :> Capture "BlockHash" BlockHash
-    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
+    :> Get '[JSON, JsonBlockHeaderObject, OctetStream] (Headers '[Header "Vary" Text] BlockHeader)
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --

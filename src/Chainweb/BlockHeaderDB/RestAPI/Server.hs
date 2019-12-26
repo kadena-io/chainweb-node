@@ -47,6 +47,7 @@ import Data.Foldable
 import Data.Functor.Of
 import Data.IORef
 import Data.Proxy
+import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as T
 
@@ -213,12 +214,13 @@ headersHandler
     -> Maybe (NextItem (DbKey db))
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> Handler (Page (NextItem (DbKey db)) (DbEntry db))
+    -> Handler (Headers '[Header "Vary" Text] (Page (NextItem (DbKey db)) (DbEntry db)))
 headersHandler db limit next minr maxr = do
     nextChecked <- traverse (traverse $ checkKey db) next
-    liftIO
+    res <- liftIO
         $ entries db nextChecked (succ <$> effectiveLimit) minr maxr
         $ finitePrefixOfInfiniteStreamToPage key effectiveLimit . void
+    pure $ addHeader "Accept" res
   where
     effectiveLimit = limit <|> Just defaultEntryLimit
 
@@ -231,13 +233,13 @@ headerHandler
     => TreeDb db
     => db
     -> DbKey db
-    -> Handler (DbEntry db)
+    -> Handler (Headers '[Header "Vary" Text] (DbEntry db))
 headerHandler db k = liftIO (lookup db k) >>= \case
     Nothing -> throwError $ err404Msg $ object
         [ "reason" .= ("key not found" :: String)
         , "key" .= k
         ]
-    Just e -> pure e
+    Just e -> pure $ addHeader "Accept" e
 
 -- | Add a new 'BlockHeader' to the database
 --
