@@ -29,6 +29,7 @@ import Data.Time.Clock.POSIX
 
 import Network.HTTP.Types.Status
 
+import Servant.API.ResponseHeaders
 import Servant.Client
 
 import qualified Streaming.Prelude as SP
@@ -125,9 +126,9 @@ simpleSessionTests rdb tls version =
 httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
 httpHeaderTests envIO cid =
     testGroup ("http header tests for chain " <> sshow cid) $
-        [ go "headerClient" $ \v h -> headerClient' v cid (key h)
+        [ go "headerClient" $ \v h -> fmap getResponse $ headerClient' v cid (key h)
         , go "headerPutClient" $ \v h -> headerPutClient' v cid (head $ testBlockHeaders $ ParentHeader h)
-        , go "headersClient" $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
+        , go "headersClient" $ \v _ -> fmap getResponse $ headersClient' v cid Nothing Nothing Nothing Nothing
         , go "hashesClient" $ \v _ -> hashesClient' v cid Nothing Nothing Nothing Nothing
         , go "branchHashesClient" $ \v _ -> branchHashesClient' v cid Nothing Nothing Nothing
             Nothing (BranchBounds mempty mempty)
@@ -168,25 +169,25 @@ simpleClientSession envIO cid =
         let gbh0 = genesisBlockHeader version cid
 
         void $ liftIO $ step "headerClient: get genesis block header"
-        gen0 <- headerClient version cid (key gbh0)
+        gen0 <- fmap getResponse $ headerClient version cid (key gbh0)
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
             (Actual gen0)
 
         void $ liftIO $ step "headerClient: get genesis block header pretty"
-        gen01 <- headerClientJsonPretty version cid (key gbh0)
+        gen01 <- fmap getResponse $ headerClientJsonPretty version cid (key gbh0)
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
             (Actual gen01)
 
         void $ liftIO $ step "headerClient: get genesis block header binary"
-        gen02 <- headerClientJsonBinary version cid (key gbh0)
+        gen02 <- fmap getResponse $ headerClientJsonBinary version cid (key gbh0)
         assertExpectation "header client returned wrong entry"
             (Expected gbh0)
             (Actual gen02)
 
         void $ liftIO $ step "headersClient: get genesis block header"
-        bhs1 <- headersClient version cid Nothing Nothing Nothing Nothing
+        bhs1 <- fmap getResponse $ headersClient version cid Nothing Nothing Nothing Nothing
         gen1 <- case _pageItems bhs1 of
             [] -> liftIO $ assertFailure "headersClient did return empty result"
             (h:_) -> return h
@@ -201,7 +202,7 @@ simpleClientSession envIO cid =
             void $ headerPutClient version cid h
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
-        bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
+        bhs2 <- fmap getResponse $ headersClient version cid Nothing Nothing Nothing Nothing
         assertExpectation "headersClient returned wrong number of entries"
             (Expected 4)
             (Actual $ _pageLimit bhs2)
@@ -217,7 +218,7 @@ simpleClientSession envIO cid =
 
         forM_ newHeaders $ \h -> do
             void $ liftIO $ step $ "headerClient: " <> T.unpack (encodeToText (_blockHash h))
-            r <- headerClient version cid (key h)
+            r <- fmap getResponse $ headerClient version cid (key h)
             assertExpectation "header client returned wrong entry"
                 (Expected h)
                 (Actual r)
@@ -484,7 +485,7 @@ pagingTest name getDbItems getKey fin request envIO = testGroup name
 testPageLimitHeadersClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
 testPageLimitHeadersClient version = pagingTest "headersClient" headers key False request
   where
-    request cid l n = headersClient version cid l n Nothing Nothing
+    request cid l n = fmap getResponse $ headersClient version cid l n Nothing Nothing
 
 testPageLimitHashesClient :: ChainwebVersion -> IO TestClientEnv_ -> TestTree
 testPageLimitHashesClient version = pagingTest "hashesClient" hashes id False request

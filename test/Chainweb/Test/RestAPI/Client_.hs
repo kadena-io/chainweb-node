@@ -40,8 +40,11 @@ module Chainweb.Test.RestAPI.Client_
 ) where
 
 import Data.Functor.Identity
+import Data.Text (Text)
 
 import Servant.API.ContentTypes
+import qualified Servant.API.ResponseHeaders as S
+import qualified Servant.API as S
 
 -- internal modules
 
@@ -106,7 +109,11 @@ cutPutClient' v = runIdentity $ do
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API
 
-headerClient' :: ChainwebVersion -> ChainId -> BlockHash -> ClientM_ BlockHeader
+headerClient'
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHash
+    -> ClientM_ (S.Headers '[S.Header "Vary" Text] BlockHeader)
 headerClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
@@ -125,7 +132,7 @@ headersClient'
     -> Maybe (NextItem BlockHash)
     -> Maybe MinRank
     -> Maybe MaxRank
-    -> ClientM_ (Page (NextItem BlockHash) BlockHeader)
+    -> ClientM_ (S.Headers '[S.Header "Vary" Text] (Page (NextItem BlockHash) BlockHeader))
 headersClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
@@ -171,4 +178,3 @@ branchHeadersClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(BranchHeadersApi v c)
-
