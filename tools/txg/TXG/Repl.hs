@@ -29,6 +29,7 @@ module TXG.Repl
   , chain0
   , host
   , verToChainId
+  , verToChainIdMin
   , listenResponse
   , mkCmdStr
   , mkKey
@@ -59,6 +60,7 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Random
 import Data.Decimal
 import Data.Foldable
+import Data.HashSet ()
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
@@ -194,6 +196,15 @@ verToChainId ver = foldr const err $ chainIds ver
   where
     err = error "Chainweb version has 0 chains"
 
+-- get the minimum ChainId from a Version
+verToChainIdMin :: ChainwebVersion -> ChainId
+verToChainIdMin ver =
+  foldr f z0 $ ids
+  where
+    f x r = min x r
+    z0 = verToChainId ver -- error on empty set or pick a default for the next foldr
+    ids = chainIds ver
+
 verToPactNetId :: ChainwebVersion -> P.NetworkId
 verToPactNetId cvw =
   P.NetworkId $ T.pack $ show cvw
@@ -236,7 +247,7 @@ _ver :: ChainwebVersion
 _ver = Development
 
 _cid :: ChainId
-_cid = verToChainId _ver
+_cid = verToChainIdMin _ver
 
 _nw :: Network
 _nw = Network _ver _hostAddr _cid
