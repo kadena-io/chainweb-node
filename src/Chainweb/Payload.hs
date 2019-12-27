@@ -488,7 +488,7 @@ coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
 
 -- | No-op coinbase payload
 --
-noCoinbase :: CommandResult Hash
+noCoinbase :: CommandResult a
 noCoinbase = CommandResult
     (RequestKey pactInitialHash) Nothing
     (PactResult (Right (PLiteral (LString "NO_COINBASE"))))

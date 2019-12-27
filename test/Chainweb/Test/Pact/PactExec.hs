@@ -46,7 +46,7 @@ import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService (execTransactions)
+import Chainweb.Pact.PactService (execTransactions,toHashCommandResult)
 import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
@@ -319,8 +319,8 @@ execTest runPact request = _trEval request $ do
     results <- runPact $ execTransactions (Just someBlockHeaderCreationTime) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
-        (zip (_trCmds request) outputs)
-        (_transactionCoinbase results)
+        (zip (_trCmds request) (toHashCommandResult <$> outputs))
+        (toHashCommandResult $ _transactionCoinbase results)
   where
     k d c = PactTransaction c d
 
@@ -342,8 +342,8 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
               tcode = _pNonce . payloadObj . _cmdPayload
               inputs = map (showPretty . tcode) $ V.toList trans
           return $ TestResponse
-            (zip inputs outputs)
-            (_transactionCoinbase results)
+            (zip inputs (toHashCommandResult <$> outputs))
+            (toHashCommandResult $ _transactionCoinbase results)
         Left (e :: SomeException) -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text

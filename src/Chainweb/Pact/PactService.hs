@@ -34,6 +34,7 @@ module Chainweb.Pact.PactService
     , readCoinAccount
     , readAccountBalance
     , readAccountGuard
+    , toHashCommandResult
       -- * For Side-tooling
     , execNewGenesisBlock
     , initPactService'
@@ -51,8 +52,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
-import Data.Bifoldable (bitraverse_)
-import Data.Bifunctor (first)
 import Data.Bool (bool)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
@@ -297,9 +296,8 @@ initializeCoinContract _logger v cid pwo = do
       else validateGenesis
 
   where
-    validateGenesis = do
-        txs <- execValidateBlock genesisHeader inputPayloadData
-        bitraverse_ throwM pure $ validateHashes genesisHeader txs inputPayloadData
+    validateGenesis = void $!
+        execValidateBlock genesisHeader inputPayloadData
 
     ghash :: BlockHash
     ghash = _blockHash genesisHeader
@@ -352,10 +350,9 @@ serviceRequests memPoolAccess reqQ = do
                         _newCreationTime
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne' "execValidateBlock"
-                        _valResultVar
-                        (flip (validateHashes _valBlockHeader) _valPayloadData)
-                        (execValidateBlock _valBlockHeader _valPayloadData)
+                tryOne "execValidateBlock"
+                        _valResultVar $
+                        execValidateBlock _valBlockHeader _valPayloadData
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
                 tryOne "execLookupPactTxs" resultVar $
@@ -444,12 +441,14 @@ toOutputBytes cr =
 toPayloadWithOutputs :: Miner -> Transactions -> PayloadWithOutputs
 toPayloadWithOutputs mi ts =
     let oldSeq = _transactionPairs ts
-        trans = fst <$> oldSeq
-        transOuts = toOutputBytes . snd <$> oldSeq
+        trans = cmdBSToTx . fst <$> oldSeq
+        transOuts = toOutputBytes . toHashCommandResult . snd <$> oldSeq
 
         miner = toMinerData mi
-        cb = CoinbaseOutput $ encodeToByteString $ _transactionCoinbase ts
+        cb = CoinbaseOutput $ encodeToByteString $ toHashCommandResult $ _transactionCoinbase ts
         blockTrans = snd $ newBlockTransactions miner trans
+        cmdBSToTx = toTransactionBytes
+          . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
         blockOuts = snd $ newBlockOutputs cb transOuts
 
         blockPL = blockPayload blockTrans blockOuts
@@ -941,7 +940,7 @@ playOneBlock
     => BlockHeader
     -> PayloadData
     -> PactDbEnv'
-    -> PactServiceM cas PayloadWithOutputs
+    -> PactServiceM cas (T2 Miner Transactions)
 playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
@@ -964,7 +963,7 @@ playOneBlock currHeader plData pdbenv = do
     !results <- go miner trans
     psStateValidated .= Just currHeader
 
-    return $! toPayloadWithOutputs miner results
+    return $! T2 miner results -- toPayloadWithOutputs miner results
 
   where
     validationErr hash = mconcat
@@ -1060,15 +1059,16 @@ execValidateBlock
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
 execValidateBlock currHeader plData = do
-    -- TODO: are we actually validating the output hash here?
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
     validateTxEnabled currHeader plData
-    handle handleEx $ withBatch $ do
+    (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
+    either throwM return $!
+      validateHashes currHeader (toPayloadWithOutputs miner transactions) plData
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
@@ -1130,9 +1130,7 @@ execTransactions nonGenesisParentHeaderCurrCreate miner ctxs enfCBFail usePrecom
     return $! Transactions (paired txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHeaderCurrCreate
-    cmdBSToTx = toTransactionBytes
-      . fmap (T.decodeUtf8 . SB.fromShort . payloadBytes)
-    paired outs = V.zipWith (curry $ first cmdBSToTx) ctxs outs
+    paired outs = V.zip ctxs outs
 
 
 runCoinbase
@@ -1142,7 +1140,7 @@ runCoinbase
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> ModuleCache
-    -> PactServiceM cas (P.CommandResult P.Hash)
+    -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
 runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
@@ -1157,7 +1155,7 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
       liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
     void $ traverse upgradeInitCache upgradedCacheM
 
-    return $! toHashCommandResult cr
+    return $! cr
 
   where
 
@@ -1175,7 +1173,7 @@ applyPactCmds
     -> Vector ChainwebTransaction
     -> Miner
     -> ModuleCache
-    -> PactServiceM cas (Vector (P.CommandResult P.Hash))
+    -> PactServiceM cas (Vector (P.CommandResult [P.TxLog A.Value]))
 applyPactCmds isGenesis env cmds miner mc =
     V.fromList . toList . sfst <$> V.foldM f (T2 mempty mc) cmds
   where
@@ -1188,8 +1186,8 @@ applyPactCmd
     -> ChainwebTransaction
     -> Miner
     -> ModuleCache
-    -> DList (P.CommandResult P.Hash)
-    -> PactServiceM cas (T2 (DList (P.CommandResult P.Hash)) ModuleCache)
+    -> DList (P.CommandResult [P.TxLog A.Value])
+    -> PactServiceM cas (T2 (DList (P.CommandResult [P.TxLog A.Value])) ModuleCache)
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     logger <- view (psCheckpointEnv . cpeLogger)
     gasModel <- view psGasModel
@@ -1208,8 +1206,7 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmdIn)
-    let !res = toHashCommandResult result
-    pure $! T2 (DL.snoc dl res) mcache'
+    pure $! T2 (DL.snoc dl result) mcache'
 
 toHashCommandResult :: P.CommandResult [P.TxLog A.Value] -> P.CommandResult P.Hash
 toHashCommandResult = over (P.crLogs . _Just) $ P.pactHash . encodeToByteString
