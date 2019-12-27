@@ -682,7 +682,7 @@ polling
     -> PollingExpectation
     -> IO PollResponses
 polling sid cenv rks pollingExpectation =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 10000 <> limitRetries 13) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -716,7 +716,7 @@ testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> GasPr
 testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
-    kps <- testKeyPairs sender00KeyPair Nothing
+    kps <- testKeyPairs sender00KeyPair gasCap
     c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
@@ -731,6 +731,12 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
   where
     ttl = 2 * 24 * 60 * 60
 
+gasCap :: Maybe [SigCapability]
+gasCap = Just
+    [ SigCapability
+      (QualifiedName (ModuleName "coin" Nothing) "GAS" def)
+      mempty
+    ]
 --------------------------------------------------------------------------------
 -- test node(s), config, etc. for this test
 --------------------------------------------------------------------------------

@@ -339,7 +339,11 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
         Exec !pm -> return pm
         _ -> throwCmdEx "local continuations not supported"
 
-      checkTooBigTx gas0 gasLimit (applyPayload em) return
+      -- if network id is defined, assume public meta exists
+      -- otherwise, we just run the payload as is
+      case nid of
+        Nothing -> applyPayload em
+        Just _ -> checkTooBigTx gas0 gasLimit (applyPayload em) return
 
 readInitModules
     :: Logger
