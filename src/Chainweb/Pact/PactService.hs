@@ -39,6 +39,9 @@ module Chainweb.Pact.PactService
     , execNewGenesisBlock
     , initPactService'
     , minerReward
+      -- * for tests
+    , toPayloadWithOutputs
+    , validateHashes
     ) where
 ------------------------------------------------------------------------------
 import Control.Concurrent.Async
@@ -455,6 +458,11 @@ toPayloadWithOutputs mi ts =
         plData = payloadData blockTrans blockPL
      in payloadWithOutputs plData cb transOuts
 
+data CRLogPair = CRLogPair P.Hash [P.TxLog A.Value]
+instance A.ToJSON CRLogPair where
+  toJSON (CRLogPair h logs) = A.object
+    [ "hash" A..= h
+    , "rawLogs" A..= logs ]
 
 validateHashes
     :: BlockHeader
@@ -466,9 +474,7 @@ validateHashes bHeader pData miner transactions =
     if newHash == prevHash
     then Right pwo
     else Left $ BlockValidationFailure $ A.object
-         [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
-         , "actual" A..= newHash
-         , "expected" A..= prevHash
+         [ "mismatch" A..= errorMsg "Payload hash" prevHash newHash
          , "details" A..= details
          ]
     where
@@ -492,19 +498,21 @@ validateHashes bHeader pData miner transactions =
 
       check desc extra expect actual
         | expect == actual = []
-        | otherwise = [errorMsg desc expect actual extra]
-      errorMsg desc expect actual extra = A.object $
-        [ "message" A..= ("Mismatched " <> desc :: T.Text)
+        | otherwise =
+          [A.object $ [ "mismatch" A..= errorMsg desc expect actual ] ++ extra]
+
+      errorMsg desc expect actual = A.object $
+        [ "type" A..= (desc :: Text)
         , "actual" A..= actual
         , "expected" A..= expect
-        ] ++ extra
+        ]
 
       checkTransactions prev new =
         ["txs" A..= concatMap (uncurry (check "Tx" [])) (V.zip prev new)]
 
       addOutputs (Transactions pairs coinbase) =
         [ "outputs" A..= A.object
-         [ "coinbase" A..= coinbase
+         [ "coinbase" A..= toPairCR coinbase
          , "txs" A..= (addTxOuts <$> pairs)
          ]
         ]
@@ -512,9 +520,11 @@ validateHashes bHeader pData miner transactions =
       addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> A.Value
       addTxOuts (tx,cr) = A.object
         [ "tx" A..= fmap (fmap _pcCode . payloadObj) tx
-        , "result" A..= toHashCommandResult cr
-        , "logs" A..= P._crLogs cr
+        , "result" A..= toPairCR cr
         ]
+
+      toPairCR cr = over (P.crLogs . _Just)
+        (\l -> CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr)) l) cr
 
       details = concat
         [ check "Miner" [] prevMiner newMiner
