@@ -944,7 +944,7 @@ execLocal cmd = withDiscardedBatch $ do
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
         r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
-        return $! Discard (toHashCommandResult r)
+        return $! Discard $! toHashCommandResult $! enrichResult pd r
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)
@@ -1143,6 +1143,12 @@ execValidateBlock currHeader plData = do
     handleEx (RewindLimitExceeded a h1 h2) = fatalRewindError a h1 h2
     handleEx e = throwM e
 
+enrichResult :: P.PublicData -> P.CommandResult a -> P.CommandResult a
+enrichResult pd = set P.crMetaData $ Just $ A.object
+  [ "blockHeight" A..= P._pdBlockHeight pd
+  , "blockTime" A..= P._pdBlockTime pd
+  , "prevBlockHash" A..= P._pdPrevBlockHash pd ]
+
 validateTxEnabled :: BlockHeader -> PayloadData -> PactServiceM cas ()
 validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
     Just end | end > blockTime && not isGenesisBlock && not payloadIsEmpty ->
@@ -1236,7 +1242,8 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
       else do
         pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
-        liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
+        (T2 r m) <- liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
+        return $! T2 (enrichResult pd r) m
 
     when isGenesis $
       psInitCache <>= mcache'
