@@ -52,14 +52,13 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
-import Data.Bool (bool)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
 import Data.DList (DList(..))
 import qualified Data.DList as DL
 import Data.Either
-import Data.Foldable (foldl', toList)
+import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import Data.Maybe (isNothing)
@@ -89,6 +88,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
+import Pact.Types.Exp (ParsedCode (..))
 import Pact.Types.ExpParser (mkTextInfo)
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
@@ -123,7 +123,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
-import Chainweb.Utils
+import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Data.CAS (casLookupM)
 
@@ -458,43 +458,71 @@ toPayloadWithOutputs mi ts =
 
 validateHashes
     :: BlockHeader
-    -> PayloadWithOutputs
     -> PayloadData
+    -> Miner
+    -> Transactions
     -> Either PactException PayloadWithOutputs
-validateHashes bHeader pwo pData =
+validateHashes bHeader pData miner transactions =
     if newHash == prevHash
     then Right pwo
     else Left $ BlockValidationFailure $ A.object
          [ "message" A..= ("Payload hash from Pact execution does not match previously stored hash" :: T.Text)
          , "actual" A..= newHash
          , "expected" A..= prevHash
-         , "payloadWithOutputs" A..= pwo
-         , "otherMismatchs" A..= mismatchs
+         , "details" A..= details
          ]
     where
-      newHash = _payloadWithOutputsPayloadHash pwo
-      newTransactions = V.map fst (_payloadWithOutputsTransactions pwo)
-      newMiner = _payloadWithOutputsMiner pwo
-      newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
-      newOutputsHash = _payloadWithOutputsOutputsHash pwo
 
+      pwo = toPayloadWithOutputs miner transactions
+
+      newHash = _payloadWithOutputsPayloadHash pwo
       prevHash = _blockPayloadHash bHeader
+
+      newTransactions = V.map fst (_payloadWithOutputsTransactions pwo)
       prevTransactions = _payloadDataTransactions pData
+
+      newMiner = _payloadWithOutputsMiner pwo
       prevMiner = _payloadDataMiner pData
+
+      newTransactionsHash = _payloadWithOutputsTransactionsHash pwo
       prevTransactionsHash = _payloadDataTransactionsHash pData
+
+      newOutputsHash = _payloadWithOutputsOutputsHash pwo
       prevOutputsHash = _payloadDataOutputsHash pData
 
-      checkComponents acc (desc,expect,actual) = bool ((errorMsg desc expect actual) : acc) acc (expect == actual)
-      errorMsg desc expect actual = A.object
+      check desc extra expect actual
+        | expect == actual = []
+        | otherwise = [errorMsg desc expect actual extra]
+      errorMsg desc expect actual extra = A.object $
         [ "message" A..= ("Mismatched " <> desc :: T.Text)
         , "actual" A..= actual
         , "expected" A..= expect
+        ] ++ extra
+
+      checkTransactions prev new =
+        ["txs" A..= concatMap (uncurry (check "Tx" [])) (V.zip prev new)]
+
+      addOutputs (Transactions pairs coinbase) =
+        [ "outputs" A..= A.object
+         [ "coinbase" A..= coinbase
+         , "txs" A..= (addTxOuts <$> pairs)
+         ]
         ]
-      mismatchs = foldl' checkComponents []
-        [("Transactions", (A.toJSON prevTransactions), (A.toJSON newTransactions))
-        ,("Miner", (A.toJSON prevMiner), (A.toJSON newMiner))
-        ,("TransactionsHash", (A.toJSON prevTransactionsHash), (A.toJSON newTransactionsHash))
-        ,("OutputsHash", (A.toJSON prevOutputsHash), (A.toJSON newOutputsHash))]
+
+      addTxOuts :: (ChainwebTransaction, P.CommandResult [P.TxLog A.Value]) -> A.Value
+      addTxOuts (tx,cr) = A.object
+        [ "tx" A..= fmap (fmap _pcCode . payloadObj) tx
+        , "result" A..= toHashCommandResult cr
+        , "logs" A..= P._crLogs cr
+        ]
+
+      details = concat
+        [ check "Miner" [] prevMiner newMiner
+        , check "TransactionsHash" (checkTransactions prevTransactions newTransactions)
+          prevTransactionsHash newTransactionsHash
+        , check "OutputsHash" (addOutputs transactions)
+          prevOutputsHash newOutputsHash
+        ]
 
 -- | Restore the checkpointer and prepare the execution of a block.
 --
@@ -963,7 +991,7 @@ playOneBlock currHeader plData pdbenv = do
     !results <- go miner trans
     psStateValidated .= Just currHeader
 
-    return $! T2 miner results -- toPayloadWithOutputs miner results
+    return $! T2 miner results
 
   where
     validationErr hash = mconcat
@@ -1068,7 +1096,7 @@ execValidateBlock currHeader plData = do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
     either throwM return $!
-      validateHashes currHeader (toPayloadWithOutputs miner transactions) plData
+      validateHashes currHeader plData miner transactions
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader

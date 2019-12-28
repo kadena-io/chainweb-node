@@ -35,3 +35,7 @@ extra-deps:
     commit: d54697ad5368263b98f2bf0c2ac4d7b065b0f5bf
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
+
+build:
+  test-arguments:
+    additional-args: ["--hide-successes", "--color", "never"]
