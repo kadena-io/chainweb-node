@@ -85,6 +85,7 @@ import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
+import Pact.Types.Gas
 import Pact.Types.Scheme
 import Pact.Types.Util
 
@@ -255,6 +256,9 @@ _nw = Network _ver _hostAddr _cid
 _metaIO :: IO PublicMeta
 _metaIO = makeMeta _cid defTTL defGasPrice defGasLimit
 
+_metaIO' :: GasLimit -> IO PublicMeta
+_metaIO' = makeMeta _cid defTTL defGasPrice
+
 _cmd1IO :: IO (Command Text)
 _cmd1IO = do
   meta <- _metaIO
@@ -273,11 +277,17 @@ _cmdSIO s = do
   kps <- sampleKeyPairCaps
   mkCmdStr meta _ver kps s
 
+_cmdSIO' :: GasLimit -> String -> IO (Command Text)
+_cmdSIO' gl s = do
+  meta <- _metaIO' gl
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps s
+
 _sendIt :: (Command Text) -> IO (Either ClientError RequestKeys)
 _sendIt theCmd = send _nw [theCmd]
 
 ----------------------------------------------------------------------------------------------------
--- Some useful commands to send
+-- Some useful commands for transaction testing
 ----------------------------------------------------------------------------------------------------
 _sendlm :: IO (Either ClientError RequestKeys)
 _sendlm = do
@@ -287,4 +297,9 @@ _sendlm = do
 _tblRows :: IO (Either ClientError RequestKeys)
 _tblRows = do
   theCmd <- _cmdSIO $ "(free.csv-import.table-len)"
+  _sendIt theCmd
+
+_tblRows' :: GasLimit -> IO (Either ClientError RequestKeys)
+_tblRows' gl = do
+  theCmd <- _cmdSIO' gl "(free.csv-import.table-len)"
   _sendIt theCmd
