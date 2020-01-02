@@ -79,6 +79,7 @@ import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash (Hash)
 import qualified Pact.Types.PactError as Pact
+import Pact.Types.Pretty
 import Pact.Types.PactValue
 import Pact.Types.Term
 
@@ -362,18 +363,23 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
       Left e -> assertFailure $ "test failure for big tx with insuffient gas: " <> show e
       Right cr -> assertEqual "SEND: expect gas error for big tx" gasError0 (resultOf <$> cr)
 
+    let getFailureMsg (Left (Pact.PactError _ _ _ m)) = m
+        getFailureMsg p = pretty $ "Expected failure result, got " ++ show p
+
     void $ liftIO $ step "discounts initial gas charge from gas available for pact execution"
-    assertEqual "LOCAL: expect gas error after discounting initial gas charge" gasError1 (Just $ resultOf res1Local)
+    assertEqual "LOCAL: expect gas error after discounting initial gas charge"
+      gasError1 (getFailureMsg $ resultOf res1Local)
+
     case res1Send of
       Left e -> assertFailure $ "test failure for discounting initial gas charge: " <> show e
-      Right cr -> assertEqual "SEND: expect gas error after discounting initial gas charge" gasError1 (resultOf <$> cr)
+      Right cr -> assertEqual "SEND: expect gas error after discounting initial gas charge"
+        (Just gasError1) (getFailureMsg . resultOf <$> cr)
 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "Tx too big (4), limit 1"
-    gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (5) exceeded: 6"
+    gasError1 = "Gas limit (5) exceeded: 6"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair Nothing
