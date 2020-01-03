@@ -33,12 +33,6 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "03ihjgwqpif68870wwsgz1s4yz45zql1slky1lj4ixfxbig06md4";
       }) {});
 
-      aeson = enableCabalFlag (dontCheck (callHackageDirect {
-        pkg = "aeson";
-        ver = "1.4.6.0";
-        sha256 = "05rj0fv5y65dk17v24p3qypvrakkhdj41vrxnyk4wimgaw2g5lq4";
-      })) "cffi";
-
       configuration-tools = dontCheck (callHackageDirect {
         pkg = "configuration-tools";
         ver = "0.4.1";
