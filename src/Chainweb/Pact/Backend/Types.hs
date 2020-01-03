@@ -46,12 +46,12 @@ module Chainweb.Pact.Backend.Types
     , SQLitePendingTableCreations
     , SQLitePendingWrites
     , SQLitePendingData(..)
+    , ReadCache
     , pendingTableCreation
     , pendingWrites
     , pendingTxLogMap
     , pendingSuccessfulTxs
     , emptySQLitePendingData
-
     , BlockState(..)
     , initBlockState
     , bsBlockHeight
@@ -59,6 +59,7 @@ module Chainweb.Pact.Backend.Types
     , bsTxId
     , bsPendingBlock
     , bsPendingTx
+    , bsReadCache
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -206,6 +207,8 @@ data SQLiteEnv = SQLiteEnv
 
 makeLenses ''SQLiteEnv
 
+type ReadCache = HashMap SQLiteDeltaKey Value
+
 -- | Monad state for 'BlockHandler.
 data BlockState = BlockState
     { _bsTxId :: !TxId
@@ -213,6 +216,7 @@ data BlockState = BlockState
     , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
+    , _bsReadCache :: !ReadCache
     }
     deriving Show
 
@@ -220,7 +224,7 @@ emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
+initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing mempty
 
 makeLenses ''BlockState
 

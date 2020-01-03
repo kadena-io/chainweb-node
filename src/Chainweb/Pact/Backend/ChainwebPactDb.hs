@@ -132,7 +132,18 @@ doReadRow d k =
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
         let lookDB = lookupInDb key
-        runMaybeT (lookPD <|> lookDB)
+        let lookCache = lookupInReadCache key
+        runMaybeT (lookPD <|> lookCache <|> lookDB)
+
+    lookupInReadCache :: forall v . FromJSON v
+        => Utf8
+        -> MaybeT (BlockHandler SQLiteEnv) v
+    lookupInReadCache (Utf8 rowkey) = do
+        rc <- use bsReadCache
+        let deltaKey = SQLiteDeltaKey tableNameBS rowkey
+        case fromJSON <$> HashMap.lookup deltaKey rc of
+          (Just (Success v)) -> MaybeT $ return v
+          _ -> mzero -- TODO
 
     lookupInPendingData
         :: forall v . FromJSON v
@@ -150,7 +161,7 @@ doReadRow d k =
             else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
 
     lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInDb rowkey = do
+    lookupInDb rowkey@(Utf8 rk) = do
         -- First, check: did we create this table during this block? If so,
         -- there's no point in looking up the key.
         checkDbTableExists tableName
@@ -158,7 +169,15 @@ doReadRow d k =
                        $ \db -> qry db queryStmt [SText rowkey] [RBlob]
         case result of
             [] -> mzero
-            [[SBlob a]] -> MaybeT $ return $! decode $ fromStrict a
+            [[SBlob a]] -> do
+              let !v = decode $ fromStrict a
+              case v of
+                Nothing -> mzero
+                Just v' -> case fromJSON v' of
+                  Success v'' -> do
+                    bsReadCache %= HashMap.insert (SQLiteDeltaKey tableNameBS rk) v'
+                    MaybeT $ return $! v''
+                  _ -> mzero
             err -> internalError $
                      "doReadRow: Expected (at most) a single result, but got: " <>
                      T.pack (show err)
@@ -474,6 +493,7 @@ doCommit = use bsMode >>= \mm -> case mm of
 clearPendingTxState :: BlockHandler SQLiteEnv ()
 clearPendingTxState = do
     bsPendingBlock .= emptySQLitePendingData
+    bsReadCache .= mempty
     bsPendingTx .= Nothing
     resetTemp
 

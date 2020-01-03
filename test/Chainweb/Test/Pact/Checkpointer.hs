@@ -440,7 +440,7 @@ testRegress =
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _) = (txid, blockVersion)
+    toTup (BlockState txid _ blockVersion _ _ _) = (txid, blockVersion)
 
 
 simpleBlockEnvInit ::
