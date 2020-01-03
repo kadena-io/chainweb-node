@@ -27,6 +27,7 @@ module TXG.Repl
   , rk
   , chain
   , chain0
+  , genTestModules
   , host
   , verToChainId
   , verToChainIdMin
@@ -64,8 +65,9 @@ import Data.HashSet ()
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
-import           Data.Ratio
+import Data.Ratio
 import Data.String
+import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -86,12 +88,15 @@ import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
 import Pact.Types.Gas
+-- import Pact.Types.Hash
 import Pact.Types.Scheme
 import Pact.Types.Util
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.Version
+
+import System.Time.Extra
 
 import TXG.ReplInternals
 import TXG.Simulate.Contracts.CoinContract
@@ -237,9 +242,29 @@ randomCmd meta ver = do
   kps <- sampleKeyPairCaps
   mkCmdStr meta ver kps someWords
 
+genTestModules :: PublicMeta -> ChainwebVersion -> Int -> IO (Command Text)
+genTestModules _meta _ver _nModules = undefined
+
+_testModule :: Int -> String
+_testModule n =
+  "(define-keyset 'module-admin-" ++ show n ++ " (read-keyset \"test-module-keyset\"))"
+  ++ "\n" ++ "(namespace 'free)"
+  ++ "\n" ++ "(module test-module-" ++ show n ++ " 'module-admin-" ++ show n
+  ++ "\n" ++ "(defschema test-module-schema-" ++ show n
+  ++ "\n" ++ "accountId:string"
+  ++ "\n" ++ "name:string"
+  ++ "\n" ++ "balance:decimal)"
+  ++ "\n" ++ "(deftable test-module-tbl-" ++ show n ++ ":{test-module-schema-" ++ show n ++ "})"
+  ++ "\n" ++ "(defun insert-row (id name bal)"
+  ++ "\n" ++ "(insert test-module-tbl-" ++ show n ++ " id"
+  ++ "\n" ++ "{ \"accountId\": id, \"name\": name, \"balance\": bal }))"
+  ++ "\n" ++ ")"
+  ++ "\n" ++ "(create-table test-module-tbl-" ++ show n ++ ")"
+  ++ "\n" ++ "(insert-row (id-" ++ show n ++ " name-" ++ show n ++ " " ++ show n ++ ")"
+
 -- **************************************************
--- Temp paste into Repl.hs if doing many code reloads:
--- TODO: remove this before commit
+-- The following are all temporarily very useful to avoid entering many repetitive REPL commands.
+-- These can eventually be deleted
 -- **************************************************
 _hostAddr :: HostAddress
 _hostAddr = host "us1.tn1.chainweb.com"
@@ -286,9 +311,6 @@ _cmdSIO' gl s = do
 _sendIt :: (Command Text) -> IO (Either ClientError RequestKeys)
 _sendIt theCmd = send _nw [theCmd]
 
-----------------------------------------------------------------------------------------------------
--- Some useful commands for transaction testing
-----------------------------------------------------------------------------------------------------
 _sendlm :: IO (Either ClientError RequestKeys)
 _sendlm = do
   theCmd <- _cmdSIO "(list-modules)"

@@ -743,6 +743,7 @@ executable cwtool
         , filepath
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , fake >= 0.1.1.1
         , file-embed >= 0.0
         , formatting >= 6.3
