@@ -266,7 +266,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
-    initState = initCapabilities [magic_COINBASE]
+    initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow $ _blockHash parentHeader)
     rk = RequestKey chash
 
