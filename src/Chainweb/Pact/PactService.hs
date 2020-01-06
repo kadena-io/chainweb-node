@@ -1237,6 +1237,11 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
         liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
+        {- the following can be used instead of above to nerf transaction execution
+        return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
+                      (P.PactResult (Right (P.PLiteral (P.LInteger 1))))
+                      0 Nothing Nothing Nothing)
+                      mcache -}
 
     when isGenesis $
       psInitCache <>= mcache'
