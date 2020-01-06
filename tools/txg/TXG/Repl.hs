@@ -33,6 +33,7 @@ module TXG.Repl
   , verToChainIdMin
   , listenResponse
   , mkCmdStr
+  , mkCmdDataStr
   , mkKey
   , mkKeyCombined
   , k2g
@@ -43,6 +44,7 @@ module TXG.Repl
   , stockKey
   , mkKeyset
   , signedCode
+  , testAdminKey
   , verToPactNetId
 
   , module Chainweb.ChainId
@@ -53,6 +55,7 @@ module TXG.Repl
 
 import Control.Exception
 import Control.Lens hiding ((.=), from, to)
+import Control.Monad (forM)
 
 import Data.Aeson.Types (Parser)
 import Data.Aeson
@@ -194,8 +197,18 @@ sampleKeyPairCaps = do
   mkKeyPairs [s]
 
 mkCmdStr :: PublicMeta -> ChainwebVersion -> [SomeKeyPairCaps] -> String -> IO (Command Text)
-mkCmdStr meta ver kps str = do
+mkCmdStr meta ver kps str =
   cmd str Null meta kps (Just (verToPactNetId ver)) Nothing
+
+mkCmdDataStr
+  :: PublicMeta
+  -> ChainwebVersion
+  -> [SomeKeyPairCaps]
+  -> String
+  -> Value
+  -> IO (Command Text)
+mkCmdDataStr meta ver kps cmdCode cmdData =
+  cmd cmdCode cmdData meta kps (Just (verToPactNetId ver)) Nothing
 
 verToChainId :: ChainwebVersion -> ChainId
 verToChainId ver = foldr const err $ chainIds ver
@@ -205,9 +218,8 @@ verToChainId ver = foldr const err $ chainIds ver
 -- get the minimum ChainId from a Version
 verToChainIdMin :: ChainwebVersion -> ChainId
 verToChainIdMin ver =
-  foldr f z0 $ ids
+  foldr min z0 ids
   where
-    f x r = min x r
     z0 = verToChainId ver -- error on empty set or pick a default for the next foldr
     ids = chainIds ver
 
@@ -221,7 +233,7 @@ pollResponse nw (Right rks) = do
   pollResp <- poll nw rks
   case pollResp of
     Left err -> putStrLn $ "Poll error: " ++ show err
-    Right pollResponses -> putStrLn $ show pollResponses
+    Right pollResponses -> print pollResponses
 
 listenResponse :: Network -> Either ClientError RequestKeys -> IO ()
 listenResponse _nw (Left err) = putStrLn $ "There was a failure in the send: " ++ show err
@@ -229,10 +241,10 @@ listenResponse nw (Right (RequestKeys (k :| []))) = do
   listResp <- listen nw k
   case listResp of
     Left err -> putStrLn $ "Listen error: " ++ show err
-    Right listenResp -> putStrLn $ show listenResp
+    Right listenResp -> print listenResp
 -- listenResponse nw (Right (RequestKeys (rk :| rks))) =
 listenResponse _nw (Right _r) =
-  putStrLn $ "Listen can only be used with a single request key"
+  putStrLn "Listen can only be used with a single request key"
 
 randomCmd :: PublicMeta -> ChainwebVersion -> IO (Command Text)
 randomCmd meta ver = do
@@ -242,30 +254,61 @@ randomCmd meta ver = do
   kps <- sampleKeyPairCaps
   mkCmdStr meta ver kps someWords
 
-genTestModules :: PublicMeta -> ChainwebVersion -> Int -> IO (Command Text)
-genTestModules _meta _ver _nModules = undefined
+genTestModules :: PublicMeta -> ChainwebVersion -> Int -> Bool -> IO [Command Text]
+genTestModules meta ver nModules createTable = do
+  let ints = [0..(nModules-1)]
+  forM ints ( \n -> do
+    s <- testModule n createTable
+    kps <- sampleKeyPairCaps
+    mkCmdDataStr meta ver kps s testAdminKey )
 
-_testModule :: Int -> String
-_testModule n =
-  "(define-keyset 'module-admin-" ++ show n ++ " (read-keyset \"test-module-keyset\"))"
-  ++ "\n" ++ "(namespace 'free)"
-  ++ "\n" ++ "(module test-module-" ++ show n ++ " 'module-admin-" ++ show n
-  ++ "\n" ++ "(defschema test-module-schema-" ++ show n
-  ++ "\n" ++ "accountId:string"
-  ++ "\n" ++ "name:string"
-  ++ "\n" ++ "balance:decimal)"
-  ++ "\n" ++ "(deftable test-module-tbl-" ++ show n ++ ":{test-module-schema-" ++ show n ++ "})"
-  ++ "\n" ++ "(defun insert-row (id name bal)"
-  ++ "\n" ++ "(insert test-module-tbl-" ++ show n ++ " id"
-  ++ "\n" ++ "{ \"accountId\": id, \"name\": name, \"balance\": bal }))"
-  ++ "\n" ++ ")"
-  ++ "\n" ++ "(create-table test-module-tbl-" ++ show n ++ ")"
-  ++ "\n" ++ "(insert-row (id-" ++ show n ++ " name-" ++ show n ++ " " ++ show n ++ ")"
+testModule :: Int -> Bool -> IO String
+testModule n createTable = do
+  t <- getPOSIXTime
+  let z = round t :: Integer
+  let theKey = show z ++ show n
+  let s = "(define-keyset 'module-admin-" ++ theKey ++ " (read-keyset \"test-module-keyset\"))"
+          ++ "\n" ++ "(namespace 'free)"
+          ++ "\n" ++ "(module test-module-" ++ theKey ++ " 'module-admin-" ++ theKey
+          ++ "\n" ++ "(defschema test-module-schema-" ++ theKey
+          ++ "\n" ++ "accountId:string"
+          ++ "\n" ++ "name:string"
+          ++ "\n" ++ "balance:decimal)"
+          ++ "\n" ++ "(deftable test-module-tbl-" ++ theKey
+          ++ ":{test-module-schema-" ++ theKey ++ "})"
+          ++ "\n" ++ "(defun insert-row (id name bal)"
+          ++ "\n" ++ "(insert test-module-tbl-" ++ theKey ++ " id"
+          ++ "\n" ++ "{ \"accountId\": id, \"name\": name, \"balance\": bal }))"
+          ++ "\n" ++ ")"
+  return $ if createTable
+             then s ++ testTableCreate n theKey
+             else s
+
+testTableCreate :: Int -> String -> String
+testTableCreate n theKey =
+  "\n" ++ "(create-table test-module-tbl-" ++ theKey ++ ")"
+  ++ "\n" ++ "(insert-row (id-" ++ theKey ++ " name-" ++ show n ++ " " ++ show n ++ ")"
+
+testAdminKey :: Value
+testAdminKey =
+  object [ "test-module-keyset" .= kSet ]
+  where
+    kSet = object
+      [ "pred" .= p
+      , "keys" .= ks
+      ]
+    p = ">" :: Text
+    ks = [PubBS "sender00"] :: [PublicKeyBS]
 
 -- **************************************************
 -- The following are all temporarily very useful to avoid entering many repetitive REPL commands.
 -- These can eventually be deleted
 -- **************************************************
+_testAdminKeySet :: Value
+_testAdminKeySet =
+  let t = "{\"data\": {\"test-module-keyset\": {\"keys\":[\"sender00\"], \"pred\":\"<\"}}}" :: Text
+  in toJSON t
+
 _hostAddr :: HostAddress
 _hostAddr = host "us1.tn1.chainweb.com"
 
@@ -308,20 +351,30 @@ _cmdSIO' gl s = do
   kps <- sampleKeyPairCaps
   mkCmdStr meta _ver kps s
 
-_sendIt :: (Command Text) -> IO (Either ClientError RequestKeys)
-_sendIt theCmd = send _nw [theCmd]
+_sendIt :: Command Text -> IO (Either ClientError RequestKeys)
+_sendIt theCmd = _sendThem [theCmd]
 
 _sendlm :: IO (Either ClientError RequestKeys)
 _sendlm = do
   theCmd <- _cmdSIO "(list-modules)"
   _sendIt theCmd
 
+_sendThem :: [Command Text] -> IO (Either ClientError RequestKeys)
+_sendThem theCmds = send _nw theCmds
+
 _tblRows :: IO (Either ClientError RequestKeys)
 _tblRows = do
-  theCmd <- _cmdSIO $ "(free.csv-import.table-len)"
+  theCmd <- _cmdSIO "(free.csv-import.table-len)"
   _sendIt theCmd
 
 _tblRows' :: GasLimit -> IO (Either ClientError RequestKeys)
 _tblRows' gl = do
   theCmd <- _cmdSIO' gl "(free.csv-import.table-len)"
   _sendIt theCmd
+
+_testMods :: Int -> Bool -> IO (Either ClientError RequestKeys)
+_testMods nModules createTable = do
+  meta <- _metaIO
+  cmds <- genTestModules meta _ver nModules createTable
+  print cmds
+  _sendThem cmds
