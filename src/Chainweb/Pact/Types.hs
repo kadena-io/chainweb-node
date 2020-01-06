@@ -97,6 +97,8 @@ module Chainweb.Pact.Types
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
+
+  , txBrak, brak
   ) where
 
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
@@ -137,7 +139,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Backend.Types hiding (brak)
 import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Time
@@ -217,6 +219,7 @@ data TransactionEnv db = TransactionEnv
     , _txRequestKey :: !RequestKey
     , _txGasLimit :: !Gas
     , _txExecutionConfig :: !ExecutionConfig
+    , _txBrak :: Bracketer
     }
 makeLenses ''TransactionEnv
 
@@ -236,6 +239,11 @@ newtype TransactionM db a = TransactionM
       , MonadIO
       , MonadFail
       )
+
+brak :: String -> TransactionM p a -> TransactionM p a
+brak m a = do
+  (Bracketer b) <- reader _txBrak
+  b m a
 
 -- | Run a 'TransactionM' computation given some initial
 -- reader and state values, returning the full range of

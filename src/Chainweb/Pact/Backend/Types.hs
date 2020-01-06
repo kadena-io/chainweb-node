@@ -75,6 +75,8 @@ module Chainweb.Pact.Backend.Types
     , MemPoolAccess(..)
 
     , PactServiceException(..)
+
+    , Bracketer(..), mkBracket, brack, brak, cpeBrak
     ) where
 
 import Control.Exception
@@ -94,6 +96,9 @@ import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
+
+import System.IO
+import GHC.Clock
 
 import Database.SQLite3.Direct as SQ3
 
@@ -224,9 +229,12 @@ initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
 
 makeLenses ''BlockState
 
+newtype Bracketer = Bracketer (forall m a . MonadIO m => String -> m a -> m a)
+
 data BlockDbEnv p = BlockDbEnv
     { _bdbenvDb :: !p
     , _logger :: !Logger
+    , _brack :: Bracketer
     }
 
 makeLenses ''BlockDbEnv
@@ -235,6 +243,19 @@ data BlockEnv p = BlockEnv
     { _benvDb :: !(BlockDbEnv p)
     , _benvBlockState :: !BlockState -- ^ The current block state.
     }
+
+
+mkBracket :: IO Bracketer
+mkBracket = do
+  h <- openFile "perf" WriteMode
+  return $ Bracketer $ \msg a -> do
+    s <- liftIO $ getMonotonicTime
+    r <- a
+    e <- liftIO $ getMonotonicTime
+    liftIO $ hPutStrLn h $ msg ++ ": " ++ show (e - s)
+    liftIO $ hFlush h
+    return r
+
 
 makeLenses ''BlockEnv
 
@@ -253,6 +274,13 @@ newtype BlockHandler p a = BlockHandler
                        )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
+
+brak :: String -> BlockHandler p a -> BlockHandler p a
+brak m a = do
+  (Bracketer b) <- reader _brack
+  b m a
+
+
 
 instance Logging (BlockHandler p) where
     log c s = view logger >>= \l -> liftIO $ logLog l c s
@@ -285,6 +313,7 @@ data Checkpointer = Checkpointer
 data CheckpointEnv = CheckpointEnv
     { _cpeCheckpointer :: !Checkpointer
     , _cpeLogger :: !Logger
+    , _cpeBrak :: Bracketer
     }
 
 makeLenses ''CheckpointEnv

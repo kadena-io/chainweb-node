@@ -83,14 +83,14 @@ import Chainweb.Pact.Service.Types (PactException(..), internalError)
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
-    { _readRow = \d k e -> runBlockEnv e $ doReadRow d k
-    , _writeRow = \wt d k v e -> runBlockEnv e $ doWriteRow wt d k v
+    { _readRow = \d k e -> runBlockEnv e $ brak "readRow" $ doReadRow d k
+    , _writeRow = \wt d k v e -> runBlockEnv e $ brak "writeRow" $ doWriteRow wt d k v
     , _keys = \d e -> runBlockEnv e $ doKeys d
     , _txids = \t txid e -> runBlockEnv e $ doTxIds t txid
     , _createUserTable = \tn mn e -> runBlockEnv e $ doCreateUserTable tn mn
     , _getUserTableInfo = error "WILL BE DEPRECATED!"
-    , _beginTx = \m e -> runBlockEnv e $ doBegin m
-    , _commitTx = \e -> runBlockEnv e doCommit
+    , _beginTx = \m e -> runBlockEnv e $ brak "beginTx" $ doBegin m
+    , _commitTx = \e -> runBlockEnv e $ brak "commitTx" $ doCommit
     , _rollbackTx = \e -> runBlockEnv e doRollback
     , _getTxLog = \d tid e -> runBlockEnv e $ doGetTxLog d tid
     }

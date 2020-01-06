@@ -69,6 +69,7 @@ initInMemoryCheckpointEnv loggers logger = do
                     , _cpLookupProcessedTx = doLookupSuccessful inmem
                 }
             , _cpeLogger = logger
+            , _cpeBrak = undefined
             })
   where
     noop = return ()

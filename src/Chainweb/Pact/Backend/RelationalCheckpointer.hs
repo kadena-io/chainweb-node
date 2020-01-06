@@ -67,7 +67,8 @@ initRelationalCheckpointer'
     -> Logger
     -> IO (PactDbEnv', CheckpointEnv)
 initRelationalCheckpointer' bstate sqlenv loggr = do
-    let dbenv = BlockDbEnv sqlenv loggr
+    b <- mkBracket
+    let dbenv = BlockDbEnv sqlenv loggr b
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db $ initSchema
     return $!
@@ -89,13 +90,14 @@ initRelationalCheckpointer' bstate sqlenv loggr = do
               , _cpLookupProcessedTx = doLookupSuccessful db
               }
         , _cpeLogger = loggr
+        , _cpeBrak = b
         })
 
 type Db = MVar (BlockEnv SQLiteEnv)
 
 
 doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore dbenv (Just (bh, hash)) = runBlockEnv dbenv $ brak "doRestore" $ do
     clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
     beginSavepoint Block
@@ -121,7 +123,7 @@ doRestore dbenv Nothing = runBlockEnv dbenv $ do
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
 doSave :: Db -> BlockHash -> IO ()
-doSave dbenv hash = runBlockEnv dbenv $ do
+doSave dbenv hash = runBlockEnv dbenv $ brak "doSave" $ do
     height <- gets _bsBlockHeight
     runPending height
     nextTxId <- gets _bsTxId

@@ -323,9 +323,14 @@ initializeCoinContract _logger v cid pwo = do
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- mkPublicData "readContracts" def
-        mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
+        bk <- getBrak
+        mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd bk
         psInitCache .= mc
         return $! Discard ()
+
+
+getBrak :: PactServiceM cas Bracketer
+getBrak = view (psCheckpointEnv . cpeBrak)
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
@@ -646,7 +651,8 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         pd <- mkPublicData' (publicMetaOf cmd) ph
         spv <- use psSpvSupport
-        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig
+        bk <- getBrak
+        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig bk
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
@@ -943,7 +949,8 @@ execLocal cmd = withDiscardedBatch $ do
         mc <- use psInitCache
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
+        bk <- getBrak
+        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc bk
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -1189,8 +1196,9 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
+    bk <- getBrak
     (T2 cr upgradedCacheM) <-
-      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
+      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc bk
     void $ traverse upgradeInitCache upgradedCacheM
 
     return $! cr
@@ -1230,13 +1238,14 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     logger <- view (psCheckpointEnv . cpeLogger)
     gasModel <- view psGasModel
     excfg <- view psEnableUserContracts
+    bk <- getBrak
 
     T2 result mcache' <- if isGenesis
-      then liftIO $! applyGenesisCmd logger dbEnv def P.noSPVSupport (payloadObj <$> cmdIn)
+      then liftIO $! applyGenesisCmd logger dbEnv def P.noSPVSupport (payloadObj <$> cmdIn) bk
       else do
         pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
-        liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
+        liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg bk
         {- the following can be used instead of above to nerf transaction execution
         return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
                       (P.PactResult (Right (P.PLiteral (P.LInteger 1))))

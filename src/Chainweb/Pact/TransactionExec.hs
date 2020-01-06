@@ -97,6 +97,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
+import Chainweb.Pact.Backend.Types hiding (brak)
 import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
@@ -146,15 +147,16 @@ applyCmd
       -- ^ cached module state
     -> Bool
       -- ^ execution config for module install
+    -> Bracketer
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
+applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod bk =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
     executionConfigNoHistory = ExecutionConfig ecMod False
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
-      requestKey (fromIntegral gasLimit) executionConfigNoHistory
+      requestKey (fromIntegral gasLimit) executionConfigNoHistory bk
 
     cmd = payloadObj <$> cmdIn
     requestKey = cmdToRequestKey cmd
@@ -206,14 +208,15 @@ applyGenesisCmd
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
+    -> Bracketer
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyGenesisCmd logger dbEnv pd spv cmd =
+applyGenesisCmd logger dbEnv pd spv cmd bk =
     second _txCache <$!> runTransactionM tenv txst go
   where
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv Transactional dbEnv logger pd spv nid 0.0 rk 0
-           justInstallsExecutionConfig
+           justInstallsExecutionConfig bk
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
@@ -246,9 +249,10 @@ applyCoinbase
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
+    -> Bracketer
     -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
 applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentHeader currCreationTime
-  (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
+  (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc bk
   | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
         interp = Interpreter $ \_ -> do put initState; fmap pure (eval cterm)
@@ -264,7 +268,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     blockTime = blockTimeOf pd
 
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
-           Nothing 0.0 rk 0 restrictiveExecutionConfig
+           Nothing 0.0 rk 0 restrictiveExecutionConfig bk
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow $ _blockHash parentHeader)
@@ -309,8 +313,9 @@ applyLocal
     -> Command PayloadWithText
       -- ^ command with payload to execute
     -> ModuleCache
+    -> Bracketer
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv gasModel pd spv cmdIn mc =
+applyLocal logger dbEnv gasModel pd spv cmdIn mc bk =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -321,7 +326,7 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
     tenv = TransactionEnv Local dbEnv logger pd spv nid gasPrice
-           rk (fromIntegral gasLimit) permissiveExecutionConfig
+           rk (fromIntegral gasLimit) permissiveExecutionConfig bk
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
@@ -348,15 +353,16 @@ readInitModules
       -- ^ Pact db environment
     -> PublicData
       -- ^ Contains block height, time, prev hash + metadata
+    -> Bracketer
     -> IO ModuleCache
-readInitModules logger dbEnv pd =
+readInitModules logger dbEnv pd bk =
     evalTransactionM tenv txst go
   where
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger pd noSPVSupport nid 0.0
-           rk 0 permissiveExecutionConfig
+           rk 0 permissiveExecutionConfig bk
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
 
@@ -521,7 +527,7 @@ applyExec' interp (ExecMsg parsedCode execData) senderSigs hsh nsp
     | otherwise = do
 
       eenv <- mkEvalEnv nsp (MsgData execData Nothing hsh senderSigs)
-      er <- liftIO $! evalExec interp eenv parsedCode
+      er <- brak "applyExec" $ liftIO $! evalExec interp eenv parsedCode
 
       for_ (_erExec er) $ \pe -> debug
         $ "applyExec: new pact added: "
