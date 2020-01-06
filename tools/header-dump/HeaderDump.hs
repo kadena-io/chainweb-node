@@ -254,7 +254,7 @@ pConfig = id
         % long "output"
         <> short 'o'
         <> metavar (enumMetavar @Output)
-        <> help "output type"
+        <> help "which component of the payload to output"
 
 validateConfig :: ConfigValidation Config []
 validateConfig o = do
