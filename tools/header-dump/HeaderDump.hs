@@ -398,10 +398,6 @@ run config logger = withChainDbs logger config $ \pdb cdb -> do
 progress :: LogFunctionText -> S.Stream (Of BlockHeader) IO a -> S.Stream (Of BlockHeader) IO a
 progress logg s = s
     & S.chain (logg Debug . sshow)
-    & S.chain
-        (\x -> when (_blockHeight x `mod` 100 == 0) $
-            logg Info ("BlockHeight: " <> sshow (_blockHeight x))
-        )
 
 miner
     :: MonadThrow m
