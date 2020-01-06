@@ -376,5 +376,4 @@ _testMods :: Int -> Bool -> IO (Either ClientError RequestKeys)
 _testMods nModules createTable = do
   meta <- _metaIO
   cmds <- genTestModules meta _ver nModules createTable
-  print cmds
   _sendThem cmds
