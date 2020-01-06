@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -29,6 +30,7 @@ import qualified Data.List as List
 import Data.Serialize hiding (get)
 import qualified Data.Text as T
 import Data.Tuple.Strict
+import qualified Data.HashSet as HS
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
@@ -120,12 +122,23 @@ doRestore dbenv Nothing = runBlockEnv dbenv $ do
     assign bsTxId 0
     return $! PactDbEnv' $ PactDbEnv chainwebPactDb dbenv
 
+debug :: MonadIO m => IO () -> m ()
+debug = const (return ()) -- liftIO
+
 doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
     height <- gets _bsBlockHeight
-    runPending height
+    debug $ print ("doSave" :: String,hash,height)
     nextTxId <- gets _bsTxId
-    blockHistoryInsert height hash nextTxId
+    pb <- use bsPendingBlock
+    parent <- use bsParent
+    let bi = BlockImage height hash parent pb nextTxId
+    bsBlockMap %= blockMapInsert bi
+    -- liftIO $ putStrLn "-----------skdjfhsdfs"
+    bsParent .= Just bi
+    when False $ do
+      runPending height
+      blockHistoryInsert height hash nextTxId
     commitSavepoint Block
     clearPendingTxState
   where
@@ -169,13 +182,18 @@ doDiscard dbenv = runBlockEnv dbenv $ do
     --
     commitSavepoint Block
 
+
 doGetLatest :: Db -> IO (Maybe (BlockHeight, BlockHash))
 doGetLatest dbenv =
-    runBlockEnv dbenv $ callDb "getLatestBlock" $ \db -> do
-        r <- qry_ db qtext [RInt, RBlob] >>= mapM go
-        case r of
-          [] -> return Nothing
-          (!o:_) -> return $! Just o
+    runBlockEnv dbenv $ do
+      bim <- use bsParent
+      case bim of
+        Just BlockImage{..} -> return $ Just (_biBlockHeight,_biBlockHash)
+        Nothing -> callDb "getLatestBlock" $ \db -> do
+            r <- qry_ db qtext [RInt, RBlob] >>= mapM go
+            case r of
+              [] -> return Nothing
+              (!o:_) -> return $! Just o
   where
     qtext = "SELECT blockheight, hash FROM BlockHistory \
             \ ORDER BY blockheight DESC LIMIT 1"
@@ -206,25 +224,37 @@ doDiscardBatch db = runBlockEnv db $ do
 
 doLookupBlock :: Db -> (BlockHeight, BlockHash) -> IO Bool
 doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
-    r <- callDb "lookupBlock" $ \db ->
-         qry db qtext [SInt $ fromIntegral bheight, SBlob (encode bhash)]
-                      [RInt]
-    liftIO (expectSingle "row" r) >>= \case
-        [SInt n] -> return $! n /= 0
-        _ -> internalError "doLookupBlock: output mismatch"
+    bm <- use bsBlockMap
+    case blockMapLookup bheight bhash bm of
+      Just {} -> return True
+      Nothing -> do
+        r <- callDb "lookupBlock" $ \db ->
+          qry db qtext [SInt $ fromIntegral bheight, SBlob (encode bhash)]
+          [RInt]
+        liftIO (expectSingle "row" r) >>= \case
+          [SInt n] -> return $! n /= 0
+          _ -> internalError "doLookupBlock: output mismatch"
   where
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
             \ AND hash = ?;"
 
 doGetBlockParent :: Db -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
-doGetBlockParent dbenv (bh, hash) =
-    if bh == 0 then return Nothing else
-      doLookupBlock dbenv (bh, hash) >>= \blockFound ->
-        if not blockFound then return Nothing else runBlockEnv dbenv $ do
-          r <- callDb "getBlockParent" $ \db -> qry db qtext [SInt (fromIntegral (pred bh))] [RBlob]
-          case r of
-            [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Serialize.decode blob
-            _ -> internalError "doGetBlockParent: output mismatch"
+doGetBlockParent dbenv (bh, hash) = if bh == 0 then return Nothing else runBlockEnv dbenv $ do
+      bm <- use bsBlockMap
+      bh' <- case blockMapLookup bh hash bm of
+               Just bi -> case _biParent bi of
+                 Just bip -> return $ Just $ _biBlockHash bip
+                 Nothing -> return Nothing
+               Nothing -> return Nothing
+      case bh' of
+        Just {} -> return bh'
+        Nothing ->
+          liftIO (doLookupBlock dbenv (bh, hash)) >>= \blockFound ->
+            if not blockFound then return Nothing else do
+              r <- callDb "getBlockParent" $ \db -> qry db qtext [SInt (fromIntegral (pred bh))] [RBlob]
+              case r of
+                [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Serialize.decode blob
+                _ -> internalError "doGetBlockParent: output mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 
@@ -236,11 +266,24 @@ doRegisterSuccessful dbenv (TypedHash hash) =
 
 doLookupSuccessful :: Db -> PactHash -> IO (Maybe (T2 BlockHeight BlockHash))
 doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
-    r <- callDb "doLookupSuccessful" $ \db ->
-         qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
-    case r of
-        [] -> return Nothing
-        (!o:_) -> return $! Just o
+    bim <- use bsParent
+    cachedR <- case bim of
+      Nothing -> return Nothing
+      Just bi ->
+        let lkp b = case (lookupT (_biData b),_biParent b) of
+              (True,_) -> return $ Just (T2 (_biBlockHeight b) (_biBlockHash b))
+              (False,Just p) -> lkp p
+              (False,Nothing) -> return Nothing
+            lookupT = HS.member hash . _pendingSuccessfulTxs
+        in lkp bi
+    case cachedR of
+      Just r -> return $ Just r
+      Nothing -> do
+        r <- callDb "doLookupSuccessful" $ \db ->
+             qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
+        case r of
+            [] -> return Nothing
+            (!o:_) -> return $! Just o
   where
     qtext = "SELECT blockheight, hash FROM \
             \TransactionIndex INNER JOIN BlockHistory \

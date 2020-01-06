@@ -18,13 +18,8 @@
 -- Pact Types module for Chainweb
 --
 module Chainweb.Pact.Types
-  ( -- * Pact Db State
-    PactDbStatePersist(..)
-  , pdbspRestoreFile
-  , pdbspPactDbState
-
-    -- * Misc helpers
-  , Transactions(..)
+  ( -- * Misc helpers
+    Transactions(..)
   , GasSupply(..)
   , GasId(..)
   , EnforceCoinbaseFailure(..)
@@ -151,12 +146,6 @@ data Transactions = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show)
-
-data PactDbStatePersist = PactDbStatePersist
-    { _pdbspRestoreFile :: !(Maybe FilePath)
-    , _pdbspPactDbState :: !PactDbState
-    }
-makeLenses ''PactDbStatePersist
 
 -- | No installs or history
 restrictiveExecutionConfig :: ExecutionConfig

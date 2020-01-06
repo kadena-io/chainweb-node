@@ -26,21 +26,7 @@ module Chainweb.Pact.Backend.Types
     , cpeCheckpointer
     , cpeLogger
     , Checkpointer(..)
-    , Env'(..)
-    , EnvPersist'(..)
-    , PactDbConfig(..)
-    , pdbcGasLimit
-    , pdbcGasRate
-    , pdbcLogDir
-    , pdbcPersistDir
-    , pdbcPragmas
     , PactDbEnv'(..)
-    , PactDbEnvPersist(..)
-    , pdepEnv
-    , pdepPactDb
-    , PactDbState(..)
-    , pdbsDbEnv
-
     , SQLiteRowDelta(..)
     , SQLiteDeltaKey(..)
     , SQLitePendingTableCreations
@@ -51,7 +37,11 @@ module Chainweb.Pact.Backend.Types
     , pendingTxLogMap
     , pendingSuccessfulTxs
     , emptySQLitePendingData
-
+    , BlockImage(..)
+    , BlockMap(..)
+    , blockMapInsert
+    , blockMapEmpty
+    , blockMapLookup
     , BlockState(..)
     , initBlockState
     , bsBlockHeight
@@ -59,6 +49,8 @@ module Chainweb.Pact.Backend.Types
     , bsTxId
     , bsPendingBlock
     , bsPendingTx
+    , bsBlockMap
+    , bsParent
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -77,6 +69,7 @@ module Chainweb.Pact.Backend.Types
     , PactServiceException(..)
     ) where
 
+import Control.Arrow
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
@@ -88,10 +81,12 @@ import Data.Aeson
 import Data.Bits
 import Data.ByteString (ByteString)
 import Data.DList (DList)
+import Data.Function (on)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 
@@ -102,8 +97,7 @@ import Foreign.C.Types (CInt(..))
 import GHC.Generics
 
 import Pact.Interpreter (PactDbEnv(..))
-import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
-import Pact.PersistPactDb (DbEnv(..))
+import Pact.Persist.SQLite (SQLiteConfig(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
@@ -114,34 +108,6 @@ import Chainweb.BlockHeader
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Transaction
 
-
-data Env' = forall a. Env' (PactDbEnv (DbEnv a))
-
-data PactDbEnvPersist p = PactDbEnvPersist
-    { _pdepPactDb :: PactDb (DbEnv p)
-    , _pdepEnv :: DbEnv p
-    }
-
-makeLenses ''PactDbEnvPersist
-
-
-data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
-
-data PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
-
-makeLenses ''PactDbState
-
-data PactDbConfig = PactDbConfig
-    { _pdbcPersistDir :: Maybe FilePath
-    , _pdbcLogDir :: FilePath
-    , _pdbcPragmas :: [Pragma]
-    , _pdbcGasLimit :: Maybe Int
-    , _pdbcGasRate :: Maybe Int
-    } deriving (Eq, Show, Generic)
-
-instance FromJSON PactDbConfig
-
-makeLenses ''PactDbConfig
 
 -- | Within a @restore .. save@ block, mutations to the pact database are held
 -- in RAM to be written to the DB in batches at @save@ time. For any given db
@@ -206,6 +172,35 @@ data SQLiteEnv = SQLiteEnv
 
 makeLenses ''SQLiteEnv
 
+data BlockImage = BlockImage
+  { _biBlockHeight :: !BlockHeight
+  , _biBlockHash :: !BlockHash
+  , _biParent :: !(Maybe BlockImage)
+  , _biData :: !SQLitePendingData
+  , _biTxId :: !TxId
+  } deriving (Show)
+
+instance Eq BlockImage where
+  (==) = (==) `on` (_biBlockHeight &&& _biBlockHash)
+
+instance Ord BlockImage where
+  compare = compare `on` (_biBlockHeight &&& _biBlockHash)
+
+newtype BlockMap = BlockMap { _blockMap :: Map BlockHeight (Map BlockHash BlockImage) }
+  deriving (Show)
+
+blockMapInsert :: BlockImage -> BlockMap -> BlockMap
+blockMapInsert bi@BlockImage{..} = BlockMap . M.alter upd _biBlockHeight . _blockMap
+  where upd = maybe (Just $ M.singleton _biBlockHash bi) $
+              Just . M.insert _biBlockHash bi
+
+blockMapEmpty :: BlockMap
+blockMapEmpty = BlockMap mempty
+
+blockMapLookup :: BlockHeight -> BlockHash -> BlockMap -> Maybe BlockImage
+blockMapLookup bhi bha = join . fmap (M.lookup bha) . M.lookup bhi . _blockMap
+
+
 -- | Monad state for 'BlockHandler.
 data BlockState = BlockState
     { _bsTxId :: !TxId
@@ -213,6 +208,8 @@ data BlockState = BlockState
     , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
+    , _bsBlockMap :: !BlockMap
+    , _bsParent :: Maybe BlockImage
     }
     deriving Show
 
@@ -220,7 +217,7 @@ emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
+initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing blockMapEmpty Nothing
 
 makeLenses ''BlockState
 
@@ -251,6 +248,9 @@ newtype BlockHandler p a = BlockHandler
                        , MonadReader (BlockDbEnv p)
                        , MonadFail
                        )
+
+
+
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 

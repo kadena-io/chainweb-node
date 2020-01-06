@@ -80,6 +80,7 @@ import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
+import Chainweb.Utils
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -99,8 +100,12 @@ getPendingData :: BlockHandler SQLiteEnv [SQLitePendingData]
 getPendingData = do
     pb <- use bsPendingBlock
     ptx <- maybe [] (:[]) <$> use bsPendingTx
+    bi <- use bsParent
+    let bs = getDatas bi
+        getDatas Nothing = []
+        getDatas (Just i) = _biData i:getDatas (_biParent i)
     -- lookup in pending transactions first
-    return $ ptx ++ [pb]
+    return $ ptx ++ [pb] ++ bs
 
 doReadRow
     :: (IsString k, FromJSON v)
@@ -650,24 +655,33 @@ createVersionedTable tablename db = do
 
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
+    debug $ print ("handlePossibleRewind" :: String,bRestore)
     bCurrent <- getBCurrent
-    checkHistoryInvariant (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
-        GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
+        GT -> internalError $
+          "handlePossibleRewind: restore height greater than db head: " <> sshow (bRestore,bCurrent)
         EQ -> newChildBlock bCurrent
         LT -> rewindBlock bRestore
   where
 
     getBCurrent = do
-        r <- callDb "handlePossibleRewind" $ \db ->
-             qry_ db "SELECT max(blockheight) AS current_block_height \
-                     \FROM BlockHistory;" [RInt]
-        SInt bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r
-        return $! BlockHeight (fromIntegral bh)
+        debug $ putStrLn "ddd"
+        currImage <- use $ bsParent
+        case currImage of
+          Just bi -> debug (putStrLn "bi") >> (return $! _biBlockHeight bi)
+          Nothing -> do
+            r <- callDb "handlePossibleRewind" $ \db ->
+              qry_ db "SELECT max(blockheight) AS current_block_height \
+                      \FROM BlockHistory;" [RInt]
+            SInt bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r
+            let bh' = BlockHeight $ fromIntegral bh
+            checkHistoryInvariant (bh' + 1)
+            return $! bh'
 
     checkHistoryInvariant succOfCurrent = do
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
+        debug $ putStrLn "wha??"
         historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
             qry db "SELECT COUNT(*) FROM BlockHistory WHERE \
                    \blockheight = ? AND hash = ?;"
@@ -695,26 +709,47 @@ handlePossibleRewind bRestore hsh = do
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore
-        SInt txid <- callDb "getting txid" $ \db ->
-          expectSingleRowCol msg =<< qry db
-              "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
-              [SInt (fromIntegral bCurrent)]
-              [RInt]
-        assign bsTxId (fromIntegral txid)
-        return $ fromIntegral txid
-      where msg = "handlePossibleRewind: newChildBlock: error finding txid"
+        currImage <- use bsParent
+        case currImage of
+          Just bi -> do
+            debug $ putStrLn "bi2"
+            assign bsTxId (_biTxId bi)
+            return $ _biTxId bi
+          Nothing -> do
+            SInt txid <- callDb "getting txid" $ \db ->
+              expectSingleRowCol msg =<< qry db
+                "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
+                [SInt (fromIntegral bCurrent)]
+                [RInt]
+            assign bsTxId (fromIntegral txid)
+            return $ fromIntegral txid
+          where msg = "handlePossibleRewind: newChildBlock: error finding txid"
+
 
     rewindBlock bh = do
         assign bsBlockHeight bh
-        endingtx <- getEndingTxId bh
-        tableMaintenanceRowsVersionedSystemTables endingtx
-        callDb "rewindBlock" $ \db -> do
-            droppedtbls <- dropTablesAtRewind bh db
-            vacuumTablesAtRewind bh endingtx droppedtbls db
-        deleteHistory bh
-        assign bsTxId endingtx
-        clearTxIndex
-        return endingtx
+        (BlockMap bm') <- use bsBlockMap
+        debug $ print ("rewindBlock" :: String,bh,hsh,M.size bm',M.keys <$> M.lookup bh bm')
+        cachedBi <- blockMapLookup (pred bh) hsh <$> use bsBlockMap
+        case cachedBi of
+          Just bi -> do
+            assign bsParent (Just bi)
+            assign bsTxId (_biTxId bi)
+            return $ _biTxId bi
+          Nothing -> do
+            liftIO $ putStrLn "dskfhjskdhf"
+            endingtx <- getEndingTxId bh
+            tableMaintenanceRowsVersionedSystemTables endingtx
+            callDb "rewindBlock" $ \db -> do
+                droppedtbls <- dropTablesAtRewind bh db
+                vacuumTablesAtRewind bh endingtx droppedtbls db
+            deleteHistory bh
+            assign bsTxId endingtx
+            clearTxIndex
+            return endingtx
+
+debug :: MonadIO m => IO () -> m ()
+debug = const (return ()) -- liftIO
 
 dropTablesAtRewind :: BlockHeight -> Database -> IO (HashSet BS.ByteString)
 dropTablesAtRewind bh db = do
