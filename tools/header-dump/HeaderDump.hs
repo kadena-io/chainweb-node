@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -155,6 +156,15 @@ instance FromJSON Output where
 instance ToJSON Output where
     toJSON = toJSON . toText
 
+enumMetavar
+    :: forall a
+    . Enum a
+    => Bounded a
+    => HasTextRepresentation a
+    => String
+enumMetavar = T.unpack
+    $ T.intercalate "|" $ toText @a <$> [minBound .. maxBound]
+
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
@@ -243,6 +253,7 @@ pConfig = id
     <*< configOutput .:: textOption
         % long "output"
         <> short 'o'
+        <> metavar (enumMetavar @Output)
         <> help "output type"
 
 validateConfig :: ConfigValidation Config []
