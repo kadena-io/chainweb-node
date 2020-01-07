@@ -40,6 +40,7 @@ import Control.Monad.IO.Class
 import Control.Retry
 
 import qualified Data.Aeson as A
+import Data.Aeson.Lens hiding (values)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
@@ -415,7 +416,9 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     case r of
       Left e -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
-      Right t -> assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> t)
+      Right t -> do
+        assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> t)
+        assertSatisfies "meta in output" (preview (_Just . crMetaData . _Just . _Object . at "blockHash") t) isJust
 
   where
     n0 = Just "transfer-clist0"
