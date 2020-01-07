@@ -45,6 +45,7 @@ module TXG.Repl
   , mkKeyset
   , signedCode
   , testAdminKey
+  , testModuleUpdates
   , verToPactNetId
 
   , module Chainweb.ChainId
@@ -262,6 +263,14 @@ genTestModules meta ver nModules createTable = do
     kps <- sampleKeyPairCaps
     mkCmdDataStr meta ver kps s testAdminKey )
 
+testModuleUpdates :: PublicMeta -> ChainwebVersion -> Int -> Int -> IO [Command Text]
+testModuleUpdates meta ver initialVal lastVal = do
+  let ints = [initialVal..lastVal]
+  forM ints ( \n -> do
+    let s = updatingModule n
+    kps <- sampleKeyPairCaps
+    mkCmdDataStr meta ver kps s testAdminKey )
+
 testModule :: Int -> Bool -> IO String
 testModule n createTable = do
   t <- getPOSIXTime
@@ -283,6 +292,18 @@ testModule n createTable = do
   return $ if createTable
              then s ++ testTableCreate n theKey
              else s
+
+updatingModule :: Int -> String
+updatingModule n =
+  "(define-keyset 'updating-module-admin (read-keyset \"test-module-keyset\"))"
+    ++ "\n" ++ "(namespace 'free)"
+    ++ "\n" ++ "(module test-updating-module 'updating-module-admin"
+    ++ "\n" ++ "(defun add-constant:decimal (k)"
+    ++ "\n" ++ "(+ " ++ show n ++ " k))"
+    ++ "\n" ++ ")"
+
+updateCount :: String
+updateCount = "(free.test-updating-module.add-constant 0)"
 
 testTableCreate :: Int -> String -> String
 testTableCreate n theKey =
@@ -359,6 +380,11 @@ _sendlm = do
   theCmd <- _cmdSIO "(list-modules)"
   _sendIt theCmd
 
+_moduleCount :: IO (Either ClientError RequestKeys)
+_moduleCount = do
+  theCmd <- _cmdSIO "(length (list-modules))"
+  _sendIt theCmd
+
 _sendThem :: [Command Text] -> IO (Either ClientError RequestKeys)
 _sendThem theCmds = send _nw theCmds
 
@@ -372,8 +398,22 @@ _tblRows' gl = do
   theCmd <- _cmdSIO' gl "(free.csv-import.table-len)"
   _sendIt theCmd
 
-_testMods :: Int -> Bool -> IO (Either ClientError RequestKeys)
-_testMods nModules createTable = do
+_testNewMods :: Int -> Bool -> IO (Either ClientError RequestKeys)
+_testNewMods nModules createTable = do
   meta <- _metaIO
   cmds <- genTestModules meta _ver nModules createTable
   _sendThem cmds
+
+_testModUpdates :: Int -> IO (Either ClientError RequestKeys)
+_testModUpdates = _testModUpdates' 1
+
+_testModUpdates' :: Int -> Int -> IO (Either ClientError RequestKeys)
+_testModUpdates' initialVal lastVal = do
+  meta <- _metaIO
+  cmds <- testModuleUpdates meta _ver initialVal lastVal
+  _sendThem cmds
+
+_updatesCount :: IO (Either ClientError RequestKeys)
+_updatesCount = do
+  theCmd <- _cmdSIO updateCount
+  _sendIt theCmd
