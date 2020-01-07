@@ -61,7 +61,7 @@ import qualified Data.Aeson as A
 import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
-import Data.Decimal (Decimal, roundTo)
+import Data.Decimal (Decimal, roundTo, decimalPlaces)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
@@ -77,7 +77,7 @@ import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
@@ -101,7 +101,8 @@ import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
-import Chainweb.Version
+import Chainweb.Version hiding (ChainId)
+import qualified Chainweb.Version as CW
 
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
@@ -296,7 +297,8 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
 
 
 applyLocal
-    :: Logger
+    :: CW.ChainId
+    -> Logger
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -310,7 +312,7 @@ applyLocal
       -- ^ command with payload to execute
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv gasModel pd spv cmdIn mc =
+applyLocal pscid logger dbEnv gasModel pd spv cmdIn mc =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -342,8 +344,59 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
       -- if network id is defined, assume public meta exists
       -- otherwise, we just run the payload as is
       case nid of
-        Nothing -> applyPayload em
-        Just _ -> checkTooBigTx gas0 gasLimit (applyPayload em) return
+        Nothing ->
+          locally txGasLimit (const 1000000) $ applyPayload em
+        Just _ -> do
+          now <- liftIO $ getCurrentTimeIntegral
+          validateCmd pscid now gas0 tenv cmd
+
+-- in the validating mode, do the full suite of checks: networkId, chainId, ttl, and buy gas.
+-- The idea is to have 100% confidence that your transaction will actually succeed.
+validateCmd
+    :: CW.ChainId
+    -> Time Micros
+    -> Gas
+    -> TransactionEnv p
+    -> Command (Payload PublicMeta ParsedCode)
+    -> TransactionM p (CommandResult [TxLog Value])
+validateCmd pscid (Time (TimeSpan (Micros now))) gas0 t cmd
+    | chainIdToText pscid /= cid =
+      evalErr $ "invalid chain id: " <> cid
+    | not (bct < now && now < ttl && bct < ttl) =
+      evalErr "invalid ttl or creation time"
+    | otherwise = do
+      gm <- use txGasModel
+      txGasModel .= (_geGasModel freeGasEnv)
+      GasPrice (ParsedDecimal gp) <- view txGasPrice
+      gl <- view (txGasLimit . to fromIntegral)
+
+      if decimalPlaces gp > 12
+      then gasErr $ "gas price should be rounded to at most 12 places: " <> sshow gp
+      else catchesPactError (buyGas cmd noMiner) >>= \case
+        Left e -> gasErr $ "tx failure when buying gas: " <> sshow e
+        Right _ -> checkTooBigTx gas0 gl (applyPayload gm) return
+
+  where
+    bct = view (txPublicData . pdBlockTime) t
+    ttl =
+      let TTLSeconds (ParsedInteger a) =
+            view (txPublicData . pdPublicMeta . pmTTL) t
+      in (fromIntegral a) `div` 1000000
+    ChainId cid = view (txPublicData . pdPublicMeta . pmChainId) t
+
+    gasErr = err GasError
+    evalErr = err EvalError
+
+    err pe a = jsonErrorResult (PactError pe def [] (pretty a)) a
+
+    applyPayload gm = do
+      txGasModel .= gm
+      txGasUsed .= gas0
+
+      cr <- catchesPactError $! runPayload cmd managedNamespacePolicy
+      case cr of
+        Left e -> jsonErrorResult e "Failed to buy gas for local cmd"
+        Right r -> return r
 
 readInitModules
     :: Logger
