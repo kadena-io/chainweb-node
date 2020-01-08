@@ -599,8 +599,8 @@ transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
 
 userContractActivationDate :: ChainwebVersion -> Maybe (Time Micros)
-userContractActivationDate Development = epoch
-userContractActivationDate Mainnet01 = Just [timeMicrosQQ| 2020-01-15T16:00.0 ]
+userContractActivationDate Development = Just epoch
+userContractActivationDate Mainnet01 = Just [timeMicrosQQ| 2020-01-15T16:00:00.0 |]
 userContractActivationDate _ = Nothing
 
 -- | Time after which fixes for vuln797 will be validated in blocks.
