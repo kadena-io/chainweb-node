@@ -238,16 +238,18 @@ spvTest rdb v step = do
 
     -- regression model with @createTransactionProof@. Proof size doesn't depend on target height.
     --
-    regress r = olsRegress [V.map (logBase 2) blockSize, chainDist, txSize] proofSize
-      where
-        [proofSize, blockSize, _heightDiff, chainDist, txSize] = V.fromList <$> L.transpose r
+    regress r
+        | [proofSize, blockSize, _heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
+            = olsRegress [V.map (logBase 2) blockSize, chainDist, txSize] proofSize
+        | otherwise = error "Chainweb.Test.SPV.spvTest.regress: fail to match regressor list. This is a bug in the test code."
 
     -- regression model for @createTransactionProof'@. Proof size depends on target height.
     -- When used with @createTransactionProof@ the coefficient for the target height must be small.
     --
-    regressWithHeightDiff r = olsRegress [V.map (logBase 2) blockSize, heightDiff, chainDist, txSize] proofSize
-      where
-        [proofSize, blockSize, heightDiff, chainDist, txSize] = V.fromList <$> L.transpose r
+    regressWithHeightDiff r
+        | [proofSize, blockSize, heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
+            = olsRegress [V.map (logBase 2) blockSize, heightDiff, chainDist, txSize] proofSize
+        | otherwise = error "Chainweb.Test.SPV.spvTest.regress: fail to match regressor list. This is a bug in the test code."
 
 
 -- -------------------------------------------------------------------------- --
