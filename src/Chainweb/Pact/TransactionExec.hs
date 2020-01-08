@@ -348,18 +348,16 @@ applyLocal pscid logger dbEnv gasModel pd spv cmdIn mc =
           locally txGasLimit (const 1000000) $ applyPayload em
         Just _ -> do
           now <- liftIO $ getCurrentTimeIntegral
-          validateCmd pscid now gas0 tenv cmd
+          validateLocalCmd pscid now gas0 tenv cmd
 
--- in the validating mode, do the full suite of checks: networkId, chainId, ttl, and buy gas.
--- The idea is to have 100% confidence that your transaction will actually succeed.
-validateCmd
+validateLocalCmd
     :: CW.ChainId
     -> Time Micros
     -> Gas
     -> TransactionEnv p
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM p (CommandResult [TxLog Value])
-validateCmd pscid (Time (TimeSpan (Micros now))) gas0 t cmd
+validateLocalCmd pscid (Time (TimeSpan (Micros now))) gas0 t cmd
     | chainIdToText pscid /= cid =
       evalErr $ "invalid chain id: " <> cid
     | not (bct < now && now < ttl && bct < ttl) =
