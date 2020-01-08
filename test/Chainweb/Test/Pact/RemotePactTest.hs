@@ -615,7 +615,7 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local sid cenv cmd =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting local cmd for " <> (take 18 $ show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -638,7 +638,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -662,7 +662,7 @@ sending
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -691,7 +691,7 @@ polling
     -> PollingExpectation
     -> IO PollResponses
 polling sid cenv rks pollingExpectation =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"
