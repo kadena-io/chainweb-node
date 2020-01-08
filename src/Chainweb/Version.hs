@@ -38,12 +38,13 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
--- ** Date- and Version-based Transaction Disabling
+-- ** Date- and Version-based Transaction Disabling and Enabling
 , txEnabledDate
 , transferActivationDate
 , enableUserContracts
 , vuln797FixDate
 , upgradeCoinV2Date
+, userContractActivationDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -597,6 +598,10 @@ transferActivationDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |
 transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
 
+userContractActivationDate :: ChainwebVersion -> Maybe (Time Micros)
+userContractActivationDate Development = epoch
+userContractActivationDate Mainnet01 = Just [timeMicrosQQ| 2020-01-16T00:00.0 ]
+userContractActivationDate _ = Nothing
 -- | Time after which fixes for vuln797 will be validated in blocks.
 --
 vuln797FixDate :: ChainwebVersion -> Time (Micros)
