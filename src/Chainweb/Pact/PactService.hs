@@ -243,9 +243,13 @@ initPactService'
     -> IO a
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
+    now <- getCurrentTimeIntegral
     let !rs = readRewards ver
         !gasModel = officialGasModel
         !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+        !activate = case userContractActivationDate ver of
+          Nothing -> enableUserContracts ver
+          Just d -> d >= now
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
                 , _psCheckpointEnv = checkpointEnv
@@ -253,7 +257,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psBlockHeaderDb = bhDb
                 , _psGasModel = gasModel
                 , _psMinerRewards = rs
-                , _psEnableUserContracts = enableUserContracts ver
+                , _psEnableUserContracts = activate
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 }
