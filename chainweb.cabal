@@ -480,6 +480,7 @@ test-suite chainweb-tests
         , Decimal >= 0.4.2
         , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
+        , aeson-pretty
         , async >= 2.2
         , base >= 4.12 && < 5
         , base16-bytestring >= 0.1

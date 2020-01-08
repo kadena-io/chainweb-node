@@ -635,7 +635,7 @@ generateLocalhostCertificate
     -> IO (Fingerprint, X509CertPem, X509KeyPem)
 generateLocalhostCertificate days
     = generateSelfSignedCertificate @k days (name "localhost") $ Just
-        $ AltNameDNS "localhost" NE.:| [AltNameIP "127.0.0.1"]
+        $ AltNameDNS "localhost" NE.:| [AltNameIP "\127\0\0\1"]
 
 -- -------------------------------------------------------------------------- --
 -- Client
