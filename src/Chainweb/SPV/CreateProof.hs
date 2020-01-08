@@ -425,7 +425,15 @@ minimumTrgHeader
     -> IO BlockHeader
 minimumTrgHeader cutDb tcid scid bh = do
     trgHeadHeader <- maxEntry trgChain
-    Just trgHeader <- seekAncestor trgChain trgHeadHeader trgHeight
+    trgHeader <- seekAncestor trgChain trgHeadHeader trgHeight >>= \case
+        Just x -> return $! x
+        Nothing -> throwM $ SpvExceptionTargetNotReachable
+            { _spvExceptionMsg = "target chain not reachabe. Chainweb instance is to young"
+            , _spvExceptionSourceChainId = scid
+            , _spvExceptionSourceHeight = bh
+            , _spvExceptionTargetChainId = tcid
+            , _spvExceptionTargetHeight = int trgHeight
+            }
     return trgHeader
   where
     headerDb = view cutDbWebBlockHeaderDb cutDb
