@@ -122,9 +122,9 @@ targetChain c srcBlock = do
 -- Comprehensive SPV test for transaction proofs
 
 -- | Creates a test chainweb instance and exhaustively creates SPV transaction
--- proofs for each transaction on each chain.
+-- output proofs for each transaction on each chain.
 --
--- Also checks that the of the created proofs meets the expecatations.
+-- Also checks that the size of the created proofs meets the expectations.
 --
 spvTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvTest rdb v step = do
@@ -139,7 +139,7 @@ spvTest rdb v step = do
             & flip S.for (\h -> getPayloads cutDb h)
             -- for each target chain c
             & flip S.for (\(a,b,c,d) -> S.each $ (a,b,c,d,) <$> toList (chainIds cutDb))
-            -- Create and verify transaction proof
+            -- Create and verify transaction output proof
             & S.mapM (go cutDb)
             -- Ingore all cases where a proof couldn't be created
             & S.concat
@@ -167,11 +167,11 @@ spvTest rdb v step = do
         :: PayloadCas cas
         => CutDb cas
         -> BlockHeader
-        -> S.Stream (Of (BlockHeader, Int, Int, Transaction)) IO ()
+        -> S.Stream (Of (BlockHeader, Int, Int, TransactionOutput)) IO ()
     getPayloads cutDb h = do
         pay <- liftIO $ casLookupM (view cutDbPayloadCas cutDb) (_blockPayloadHash h)
         let n = length $ _payloadWithOutputsTransactions pay
-        S.each (zip [0..] $ fmap fst $ toList $ _payloadWithOutputsTransactions pay)
+        S.each (zip [0..] $ fmap snd $ toList $ _payloadWithOutputsTransactions pay)
             & S.map (\(b,c) -> (h,n,b,c))
 
     -- Given
@@ -191,18 +191,18 @@ spvTest rdb v step = do
     go
         :: PayloadCas cas
         => CutDb cas
-        -> (BlockHeader, Int, Int, Transaction, ChainId)
+        -> (BlockHeader, Int, Int, TransactionOutput, ChainId)
         -> IO (Maybe [Double])
-    go cutDb (h, n, txIx, tx, trgChain) = do
+    go cutDb (h, n, txIx, txOut, trgChain) = do
 
         let inner = do
                 -- create inclusion proof for transaction
-                proof <- createTransactionProof cutDb trgChain
+                proof <- createTransactionOutputProof cutDb trgChain
                     (_chainId h) -- source chain
                     (_blockHeight h) -- source block height
                     txIx -- transaction index
-                subj <- verifyTransactionProof cutDb proof
-                assertEqual "transaction proof subject matches transaction" tx subj
+                subj <- verifyTransactionOutputProof cutDb proof
+                assertEqual "transaction output proof subject matches transaction" txOut subj
 
                 -- return (proof size, block size, height, distance, tx size)
                 return
@@ -210,16 +210,24 @@ spvTest rdb v step = do
                     , int n
                     , int $ _blockHeight h
                     , int $ distance cutDb h trgChain
-                    , int $ B.length (_transactionBytes tx)
+                    , int $ B.length (_transactionOutputBytes txOut)
                     ]
 
         isReachable <- reachable cutDb h trgChain
         try inner >>= \case
             Right x -> do
-                assertBool "SPV proof creation succeeded although target chain is not reachable" isReachable
+                let msg = "SPV proof creation succeeded although target chain is not reachable ("
+                        <> "source height: " <> sshow (_blockHeight h)
+                        <> ", distance: " <> sshow (distance cutDb h trgChain)
+                        <> ")"
+                assertBool msg isReachable
                 return (Just x)
             Left SpvExceptionTargetNotReachable{} -> do
-                assertBool "SPV proof creation failed although target chain is reachable" (not isReachable)
+                let msg = "SPV proof creation failed although target chain is reachable ("
+                        <> "source height: " <> sshow (_blockHeight h)
+                        <> ", distance: " <> sshow (distance cutDb h trgChain)
+                        <> ")"
+                assertBool msg (not isReachable)
                 return Nothing
             Left e -> throwM e
 
@@ -236,15 +244,15 @@ spvTest rdb v step = do
         m <- maxRank $ cutDb ^?! cutDbBlockHeaderDb trgChain
         return $ (int m - int (_blockHeight h)) >= (distance cutDb h trgChain)
 
-    -- regression model with @createTransactionProof@. Proof size doesn't depend on target height.
+    -- regression model with @createTransactionOutputProof@. Proof size doesn't depend on target height.
     --
     regress r
         | [proofSize, blockSize, _heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
             = olsRegress [V.map (logBase 2) blockSize, chainDist, txSize] proofSize
         | otherwise = error "Chainweb.Test.SPV.spvTest.regress: fail to match regressor list. This is a bug in the test code."
 
-    -- regression model for @createTransactionProof'@. Proof size depends on target height.
-    -- When used with @createTransactionProof@ the coefficient for the target height must be small.
+    -- regression model for @createTransactionOutputProof'@. Proof size depends on target height.
+    -- When used with @createTransactionOutputProof@ the coefficient for the target height must be small.
     --
     regressWithHeightDiff r
         | [proofSize, blockSize, heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
