@@ -815,9 +815,7 @@ withEnableUserContracts bh act =
     locally psEnableUserContracts (const allowModules) act
   where
     allowModules = case activated of
-      Just d
-        | d > blockTime
-        , not isGenesis -> False
+      Just d | d > blockTime && not isGenesis -> False
       _ -> True
     blockTime = _bct $ _blockCreationTime bh
     activated = userContractActivationDate $ _blockChainwebVersion bh
