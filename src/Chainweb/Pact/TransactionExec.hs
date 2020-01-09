@@ -77,7 +77,7 @@ import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
 import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..), ParsedInteger(..))
+import Pact.Parse (ParsedDecimal(..))
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
@@ -98,6 +98,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (timingsCheck)
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
@@ -357,10 +358,10 @@ validateLocalCmd
     -> TransactionEnv p
     -> Command (Payload PublicMeta ParsedCode)
     -> TransactionM p (CommandResult [TxLog Value])
-validateLocalCmd pscid (Time (TimeSpan (Micros now))) gas0 t cmd
+validateLocalCmd pscid now gas0 t cmd
     | chainIdToText pscid /= cid =
       evalErr $ "invalid chain id: " <> cid
-    | not (bct < now && now < ttl && bct < ttl) =
+    | not (timingsCheck bct cmd) =
       evalErr "invalid ttl or creation time"
     | otherwise = do
       gm <- use txGasModel
@@ -375,13 +376,8 @@ validateLocalCmd pscid (Time (TimeSpan (Micros now))) gas0 t cmd
         Right _ -> checkTooBigTx gas0 gl (applyPayload gm) return
 
   where
-    bct = view (txPublicData . pdBlockTime) t
-    ttl =
-      let TTLSeconds (ParsedInteger a) =
-            view (txPublicData . pdPublicMeta . pmTTL) t
-      in (fromIntegral a) `div` 1000000
+    bct = BlockCreationTime now
     ChainId cid = view (txPublicData . pdPublicMeta . pmChainId) t
-
     gasErr = err GasError
     evalErr = err EvalError
 
