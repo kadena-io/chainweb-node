@@ -204,7 +204,9 @@ localChainDataTest iot nio = do
     checkCommandResult (Left e) = throwM $ LocalFailure (show e)
     checkCommandResult (Right cr) =
         let (PactResult e) = _crResult cr
-        in mapM_ expectedResult e
+        in case e of
+          Left a -> assertFailure $ "Chain data failed with: " <> show a
+          Right b -> expectedResult b
 
     localTestBatch iott mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
