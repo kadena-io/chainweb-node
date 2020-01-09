@@ -346,7 +346,7 @@ applyLocal pscid logger dbEnv gasModel pd spv cmdIn mc =
       -- otherwise, we just run the payload as is
       case nid of
         Nothing ->
-          locally txGasLimit (const 15000) $ applyPayload em
+          locally txGasLimit (const 25000) $ applyPayload em
         Just _ -> do
           now <- liftIO $ getCurrentTimeIntegral
           validateLocalCmd pscid now gas0 tenv cmd
