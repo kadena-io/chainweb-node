@@ -807,21 +807,18 @@ minerReward (MinerRewards rs q) bh =
 -- | If user contracts are enabled, check the block time against
 -- the activation date.
 --
-validateEnableUserContracts
+withEnableUserContracts
     :: BlockHeader
     -> PactServiceM cas a
     -> PactServiceM cas a
-validateEnableUserContracts bh act = do
-    enabled <- view psEnableUserContracts
-    allowModules <- if enabled
-      then case activated of
-        Just d
-          | d > blockTime
-          , not isGenesis -> return (not enabled)
-        _ -> return enabled
-      else return enabled
+withEnableUserContracts bh act =
     locally psEnableUserContracts (const allowModules) act
   where
+    allowModules = case activated of
+      Just d
+        | d > blockTime
+        , not isGenesis -> False
+      _ -> True
     blockTime = _bct $ _blockCreationTime bh
     activated = userContractActivationDate $ _blockChainwebVersion bh
     isGenesis = isGenesisBlockHeader bh
@@ -873,7 +870,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
             --
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True))
-              <$> validateChainwebTxs cp creationTime bhi txs runDebitGas (_psEnableUserContracts psEnv)
+                <$> validateChainwebTxs cp creationTime bhi txs runDebitGas (_psEnableUserContracts psEnv)
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
 
@@ -883,7 +880,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- validateEnableUserContracts parentHeader $
+        results <- withEnableUserContracts parentHeader $
           execTransactions (Just (parentHeader,creationTime)) miner newTrans
             (EnforceCoinbaseFailure True)
             (CoinbaseUsePrecompiled True)
@@ -1053,7 +1050,7 @@ playOneBlock currHeader plData pdbenv = do
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        validateEnableUserContracts currHeader $
+        withEnableUserContracts currHeader $
           execTransactions (Just (ph,currCreationTime)) m txs
             (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
