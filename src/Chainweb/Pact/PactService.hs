@@ -243,13 +243,9 @@ initPactService'
     -> IO a
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
-    now <- getCurrentTimeIntegral
     let !rs = readRewards ver
         !gasModel = officialGasModel
         !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
-        !activate = case userContractActivationDate ver of
-          Nothing -> enableUserContracts ver
-          Just d -> d >= now
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
                 , _psCheckpointEnv = checkpointEnv
@@ -257,7 +253,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psBlockHeaderDb = bhDb
                 , _psGasModel = gasModel
                 , _psMinerRewards = rs
-                , _psEnableUserContracts = activate
+                , _psEnableUserContracts = True
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 }
@@ -808,6 +804,24 @@ minerReward (MinerRewards rs q) bh =
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
+-- | If user contracts are enabled, check the block time against
+-- the activation date.
+--
+validateEnableUserContracts :: BlockHeader -> PactServiceM cas Bool
+validateEnableUserContracts bh = do
+    enabled <- view psEnableUserContracts
+    if enabled
+    then case activated of
+      Just d
+        | d > blockTime
+        , not isGenesis -> return (not enabled)
+      _ -> return enabled
+    else return enabled
+  where
+    blockTime = _bct $ _blockCreationTime bh
+    activated = userContractActivationDate $ _blockChainwebVersion bh
+    isGenesis = isGenesisBlockHeader bh
+
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
@@ -822,7 +836,8 @@ execNewBlock mpAccess parentHeader miner creationTime = go
   where
     go = handle onTxFailure $ do
         updateMempool
-        withDiscardedBatch $ do
+        allowModule <- validateEnableUserContracts parentHeader
+        locally psEnableUserContracts (const allowModule) $ withDiscardedBatch $ do
           setBlockData parentHeader
           rewindTo newblockRewindLimit target
           newTrans <- withCheckpointer target "preBlock" doPreBlock
@@ -844,6 +859,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
       cp <- getCheckpointer
       psEnv <- ask
       psState <- get
+      allowModule <- view psEnableUserContracts
       let runDebitGas :: RunGas
           runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
@@ -855,7 +871,8 @@ execNewBlock mpAccess parentHeader miner creationTime = go
             --
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True))
-                <$> validateChainwebTxs cp creationTime bhi txs runDebitGas (_psEnableUserContracts psEnv)
+              <$> validateChainwebTxs cp creationTime bhi txs runDebitGas allowModule
+
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
 
@@ -1107,7 +1124,9 @@ execValidateBlock currHeader plData = do
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
-            !result <- playOneBlock currHeader plData pdbenv
+            allowModule <- validateEnableUserContracts currHeader
+            !result <- locally psEnableUserContracts (const allowModule) $
+              playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
     either throwM return $!
       validateHashes currHeader plData miner transactions

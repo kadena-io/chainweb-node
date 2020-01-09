@@ -41,7 +41,6 @@ module Chainweb.Version
 -- ** Date- and Version-based Transaction Disabling and Enabling
 , txEnabledDate
 , transferActivationDate
-, enableUserContracts
 , vuln797FixDate
 , upgradeCoinV2Date
 , userContractActivationDate
@@ -615,11 +614,6 @@ vuln797FixDate Development = epoch
 vuln797FixDate Testnet04 = epoch
 vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 {-# INLINE vuln797FixDate #-}
-
--- | Enable user contract install
-enableUserContracts :: ChainwebVersion -> Bool
-enableUserContracts Mainnet01 = False
-enableUserContracts _ = True
 
 -- | Upgrade coin v2 at time, or at block height 1
 -- | Must be BEFORE 'txEnabledDate' in mainnet.
