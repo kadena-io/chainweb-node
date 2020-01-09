@@ -521,6 +521,7 @@ test-suite chainweb-tests
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
+        , statistics >= 0.15
         , string-conv >= 0.1
         , stm
         , streaming >= 0.2.2
