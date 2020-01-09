@@ -256,10 +256,20 @@ localValidationTest iot nio = testCaseSteps "validate local metadata" $ \step ->
     r3 <- local cid1 cenv cmd3
     testFailure r3 "tx failure when buying gas"
 
+    step "validate /local incorrect network id"
+    cmd4 <- mkTx (Just "Mainnet01") meta0
+    r4 <- local cid1 cenv cmd4
+    testFailure r4 "network id 'Mainnet01' does not match"
+
+    step "validate /local too many signatures"
+    cmd5 <- mkTx' nid meta0 $ \cs -> cs ^.. _head . replicated 101
+    r5 <- local cid1 cenv cmd5
+    testFailure r5 "Too many signatures in Pact command"
+
     step "validations do not occur if NetworkId is undefined"
-    cmd4 <- mkTx Nothing meta3
-    CommandResult _ _ (PactResult r4) _ _ _ _ <- local cid1 cenv cmd4
-    case r4 of
+    cmd6 <- mkTx Nothing meta3
+    CommandResult _ _ (PactResult r6) _ _ _ _ <- local cid1 cenv cmd6
+    case r6 of
       Left e -> assertFailure $ "Unexpected failure: " <> show e
       Right _ -> return ()
   where
@@ -277,8 +287,10 @@ localValidationTest iot nio = testCaseSteps "validate local metadata" $ \step ->
 
     pm t ttl gl p = Pact.PublicMeta (Pact.ChainId "0") t gl p ttl
 
-    mkTx nid' meta = (\(SubmitBatch b) -> head (toList b)) <$>
-      mkSingletonBatch iot sender00KeyPair tx Nothing meta Nothing nid'
+    mkTx' nid' meta f = (\(SubmitBatch b) -> head (toList b)) <$>
+      mkSingletonBatch' iot sender00KeyPair tx Nothing meta Nothing nid' f
+
+    mkTx nid' meta = mkTx' nid' meta id
 
     testFailure (CommandResult _ _ (PactResult pr) _ _ _ _) e = case pr of
       Left e' ->
@@ -633,6 +645,23 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 -- -------------------------------------------------------------------------- --
 -- Utils
 
+mkSingletonBatch'
+    :: IO (Time Integer)
+    -> ChainwebKeyPair
+    -> PactTransaction
+    -> Maybe String
+    -> (Pact.TxCreationTime -> Pact.PublicMeta)
+    -> Maybe [SigCapability]
+    -> Maybe Pact.NetworkId
+    -> ([SomeKeyPairCaps] -> [SomeKeyPairCaps])
+    -> IO SubmitBatch
+mkSingletonBatch' iot kps (PactTransaction c d) nonce pmk clist nid act = do
+    ks <- testKeyPairs kps clist
+    pm <- pmk . toTxCreationTime <$> iot
+    let dd = fromMaybe A.Null d
+    cmd <- liftIO $ mkExec (T.unpack c) dd pm (act ks) nid nonce
+    return $ SubmitBatch (cmd NEL.:| [])
+
 mkSingletonBatch
     :: IO (Time Integer)
     -> ChainwebKeyPair
@@ -642,12 +671,8 @@ mkSingletonBatch
     -> Maybe [SigCapability]
     -> Maybe Pact.NetworkId
     -> IO SubmitBatch
-mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist nid = do
-    ks <- testKeyPairs kps clist
-    pm <- pmk . toTxCreationTime <$> iot
-    let dd = fromMaybe A.Null d
-    cmd <- liftIO $ mkExec (T.unpack c) dd pm ks nid nonce
-    return $ SubmitBatch (cmd NEL.:| [])
+mkSingletonBatch iot kps tx nonce pmk clist nid =
+    mkSingletonBatch' iot kps tx nonce pmk clist nid id
 
 withRequestKeys
     :: IO (Time Integer)

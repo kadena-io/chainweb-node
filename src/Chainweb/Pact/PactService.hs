@@ -944,7 +944,8 @@ execLocal cmd = withDiscardedBatch $ do
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
         cid <- view chainId
-        r <- liftIO $ applyLocal cid (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
+        v <- view chainwebVersion
+        r <- liftIO $ applyLocal v cid (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()

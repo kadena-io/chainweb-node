@@ -86,7 +86,7 @@ import Pact.Types.Logger hiding (logError)
 import Pact.Types.PactValue
 import Pact.Types.Pretty
 import Pact.Types.RPC
-import Pact.Types.Runtime
+import Pact.Types.Runtime hiding (fromText)
 import Pact.Types.Server
 import Pact.Types.SPV
 
@@ -101,7 +101,7 @@ import Chainweb.Pact.Types
 import Chainweb.Pact.Utils (timingsCheck)
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (sshow, fromText)
 import Chainweb.Version hiding (ChainId)
 import qualified Chainweb.Version as CW
 
@@ -298,7 +298,8 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
 
 
 applyLocal
-    :: CW.ChainId
+    :: CW.ChainwebVersion
+    -> CW.ChainId
     -> Logger
       -- ^ Pact logger
     -> PactDbEnv p
@@ -313,7 +314,7 @@ applyLocal
       -- ^ command with payload to execute
     -> ModuleCache
     -> IO (CommandResult [TxLog Value])
-applyLocal pscid logger dbEnv gasModel pd spv cmdIn mc =
+applyLocal v pscid logger dbEnv gasModel pd spv cmdIn mc =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -347,16 +348,17 @@ applyLocal pscid logger dbEnv gasModel pd spv cmdIn mc =
       case nid of
         Nothing ->
           locally txGasLimit (const 25000) $ applyPayload em
-        Just _ -> do
+        Just nid' -> do
           now <- liftIO $ getCurrentTimeIntegral
-          validateLocalCmd pscid now gas0 tenv cmd
+          validateLocalCmd v pscid now gas0 tenv cmd nid'
 
 -- | Validate public meta for commands passed to /local endpoint
 -- with defined network id. If id is undefined, these tests will
 -- not be run
 --
 validateLocalCmd
-    :: CW.ChainId
+    :: CW.ChainwebVersion
+    -> CW.ChainId
       -- ^ Pact service chain id
     -> Time Micros
       -- ^ current integral time (micros)
@@ -366,14 +368,19 @@ validateLocalCmd
       -- ^ the tx environment
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ user command
+    -> NetworkId
     -> TransactionM p (CommandResult [TxLog Value])
-validateLocalCmd pscid now gas0 t cmd
+validateLocalCmd v pscid now gas0 t cmd (NetworkId nid)
     | chainIdToText pscid /= cid =
       evalErr $ "invalid chain id: " <> cid
     | not (timingsCheck bct cmd) =
       evalErr "invalid ttl or creation time"
     | (decimalPlaces gp) > 12 =
       gasErr $ "gas price should be rounded to at most 12 places: " <> sshow gp
+    | fromText @CW.ChainwebVersion nid /= Just v =
+      evalErr $ "network id '" <> nid <> "' does not match chainweb version '" <> sshow v <> "'"
+    | length (_cmdSigs cmd) > 100 =
+      evalErr $ "Too many signatures in Pact command (max 100)"
     | otherwise = do
       gm <- use txGasModel
       txGasModel .= (_geGasModel freeGasEnv)
