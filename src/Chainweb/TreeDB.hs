@@ -52,6 +52,7 @@ module Chainweb.TreeDB
 
 -- ** Query branches
 , getBranch
+, ancestors
 
 -- ** Lookups
 , lookupM
@@ -435,6 +436,18 @@ applyRank
 applyRank l u
     = maybe id (\x -> S.filter (\e -> rank e <= x)) (_getMaxRank <$> u)
     . maybe id (\x -> S.filter (\e -> rank e >= x)) (_getMinRank <$> l)
+
+-- | Returns the stream of all ancestors of a key, including the entry of the
+-- given key.
+--
+ancestors
+    :: forall db
+    . TreeDb db
+    => db
+    -> DbKey db
+    -> S.Stream (Of (DbEntry db)) IO ()
+ancestors db k = getBranch db mempty (HS.singleton $ UpperBound k)
+{-# INLINE ancestors #-}
 
 -- | @getBranch db lower upper@ returns all nodes that are predecessors of nodes
 -- in @upper@ and not predecessors of any node in @lower@. Entries are returned
