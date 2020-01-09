@@ -135,7 +135,7 @@ jobs:
     - name: Build
       run: cabal v2-build chainweb-node
     - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes
+      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/remote pact tests/'
     - name: Run Benchmarks and Certificate Validation Tests
       run: cabal v2-run cwtool -- slow-tests
     - name: Sync dist cache

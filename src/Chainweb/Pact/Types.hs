@@ -124,7 +124,6 @@ import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
-import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
@@ -140,17 +139,17 @@ import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Time
+import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 
 
 
 data Transactions = Transactions
-    { _transactionPairs :: !(Vector (Transaction, CommandResult Hash))
-    , _transactionCoinbase :: !(CommandResult Hash)
+    { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
+    , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show)
 
 data PactDbStatePersist = PactDbStatePersist

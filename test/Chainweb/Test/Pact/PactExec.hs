@@ -21,9 +21,11 @@ module Chainweb.Test.Pact.PactExec
 ( tests
 ) where
 
-import Control.Lens (view, _1)
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Data.Aeson
+import Data.Aeson.Encode.Pretty
+import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.CAS.RocksDB (RocksDb)
 import Data.Decimal
 import Data.Default
@@ -46,8 +48,9 @@ import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService (execTransactions)
+import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -60,6 +63,7 @@ import Pact.Types.Exp
 import Pact.Types.Hash
 import Pact.Types.Names
 import Pact.Types.PactValue
+import Pact.Types.Persistence
 import Pact.Types.Pretty
 
 testVersion :: ChainwebVersion
@@ -319,8 +323,8 @@ execTest runPact request = _trEval request $ do
     results <- runPact $ execTransactions (Just someBlockHeaderCreationTime) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
-        (zip (_trCmds request) outputs)
-        (_transactionCoinbase results)
+        (zip (_trCmds request) (toHashCommandResult <$> outputs))
+        (toHashCommandResult $ _transactionCoinbase results)
   where
     k d c = PactTransaction c d
 
@@ -342,8 +346,8 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
               tcode = _pNonce . payloadObj . _cmdPayload
               inputs = map (showPretty . tcode) $ V.toList trans
           return $ TestResponse
-            (zip inputs outputs)
-            (_transactionCoinbase results)
+            (zip inputs (toHashCommandResult <$> outputs))
+            (toHashCommandResult $ _transactionCoinbase results)
         Left (e :: SomeException) -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
@@ -378,3 +382,34 @@ fileCompareTxLogs label respIO = goldenSch label $ do
         [ "output" .= _crLogs out
         , "cmd" .= ("coinbase" :: String)
         ]
+
+
+_showValidationFailure :: IO ()
+_showValidationFailure = do
+  ks <- testKeyPairs sender00KeyPair Nothing
+  txs <- mkTestExecTransactions "sender00" "0" ks "testTfrNoGas" 10000 0.01 1000000 0 $
+         V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
+  let cr1 = CommandResult
+        { _crReqKey = RequestKey pactInitialHash
+        , _crTxId = Nothing
+        , _crResult = PactResult $ Right $ pString "hi"
+        , _crGas = 0
+        , _crLogs = Just [TxLog "Domain" "Key" (object [ "stuff" .= True ])]
+        , _crContinuation = Nothing
+        , _crMetaData = Nothing
+        }
+      outs1 = Transactions
+        { _transactionPairs = V.zip txs (V.singleton cr1)
+        , _transactionCoinbase = cr1
+        }
+      miner = defaultMiner
+      header = genesisBlockHeader testVersion $ someChainId testVersion
+      pd = payloadWithOutputsToPayloadData $ toPayloadWithOutputs miner outs1
+      cr2 = set crGas 1 cr1
+      outs2 = Transactions
+        { _transactionPairs = V.zip txs (V.singleton cr2)
+        , _transactionCoinbase = cr2
+        }
+      r = validateHashes header pd miner outs2
+
+  BL.putStrLn $ encodePretty r

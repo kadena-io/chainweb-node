@@ -424,6 +424,12 @@ checkpointerTest name initdata =
 
           _cpSave _cpeCheckpointer hash10
 
+          next "Purposefully restore to an illegal checkpoint."
+
+          _blockEnvFailure <- expectException $ _cpRestore _cpeCheckpointer (Just (BlockHeight 12, hash10))
+
+          return ()
+
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
