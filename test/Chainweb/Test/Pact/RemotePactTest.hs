@@ -181,13 +181,13 @@ localTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
     cenv <- fmap _getClientEnv nio
     mv <- newMVar 0
-    SubmitBatch batch <- testBatch iot mv gp
+    SubmitBatch batch <- testBatch iot mv gp Nothing
     let cmd = head $ toList batch
     sid <- mkChainId v (0 :: Int)
     res <- local sid cenv cmd
     let (PactResult e) = _crResult res
-    assertEqual "expect /local to return gas for tx" (_crGas res) 5
-    assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
+    assertEqual "expect /local to return gas for tx" 5 (_crGas res)
+    assertEqual "expect /local to succeed and return 3" (Right (PLiteral $ LDecimal 3)) e
 
 localChainDataTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
@@ -197,6 +197,7 @@ localChainDataTest iot nio = do
     let cmd = head $ toList batch
     sid <- mkChainId v (0 :: Int)
     res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
+    print res
     checkCommandResult res
   where
 
@@ -231,8 +232,8 @@ sendValidationTest iot nio =
         step "check sending poisoned TTL batch"
         cenv <- fmap _getClientEnv nio
         mv <- newMVar 0
-        SubmitBatch batch1 <- testBatch' iot 10000 mv gp
-        SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp
+        SubmitBatch batch1 <- testBatch' iot 10000 mv gp nid
+        SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp nid
         let batch = SubmitBatch $ batch1 <> batch2
         expectSendFailure "Transaction time is invalid or TTL is expired" $
           flip runClientM cenv $
@@ -240,13 +241,13 @@ sendValidationTest iot nio =
 
         step "check sending mismatched chain id"
         cid0 <- mkChainId v (0 :: Int)
-        batch3 <- testBatch'' "40" iot 20000 mv gp
+        batch3 <- testBatch'' "40" iot 20000 mv gp nid
         expectSendFailure "Transaction metadata (chain id, chainweb version) conflicts with this endpoint" $
           flip runClientM cenv $
             pactSendApiClient v cid0 batch3
 
         step "check insufficient gas"
-        batch4 <- testBatch' iot 10000 mv 10000000000
+        batch4 <- testBatch' iot 10000 mv 10000000000 nid
         expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
             pactSendApiClient v cid batch4
 
@@ -256,6 +257,8 @@ sendValidationTest iot nio =
             pactSendApiClient v cid0 batch5
 
   where
+    nid = Just "fastTimedCPM-peterson"
+
     mkBadGasTxBatch code senderName senderKeyPair capList = do
       ks <- testKeyPairs senderKeyPair capList
       t <- toTxCreationTime <$> iot
@@ -593,10 +596,16 @@ withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) 
     mkKeys = do
         cenv <- _getClientEnv <$> networkIO
         mNonce <- ioNonce
-        testSend iot mNonce cenv
+        testSend iot mNonce cenv (Just "fastTimedCPM-peterson")
 
-testSend :: IO (Time Integer) -> MVar Int -> ClientEnv -> IO RequestKeys
-testSend iot mNonce env = testBatch iot mNonce gp >>= sending cid env
+testSend
+    :: IO (Time Integer)
+    -> MVar Int
+    -> ClientEnv
+    -> Maybe Pact.NetworkId
+    -> IO RequestKeys
+testSend iot mNonce env nid = testBatch iot mNonce gp nid >>= sending cid env
+
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = do
@@ -718,22 +727,40 @@ polling sid cenv rks pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
-testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
-testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
+testBatch''
+    :: Pact.ChainId
+    -> IO (Time Integer)
+    -> Integer
+    -> MVar Int
+    -> GasPrice
+    -> Maybe Pact.NetworkId
+    -> IO SubmitBatch
+testBatch'' chain iot ttl mnonce gp' nid = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
     kps <- testKeyPairs sender00KeyPair gasCap
-    c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+    c <- mkExec "(+ 1 2)" A.Null (pm t) kps nid (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
     pm = Pact.PublicMeta chain "sender00" 1000 gp' (fromInteger ttl)
 
-testBatch' :: IO (Time Integer) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch'
+    :: IO (Time Integer)
+    -> Integer
+    -> MVar Int
+    -> GasPrice
+    -> Maybe Pact.NetworkId
+    -> IO SubmitBatch
 testBatch' = testBatch'' pactCid
 
-testBatch :: IO (Time Integer) -> MVar Int -> GasPrice -> IO SubmitBatch
-testBatch iot mnonce = testBatch' iot ttl mnonce
+testBatch
+    :: IO (Time Integer)
+    -> MVar Int
+    -> GasPrice
+    -> Maybe Pact.NetworkId
+    -> IO SubmitBatch
+testBatch iot = testBatch' iot ttl
   where
     ttl = 2 * 24 * 60 * 60
 
