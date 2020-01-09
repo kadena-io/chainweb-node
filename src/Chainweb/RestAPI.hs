@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -57,16 +58,21 @@ module Chainweb.RestAPI
 , module P2P.Node.RestAPI.Client
 ) where
 
+
 import Control.Lens
 
 import Data.Aeson.Encode.Pretty
+import Data.Aeson (toJSON, Value(..))
+import qualified Data.Aeson.Lens as AL
 import Data.Bool (bool)
-import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Lazy as HM
 import Data.Maybe
 import Data.Proxy
 import Data.Swagger
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import Data.Word
 
 import GHC.Generics (Generic)
 
@@ -81,6 +87,8 @@ import Servant.Server
 import Servant.Swagger
 
 import System.Clock
+
+import Text.Printf
 
 -- internal modules
 
@@ -183,12 +191,62 @@ prettyShowChainwebApi v cs = case someChainwebApi v cs of
 
 type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
 
+type SwaggerApi' = "swagger.json" :> Get '[JSON] Value
+
 someSwaggerApi :: SomeApi
 someSwaggerApi = SomeApi $ Proxy @SwaggerApi
 
 someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return (chainwebSwagger v cs)
+someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi')
+    $ return (swaggerShim v cs $ toJSON (chainwebSwagger v cs))
+
+swaggerShim :: ChainwebVersion -> [NetworkId] -> Value -> Value
+swaggerShim _ [] swagger = swagger
+swaggerShim v (initc:cs) swagger =
+    swagger
+    & AL.key "paths" . AL._Object
+    %~ modifyPaths
+
+  where
+    modifyPaths hm = HM.fromList $ mapMaybe fixPaths (HM.toList hm)
+
+    toChain =
+      \case
+        ChainNetwork c -> Just $ chainIdInt @Word32 c
+        MempoolNetwork c -> Just $ chainIdInt @Word32 c
+        _ -> Nothing
+
+    (theChain, theChains) = (fromJust $ toChain initc, mapMaybe toChain cs)
+
+    fixPaths (path, value)
+       | elem path theOtherPaths = Nothing
+       | elem path thePaths =
+         Just $ (T.replace ("chain/" <> (T.pack $ show theChain)) "chain/{ChainId}" path, value)
+       | otherwise =  Just (path, value)
+
+    thePaths =
+      ((\str -> T.pack $ printf str (T.unpack$prettyApiVersion) (show v) theChain) <$> xs)
+
+    theOtherPaths = fmap T.pack $
+      (\c str -> printf str prettyApiVersion (show v) c)
+      <$> theChains
+      <*> xs
+
+    xs =
+      [ "/chainweb/%s/%s/chain/%d/hash"
+      , "/chainweb/%s/%s/chain/%d/header"
+      , "/chainweb/%s/%s/chain/%d/header/{BlockHash}"
+      , "/chainweb/%s/%s/chain/%d/hash/branch"
+      , "/chainweb/%s/%s/chain/%d/header/branch"
+      , "/chainweb/%s/%s/chain/%d/payload/{BlockPayloadHash}"
+      , "/chainweb/%s/%s/chain/%d/payload/{BlockPayloadHash}/outputs"
+      , "/chainweb/%s/%s/chain/%d/peer"
+      , "/chainweb/%s/%s/chain/%d/pact/api/v1/send"
+      , "/chainweb/%s/%s/chain/%d/pact/api/v1/poll"
+      , "/chainweb/%s/%s/chain/%d/pact/api/v1/listen"
+      , "/chainweb/%s/%s/chain/%d/pact/api/v1/local"
+      , "/chainweb/%s/%s/chain/%d/pact/spv"
+      ]
 
 chainwebSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
 chainwebSwagger v cs = case someChainwebApi v cs of
