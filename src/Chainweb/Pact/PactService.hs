@@ -1005,12 +1005,13 @@ playOneBlock currHeader plData pdbenv = do
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
-    allowModule <- view psEnableUserContracts
     -- prop_tx_ttl_validate
-    oks <- liftIO (
-        fmap (either (const False) (const True)) <$>
-           validateChainwebTxs cp creationTime
-               (_blockHeight currHeader) trans skipDebitGas allowModule)
+    oks <- withEnableUserContracts currHeader $ do
+        allowModuleInstall <- view psEnableUserContracts
+        liftIO $ fmap (either (const False) (const True)) <$>
+          validateChainwebTxs cp creationTime (_blockHeight currHeader)
+            trans skipDebitGas allowModuleInstall
+
     let mbad = V.elemIndex False oks
     case mbad of
         Nothing -> return ()  -- ok
