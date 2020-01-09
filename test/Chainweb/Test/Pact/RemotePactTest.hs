@@ -272,7 +272,7 @@ localValidationTest iot nio = testCaseSteps "validate local metadata" $ \step ->
 
     meta0 = pm "sender00" ttl0 10000 0.00001
     meta1 = pm "sender00" ttl1 10000 0.00001
-    meta2 = pm "sender00" ttl0 10000 0.0000000000001
+    meta2 = pm "sender00" ttl0 10000 0.00000000000001
     meta3 = pm "sender00" ttl0 1000000000000000 1.0
 
     pm t ttl gl p = Pact.PublicMeta (Pact.ChainId "0") t gl p ttl
