@@ -859,7 +859,6 @@ execNewBlock mpAccess parentHeader miner creationTime = go
       cp <- getCheckpointer
       psEnv <- ask
       psState <- get
-      allowModule <- view psEnableUserContracts
       let runDebitGas :: RunGas
           runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
@@ -871,8 +870,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
             --
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True))
-              <$> validateChainwebTxs cp creationTime bhi txs runDebitGas allowModule
-
+              <$> validateChainwebTxs cp creationTime bhi txs runDebitGas (_psEnableUserContracts psEnv)
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
 
