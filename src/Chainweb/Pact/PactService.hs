@@ -807,16 +807,20 @@ minerReward (MinerRewards rs q) bh =
 -- | If user contracts are enabled, check the block time against
 -- the activation date.
 --
-validateEnableUserContracts :: BlockHeader -> PactServiceM cas Bool
-validateEnableUserContracts bh = do
+validateEnableUserContracts
+    :: BlockHeader
+    -> PactServiceM cas a
+    -> PactServiceM cas a
+validateEnableUserContracts bh act = do
     enabled <- view psEnableUserContracts
-    if enabled
-    then case activated of
-      Just d
-        | d > blockTime
-        , not isGenesis -> return (not enabled)
-      _ -> return enabled
-    else return enabled
+    allowModules <- if enabled
+      then case activated of
+        Just d
+          | d > blockTime
+          , not isGenesis -> return (not enabled)
+        _ -> return enabled
+      else return enabled
+    locally psEnableUserContracts (const allowModules) act
   where
     blockTime = _bct $ _blockCreationTime bh
     activated = userContractActivationDate $ _blockChainwebVersion bh
@@ -836,8 +840,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
   where
     go = handle onTxFailure $ do
         updateMempool
-        allowModule <- validateEnableUserContracts parentHeader
-        locally psEnableUserContracts (const allowModule) $ withDiscardedBatch $ do
+        withDiscardedBatch $ do
           setBlockData parentHeader
           rewindTo newblockRewindLimit target
           newTrans <- withCheckpointer target "preBlock" doPreBlock
@@ -880,9 +883,11 @@ execNewBlock mpAccess parentHeader miner creationTime = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions (Just (parentHeader,creationTime)) miner newTrans
-                   (EnforceCoinbaseFailure True)
-                   (CoinbaseUsePrecompiled True) pdbenv
+        results <- validateEnableUserContracts parentHeader $
+          execTransactions (Just (parentHeader,creationTime)) miner newTrans
+            (EnforceCoinbaseFailure True)
+            (CoinbaseUsePrecompiled True)
+            pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -1002,8 +1007,8 @@ playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
-    allowModule <- view psEnableUserContracts
     let creationTime = _blockCreationTime currHeader
+    allowModule <- view psEnableUserContracts
     -- prop_tx_ttl_validate
     oks <- liftIO (
         fmap (either (const False) (const True)) <$>
@@ -1048,8 +1053,9 @@ playOneBlock currHeader plData pdbenv = do
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactions (Just (ph,currCreationTime)) m txs
-          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
+        validateEnableUserContracts currHeader $
+          execTransactions (Just (ph,currCreationTime)) m txs
+            (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -1122,9 +1128,7 @@ execValidateBlock currHeader plData = do
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
-            allowModule <- validateEnableUserContracts currHeader
-            !result <- locally psEnableUserContracts (const allowModule) $
-              playOneBlock currHeader plData pdbenv
+            !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
     either throwM return $!
       validateHashes currHeader plData miner transactions
