@@ -200,7 +200,6 @@ localChainDataTest iot nio = do
     SubmitBatch batch <- localTestBatch iot mv (chainIdToText sid)
     let cmd = head $ toList batch
     res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
-    print res
     checkCommandResult res
   where
 
