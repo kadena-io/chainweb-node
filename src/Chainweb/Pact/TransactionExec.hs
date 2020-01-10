@@ -45,7 +45,6 @@ module Chainweb.Pact.TransactionExec
 
   -- * Utilities
 , buildExecParsedCode
-, jsonErrorResult
 , mkMagicCapSlot
 
 ) where
