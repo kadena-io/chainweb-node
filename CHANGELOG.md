@@ -17,7 +17,7 @@ must update to the next version before that date.
 
 * Caching improved for coinbase transactions (#861)
 
-* Improvements node stability and node stalling issues (#844, #845)
+* Improvements to node stability and node stalling issues (#844, #845)
 
 ## 1.4 (2019-12-14)
 
