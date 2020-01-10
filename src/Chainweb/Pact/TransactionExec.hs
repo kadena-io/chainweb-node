@@ -445,7 +445,7 @@ jsonErrorResult err msg = do
     l <- view txLogger
 
     liftIO
-      $! logLog l "ERROR"
+      $! logLog l "INFO"
       $! T.unpack msg
       <> ": " <> show rk
       <> ": " <> show err
