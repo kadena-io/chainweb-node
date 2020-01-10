@@ -310,17 +310,16 @@ defaultReorgLimit :: Word64
 defaultReorgLimit = 480
 
 defaultPactServiceEnv
-    :: ChainwebVersion
-    -> CheckpointEnv
+    :: CheckpointEnv
     -> PayloadDb cas
     -> BlockHeaderDb
     -> GasModel
     -> MinerRewards
     -> (LogLevel -> Text -> IO ())
     -> PactServiceEnv cas
-defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs logFunc =
+defaultPactServiceEnv checkpointEnv pdb bhDb gasModel rs logFunc =
     PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
-        (enableUserContracts ver) defaultReorgLimit
+        True defaultReorgLimit
         (defaultOnFatalError logFunc)
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
