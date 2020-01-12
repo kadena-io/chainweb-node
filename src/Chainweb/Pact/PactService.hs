@@ -1334,7 +1334,7 @@ execPreInsertCheckReq txs = do
                 psState <- get
                 let creationTime = BlockCreationTime now
                 liftIO (Discard <$>
-                        validateChainwebTxs cp (creationTime) (h + 1) txs
+                        validateChainwebTxs cp creationTime (h + 1) txs
                         (runGas pdb psState psEnv)
                         (checkEnableUserContracts False creationTime (_psVersion psEnv)))
   where
