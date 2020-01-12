@@ -256,6 +256,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psEnableUserContracts = True
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
+                , _psVersion = ver
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
@@ -826,25 +827,24 @@ withEnableUserContracts'
        -- ^ block header for chainweb version
     -> PactServiceM cas a
     -> PactServiceM cas a
-withEnableUserContracts' isGenesis blockCreationTime bh act =
+withEnableUserContracts' isGenesis creationTime bh act =
     locally psEnableUserContracts (const allowModules) act
   where
-    allowModules = checkEnableUserContracts isGenesis blockCreationTime bh
+    allowModules = checkEnableUserContracts isGenesis creationTime (_blockChainwebVersion bh)
 
 checkEnableUserContracts
     :: Bool
      -- ^ is block genesis
     -> BlockCreationTime
        -- ^ block creation time, in new block we can't get this from header
-    -> BlockHeader
-       -- ^ block header for chainweb version
+    -> ChainwebVersion
     -> Bool
-checkEnableUserContracts isGenesis (BlockCreationTime blockTime) bh =
+checkEnableUserContracts isGenesis (BlockCreationTime blockTime) v =
     case activated of
       Just d | d > blockTime && not isGenesis -> False
       _ -> True
   where
-    activated = userContractActivationDate $ _blockChainwebVersion bh
+    activated = userContractActivationDate v
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -894,7 +894,8 @@ execNewBlock mpAccess parentHeader miner creationTime = go
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True)) <$>
               validateChainwebTxs cp creationTime bhi
-                txs runDebitGas (checkEnableUserContracts False creationTime parentHeader)
+                txs runDebitGas
+                (checkEnableUserContracts False creationTime (_blockChainwebVersion parentHeader))
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -1331,9 +1332,11 @@ execPreInsertCheckReq txs = do
                 now <- liftIO getCurrentTimeIntegral
                 psEnv <- ask
                 psState <- get
+                let creationTime = BlockCreationTime now
                 liftIO (Discard <$>
-                        validateChainwebTxs cp (BlockCreationTime now) (h + 1) txs
-                        (runGas pdb psState psEnv) (_psEnableUserContracts psEnv))
+                        validateChainwebTxs cp (creationTime) (h + 1) txs
+                        (runGas pdb psState psEnv)
+                        (checkEnableUserContracts False creationTime (_psVersion psEnv)))
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
