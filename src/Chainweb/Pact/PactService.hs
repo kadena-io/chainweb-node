@@ -804,22 +804,47 @@ minerReward (MinerRewards rs q) bh =
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
--- | If user contracts are enabled, check the block time against
--- the activation date.
---
 withEnableUserContracts
     :: BlockHeader
     -> PactServiceM cas a
     -> PactServiceM cas a
-withEnableUserContracts bh act =
+withEnableUserContracts bh =
+  withEnableUserContracts'
+    (isGenesisBlockHeader bh)
+    (_blockCreationTime bh)
+    bh
+
+-- | If user contracts are enabled, check the block time against
+-- the activation date.
+--
+withEnableUserContracts'
+    :: Bool
+       -- ^ is block genesis
+    -> BlockCreationTime
+       -- ^ block creation time, in new block we can't get this from header
+    -> BlockHeader
+       -- ^ block header for chainweb version
+    -> PactServiceM cas a
+    -> PactServiceM cas a
+withEnableUserContracts' isGenesis blockCreationTime bh act =
     locally psEnableUserContracts (const allowModules) act
   where
-    allowModules = case activated of
+    allowModules = checkEnableUserContracts isGenesis blockCreationTime bh
+
+checkEnableUserContracts
+    :: Bool
+     -- ^ is block genesis
+    -> BlockCreationTime
+       -- ^ block creation time, in new block we can't get this from header
+    -> BlockHeader
+       -- ^ block header for chainweb version
+    -> Bool
+checkEnableUserContracts isGenesis (BlockCreationTime blockTime) bh =
+    case activated of
       Just d | d > blockTime && not isGenesis -> False
       _ -> True
-    blockTime = _bct $ _blockCreationTime bh
+  where
     activated = userContractActivationDate $ _blockChainwebVersion bh
-    isGenesis = isGenesisBlockHeader bh
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -867,8 +892,10 @@ execNewBlock mpAccess parentHeader miner creationTime = go
             -- which we determined was unnecessary and was a db hit
             --
             -- TODO: propagate the underlying error type?
-            V.map (either (const False) (const True))
-                <$> validateChainwebTxs cp creationTime bhi txs runDebitGas (_psEnableUserContracts psEnv)
+            V.map (either (const False) (const True)) <$>
+              validateChainwebTxs cp creationTime bhi
+                txs runDebitGas (checkEnableUserContracts False creationTime parentHeader)
+
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
 
@@ -878,7 +905,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- withEnableUserContracts parentHeader $
+        results <- withEnableUserContracts' False creationTime parentHeader $
           execTransactions (Just (parentHeader,creationTime)) miner newTrans
             (EnforceCoinbaseFailure True)
             (CoinbaseUsePrecompiled True)
