@@ -598,7 +598,7 @@ transferActivationDate Testnet04 = Nothing
 transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
 
 userContractActivationDate :: ChainwebVersion -> Maybe (Time Micros)
-userContractActivationDate Development = Just [timeMicrosQQ| 2020-01-11T20:00:00.0 |]
+userContractActivationDate Development = Just [timeMicrosQQ| 2020-01-12T01:30:00.0 |]
 userContractActivationDate Mainnet01 = Just [timeMicrosQQ| 2020-01-15T16:00:00.0 |]
 userContractActivationDate _ = Nothing
 
