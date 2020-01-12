@@ -74,10 +74,15 @@ data NetworkId
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
+-- | Textual representation of NetworkId.
+--
+-- This is expected to match the respective routes generated for
+-- 'NetworkEndpointApi'.
+--
 networkIdToText :: NetworkId -> T.Text
 networkIdToText CutNetwork = "cut"
 networkIdToText (ChainNetwork cid) = "chain/" <> chainIdToText cid
-networkIdToText (MempoolNetwork cid) = "mempool/" <> chainIdToText cid
+networkIdToText (MempoolNetwork cid) = "chain/" <> chainIdToText cid <> "/mempool"
 {-# INLINE networkIdToText #-}
 
 networkIdFromText :: MonadThrow m => T.Text -> m NetworkId
