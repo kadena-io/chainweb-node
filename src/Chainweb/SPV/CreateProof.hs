@@ -287,7 +287,7 @@ createPayloadProof_ getPrefix cutDb tcid scid txHeight txIx trgHeader = give hea
     (srcHeadHeader, crossChain) <- crumbsToChain scid trgHeader >>= \case
         Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
-            { _spvExceptionMsg = "target chain not reachabe. Chainweb instance is too young"
+            { _spvExceptionMsg = "target chain not reachable. Chainweb instance is too young"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = txHeight
             , _spvExceptionTargetChainId = tcid
@@ -428,7 +428,7 @@ minimumTrgHeader cutDb tcid scid bh = do
     trgHeader <- seekAncestor trgChain trgHeadHeader trgHeight >>= \case
         Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
-            { _spvExceptionMsg = "target chain not reachabe. Chainweb instance is too young"
+            { _spvExceptionMsg = "target chain not reachable. Chainweb instance is too young"
             , _spvExceptionSourceChainId = scid
             , _spvExceptionSourceHeight = bh
             , _spvExceptionTargetChainId = tcid
