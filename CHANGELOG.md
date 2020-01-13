@@ -1,13 +1,12 @@
 # `chainweb-node` Changelog
 
-## 1.5 (2019-01-15)
+## 1.5 (2019-01-13)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2019-01-15T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
-This version will stop working on **2020-02-20T00:00:00Z**. Node administrators
-must update to the next version before that date.
+This version will stop working on **2020-02-20T00:00:00Z**.
 
 * Full launch of Pact smart contract functionality (begins at
   2020-01-15T16:00:00Z)
@@ -28,8 +27,7 @@ This version replaces all previous versions. Any prior version will stop working
 on **2019-12-17T00:00:00Z**. Note administrators must upgrade to this version
 before that date.
 
-This version will stop working on **2020-01-15T00:00:00Z**. Node administrators
-must update to the next version before that date.
+This version will stop working on **2020-01-15T00:00:00Z**.
 
 * All nodes in the miners list in the configuration file are served cached work
   [#819]
