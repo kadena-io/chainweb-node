@@ -68,7 +68,6 @@ module Chainweb.Pact.Types
   , psEnableUserContracts
   , psReorgLimit
   , psOnFatalError
-  , psVersion
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -295,7 +294,6 @@ data PactServiceEnv cas = PactServiceEnv
     , _psEnableUserContracts :: !Bool
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
-    , _psVersion :: ChainwebVersion
     }
 makeLenses ''PactServiceEnv
 

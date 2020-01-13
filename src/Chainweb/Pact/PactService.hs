@@ -256,7 +256,6 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psEnableUserContracts = True
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
-                , _psVersion = ver
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
@@ -1336,7 +1335,7 @@ execPreInsertCheckReq txs = do
                 liftIO (Discard <$>
                         validateChainwebTxs cp creationTime (h + 1) txs
                         (runGas pdb psState psEnv)
-                        (checkEnableUserContracts False creationTime (_psVersion psEnv)))
+                        (checkEnableUserContracts False creationTime (_chainwebVersion psEnv)))
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
