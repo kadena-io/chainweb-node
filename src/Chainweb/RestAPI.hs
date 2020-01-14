@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -62,17 +64,17 @@ module Chainweb.RestAPI
 import Control.Lens
 
 import Data.Aeson.Encode.Pretty
-import Data.Aeson (toJSON, Value(..))
-import qualified Data.Aeson.Lens as AL
 import Data.Bool (bool)
-import qualified Data.HashMap.Lazy as HM
+-- import Data.Function
+import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict.InsOrd as HM
+import qualified Data.List as L
 import Data.Maybe
 import Data.Proxy
 import Data.Swagger
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Word
 
 import GHC.Generics (Generic)
 
@@ -189,64 +191,103 @@ prettyShowChainwebApi v cs = case someChainwebApi v cs of
 -- chains is large the corresponding swagger file will be very large as well.
 -- We should improve the swagger spec to be more structured.
 
-type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
+-- type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
 
-type SwaggerApi' = "swagger.json" :> Get '[JSON] Value
+type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
+-- type SwaggerApi = "swagger.json" :> Get '[JSON] Value
 
 someSwaggerApi :: SomeApi
 someSwaggerApi = SomeApi $ Proxy @SwaggerApi
 
 someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
-someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi')
-    $ return (swaggerShim v cs $ toJSON (chainwebSwagger v cs))
+someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
+    $ return $ swaggerShim v cs $ chainwebSwagger v cs
 
-swaggerShim :: ChainwebVersion -> [NetworkId] -> Value -> Value
+deleteOn :: (a -> Bool) -> [a] -> [a]
+deleteOn _ [] = []
+deleteOn f (x:xs) = if f x then xs else x : deleteOn f xs
+
+deleteEntries :: Eq k => Hashable k => [k] -> [(k, v)] -> [(k, v)]
+deleteEntries fs = foldr (\k f hm -> f (deleteOn ((== k) . fst) hm)) id fs
+
+entriesToDelete :: ChainwebVersion -> [NetworkId] -> [FilePath]
+entriesToDelete v ns = (\str num -> chokeOnCutNetwork num $ printf str (T.unpack prettyApiVersion) (show v) (T.unpack $ toText num)) <$> xs <*> ns
+  where
+    chokeOnCutNetwork num x =
+      case num of
+        CutNetwork -> error "Not sure how to process this!"
+        _ -> x
+    xs =
+      [ "/chainweb/%s/%s/%s/hash"
+      , "/chainweb/%s/%s/%s/header"
+      , "/chainweb/%s/%s/%s/header/{BlockHash}"
+      , "/chainweb/%s/%s/%s/hash/branch"
+      , "/chainweb/%s/%s/%s/header/branch"
+      , "/chainweb/%s/%s/%s/payload/{BlockPayloadHash}"
+      , "/chainweb/%s/%s/%s/payload/{BlockPayloadHash}/outputs"
+      , "/chainweb/%s/%s/%s/peer"
+      , "/chainweb/%s/%s/%s/pact/api/v1/send"
+      , "/chainweb/%s/%s/%s/pact/api/v1/poll"
+      , "/chainweb/%s/%s/%s/pact/api/v1/listen"
+      , "/chainweb/%s/%s/%s/pact/api/v1/local"
+      , "/chainweb/%s/%s/%s/pact/spv"
+      , "/chainweb/%s/%s/%s/mempool/peer"
+      ]
+
+replaceEntryPrefix :: ChainwebVersion -> NetworkId -> String -> String
+replaceEntryPrefix v c k =
+    maybe k (g "chain/{ChainId}" ++) (L.stripPrefix (g (T.unpack $ toText c)) k)
+  where
+    g = printf  "/chainweb/%s/%s/%s" (T.unpack prettyApiVersion) (show v)
+
+swaggerShim :: ChainwebVersion -> [NetworkId] -> Swagger -> Swagger
 swaggerShim _ [] swagger = swagger
-swaggerShim v (initc:cs) swagger =
+swaggerShim v (c:cs) swagger =
     swagger
-    & AL.key "paths" . AL._Object
-    %~ modifyPaths
+    & paths
+    %~ HM.fromList
+     . deleteEntries (entriesToDelete v cs)
+     . map (over _1 (replaceEntryPrefix v c))
+     . map (over _2 addChainIdParam)
+     . HM.toList
 
   where
-    modifyPaths hm = HM.fromList $ mapMaybe fixPaths (HM.toList hm)
 
-    toChain =
-      \case
-        ChainNetwork c -> Just $ chainIdInt @Word32 c
-        MempoolNetwork c -> Just $ chainIdInt @Word32 c
-        _ -> Nothing
+    addChainIdParam value =
+         value
+         & get . _Just . parameters <>~ [chainIdParam]
+         & put . _Just . parameters <>~ [chainIdParam]
+         & post . _Just . parameters <>~ [chainIdParam]
 
-    (theChain, theChains) = (fromJust $ toChain initc, mapMaybe toChain cs)
-
-    fixPaths (path, value)
-       | elem path theOtherPaths = Nothing
-       | elem path thePaths =
-         Just $ (T.replace ("chain/" <> (T.pack $ show theChain)) "chain/{ChainId}" path, value)
-       | otherwise =  Just (path, value)
-
-    thePaths =
-      ((\str -> T.pack $ printf str (T.unpack$prettyApiVersion) (show v) theChain) <$> xs)
-
-    theOtherPaths = fmap T.pack $
-      (\c str -> printf str prettyApiVersion (show v) c)
-      <$> theChains
-      <*> xs
-
-    xs =
-      [ "/chainweb/%s/%s/chain/%d/hash"
-      , "/chainweb/%s/%s/chain/%d/header"
-      , "/chainweb/%s/%s/chain/%d/header/{BlockHash}"
-      , "/chainweb/%s/%s/chain/%d/hash/branch"
-      , "/chainweb/%s/%s/chain/%d/header/branch"
-      , "/chainweb/%s/%s/chain/%d/payload/{BlockPayloadHash}"
-      , "/chainweb/%s/%s/chain/%d/payload/{BlockPayloadHash}/outputs"
-      , "/chainweb/%s/%s/chain/%d/peer"
-      , "/chainweb/%s/%s/chain/%d/pact/api/v1/send"
-      , "/chainweb/%s/%s/chain/%d/pact/api/v1/poll"
-      , "/chainweb/%s/%s/chain/%d/pact/api/v1/listen"
-      , "/chainweb/%s/%s/chain/%d/pact/api/v1/local"
-      , "/chainweb/%s/%s/chain/%d/pact/spv"
-      ]
+    chainIdParam =
+      Inline $
+        Param
+        {_paramName = "ChainId"
+        , _paramDescription = Nothing
+        , _paramRequired = Just True
+        , _paramSchema = ParamOther $ ParamOtherSchema
+          {_paramOtherSchemaIn = ParamPath
+          , _paramOtherSchemaAllowEmptyValue = Nothing
+          , _paramOtherSchemaParamSchema = ParamSchema
+            {_paramSchemaDefault = Nothing
+            , _paramSchemaType = Just SwaggerString
+            , _paramSchemaFormat = Nothing
+            , _paramSchemaItems = Nothing
+            , _paramSchemaMaximum = Nothing
+            , _paramSchemaExclusiveMaximum = Nothing
+            , _paramSchemaMinimum = Nothing
+            , _paramSchemaExclusiveMinimum = Nothing
+            , _paramSchemaMaxLength = Nothing
+            , _paramSchemaMinLength = Nothing
+            , _paramSchemaPattern = Nothing
+            , _paramSchemaMaxItems = Nothing
+            , _paramSchemaMinItems = Nothing
+            , _paramSchemaUniqueItems = Nothing
+            , _paramSchemaEnum = Nothing
+            , _paramSchemaMultipleOf = Nothing
+            }
+          }
+        }
 
 chainwebSwagger :: ChainwebVersion -> [NetworkId] -> Swagger
 chainwebSwagger v cs = case someChainwebApi v cs of
