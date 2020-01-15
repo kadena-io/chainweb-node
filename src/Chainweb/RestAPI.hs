@@ -66,10 +66,10 @@ import Control.Lens
 import Data.Aeson.Encode.Pretty
 import Data.Bool (bool)
 -- import Data.Function
-import Data.Hashable (Hashable)
 import qualified Data.HashMap.Strict.InsOrd as HM
 import qualified Data.List as L
 import Data.Maybe
+import Data.Monoid
 import Data.Proxy
 import Data.Swagger
 import qualified Data.ByteString.Lazy as BL
@@ -201,63 +201,50 @@ someSwaggerApi = SomeApi $ Proxy @SwaggerApi
 
 someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
 someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
-    $ return $ swaggerShim v cs $ chainwebSwagger v cs
+    $ return $ swaggerShim v $ chainwebSwagger v cs
 
-deleteOn :: (a -> Bool) -> [a] -> [a]
-deleteOn _ [] = []
-deleteOn f (x:xs) = if f x then xs else x : deleteOn f xs
+replaceEntryPrefix :: ChainwebVersion -> String -> String
+replaceEntryPrefix v string =  fromMaybe string $ getFirst $ foldMap (First . go) suffixes
+    where
+      go suffix
+          | L.isSuffixOf suffix string = Just $ pfx <> suffix
+          | otherwise = Nothing
 
-deleteEntries :: Eq k => Hashable k => [k] -> [(k, v)] -> [(k, v)]
-deleteEntries fs = foldr (\k f hm -> f (deleteOn ((== k) . fst) hm)) id fs
+      suffixes =
+        ["/hash"
+        , "/header"
+        , "/header/{BlockHash}"
+        , "/hash/branch"
+        , "/header/branch"
+        , "/payload/{BlockPayloadHash}"
+        , "/payload/{BlockPayloadHash}/outputs"
+        , "/peer"
+        , "/pact/api/v1/send"
+        , "/pact/api/v1/poll"
+        , "/pact/api/v1/listen"
+        , "/pact/api/v1/local"
+        , "/pact/spv"
+        , "/mempool/peer"
+        ]
 
-entriesToDelete :: ChainwebVersion -> [NetworkId] -> [FilePath]
-entriesToDelete v ns = (\str num -> chokeOnCutNetwork num $ printf str (T.unpack prettyApiVersion) (show v) (T.unpack $ toText num)) <$> xs <*> ns
-  where
-    chokeOnCutNetwork num x =
-      case num of
-        CutNetwork -> error "Not sure how to process this!"
-        _ -> x
-    xs =
-      [ "/chainweb/%s/%s/%s/hash"
-      , "/chainweb/%s/%s/%s/header"
-      , "/chainweb/%s/%s/%s/header/{BlockHash}"
-      , "/chainweb/%s/%s/%s/hash/branch"
-      , "/chainweb/%s/%s/%s/header/branch"
-      , "/chainweb/%s/%s/%s/payload/{BlockPayloadHash}"
-      , "/chainweb/%s/%s/%s/payload/{BlockPayloadHash}/outputs"
-      , "/chainweb/%s/%s/%s/peer"
-      , "/chainweb/%s/%s/%s/pact/api/v1/send"
-      , "/chainweb/%s/%s/%s/pact/api/v1/poll"
-      , "/chainweb/%s/%s/%s/pact/api/v1/listen"
-      , "/chainweb/%s/%s/%s/pact/api/v1/local"
-      , "/chainweb/%s/%s/%s/pact/spv"
-      , "/chainweb/%s/%s/%s/mempool/peer"
-      ]
+      pfx = printf "/chainweb/%s/%s/chain/{ChainId}" (T.unpack prettyApiVersion) (show v)
 
-replaceEntryPrefix :: ChainwebVersion -> NetworkId -> String -> String
-replaceEntryPrefix v c k =
-    maybe k (g "chain/{ChainId}" ++) (L.stripPrefix (g (T.unpack $ toText c)) k)
-  where
-    g = printf  "/chainweb/%s/%s/%s" (T.unpack prettyApiVersion) (show v)
-
-swaggerShim :: ChainwebVersion -> [NetworkId] -> Swagger -> Swagger
-swaggerShim _ [] swagger = swagger
-swaggerShim v (c:cs) swagger =
+swaggerShim :: ChainwebVersion -> Swagger -> Swagger
+swaggerShim v swagger =
     swagger
     & paths
-    %~ HM.fromList
-     . deleteEntries (entriesToDelete v cs)
-     . map (over _1 (replaceEntryPrefix v c))
-     . map (over _2 addChainIdParam)
-     . HM.toList
+    %~ HM.mapWithKey addChainIdParam
+    . HM.mapKeys (replaceEntryPrefix v)
 
   where
 
-    addChainIdParam value =
+    addChainIdParam k value
+      | L.isInfixOf "{ChainId}" k =
          value
          & get . _Just . parameters <>~ [chainIdParam]
          & put . _Just . parameters <>~ [chainIdParam]
          & post . _Just . parameters <>~ [chainIdParam]
+      | otherwise = value
 
     chainIdParam =
       Inline $
