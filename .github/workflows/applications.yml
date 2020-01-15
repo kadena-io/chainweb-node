@@ -19,7 +19,7 @@ jobs:
         cabal: ['3.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-10.14']
         cabalcache: ['true']
-        distcache: ['true']
+        distcache: ['false']
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
@@ -135,7 +135,7 @@ jobs:
     - name: Build
       run: cabal v2-build chainweb-node
     - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/remote pact tests/'
+      run: cabal v2-run chainweb-tests -- --hide-successes
     - name: Run Benchmarks and Certificate Validation Tests
       run: cabal v2-run cwtool -- slow-tests
     - name: Sync dist cache
@@ -171,4 +171,3 @@ jobs:
         export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
         aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$LATEST_BINFILE --acl public-read
-
