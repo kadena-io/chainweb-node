@@ -249,7 +249,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psBlockHeaderDb = bhDb
                 , _psGasModel = gasModel
                 , _psMinerRewards = rs
-                , _psEnableUserContracts = enableUserContracts ver
+                , _psEnableUserContracts = True
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 }
@@ -785,6 +785,23 @@ minerReward (MinerRewards rs q) bh =
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
+-- | If user contracts are enabled, check the block time against
+-- the activation date.
+--
+withEnableUserContracts
+    :: BlockHeader
+    -> PactServiceM cas a
+    -> PactServiceM cas a
+withEnableUserContracts bh act =
+    locally psEnableUserContracts (const allowModules) act
+  where
+    allowModules = case activated of
+      Just d | d > blockTime && not isGenesis -> False
+      _ -> True
+    blockTime = _bct $ _blockCreationTime bh
+    activated = userContractActivationDate $ _blockChainwebVersion bh
+    isGenesis = isGenesisBlockHeader bh
+
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
@@ -842,9 +859,11 @@ execNewBlock mpAccess parentHeader miner creationTime = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions (Just (parentHeader,creationTime)) miner newTrans
-                   (EnforceCoinbaseFailure True)
-                   (CoinbaseUsePrecompiled True) pdbenv
+        results <- withEnableUserContracts parentHeader $
+          execTransactions (Just (parentHeader,creationTime)) miner newTrans
+            (EnforceCoinbaseFailure True)
+            (CoinbaseUsePrecompiled True)
+            pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -966,13 +985,14 @@ playOneBlock currHeader plData pdbenv = do
     miner <- decodeStrictOrThrow' (_minerData $ _payloadDataMiner plData)
     trans <- liftIO $ transactionsFromPayload plData
     cp <- getCheckpointer
-    allowModule <- view psEnableUserContracts
     let creationTime = _blockCreationTime currHeader
     -- prop_tx_ttl_validate
-    oks <- liftIO (
-        fmap (either (const False) (const True)) <$>
-           validateChainwebTxs cp creationTime
-               (_blockHeight currHeader) trans skipDebitGas allowModule)
+    oks <- withEnableUserContracts currHeader $ do
+        allowModuleInstall <- view psEnableUserContracts
+        liftIO $ fmap (either (const False) (const True)) <$>
+          validateChainwebTxs cp creationTime (_blockHeight currHeader)
+            trans skipDebitGas allowModuleInstall
+
     let mbad = V.elemIndex False oks
     case mbad of
         Nothing -> return ()  -- ok
@@ -1012,8 +1032,9 @@ playOneBlock currHeader plData pdbenv = do
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactions (Just (ph,currCreationTime)) m txs
-          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
+        withEnableUserContracts currHeader $
+          execTransactions (Just (ph,currCreationTime)) m txs
+            (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -1220,6 +1241,11 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
         pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
         liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
+        {- the following can be used instead of above to nerf transaction execution
+        return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
+                      (P.PactResult (Right (P.PLiteral (P.LInteger 1))))
+                      0 Nothing Nothing Nothing)
+                      mcache -}
 
     when isGenesis $
       psInitCache <>= mcache'
