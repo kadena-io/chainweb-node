@@ -1,13 +1,33 @@
 # `chainweb-node` Changelog
 
+## 1.5 (2019-01-13)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2019-01-15T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-02-20T00:00:00Z**.
+
+* Full launch of Pact smart contract functionality (begins at
+  2020-01-15T16:00:00Z)
+
+* Increased block gas limit to 15000 (#870)
+
+* Minimal SPV proofs are created by default (affects cross-chain transfer proof size) (#860)
+
+* Enriched results at /poll and /listen endpoints (#866)
+
+* Caching improved for coinbase transactions (#861)
+
+* Improvements to node stability and node stalling issues (#844, #845)
+
 ## 1.4 (2019-12-14)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2019-12-17T00:00:00Z**. Note administrators must upgrade to this version
 before that date.
 
-This version will stop working on **2020-01-15T00:00:00Z**. Node administrators
-must update to the next version before that date.
+This version will stop working on **2020-01-15T00:00:00Z**.
 
 * All nodes in the miners list in the configuration file are served cached work
   [#819]
