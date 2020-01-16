@@ -370,15 +370,15 @@ validateLocalCmd
     -> NetworkId
     -> TransactionM p (CommandResult [TxLog Value])
 validateLocalCmd v pscid now gas0 t cmd nid@(NetworkId nidt)
-    | not (validateChainId pscid cid) =
+    | not (assertChainId pscid cid) =
       evalErr $ "invalid chain id: " <> sshow cid
-    | not (validateBlockTime bct cmd) =
+    | not (assertBlockTime bct cmd) =
       evalErr "invalid ttl or creation time"
-    | not (validateGasPrice gp) =
+    | not (assertGasPrice gp) =
       gasErr $ "gas price should be rounded to at most 12 places: " <> sshow gp
-    | not (validateNetworkId v nid) =
+    | not (assertNetworkId v nid) =
       evalErr $ "network id '" <> nidt <> "' does not match chainweb version '" <> sshow v <> "'"
-    | not (validateSigSize $ _cmdSigs cmd) =
+    | not (assertSigSize $ _cmdSigs cmd) =
       evalErr $ "Too many signatures in Pact command (max 100)"
     | otherwise = do
       gm <- use txGasModel
@@ -754,7 +754,7 @@ checkTooBigTx
     -> (CommandResult [TxLog Value] -> TransactionM p (CommandResult [TxLog Value]))
     -> TransactionM p (CommandResult [TxLog Value])
 checkTooBigTx initialGas gasLimit next onFail
-  | not (validateTxSize initialGas gasLimit) = do
+  | not (assertTxSize initialGas gasLimit) = do
       txGasUsed .= (fromIntegral gasLimit) -- all gas is consumed
 
       let !pe = PactError GasError def []

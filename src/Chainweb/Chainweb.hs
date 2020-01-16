@@ -540,10 +540,10 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
         ver  <- note (Mempool.InsertErrorOther "Undefined NetworkId") $ P._pNetworkId pay
         void $! note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
 
-        if | not (validateChainId cid pcid)        -> Left Mempool.InsertErrorMetadataMismatch
-           | not (validateSigSize (P._cmdSigs tx)) -> Left $ Mempool.InsertErrorOther "Too many signatures"
-           | not (validateNetworkId v ver)         -> Left Mempool.InsertErrorMetadataMismatch
-           | otherwise                             -> Right tx
+        if | not (assertChainId cid pcid)        -> Left Mempool.InsertErrorMetadataMismatch
+           | not (assertSigSize (P._cmdSigs tx)) -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | not (assertNetworkId v ver)         -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise                           -> Right tx
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --

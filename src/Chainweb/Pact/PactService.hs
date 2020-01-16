@@ -694,7 +694,7 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
 
     validations t = runValid checkUnique t
       >>= runValid checkTimes
-      >>= runValid (return . validateCompile allowModuleInstall)
+      >>= runValid (return . assertCompile allowModuleInstall)
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
@@ -704,7 +704,7 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
         Just _ -> pure $ Left $ InsertErrorDuplicate
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
-    checkTimes t | validateBlockTime blockOriginationTime $ fmap payloadObj t = return $ Right t
+    checkTimes t | assertBlockTime blockOriginationTime $ fmap payloadObj t = return $ Right t
                  | otherwise = return $ (Left InsertErrorInvalidTime)
 
     initTxList :: ValidateTxs
