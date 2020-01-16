@@ -109,4 +109,3 @@ validateCompile allowModuleInstall tx = case payload of
     compileCode p = compileExps (mkTextInfo (_pcCode p)) (_pcExps p)
     bailOnModule (TModule {}) _ = Left $ InsertErrorCompilationFailed "Module/interface install not supported"
     bailOnModule _ b =  b
-{-# INLINE validateCompile #-}
