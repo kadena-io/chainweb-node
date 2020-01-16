@@ -43,6 +43,8 @@ module HeaderDump
 , transactionsWithOutputs
 , commandValue
 , commandWithOutputsValue
+, withChainDbs
+, withChainDbsConcurrent
 ) where
 
 import Configuration.Utils hiding (Lens)
@@ -196,8 +198,6 @@ defaultConfig = Config
     , _configEnd = Nothing
     , _configOutput = Header
     }
-  where
-    devVersion = Development
 
 instance ToJSON Config where
     toJSON o = object
