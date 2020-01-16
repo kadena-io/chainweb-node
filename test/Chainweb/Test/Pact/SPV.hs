@@ -217,7 +217,7 @@ roundtrip sid0 tid0 burn create =
 
             -- get tx output from `(coin.delete-coin ...)` call.
             -- Note: we must mine at least (diam + 1) * graph order many blocks
-            -- to ensure we synchronize the cutdb across all chains
+            -- to ensure we synchronize the cutdb across all chains.
 
             c1 <- fmap fromJuste $ extendAwait cutDb pact1 ((diam + 1) * gorder) $
                 ((<) `on` height sid) c0
@@ -231,12 +231,12 @@ roundtrip sid0 tid0 burn create =
             -- diameter(graph) * order(graph)` should be sufficient to guarantee
             -- that a proof exists (modulo off-by-one errors)
 
-            -- So, if the distance is 2, you would mine 10 (order of peterson
-            -- graph) * 2 new blocks. Since extending the cut db picks chains
-            -- randomly you mine another 2 * diameter(graph) * 10 = 40 blocks to
-            -- make up for uneven height distribution.
+            -- For example, for the Triangle graph, you would mine at least 1 * 3 (order
+            -- of the graph) new blocks. Since extending the cut db picks chains randomly
+            -- you mine another 2 * 3 * 3 = 18 blocks to make up for uneven height
+            -- distribution.
 
-            -- So in total you would add 60 + 2 blocks which would guarantee that
+            -- So in total you would add at least 21 blocks which would guarantee that
             -- all chains advanced by at least 2 blocks. This is probably an
             -- over-approximation, I guess the formula could be made a little
             -- more tight, but the that’s the overall idea. The idea behind the
@@ -244,7 +244,7 @@ roundtrip sid0 tid0 burn create =
             -- block heights between any two chains can be at most
             -- `diameter(graph)` apart.
 
-            c2 <- fmap fromJuste $ extendAwait cutDb pact1 10 $ \c ->
+            c2 <- fmap fromJuste $ extendAwait cutDb pact1 21 $ \c ->
                 height tid c > diam + height sid c1
 
             -- _debugCut "c2" c2 payloadDb
