@@ -364,10 +364,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> (S.Stream (Of (DbEntry db)) IO (Natural, Eos) -> IO a)
             -- ^ continuation that is provided the stream of result items
         -> IO a
-    branchEntries db k l mir mar lower upper f = f $
-        getBranch db lower upper
-            & applyRank mir mar
-            & seekLimitStream key k l
+    branchEntries = defaultBranchEntries
     {-# INLINEABLE branchEntries #-}
 
     -- ---------------------------------------------------------------------- --
@@ -484,8 +481,8 @@ defaultBranchEntries db k l mir mar lower upper f = f $
 -- case for block chains. If maximum height is provided, the for each upper
 -- bound an ancestor at the given height is seeked and search starts from there.
 --
--- Seeking of the ancestor is implemented in terms of 'entries' and the
--- performance depends on an efficient implementaion of it.
+-- Seeking of the ancestor is implemented uses 'entries' and the performance
+-- depends on an efficient implementation of it.
 --
 chainBranchEntries
     :: TreeDb db
