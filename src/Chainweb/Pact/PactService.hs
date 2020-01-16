@@ -84,7 +84,6 @@ import Prelude hiding (lookup)
 ------------------------------------------------------------------------------
 -- external pact modules
 
-import Pact.Compile (compileExps)
 import qualified Pact.Gas as P
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
@@ -92,14 +91,11 @@ import qualified Pact.Parse as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import Pact.Types.Exp (ParsedCode (..))
-import Pact.Types.ExpParser (mkTextInfo)
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
 import qualified Pact.Types.PactValue as P
-import Pact.Types.RPC
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
-import Pact.Types.Term (Term(..))
 
 ------------------------------------------------------------------------------
 -- internal modules
@@ -120,7 +116,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
 import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils
+import Chainweb.Pact.Validations
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
@@ -697,7 +693,7 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
 
     validations t = runValid checkUnique t
       >>= runValid checkTimes
-      >>= runValid (return . checkCompile allowModuleInstall)
+      >>= runValid (return . validateCompile allowModuleInstall)
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
@@ -707,7 +703,7 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
         Just _ -> pure $ Left $ InsertErrorDuplicate
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
-    checkTimes t | timingsCheck blockOriginationTime $ fmap payloadObj t = return $ Right t
+    checkTimes t | validateBlockTime blockOriginationTime $ fmap payloadObj t = return $ Right t
                  | otherwise = return $ (Left InsertErrorInvalidTime)
 
     initTxList :: ValidateTxs
@@ -719,21 +715,6 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
 
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
-
-checkCompile :: Bool -> ChainwebTransaction -> Either InsertError ChainwebTransaction
-checkCompile allowModuleInstall tx = case payload of
-  Exec (ExecMsg parsedCode _) ->
-    case compileCode parsedCode of
-      Left perr -> Left $ InsertErrorCompilationFailed (sshow perr)
-      Right terms | allowModuleInstall -> Right tx
-                  | otherwise -> foldr bailOnModule (Right tx) terms
-  _ -> Right tx
-  where
-    payload = P._pPayload $ payloadObj $ P._cmdPayload tx
-    compileCode p =
-      compileExps (mkTextInfo (P._pcCode p)) (P._pcExps p)
-    bailOnModule (TModule {}) _ = Left $ InsertErrorCompilationFailed "Module/interface install not supported"
-    bailOnModule _ b =  b
 
 skipDebitGas :: RunGas
 skipDebitGas = return

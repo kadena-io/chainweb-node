@@ -1,13 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Pact.Utils
--- Copyright: Copyright © 2018 Kadena LLC.
+-- Copyright: Copyright © 2018-2020 Kadena LLC.
 -- License: See LICENSE file
--- Maintainer: Mark Nichols <mark@kadena.io>
+-- Maintainer: Mark Nichols <mark@kadena.io>, Emily Pillmore <emily@kadena.io>
+--
 -- Stability: experimental
 --
--- Pact service for Chainweb
-
+-- Pact service utilities
+--
 module Chainweb.Pact.Utils
     ( -- * persistence
       toEnv'
@@ -16,7 +17,6 @@ module Chainweb.Pact.Utils
     , aeson
     -- * time-to-live related items
     , maxTTL
-    , timingsCheck
     , fromPactChainId
     ) where
 
@@ -28,14 +28,10 @@ import Control.Monad.Catch
 import Pact.Interpreter as P
 import Pact.Parse
 import qualified Pact.Types.ChainId as P
-import Pact.Types.ChainMeta
-import Pact.Types.Command
 
-import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
-import Chainweb.Time
-import Chainweb.Transaction
+
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
 fromPactChainId (P.ChainId t) = chainIdFromText t
@@ -68,17 +64,3 @@ aeson _ g (Success a) = g a
 maxTTL :: ParsedInteger
 maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- This is probably going to be changed. Let us make it 2 days for now.
-
--- prop_tx_ttl_newBlock/validateBlock
-timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
-timingsCheck (BlockCreationTime blockOriginationTime) tx =
-    ttl > 0
-    && blockOriginationTime >= (toMicrosFromSeconds 0)
-    && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime < blockOriginationTime
-    && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
-    && ttl <= maxTTL
-  where
-    (TTLSeconds ttl) = timeToLiveOf tx
-    toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
-    (TxCreationTime txOriginationTime) = creationTimeOf tx

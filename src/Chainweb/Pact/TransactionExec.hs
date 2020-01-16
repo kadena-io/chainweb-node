@@ -61,7 +61,7 @@ import qualified Data.Aeson as A
 import Data.Bifunctor
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
-import Data.Decimal (Decimal, roundTo, decimalPlaces)
+import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
@@ -98,10 +98,10 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
-import Chainweb.Pact.Utils (timingsCheck)
+import Chainweb.Pact.Validations
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
-import Chainweb.Utils (sshow, fromText)
+import Chainweb.Utils (sshow)
 import Chainweb.Version hiding (ChainId)
 import qualified Chainweb.Version as CW
 
@@ -370,16 +370,16 @@ validateLocalCmd
       -- ^ user command
     -> NetworkId
     -> TransactionM p (CommandResult [TxLog Value])
-validateLocalCmd v pscid now gas0 t cmd (NetworkId nid)
-    | chainIdToText pscid /= cid =
-      evalErr $ "invalid chain id: " <> cid
-    | not (timingsCheck bct cmd) =
+validateLocalCmd v pscid now gas0 t cmd nid@(NetworkId nidt)
+    | not (validateChainId pscid cid) =
+      evalErr $ "invalid chain id: " <> sshow cid
+    | not (validateBlockTime bct cmd) =
       evalErr "invalid ttl or creation time"
-    | (decimalPlaces gp) > 12 =
+    | not (validateGasPrice gp) =
       gasErr $ "gas price should be rounded to at most 12 places: " <> sshow gp
-    | fromText @CW.ChainwebVersion nid /= Just v =
-      evalErr $ "network id '" <> nid <> "' does not match chainweb version '" <> sshow v <> "'"
-    | length (_cmdSigs cmd) > 100 =
+    | not (validateNetworkId v nid) =
+      evalErr $ "network id '" <> nidt <> "' does not match chainweb version '" <> sshow v <> "'"
+    | not (validateSigSize $ _cmdSigs cmd) =
       evalErr $ "Too many signatures in Pact command (max 100)"
     | otherwise = do
       gm <- use txGasModel
@@ -391,12 +391,12 @@ validateLocalCmd v pscid now gas0 t cmd (NetworkId nid)
           gl <- view (txGasLimit . to fromIntegral)
           checkTooBigTx gas0 gl (applyPayload gm) return
   where
+    gp = _txGasPrice t
     bct = BlockCreationTime now
+    cid = view (txPublicData . pdPublicMeta . pmChainId) t
+
     gasErr = err GasError
     evalErr = err EvalError
-    ChainId cid = view (txPublicData . pdPublicMeta . pmChainId) t
-    GasPrice (ParsedDecimal gp) = _txGasPrice t
-
     err pe a = jsonErrorResult (PactError pe def [] (pretty a)) a
 
     applyPayload gm = do
@@ -755,7 +755,7 @@ checkTooBigTx
     -> (CommandResult [TxLog Value] -> TransactionM p (CommandResult [TxLog Value]))
     -> TransactionM p (CommandResult [TxLog Value])
 checkTooBigTx initialGas gasLimit next onFail
-  | initialGas >= (fromIntegral gasLimit) = do
+  | not (validateTxSize initialGas gasLimit) = do
       txGasUsed .= (fromIntegral gasLimit) -- all gas is consumed
 
       let !pe = PactError GasError def []

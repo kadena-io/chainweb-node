@@ -158,7 +158,6 @@ import System.LogLevel
 
 -- internal modules
 
-import qualified Pact.Types.ChainId as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 
@@ -183,6 +182,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Utils (fromPactChainId)
+import Chainweb.Pact.Validations
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -536,13 +536,14 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     checkMetadata tx = do
         let !pay = payloadObj . P._cmdPayload $ tx
             pcid = P._pmChainId $ P._pMeta pay
-            sigs = length (P._cmdSigs tx)
-            ver  = P._pNetworkId pay >>= fromText @ChainwebVersion . P._networkId
-        tcid <- note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
-        if | tcid /= cid   -> Left Mempool.InsertErrorMetadataMismatch
-           | sigs > 100    -> Left $ Mempool.InsertErrorOther "Too many signatures"
-           | ver /= Just v -> Left Mempool.InsertErrorMetadataMismatch
-           | otherwise     -> Right tx
+
+        ver  <- note (Mempool.InsertErrorOther "Undefined NetworkId") $ P._pNetworkId pay
+        void $! note (Mempool.InsertErrorOther "Unparsable ChainId") $ fromPactChainId pcid
+
+        if | not (validateChainId cid pcid)        -> Left Mempool.InsertErrorMetadataMismatch
+           | not (validateSigSize (P._cmdSigs tx)) -> Left $ Mempool.InsertErrorOther "Too many signatures"
+           | not (validateNetworkId v ver)         -> Left Mempool.InsertErrorMetadataMismatch
+           | otherwise                             -> Right tx
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --
