@@ -681,7 +681,8 @@ executable cwtool
     default-language: Haskell2010
     ghc-options:
         -threaded
-        -with-rtsopts=-N
+        -rtsopts
+        "-with-rtsopts=-N -H1G -A64M"
     hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump node test
     main-is: CwTool.hs
     other-modules:
