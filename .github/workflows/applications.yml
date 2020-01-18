@@ -53,6 +53,12 @@ jobs:
       run: |
         curl -sL https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --paths.d --ghc-alias=${{ matrix.ghc }} --cabal-alias=3.0.0.0 install ghc-${{ matrix.ghc }} cabal-install-3.0.0.0
         ln -s /opt/cabal/3.0.0.0 /opt/cabal/3.0
+    - name: Install Haskell (ubuntu)
+      if: contains(matrix.os, 'ubuntu')
+      run: |
+          sudo add-apt-repository ppa:hvr/ghc
+          sudo apt-get update
+          sudo apt-get install ghc-${{ matrix.ghc }}
     - name: Set GHC and Cabal version
       uses: actions/setup-haskell@v1
       with:
@@ -101,6 +107,7 @@ jobs:
         allow-newer:
           fake:*
           pact:*
+          ixset-typed:*
           semigroups
           servant-swagger:swagger2
         EOF
