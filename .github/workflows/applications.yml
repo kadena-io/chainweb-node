@@ -4,7 +4,7 @@ on:
   push:
     branches:
     - master
-    - lars/github-ci
+    - ci/*
     - github-ci
     - release-candidate/*
 
@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.6.5', '8.8.1']
+        ghc: ['8.6.5', '8.8.2']
         cabal: ['3.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-10.14']
         cabalcache: ['true']
@@ -84,15 +84,15 @@ jobs:
           optimization: 2
           ghc-options: -j
         EOF
-    - name: Append cabal.project (only ghc-8.8.1)
-      if: matrix.ghc == '8.8.1'
+    - name: Append cabal.project (only ghc-8.8.*)
+      if: matrix.ghc == '8.8.2'
       run: |
         cat >> cabal.project <<EOF
         package chainweb
           ghc-options: -Wwarn
-          ghc-options: -fwrite-ide-info
-          ghc-options: -hiedir ./dist-newstyle/hie
           haddock-options: --optghc=-Wwarn
+          # ghc-options: -fwrite-ide-info
+          # ghc-options: -hiedir ./dist-newstyle/hie
         package pact
           ghc-options: -Wwarn
           haddock-options: --optghc=-Wwarn
@@ -100,20 +100,9 @@ jobs:
           type: git
           location: http://github.com/larskuhtz/ixset-typed.git
           tag: 335c8e31d39be873a429fc9814060bf928ad0ee9
-        source-repository-package
-          type: git
-          location: http://github.com/osa1/data-dword.git
-          tag: 573d7b5fdd3635ade9bc1cf8fd88a1bf8059f78f
         allow-newer:
-          compactable:base
           fake:*
-          ixset-typed:safecopy
-          ixset-typed:template-haskell
           pact:*
-          paths:*
-          safecopy:template-haskell
-          strict-tuple:base
-          token-bucket:base
         EOF
     - name: Sync from dist cache
       if: matrix.distcache == 'true'
