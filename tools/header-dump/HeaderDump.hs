@@ -1,7 +1,10 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -20,8 +23,6 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
 module HeaderDump
 ( main
 , run
@@ -32,10 +33,15 @@ module HeaderDump
 , Config(..)
 , defaultConfig
 
+-- * ChainData
+, ChainData(..)
+, cdChainId
+, cdHeight
+, cdData
+
 -- * Tools
 , progress
 , miner
-, payloads
 , coinbaseOutput
 , coinbaseResult
 , pactResult
@@ -50,7 +56,6 @@ module HeaderDump
 import Configuration.Utils hiding (Lens)
 import Configuration.Utils.Validation
 
-import Control.Arrow
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
@@ -58,6 +63,7 @@ import Control.Monad.Catch (MonadThrow, throwM)
 import Control.Monad.Except
 
 import Data.Aeson.Encode.Pretty hiding (Config)
+import Data.Aeson.Lens
 import Data.Bitraversable
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS
@@ -66,6 +72,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.Functor.Of
 import qualified Data.HashSet as HS
 import Data.LogMessage
+import Data.Maybe
 import Data.Semigroup hiding (option)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -94,7 +101,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
-import Chainweb.TreeDB
+import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -293,6 +300,25 @@ withRocksDb_ path = bracket (openRocksDb_ path) closeRocksDb_
     closeRocksDb_ = R.close . _rocksDbHandle
 
 -- -------------------------------------------------------------------------- --
+-- Chain Data Wrapper
+
+data ChainData a = ChainData
+    { _cdChainId :: !ChainId
+    , _cdHeight :: !BlockHeight
+    , _cdData :: !a
+    }
+    deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
+
+makeLenses ''ChainData
+
+instance ToJSON a => ToJSON (ChainData a) where
+    toJSON o = object
+        [ "chainId" .= _cdChainId o
+        , "height" .= _cdHeight o
+        , "data" .= _cdData o
+        ]
+
+-- -------------------------------------------------------------------------- --
 -- Print Transactions
 
 mainWithConfig :: Config -> IO ()
@@ -354,48 +380,52 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputRawPayload -> s
-            & payloads pdb id
+            & payloadsCid pdb id
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputTransaction -> s
-            & payloads pdb id
-            & transactionsWithOutputs _2
-            & S.map (encodeJson @(BlockHeight, V.Vector Value))
+            & payloadsCid pdb id
+            & transactionsWithOutputs cdData
+            & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputMiner -> s
             & payloadsCid pdb id
-            & miner _3
-            & S.filter (\(_, _, Miner mid _mkeys) -> _minerId mid /= "noMiner")
+            & miner cdData
+            & S.filter ((/= "noMiner") . view (cdData . minerId))
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputCoinbaseOutput -> s
-            & payloads pdb id
-            & coinbaseOutput _2
+            & payloadsCid pdb id
+            & coinbaseOutput cdData
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputCoinebaseResult -> s
-            & payloads pdb id
-            & coinbaseResult _2
+            & payloadsCid pdb id
+            & coinbaseResult cdData
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         CoinbaseFailure -> s
-            & payloads pdb id
-            & coinbaseResult _2
-            & failures _2
-            & S.concat
+            & payloadsCid pdb id
+            & coinbaseResult cdData
+            & failures cdData
+            & S.filter (isJust . view cdData)
             & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputPayload -> s
-            & payloads pdb id
-            & transactionsWithOutputs _2
-            & S.map (encodeJson @(BlockHeight, V.Vector Value))
+            & payloadsCid pdb id
+            & transactionsWithOutputs cdData
+            & S.map encodeJson
             & S.mapM_ T.putStrLn
         OutputAll -> s
             & S.map (\h -> (h,h))
-            & payloads pdb _2
-            & S.map (\(a,(_,c)) -> (a,c))
-            & transactionsWithOutputs _2
-            & S.map (encodeJson @(BlockHeader, V.Vector Value))
+            & payloadsCid pdb _2
+            & S.map (\(a,b) -> b & cdData .~ object
+                    [ "header" .= a
+                    , "payload" .= view cdData b
+                    ]
+                )
+            & transactionsWithOutputs (cdData . key "payload" . _JSON)
+            & S.map encodeJson
             & S.mapM_ T.putStrLn
   where
     logg :: LogFunctionText
@@ -416,48 +446,42 @@ progress logg s = s
         (\x -> when (_blockHeight x `mod` 100 == 0) $
             logg Info ("BlockHeight: " <> sshow (_blockHeight x))
         )
-
 miner
     :: MonadThrow m
-    => Lens a b PayloadWithOutputs Miner
+    => Traversal a b PayloadWithOutputs Miner
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r
 miner l = S.mapM
     $ l (decodeStrictOrThrow' . _minerData . _payloadWithOutputsMiner)
 
-payloads
-    :: MonadIO m
-    => PayloadCas cas
-    => PayloadDb cas
-    -> Lens a b BlockHeader (BlockHeight, PayloadWithOutputs)
-    -> S.Stream (Of a) m r
-    -> S.Stream (Of b) m r
-payloads pdb l =  S.mapM
-    $ l (traverse (liftIO . casLookupM pdb) . (_blockHeight &&& _blockPayloadHash))
-
 payloadsCid
     :: MonadIO m
     => PayloadCas cas
     => PayloadDb cas
-    -> Lens a b BlockHeader (ChainId, BlockHeight, PayloadWithOutputs)
+    -> Traversal a b BlockHeader (ChainData PayloadWithOutputs)
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r
 payloadsCid pdb l =  S.mapM
     $ l
-        ( _3 (liftIO . casLookupM pdb)
-        . (\x -> (_blockChainId x, _blockHeight x, _blockPayloadHash x))
+        ( cdData (liftIO . casLookupM pdb)
+        . (\x -> ChainData
+            { _cdChainId = _blockChainId x
+            , _cdHeight = _blockHeight x
+            , _cdData = _blockPayloadHash x
+            }
+          )
         )
 
 coinbaseOutput
     :: Monad m
-    => Lens a b PayloadWithOutputs CoinbaseOutput
+    => Traversal a b PayloadWithOutputs CoinbaseOutput
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r
 coinbaseOutput l = S.map $ over l _payloadWithOutputsCoinbase
 
 coinbaseResult
     :: MonadThrow m
-    => Lens a b PayloadWithOutputs (CommandResult T.Text)
+    => Traversal a b PayloadWithOutputs (CommandResult T.Text)
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r
 coinbaseResult l = S.mapM
@@ -465,14 +489,14 @@ coinbaseResult l = S.mapM
 
 pactResult
     :: Monad m
-    => Lens a b (CommandResult T.Text) PactResult
+    => Traversal a b (CommandResult T.Text) PactResult
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r
 pactResult l = S.map $ over l _crResult
 
 failures
     :: Monad m
-    => Lens a b (CommandResult T.Text) (Maybe PactError)
+    => Traversal a b (CommandResult T.Text) (Maybe PactError)
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r
 failures l = S.map $ over l (go . _crResult)
@@ -484,7 +508,7 @@ failures l = S.map $ over l (go . _crResult)
 
 transactionsWithOutputs
     :: MonadThrow m
-    => Lens a b PayloadWithOutputs (V.Vector Value)
+    => Traversal a b PayloadWithOutputs (V.Vector Value)
     -> S.Stream (Of a) m r
     -> S.Stream (Of b) m r
 transactionsWithOutputs l = S.mapM $ l
