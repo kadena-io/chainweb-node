@@ -191,10 +191,7 @@ prettyShowChainwebApi v cs = case someChainwebApi v cs of
 -- chains is large the corresponding swagger file will be very large as well.
 -- We should improve the swagger spec to be more structured.
 
--- type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
-
 type SwaggerApi = "swagger.json" :> Get '[JSON] Swagger
--- type SwaggerApi = "swagger.json" :> Get '[JSON] Value
 
 someSwaggerApi :: SomeApi
 someSwaggerApi = SomeApi $ Proxy @SwaggerApi
@@ -203,38 +200,12 @@ someSwaggerServer :: ChainwebVersion -> [NetworkId] -> SomeServer
 someSwaggerServer v cs = SomeServer (Proxy @SwaggerApi)
     $ return $ swaggerShim v $ chainwebSwagger v cs
 
-replaceEntryPrefix :: ChainwebVersion -> String -> String
-replaceEntryPrefix v string =  fromMaybe string $ getFirst $ foldMap (First . go) suffixes
-    where
-      go suffix
-          | L.isSuffixOf suffix string = Just $ pfx <> suffix
-          | otherwise = Nothing
-
-      suffixes =
-        ["/hash"
-        , "/header"
-        , "/header/{BlockHash}"
-        , "/hash/branch"
-        , "/header/branch"
-        , "/payload/{BlockPayloadHash}"
-        , "/payload/{BlockPayloadHash}/outputs"
-        , "/peer"
-        , "/pact/api/v1/send"
-        , "/pact/api/v1/poll"
-        , "/pact/api/v1/listen"
-        , "/pact/api/v1/local"
-        , "/pact/spv"
-        , "/mempool/peer"
-        ]
-
-      pfx = printf "/chainweb/%s/%s/chain/{ChainId}" (T.unpack prettyApiVersion) (show v)
-
 swaggerShim :: ChainwebVersion -> Swagger -> Swagger
 swaggerShim v swagger =
     swagger
     & paths
     %~ HM.mapWithKey addChainIdParam
-    . HM.mapKeys (replaceEntryPrefix v)
+    . HM.mapKeys replaceEntryPrefix
 
   where
 
@@ -245,6 +216,32 @@ swaggerShim v swagger =
          & put . _Just . parameters <>~ [chainIdParam]
          & post . _Just . parameters <>~ [chainIdParam]
       | otherwise = value
+
+    replaceEntryPrefix string =  fromMaybe string $ getFirst $ foldMap (First . go) suffixes
+        where
+
+          go suffix
+              | L.isSuffixOf suffix string = Just $ pfx <> suffix
+              | otherwise = Nothing
+
+          suffixes =
+            ["/hash"
+            , "/header"
+            , "/header/{BlockHash}"
+            , "/hash/branch"
+            , "/header/branch"
+            , "/payload/{BlockPayloadHash}"
+            , "/payload/{BlockPayloadHash}/outputs"
+            , "/peer"
+            , "/pact/api/v1/send"
+            , "/pact/api/v1/poll"
+            , "/pact/api/v1/listen"
+            , "/pact/api/v1/local"
+            , "/pact/spv"
+            , "/mempool/peer"
+            ]
+
+          pfx = printf "/chainweb/%s/%s/chain/{ChainId}" (T.unpack prettyApiVersion) (show v)
 
     chainIdParam =
       Inline $
