@@ -101,6 +101,8 @@ jobs:
         allow-newer:
           fake:*
           pact:*
+          semigroups
+          servant-swagger:swagger2
         EOF
     - name: Sync from dist cache
       if: matrix.distcache == 'true'
