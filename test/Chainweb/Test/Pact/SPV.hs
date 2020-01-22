@@ -242,9 +242,10 @@ roundtrip sid0 tid0 burn create =
             -- more tight, but the that’s the overall idea. The idea behind the
             -- `2 * diameter(graph) * order(graph)` corrective is that, the
             -- block heights between any two chains can be at most
-            -- `diameter(graph)` apart.
+            -- `diameter(graph)` apart. We mine an extra cut height on all blocks
+            -- to make sure the proof is visible on all chains.
 
-            c2 <- fmap fromJuste $ extendAwait cutDb pact1 21 $ \c ->
+            c2 <- fmap fromJuste $ extendAwait cutDb pact1 30 $ \c ->
                 height tid c > diam + height sid c1
 
             -- _debugCut "c2" c2 payloadDb
@@ -259,12 +260,11 @@ roundtrip sid0 tid0 burn create =
             syncPact cutDb pact2
 
             -- consume the stream and mine second batch of transactions
-            c3 <- fmap fromJuste $ extendAwait cutDb pact2 ((diam + 1) * gorder) $
-                ((<) `on` height tid) c2
+            c3 <- fromJuste <$!> extendAwait cutDb pact2 ((diam + 1) * gorder) (((<) `on` height tid) c2)
 
             -- _debugCut "c3" c3 payloadDb
 
-            (,) <$> cutToPayloadOutputs c1 payloadDb <*>
+            (,) <$!> cutToPayloadOutputs c1 payloadDb <*>
               cutToPayloadOutputs c3 payloadDb
 
 _debugCut :: PayloadCas cas => String -> Cut -> PayloadDb cas -> IO ()
