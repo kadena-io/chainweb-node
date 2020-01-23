@@ -197,7 +197,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
-                 | InsertErrorNoGas
+                 | InsertErrorBuyGas Text
                  | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
   deriving (Generic, Eq)
@@ -213,7 +213,7 @@ instance Show InsertError
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
     show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
-    show InsertErrorNoGas = "Sender account has insufficient gas."
+    show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
     show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 

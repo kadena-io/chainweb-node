@@ -88,6 +88,7 @@ import Pact.Compile (compileExps)
 import qualified Pact.Gas as P
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
+import Pact.Types.PactError()
 import qualified Pact.Parse as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
@@ -672,7 +673,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
           $! buyGas cmd miner
 
         case cr of
-            Left _ -> return (T2 mcache (Left InsertErrorNoGas))
+            Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
 -- | The principal validation logic for groups of Pact Transactions.
