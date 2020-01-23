@@ -88,7 +88,6 @@ import Pact.Compile (compileExps)
 import qualified Pact.Gas as P
 import Pact.Gas.Table
 import qualified Pact.Interpreter as P
-import Pact.Types.PactError()
 import qualified Pact.Parse as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
