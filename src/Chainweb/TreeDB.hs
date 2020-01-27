@@ -60,9 +60,6 @@ module Chainweb.TreeDB
 , lookupM
 , lookupStreamM
 
--- ** Stream a foldable value
-, foldableEntries
-
 -- * Misc Utils
 , forkEntry
 , branchDiff
@@ -422,7 +419,9 @@ root db = fmap fromJuste $ entries db Nothing (Just 1) Nothing Nothing S.head_
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
-applyRank
+-- This assumes that the entries of the stream are in descending order by rank.
+--
+applyRankDesc
     :: forall e m
     . TreeDbEntry e
     => Monad m
@@ -432,9 +431,9 @@ applyRank
         -- ^ Return just the entries that have the given maximum rank.
     -> S.Stream (Of e) m ()
     -> S.Stream (Of e) m ()
-applyRank l u
-    = maybe id (\x -> S.filter (\e -> rank e <= x)) (_getMaxRank <$> u)
-    . maybe id (\x -> S.filter (\e -> rank e >= x)) (_getMinRank <$> l)
+applyRankDesc l u
+    = maybe id (\x -> S.dropWhile (\e -> rank e > x)) (_getMaxRank <$> u)
+    . maybe id (\x -> S.takeWhile (\e -> rank e >= x)) (_getMinRank <$> l)
 
 -- | Returns the stream of all ancestors of a key, including the entry of the
 -- given key.
@@ -472,7 +471,7 @@ defaultBranchEntries
     -> IO a
 defaultBranchEntries db k l mir mar lower upper f = f $
     getBranch db lower upper
-        & applyRank mir mar
+        & applyRankDesc mir mar
         & seekLimitStream key k l
 {-# INLINEABLE defaultBranchEntries #-}
 
@@ -729,23 +728,6 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
         (Just !x) -> return $! Just x
-
--- | Create a `Stream` from a `Foldable` value.
---
-foldableEntries
-    :: forall e f
-    . Foldable f
-    => TreeDbEntry e
-    => Maybe (NextItem (Key e))
-    -> Maybe Limit
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> f e
-    -> S.Stream (Of e) IO (Natural, Eos)
-foldableEntries k l mir mar f = S.each f
-    & applyRank mir mar
-    & void
-    & seekLimitStream key k l
 
 -- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
 -- used only for debugging purposes.

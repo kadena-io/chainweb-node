@@ -248,12 +248,16 @@ sendValidationTest iot nio =
 
         step "check insufficient gas"
         batch4 <- testBatch' iot 10000 mv 10000000000
-        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+        expectSendFailure
+          "(enforce (<= amount balance) \\\"...: Failure: Tx Failed: Insufficient funds\"" $
+          flip runClientM cenv $
             pactSendApiClient v cid batch4
 
         step "check bad sender"
         batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
-        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+        expectSendFailure
+          "(read coin-table sender): Failure: Tx Failed: read: row not found: invalid-sender" $
+          flip runClientM cenv $
             pactSendApiClient v cid0 batch5
 
   where
