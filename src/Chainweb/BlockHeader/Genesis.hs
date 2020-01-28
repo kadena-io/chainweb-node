@@ -32,6 +32,7 @@ import Control.Arrow ((&&&))
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import qualified Data.List.NonEmpty as NE
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
 import Pact.Types.Command (CommandResult)
@@ -41,6 +42,7 @@ import Pact.Types.Hash (Hash)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
@@ -64,6 +66,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Pact
 import Chainweb.Payload
+import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -196,7 +199,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         :+: BlockHeight 0
         :+: v
         :+: EpochStartTime t
-        :+: FeatureFlags 0
+        :+: mkFeatureFlags (fst . NE.head $ powHashAlg v (BlockHeight 0))
         :+: MerkleLogBody (blockHashRecordToVector adjParents)
     adjParents = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)

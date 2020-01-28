@@ -291,8 +291,8 @@ targetToDifficultyR (HashTarget (PowHashNat target)) =
 -- | The critical check in Proof-of-Work mining: did the generated hash match
 -- the target?
 --
-checkTarget :: HashTarget -> PowHash -> Bool
-checkTarget (HashTarget target) h = powHashNat h <= target
+checkTarget :: HashTarget -> PowHash -> Natural -> Bool
+checkTarget (HashTarget target) h m = (int m) * powHashNat h <= target
 {-# INLINE checkTarget #-}
 
 encodeHashTarget :: MonadPut m => HashTarget -> m ()

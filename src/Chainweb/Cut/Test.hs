@@ -81,10 +81,12 @@ import qualified Test.QuickCheck.Monadic as T
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
+import Chainweb.PowHash
 import Chainweb.Time (Micros(..), Time, getCurrentTimeIntegral, second)
 import Chainweb.Utils
 import Chainweb.Version
@@ -143,7 +145,7 @@ createNewCut
     -> Either MineFailure (T2 BlockHeader Cut)
 createNewCut n t pay i c = do
     h <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
-    unless (checkTarget (_blockTarget h) $ _blockPow h) $ Left BadNonce
+    unless (checkTarget (_blockTarget h) (_blockPow h) (_blockPowMultiplyer h)) $ Left BadNonce
     c' <- first (\e -> error $ "Chainweb.Cut.createNewCut: " <> sshow e)
         $ monotonicCutExtension c h
     return $ T2 h c'
@@ -155,8 +157,10 @@ createNewCut n t pay i c = do
     p :: BlockHeader
     p = c ^?! ixg cid
 
+    alg = defaultPowHashAlg (_chainwebVersion c) (_blockHeight p + 1)
+
     newHeader :: BlockHashRecord -> BlockHeader
-    newHeader as = newBlockHeader as pay n (BlockCreationTime t) $ ParentHeader p
+    newHeader as = newBlockHeader as pay alg n (BlockCreationTime t) $ ParentHeader p
 
     -- | Try to get all adjacent hashes dependencies.
     --

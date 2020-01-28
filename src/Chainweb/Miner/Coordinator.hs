@@ -52,6 +52,7 @@ import Data.Foldable (foldl')
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
+import qualified Data.List.NonEmpty as NE
 import Data.Ratio ((%))
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
@@ -67,6 +68,7 @@ import System.LogLevel (LogLevel(..))
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation (prop_block_pow)
+import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -74,6 +76,7 @@ import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
+import Chainweb.PowHash
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
 import Chainweb.Utils hiding (check)
@@ -146,11 +149,12 @@ newWork logFun choice eminer pact tpw c = do
     --
     cid <- chainChoice c choice
 
-    -- The parent block the mine on. Any given chain will always
+    -- The parent block to mine on. Any given chain will always
     -- contain at least a genesis block, so this otherwise naughty
     -- `^?!` will always succeed.
     --
-    let !p = ParentHeader (c ^?! ixg cid)
+    let !p@(ParentHeader ph) = ParentHeader (c ^?! ixg cid)
+        (alg, mult) = NE.head $ powHashAlg (_chainwebVersion c) (_blockHeight ph + 1)
 
     mr <- case eminer of
         Primed m -> primed m cid p <$> readTVarIO tpw
@@ -165,7 +169,7 @@ newWork logFun choice eminer pact tpw c = do
             -- core Mining logic.
             --
             let !phash = _payloadWithOutputsPayloadHash payload
-                !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
+                !header = newBlockHeader adjParents phash alg (Nonce 0) creationTime p
             pure $ T3 (PrevTime . _blockCreationTime $ coerce p) header payload
   where
     primed

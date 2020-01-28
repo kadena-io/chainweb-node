@@ -36,7 +36,7 @@ import qualified Pact.Types.SQLite as PSQL
 -- chainweb imports
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.MerkleLogHash
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types

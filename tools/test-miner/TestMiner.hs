@@ -43,6 +43,8 @@ pNumTrials = option auto
 pOpts :: Parser (Int, Int, FilePath)
 pOpts = (,,) <$> pTargetZeroes <*> pNumTrials <*> pMiner
 
+powAlg :: PowHashAlg
+powAlg = defaultPowHashAlg Testnet04 1
 
 -- make the hex string then hex-decode it
 makeTarget :: Int -> ByteString
@@ -62,7 +64,7 @@ checkMinerOutput nonceB targetBytes blockBytes0 = do
         return (ok, hashBytes)
   where
     !blockBytes = nonceB <> B.drop 8 blockBytes0
-    hashBytes = SB.fromShort $ powHashBytes $ powHash Testnet04 blockBytes
+    hashBytes = SB.fromShort $ powHashBytes $ powHash powAlg blockBytes
 
 makeBlock :: IO ByteString
 makeBlock = MWC.withSystemRandom $ \gen -> do

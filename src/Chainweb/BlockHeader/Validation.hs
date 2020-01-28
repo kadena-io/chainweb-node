@@ -40,6 +40,8 @@ module Chainweb.BlockHeader.Validation
 , prop_block_genesis_parent
 , prop_block_genesis_target
 , prop_block_target
+, prop_block_featureFlags
+, prop_block_powHashAlg
 
 -- * Inductive BlockHeader Properties
 , prop_block_epoch
@@ -65,6 +67,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash)
 import Chainweb.ChainId
 import Chainweb.Difficulty
+import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.Utils
 
@@ -102,6 +105,8 @@ instance Show ValidationFailure where
             BlockInTheFuture -> "The creation time of the block is in the future"
             IncorrectPayloadHash -> "The payload hash does not match the payload hash that results from payload validation"
             MissingPayload -> "The payload of the block is missing"
+            InvalidFeatureFlags -> "The block has an invalid feature flag value"
+            InvalidPowHashAlg -> "The block uses an POW hash that is invalid for the chainweb version and block height"
 
 -- | An enumeration of possible validation failures for a block header.
 --
@@ -148,6 +153,10 @@ data ValidationFailureType
         -- ^ The validation of the payload hash failed.
     | MissingPayload
         -- ^ The payload for the block is missing.
+    | InvalidFeatureFlags
+        -- ^ The block has an invalid feature flag setting
+    | InvalidPowHashAlg
+        -- ^ The block uses an invalid POW hash algorithm
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
@@ -175,6 +184,8 @@ definiteValidationFailures =
     , IncorrectGenesisParent
     , IncorrectGenesisTarget
     , IncorrectPayloadHash
+    , InvalidFeatureFlags
+    , InvalidPowHashAlg
     ]
 
 -- | Predicate that checks whether a validation failure is definite.
@@ -311,6 +322,8 @@ validateIntrinsic t b = concat
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
     , [ BlockInTheFuture | not (prop_block_current t b)]
+    , [ InvalidFeatureFlags | not (prop_block_featureFlags b)]
+    , [ InvalidPowHashAlg | not (prop_block_powHashAlg b)]
     ]
 
 -- | Validate properties of a block with respect to a given parent.
@@ -376,7 +389,7 @@ validateBlocksM t lookupParent as
 -- Intrinsic BlockHeader properties
 
 prop_block_pow :: BlockHeader -> Bool
-prop_block_pow b = checkTarget (_blockTarget b) (_blockPow b)
+prop_block_pow b = checkTarget (_blockTarget b) (_blockPow b) (_blockPowMultiplyer b)
 
 prop_block_hash :: BlockHeader -> Bool
 prop_block_hash b = _blockHash b == computeBlockHash b
@@ -395,6 +408,14 @@ prop_block_genesis_target b = isGenesisBlockHeader b
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
+
+prop_block_powHashAlg :: BlockHeader -> Bool
+prop_block_powHashAlg b = _blockPowHashAlg b `elem` (toList algs)
+  where
+    algs = fst <$> powHashAlg (_blockChainwebVersion b) (int $ _blockHeight b)
+
+prop_block_featureFlags :: BlockHeader -> Bool
+prop_block_featureFlags b = _blockFlags b == mkFeatureFlags (_blockPowHashAlg b)
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties

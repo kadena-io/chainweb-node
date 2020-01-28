@@ -95,6 +95,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger
 import Chainweb.Miner.Pact

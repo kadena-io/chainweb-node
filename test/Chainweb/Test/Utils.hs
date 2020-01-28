@@ -150,6 +150,7 @@ import Chainweb.Logger (Logger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
@@ -157,6 +158,7 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Payload.PayloadStore
+import Chainweb.PowHash
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.Orphans.Internal ()
@@ -356,7 +358,7 @@ header h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart h t'
-            :+: FeatureFlags 0
+            :+: mkFeatureFlags (defaultPowHashAlg v (_blockHeight h + 1))
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h

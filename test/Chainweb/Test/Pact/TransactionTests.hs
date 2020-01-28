@@ -25,7 +25,6 @@ import Control.Monad
 import Data.Aeson
 import Data.Aeson.Lens
 import Data.Foldable (for_, traverse_)
-import Data.Functor (void)
 import Data.Text (isInfixOf,unpack)
 import Data.Default
 import Data.Tuple.Strict (T2(..))
@@ -49,6 +48,7 @@ import Pact.Types.SPV
 -- internal chainweb modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec

@@ -59,6 +59,7 @@ import Pact.Types.Hash (Hash)
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes

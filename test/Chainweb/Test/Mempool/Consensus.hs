@@ -41,6 +41,7 @@ import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
+import Chainweb.PowHash
 import Chainweb.Test.Utils
 import Chainweb.Time
 import qualified Chainweb.TreeDB as TreeDB
@@ -341,7 +342,7 @@ header' h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart h t'
-            :+: FeatureFlags 0
+            :+: mkFeatureFlags (defaultPowHashAlg v (_blockHeight h + 1))
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
