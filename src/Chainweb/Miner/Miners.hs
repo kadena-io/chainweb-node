@@ -62,8 +62,6 @@ import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
 
----
-
 --------------------------------------------------------------------------------
 -- Local Mining
 

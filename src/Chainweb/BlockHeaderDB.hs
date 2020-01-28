@@ -76,6 +76,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.TreeDB

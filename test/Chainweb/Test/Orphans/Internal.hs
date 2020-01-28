@@ -27,6 +27,7 @@ import Test.QuickCheck.Gen (chooseAny)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
@@ -113,8 +114,11 @@ instance Arbitrary BlockCreationTime where
 instance Arbitrary EpochStartTime where
     arbitrary = EpochStartTime <$> arbitrary
 
+instance Arbitrary PowHashAlg where
+    arbitrary = elements [ PowHash_Blake2s, PowHash_Sha256 ]
+
 instance Arbitrary FeatureFlags where
-    arbitrary = FeatureFlags <$> arbitrary
+    arbitrary = mkFeatureFlags <$> arbitrary
 
 instance Arbitrary BlockHeader where
     arbitrary = fromLog . newMerkleLog <$> entries

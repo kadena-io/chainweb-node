@@ -42,13 +42,6 @@ module Chainweb.BlockHeader
 -- $guards
 , slowEpochGuard
 
--- * Block Height
-, BlockHeight(..)
-, encodeBlockHeight
-, decodeBlockHeight
-, encodeBlockHeightBe
-, decodeBlockHeightBe
-
 -- * Block Weight
 , BlockWeight(..)
 , encodeBlockWeight
@@ -80,9 +73,12 @@ module Chainweb.BlockHeader
 , epochStart
 
 -- * FeatureFlags
-, FeatureFlags(..)
+, FeatureFlags
+, mkFeatureFlags
 , encodeFeatureFlags
 , decodeFeatureFlags
+, featureFlagsGetPowHash
+, featureFlagsSetPowHash
 
 -- * POW Target
 , powTarget
@@ -104,6 +100,10 @@ module Chainweb.BlockHeader
 , blockFlags
 , _blockPow
 , blockPow
+, _blockPowHashAlg
+, blockPowHashAlg
+, _blockPowMultiplyer
+, blockPowMultiplyer
 , _blockAdjacentChainIds
 , blockAdjacentChainIds
 , encodeBlockHeader
@@ -145,15 +145,19 @@ import Control.Monad.Catch
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
+import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
+import Data.Foldable
 import Data.Function (on)
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Kind
 import Data.List (unfoldr)
+import qualified Data.List.NonEmpty as NE
+import Data.Maybe
 import qualified Data.Memory.Endian as BA
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Serialize (Serialize(..))
@@ -162,9 +166,12 @@ import Data.Word
 
 import GHC.Generics (Generic)
 
+import Numeric.Natural
+
 -- Internal imports
 
 import Chainweb.BlockHash
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
@@ -231,38 +238,6 @@ slowEpochGuard (ParentHeader p)
     | Mainnet01 <- _chainwebVersion p = _blockHeight p < 80000
     | otherwise = False
 {-# INLINE slowEpochGuard #-}
-
--- -------------------------------------------------------------------------- --
--- | BlockHeight
---
-newtype BlockHeight = BlockHeight { _height :: Word64 }
-    deriving (Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype
-        ( Hashable, ToJSON, FromJSON
-        , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
-        , Num, Integral, Real, Enum
-        )
-instance Show BlockHeight where show (BlockHeight b) = show b
-
-instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
-    type Tag BlockHeight = 'BlockHeightTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockHeight
-    fromMerkleNode = decodeMerkleInputNode decodeBlockHeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
-encodeBlockHeight (BlockHeight h) = putWord64le h
-
-decodeBlockHeight :: MonadGet m => m BlockHeight
-decodeBlockHeight = BlockHeight <$> getWord64le
-
-encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
-encodeBlockHeightBe (BlockHeight r) = putWord64be r
-
-decodeBlockHeightBe :: MonadGet m => m BlockHeight
-decodeBlockHeightBe = BlockHeight <$> getWord64be
 
 -- -------------------------------------------------------------------------- --
 -- Block Weight
@@ -407,6 +382,10 @@ isLastInEpoch h = case effectiveWindow h of
 -- network. Thus we must perform Emergency Difficulty Adjustment to avoid
 -- stalling the chain.
 --
+-- NOTE: emergency DAs are now regarded a misfeature and have been disabled in
+-- all chainweb version. Emergency DAs are enabled (and have occured) only on
+-- mainnet01 for cut heights smaller than 80,000.
+--
 slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
 slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
   where
@@ -460,7 +439,7 @@ epochStart p (BlockCreationTime bt)
 -- Feature Flags
 
 newtype FeatureFlags = FeatureFlags Word64
-    deriving stock (Show, Generic)
+    deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON)
 
@@ -477,6 +456,16 @@ instance IsMerkleLogEntry ChainwebHashTag FeatureFlags where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+mkFeatureFlags :: PowHashAlg -> FeatureFlags
+mkFeatureFlags alg = featureFlagsSetPowHash alg $ FeatureFlags 0x0
+
+featureFlagsGetPowHash :: FeatureFlags -> PowHashAlg
+featureFlagsGetPowHash (FeatureFlags f) = toEnum . int $ (f .&. 0xff)
+
+featureFlagsSetPowHash :: PowHashAlg -> FeatureFlags -> FeatureFlags
+featureFlagsSetPowHash alg (FeatureFlags f) = FeatureFlags
+    $ f .|. (0xff .&. int (fromEnum alg))
+
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
 
@@ -487,6 +476,10 @@ newtype ParentHeader = ParentHeader BlockHeader
 -- Block Header
 
 -- | BlockHeader
+--
+-- Values of this type should never be constructed directly by external code.
+-- Instead the 'newBlockHeader' smart constructor should be used. Once
+-- constructed 'BlockHeader' values must not be modified.
 --
 -- Some redundant, aggregated information is included in the block and the block
 -- hash. This enables nodes to be checked inductively with respect to existing
@@ -831,15 +824,41 @@ isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
 
 -- | The Proof-Of-Work hash includes all data in the block except for the
 -- '_blockHash'. The value (interpreted as 'BlockHashNat' must be smaller than
--- the value of '_blockTarget' (interpreted as 'BlockHashNat').
+-- the value of '_blockTarget' (interpreted as 'BlockHashNat'), subject to the
+-- POW hash multiplier for the respective chainweb version and block height
+-- (cf. 'powHashAlg').
 --
 _blockPow :: BlockHeader -> PowHash
-_blockPow h = powHash (_blockChainwebVersion h)
-    $ runPutS $ encodeBlockHeaderWithoutHash h
+_blockPow h
+    = powHash (_blockPowHashAlg h) $ runPutS $ encodeBlockHeaderWithoutHash h
 
 blockPow :: Getter BlockHeader PowHash
 blockPow = to _blockPow
 {-# INLINE blockPow #-}
+
+-- | The POW Hash that was used for the block
+--
+_blockPowHashAlg :: BlockHeader -> PowHashAlg
+_blockPowHashAlg = featureFlagsGetPowHash . _blockFlags
+{-# INLINE _blockPowHashAlg #-}
+
+blockPowHashAlg :: Getter BlockHeader PowHashAlg
+blockPowHashAlg = to _blockPowHashAlg
+{-# INLINE blockPowHashAlg #-}
+
+-- | The multiplyer for the POW hash when checking the target.
+--
+_blockPowMultiplyer :: BlockHeader -> Natural
+_blockPowMultiplyer h = fromMaybe 1 $ lookup alg $ toList $ powHashAlg v bh
+  where
+    v = _blockChainwebVersion h
+    bh = _blockHeight h
+    alg = _blockPowHashAlg h
+{-# INLINE _blockPowMultiplyer #-}
+
+blockPowMultiplyer :: Getter BlockHeader Natural
+blockPowMultiplyer = to _blockPowMultiplyer
+{-# INLINE blockPowMultiplyer #-}
 
 -- | The number of microseconds between the creation time of two `BlockHeader`s.
 --
@@ -923,19 +942,27 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
 -- -------------------------------------------------------------------------- --
 -- Create new BlockHeader
 
+-- | Creates a new block header. No validation of the input parameters is
+-- performaned.
+--
 newBlockHeader
     :: BlockHashRecord
         -- ^ Adjacent parent hashes
     -> BlockPayloadHash
         -- ^ payload hash
+    -> PowHashAlg
+        -- ^ The POW hash algorithm that is used for the block. It is not
+        -- checked. whether the hash is legal for the chainweb version and the
+        -- block height.
     -> Nonce
-        -- ^ Randomness to affect the block hash
+        -- ^ Randomness to affect the block hash. It is not verified that the
+        -- nonce is valid with respect to the target and the POW hash algorithm.
     -> BlockCreationTime
-        -- ^ Creation time of the block
+        -- ^ Creation time of the block.
     -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
+newBlockHeader adj pay alg nonce t (ParentHeader b) = fromLog $ newMerkleLog
     $ nonce
     :+: t
     :+: _blockHash b
@@ -946,7 +973,7 @@ newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockHeight b + 1
     :+: v
     :+: epochStart b t
-    :+: FeatureFlags 0
+    :+: mkFeatureFlags alg
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId b
@@ -979,9 +1006,10 @@ testBlockHeader
         -- ^ parent block header
     -> BlockHeader
 testBlockHeader adj nonce p@(ParentHeader b) =
-    newBlockHeader adj (testBlockPayload b) nonce (BlockCreationTime $ add second t) p
+    newBlockHeader adj (testBlockPayload b) alg nonce (BlockCreationTime $ add second t) p
   where
     BlockCreationTime t = _blockCreationTime b
+    alg = fst . NE.head $ powHashAlg (_chainwebVersion b) (_blockHeight b + 1)
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.

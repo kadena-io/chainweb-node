@@ -112,6 +112,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeaders)
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.TreeDB hiding (properties)

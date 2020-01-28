@@ -36,6 +36,7 @@ import Pact.Types.ChainMeta
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.Difficulty
@@ -46,6 +47,7 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
+import Chainweb.PowHash
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -195,6 +197,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
      let bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
+              (defaultPowHashAlg (_chainwebVersion parentHeader) (_blockHeight parentHeader + 1))
               nonce
               creationTime
               (ParentHeader parentHeader)

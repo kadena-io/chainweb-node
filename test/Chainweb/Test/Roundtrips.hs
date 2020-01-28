@@ -29,6 +29,7 @@ import Test.QuickCheck.Instances ()
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.HostAddress
@@ -87,6 +88,8 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeHashTarget encodeHashTarget
     , testProperty "BlockWeight"
         $ prop_encodeDecodeRoundtrip decodeBlockWeight encodeBlockWeight
+    , testProperty "BlockWeight"
+        $ prop_encodeDecodeRoundtrip decodePowHashAlg encodePowHashAlg
 
     , testProperty "BlockHashRecord"
         $ prop_encodeDecodeRoundtrip decodeBlockHashRecord encodeBlockHashRecord
@@ -146,6 +149,7 @@ jsonTestCases f =
     , testProperty "PeerId" $ f @PeerId
     , testProperty "PeerInfo" $ f @PeerInfo
     , testProperty "NetworkId" $ f @NetworkId
+    , testProperty "PowHashAlg" $ f @PowHashAlg
 
     , testProperty "BlockPayloadHash" $ f @BlockPayloadHash
     , testProperty "BlockTransactionsHash" $ f @BlockTransactionsHash

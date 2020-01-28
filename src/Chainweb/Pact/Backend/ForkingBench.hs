@@ -86,6 +86,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
@@ -98,6 +99,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore.Types
+import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -228,34 +230,35 @@ mineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce pdb bhdb r = do
 
-     -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+    -- assemble block without nonce and timestamp
+    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- newBlock noMiner parentHeader creationTime r
+    mv <- newBlock noMiner parentHeader creationTime r
 
-     payload <- assertNotLeft =<< takeMVar mv
+    payload <- assertNotLeft =<< takeMVar mv
 
-     let bh = newBlockHeader
-              (BlockHashRecord mempty)
-              (_payloadWithOutputsPayloadHash payload)
-              nonce
-              creationTime
-              (ParentHeader parentHeader)
-         hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-         tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+    let bh = newBlockHeader
+            (BlockHashRecord mempty)
+            (_payloadWithOutputsPayloadHash payload)
+            (defaultPowHashAlg (_chainwebVersion parentHeader) (_blockHeight parentHeader + 1))
+            nonce
+            creationTime
+            (ParentHeader parentHeader)
+        hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
+        tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-     T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
-     newHeader <- runGet decodeBlockHeaderWithoutHash new
+    T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
+    newHeader <- runGet decodeBlockHeaderWithoutHash new
 
-     mv' <- validateBlock newHeader (payloadWithOutputsToPayloadData payload) r
+    mv' <- validateBlock newHeader (payloadWithOutputsToPayloadData payload) r
 
-     void $ assertNotLeft =<< takeMVar mv'
+    void $ assertNotLeft =<< takeMVar mv'
 
-     addNewPayload pdb payload
+    addNewPayload pdb payload
 
-     insert bhdb newHeader
+    insert bhdb newHeader
 
-     return $ T3 parentHeader newHeader payload
+    return $ T3 parentHeader newHeader payload
 
 
 
@@ -267,26 +270,27 @@ noMineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 noMineBlock validate parentHeader nonce r = do
 
-     -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+    -- assemble block without nonce and timestamp
+    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- newBlock noMiner parentHeader creationTime r
+    mv <- newBlock noMiner parentHeader creationTime r
 
-     payload <- assertNotLeft =<< takeMVar mv
+    payload <- assertNotLeft =<< takeMVar mv
 
-     let bh = newBlockHeader
-              (BlockHashRecord mempty)
-              (_payloadWithOutputsPayloadHash payload)
-              nonce
-              creationTime
-              (ParentHeader parentHeader)
+    let bh = newBlockHeader
+            (BlockHashRecord mempty)
+            (_payloadWithOutputsPayloadHash payload)
+            (defaultPowHashAlg (_chainwebVersion parentHeader) (_blockHeight parentHeader + 1))
+            nonce
+            creationTime
+            (ParentHeader parentHeader)
 
-     when validate $ do
-       mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
+    when validate $ do
+        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
 
-       void $ assertNotLeft =<< takeMVar mv'
+        void $ assertNotLeft =<< takeMVar mv'
 
-     return $ T3 parentHeader bh payload
+    return $ T3 parentHeader bh payload
 
 
 data Resources
