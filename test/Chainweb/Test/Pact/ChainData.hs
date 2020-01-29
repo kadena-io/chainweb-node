@@ -228,12 +228,10 @@ data TestException = TestException
 instance Exception TestException
 
 testMemPoolAccess :: T.Text -> IO (Time Integer) -> MemPoolAccess
-testMemPoolAccess t iotime = MemPoolAccess
+testMemPoolAccess t iotime = mempty
     { mpaGetBlock = \validate bh hash _parentHeader -> do
         time <- f bh <$> iotime
         getTestBlock t time validate bh hash
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
     }
   where
     -- tx origination times needed to be unique to ensure that the corresponding

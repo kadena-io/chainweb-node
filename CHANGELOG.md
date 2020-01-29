@@ -1,19 +1,65 @@
 # `chainweb-node` Changelog
 
+## 1.5 (2019-01-13)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2019-01-15T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-02-20T00:00:00Z**.
+
+* Full launch of Pact smart contract functionality (begins at
+  2020-01-15T16:00:00Z)
+
+* Increased block gas limit to 15000 (#870)
+
+* Minimal SPV proofs are created by default (affects cross-chain transfer proof size) (#860)
+
+* Enriched results at /poll and /listen endpoints (#866)
+
+* Caching improved for coinbase transactions (#861)
+
+* Improvements to node stability and node stalling issues (#844, #845)
+
+## 1.4 (2019-12-14)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2019-12-17T00:00:00Z**. Note administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-01-15T00:00:00Z**.
+
+* All nodes in the miners list in the configuration file are served cached work
+  [#819]
+
+* Correct account balances that where compromised by vulnerability #797.
+  The adjustment will occur in the first block with a creation time after
+  2019-12-17T15:00:00Z on the respective chains. [#830]
+
+* Avoid opening and closing the pact SQLite database after pact validation
+  errors. [#817]
+
+## 1.3.1 (2019-12-09)
+
+* [SECURITY] fix issue with date comparison triggering block validation of fix for #797 [#810]
+
+* Don't vacuum SQLite databases on startup [#803]
+
+
 ## 1.3 (2019-12-08)
 
 CRITICAL SECURITY UPDATE [2 of 3]: addressing vulnerability #797.
 All node operators need to update no later than 2019-12-10T20:00:00.
 
-* [SECURITY] Address vulnerability 797 via precompiled statements (#798)
+* [SECURITY] Address vulnerability 797 via precompiled statements [#798]
 
-* Enforce lower bound on acceptable node versions (#793)
+* Enforce lower bound on acceptable node versions [#793]
 
-* Prune peer db and update peer selection (#788)
+* Prune peer db and update peer selection [#788]
 
-* Limit checkpointer rewind depth (#795)
+* Limit checkpointer rewind depth [#795]
 
-* Improved mining coordination efficiency (#791)
+* Improved mining coordination efficiency [#791]
 
 Note that this change involves a breaking change to the config file.
 

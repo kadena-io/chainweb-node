@@ -59,7 +59,6 @@ module Chainweb.Pact.Types
 
     -- * Pact Service Env
   , PactServiceEnv(..)
-  , defaultPactServiceEnv
   , psMempoolAccess
   , psCheckpointEnv
   , psPdb
@@ -69,6 +68,7 @@ module Chainweb.Pact.Types
   , psEnableUserContracts
   , psReorgLimit
   , psOnFatalError
+  , psVersion
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -124,7 +124,6 @@ import Pact.Types.ChainId (NetworkId)
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Gas
-import Pact.Types.Hash
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
@@ -140,17 +139,17 @@ import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
-import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Time
+import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
 
 
 
 data Transactions = Transactions
-    { _transactionPairs :: !(Vector (Transaction, CommandResult Hash))
-    , _transactionCoinbase :: !(CommandResult Hash)
+    { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
+    , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show)
 
 data PactDbStatePersist = PactDbStatePersist
@@ -296,6 +295,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psEnableUserContracts :: !Bool
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
+    , _psVersion :: ChainwebVersion
     }
 makeLenses ''PactServiceEnv
 
@@ -309,20 +309,6 @@ instance HasChainId (PactServiceEnv c) where
 
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
-
-defaultPactServiceEnv
-    :: ChainwebVersion
-    -> CheckpointEnv
-    -> PayloadDb cas
-    -> BlockHeaderDb
-    -> GasModel
-    -> MinerRewards
-    -> (LogLevel -> Text -> IO ())
-    -> PactServiceEnv cas
-defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs logFunc =
-    PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
-        (enableUserContracts ver) defaultReorgLimit
-        (defaultOnFatalError logFunc)
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 

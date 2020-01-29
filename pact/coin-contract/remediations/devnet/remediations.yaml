@@ -1,0 +1,7 @@
+# devnet remediations
+
+code: |-
+  (coin.remediate "sender07" 1337.7)
+  (coin.remediate "sender09" 1337.9)
+nonce: devnet-remediations
+keyPairs: []

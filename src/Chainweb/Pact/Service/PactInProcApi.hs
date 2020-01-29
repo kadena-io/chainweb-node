@@ -26,10 +26,13 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
+import qualified Data.ByteString.Short as SB
 import Data.IORef
 import Data.Vector (Vector)
 
 import Numeric.Natural (Natural)
+
+import qualified Pact.Types.Hash as Pact
 
 import System.LogLevel
 
@@ -68,11 +71,9 @@ withPactService
     -> Natural
     -> (PactQueue -> IO a)
     -> IO a
-withPactService
-  ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize deepForkLimit
-  action =
-    withPactService' ver cid logger mpa bhdb pdb dbDir nodeid resetDb
-                     pactQueueSize deepForkLimit action
+withPactService ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize deepForkLimit action =
+    PS.withSqliteDb ver cid logger dbDir nodeid resetDb $ \sqlenv ->
+        withPactService' ver cid logger mpa bhdb pdb sqlenv pactQueueSize deepForkLimit action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -87,16 +88,12 @@ withPactService'
     -> MemPoolAccess
     -> BlockHeaderDb
     -> PayloadDb cas
-    -> Maybe FilePath
-    -> Maybe NodeId
-    -> Bool
+    -> SQLiteEnv
     -> Natural
     -> Natural
     -> (PactQueue -> IO a)
     -> IO a
-withPactService'
-  ver cid logger memPoolAccess bhDb pdb dbDir nodeid resetDb pactQueueSize
-  deepForkLimit0 action = do
+withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv pactQueueSize deepForkLimit0 action = do
     reqQ <- atomically $ newTBQueue pactQueueSize
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
@@ -104,10 +101,8 @@ withPactService'
   where
     deepForkLimit = fromIntegral deepForkLimit0
     client reqQ = action reqQ
-    server reqQ = runForever logg "pact-service" $
-        PS.initPactService
-            ver cid logger reqQ memPoolAccess bhDb pdb dbDir nodeid resetDb
-            deepForkLimit
+    server reqQ = runForever logg "pact-service"
+        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv deepForkLimit
     logg = logFunction logger
 
 pactMemPoolAccess
@@ -119,7 +114,10 @@ pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
+    , mpaBadlistTx = \tx -> mempoolAddToBadList (mpcMempool mpc) (fromPactHash tx)
     }
+  where
+    fromPactHash (Pact.TypedHash h) = TransactionHash (SB.toShort h)
 
 pactMemPoolGetBlock
     :: Logger logger

@@ -1,7 +1,9 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -25,9 +27,12 @@ import Control.Monad (when)
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
+import Data.List (isInfixOf)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
+
+import GHC.Generics
 
 import System.IO.Extra
 import System.LogLevel
@@ -48,6 +53,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue (PactQueue)
+import Chainweb.Pact.Service.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -69,6 +75,9 @@ tests = ScheduledTest label $
     , after AllSucceed "new-block-0" $
       withPact testVersion Warn pdb bhdb testEmptyMemPool dir 100000
           (newBlockTest "empty-block-tests")
+    , after AllSucceed "empty-block-tests" $
+      withPact testVersion Quiet pdb bhdb badlistMPA dir 100000
+          badlistNewBlockTest
     ]
   where
     label = "Chainweb.Test.Pact.PactInProcApi"
@@ -84,6 +93,48 @@ newBlockTest label reqIO = golden label $ do
     goldenBytes "new-block" =<< takeMVar respVar
   where
     cid = someChainId testVersion
+
+
+data GotTxBadList = GotTxBadList
+  deriving (Show, Generic)
+instance Exception GotTxBadList
+
+badlistMPA :: MemPoolAccess
+badlistMPA = mempty
+    { mpaGetBlock = \_ _ _ _ -> getBadBlock
+    , mpaBadlistTx = \_ -> throwIO GotTxBadList
+    }
+  where
+    getBadBlock = do
+        d <- adminData
+        let inputs = V.fromList [ PactTransaction "(+ 1 2)" d ]
+        txs0 <- goldenTestTransactions inputs
+        let setGP = modifyPayloadWithText . set (pMeta . pmGasPrice)
+        let setGL = modifyPayloadWithText . set (pMeta . pmGasLimit)
+        -- this should exceed the account balance
+        let txs = flip V.map txs0 $
+                  fmap (setGP 1000000000000000 . setGL 99999)
+        return txs
+
+badlistNewBlockTest :: IO PactQueue -> TestTree
+badlistNewBlockTest reqIO = testCase "badlist-new-block-test" $ do
+    reqQ <- reqIO
+    expectBadlistException $ do
+        m <- newBlock noMiner genesisHeader blockTime reqQ
+        takeMVar m >>= either throwIO (const (return ()))
+  where
+    cid = someChainId testVersion
+    genesisHeader = genesisBlockHeader testVersion cid
+    blockTime = BlockCreationTime $ Time $ secondsToTimeSpan $
+                Seconds $ succ 1000000
+    -- verify that the pact service attempts to badlist the bad tx at mempool
+    expectBadlistException m = do
+        let wrap = m >> fail "expected exception"
+        let onEx (e :: PactException) =
+                if "GotTxBadList" `isInfixOf` show e
+                  then return ()
+                  else throwIO e
+        wrap `catch` onEx
 
 _localTest :: IO PactQueue -> ScheduledTest
 _localTest reqIO = goldenSch "local" $ do
@@ -115,11 +166,9 @@ modifyPayloadWithText f pwt = mkPayloadWithText newPayload
     newPayload = f oldPayload
 
 testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess = MemPoolAccess
+testMemPoolAccess = mempty
     { mpaGetBlock = \validate bh hash _header ->
         getTestBlock validate bh hash
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
     }
   where
     getTestBlock validate bHeight bHash = do
@@ -156,10 +205,8 @@ testMemPoolAccess = MemPoolAccess
 
 
 testEmptyMemPool :: MemPoolAccess
-testEmptyMemPool = MemPoolAccess
+testEmptyMemPool = mempty
     { mpaGetBlock = \_ _ _ _ -> goldenTestTransactions V.empty
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
     }
 
 _testLocal :: IO ChainwebTransaction

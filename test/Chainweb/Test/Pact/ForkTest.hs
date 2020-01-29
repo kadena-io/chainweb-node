@@ -37,12 +37,12 @@ import Test.QuickCheck hiding ((.&.))
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
-import Pact.Types.ChainMeta
 import Pact.Parse
 import qualified Pact.Types.ChainId as P
+import Pact.Types.ChainMeta
 import qualified Pact.Types.Command as P
-import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Exp as P
+import qualified Pact.Types.Hash as P
 import qualified Pact.Types.PactValue as P
 
 -- internal modules
@@ -143,7 +143,8 @@ withPactProp version logLevel iopdb iobhdb mempool iodir f =
         bhdb <- iobhdb
         dir <- iodir
         a <- async $ PS.initPactService version cid logger reqQ mempool
-                         bhdb pdb dir Nothing True 1000 -- True means reset checkpointer db
+                         -- bhdb pdb dir Nothing True 1000 -- True means reset checkpointer db
+                         bhdb pdb _ 1000 -- True means reset checkpointer db
         return (a, reqQ)
 
     stopPact :: (Async a, TBQueue a2) -> IO ()
@@ -308,6 +309,7 @@ testMemPoolAccess cid mvar =
           (getBlockFromHeight pactCid mvar) (fromIntegral bh) hash
       , mpaSetLastHeader = \_ -> return ()
       , mpaProcessFork = \_ -> return ()
+      , mpaBadlistTx = \_ -> return ()
       }
   where
     getBlockFromHeight pCid mv bHeight _bHash = do

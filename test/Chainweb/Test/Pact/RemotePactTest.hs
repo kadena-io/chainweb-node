@@ -40,6 +40,7 @@ import Control.Monad.IO.Class
 import Control.Retry
 
 import qualified Data.Aeson as A
+import Data.Aeson.Lens hiding (values)
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
@@ -79,6 +80,7 @@ import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash (Hash)
 import qualified Pact.Types.PactError as Pact
+import Pact.Types.Pretty
 import Pact.Types.PactValue
 import Pact.Types.Term
 
@@ -223,6 +225,7 @@ localChainDataTest iot nio = do
           assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
+
 sendValidationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
     testCaseSteps "/send reports validation failure" $ \step -> do
@@ -245,12 +248,16 @@ sendValidationTest iot nio =
 
         step "check insufficient gas"
         batch4 <- testBatch' iot 10000 mv 10000000000
-        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+        expectSendFailure
+          "(enforce (<= amount balance) \\\"...: Failure: Tx Failed: Insufficient funds\"" $
+          flip runClientM cenv $
             pactSendApiClient v cid batch4
 
         step "check bad sender"
         batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
-        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+        expectSendFailure
+          "(read coin-table sender): Failure: Tx Failed: read: row not found: invalid-sender" $
+          flip runClientM cenv $
             pactSendApiClient v cid0 batch5
 
   where
@@ -361,18 +368,23 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
       Left e -> assertFailure $ "test failure for big tx with insuffient gas: " <> show e
       Right cr -> assertEqual "SEND: expect gas error for big tx" gasError0 (resultOf <$> cr)
 
+    let getFailureMsg (Left (Pact.PactError _ _ _ m)) = m
+        getFailureMsg p = pretty $ "Expected failure result, got " ++ show p
+
     void $ liftIO $ step "discounts initial gas charge from gas available for pact execution"
-    assertEqual "LOCAL: expect gas error after discounting initial gas charge" gasError1 (Just $ resultOf res1Local)
+    assertEqual "LOCAL: expect gas error after discounting initial gas charge"
+      gasError1 (getFailureMsg $ resultOf res1Local)
+
     case res1Send of
       Left e -> assertFailure $ "test failure for discounting initial gas charge: " <> show e
-      Right cr -> assertEqual "SEND: expect gas error after discounting initial gas charge" gasError1 (resultOf <$> cr)
+      Right cr -> assertEqual "SEND: expect gas error after discounting initial gas charge"
+        (Just gasError1) (getFailureMsg . resultOf <$> cr)
 
   where
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     gasError0 = Just $ Left $
       Pact.PactError Pact.GasError def [] "Tx too big (4), limit 1"
-    gasError1 = Just $ Left $
-      Pact.PactError Pact.GasError def [] "Gas limit (5) exceeded: 6"
+    gasError1 = "Gas limit (5) exceeded: 6"
 
     mkTxBatch code cdata limit = do
       ks <- testKeyPairs sender00KeyPair Nothing
@@ -408,7 +420,9 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     case r of
       Left e -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
-      Right t -> assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> t)
+      Right t -> do
+        assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> t)
+        assertSatisfies "meta in output" (preview (_Just . crMetaData . _Just . _Object . at "blockHash") t) isJust
 
   where
     n0 = Just "transfer-clist0"
@@ -605,7 +619,7 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local sid cenv cmd =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting local cmd for " <> (take 18 $ show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -628,7 +642,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -652,7 +666,7 @@ sending
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -681,7 +695,7 @@ polling
     -> PollingExpectation
     -> IO PollResponses
 polling sid cenv rks pollingExpectation =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"

@@ -65,6 +65,7 @@ import Chainweb.BlockHeader
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
+import Chainweb.Pact.Utils (maxTTL)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion, transferActivationDate)
@@ -113,6 +114,7 @@ toMempoolBackend v mempool = do
       , mempoolInsert = insert
       , mempoolInsertCheck = insertCheck
       , mempoolMarkValidated = markValidated
+      , mempoolAddToBadList = addToBadList
       , mempoolGetBlock = getBlock
       , mempoolPrune = prune
       , mempoolGetPendingTransactions = getPending
@@ -129,6 +131,7 @@ toMempoolBackend v mempool = do
     insert = insertInMem cfg v lockMVar
     insertCheck = insertCheckInMem cfg v lockMVar
     markValidated = markValidatedInMem lockMVar
+    addToBadList = addToBadListInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     prune = pruneInMem lockMVar
@@ -216,6 +219,23 @@ markValidatedInMem :: MVar (InMemoryMempoolData t)
 markValidatedInMem lock txs = withMVarMasked lock $ \mdata -> do
     let pref = _inmemPending mdata
     modifyIORef' pref $ \psq -> foldl' (flip HashMap.delete) psq txs
+
+
+------------------------------------------------------------------------------
+addToBadListInMem :: MVar (InMemoryMempoolData t)
+                  -> TransactionHash
+                  -> IO ()
+addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
+    !pnd <- readIORef $ _inmemPending mdata
+    !bad <- readIORef $ _inmemBadMap mdata
+    let !pnd' = HashMap.delete tx pnd
+    -- we don't have the expiry time here, so just use maxTTL
+    now <- getCurrentTimeIntegral
+    let (ParsedInteger mt) = maxTTL
+    let !endTime = add (secondsToTimeSpan $ Seconds mt) now
+    let !bad' = HashMap.insert tx endTime bad
+    writeIORef (_inmemPending mdata) pnd'
+    writeIORef (_inmemBadMap mdata) bad'
 
 maxNumPending :: Int
 maxNumPending = 10000
@@ -660,3 +680,4 @@ pruneInternal mdata now = do
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
     pruneBadMap = HashMap.filter (> now)
+

@@ -74,20 +74,23 @@ data NetworkId
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
+-- | Textual representation of NetworkId.
+--
+-- This is expected to match the respective routes generated for
+-- 'NetworkEndpointApi'.
+--
 networkIdToText :: NetworkId -> T.Text
 networkIdToText CutNetwork = "cut"
 networkIdToText (ChainNetwork cid) = "chain/" <> chainIdToText cid
-networkIdToText (MempoolNetwork cid) = "mempool/" <> chainIdToText cid
+networkIdToText (MempoolNetwork cid) = "chain/" <> chainIdToText cid <> "/mempool"
 {-# INLINE networkIdToText #-}
 
 networkIdFromText :: MonadThrow m => T.Text -> m NetworkId
-networkIdFromText "cut" = return CutNetwork
-networkIdFromText t = case T.break (== '/') t of
-    (a, b)
-        | a == "chain" -> ChainNetwork <$> chainIdFromText (T.drop 1 b)
-        | a == "mempool" -> MempoolNetwork <$> chainIdFromText (T.drop 1 b)
-        | T.null b -> throwM . TextFormatException $ "missing '/' in network id: \"" <> t <> "\"."
-        | otherwise -> throwM $ TextFormatException $ "unrecognized network id: \"" <> t <> "\"."
+networkIdFromText t = case T.split (== '/') t of
+    ["cut"] -> return CutNetwork
+    ["chain", a, "mempool"] -> MempoolNetwork <$> chainIdFromText a
+    ["chain", a] -> ChainNetwork <$> chainIdFromText a
+    _ -> throwM $ TextFormatException $ "unrecognized network id: \"" <> t <> "\"."
 
 unsafeNetworkIdFromText :: HasCallStack => T.Text -> NetworkId
 unsafeNetworkIdFromText = fromJuste . networkIdFromText

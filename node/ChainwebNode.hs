@@ -70,6 +70,7 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 
 import System.Directory
+import System.IO (hSetBuffering, stderr, BufferMode(LineBuffering))
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -492,10 +493,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 1.1
+-- KILLSWITCH for version 1.4
 --
 killSwitchDate :: Maybe String
-killSwitchDate = Just "2019-12-17T00:00:00Z"
+killSwitchDate = Just "2020-02-20T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
@@ -507,6 +508,7 @@ mainInfo = programInfoValidate
 main :: IO ()
 main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
+    hSetBuffering stderr LineBuffering
     withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
         kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
         withKillSwitch (logFunctionText logger) kt $
