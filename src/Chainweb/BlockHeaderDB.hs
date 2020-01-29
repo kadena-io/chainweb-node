@@ -396,6 +396,9 @@ instance TreeDb BlockHeaderDb where
             & limitStream l
     {-# INLINEABLE entries #-}
 
+    branchEntries = chainBranchEntries
+    {-# INLINEABLE branchEntries #-}
+
     keys db k l mir mar f = withSeekTreeDb db k mir $ \it -> f $ do
         iterToKeyStream it
             & maybe id (\x -> S.takeWhile (\a -> int (_rankedBlockHashHeight a) <= x)) mar
