@@ -54,7 +54,6 @@ module Chainweb.Pact.Types
 
     -- * Pact Service Env
   , PactServiceEnv(..)
-  , defaultPactServiceEnv
   , psMempoolAccess
   , psCheckpointEnv
   , psPdb
@@ -64,6 +63,7 @@ module Chainweb.Pact.Types
   , psEnableUserContracts
   , psReorgLimit
   , psOnFatalError
+  , psVersion
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -284,6 +284,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psEnableUserContracts :: !Bool
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
+    , _psVersion :: ChainwebVersion
     }
 makeLenses ''PactServiceEnv
 
@@ -297,20 +298,6 @@ instance HasChainId (PactServiceEnv c) where
 
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
-
-defaultPactServiceEnv
-    :: ChainwebVersion
-    -> CheckpointEnv
-    -> PayloadDb cas
-    -> BlockHeaderDb
-    -> GasModel
-    -> MinerRewards
-    -> (LogLevel -> Text -> IO ())
-    -> PactServiceEnv cas
-defaultPactServiceEnv ver checkpointEnv pdb bhDb gasModel rs logFunc =
-    PactServiceEnv Nothing checkpointEnv pdb bhDb gasModel rs
-        (enableUserContracts ver) defaultReorgLimit
-        (defaultOnFatalError logFunc)
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 

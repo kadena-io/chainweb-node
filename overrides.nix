@@ -115,8 +115,14 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       tls = callHackageDirect {
         pkg = "tls";
-        ver = "1.5.2";
-        sha256 = "00bps2bmp3ahlfw6wf7ifnni8kn306bbzapqcgsallnpgzx62gp1";
+        ver = "1.5.3";
+        sha256 = "1785i2ba4xvqz9k32qn74vk6zwplmj77dz8jqykndb0g79hq1f27";
+      };
+
+      tls-session-manager = callHackageDirect {
+        pkg = "tls-session-manager";
+        ver = "0.0.4";
+        sha256 = "03jr0xmzl5bqjw2l59bcpfclji6g4rky8ji86mg60jg7nia5d5l8";
       };
 
       wai = dontCheck (callHackageDirect {
@@ -151,14 +157,14 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       warp = dontCheck (callHackageDirect {
         pkg = "warp";
-        ver = "3.3.5";
-        sha256 = "1a5m90m8kq8ma9fh9qlqdf9bd9wy4dz1bi006d2qpg17jhhj5602";
+        ver = "3.3.6";
+        sha256 = "044w7ajkqlwnrpzc4zaqy284ac9wsklyby946jgfpqyjbj87985x";
       });
 
       warp-tls = callHackageDirect {
         pkg = "warp-tls";
-        ver = "3.2.9";
-        sha256 = "14lwqr1yj9yh2adcm2h4q4kb4k3m5w416fzx5fl4f5qkicdqqjjx";
+        ver = "3.2.10";
+        sha256 = "1zgr83zkb3q4qa03msfnncwxkmvk63gd8sqkbbd1cwhvjragn4mz";
       };
 
       time-manager = callHackageDirect {
@@ -183,6 +189,18 @@ let # Working on getting this function upstreamed into nixpkgs, but
         pkg = "strict-tuple";
         ver = "0.1.3";
         sha256 = "1vg0m27phd6yf0pszcy2c2wbqx509fr9gacn34yja521z17cxd8z";
+      };
+
+      lens-aeson = callHackageDirect {
+        pkg = "lens-aeson";
+        ver = "1.1";
+        sha256 = "0bx7ay7dx6ljhy1a6bmjdz52vfwmx8af8sd96p38yc0m9irjz02h";
+      };
+
+      streaming-concurrency = callHackageDirect {
+        pkg = "streaming-concurrency";
+        ver = "0.3.1.3";
+        sha256 = "11mgp53kpdnjnrx3l8z6nhm48rhl5i0sgn0vydqa488xinj3h28a";
       };
 
       servant = dontCheck (callHackageDirect {
