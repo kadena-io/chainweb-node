@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -79,10 +80,11 @@ test =
     withRocksResource $ \rocksIO ->
     withBlockHeaderDb rocksIO _genBlock $ \bhdb ->
     withPayloadDb $ \pdb ->
-    testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock)
+    testProperty "prop_forkValidates" (prop_forkValidates pdb bhdb cid _genBlock logger)
   where
     _genBlock = genesisBlockHeader testVer cid
     cid = someChainId testVer
+    logger = genericLogger Warn T.putStrLn
 
 scheduledTest :: ScheduledTest
 scheduledTest = ScheduledTest "Pact checkpointer forking test" test
@@ -92,48 +94,52 @@ testVer = FastTimedCPM petersonChainGraph
 
 -- | Property: Fork requiring checkpointer rewind validates properly
 prop_forkValidates
-    :: IO (PayloadDb HashMapCas)
-    -> (IO BlockHeaderDb)
+    :: Logger logger
+    => IO (PayloadDb HashMapCas)
+    -> IO BlockHeaderDb
     -> ChainId
     -> BlockHeader
+    -> logger
     -> Property
-prop_forkValidates pdb bhdb cid genBlock =
+prop_forkValidates pdb bhdb cid genBlock logger =
     again $ ioProperty $ do
         (trunk, left, right) <- generate genForkLengths
         mVar <- newMVar (0 :: Int)
-        withPactProp testVer Warn pdb bhdb (testMemPoolAccess cid mVar) (return Nothing) $ \reqQ -> do
-            db <- bhdb
-            debug $ "Testing fork lengths:"
-                        ++ " trunk: " ++ show trunk
-                        ++ ", left: " ++ show left
-                        ++ ", right: " ++ show right
-            expected <- expectedForkProd (trunk, left, right)
-            if expected >= maxBalance
-              then do -- this shouldn't happen...
-                debug "Max account balance would be exceeded, letting this test pass"
-                return $ property Discard
-              else do
-                (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <-
-                    runBlocks db genBlock (trunk - 2) reqQ bhdb -- '-2' for genesis block and 0-based
-                (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
-                    runBlocks db parentFromTrunk (left - 1) reqQ bhdb
-                (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
-                    runBlocks db parentFromTrunk (right - 1) reqQ bhdb
-                return $ property (nbRightRes == vbRightRes)
+        PS.withSqliteDb testVer cid logger Nothing Nothing True $ \sqlEnv ->
+            withPactProp testVer logger pdb bhdb (testMemPoolAccess cid mVar) sqlEnv $ \reqQ -> do
+                db <- bhdb
+                debug $ "Testing fork lengths:"
+                            ++ " trunk: " ++ show trunk
+                            ++ ", left: " ++ show left
+                            ++ ", right: " ++ show right
+                expected <- expectedForkProd (trunk, left, right)
+                if expected >= maxBalance
+                  then do -- this shouldn't happen...
+                    debug "Max account balance would be exceeded, letting this test pass"
+                    return $ property Discard
+                  else do
+                    (_nbTrunkRes, _vbTrunkRes, parentFromTrunk) <-
+                        runBlocks db genBlock (trunk - 2) reqQ bhdb -- '-2' for genesis block and 0-based
+                    (_nbLeftRes, _vbLeftRes, _parentFromLeft) <- liftIO $
+                        runBlocks db parentFromTrunk (left - 1) reqQ bhdb
+                    (nbRightRes, vbRightRes, _parentFromRight) <- liftIO $
+                        runBlocks db parentFromTrunk (right - 1) reqQ bhdb
+                    return $ property (nbRightRes == vbRightRes)
 
 forkTestQueueSize :: Natural
 forkTestQueueSize = 1024
 
 withPactProp
-    :: ChainwebVersion
-    -> LogLevel
+    :: Logger logger
+    => ChainwebVersion
+    -> logger
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> MemPoolAccess
-    -> IO (Maybe FilePath)
+    -> SQLiteEnv
     -> (PactQueue -> IO Property)
     -> IO Property
-withPactProp version logLevel iopdb iobhdb mempool iodir f =
+withPactProp version logger iopdb iobhdb mempool sqlEnv f =
     bracket startPact stopPact $ \(_x, q) -> f q
   where
     startPact :: IO (Async (), TBQueue RequestMsg)
@@ -141,16 +147,13 @@ withPactProp version logLevel iopdb iobhdb mempool iodir f =
         reqQ <- atomically $ newTBQueue forkTestQueueSize
         pdb <- iopdb
         bhdb <- iobhdb
-        dir <- iodir
         a <- async $ PS.initPactService version cid logger reqQ mempool
-                         -- bhdb pdb dir Nothing True 1000 -- True means reset checkpointer db
-                         bhdb pdb _ 1000 -- True means reset checkpointer db
+                         bhdb pdb sqlEnv 1000 -- True means reset checkpointer db
         return (a, reqQ)
 
     stopPact :: (Async a, TBQueue a2) -> IO ()
     stopPact (a, _) = cancel a
 
-    logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
 
 genForkLengths :: Gen (Int, Int, Int)
@@ -275,12 +278,12 @@ prodFromRange :: Int -> Int -> Int
 prodFromRange lo hi =
   let xs = nPrimes hi
       range = drop (lo - 1) xs
-  in foldr (*) 1 range
+  in product range
 
 prodFromHeight :: Int -> Int
 prodFromHeight h =
     let xs = nPrimes h
-    in foldr (\x r -> x * r) 1 xs
+    in product xs
 
 valFromHeight :: Int -> Int
 valFromHeight h = last (nPrimes h)
@@ -291,22 +294,19 @@ nPrimes n | n <= 0    = [0]
           | otherwise = 1 : take (n-1) primes :: [Int]
 
 _showHeaderFields :: [BlockHeader] -> String
-_showHeaderFields bhs =
-    foldl' f "" bhs
+_showHeaderFields = foldl' f ""
   where
     f r BlockHeader{..} = r ++
         ("BlockHeader at height = " ++ show _blockHeight
-         -- ++ "\n\tChain id: " ++ show _blockChainId
-         -- ++ "\n\tBlock creation time: " ++ show _blockCreationTime
          ++ "\n\tHash: " ++ show _blockHash
-         ) -- ++ "\n\tParent hash: " ++ show _blockParent)
+         )
 
 testMemPoolAccess :: ChainId -> MVar Int -> MemPoolAccess
 testMemPoolAccess cid mvar =
     let pactCid = P.ChainId $ chainIdToText cid
     in MemPoolAccess
       { mpaGetBlock = \_validate bh hash _header ->
-          (getBlockFromHeight pactCid mvar) (fromIntegral bh) hash
+          getBlockFromHeight pactCid mvar (fromIntegral bh) hash
       , mpaSetLastHeader = \_ -> return ()
       , mpaProcessFork = \_ -> return ()
       , mpaBadlistTx = \_ -> return ()
@@ -331,8 +331,7 @@ txsFromHeight mvar 1 = do
     _ <- modifyMVar mvar (\n -> return (n + 1, n + 1))
     d <- adminData
     moduleStr <- readFile' $ testPactFilesDir ++ "test2.pact"
-    return $ V.fromList
-        ( [ PactTransaction { _pactCode = T.pack moduleStr , _pactData = d } ] )
+    return $ V.fromList [ PactTransaction { _pactCode = T.pack moduleStr , _pactData = d } ]
 
 txsFromHeight mvar _h = do
     newCount <- modifyMVar mvar (\n -> return (n + 1, n + 1))
