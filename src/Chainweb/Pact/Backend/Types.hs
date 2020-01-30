@@ -67,6 +67,11 @@ module Chainweb.Pact.Backend.Types
     , MemPoolAccess(..)
 
     , PactServiceException(..)
+
+      -- * PactDbValue
+    , PactDbValue
+    , PValue(..)
+    , castData
     ) where
 
 import Control.Arrow
@@ -88,6 +93,7 @@ import Data.HashSet (HashSet)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Tuple.Strict
+import Data.Typeable (cast)
 import Data.Vector (Vector)
 
 import Database.SQLite3.Direct as SQ3
@@ -97,6 +103,8 @@ import Foreign.C.Types (CInt(..))
 import GHC.Generics
 
 import Pact.Interpreter (PactDbEnv(..))
+import Pact.Persist (PactDbValue(..))
+import Pact.Persist.Pure (PValue(..))
 import Pact.Persist.SQLite (SQLiteConfig(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
@@ -114,12 +122,26 @@ import Chainweb.Transaction
 -- write, we need to record the table name, the current tx id, the row key, and
 -- the row value.
 --
+
+castData :: PactDbValue o => PValue -> Maybe o
+castData (PValue o) = cast o
+
+
 data SQLiteRowDelta = SQLiteRowDelta
     { _deltaTableName :: !ByteString -- utf8?
     , _deltaTxId :: {-# UNPACK #-} !TxId
     , _deltaRowKey :: !ByteString
-    , _deltaData :: !ByteString
-    } deriving (Show, Generic, Eq)
+    , _deltaData :: !PValue
+    } -- deriving (Show, Generic, Eq)
+instance Show SQLiteRowDelta where
+  show SQLiteRowDelta{..} =
+    "SQLiteRowDelta {_deltaTableName=" ++ show _deltaTableName
+    ++ ", _deltaTxId=" ++ show _deltaTxId
+    ++ ", _deltaRowKey=" ++ show _deltaRowKey
+instance Eq SQLiteRowDelta where
+  a == b = _deltaTableName a == _deltaTableName b &&
+    _deltaTxId a == _deltaTxId b &&
+    _deltaRowKey a == _deltaRowKey b
 
 instance Ord SQLiteRowDelta where
     compare a b = compare aa bb

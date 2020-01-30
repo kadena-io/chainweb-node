@@ -39,7 +39,7 @@ import Control.Monad.Trans.Maybe
 import Data.Aeson hiding ((.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.ByteString.Lazy (fromStrict, toStrict)
+import Data.ByteString.Lazy (fromStrict) -- , toStrict)
 import qualified Data.DList as DL
 import Data.Foldable (concat, toList)
 import qualified Data.HashMap.Strict as HashMap
@@ -107,6 +107,7 @@ getPendingData = do
     -- lookup in pending transactions first
     return $ ptx ++ [pb] ++ bs
 
+
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
@@ -132,7 +133,7 @@ doReadRow d k =
                           \ LIMIT 1;"
                         ]
 
-    lookupWithKey :: forall v . FromJSON v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
+    lookupWithKey :: forall v . FromJSON v => PactDbValue v => Utf8 -> BlockHandler SQLiteEnv (Maybe v)
     lookupWithKey key = do
         pds <- getPendingData
         let lookPD = foldr1 (<|>) $ map (lookupInPendingData key) pds
@@ -140,7 +141,7 @@ doReadRow d k =
         runMaybeT (lookPD <|> lookDB)
 
     lookupInPendingData
-        :: forall v . FromJSON v
+        :: forall v . PactDbValue v
         => Utf8
         -> SQLitePendingData
         -> MaybeT (BlockHandler SQLiteEnv) v
@@ -152,7 +153,10 @@ doReadRow d k =
             then mzero
             -- we merge with (++) which should produce txids most-recent-first
             -- -- we care about the most recent update to this rowkey
-            else MaybeT $ return $! decode $ fromStrict $ DL.head ddata
+            else do
+              case castData (DL.head ddata) of
+                Just cd -> MaybeT $ return $! Just cd
+                Nothing -> internalError $ "Unable to reify data value for key " <> sshow rowkey
 
     lookupInDb :: forall v . FromJSON v => Utf8 -> MaybeT (BlockHandler SQLiteEnv) v
     lookupInDb rowkey = do
@@ -177,7 +181,7 @@ checkDbTableExists tableName = do
     (Utf8 tableNameBS) = tableName
 
 writeSys
-    :: (AsString k, ToJSON v)
+    :: (AsString k, ToJSON v, PactDbValue v)
     => Domain k v
     -> k
     -> v
@@ -201,6 +205,7 @@ writeSys d k v = gets _bsTxId >>= go
 
 recordPendingUpdate
     :: ToJSON v
+    => PactDbValue v
     => Utf8
     -> Utf8
     -> TxId
@@ -208,8 +213,8 @@ recordPendingUpdate
     -> BlockHandler SQLiteEnv ()
 recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
   where
-    !vs = toStrict (Data.Aeson.encode v)
-    delta = SQLiteRowDelta tn txid key vs
+    -- !vs = toStrict (Data.Aeson.encode v)
+    delta = SQLiteRowDelta tn txid key (PValue v)
     deltaKey = SQLiteDeltaKey tn key
 
     modf = over pendingWrites upd
@@ -217,6 +222,8 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     the current transaction  -}
     upd = HashMap.insertWith const deltaKey (DL.singleton delta)
 
+persistRowData :: PValue -> ByteString
+persistRowData = undefined -- TODO
 
 backendWriteUpdateBatch
     :: BlockHeight
@@ -228,7 +235,7 @@ backendWriteUpdateBatch bh writesByTable db = mapM_ writeTable writesByTable
     prepRow (SQLiteRowDelta _ txid rowkey rowdata) =
         [ SText (Utf8 rowkey)
         , SInt (fromIntegral txid)
-        , SBlob rowdata ]
+        , SBlob (persistRowData rowdata) ]
 
     writeTable (tableName, writes) = do
         execMulti db q (V.toList $ V.map prepRow writes)
@@ -302,7 +309,10 @@ doWriteRow
     -> BlockHandler SQLiteEnv ()
 doWriteRow wt d k v = case d of
     (UserTables _) -> writeUser wt d k v
-    _ -> writeSys d k v
+    KeySets -> writeSys d k v
+    Modules -> writeSys d k v
+    Namespaces -> writeSys d k v
+    Pacts -> writeSys d k v
 
 doKeys
     :: (IsString k, AsString k)
@@ -527,7 +537,7 @@ doGetTxLog d txid = do
                 map (takeHead . DL.toList) $
                 concatMap HashMap.elems $ _pendingWrites <$> (ptx ++ [pb])
         let ourDeltas = filter predicate deltas
-        mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
+        mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (persistRowData $ _deltaData x)) ourDeltas
 
     readFromDb = do
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt
