@@ -53,13 +53,12 @@ module Chainweb.TreeDB
 -- ** Query branches
 , getBranch
 , ancestors
+, defaultBranchEntries
+, chainBranchEntries
 
 -- ** Lookups
 , lookupM
 , lookupStreamM
-
--- ** Stream a foldable value
-, foldableEntries
 
 -- * Misc Utils
 , forkEntry
@@ -362,10 +361,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
         -> (S.Stream (Of (DbEntry db)) IO (Natural, Eos) -> IO a)
             -- ^ continuation that is provided the stream of result items
         -> IO a
-    branchEntries db k l mir mar lower upper f = f $
-        getBranch db lower upper
-            & applyRank mir mar
-            & seekLimitStream key k l
+    branchEntries = defaultBranchEntries
     {-# INLINEABLE branchEntries #-}
 
     -- ---------------------------------------------------------------------- --
@@ -423,7 +419,9 @@ root db = fmap fromJuste $ entries db Nothing (Just 1) Nothing Nothing S.head_
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
-applyRank
+-- This assumes that the entries of the stream are in descending order by rank.
+--
+applyRankDesc
     :: forall e m
     . TreeDbEntry e
     => Monad m
@@ -433,9 +431,9 @@ applyRank
         -- ^ Return just the entries that have the given maximum rank.
     -> S.Stream (Of e) m ()
     -> S.Stream (Of e) m ()
-applyRank l u
-    = maybe id (\x -> S.filter (\e -> rank e <= x)) (_getMaxRank <$> u)
-    . maybe id (\x -> S.filter (\e -> rank e >= x)) (_getMinRank <$> l)
+applyRankDesc l u
+    = maybe id (\x -> S.dropWhile (\e -> rank e > x)) (_getMaxRank <$> u)
+    . maybe id (\x -> S.takeWhile (\e -> rank e >= x)) (_getMinRank <$> l)
 
 -- | Returns the stream of all ancestors of a key, including the entry of the
 -- given key.
@@ -448,6 +446,73 @@ ancestors
     -> S.Stream (Of (DbEntry db)) IO ()
 ancestors db k = getBranch db mempty (HS.singleton $ UpperBound k)
 {-# INLINE ancestors #-}
+
+-- | The default implementation for getBranch. This implementation always starts
+-- traversing from the given upper bounds and prunes the result to the possibly
+-- provided limits.
+--
+defaultBranchEntries
+    :: TreeDb db
+    => db
+    -> Maybe (NextItem (DbKey db))
+        -- ^ Cursor
+    -> Maybe Limit
+        -- ^ Maximum number of items that are returned
+    -> Maybe MinRank
+        -- ^ Minimum rank for returned items
+    -> Maybe MaxRank
+        -- ^ Maximum rank for returned items
+    -> HS.HashSet (LowerBound (DbKey db))
+        -- ^ Lower bounds for the returned items
+    -> HS.HashSet (UpperBound (DbKey db))
+        -- ^ Upper bounds for the returned items
+    -> (S.Stream (Of (DbEntry db)) IO (Natural, Eos) -> IO a)
+        -- ^ continuation that is provided the stream of result items
+    -> IO a
+defaultBranchEntries db k l mir mar lower upper f = f $
+    getBranch db lower upper
+        & applyRankDesc mir mar
+        & seekLimitStream key k l
+{-# INLINEABLE defaultBranchEntries #-}
+
+-- | An implementation of 'branchEntries' that is optimized for trees that have
+-- a single very long trunk and only very short branches. This is usually the
+-- case for block chains. If maximum height is provided, the for each upper
+-- bound an ancestor at the given height is seeked and search starts from there.
+--
+-- Seeking of the ancestor is implemented uses 'entries' and the performance
+-- depends on an efficient implementation of it.
+--
+chainBranchEntries
+    :: TreeDb db
+    => db
+    -> Maybe (NextItem (DbKey db))
+        -- ^ Cursor
+    -> Maybe Limit
+        -- ^ Maximum number of items that are returned
+    -> Maybe MinRank
+        -- ^ Minimum rank for returned items
+    -> Maybe MaxRank
+        -- ^ Maximum rank for returned items
+    -> HS.HashSet (LowerBound (DbKey db))
+        -- ^ Lower bounds for the returned items
+    -> HS.HashSet (UpperBound (DbKey db))
+        -- ^ Upper bounds for the returned items
+    -> (S.Stream (Of (DbEntry db)) IO (Natural, Eos) -> IO a)
+        -- ^ continuation that is provided the stream of result items
+    -> IO a
+chainBranchEntries db k l mir Nothing lower upper f
+    = defaultBranchEntries db k l mir Nothing lower upper f
+chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
+    upper' <- HS.fromList <$> traverse start (HS.toList upper)
+    defaultBranchEntries db k l mir mar lower upper' f
+  where
+    start b@(UpperBound u) = lookup db u >>= \case
+        Nothing -> return $ b
+        Just e -> seekAncestor db e m >>= \case
+            Nothing -> return $ b
+            Just x -> return $ UpperBound $! key x
+{-# INLINEABLE chainBranchEntries #-}
 
 -- | @getBranch db lower upper@ returns all nodes that are predecessors of nodes
 -- in @upper@ and not predecessors of any node in @lower@. Entries are returned
@@ -664,23 +729,6 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
         Nothing -> throwM $ TreeDbParentMissing @db e
         (Just !x) -> return $! Just x
 
--- | Create a `Stream` from a `Foldable` value.
---
-foldableEntries
-    :: forall e f
-    . Foldable f
-    => TreeDbEntry e
-    => Maybe (NextItem (Key e))
-    -> Maybe Limit
-    -> Maybe MinRank
-    -> Maybe MaxRank
-    -> f e
-    -> S.Stream (Of e) IO (Natural, Eos)
-foldableEntries k l mir mar f = S.each f
-    & applyRank mir mar
-    & void
-    & seekLimitStream key k l
-
 -- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
 -- used only for debugging purposes.
 --
@@ -795,6 +843,8 @@ collectForkBlocks db lastHeader newHeader = do
 -- The function returns 'Nothing' only if the requested rank is larger than the
 -- rank of the given header.
 --
+-- It is implemented in terms of 'defaultBranchEntries' and 'entries'.
+--
 seekAncestor
     :: forall db
     . TreeDb db
@@ -835,7 +885,7 @@ seekAncestor db h r
             !as <- S.toList_ & entries db Nothing Nothing (Just $ int l) (Just $ int l)
 
             -- traverse backward to find blocks at height ch
-            !bs <- S.toList_ & branchEntries db
+            !bs <- S.toList_ & defaultBranchEntries db
                 Nothing (Just 2)
                 (Just $ int r) (Just $ int r)
                 mempty (HS.fromList $ UpperBound . key <$> as)
@@ -855,7 +905,7 @@ seekAncestor db h r
     -- by traversing along the parent relation.
     --
     slowRoute = do
-        !a <- S.head_ & branchEntries db
+        !a <- S.head_ & defaultBranchEntries db
             Nothing (Just 1)
             (Just $ int r) (Just $ int r)
             mempty (HS.singleton $ UpperBound $ key h)
