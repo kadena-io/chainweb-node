@@ -68,10 +68,11 @@ remoteTests withMempool = map ($ withMempool) [
     , mempoolProperty "pre-insert checks" genTwoSets propPreInsert
     , mempoolProperty "insert + lookup + getBlock" genNonEmpty propTrivial
     , mempoolProperty "getPending" genNonEmpty propGetPending
-    -- , mempoolProperty "getPending high water marks" hwgen propHighWater
+    , mempoolProperty "getPending high water marks" hwgen propHighWater
     ]
   where
-    _hwgen = do
+    hwgen :: PropertyM IO ([MockTx], [MockTx])
+    hwgen = do
       (xs, ys0) <- genTwoSets
       let ys = take 1000 ys0     -- recency log only has so many entries
       return (xs, ys)
@@ -335,12 +336,12 @@ propGetPending txs0 _ mempool = runExceptT $ do
     getPending = mempoolGetPendingTransactions mempool
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
 
-_propHighWater
+propHighWater
     :: ([MockTx], [MockTx])
     -> InsertCheck
     -> MempoolBackend MockTx
     -> IO (Either String ())
-_propHighWater (txs0, txs1) _ mempool = runExceptT $ do
+propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     liftIO $ insert txs0
     hw <- liftIO $ getPending Nothing $ const (return ())
     liftIO $ insert txs1

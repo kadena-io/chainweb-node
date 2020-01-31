@@ -227,7 +227,9 @@ import Text.Read (readEither)
 -- is usually more important than throughput.
 --
 slowEpochGuard :: ParentHeader -> Bool
-slowEpochGuard (ParentHeader p) = _blockHeight p < 80000
+slowEpochGuard (ParentHeader p)
+    | Mainnet01 <- _chainwebVersion p = _blockHeight p < 80000
+    | otherwise = False
 {-# INLINE slowEpochGuard #-}
 
 -- -------------------------------------------------------------------------- --

@@ -40,6 +40,7 @@ import Control.Monad.IO.Class
 import Control.Retry
 
 import qualified Data.Aeson as A
+import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString.Short as SB
 import Data.Default (def)
 import Data.Either
@@ -80,8 +81,8 @@ import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.PactError as Pact
-import Pact.Types.Pretty
 import Pact.Types.PactValue
+import Pact.Types.Pretty
 import Pact.Types.Term
 
 -- internal modules
@@ -259,12 +260,16 @@ sendValidationTest iot nio =
 
         step "check insufficient gas"
         batch4 <- testBatch' iot 10000 mv 10000000000
-        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+        expectSendFailure
+          "(enforce (<= amount balance) \\\"...: Failure: Tx Failed: Insufficient funds\"" $
+          flip runClientM cenv $
             pactSendApiClient v cid batch4
 
         step "check bad sender"
         batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
-        expectSendFailure "Sender account has insufficient gas" $ flip runClientM cenv $
+        expectSendFailure
+          "(read coin-table sender): Failure: Tx Failed: read: row not found: invalid-sender" $
+          flip runClientM cenv $
             pactSendApiClient v cid0 batch5
 
   where
@@ -427,7 +432,9 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     case r of
       Left e -> assertFailure $ "test failure for TRANSFER + FUND_TX: " <> show e
-      Right t -> assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> t)
+      Right t -> do
+        assertEqual "TRANSFER + FUND_TX test" result0 (resultOf <$> t)
+        assertSatisfies "meta in output" (preview (_Just . crMetaData . _Just . _Object . at "blockHash") t) isJust
 
   where
     n0 = Just "transfer-clist0"
@@ -624,7 +631,7 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local sid cenv cmd =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting local cmd for " <> (take 18 $ show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -647,7 +654,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -671,7 +678,7 @@ sending
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -700,7 +707,7 @@ polling
     -> PollingExpectation
     -> IO PollResponses
 polling sid cenv rks pollingExpectation =
-    recovering (exponentialBackoff 10000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"

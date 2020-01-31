@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
@@ -29,7 +30,7 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (view, (^.), (^?!), _head)
+import Control.Lens (set, view, (^.), (^?!), _head)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Except (ExceptT)
@@ -435,7 +436,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
                 out <- MaybeT $ return $! decodeStrict' output
                 when (_crReqKey out /= key) $
                     fail "internal error: Transaction output doesn't match its hash!"
-                return out
+                enrichCR blockHeader out
             Nothing -> mzero
 
     fromTx (!tx, !out) = do
@@ -458,6 +459,16 @@ internalPoll cutR cid chain cut requestKeys0 = do
             doc = pretty (T.pack $ show InsertErrorBadlisted)
             !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing
         in (rk, cr)
+
+    enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
+    enrichCR BlockHeader{..} = return . set crMetaData
+      (Just $ object
+       [ "blockHeight" .= _blockHeight
+       , "blockTime" .= _blockCreationTime
+       , "blockHash" .= _blockHash
+       , "prevBlockHash" .= _blockParent
+       ])
+
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b
 
