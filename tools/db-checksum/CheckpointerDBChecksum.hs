@@ -37,6 +37,8 @@ import GHC.Generics
 
 import System.Directory
 
+import Text.Printf
+
 -- pact imports
 import Pact.Types.SQLite
 
@@ -81,12 +83,26 @@ work :: Args -> IO (Builder, Map TableName TableContents)
 work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runReaderT go)
   where
     low = _startBlockHeight args
-    high = _endBlockHeight args
-    go = do
-        names <- todl systemtables <$> getUserTables low high
-        foldM collect (mempty, mempty) names
+    high = case _endBlockHeight args of
+      Nothing -> do
+        result <- getMaxHeight
+        case result of
+          [[SInt maxheight]] -> return $ BlockHeight $ fromIntegral maxheight
+          err ->
+            error (printf "Encountered this result %s while trying to get highest blockheight" (show err))
+      Just h -> return h
 
-    todl = foldr ((.).(:)) id
+    go = do
+        h <- high
+        names <- todl systemtables <$> getUserTables low h
+        foldM (collect h) (mempty, mempty) names
+
+    todl = foldr (\a b ->  (a:) . b) id
+
+    getMaxHeight = callDb dbcall $ \db -> qry_ db maxheightstmt [RInt]
+      where
+        maxheightstmt = "SELECT MAX(blockheight) FROM BlockHistory;"
+        dbcall = "Getting max height from BlockHistory"
 
     systemtables =
       [ "BlockHistory"
@@ -99,31 +115,31 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
       , "[SYS:Pacts]"
       ]
 
-    collect (entiredb,  m) name = do
-        rows <- getTblContents name
+    collect h (entiredb,  m) name = do
+        rows <- getTblContents h name
         let !bytes = encode rows
         return (mappend entiredb (byteString bytes), M.insert name bytes m)
 
-    getTblContents = \case
-        "TransactionIndex" ->
+    getTblContents h = \case
+        "TransactionIndex" -> do
           callDb "TransactionIndex" $ \db ->
-            qry db tistmt (SInt . fromIntegral <$> [low, high]) [RBlob, RInt]
-        "BlockHistory" ->
+            qry db tistmt (SInt . fromIntegral <$> [low, h]) [RBlob, RInt]
+        "BlockHistory" -> do
           callDb "BlockHistory" $ \db ->
-            qry db bhstmt (SInt . fromIntegral <$> [low, high]) [RInt, RBlob, RInt]
+            qry db bhstmt (SInt . fromIntegral <$> [low, h]) [RInt, RBlob, RInt]
         "VersionedTableCreation" ->
           callDb "VersionedTableCreation" $ \db ->
-            qry db vtcstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
+            qry db vtcstmt (SInt . fromIntegral <$> [low, h]) [RText, RInt]
         "VersionedTableMutation" ->
           callDb "VersionedTableMutation" $ \db ->
-            qry db vtmstmt (SInt . fromIntegral <$> [low, high]) [RText, RInt]
+            qry db vtmstmt (SInt . fromIntegral <$> [low, h]) [RText, RInt]
         t -> do
             lowtxid <-
               callDb "starting txid" $ \db ->
                 getActualStartingTxId low db
             hightxid <-
               callDb "last txid" $ \db ->
-                getActualEndingTxId high db
+                getActualEndingTxId h db
             callDb ("on table " <> toS t) $ \db ->
               qry db (usertablestmt t) (SInt <$> [lowtxid, hightxid]) [RText, RInt, RBlob]
 
@@ -217,7 +233,7 @@ getUserTables low high = callDb "getUserTables" $ \db -> do
 data Args = Args
    {  _sqliteFile :: FilePath
    , _startBlockHeight :: BlockHeight
-   , _endBlockHeight :: BlockHeight
+   , _endBlockHeight :: Maybe BlockHeight
    , _entireDBOutputFile :: FilePath
    , _tablesOutputLocation :: String
    , _getAllTables :: Bool
@@ -229,7 +245,7 @@ sqliteFile f s = (\u -> s { _sqliteFile = u }) <$> f (_sqliteFile s)
 startBlockHeight :: Functor f => (BlockHeight -> f BlockHeight) -> Args -> f Args
 startBlockHeight f s = (\u -> s { _startBlockHeight = u }) <$> f (_startBlockHeight s)
 
-endBlockHeight :: Functor f => (BlockHeight -> f BlockHeight) -> Args -> f Args
+endBlockHeight :: Functor f => (Maybe BlockHeight -> f (Maybe BlockHeight)) -> Args -> f Args
 endBlockHeight f s = (\u -> s { _endBlockHeight = u }) <$> f (_endBlockHeight s)
 
 entireDBOutputFile :: Functor f => (FilePath -> f FilePath) -> Args -> f Args
@@ -292,7 +308,7 @@ defaultArgs =
     Args
         { _sqliteFile = "no-known-file"
           , _startBlockHeight = 0
-          , _endBlockHeight = 5
+          , _endBlockHeight = Nothing
           , _entireDBOutputFile = "dboutput.hash"
           , _tablesOutputLocation = "dboutputhashes"
           , _getAllTables = True
