@@ -69,7 +69,7 @@ initRelationalCheckpointer'
 initRelationalCheckpointer' bstate sqlenv loggr = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
-    runBlockEnv db $ initSchema >> vacuumDb -- TODO: remove?
+    runBlockEnv db $ initSchema
     return $!
       (PactDbEnv' (PactDbEnv chainwebPactDb db),
        CheckpointEnv
@@ -124,14 +124,15 @@ doSave :: Db -> BlockHash -> IO ()
 doSave dbenv hash = runBlockEnv dbenv $ do
     height <- gets _bsBlockHeight
     runPending height
-    commitSavepoint Block
     nextTxId <- gets _bsTxId
     blockHistoryInsert height hash nextTxId
+    commitSavepoint Block
     clearPendingTxState
   where
     runPending :: BlockHeight -> BlockHandler SQLiteEnv ()
     runPending bh = do
-        (newTables, writes, _, _) <- use bsPendingBlock
+        newTables <- use $ bsPendingBlock . pendingTableCreation
+        writes <- use $ bsPendingBlock . pendingWrites
         createNewTables bh $ toList newTables
         writeV <- toVectorChunks writes
         callDb "save" $ backendWriteUpdateBatch bh writeV

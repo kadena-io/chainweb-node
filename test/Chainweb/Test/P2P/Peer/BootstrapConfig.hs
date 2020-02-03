@@ -41,8 +41,10 @@ bootstrapPeerConfig v@TimedCPM{} = testBootstrapPeerConfig v
 bootstrapPeerConfig v@FastTimedCPM{} = testBootstrapPeerConfig v
 bootstrapPeerConfig Development = error
     $ "bootstrap peer config isn't defined for chainweb version Development"
-bootstrapPeerConfig Testnet02 = error
-    $ "bootstrap peer config isn't defined for chainweb version Testnet02"
+bootstrapPeerConfig Testnet04 = error
+    $ "bootstrap peer config isn't defined for chainweb version Testnet04"
+bootstrapPeerConfig Mainnet01 = error
+    $ "bootstrap peer config isn't defined for chainweb version Testnet04"
 
 testBootstrapPeerConfig :: ChainwebVersion -> [PeerConfig]
 testBootstrapPeerConfig v =
@@ -71,8 +73,10 @@ bootstrapCertificate TimedCPM{} = testBootstrapCertificate
 bootstrapCertificate FastTimedCPM{} = testBootstrapCertificate
 bootstrapCertificate Development = error
     $ "bootstrap certificate isn't defined for chainweb version Development"
-bootstrapCertificate Testnet02 = error
-    $ "bootstrap certificate isn't defined for chainweb version Testnet02"
+bootstrapCertificate Testnet04 = error
+    $ "bootstrap certificate isn't defined for chainweb version Testnet04"
+bootstrapCertificate Mainnet01 = error
+    $ "bootstrap certificate isn't defined for chainweb version Mainnet01"
 
 -- | The test certificate is also stored in the file
 -- @./scripts/scripts/test-bootstrap-node.config@.
@@ -131,8 +135,10 @@ bootstrapKey TimedCPM{} = testBootstrapKey
 bootstrapKey FastTimedCPM{} = testBootstrapKey
 bootstrapKey Development = error
     $ "bootstrap key isn't defined for chainweb version Development"
-bootstrapKey Testnet02 = error
-    $ "bootstrap key isn't defined for chainweb version Testnet02"
+bootstrapKey Testnet04 = error
+    $ "bootstrap key isn't defined for chainweb version Testnet04"
+bootstrapKey Mainnet01 = error
+    $ "bootstrap key isn't defined for chainweb version Mainnet01"
 
 -- | This is only defined for non-public Test instances
 --

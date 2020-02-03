@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -65,24 +64,22 @@ import Text.Pretty.Simple (pPrintNoColor)
 -- PACT
 import Pact.ApiReq
 import Pact.Types.API
-import qualified Pact.Types.ChainId as CI
-import qualified Pact.Types.ChainMeta as CM
-import Pact.Types.Command
-import qualified Pact.Types.Hash as H
 import Pact.Types.Capability
+import Pact.Types.Command
+import Pact.Types.Exp (Literal(..))
+import Pact.Types.Gas
 import Pact.Types.Info (mkInfo)
 import Pact.Types.Names
 import Pact.Types.PactValue
-import Pact.Types.Exp (Literal(..))
+import qualified Pact.Types.ChainId as CI
+import qualified Pact.Types.ChainMeta as CM
+import qualified Pact.Types.Hash as H
 
 -- CHAINWEB
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.HostAddress
-import Chainweb.Pact.RestAPI
-#if !MIN_VERSION_servant(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
+import Chainweb.Pact.RestAPI.Client
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -121,14 +118,17 @@ generateSimpleTransactions = do
   stdgen <- liftIO newStdGen
   BatchSize batch <- asks confBatchSize
   v <- asks confVersion
-  (msgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $ f cid v stdgen
+  tGasLimit <- asks confGasLimit
+  tGasPrice <- asks confGasPrice
+  tTTL <- asks confTTL
+  (msgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $ f tGasLimit tGasPrice tTTL cid v stdgen
   -- Delay, so as not to hammer the network.
   delay <- generateDelay
   liftIO $ threadDelay delay
   pure (cid, msgs, cmds)
   where
-    f :: ChainId -> ChainwebVersion -> StdGen -> IO (Maybe Text, Command Text)
-    f cid v stdgen = do
+    f :: GasLimit -> GasPrice -> CM.TTLSeconds -> ChainId -> ChainwebVersion -> StdGen -> IO (Maybe Text, Command Text)
+    f gl gp ttl cid v stdgen = do
       let (operandA, operandB, op) = flip evalState stdgen $ do
             a <- state $ randomR (1, 100 :: Integer)
             b <- state $ randomR (1, 100 :: Integer)
@@ -141,7 +141,7 @@ generateSimpleTransactions = do
       kps <- testSomeKeyPairs
 
       let theData = object ["test-admin-keyset" .= fmap (formatB16PubKey . fst) kps]
-      meta <- Sim.makeMeta cid
+      meta <- Sim.makeMeta cid ttl gp gl
       (Nothing,) <$> mkExec theCode theData meta (NEL.toList kps) (Just $ CI.NetworkId $ toText v) Nothing
 
 -- | O(1). The head value is moved to the end.
@@ -171,11 +171,14 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
     Nothing -> error $ printf "%s is missing Accounts!" (show cid)
     Just accs -> do
       BatchSize batch <- asks confBatchSize
+      tGasLimit <- asks confGasLimit
+      tGasPrice <- asks confGasPrice
+      tTTL <- asks confTTL
       (mmsgs, cmds) <- liftIO . fmap NEL.unzip . sequenceA . nelReplicate batch $
         case contractIndex of
-          CoinContract -> coinContract version ifCoinOnlyTransfers isVerbose cid $ accounts "coin" accs
+          CoinContract -> coinContract tGasLimit tGasPrice tTTL version ifCoinOnlyTransfers isVerbose cid $ accounts "coin" accs
           HelloWorld -> (Nothing,) <$> (generate fake >>= helloRequest version)
-          Payments -> (Nothing,) <$> (payments version cid $ accounts "payment" accs)
+          Payments -> (Nothing,) <$> (payments tGasLimit tGasPrice tTTL version cid $ accounts "payment" accs)
       generateDelay >>= liftIO . threadDelay
       pure (cid, mmsgs, cmds)
   where
@@ -183,13 +186,16 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
     accounts s = fromJuste . traverse (M.lookup (Sim.ContractName s))
 
     coinContract
-        :: ChainwebVersion
+        :: GasLimit
+        -> GasPrice
+        -> CM.TTLSeconds
+        -> ChainwebVersion
         -> Bool
         -> Verbose
         -> ChainId
         -> Map Sim.Account (NonEmpty SomeKeyPairCaps)
         -> IO (Maybe Text, Command Text)
-    coinContract version transfers (Verbose vb) cid coinaccts = do
+    coinContract gl gp ttl version transfers (Verbose vb) cid coinaccts = do
       coinContractRequest <- mkRandomCoinContractRequest transfers coinaccts >>= generate
       let msg = if vb then Just $ sshow coinContractRequest else Nothing
       let acclookup sn@(Sim.Account accsn) =
@@ -202,7 +208,7 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
               CoinAccountBalance account -> acclookup account
               CoinTransfer (SenderName sn) rcvr amt -> (mkTransferCaps rcvr amt) $ acclookup sn
               CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> (mkTransferCaps rcvr amt) (acc, guardd)
-      meta <- Sim.makeMetaWithSender sender cid
+      meta <- Sim.makeMetaWithSender sender ttl gp gl cid
       (msg,) <$> createCoinContractRequest version meta ks coinContractRequest
 
     mkTransferCaps :: ReceiverName -> Sim.Amount -> (Sim.Account, NonEmpty SomeKeyPairCaps) -> (Sim.Account, NonEmpty SomeKeyPairCaps)
@@ -214,18 +220,18 @@ generateTransactions ifCoinOnlyTransfers isVerbose contractIndex = do
                   , PLiteral $ LString $ T.pack r
                   , PLiteral $ LDecimal m]
 
-    payments :: ChainwebVersion -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPairCaps) -> IO (Command Text)
-    payments v cid paymentAccts = do
+    payments :: GasLimit -> GasPrice -> CM.TTLSeconds -> ChainwebVersion -> ChainId -> Map Sim.Account (NonEmpty SomeKeyPairCaps) -> IO (Command Text)
+    payments gl gp ttl v cid paymentAccts = do
       paymentsRequest <- mkRandomSimplePaymentRequest paymentAccts >>= generate
       case paymentsRequest of
         SPRequestPay fromAccount _ _ -> case M.lookup fromAccount paymentAccts of
           Nothing ->
             error "This account does not have an associated keyset!"
           Just keyset -> do
-            meta <- Sim.makeMeta cid
+            meta <- Sim.makeMeta cid ttl gp gl
             simplePayReq v meta paymentsRequest $ Just keyset
         SPRequestGetBalance _account -> do
-          meta <- Sim.makeMeta cid
+          meta <- Sim.makeMeta cid ttl gp gl
           simplePayReq v meta paymentsRequest Nothing
         _ -> error "SimplePayments.CreateAccount code generation not supported"
 
@@ -234,8 +240,8 @@ sendTransactions
   -> ChainId
   -> NonEmpty (Command Text)
   -> IO (Either ClientError RequestKeys)
-sendTransactions (TXGConfig _ _ cenv v _ _) cid cmds =
-  runClientM (send v cid $ SubmitBatch cmds) cenv
+sendTransactions (TXGConfig _ _ cenv v _ _ _ _ _) cid cmds =
+  runClientM (pactSendApiClient v cid $ SubmitBatch cmds) cenv
 
 loop
   :: (MonadIO m, MonadLog SomeLogMessage m)
@@ -266,17 +272,17 @@ type ContractLoader
 
 loadContracts :: Args -> HostAddress -> NonEmpty ContractLoader -> IO ()
 loadContracts config host contractLoaders = do
-  TXGConfig _ _ ce v _ (Verbose vb) <- mkTXGConfig Nothing config host
+  TXGConfig _ _ ce v _ (Verbose vb) tgasLimit tgasPrice ttl' <- mkTXGConfig Nothing config host
   forM_ (nodeChainIds config) $ \cid -> do
-    !meta <- Sim.makeMeta cid
+    !meta <- Sim.makeMeta cid ttl' tgasPrice tgasLimit
     ts <- testSomeKeyPairs
     contracts <- traverse (\f -> f meta ts) contractLoaders
     pollresponse <- runExceptT $ do
-      rkeys <- ExceptT $ runClientM (send v cid $ SubmitBatch contracts) ce
+      rkeys <- ExceptT $ runClientM (pactSendApiClient v cid $ SubmitBatch contracts) ce
       when vb $ do
             withConsoleLogger Info $ do
                 logg Info $ "sent contracts with request key: " <> sshow rkeys
-      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+      ExceptT $ runClientM (pactPollApiClient v cid . Poll $ _rkRequestKeys rkeys) ce
     withConsoleLogger Info . logg Info $ sshow pollresponse
 
 realTransactions
@@ -286,19 +292,19 @@ realTransactions
   -> TimingDistribution
   -> LoggerT SomeLogMessage IO ()
 realTransactions config host tv distribution = do
-  cfg@(TXGConfig _ _ ce v _ _) <- liftIO $ mkTXGConfig (Just distribution) config host
+  cfg@(TXGConfig _ _ ce v _ _ tgasLimit tgasPrice ttl') <- liftIO $ mkTXGConfig (Just distribution) config host
 
   let chains = maybe (versionChains $ nodeVersion config) NES.fromList
                . NEL.nonEmpty
                $ nodeChainIds config
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
-    !meta <- liftIO $ Sim.makeMeta cid
+    !meta <- liftIO $ Sim.makeMeta cid ttl' tgasPrice tgasLimit
     (paymentKS, paymentAcc) <- liftIO $ NEL.unzip <$> Sim.createPaymentsAccounts v meta
     (coinKS, coinAcc) <- liftIO $ NEL.unzip <$> Sim.createCoinAccounts v meta
     pollresponse <- liftIO . runExceptT $ do
-      rkeys <- ExceptT $ runClientM (send v cid . SubmitBatch $ paymentAcc <> coinAcc) ce
-      ExceptT $ runClientM (poll v cid . Poll $ _rkRequestKeys rkeys) ce
+      rkeys <- ExceptT $ runClientM (pactSendApiClient v cid . SubmitBatch $ paymentAcc <> coinAcc) ce
+      ExceptT $ runClientM (pactPollApiClient v cid . Poll $ _rkRequestKeys rkeys) ce
     case pollresponse of
       Left e -> logg Error $ toLogMessage (sshow e :: Text)
       Right _ -> pure ()
@@ -347,7 +353,7 @@ realCoinTransactions config host tv distribution = do
 
   accountMap <- fmap (M.fromList . toList) . forM chains $ \cid -> do
     let f (Sim.Account sender) = do
-          meta <- liftIO $ Sim.makeMetaWithSender sender cid
+          meta <- liftIO $ Sim.makeMetaWithSender sender (confTTL cfg) (confGasPrice cfg) (confGasLimit cfg) cid
           Sim.createCoinAccount (confVersion cfg) meta sender
     (coinKS, _coinAcc) <-
         liftIO $ unzip <$> traverse f Sim.coinAccountNames
@@ -400,8 +406,8 @@ simpleExpressions config host tv distribution = do
 
 pollRequestKeys :: Args -> HostAddress -> RequestKey -> IO ()
 pollRequestKeys config host rkey = do
-  TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
-  response <- runClientM (poll v cid . Poll $ pure rkey) ce
+  TXGConfig _ _ ce v _ _ _ _ _ <- mkTXGConfig Nothing config host
+  response <- runClientM (pactPollApiClient v cid . Poll $ pure rkey) ce
   case response of
     Left _ -> putStrLn "Failure" >> exitWith (ExitFailure 1)
     Right (PollResponses a)
@@ -415,8 +421,8 @@ pollRequestKeys config host rkey = do
 
 listenerRequestKey :: Args -> HostAddress -> ListenerRequest -> IO ()
 listenerRequestKey config host listenerRequest = do
-  TXGConfig _ _ ce v _ _ <- mkTXGConfig Nothing config host
-  runClientM (listen v cid listenerRequest) ce >>= \case
+  TXGConfig _ _ ce v _ _ _ _ _ <- mkTXGConfig Nothing config host
+  runClientM (pactListenApiClient v cid listenerRequest) ce >>= \case
     Left err -> print err >> exitWith (ExitFailure 1)
     Right r -> print r >> exitSuccess
   where
@@ -433,7 +439,7 @@ singleTransaction args host (SingleTX c cid)
   | otherwise = do
       cfg <- mkTXGConfig Nothing args host
       kps <- testSomeKeyPairs
-      meta <- Sim.makeMeta cid
+      meta <- Sim.makeMeta cid (confTTL cfg) (confGasPrice cfg) (confGasLimit cfg)
       let v = confVersion cfg
       cmd <- mkExec (T.unpack c) (datum kps) meta (NEL.toList kps) (Just $ CI.NetworkId $ toText v) Nothing
       runExceptT (f cfg cmd) >>= \case
@@ -444,9 +450,9 @@ singleTransaction args host (SingleTX c cid)
     datum kps = object ["test-admin-keyset" .= fmap (formatB16PubKey . fst) kps]
 
     f :: TXGConfig -> Command Text -> ExceptT ClientError IO ListenResponse
-    f cfg@(TXGConfig _ _ ce v _ _) cmd = do
+    f cfg@(TXGConfig _ _ ce v _ _ _ _ _) cmd = do
       RequestKeys (rk :| _) <- ExceptT . sendTransactions cfg cid $ pure cmd
-      ExceptT $ runClientM (listen v cid $ ListenerRequest rk) ce
+      ExceptT $ runClientM (pactListenApiClient v cid $ ListenerRequest rk) ce
 
 
 inMempool :: Args -> HostAddress -> (ChainId, [TransactionHash]) -> IO ()
@@ -454,7 +460,7 @@ inMempool args host (cid, txhashes)
     | not . HS.member cid . chainIds $ nodeVersion args =
       putStrLn "Invalid target ChainId" >> exitWith (ExitFailure 1)
     | otherwise = do
-        (TXGConfig _ _ ce v _ _) <- mkTXGConfig Nothing args host
+        (TXGConfig _ _ ce v _ _ _ _ _) <- mkTXGConfig Nothing args host
         runClientM (isMempoolMember v cid txhashes) ce >>= \case
           Left e -> print e >> exitWith (ExitFailure 1)
           Right res -> pPrintNoColor res
@@ -554,46 +560,14 @@ defaultContractLoaders :: ChainwebVersion -> NonEmpty ContractLoader
 defaultContractLoaders v =
   NEL.fromList [ helloWorldContractLoader v, simplePaymentsContractLoader v]
 
-api version chainid =
-  case someChainwebVersionVal version of
-    SomeChainwebVersionT (_ :: Proxy cv) ->
-      case someChainIdVal chainid of
-        SomeChainIdT (_ :: Proxy cid) ->
-          client
-            (Proxy :: Proxy (PactApi cv cid))
-
-send :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
-send version chainid = go
-  where
-    go :<|> _ :<|> _ :<|> _ = api version chainid
-
-poll :: ChainwebVersion -> ChainId -> Poll -> ClientM PollResponses
-poll version chainid = go
-  where
-    _ :<|> go :<|> _ :<|> _ = api version chainid
-
-listen :: ChainwebVersion -> ChainId -> ListenerRequest -> ClientM ListenResponse
-listen version chainid = go
-  where
-    _ :<|> _ :<|> go :<|> _ = api version chainid
-
 ---------------------------
 -- FOR DEBUGGING IN GHCI --
 ---------------------------
--- genapi2 :: ChainwebVersion -> ChainId -> Text
--- genapi2 version chainid =
---   case someChainwebVersionVal version of
---     SomeChainwebVersionT (_ :: Proxy cv) ->
---       case someChainIdVal chainid of
---         SomeChainIdT (_ :: Proxy cid) ->
---           let p = (Proxy :: Proxy ('ChainwebEndpoint cv :> ChainEndpoint cid :> "pact" :> Reassoc SendApi))
---           in toUrlPiece $ safeLink (Proxy :: (Proxy (PactApi cv cid))) p
 
 isMempoolMember :: ChainwebVersion -> ChainId -> [TransactionHash] -> ClientM [Bool]
 isMempoolMember version chainid = go
   where
     _ :<|> go :<|> _ :<|> _ = genapiMempool version chainid
-
 
 genapiMempool version chainid =
   case someChainwebVersionVal version of

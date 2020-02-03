@@ -20,16 +20,19 @@
 module Chainweb.Pact.Service.PactInProcApi
     ( withPactService
     , withPactService'
-    , pactQueueSize
     ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.MVar.Strict
 import Control.Concurrent.STM.TBQueue
 import Control.Monad.STM
 
+import qualified Data.ByteString.Short as SB
 import Data.IORef
 import Data.Vector (Vector)
+
+import Numeric.Natural (Natural)
+
+import qualified Pact.Types.Hash as Pact
 
 import System.LogLevel
 
@@ -37,7 +40,6 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId
-import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
@@ -59,18 +61,19 @@ withPactService
     => ChainwebVersion
     -> ChainId
     -> logger
-    -> MempoolConsensus ChainwebTransaction
-    -> MVar (CutDb cas)
+    -> MempoolConsensus
     -> BlockHeaderDb
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
+    -> Natural
+    -> Natural
     -> (PactQueue -> IO a)
     -> IO a
-withPactService ver cid logger mpc cdbv bhdb pdb dbDir nodeid resetDb action =
-    withPactService' ver cid logger mpa cdbv bhdb pdb dbDir nodeid resetDb
-                     action
+withPactService ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize deepForkLimit action =
+    PS.withSqliteDb ver cid logger dbDir nodeid resetDb $ \sqlenv ->
+        withPactService' ver cid logger mpa bhdb pdb sqlenv pactQueueSize deepForkLimit action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -83,49 +86,42 @@ withPactService'
     -> ChainId
     -> logger
     -> MemPoolAccess
-    -> MVar (CutDb cas)
     -> BlockHeaderDb
     -> PayloadDb cas
-    -> Maybe FilePath
-    -> Maybe NodeId
-    -> Bool
+    -> SQLiteEnv
+    -> Natural
+    -> Natural
     -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb action = do
+withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv pactQueueSize deepForkLimit0 action = do
     reqQ <- atomically $ newTBQueue pactQueueSize
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
   where
+    deepForkLimit = fromIntegral deepForkLimit0
     client reqQ = action reqQ
-    server reqQ = runForever logg "pact-service" $
-        PS.initPactService
-            ver cid logger reqQ memPoolAccess cdbv bhDb pdb dbDir nodeid resetDb
+    server reqQ = runForever logg "pact-service"
+        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv deepForkLimit
     logg = logFunction logger
-
--- TODO: get from config
--- TODO: why is this declared both here and in Mempool
-maxBlockSize :: GasLimit
-maxBlockSize = 1000000
-
--- TODO: make this configurable
-pactQueueSize :: Num a => a
-pactQueueSize = 2000
 
 pactMemPoolAccess
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> MemPoolAccess
 pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
+    , mpaBadlistTx = \tx -> mempoolAddToBadList (mpcMempool mpc) (fromPactHash tx)
     }
+  where
+    fromPactHash (Pact.TypedHash h) = TransactionHash (SB.toShort h)
 
 pactMemPoolGetBlock
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> (MempoolPreBlockCheck ChainwebTransaction
             -> BlockHeight
@@ -135,7 +131,7 @@ pactMemPoolGetBlock
 pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
     logFn theLogger Info $! "pactMemPoolAccess - getting new block of transactions for "
         <> "height = " <> sshow height <> ", hash = " <> sshow hash
-    mempoolGetBlock (mpcMempool mpc) validate height hash maxBlockSize
+    mempoolGetBlock (mpcMempool mpc) validate height hash
   where
    logFn :: Logger l => l -> LogFunctionText -- just for giving GHC some type hints
    logFn = logFunction
@@ -143,7 +139,7 @@ pactMemPoolGetBlock mpc theLogger validate height hash _bHeader = do
 
 pactProcessFork
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> (BlockHeader -> IO ())
 pactProcessFork mpc theLogger bHeader = do
@@ -166,10 +162,9 @@ pactProcessFork mpc theLogger bHeader = do
 
 pactMempoolSetLastHeader
     :: Logger logger
-    => MempoolConsensus ChainwebTransaction
+    => MempoolConsensus
     -> logger
     -> (BlockHeader -> IO ())
 pactMempoolSetLastHeader mpc _theLogger bHeader = do
     let headerRef = mpcLastNewBlockParent mpc
     atomicWriteIORef headerRef (Just bHeader)
-

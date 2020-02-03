@@ -1,6 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -27,7 +29,7 @@ import GHC.Generics
 
 -- internal pact modules
 
-import Pact.Types.ChainId as Pact
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash
 
@@ -35,20 +37,23 @@ import Pact.Types.Hash
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
-import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToText)
-
+import Chainweb.Version
 
 data PactException
   = BlockValidationFailure Value
   | PactInternalError Text
+  | PactTransactionExecError PactHash Text
+  | CoinbaseFailure Text
   | NoBlockValidatedYet
   | TransactionValidationException [(PactHash, Text)]
   | PactDuplicateTableError Text
   | TransactionDecodeFailure Text
+  | RewindLimitExceeded Text BlockHeight BlockHeight
   -- The only argument Text is the duplicate table name.
   deriving (Eq,Generic)
 
@@ -71,6 +76,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
                 | ValidateBlockMsg ValidateBlockReq
                 | LocalMsg LocalReq
                 | LookupPactTxsMsg LookupPactTxsReq
+                | PreInsertCheckMsg PreInsertCheckReq
                 | CloseMsg
                 deriving (Show)
 
@@ -93,12 +99,12 @@ instance Show ValidateBlockReq where show ValidateBlockReq{..} = show (_valBlock
 
 data LocalReq = LocalReq
     { _localRequest :: ChainwebTransaction
-    , _localResultVar :: PactExMVar HashCommandResult
+    , _localResultVar :: PactExMVar (CommandResult Hash)
     }
 instance Show LocalReq where show LocalReq{..} = show (_localRequest)
 
 data LookupPactTxsReq = LookupPactTxsReq
-    { _lookupRestorePoint :: !(Maybe (T2 BlockHeight BlockHash))
+    { _lookupRestorePoint :: !Rewind
         -- here if the restore point is "Nothing" it means "we don't care"
     , _lookupKeys :: !(Vector PactHash)
     , _lookupResultVar :: !(PactExMVar (Vector (Maybe (T2 BlockHeight BlockHash))))
@@ -106,6 +112,14 @@ data LookupPactTxsReq = LookupPactTxsReq
 instance Show LookupPactTxsReq where
     show (LookupPactTxsReq m _ _) =
         "LookupPactTxsReq@" ++ show m
+
+data PreInsertCheckReq = PreInsertCheckReq
+    { _preInsCheckTxs :: !(Vector ChainwebTransaction)
+    , _preInsCheckResult :: !(PactExMVar (Vector (Either InsertError ())))
+    }
+instance Show PreInsertCheckReq where
+    show (PreInsertCheckReq v _) =
+        "PreInsertCheckReq@" ++ show v
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey
@@ -126,3 +140,19 @@ instance FromJSON SpvRequest where
 newtype TransactionOutputProofB64 = TransactionOutputProofB64 Text
     deriving stock (Eq, Show, Generic)
     deriving newtype (ToJSON, FromJSON)
+
+-- | This data type marks whether or not a particular header is
+-- expected to rewind or not. In the case of 'NoRewind', no
+-- header data is given, and a chain id is given instead for
+-- routing purposes
+--
+data Rewind
+    = DoRewind !BlockHeader
+    | NoRewind {-# UNPACK #-} !ChainId
+    deriving (Eq, Show)
+
+instance HasChainId Rewind where
+    _chainId = \case
+      DoRewind !bh -> _chainId bh
+      NoRewind !cid -> cid
+    {-# INLINE _chainId #-}

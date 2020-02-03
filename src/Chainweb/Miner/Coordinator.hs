@@ -5,6 +5,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -26,6 +27,9 @@ module Chainweb.Miner.Coordinator
   , MiningStats(..)
   , PrevTime(..)
   , ChainChoice(..)
+  , PrimedWork(..)
+  , CachedPayload
+  , MinerStatus(..), minerStatus
     -- * Functions
   , newWork
   , publish
@@ -33,10 +37,13 @@ module Chainweb.Miner.Coordinator
 
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
+import Data.Coerce (coerce)
 
+import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Error.Util ((!?), (??))
+import Control.Error.Util (hoistEither, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
+import Control.Monad (unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
 
@@ -46,8 +53,7 @@ import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Ratio ((%))
-import qualified Data.Text as T
-import Data.Tuple.Strict (T3(..))
+import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -60,12 +66,13 @@ import System.LogLevel (LogLevel(..))
 
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation (prop_block_pow)
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Difficulty
 import Chainweb.Logging.Miner
-import Chainweb.Miner.Pact (Miner, minerId)
+import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
@@ -74,23 +81,36 @@ import Chainweb.Version
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
+import Utils.Logging.Trace (trace)
+
 -- -------------------------------------------------------------------------- --
 -- Miner
+
+-- | Precached payloads for Private Miners. This allows new work requests to be
+-- made as often as desired, without clogging the Pact queue.
+--
+newtype PrimedWork =
+    PrimedWork (HM.HashMap MinerId (HM.HashMap ChainId (Maybe CachedPayload)))
+    deriving newtype (Semigroup, Monoid)
+
+type CachedPayload = T2 PayloadWithOutputs BlockCreationTime
 
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
 --
-newtype MiningState =
-    MiningState (M.Map BlockPayloadHash (T3 Miner PrevTime PayloadWithOutputs))
+newtype MiningState = MiningState
+    (M.Map (T2 BlockCreationTime BlockPayloadHash) (T3 Miner PrevTime PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
 -- | For logging during `MiningState` manipulation.
 --
 data MiningStats = MiningStats
-    { _statsCacheSize :: Int
-    , _states503s :: Int
-    , _statsAvgTxs :: Int }
+    { _statsCacheSize :: !Int
+    , _stats503s :: !Int
+    , _stats403s :: !Int
+    , _statsAvgTxs :: !Int
+    , _statsPrimedSize :: !Int }
     deriving stock (Generic)
     deriving anyclass (ToJSON, NFData)
 
@@ -101,15 +121,26 @@ newtype PrevTime = PrevTime BlockCreationTime
 
 data ChainChoice = Anything | TriedLast ChainId | Suggestion ChainId
 
+-- | A `Miner`'s status. Will be `Primed` if defined in the nodes `miners` list.
+-- This affects whether to serve the Miner primed payloads.
+--
+data MinerStatus = Primed Miner | Plebian Miner
+
+minerStatus :: MinerStatus -> Miner
+minerStatus (Primed m) = m
+minerStatus (Plebian m) = m
+
 -- | Construct a new `BlockHeader` to mine on.
 --
 newWork
-    :: ChainChoice
-    -> Miner
+    :: LogFunction
+    -> ChainChoice
+    -> MinerStatus
     -> PactExecutionService
+    -> TVar PrimedWork
     -> Cut
     -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
-newWork choice miner pact c = do
+newWork logFun choice eminer pact tpw c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
     --
@@ -119,37 +150,43 @@ newWork choice miner pact c = do
     -- contain at least a genesis block, so this otherwise naughty
     -- `^?!` will always succeed.
     --
-    let !p = c ^?! ixg cid
+    let !p = ParentHeader (c ^?! ixg cid)
 
-    -- Check if the chain can be mined on by determining if adjacent parents
-    -- also exist. If they don't, we test other chains on this same `Cut`,
-    -- since we still believe this `Cut` to be good.
-    --
-    -- Note that if the caller did specify a specific chain to mine on, we only
-    -- attempt this once. We assume they'd rather have /some/ work on /some/
-    -- chain rather than no work on their chosen chain. This will also help
-    -- rebalance "selfish" mining, for remote clients who claim that they want
-    -- to focus their hash power on a certain chain.
-    --
-    -- TODO Consider instead some maximum amount of retries?
-    --
-    case getAdjacentParents c p of
-        Nothing -> newWork (TriedLast cid) miner pact c
-        Just adjParents -> do
-            -- Fetch a Pact Transaction payload. This is an expensive call
-            -- that shouldn't be repeated.
-            --
-            creationTime <- getCurrentTimeIntegral
-            payload <- _pactNewBlock pact miner p (BlockCreationTime creationTime)
-
+    mr <- case eminer of
+        Primed m -> primed m cid p <$> readTVarIO tpw
+        Plebian m -> public p m
+    case mr of
+        -- The proposed Chain wasn't mineable, either because the adjacent
+        -- parents weren't available, or because the chain is mid-update.
+        Nothing -> newWork logFun (TriedLast cid) eminer pact tpw c
+        Just (T2 (T2 payload creationTime) adjParents) -> do
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
             -- core Mining logic.
             --
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
+            pure $ T3 (PrevTime . _blockCreationTime $ coerce p) header payload
+  where
+    primed
+        :: Miner
+        -> ChainId
+        -> ParentHeader
+        -> PrimedWork
+        -> Maybe (T2 CachedPayload BlockHashRecord)
+    primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = T2
+        <$> (HM.lookup mid pw >>= HM.lookup cid >>= id)
+        <*> getAdjacentParents c p
 
-            pure $ T3 (PrevTime $ _blockCreationTime p) header payload
+    public :: ParentHeader -> Miner -> IO (Maybe (T2 CachedPayload BlockHashRecord))
+    public (ParentHeader p) miner = case getAdjacentParents c p of
+        Nothing -> pure Nothing
+        Just adj -> do
+            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+            -- This is an expensive call --
+            payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
+                (_pactNewBlock pact miner p creationTime)
+            pure . Just $ T2 (T2 payload creationTime) adj
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
@@ -162,29 +199,40 @@ chainChoice c choice = case choice of
       new <- randomChainId c
       bool (pure new) (loop cid) $ new == cid
 
--- | KILLSWITCH: This extra logic involving `txSilenceDates` is to be removed in
--- a future version of Chainweb. It prevents this Node from generating any new
--- Cuts after a specified date.
---
-publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
-publish lf ms cdb bh = do
-    now <- getCurrentTimeIntegral
-    case txSilenceDates $ _chainwebVersion bh of
-        Just end | now > end -> pure ()
-        _ -> publish' lf ms cdb bh
-
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and
 -- publishes the result to the `Cut` network.
 --
-publish' :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
-publish' lf (MiningState ms) cdb bh = do
+-- There are a number of "fail fast" conditions which will kill the candidate
+-- `BlockHeader` before it enters the Cut pipeline.
+--
+publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
+publish lf (MiningState ms) cdb bh = do
+    now <- getCurrentTimeIntegral
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
+        !bct = _blockCreationTime bh
     res <- runExceptT $ do
-        T3 m p pl <- M.lookup phash ms ?? "BlockHeader given with no associated Payload"
+        -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
+        -- Payload we know about, reject it.
+        --
+        T3 m p pl <- M.lookup (T2 bct phash) ms
+            ?? T2 "Unknown" "No associated Payload"
+
         let !miner = m ^. minerId . _Unwrapped
-        c' <- tryMonotonicCutExtension c bh !? ("Newly mined block for outdated cut: " <> miner)
+
+        -- Fail Early: If a `BlockHeader`'s injected Nonce (and thus its POW
+        -- Hash) is trivially incorrect, reject it.
+        --
+        unless (prop_block_pow bh) . hoistEither .
+            Left $ T2 miner "Invalid POW hash"
+
+        -- Fail Early: If the `BlockHeader` is already stale and can't be
+        -- appended to the best `Cut` we know about, reject it.
+        --
+        c' <- tryMonotonicCutExtension c bh
+            !? T2 miner "Mined block for outdated Cut"
+
         lift $ do
             -- Publish the new Cut into the CutDb (add to queue).
             --
@@ -197,13 +245,21 @@ publish' lf (MiningState ms) cdb bh = do
             let bytes = foldl' (\acc (Transaction bs, _) -> acc + BS.length bs) 0 $
                         _payloadWithOutputsTransactions pl
 
-            pure . JsonLog $ NewMinedBlock
-                (ObjectEncoded bh)
-                (int . V.length $ _payloadWithOutputsTransactions pl)
-                (int bytes)
-                (estimatedHashes p bh)
-                miner
-    either (lf @T.Text Info) (lf Info) res
+            pure $ NewMinedBlock
+                { _minedBlockHeader = ObjectEncoded bh
+                , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pl
+                , _minedBlockSize = int bytes
+                , _minedHashAttempts = estimatedHashes p bh
+                , _minedBlockMiner = miner
+                , _minedBlockDiscoveredAt = now
+                }
+    case res of
+        -- The solution is already stale, so we can do whatever work we want to
+        -- here.
+        Left (T2 mnr msg) -> do
+            let !p = c ^?! ixg (_chainId bh)
+            lf Info . JsonLog $ OrphanedBlock (ObjectEncoded bh) (ObjectEncoded p) now mnr msg
+        Right r -> lf Info $ JsonLog r
 
 -- | The estimated per-second Hash Power of the network, guessed from the time
 -- it took to mine this block among all miners on the chain.

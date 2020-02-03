@@ -22,17 +22,17 @@ import Data.Text (Text)
 
 import NeatInterpolation (text)
 
-import Pact.Gas (freeGasEnv)
+import Pact.Gas
 import Pact.Interpreter (EvalResult(..), PactDbEnv(..), defaultInterpreter)
 import Pact.Native (nativeDefs)
 import Pact.Repl
 import Pact.Repl.Types
+import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
-import Pact.Types.Server (CommandEnv(..))
 import Pact.Types.SPV (noSPVSupport)
 
 import Test.Tasty
@@ -50,6 +50,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
+import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 
@@ -125,7 +126,7 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
   _hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
 
   blockenv01 <- _cpRestore _cpeCheckpointer (Just (bh01, hash00))
-  addKeyset blockenv01 "k2" (KeySet [] (Name $ BareName ">=" (Info Nothing)))
+  addKeyset blockenv01 "k2" (mkKeySet [] ">=")
 
   _cpDiscard _cpeCheckpointer
 
@@ -135,7 +136,7 @@ keysetTest c = testCaseSteps "Keyset test" $ \next -> do
 
   hash11 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001b")
   blockenv11 <- _cpRestore _cpeCheckpointer (Just (bh11, hash00))
-  addKeyset blockenv11 "k1" (KeySet [] (Name $ BareName ">=" (Info Nothing)))
+  addKeyset blockenv11 "k1" (mkKeySet [] ">=")
   _cpSave _cpeCheckpointer hash11
 
 addKeyset :: PactDbEnv' -> KeySetName -> KeySet -> IO ()
@@ -187,16 +188,30 @@ checkpointerTest name initdata =
 
               runExec :: PactDbEnv'-> Maybe Value -> Text -> IO EvalResult
               runExec (PactDbEnv' pactdbenv) eData eCode = do
-                  let cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
+
                   execMsg <- buildExecParsedCode eData eCode
-                  applyExec' cmdenv defaultInterpreter execMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+
+                  let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
+                      cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+
+                  evalTransactionM cmdenv cmdst $
+                    applyExec' defaultInterpreter execMsg [] h' permissiveNamespacePolicy
 
 
               runCont :: PactDbEnv' -> PactId -> Int -> IO EvalResult
               runCont (PactDbEnv' pactdbenv) pactId step = do
                   let contMsg = ContMsg pactId step False Null Nothing
-                      cmdenv = CommandEnv Nothing Transactional pactdbenv _cpeLogger freeGasEnv def noSPVSupport Nothing
-                  applyContinuation' cmdenv defaultInterpreter contMsg [] (H.toUntypedHash (H.hash "" :: H.PactHash)) permissiveNamespacePolicy
+
+                  let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
+                      cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
+                      cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+
+                  evalTransactionM cmdenv cmdst $
+                    applyContinuation' defaultInterpreter contMsg [] h' permissiveNamespacePolicy
+
             ------------------------------------------------------------------
             -- s01 : new block workflow (restore -> discard), genesis
             ------------------------------------------------------------------
@@ -409,6 +424,12 @@ checkpointerTest name initdata =
 
           _cpSave _cpeCheckpointer hash10
 
+          next "Purposefully restore to an illegal checkpoint."
+
+          _blockEnvFailure <- expectException $ _cpRestore _cpeCheckpointer (Just (BlockHeight 12, hash10))
+
+          return ()
+
 toTerm' :: ToTerm a => a -> Term Name
 toTerm' = toTerm
 
@@ -509,7 +530,7 @@ runRegression pactdb e schemaInit = do
   let row' = ObjectMap $ M.fromList [("gah",toPV False),("fh",toPV (1 :: Int))]
   _writeRow pactdb Update usert "key1" row' conn
   assertEquals' "user update" (Just row') (_readRow pactdb usert "key1" conn)
-  let ks = KeySet [PublicKey "skdjhfskj"] (Name $ BareName "predfun" def)
+  let ks = mkKeySet [PublicKey "skdjhfskj"] "predfun"
   _writeRow pactdb Write KeySets "ks1" ks conn
   assertEquals' "keyset write" (Just ks) $ _readRow pactdb KeySets "ks1" conn
   (modName,modRef,mod') <- loadModule

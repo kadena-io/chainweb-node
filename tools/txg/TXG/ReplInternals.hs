@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,7 +14,6 @@ import Data.Aeson
 import Data.Decimal
 import Data.Default
 import qualified Data.List.NonEmpty as NEL
-import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -23,7 +21,6 @@ import Network.HTTP.Client hiding (Proxy(..))
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned
 
-import Servant.API
 import Servant.Client
 
 import System.Random
@@ -43,11 +40,8 @@ import Pact.Types.Hash
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
-import Chainweb.Pact.RestAPI
+import Chainweb.Pact.RestAPI.Client
 import Chainweb.Version
-#if !MIN_VERSION_servant(0,16,0)
-import Chainweb.RestAPI.Utils
-#endif
 
 import TXG.Simulate.Contracts.CoinContract
 import TXG.Simulate.Contracts.HelloWorld
@@ -68,7 +62,9 @@ send
     -> IO (Either ClientError RequestKeys)
 send (Network v h cid) xs = do
     cenv <- genClientEnv h
-    runClientM (sendClient v cid (SubmitBatch (NEL.fromList xs))) cenv
+    putStrLn $ "Sending: version=" ++ show v ++ ", cid=" ++ show cid ++ ", SubmitBatch=" ++ show (SubmitBatch(NEL.fromList xs))
+
+    runClientM (pactSendApiClient v cid (SubmitBatch (NEL.fromList xs))) cenv
 
 poll
     :: Network
@@ -76,7 +72,7 @@ poll
     -> IO (Either ClientError PollResponses)
 poll (Network v h cid) rkeys = do
     ce <- genClientEnv h
-    runClientM (pollClient v cid . Poll $ _rkRequestKeys rkeys) ce
+    runClientM (pactPollApiClient v cid . Poll $ _rkRequestKeys rkeys) ce
 
 local
     :: Network
@@ -84,7 +80,7 @@ local
     -> IO (Either ClientError (CommandResult Hash))
 local (Network v h cid) cmdText = do
     ce <- genClientEnv h
-    runClientM (localClient v cid cmdText) ce
+    runClientM (pactLocalApiClient v cid cmdText) ce
 
 listen
     :: Network
@@ -92,7 +88,7 @@ listen
     -> IO (Either ClientError ListenResponse)
 listen (Network v h cid) rk = do
     ce <- genClientEnv h
-    runClientM (listenClient v cid (ListenerRequest rk)) ce
+    runClientM (pactListenApiClient v cid (ListenerRequest rk)) ce
 
 cmd
     :: String
@@ -166,48 +162,9 @@ defPubMeta = def
     & set pmChainId "0"
     & set pmSender "sender00"
     & set pmGasLimit 1000
-    & set pmGasPrice 0.00000000001
-    & set pmTTL 3600
+    & set pmGasPrice 0.0000001
+    & set pmTTL 28800
 
-api version chainid =
-    case someChainwebVersionVal version of
-      SomeChainwebVersionT (_ :: Proxy cv) ->
-        case someChainIdVal chainid of
-          SomeChainIdT (_ :: Proxy cid) ->
-            client
-              (Proxy :: Proxy (PactApi cv cid))
-
-sendClient :: ChainwebVersion -> ChainId -> SubmitBatch -> ClientM RequestKeys
-sendClient version chainid = go
-  where
-    go :<|> _ :<|> _ :<|> _ = api version chainid
-
-pollClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Poll
-    -> ClientM PollResponses
-pollClient version chainid = go
-  where
-    _ :<|> go :<|> _ :<|> _ = api version chainid
-
-listenClient
-    :: ChainwebVersion
-    -> ChainId
-    -> ListenerRequest
-    -> ClientM ListenResponse
-listenClient version chainid = go
-  where
-    _ :<|> _ :<|> go :<|> _ = api version chainid
-
-localClient
-    :: ChainwebVersion
-    -> ChainId
-    -> Command Text
-    -> ClientM (CommandResult Hash)
-localClient version chainid = go
-  where
-    _ :<|> _ :<|> _ :<|> go = api version chainid
 
 generateDefaultSimpleCommands :: Int -> IO [Command Text]
 generateDefaultSimpleCommands batchsize =

@@ -1,17 +1,10 @@
-# Internal testnet allocations
 code: |-
-  (define-keyset "allocation00" (read-keyset "allocation00"))
+  (coin.create-allocation-account "Emily" (time "2019-10-01T00:00:00Z") "Emily" 666666.67)
+  (coin.create-allocation-account "MAINNET_1" (time "2019-10-29T14:00:00Z") "MAINNET" 666666.67)
+  (coin.create-allocation-account "MAINNET_2" (time "2019-10-29T17:00:00Z") "MAINNET" 666666.67)
+  (coin.create-allocation-account "MAINNET_3" (time "2019-11-29T17:00:00Z") "MAINNET" 666666.67)
   (coin.create-allocation-account "allocation00" (time "1900-10-15T18:00:00Z") "allocation00" 1000000.0)
-
-  (define-keyset "allocation01" (read-keyset "allocation01"))
-  (coin.create-allocation-account "allocation01" (time "2019-10-31T18:00:00Z") "allocation01" 1000000.0)
-
-  (define-keyset "allocation02" (read-keyset "allocation02"))
+  (coin.create-allocation-account "allocation01" (time "2020-10-31T18:00:00Z") "allocation01" 1000000.0)
   (coin.create-allocation-account "allocation02" (time "1900-10-31T18:00:00Z") "allocation02" 1000000.0)
-
-data:
-  allocation00: ["d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"]
-  allocation01: ["b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"]
-  allocation02: ["e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"]
-nonce: testnet-allocations
+nonce: testnet-allocations-0
 keyPairs: []

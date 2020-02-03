@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -37,16 +39,18 @@ module P2P.Node.RestAPI.Server
 
 import Control.Applicative
 import Control.Lens
+import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
-import Data.Foldable
-import Data.IxSet.Typed (getEQ)
+import Data.IxSet.Typed (getEQ, toAscList)
 import Data.Proxy
 import qualified Data.Text.IO as T
 
 import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
+
+import P2P.Node
 
 import Servant.API
 import Servant.Server
@@ -75,6 +79,9 @@ import P2P.Peer
 defaultPeerInfoLimit :: Num a => a
 defaultPeerInfoLimit = 64
 
+maxPeerInfoLimit :: Num a => a
+maxPeerInfoLimit = 512
+
 peerGetHandler
     :: PeerDb
     -> NetworkId
@@ -87,18 +94,26 @@ peerGetHandler db nid limit next = do
         . SP.map (second _peerEntryInfo)
         . SP.zip (SP.each [0..])
         . SP.each
-        . toList
+        . toAscList (Proxy @HostAddressIdx)
+        . getEQ (SuccessiveFailures 0)
         $ getEQ nid sn
     return $! over pageItems (fmap snd) page
   where
-    effectiveLimit = limit <|> Just defaultPeerInfoLimit
+    effectiveLimit = min
+        (Just maxPeerInfoLimit)
+        (limit <|> Just defaultPeerInfoLimit)
 
 peerPutHandler
     :: PeerDb
+    -> ChainwebVersion
     -> NetworkId
     -> PeerInfo
     -> Handler NoContent
-peerPutHandler db nid e = liftIO $ NoContent <$ peerDbInsert db nid e
+peerPutHandler db v nid e = liftIO (guardPeerDb v nid db e) >>= \case
+    Left failure -> throwError $ err400
+        { errBody = "Invalid hostaddress: " <> sshow failure
+        }
+    Right _ -> NoContent <$ liftIO (peerDbInsert db nid e)
 
 -- -------------------------------------------------------------------------- --
 -- P2P API Server
@@ -106,18 +121,21 @@ peerPutHandler db nid e = liftIO $ NoContent <$ peerDbInsert db nid e
 p2pServer
     :: forall (v :: ChainwebVersionT) (n :: NetworkIdT)
     . SingI n
+    => KnownChainwebVersionSymbol v
     => PeerDbT v n
     -> Server (P2pApi v n)
 p2pServer (PeerDbT db) = case sing @_ @n of
     SCutNetwork
         -> peerGetHandler db CutNetwork
-        :<|> peerPutHandler db CutNetwork
+        :<|> peerPutHandler db v CutNetwork
     SChainNetwork cid
         -> peerGetHandler db (ChainNetwork $ FromSing cid)
-        :<|> peerPutHandler db (ChainNetwork $ FromSing cid)
+        :<|> peerPutHandler db v (ChainNetwork $ FromSing cid)
     SMempoolNetwork cid
         -> peerGetHandler db (MempoolNetwork $ FromSing cid)
-        :<|> peerPutHandler db (MempoolNetwork $ FromSing cid)
+        :<|> peerPutHandler db v (MempoolNetwork $ FromSing cid)
+  where
+    v = FromSing (SChainwebVersion :: Sing v)
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single P2P Network

@@ -66,7 +66,7 @@ data CutSyncResources logger = CutSyncResources
     }
 
 data CutResources logger cas = CutResources
-    { _cutResCutConfig :: !CutDbConfig
+    { _cutResCutConfig :: !CutDbParams
     , _cutResPeer :: !(PeerResources logger)
     , _cutResCutDb :: !(CutDb cas)
     , _cutResLogger :: !logger
@@ -86,7 +86,7 @@ instance HasChainwebVersion (CutResources logger cas) where
 withCutResources
     :: Logger logger
     => PayloadCas cas
-    => CutDbConfig
+    => CutDbParams
     -> PeerResources logger
     -> logger
     -> RocksDb
@@ -96,7 +96,7 @@ withCutResources
     -> WebPactExecutionService
     -> (CutResources logger cas -> IO a)
     -> IO a
-withCutResources cutDbConfig peer logger rdb webchain payloadDb mgr pact f = do
+withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
 
     -- initialize blockheader store
     headerStore <- newWebBlockHeaderStore mgr webchain (logFunction logger)
@@ -107,9 +107,9 @@ withCutResources cutDbConfig peer logger rdb webchain payloadDb mgr pact f = do
     -- initialize cutHashes store
     let cutHashesStore = cutHashesTable rdb
 
-    withCutDb cutDbConfig (logFunction logger) headerStore payloadStore cutHashesStore $ \cutDb ->
+    withCutDb cutDbParams (logFunction logger) headerStore payloadStore cutHashesStore $ \cutDb ->
         f $ CutResources
-            { _cutResCutConfig  = cutDbConfig
+            { _cutResCutConfig  = cutDbParams
             , _cutResPeer = peer
             , _cutResCutDb = cutDb
             , _cutResLogger = logger
@@ -129,7 +129,7 @@ withCutResources cutDbConfig peer logger rdb webchain payloadDb mgr pact f = do
   where
     v = _chainwebVersion webchain
     syncLogger = addLabel ("sub-component", "sync") logger
-    useOrigin = _cutDbConfigUseOrigin cutDbConfig
+    useOrigin = _cutDbParamsUseOrigin cutDbParams
 
 -- | The networks that are used by the cut DB.
 --
@@ -152,7 +152,7 @@ runCutNetworkCutSync
     -> CutResources logger cas
     -> IO ()
 runCutNetworkCutSync mgr c
-    = mkCutNetworkSync mgr c "cut sync" $ _cutResCutSync c
+    = mkCutNetworkSync mgr True c "cut sync" $ _cutResCutSync c
 
 -- | P2P Network for Block Headers
 --
@@ -162,7 +162,7 @@ runCutNetworkHeaderSync
     -> CutResources logger cas
     -> IO ()
 runCutNetworkHeaderSync mgr c
-    = mkCutNetworkSync mgr c "block header sync" $ _cutResHeaderSync c
+    = mkCutNetworkSync mgr False c "block header sync" $ _cutResHeaderSync c
 
 -- | P2P Network for Block Payloads
 --
@@ -172,7 +172,7 @@ runCutNetworkPayloadSync
     -> CutResources logger cas
     -> IO ()
 runCutNetworkPayloadSync mgr c
-    = mkCutNetworkSync mgr c "block payload sync" $ _cutResPayloadSync c
+    = mkCutNetworkSync mgr False c "block payload sync" $ _cutResPayloadSync c
 
 -- | P2P Network for Block Payloads
 --
@@ -182,11 +182,13 @@ runCutNetworkPayloadSync mgr c
 mkCutNetworkSync
     :: Logger logger
     => HTTP.Manager
+    -> Bool
+        -- ^ Do peer synchronization
     -> CutResources logger cas
     -> T.Text
     -> CutSyncResources logger
     -> IO ()
-mkCutNetworkSync mgr cuts label cutSync = bracket create destroy $ \n ->
+mkCutNetworkSync mgr doPeerSync cuts label cutSync = bracket create destroy $ \n ->
     p2pStartNode (_peerResConfig $ _cutResPeer cuts) n
   where
     v = _chainwebVersion cuts
@@ -196,7 +198,7 @@ mkCutNetworkSync mgr cuts label cutSync = bracket create destroy $ \n ->
     s = _cutResSyncSession cutSync
 
     create = do
-        !n <- p2pCreateNode v CutNetwork peer (logFunction logger) peerDb mgr s
+        !n <- p2pCreateNode v CutNetwork peer (logFunction logger) peerDb mgr doPeerSync s
         logFunctionText logger Info $ label <> ": initialized"
         return n
 

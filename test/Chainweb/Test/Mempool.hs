@@ -27,10 +27,9 @@ import Control.Monad (void, when)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.Bifunctor (bimap)
-import Data.Decimal (Decimal)
+import Data.Decimal (Decimal, DecimalRaw(..))
 import Data.Function (on)
 import qualified Data.HashSet as HashSet
-import Data.Int (Int64)
 import Data.IORef
 import Data.List (sort, sortBy)
 import qualified Data.List.Ordered as OL
@@ -72,6 +71,7 @@ remoteTests withMempool = map ($ withMempool) [
     , mempoolProperty "getPending high water marks" hwgen propHighWater
     ]
   where
+    hwgen :: PropertyM IO ([MockTx], [MockTx])
     hwgen = do
       (xs, ys0) <- genTwoSets
       let ys = take 1000 ys0     -- recency log only has so many entries
@@ -79,9 +79,18 @@ remoteTests withMempool = map ($ withMempool) [
 
 genNonEmpty :: PropertyM IO [MockTx]
 genNonEmpty = do
+    now <- liftIO Time.getCurrentTimeIntegral
     xs <- pick arbitrary
     pre (not $ null xs)
-    return xs
+    return $ map (updMockMeta now) xs
+  where
+    updMockMeta now x =
+        let meta = mockMeta x
+            meta' = meta {
+                txMetaCreationTime = now,
+                txMetaExpiryTime = Time.add (Time.secondsToTimeSpan (Time.Seconds 600)) now
+                }
+        in x { mockMeta = meta' }
 
 genTwoSets :: PropertyM IO ([MockTx], [MockTx])
 genTwoSets = do
@@ -92,18 +101,20 @@ genTwoSets = do
     return (xs, ys)
   where
     ord = compare `on` onFees
-    onFees x = (Down (mockGasPrice x), mockGasLimit x, mockNonce x)
+    onFees x = (Down (mockGasPrice x), mockNonce x, mockGasLimit x)
 
 tests :: MempoolWithFunc -> [TestTree]
 tests withMempool = remoteTests withMempool ++
                     map ($ withMempool) [
-      mempoolProperty "getblock badlist" genTwoSets propBadlist
+      mempoolProperty "getblock preblock check badlist" genTwoSets propBadlistPreblock
+    , mempoolProperty "mempoolAddToBadList" (pick arbitrary) propAddToBadList
     ]
 
 arbitraryDecimal :: Gen Decimal
 arbitraryDecimal = do
-    i <- (arbitrary :: Gen Int64)
-    return $! fromInteger $ toInteger i
+    places <- choose (3, 8)
+    mantissa <- choose (1, 8)
+    return $! Decimal places mantissa
 
 arbitraryGasPrice :: Gen GasPrice
 arbitraryGasPrice = GasPrice . ParsedDecimal . abs <$> arbitraryDecimal
@@ -112,7 +123,7 @@ instance Arbitrary MockTx where
   arbitrary = MockTx
       <$> chooseAny
       <*> arbitraryGasPrice
-      <*> pure mockBlockGasLimit
+      <*> pure (mockBlockGasLimit `div` 50000)
       <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
@@ -179,12 +190,12 @@ propOverlarge (txs, overlarge0) _ mempool = runExceptT $ do
     overlarge = setOverlarge overlarge0
     setOverlarge = map (\x -> x { mockGasLimit = mockBlockGasLimit + 100 })
 
-propBadlist
+propBadlistPreblock
     :: ([MockTx], [MockTx])
     -> InsertCheck
     -> MempoolBackend MockTx
     -> IO (Either String ())
-propBadlist (txs, badTxs) _ mempool = runExceptT $ do
+propBadlistPreblock (txs, badTxs) _ mempool = runExceptT $ do
     liftIO $ insert $ txs ++ badTxs
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
 
@@ -192,7 +203,7 @@ propBadlist (txs, badTxs) _ mempool = runExceptT $ do
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsPending
 
     -- once we call mempoolGetBlock, the bad txs should be badlisted
-    liftIO $ void $ mempoolGetBlock mempool preblockCheck 1 nullBlockHash 10000000
+    liftIO $ void $ mempoolGetBlock mempool preblockCheck 1 nullBlockHash
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     liftIO (lookup badTxs) >>= V.mapM_ lookupIsMissing
     liftIO $ insert badTxs
@@ -209,6 +220,35 @@ propBadlist (txs, badTxs) _ mempool = runExceptT $ do
     hash = txHasher txcfg
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
+
+propAddToBadList
+  :: MockTx
+  -> InsertCheck
+  -> MempoolBackend MockTx
+  -> IO (Either String ())
+propAddToBadList tx _ mempool = runExceptT $ do
+    liftIO (insert [tx])
+    liftIO (lookup [tx]) >>= V.mapM_ lookupIsPending
+
+    block <- getBlock
+    when (block /= [tx]) $ fail "expected to get our tx back"
+
+    liftIO $ mempoolAddToBadList mempool $ hash tx
+    block' <- getBlock
+    when (block' /= []) $ fail "expected to get an empty block"
+    liftIO (lookup [tx]) >>= V.mapM_ lookupIsMissing
+    liftIO (insert [tx])
+    liftIO (lookup [tx]) >>= V.mapM_ lookupIsMissing
+
+  where
+    txcfg = mempoolTxConfig mempool
+    hash = txHasher txcfg
+    insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
+    lookup = mempoolLookup mempool . V.fromList . map hash
+    getBlock =
+        liftIO $
+        fmap V.toList $
+        mempoolGetBlock mempool noopMempoolPreBlockCheck 1 nullBlockHash
 
 -- TODO Does this need to be updated?
 propPreInsert
@@ -266,8 +306,7 @@ propTrivial txs _ mempool = runExceptT $ do
     lookup = mempoolLookup mempool . V.fromList . map hash
 
     getBlock = mempoolGetBlock mempool noopMempoolPreBlockCheck 0 nullBlockHash
-                               (mempoolBlockGasLimit mempool)
-    onFees x = (Down (mockGasPrice x), mockGasLimit x)
+    onFees x = (Down (mockGasPrice x))
 
 
 propGetPending

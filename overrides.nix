@@ -1,4 +1,5 @@
-pactSrc: pkgs: self: super: with pkgs.haskell.lib;
+{ pactSrc, pkgs, hackGet }:
+self: super: with pkgs.haskell.lib;
 let # Working on getting this function upstreamed into nixpkgs, but
     # this actually gets things directly from hackage and doesn't
     # depend on the state of nixpkgs.  Should allow us to have fewer
@@ -10,11 +11,20 @@ let # Working on getting this function upstreamed into nixpkgs, but
            inherit sha256;
          }) {};
 
+    # Includes test suite and benchmark binaries in the output derivation.
+    # Has the side effect of causing nix-build to not run them.
+    convertCabalTestsAndBenchmarksToExecutables = p:
+      overrideCabal p (drv: {
+        preConfigure = (drv.preConfigure or "") + ''
+          sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
+        '';
+      });
+
     ourOverrides = {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
 
       chainweb = enableCabalFlag (
-        justStaticExecutables (enableDWARFDebugging super.chainweb)) "use_systemd";
+        justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
 
       chainweb-storage = dontCheck (self.callCabal2nix "chainweb-storage" (pkgs.fetchFromGitHub {
         owner = "kadena-io";
@@ -71,6 +81,12 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "1hnwvhz9w07z2mlq75iz0bysz586d828725k1bx8mjqvc86ncv8m";
       };
 
+      random-strings = callHackageDirect {
+        pkg = "random-strings";
+        ver = "0.1.1.0";
+        sha256 = "1d70i6hcdxrjnk05x0525lmb8wqzy9n0ipr8qd9fxpba89w24jc5";
+      };
+
       rocksdb-haskell = dontCheck super.rocksdb-haskell;
 
       scheduler = callHackageDirect {
@@ -99,14 +115,74 @@ let # Working on getting this function upstreamed into nixpkgs, but
 
       tls = callHackageDirect {
         pkg = "tls";
-        ver = "1.5.2";
-        sha256 = "00bps2bmp3ahlfw6wf7ifnni8kn306bbzapqcgsallnpgzx62gp1";
+        ver = "1.5.3";
+        sha256 = "1785i2ba4xvqz9k32qn74vk6zwplmj77dz8jqykndb0g79hq1f27";
       };
+
+      tls-session-manager = callHackageDirect {
+        pkg = "tls-session-manager";
+        ver = "0.0.4";
+        sha256 = "03jr0xmzl5bqjw2l59bcpfclji6g4rky8ji86mg60jg7nia5d5l8";
+      };
+
+      wai = dontCheck (callHackageDirect {
+        pkg = "wai";
+        ver = "3.2.2.1";
+        sha256 = "0msyixvsk37qsdn3idqxb4sab7bw4v9657nl4xzrwjdkihy411jf";
+      });
+
+      wai-cors = dontCheck (callHackageDirect {
+        pkg = "wai-cors";
+        ver = "0.2.7";
+        sha256 = "10yhjjkzp0ichf9ijiadliafriwh96f194c2g02anvz451capm6i";
+      });
+
+      wai-middleware-throttle = dontCheck (callHackageDirect {
+        pkg = "wai-middleware-throttle";
+        ver = "0.3.0.1";
+        sha256 = "13pz31pl7bk51brc88jp0gffjx80w35kzzrv248w27d7dc8xc63x";
+      });
+
+      wai-extra = dontCheck (callHackageDirect {
+        pkg = "wai-extra";
+        ver = "3.0.28";
+        sha256 = "1k470vbn2c852syj15m9xzfjnaraw6cyn35ajf2b67i01ghkshgw";
+      });
+
+      wai-app-static = doJailbreak (dontCheck (callHackageDirect {
+        pkg = "wai-app-static";
+        ver = "3.1.6.3";
+        sha256 = "00dzhv3cdkmxgid34y7bbrkp9940pcmr2brhl2wal7kp0y999ldp";
+      }));
+
+      warp = dontCheck (callHackageDirect {
+        pkg = "warp";
+        ver = "3.3.6";
+        sha256 = "044w7ajkqlwnrpzc4zaqy284ac9wsklyby946jgfpqyjbj87985x";
+      });
 
       warp-tls = callHackageDirect {
         pkg = "warp-tls";
-        ver = "3.2.8";
-        sha256 = "0bf6gnyz9pq57y3hgv1xpfi1cnsda0wrwyd18zmh2220hxmvda71";
+        ver = "3.2.10";
+        sha256 = "1zgr83zkb3q4qa03msfnncwxkmvk63gd8sqkbbd1cwhvjragn4mz";
+      };
+
+      time-manager = callHackageDirect {
+        pkg = "time-manager";
+        ver = "0.0.0";
+        sha256 = "0z2fxikx5ax2x5bg8mcjg4y6b6irmf0swrnfprrp2xry6j5ji6hx";
+      };
+
+      http2 = callHackageDirect {
+        pkg = "http2";
+        ver = "2.0.3";
+        sha256 = "14bqmxla0id956y37fpfx9v6crwxphbfxkl8v8annrs8ngfbhbr7";
+      };
+
+      network-byte-order = callHackageDirect {
+        pkg = "network-byte-order";
+        ver = "0.1.2.0";
+        sha256 = "1a2kq8rmx5q3l1a3b3jcklm7hy3c3z0x08jnnwfik22sy5a5v2nr";
       };
 
       strict-tuple = callHackageDirect {
@@ -115,7 +191,42 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "1vg0m27phd6yf0pszcy2c2wbqx509fr9gacn34yja521z17cxd8z";
       };
 
+      lens-aeson = callHackageDirect {
+        pkg = "lens-aeson";
+        ver = "1.1";
+        sha256 = "0bx7ay7dx6ljhy1a6bmjdz52vfwmx8af8sd96p38yc0m9irjz02h";
+      };
+
+      streaming-concurrency = callHackageDirect {
+        pkg = "streaming-concurrency";
+        ver = "0.3.1.3";
+        sha256 = "11mgp53kpdnjnrx3l8z6nhm48rhl5i0sgn0vydqa488xinj3h28a";
+      };
+
+      servant = dontCheck (callHackageDirect {
+        pkg = "servant";
+        ver = "0.16.2";
+        sha256 = "1a83fdcwnlkmyc6fqsrfd26izcgk1jgpdgyqma3l897cnnr62frs";
+      });
+
+      servant-client = dontCheck (callHackageDirect {
+        pkg = "servant-client";
+        ver = "0.16.0.1";
+        sha256 = "1236sldcgvk2zj20cxib9yxrdxz7d1a83jfdnn9mxa272srfq9a9";
+      });
+
+      servant-client-core = dontCheck (callHackageDirect {
+        pkg = "servant-client-core";
+        ver = "0.16";
+        sha256 = "0panxplcjslsvqxvsabn2fy0fhcqmmr0dqj51hk7bk7yyvgwxklf";
+      });
+
+      servant-server = dontCheck (callHackageDirect {
+        pkg = "servant-server";
+        ver = "0.16.2";
+        sha256 = "1klcszpfqy1vn3q1wbqxjghfyddw8wbg4f0ggllqw8qx2f5zp5y1";
+      });
     };
 in
 
-(import "${pactSrc}/overrides.nix" pkgs self super) // ourOverrides
+(import "${pactSrc}/overrides.nix" pkgs hackGet self super) // ourOverrides

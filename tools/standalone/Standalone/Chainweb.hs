@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies      #-}
@@ -24,16 +25,16 @@ import Data.List (sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
-import Network.Wai.Middleware.Throttle
+import Numeric.Natural (Natural)
 
 import P2P.Node.Configuration
 import P2P.Peer
 
-import System.Clock
 import System.LogLevel
 
 -- chainweb imports
 
+import Chainweb.Miner.Config
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
@@ -46,6 +47,7 @@ import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Logger
 import Chainweb.NodeId
+import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactInProcApi
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -97,7 +99,6 @@ withChainResourcesStandalone
     -> PeerResources logger
     -> logger
     -> (MVar PactExecutionService -> Mempool.InMemConfig ChainwebTransaction)
-    -> MVar (CutDb cas)
     -> PayloadDb cas
     -> Bool
       -- ^ whether to prune the database
@@ -106,9 +107,12 @@ withChainResourcesStandalone
     -> Maybe NodeId
     -> Bool
       -- ^ reset database directory
+    -> Natural
     -> (ChainResources logger -> IO a)
     -> IO a
-withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb prune dbDir nodeid resetDb inner =
+withChainResourcesStandalone
+  v cid rdb peer logger mempoolCfg0 payloadDb
+  prune dbDir nodeid resetDb pactQueueSize inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
         pexMv <- newEmptyMVar
         let mempoolCfg = mempoolCfg0 pexMv
@@ -116,9 +120,9 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
             -- placing mempool access shim here
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
-              withPactService' v cid (setComponent "pact" logger)
-                    mpa cdbv cdb payloadDb dbDir nodeid resetDb $
-                \requestQ -> do
+              withSqliteDb v cid logger dbDir nodeid resetDb $ \sqlenv ->
+                withPactService' v cid (setComponent "pact" logger) mpa cdb payloadDb sqlenv pactQueueSize 1000 $
+                  \requestQ -> do
                       -- prune blockheader db
                       when prune $ do
                           logg Info "start pruning block header database"
@@ -166,9 +170,8 @@ withChainResourcesStandalone v cid rdb peer logger mempoolCfg0 cdbv payloadDb pr
         TimedCPM{} -> mkPactExecutionService requestQ
         FastTimedCPM{} -> mkPactExecutionService requestQ
         Development -> mkPactExecutionService requestQ
-        -- Testnet00 -> mkPactExecutionService requestQ
-        -- Testnet01 -> mkPactExecutionService requestQ
-        Testnet02 -> mkPactExecutionService requestQ
+        Testnet04 -> mkPactExecutionService requestQ
+        Mainnet01 -> mkPactExecutionService requestQ
 
 withChainwebInternalStandalone
     :: Logger logger
@@ -183,27 +186,27 @@ withChainwebInternalStandalone
     -> IO a
 withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inner = do
     initializePayloadDb v payloadDb
-    cdbv <- newEmptyMVar
     concurrentWith
       -- initialize chains concurrently
       (\cid -> do
           let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
           withChainResourcesStandalone v cid rocksDb peer (chainLogger cid)
-                mcfg cdbv payloadDb prune dbDir nodeid resetDb)
+                mcfg payloadDb prune dbDir nodeid
+                resetDb (_configPactQueueSize conf))
 
       -- initialize global resources after all chain resources are
       -- initialized
-      (\cs -> global (HM.fromList $ zip cidsList cs) cdbv)
+      (\cs -> global (HM.fromList $ zip cidsList cs))
       cidsList
   where
-    prune = _configPruneChainDatabase conf
+    prune = _cutPruneChainDatabase $ _configCuts conf
     cidsList = toList cids
     payloadDb = newPayloadDb rocksDb
     chainLogger cid = addLabel ("chain", toText cid) logger
     logg = logFunctionText logger
 
     -- initialize global resources
-    global cs cdbv = do
+    global cs = do
         let webchain = mkWebBlockHeaderDb v (HM.map _chainResBlockHeaderDb cs)
             pact = mkWebPactExecutionService (HM.map _chainResPact cs)
             cutLogger = setComponent "cut" logger
@@ -212,27 +215,17 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
         withCutResources cutConfig peer cutLogger
             rocksDb webchain payloadDb mgr pact $ \cuts -> do
                 logg Info "finished initializing cut resources"
-                let mLogger = setComponent "miner" logger
-                    mConf = _configMiner conf
-                    mCutDb = _cutResCutDb cuts
 
-                    -- initialize throttler
-                throttler <- initThrottler
-                    (defaultThrottleSettings $ TimeSpec 4 0)
-                    { throttleSettingsRate = int $ _configThrottleRate conf
-                    , throttleSettingsPeriod = 1 / micro -- 1 second (measured in usec)
-                    , throttleSettingsBurst = int $ _configThrottleRate conf
-                    , throttleSettingsIsThrottled = const True
-                    -- , throttleSettingsIsThrottled = \r -> any (flip elem (pathInfo r))
-                    --     [ "cut"
-                    --     , "header"
-                    --     , "payload"
-                    --     , "mempool"
-                    --     , "peer"
-                    --     ]
-                    }
+                let !mLogger = setComponent "miner" logger
+                    !mConf = _configMining conf
+                    !mCutDb = _cutResCutDb cuts
+                    !throt  = _configThrottling conf
 
-                void $! putMVar cdbv mCutDb
+                -- initialize throttler
+                throttler <- mkGenericThrottler $ _throttlingRate throt
+                miningThrottler <- mkMiningThrottler $ _throttlingMiningRate throt
+                putPeerThrottler <- mkPutPeerThrottler $ _throttlingPeerRate throt
+                localThrottler <- mkLocalThrottler $ _throttlingLocalRate throt
 
                 logg Info "start synchronizing Pact DBs"
                 synchronizePactDb cs mCutDb
@@ -240,8 +233,8 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
 
                 withPactData cs cuts $ \pactData -> do
                     logg Info "start initializing miner resources"
-                    withMiningCoordination mLogger (_configCoordinator conf) mCutDb $ \mc -> do
-                        withMinerResources mLogger mConf mCutDb $ \m -> do
+                    withMiningCoordination mLogger (_miningCoordination mConf) mCutDb $ \mc -> do
+                        withMinerResources mLogger (_miningInNode mConf) cs mCutDb $ \m -> do
                             logg Info "finished initializing miner resources"
                             inner Chainweb
                                       { _chainwebHostAddress =
@@ -260,6 +253,9 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
                                       , _chainwebManager = mgr
                                       , _chainwebPactData = pactData
                                       , _chainwebThrottler = throttler
+                                      , _chainwebMiningThrottler = miningThrottler
+                                      , _chainwebPutPeerThrottler = putPeerThrottler
+                                      , _chainwebLocalThrottler = localThrottler
                                       , _chainwebConfig = conf
                                       }
 
@@ -275,11 +271,13 @@ withChainwebInternalStandalone conf logger peer rocksDb dbDir nodeid resetDb inn
     cids = chainIds v
 
     -- FIXME: make this configurable
-    cutConfig = (defaultCutDbConfig v)
-        { _cutDbConfigLogLevel = Info
-        , _cutDbConfigTelemetryLevel = Info
-        , _cutDbConfigUseOrigin = _configIncludeOrigin conf
-        }
+    cutConfig = (defaultCutDbParams v $ _cutFetchTimeout cutConf)
+        { _cutDbParamsLogLevel = Info
+        , _cutDbParamsTelemetryLevel = Info
+        , _cutDbParamsUseOrigin = _cutIncludeOrigin cutConf
+        , _cutDbParamsInitialHeightLimit = _cutInitialCutHeightLimit $ cutConf }
+      where
+        cutConf = _configCuts conf
 
     synchronizePactDb cs cutDb = do
         currentCut <- _cut cutDb

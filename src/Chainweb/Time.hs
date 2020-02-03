@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -7,6 +8,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -52,6 +54,7 @@ module Chainweb.Time
 , floorTimeBy
 , getCurrentTimeIntegral
 , epoch
+, timeMicrosQQ
 
 -- * TimeSpan values
 , microsecond
@@ -90,16 +93,21 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Bytes.Signed
+import Data.Data
 import Data.Hashable (Hashable)
 import Data.Int
-import Data.Kind
 import qualified Data.Memory.Endian as BA
 import Data.Ratio
 import qualified Data.Text as T
+import Data.Time
 import Data.Time.Clock.POSIX
 import Data.Word
 
 import GHC.Generics
+
+import Language.Haskell.TH (ExpQ)
+import Language.Haskell.TH.Quote
+import Language.Haskell.TH.Syntax (Lift)
 
 import Test.QuickCheck (Arbitrary(..), Gen)
 
@@ -115,10 +123,9 @@ import Numeric.Cast
 
 -- | The internal unit is microseconds.
 --
-newtype TimeSpan :: Type -> Type where
-    TimeSpan :: a -> TimeSpan a
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
+newtype TimeSpan a = TimeSpan a
+    deriving (Show, Eq, Ord, Generic, Data)
+    deriving anyclass (Hashable, NFData, Lift)
     deriving newtype
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , AdditiveGroup, FractionalVectorSpace
@@ -168,8 +175,8 @@ addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 -- | Time is measured as microseconds relative to UNIX Epoche
 --
 newtype Time a = Time (TimeSpan a)
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (Hashable, NFData)
+    deriving (Show, Eq, Ord, Generic, Data)
+    deriving anyclass (Hashable, NFData, Lift)
     deriving newtype (Enum, Bounded, ToJSON, FromJSON)
 
 instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
@@ -182,6 +189,22 @@ instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
 epoch :: Num a => Time a
 epoch = Time (TimeSpan 0)
 {-# INLINE epoch #-}
+
+timeMicrosQQ :: QuasiQuoter
+timeMicrosQQ = QuasiQuoter
+    { quoteExp   = posixExp utcIso8601
+    , quotePat   = const $ error "No quotePat defined for timeMicrosQQ"
+    , quoteType  = const $ error "No quoteType defined for timeMicrosQQ"
+    , quoteDec   = const $ error "No quoteDec defined for timeMicrosQQ"
+    }
+  where
+    utcIso8601 = "%Y-%m-%dT%H:%M:%S%Q"
+    posixExp :: String -> String -> ExpQ
+    posixExp format input =
+        let u = parseTimeOrError True defaultTimeLocale format input :: UTCTime
+            p = utcTimeToPOSIXSeconds u
+            t = Time $ TimeSpan $ round $ p * 1000000 :: Time Micros
+        in t `seq` [| t |]
 
 -- | Adhering to `Time`, this is the current number of microseconds since the
 -- epoch.
@@ -299,7 +322,7 @@ instance HasTextRepresentation Seconds where
 -- | Will last for around ~300,000 years after the Linux epoch.
 --
 newtype Micros = Micros Int64
-    deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic, Data)
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
     deriving newtype (Arbitrary, ToJSON, FromJSON)

@@ -5,7 +5,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |
@@ -52,6 +51,7 @@ import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import Data.String.Conv
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -59,6 +59,8 @@ import qualified Data.Vector as V
 import Database.SQLite3.Direct as SQ3
 
 import Prelude hiding (concat, log)
+
+import Text.Printf (printf)
 
 -- pact
 
@@ -77,7 +79,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (internalError, PactException(..))
+import Chainweb.Pact.Service.Types (PactException(..), internalError)
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -137,9 +139,9 @@ doReadRow d k =
         => Utf8
         -> SQLitePendingData
         -> MaybeT (BlockHandler SQLiteEnv) v
-    lookupInPendingData (Utf8 rowkey) (_, m, _, _) = do
+    lookupInPendingData (Utf8 rowkey) p = do
         let deltaKey = SQLiteDeltaKey tableNameBS rowkey
-        ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey m)
+        ddata <- fmap _deltaData <$> MaybeT (return $ HashMap.lookup deltaKey (_pendingWrites p))
         if null ddata
             -- should be impossible, but we'll check this case
             then mzero
@@ -163,11 +165,9 @@ doReadRow d k =
 
 checkDbTableExists :: Utf8 -> MaybeT (BlockHandler SQLiteEnv) ()
 checkDbTableExists tableName = do
-    pd <- lift getPendingData
-    let checkOne (s, _, _, _) = do
-            let b = HashSet.member tableNameBS s
-            when b mzero
-    mapM_ checkOne pd
+    pds <- lift getPendingData
+    forM_ pds $ \p ->
+        when (HashSet.member tableNameBS (_pendingTableCreation p)) mzero
   where
     (Utf8 tableNameBS) = tableName
 
@@ -207,7 +207,7 @@ recordPendingUpdate (Utf8 key) (Utf8 tn) txid v = modifyPendingData modf
     delta = SQLiteRowDelta tn txid key vs
     deltaKey = SQLiteDeltaKey tn key
 
-    modf (a, m, l, p) = (a, upd m, l, p)
+    modf = over pendingWrites upd
     {- "const" is used here because prefer the latest update of the rowkey for
     the current transaction  -}
     upd = HashMap.insertWith const deltaKey (DL.singleton delta)
@@ -334,9 +334,9 @@ doKeys d = do
 
     tn = domainTableName d
     tnS = toS tn
-    collect (_, m, _, _) =
+    collect p =
         let flt k _ = _dkTable k == tnS
-        in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt m
+        in DL.concat $ HashMap.elems $ HashMap.filterWithKey flt (_pendingWrites p)
 {-# INLINE doKeys #-}
 
 -- tid is non-inclusive lower bound for the search
@@ -370,13 +370,13 @@ doTxIds (TableName tn) _tid@(TxId tid) = do
     stmt = "SELECT DISTINCT txid FROM [" <> Utf8 (toS tn) <> "] WHERE txid > ?"
 
     tnS = toS tn
-    collect (_, m, _, _) =
+    collect p =
         let flt k _ = _dkTable k == tnS
             txids = DL.toList $
                     fmap _deltaTxId $
                     DL.concat $
                     HashMap.elems $
-                    HashMap.filterWithKey flt m
+                    HashMap.filterWithKey flt (_pendingWrites p)
         in filter (> _tid) txids
 {-# INLINE doTxIds #-}
 
@@ -391,13 +391,11 @@ recordTxLog tt d k v = do
     -- are we in a tx?
     mptx <- use bsPendingTx
     case mptx of
-      Nothing -> modify' (over bsPendingBlock upd)
-      (Just _) -> modify' (over (bsPendingTx . _Just) upd)
+      Nothing -> bsPendingBlock . pendingTxLogMap %= upd
+      (Just _) -> bsPendingTx . _Just . pendingTxLogMap %= upd
 
   where
-    upd (a, b, m, p) = let !m' = M.insertWith DL.append tt txlogs m
-                           !t = (a, b, m', p)
-                       in t
+    upd = M.insertWith DL.append tt txlogs
     txlogs = DL.singleton (TxLog (asString d) (asString k) (toJSON v))
 
 modifyPendingData
@@ -419,12 +417,9 @@ doCreateUserTable tn@(TableName ttxt) mn = do
           -- then check if it is in the db
           cond <- inDb $ Utf8 $ T.encodeUtf8 ttxt
           when cond $ throwM $ PactDuplicateTableError ttxt
-          modifyPendingData $ \(c, w, l, p) ->
-              let !c' = HashSet.insert (T.encodeUtf8 ttxt) c
-                  !l' = M.insertWith DL.append (TableName txlogKey) txlogs l
-                  !t = (c', w, l', p)
-              in t
-
+          modifyPendingData
+            $ over pendingTableCreation (HashSet.insert (T.encodeUtf8 ttxt))
+            . over pendingTxLogMap (M.insertWith DL.append (TableName txlogKey) txlogs)
   where
     inDb t =
       callDb "doCreateUserTable" $ \db -> do
@@ -441,7 +436,9 @@ doCreateUserTable tn@(TableName ttxt) mn = do
 {-# INLINE doCreateUserTable #-}
 
 doRollback :: BlockHandler SQLiteEnv ()
-doRollback = bsPendingTx .= Nothing
+doRollback = do
+  bsMode .= Nothing
+  bsPendingTx .= Nothing
 
 doCommit :: BlockHandler SQLiteEnv [TxLog Value]
 doCommit = use bsMode >>= \mm -> case mm of
@@ -452,8 +449,8 @@ doCommit = use bsMode >>= \mm -> case mm of
               modify' (over bsTxId succ)
               -- merge pending tx into block data
               pending <- use bsPendingTx
-              modify' (over bsPendingBlock $ merge pending)
-              (_, _, blockLogs, _) <- use bsPendingBlock
+              bsPendingBlock %= merge pending
+              blockLogs <- use $ bsPendingBlock . pendingTxLogMap
               bsPendingTx .= Nothing
               resetTemp
               return blockLogs
@@ -461,15 +458,16 @@ doCommit = use bsMode >>= \mm -> case mm of
         return $! concat $ fmap (reverse . DL.toList) txrs
   where
     merge Nothing a = a
-    merge (Just (creationsA, writesA, logsA, _)) (creationsB, writesB, _, idx) =
-        let creations = HashSet.union creationsA creationsB
-            mergeW a b = let aa = take 1 $ DL.toList a
-                         in case aa of
-                              [] -> b
-                              (x:_) -> DL.cons x b
-            writes = HashMap.unionWith mergeW writesA writesB
-            logs = logsA
-        in (creations, writes, logs, idx)
+    merge (Just a) b = SQLitePendingData
+        { _pendingTableCreation = HashSet.union (_pendingTableCreation a) (_pendingTableCreation b)
+        , _pendingWrites = HashMap.unionWith mergeW  (_pendingWrites a) (_pendingWrites b)
+        , _pendingTxLogMap = _pendingTxLogMap a
+        , _pendingSuccessfulTxs = _pendingSuccessfulTxs b
+        }
+
+    mergeW a b = case take 1 (DL.toList a) of
+        [] -> b
+        (x:_) -> DL.cons x b
 
 {-# INLINE doCommit #-}
 
@@ -498,7 +496,7 @@ resetTemp :: BlockHandler SQLiteEnv ()
 resetTemp = do
     bsMode .= Nothing
     -- clear out txlog entries
-    modify' (over bsPendingBlock $ \(a, b, _, p) -> (a, b, mempty, p))
+    bsPendingBlock . pendingTxLogMap .= mempty
 
 doGetTxLog :: FromJSON v => Domain k v -> TxId -> BlockHandler SQLiteEnv [TxLog v]
 doGetTxLog d txid = do
@@ -520,10 +518,9 @@ doGetTxLog d txid = do
     readFromPending = do
         ptx <- maybe [] (:[]) <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let pendingWrites = map (\(_, a, _, _) -> a) (ptx ++ [pb])
         let deltas = concat $
-                     map (takeHead . DL.toList) $
-                     concatMap HashMap.elems pendingWrites
+                map (takeHead . DL.toList) $
+                concatMap HashMap.elems $ _pendingWrites <$> (ptx ++ [pb])
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
@@ -573,15 +570,12 @@ createTransactionIndexTable = callDb "createTransactionIndexTable" $ \db -> do
              \ transactionIndexByBH ON TransactionIndex(blockheight)";
 
 indexPactTransaction :: ByteString -> BlockHandler SQLiteEnv ()
-indexPactTransaction h = modify' (over bsPendingBlock upd)
-  where
-    upd (a, b, c, !d) = let !d' = HashSet.insert h d
-                            !t = (a, b, c, d')
-                        in t
+indexPactTransaction h = bsPendingBlock . pendingSuccessfulTxs %= HashSet.insert h
+
 
 indexPendingPactTransactions :: BlockHandler SQLiteEnv ()
 indexPendingPactTransactions = do
-    txs <- (\(_, _, _, a) -> a) <$> gets _bsPendingBlock
+    txs <- _pendingSuccessfulTxs <$> gets _bsPendingBlock
     dbIndexTransactions txs
 
   where
@@ -657,12 +651,13 @@ createVersionedTable tablename db = do
 handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
     bCurrent <- getBCurrent
-    checkHistoryInvariant
+    checkHistoryInvariant (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
         GT -> internalError "handlePossibleRewind: Block_Restore invariant violation!"
         EQ -> newChildBlock bCurrent
         LT -> rewindBlock bRestore
   where
+
     getBCurrent = do
         r <- callDb "handlePossibleRewind" $ \db ->
              qry_ db "SELECT max(blockheight) AS current_block_height \
@@ -670,7 +665,7 @@ handlePossibleRewind bRestore hsh = do
         SInt bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r
         return $! BlockHeight (fromIntegral bh)
 
-    checkHistoryInvariant = do
+    checkHistoryInvariant succOfCurrent = do
         -- enforce invariant that the history has
         -- (B_restore-1,H_parent).
         historyInvariant <- callDb "handlePossibleRewind" $ \db -> do
@@ -681,7 +676,22 @@ handlePossibleRewind bRestore hsh = do
                    [RInt]
                 >>= expectSingleRowCol "handlePossibleRewind: (historyInvariant):"
         when (historyInvariant /= SInt 1) $
-          internalError "handlePossibleRewind: History invariant violation"
+          internalError $ historyInvariantMessage historyInvariant
+      where
+        historyInvariantMessage (SInt entryCount)
+            | entryCount < 0 = error "impossible"
+            | entryCount == 0 = futureRestorePointMessage
+            | otherwise = rowCountErrorMessage entryCount
+        historyInvariantMessage _ = error "impossible"
+
+        rowCountErrorMessage = T.pack .
+              printf "At this blockheight/blockhash (%d, %s) in BlockHistoryTable, there are %d entries." (fromIntegral bRestore :: Int) (show hsh)
+
+        futureRestorePointMessage :: Text
+        futureRestorePointMessage = T.pack $
+          printf "handlePossibleRewind: The checkpointer attempted to restore to a block height(%d)\
+                 \, which is greater than the \"to be saved\" block height(%d) in the checkpointer."
+          (_height bRestore) (_height succOfCurrent)
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore
@@ -732,7 +742,7 @@ vacuumTablesAtRewind :: BlockHeight -> TxId -> HashSet BS.ByteString -> Database
 vacuumTablesAtRewind bh endingtx droppedtbls db = do
     let processMutatedTables ms = fmap (HashSet.fromList) . forM ms $ \case
           [SText (Utf8 tbl)] -> return tbl
-          _ -> internalError "rewindBlock: Couldn't resolve the name \
+          _ -> internalError "rewindBlock: vacuumTablesAtRewind: Couldn't resolve the name \
                              \of the table to possibly vacuum."
     mutatedTables <- qry db
         "SELECT DISTINCT tablename\
@@ -795,4 +805,4 @@ getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
 -- Careful doing this! It's expensive and for our use case, probably pointless.
 -- We should reserve vacuuming for an offline process
 vacuumDb :: BlockHandler SQLiteEnv ()
-vacuumDb = callDb "vaccumDb" (`exec_` "VACUUM;")
+vacuumDb = callDb "vacuumDb" (`exec_` "VACUUM;")

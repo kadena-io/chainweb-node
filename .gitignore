@@ -45,3 +45,4 @@ hlint.hs
 cache/
 *.dump-hi
 standalonedbs/
+TAGS

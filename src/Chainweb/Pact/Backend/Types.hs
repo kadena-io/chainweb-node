@@ -45,7 +45,11 @@ module Chainweb.Pact.Backend.Types
     , SQLiteDeltaKey(..)
     , SQLitePendingTableCreations
     , SQLitePendingWrites
-    , SQLitePendingData
+    , SQLitePendingData(..)
+    , pendingTableCreation
+    , pendingWrites
+    , pendingTxLogMap
+    , pendingSuccessfulTxs
     , emptySQLitePendingData
 
     , BlockState(..)
@@ -70,24 +74,7 @@ module Chainweb.Pact.Backend.Types
       -- * mempool
     , MemPoolAccess(..)
 
-      -- * pact service monad + types
-    , PactServiceEnv(..)
-    , PactServiceState(..)
-    , PactServiceM
-    , runPactServiceM
-
     , PactServiceException(..)
-
-      -- * optics
-    , psMempoolAccess
-    , psCheckpointEnv
-    , psSpvSupport
-    , psPublicData
-    , psStateValidated
-    , psPdb
-    , psBlockHeaderDb
-    , psMinerRewards
-    , psGasModel
     ) where
 
 import Control.Exception
@@ -117,22 +104,14 @@ import GHC.Generics
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
-import Pact.Types.ChainMeta (PublicData(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
 import Pact.Types.Runtime
-    (ExecutionMode(..), PactDb(..), TableName(..), TxId(..),
-    TxLog(..))
-import Pact.Types.Gas (GasModel)
-import Pact.Types.SPV
 
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB.Types
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
-import Chainweb.Miner.Pact (MinerRewards(..))
-import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Transaction
 
 
@@ -210,11 +189,15 @@ type SQLitePendingWrites = HashMap SQLiteDeltaKey (DList SQLiteRowDelta)
 -- these; one for the block as a whole, and one for any pending pact
 -- transaction. Upon pact transaction commit, the two 'SQLitePendingData'
 -- values are merged together.
-type SQLitePendingData = ( SQLitePendingTableCreations
-                         , SQLitePendingWrites
-                         , TxLogMap
-                         , SQLitePendingSuccessfulTxs
-                         )
+data SQLitePendingData = SQLitePendingData
+    { _pendingTableCreation :: !SQLitePendingTableCreations
+    , _pendingWrites :: !SQLitePendingWrites
+    , _pendingTxLogMap :: !TxLogMap
+    , _pendingSuccessfulTxs :: !SQLitePendingSuccessfulTxs
+    }
+    deriving (Show)
+
+makeLenses ''SQLitePendingData
 
 data SQLiteEnv = SQLiteEnv
     { _sConn :: !Database
@@ -234,7 +217,7 @@ data BlockState = BlockState
     deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
-emptySQLitePendingData = (mempty, mempty, mempty, mempty)
+emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState :: BlockState
 initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
@@ -309,31 +292,6 @@ makeLenses ''CheckpointEnv
 newtype SQLiteFlag = SQLiteFlag { getFlag :: CInt }
   deriving newtype (Eq, Ord, Bits, Num)
 
-data PactServiceEnv cas = PactServiceEnv
-    { _psMempoolAccess :: !(Maybe MemPoolAccess)
-    , _psCheckpointEnv :: !CheckpointEnv
-    , _psSpvSupport :: !SPVSupport
-    , _psPublicData :: !PublicData
-    , _psPdb :: !(PayloadDb cas)
-    , _psBlockHeaderDb :: !BlockHeaderDb
-    , _psGasModel :: !GasModel
-    , _psMinerRewards :: !MinerRewards
-    }
-
-newtype PactServiceState = PactServiceState
-    { _psStateValidated :: Maybe BlockHeader
-    }
-
-type PactServiceM cas = ReaderT (PactServiceEnv cas) (StateT PactServiceState IO)
-
-runPactServiceM
-    :: (PayloadCas cas)
-    => PactServiceState
-    -> PactServiceEnv cas
-    -> PactServiceM cas a
-    -> IO (a, PactServiceState)
-runPactServiceM s env action = runStateT (runReaderT action env) s
-
 -- TODO: get rid of this shim, it's probably not necessary
 data MemPoolAccess = MemPoolAccess
   { mpaGetBlock
@@ -344,22 +302,20 @@ data MemPoolAccess = MemPoolAccess
         -> IO (Vector ChainwebTransaction)
   , mpaSetLastHeader :: BlockHeader -> IO ()
   , mpaProcessFork :: BlockHeader -> IO ()
+  , mpaBadlistTx :: P.PactHash -> IO ()
   }
 
 instance Semigroup MemPoolAccess where
-  MemPoolAccess f g h <> MemPoolAccess t u v = MemPoolAccess (f <> t) (g <> u) (h <> v)
+  MemPoolAccess f g h i <> MemPoolAccess t u v w =
+      MemPoolAccess (f <> t) (g <> u) (h <> v) (i <> w)
 
 instance Monoid MemPoolAccess where
-  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty)
+  mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty) (const mempty)
 
-makeLenses ''PactServiceEnv
-makeLenses ''PactServiceState
-
-data PactServiceException = PactServiceIllegalRewind {
-    _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
-  , _latestBlock :: Maybe (BlockHeight, BlockHash)
-  }
-  deriving (Generic)
+data PactServiceException = PactServiceIllegalRewind
+    { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
+    , _latestBlock :: Maybe (BlockHeight, BlockHash)
+    } deriving (Generic)
 
 instance Show PactServiceException where
   show (PactServiceIllegalRewind att l)

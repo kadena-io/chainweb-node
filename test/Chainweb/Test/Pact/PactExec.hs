@@ -21,8 +21,11 @@ module Chainweb.Test.Pact.PactExec
 ( tests
 ) where
 
+import Control.Lens hiding ((.=))
 import Control.Monad.Catch
 import Data.Aeson
+import Data.Aeson.Encode.Pretty
+import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.CAS.RocksDB (RocksDb)
 import Data.Decimal
 import Data.Default
@@ -41,13 +44,13 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHash (nullBlockHash)
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
 import Chainweb.Miner.Pact
-import Chainweb.Pact.PactService (execTransactions)
+import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -57,8 +60,10 @@ import Chainweb.Version (ChainwebVersion(..), someChainId)
 import Pact.Types.Capability
 import Pact.Types.Command
 import Pact.Types.Exp
+import Pact.Types.Hash
 import Pact.Types.Names
 import Pact.Types.PactValue
+import Pact.Types.Persistence
 import Pact.Types.Pretty
 
 testVersion :: ChainwebVersion
@@ -69,21 +74,24 @@ tests = ScheduledTest label $
         withResource newPayloadDb killPdb $ \pdb ->
         withRocksResource $ \rocksIO ->
         testGroup label
-    [ withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
         \ctx -> testGroup "single transactions" $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
             , execTest ctx testReq4
             , execTest ctx testReq5
             , execTxsTest ctx "testTfrGas" testTfrGas
+            , execTxsTest ctx "testGasPayer" testGasPayer
             ]
-    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
       -- failures mess up cp state so run alone
-    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
-    , withPactCtxSQLite testVersion Nothing (bhdbIO rocksIO) pdb $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
+      \ctx -> _schTest $ execTxsTest ctx "testFailureRedeem" testFailureRedeem
 
     ]
   where
@@ -117,8 +125,8 @@ data TestSource = File FilePath | Code String
   deriving (Show, Generic, ToJSON)
 
 data TestResponse a = TestResponse
-    { _trOutputs :: ![(a, HashCommandResult)]
-    , _trCoinBaseOutput :: !HashCommandResult
+    { _trOutputs :: ![(a, CommandResult Hash)]
+    , _trCoinBaseOutput :: !(CommandResult Hash)
     }
     deriving (Generic, ToJSON)
 
@@ -173,10 +181,24 @@ pString :: Text -> PactValue
 pString = PLiteral . LString
 pDecimal :: Decimal -> PactValue
 pDecimal = PLiteral . LDecimal
+pInteger :: Integer -> PactValue
+pInteger = PLiteral . LInteger
 
 assertResultFail :: HasCallStack => String -> String -> Either String (TestResponse String) -> Assertion
 assertResultFail msg expectErr (Left e) = assertSatisfies msg e ((isInfixOf expectErr).show)
 assertResultFail msg _ (Right _) = assertFailure $ msg
+
+checkResultSuccess :: HasCallStack => ([PactResult] -> Assertion) -> Either String (TestResponse String) -> Assertion
+checkResultSuccess _ (Left e) = assertFailure $ "Expected success, got: " ++ show e
+checkResultSuccess test (Right (TestResponse outs _)) = test $ map (_crResult . snd) outs
+
+checkPactResultSuccess :: HasCallStack => String -> PactResult -> (PactValue -> Assertion) -> Assertion
+checkPactResultSuccess _ (PactResult (Right pv)) test = test pv
+checkPactResultSuccess msg (PactResult (Left e)) _ = assertFailure $ msg ++ ": expected tx success, got " ++ show e
+
+checkPactResultFailure :: HasCallStack => String -> PactResult -> String -> Assertion
+checkPactResultFailure msg (PactResult (Right pv)) _ = assertFailure $ msg ++ ": expected tx failure, got " ++ show pv
+checkPactResultFailure msg (PactResult (Left e)) expectErr = assertSatisfies msg e ((isInfixOf expectErr).show)
 
 testTfrNoGasFails :: TxsTest
 testTfrNoGasFails = (txs,assertResultFail "Expected missing (GAS) failure" "Keyset failure")
@@ -189,7 +211,7 @@ testTfrNoGasFails = (txs,assertResultFail "Expected missing (GAS) failure" "Keys
       ]
 
 testTfrGas :: TxsTest
-testTfrGas = (txs,test)
+testTfrGas = (txs,checkResultSuccess test)
   where
     txs = ks >>= \ks' ->
       mkTestExecTransactions "sender00" "0" ks' "testTfrGas" 10000 0.01 1000000 0 $
@@ -198,10 +220,8 @@ testTfrGas = (txs,test)
       [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
       , SigCapability (QualifiedName "coin" "GAS" def) []
       ]
-    test (Left e) = assertFailure $ "Expected success, got: " ++ show e
-    test (Right (TestResponse outs _)) = case map (_crResult . snd) outs of
-      [PactResult (Right pv)] -> assertEqual "transfer succeeds" (pString "Write succeeded") pv
-      r -> assertFailure $ "Expected single result, got: " ++ show r
+    test [PactResult (Right pv)] = assertEqual "transfer succeeds" (pString "Write succeeded") pv
+    test r = assertFailure $ "Expected single result, got: " ++ show r
 
 testBadSenderFails :: TxsTest
 testBadSenderFails = (txs,assertResultFail "Expected failure on bad sender"
@@ -211,6 +231,82 @@ testBadSenderFails = (txs,assertResultFail "Expected failure on bad sender"
       mkTestExecTransactions "some-unknown-sender" "0" ks' "testBadSenderFails" 10000 0.01 1000000 0 $
       V.fromList [PactTransaction "(+ 1 2)" Nothing]
     ks = testKeyPairs sender00KeyPair Nothing
+
+testGasPayer :: TxsTest
+testGasPayer = (txs,checkResultSuccess test)
+  where
+    loadCode = do
+      -- setup is all signed by sender01
+      -- load impl, operate is sender01
+      let operateKs = Just $ object
+            [ "gas-payer-operate" .= [ view _1 sender01KeyPair ] ]
+      impl <- (`PactTransaction` operateKs) <$>
+        getPactCode (File "../../pact/gas-payer/gas-payer-v1-reference.pact")
+      let
+        -- setup gas user sender00 with 100.0 balance
+        sender00ks = Just $ object
+          [ "sender00" .= [ view _1 sender00KeyPair ] ]
+        setupUser = PactTransaction
+          "(gas-payer-v1-reference.fund-user \"sender00\" (read-keyset \"sender00\") 100.0)"
+          sender00ks
+        -- transfer-create gas-payer by funding from sender01
+        fundGasAcct = PactTransaction
+          "(coin.transfer-create \"sender01\" \"gas-payer\" (gas-payer-v1-reference.create-gas-payer-guard) 100.0)"
+          Nothing
+      -- sign with sender01 and caps for transfer, gas
+      ks <- testKeyPairs sender01KeyPair $ Just
+        [ SigCapability (QualifiedName "coin" "TRANSFER" def)
+          [pString "sender01",pString "gas-payer",pDecimal 100.0]
+        , SigCapability (QualifiedName "coin" "GAS" def) []
+        , SigCapability (QualifiedName (ModuleName "gas-payer-v1-reference" (Just "user")) "FUND_USER" def) []
+        ]
+      mkTestExecTransactions "sender01" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
+        V.fromList [impl,setupUser,fundGasAcct]
+
+    runPaidTx = do
+      ks <- testKeyPairs sender00KeyPair $ Just
+        [ SigCapability (QualifiedName (ModuleName "gas-payer-v1-reference" (Just "user")) "GAS_PAYER" def)
+          [pString "sender00",pInteger 10000,pDecimal 0.01] ]
+      mkTestExecTransactions "gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
+        V.fromList [PactTransaction "(+ 1 2)" Nothing]
+
+    txs = do
+      l <- loadCode
+      r <- runPaidTx
+      return $! l <> r
+
+    test [impl,setupUser,fundGasAcct,paidTx] = do
+      checkPactResultSuccess "impl" impl $ assertEqual "impl" (pString "TableCreated")
+      checkPactResultSuccess "setupUser" setupUser $ assertEqual "setupUser" (pString "Write succeeded")
+      checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct" (pString "Write succeeded")
+      checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
+    test r = assertFailure $ "Expected 5 results, got: " ++ show r
+
+testFailureRedeem :: TxsTest
+testFailureRedeem = (txs,checkResultSuccess test)
+  where
+    txs = ks >>= \ks' ->
+      mkTestExecTransactions "sender00" "0" ks' "testFailureRedeem" 1000 0.01 1000000 0 $
+        V.fromList exps
+    ks = testKeyPairs sender00KeyPair Nothing
+    exps = map (`PactTransaction` Nothing)
+      ["(coin.get-balance \"sender00\")"
+      ,"(coin.get-balance \"miner\")"
+      ,"(enforce false \"forced error\")"
+      ,"(coin.get-balance \"sender00\")"
+      ,"(coin.get-balance \"miner\")"]
+    test [sbal0,mbal0,ferror,sbal1,mbal1] = do
+      -- sender 00 first is 100000000 - full gas debit during tx (10)
+      checkPactResultSuccess "sender bal 0" sbal0 $ assertEqual "sender bal 0" (pDecimal 99999990)
+      -- miner first is reward + epsilon tx size gas for [0]
+      checkPactResultSuccess "miner bal 0" mbal0 $ assertEqual "miner bal 0" (pDecimal 2.344523)
+      -- this should reward 10 more to miner
+      checkPactResultFailure "forced error" ferror "forced error"
+      -- sender 00 second is down epsilon size costs from [0,1] + 10 for error + 10 full gas debit during tx ~ 99999980
+      checkPactResultSuccess "sender bal 1" sbal1 $ assertEqual "sender bal 1" (pDecimal 99999979.92)
+      -- miner second is up 10 from error plus epsilon from [1,2,3] ~ 12
+      checkPactResultSuccess "miner bal 1" mbal1 $ assertEqual "miner bal 1" (pDecimal 12.424523)
+    test r = assertFailure $ "Expected 5 results, got: " ++ show r
 
 
 -- -------------------------------------------------------------------------- --
@@ -224,11 +320,11 @@ execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData
     trans <- goldenTestTransactions . V.fromList $ fmap (k d) cmdStrs
-    results <- runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
+    results <- runPact $ execTransactions (Just someBlockHeaderCreationTime) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
-        (zip (_trCmds request) outputs)
-        (_transactionCoinbase results)
+        (zip (_trCmds request) (toHashCommandResult <$> outputs))
+        (toHashCommandResult $ _transactionCoinbase results)
   where
     k d c = PactTransaction c d
 
@@ -243,22 +339,22 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- try $ runPact $ execTransactions (Just nullBlockHash) defaultMiner trans
+      results' <- try $ runPact $ execTransactions (Just someBlockHeaderCreationTime) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results
               tcode = _pNonce . payloadObj . _cmdPayload
               inputs = map (showPretty . tcode) $ V.toList trans
           return $ TestResponse
-            (zip inputs outputs)
-            (_transactionCoinbase results)
+            (zip inputs (toHashCommandResult <$> outputs))
+            (toHashCommandResult $ _transactionCoinbase results)
         Left (e :: SomeException) -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)
 getPactCode (File filePath) = pack <$> readFile' (testPactFilesDir ++ filePath)
 
-checkSuccessOnly :: HashCommandResult -> Assertion
+checkSuccessOnly :: CommandResult Hash -> Assertion
 checkSuccessOnly cr = case _crResult cr of
   PactResult (Right _) -> return ()
   r -> assertFailure $ "Failure status returned: " ++ show r
@@ -286,3 +382,34 @@ fileCompareTxLogs label respIO = goldenSch label $ do
         [ "output" .= _crLogs out
         , "cmd" .= ("coinbase" :: String)
         ]
+
+
+_showValidationFailure :: IO ()
+_showValidationFailure = do
+  ks <- testKeyPairs sender00KeyPair Nothing
+  txs <- mkTestExecTransactions "sender00" "0" ks "testTfrNoGas" 10000 0.01 1000000 0 $
+         V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
+  let cr1 = CommandResult
+        { _crReqKey = RequestKey pactInitialHash
+        , _crTxId = Nothing
+        , _crResult = PactResult $ Right $ pString "hi"
+        , _crGas = 0
+        , _crLogs = Just [TxLog "Domain" "Key" (object [ "stuff" .= True ])]
+        , _crContinuation = Nothing
+        , _crMetaData = Nothing
+        }
+      outs1 = Transactions
+        { _transactionPairs = V.zip txs (V.singleton cr1)
+        , _transactionCoinbase = cr1
+        }
+      miner = defaultMiner
+      header = genesisBlockHeader testVersion $ someChainId testVersion
+      pd = payloadWithOutputsToPayloadData $ toPayloadWithOutputs miner outs1
+      cr2 = set crGas 1 cr1
+      outs2 = Transactions
+        { _transactionPairs = V.zip txs (V.singleton cr2)
+        , _transactionCoinbase = cr2
+        }
+      r = validateHashes header pd miner outs2
+
+  BL.putStrLn $ encodePretty r

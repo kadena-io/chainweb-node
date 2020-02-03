@@ -193,10 +193,12 @@ data InsertType = CheckedInsert | UncheckedInsert
 
 data InsertError = InsertErrorDuplicate
                  | InsertErrorInvalidTime
-                 | InsertErrorOversized
+                 | InsertErrorOversized GasLimit
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
+                 | InsertErrorBuyGas Text
+                 | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
   deriving (Generic, Eq)
 
@@ -204,14 +206,15 @@ instance Show InsertError
   where
     show InsertErrorDuplicate = "Transaction already exists on chain"
     show InsertErrorInvalidTime = "Transaction time is invalid or TTL is expired"
-    show InsertErrorOversized = "Transaction gas limit exceeds block gas limit"
+    show (InsertErrorOversized (GasLimit l)) = "Transaction gas limit exceeds block gas limit (" <> show l <> ")"
     show InsertErrorBadlisted =
-        "Transaction is badlisted because it previously failed to validate \
-        \(e.g. insufficient gas)"
+        "Transaction is badlisted because it previously failed to validate."
     show InsertErrorMetadataMismatch =
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
-    show InsertErrorTransactionsDisabled = "Transactions are disabled until December 5"
+    show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
+    show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
+    show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
 instance Exception InsertError
@@ -220,9 +223,6 @@ instance Exception InsertError
 -- | Mempool backend API. Here @t@ is the transaction payload type.
 data MempoolBackend t = MempoolBackend {
     mempoolTxConfig :: {-# UNPACK #-} !(TransactionConfig t)
-
-    -- TODO: move this inside TransactionConfig or new MempoolConfig ?
-  , mempoolBlockGasLimit :: GasLimit
 
     -- | Returns true if the given transaction hash is known to this mempool.
   , mempoolMember :: Vector TransactionHash -> IO (Vector Bool)
@@ -242,12 +242,20 @@ data MempoolBackend t = MempoolBackend {
     -- | Remove the given hashes from the pending set.
   , mempoolMarkValidated :: Vector TransactionHash -> IO ()
 
+    -- | Mark a transaction as bad.
+  , mempoolAddToBadList :: TransactionHash -> IO ()
+
+    -- | Returns 'True' if the transaction is badlisted.
+  , mempoolCheckBadList :: Vector TransactionHash -> IO (Vector Bool)
+
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
     --
-    -- TODO remove gas limit argument here
   , mempoolGetBlock
-      :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> GasLimit -> IO (Vector t)
+      :: MempoolPreBlockCheck t -> BlockHeight -> BlockHash -> IO (Vector t)
+
+    -- | Discard any expired transactions.
+  , mempoolPrune :: IO ()
 
     -- | given a previous high-water mark and a chunk callback function, loops
     -- through the pending candidate transactions and supplies the hashes to
@@ -270,13 +278,15 @@ noopMempool :: IO (MempoolBackend t)
 noopMempool = do
   return $ MempoolBackend
     { mempoolTxConfig = txcfg
-    , mempoolBlockGasLimit = 1000
     , mempoolMember = noopMember
     , mempoolLookup = noopLookup
     , mempoolInsert = noopInsert
     , mempoolInsertCheck = noopInsertCheck
     , mempoolMarkValidated = noopMV
+    , mempoolAddToBadList = noopAddToBadList
+    , mempoolCheckBadList = noopCheckBadList
     , mempoolGetBlock = noopGetBlock
+    , mempoolPrune = return ()
     , mempoolGetPendingTransactions = noopGetPending
     , mempoolClear = noopClear
     }
@@ -294,7 +304,9 @@ noopMempool = do
     noopInsert = const $ const $ return ()
     noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()
-    noopGetBlock _ _ _ _ = return V.empty
+    noopAddToBadList = const $ return ()
+    noopCheckBadList v = return $ V.replicate (V.length v) False
+    noopGetBlock _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
 
@@ -501,7 +513,7 @@ syncMempools log us localMempool remoteMempool =
 -- TODO: production versions of this kind of DB should salt with a
 -- runtime-generated constant to avoid collision attacks; see the \"hashing and
 -- security\" section of the hashable docs.
-newtype TransactionHash = TransactionHash SB.ShortByteString
+newtype TransactionHash = TransactionHash { unTransactionHash :: SB.ShortByteString }
   deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
 
@@ -568,7 +580,7 @@ data MockTx = MockTx {
 
 
 mockBlockGasLimit :: GasLimit
-mockBlockGasLimit = 65535
+mockBlockGasLimit = 100000000
 
 
 -- | A codec for transactions when sending them over the wire.

@@ -61,6 +61,7 @@ module Chainweb.Payload
 
 , MinerData(..)
 , CoinbaseOutput(..)
+, noCoinbase
 
 , BlockOutputsLog
 , newBlockOutputLog
@@ -107,9 +108,15 @@ import GHC.Stack
 
 -- internal modules
 
+import Pact.Types.Command
+import Pact.Types.Exp
+import Pact.Types.Hash
+import Pact.Types.PactValue
+
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
+
 import Chainweb.Utils
 
 import Data.CAS
@@ -479,12 +486,20 @@ coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
     $ CoinbaseOutput <$!> decodeB64UrlNoPaddingText t
 {-# INLINE coinbaseOutputFromText #-}
 
+-- | No-op coinbase payload
+--
+noCoinbase :: CommandResult a
+noCoinbase = CommandResult
+    (RequestKey pactInitialHash) Nothing
+    (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
+    0 Nothing Nothing Nothing
+{-# NOINLINE noCoinbase #-}
+
 instance HasTextRepresentation CoinbaseOutput where
     toText = coinbaseOutputToText
     {-# INLINE toText #-}
     fromText = coinbaseOutputFromText
     {-# INLINE fromText #-}
-
 
 -- -------------------------------------------------------------------------- --
 -- Block Outputs

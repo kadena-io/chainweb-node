@@ -43,18 +43,20 @@ module Main
 import Configuration.Utils hiding (Error)
 import Configuration.Utils.Validation (validateFilePath)
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
+import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Managed
 
-import Data.Bool
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.HashSet as HS
 import qualified Data.Text as T
+import Data.Time
 import Data.Typeable
 
 import GHC.Generics hiding (from)
@@ -68,7 +70,7 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 
 import System.Directory
-import System.Exit (exitFailure)
+import System.IO (hSetBuffering, stderr, BufferMode(LineBuffering))
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -91,7 +93,6 @@ import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Utils.Watchdog (notifyReady, withWatchdog)
@@ -126,27 +127,26 @@ defaultChainwebNodeConfiguration :: ChainwebVersion -> ChainwebNodeConfiguration
 defaultChainwebNodeConfiguration v = ChainwebNodeConfiguration
     { _nodeConfigChainweb = defaultChainwebConfiguration v
     , _nodeConfigLog = defaultLogConfig
-        & logConfigLogger . L.loggerConfigThreshold .~ L.Info
+        & logConfigLogger . L.loggerConfigThreshold .~ level
     , _nodeConfigDatabaseDirectory = Nothing
     , _nodeConfigResetChainDbs = False
     }
+  where
+    level = case v of
+        Mainnet01 -> L.Info
+        _ -> L.Info
 
 validateChainwebNodeConfiguration :: ConfigValidation ChainwebNodeConfiguration []
 validateChainwebNodeConfiguration o = do
     validateLogConfig $ _nodeConfigLog o
-    maybe (return ())
-          checkIfValidChain
-          (getAmberdataChainId o)
-    maybe (return ())
-          (validateFilePath "databaseDirectory")
-          (_nodeConfigDatabaseDirectory o)
+    validateChainwebConfiguration $ _nodeConfigChainweb o
+    mapM_ checkIfValidChain (getAmberdataChainId o)
+    mapM_ (validateFilePath "databaseDirectory") (_nodeConfigDatabaseDirectory o)
   where
     chains = chainIds $ _nodeConfigChainweb o
     checkIfValidChain cid
-      = bool
-        (throwError $ "Invalid chain id provided: " <> toText cid)
-        (return ())
-        (HS.member cid chains)
+      = unless (HS.member cid chains)
+        $ throwError $ "Invalid chain id provided: " <> toText cid
     getAmberdataChainId = _amberdataChainId . _enableConfigConfig . _logConfigAmberdataBackend . _nodeConfigLog
 
 
@@ -318,8 +318,9 @@ node conf logger = do
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
+        notifyReady
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
-            [ notifyReady >> runChainweb cw
+            [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
             , runCutMonitor (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
             , runAmberdataBlockMonitor (amberdataChainId conf) (_chainwebLogger cw) (_cutResCutDb $ _chainwebCutResources cw)
@@ -345,8 +346,7 @@ withNodeLogger
 withNodeLogger logConfig v f = runManaged $ do
 
     -- This manager is used only for logging backends
-    mgr <- liftIO $ HTTP.newManager HTTP.defaultManagerSettings
-    mgrHttps <- liftIO $ HTTPS.newTlsManager
+    mgr <- liftIO HTTPS.newTlsManager
 
     -- Base Backend
     baseBackend <- managed
@@ -362,11 +362,13 @@ withNodeLogger logConfig v f = runManaged $ do
     counterBackend <- managed $ configureHandler
         (withJsonHandleBackend @CounterLog "connectioncounters" mgr pkgInfoScopes)
         teleLogConfig
-    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgrHttps amberdataConfig
+    newBlockAmberdataBackend <- managed $ mkAmberdataLogger mgr amberdataConfig
     endpointBackend <- managed
         $ mkTelemetryLogger @PactCmdLog mgr teleLogConfig
     newBlockBackend <- managed
         $ mkTelemetryLogger @NewMinedBlock mgr teleLogConfig
+    orphanedBlockBackend <- managed
+        $ mkTelemetryLogger @OrphanedBlock mgr teleLogConfig
     miningStatsBackend <- managed
         $ mkTelemetryLogger @MiningStats mgr teleLogConfig
     requestLogBackend <- managed
@@ -392,6 +394,7 @@ withNodeLogger logConfig v f = runManaged $ do
             , logHandler newBlockAmberdataBackend
             , logHandler endpointBackend
             , logHandler newBlockBackend
+            , logHandler orphanedBlockBackend
             , logHandler miningStatsBackend
             , logHandler requestLogBackend
             , logHandler queueStatsBackend
@@ -429,6 +432,52 @@ mkTelemetryLogger mgr = configureHandler
     $ withJsonHandleBackend @(JsonLog a) (sshow $ typeRep $ Proxy @a) mgr pkgInfoScopes
 
 -- -------------------------------------------------------------------------- --
+-- Kill Switch
+
+newtype KillSwitch = KillSwitch T.Text
+
+instance Show KillSwitch where
+    show (KillSwitch t) = "kill switch triggered: " <> T.unpack t
+
+instance Exception KillSwitch where
+    fromException = asyncExceptionFromException
+    toException = asyncExceptionToException
+
+withKillSwitch
+    :: (LogLevel -> T.Text -> IO ())
+    -> Maybe UTCTime
+    -> IO a
+    -> IO a
+withKillSwitch _ Nothing inner = inner
+withKillSwitch lf (Just t) inner = race timer inner >>= \case
+    Left () -> error "Kill switch thread terminated unexpectedly"
+    Right a -> return a
+  where
+    timer = do
+        runForever lf "KillSwitch" $ do
+            now <- getCurrentTime
+            when (now >= t) $ do
+                lf Error killMessage
+                throw $ KillSwitch killMessage
+
+            let w = diffUTCTime t now
+            let micros = round $ w * 1000000
+            lf Warn warning
+            threadDelay $ min (10 * 60 * 1000000) micros
+
+    warning :: T.Text
+    warning = T.concat
+        [ "This version of chainweb node will stop to work at " <> sshow t <> "."
+        , " Please upgrade to a new version before that date."
+        ]
+
+    killMessage :: T.Text
+    killMessage = T.concat
+        [ "Shutting down. This version of chainweb was only valid until" <> sshow t <> "."
+        , " Please upgrade to a new version."
+        ]
+
+-- -------------------------------------------------------------------------- --
 -- Encode Package Info into Log mesage scopes
 
 pkgInfoScopes :: [(T.Text, T.Text)]
@@ -444,23 +493,25 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
+-- KILLSWITCH for version 1.4
+--
+killSwitchDate :: Maybe String
+killSwitchDate = Just "2020-02-20T00:00:00Z"
+
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
     "Chainweb Node"
     pChainwebNodeConfiguration
-    (defaultChainwebNodeConfiguration Testnet02)
+    (defaultChainwebNodeConfiguration Mainnet01)
     validateChainwebNodeConfiguration
 
--- | KILLSWITCH: The logic surrounding `txSilenceDates` here is to be removed in
--- a future version of Chainweb. This prevents the Node from even starting if
--- past a specified date.
---
 main :: IO ()
 main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
-    now <- getCurrentTimeIntegral
-    case txSilenceDates v of
-        Just end | now > end -> do
-            putStrLn "Transactions are now possible - please update your Chainweb binary."
-            exitFailure
-        _ -> withNodeLogger (_nodeConfigLog conf) v $ node conf
+    hSetBuffering stderr LineBuffering
+    withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
+        kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
+        withKillSwitch (logFunctionText logger) kt $
+            node conf logger
+  where
+    timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")

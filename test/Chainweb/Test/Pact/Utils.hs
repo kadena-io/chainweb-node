@@ -51,7 +51,7 @@ module Chainweb.Test.Pact.Utils
 , PactTransaction(..)
 , testPactCtx
 , destroyTestPactCtx
-, evalPactServiceM
+, evalPactServiceM_
 , withPactCtx
 , withPactCtxSQLite
 , testWebPactExecutionService
@@ -63,29 +63,35 @@ module Chainweb.Test.Pact.Utils
 , WithPactCtxSQLite
 -- * miscellaneous
 , ChainwebNetwork(..)
+, dummyLogger
+, epochCreationTime
+, someTestVersionHeader
+, someBlockHeader
+, someBlockHeaderCreationTime
 ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Lens hiding ((.=))
+import Control.Lens (_3, view)
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.State.Strict
-import Control.Monad.Trans.Reader
 
 import Data.Aeson (Value(..), object, (.=))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
+import Data.CAS.HashMap hiding (toList)
+import Data.CAS.RocksDB
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
-import Data.CAS.HashMap hiding (toList)
-import Data.CAS.RocksDB
+import Data.Maybe
 import Data.Text (Text)
-import qualified Data.Text.IO as T
 import Data.Text.Encoding
+import qualified Data.Text.IO as T
+import Data.Tuple.Strict
+import Data.Word
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -105,7 +111,7 @@ import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
 import Pact.Parse
 import Pact.Types.Capability
-import Pact.Types.ChainId
+import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
@@ -122,9 +128,9 @@ import Pact.Types.Util (toB16Text)
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
-import Chainweb.ChainId (chainIdToText)
-import Chainweb.CutDB
+import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -134,12 +140,12 @@ import Chainweb.Pact.Backend.SQLite.DirectV2
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
-import Chainweb.Pact.Service.PactInProcApi (pactQueueSize)
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
-import Chainweb.Pact.SPV
-import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Pact.Types
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -147,7 +153,6 @@ import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
 import Chainweb.WebBlockHeaderDB.Types
 import Chainweb.WebPactExecutionService
-import Chainweb.Test.Utils
 
 -- ----------------------------------------------------------------------- --
 -- Test Exceptions
@@ -178,7 +183,6 @@ sender00KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 sender00KeyPair =
     ( PubBS $ getByteString
         "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
-
     , PrivBS $ getByteString
         "251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898"
     , "368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
@@ -273,7 +277,7 @@ goldenTestTransactions txs = do
 mkTestExecTransactions
     :: Text
       -- ^ sender
-    -> ChainId
+    -> P.ChainId
       -- ^ chain id of execution
     -> [SomeKeyPairCaps]
       -- ^ signer keys
@@ -318,7 +322,7 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
 mkTestContTransaction
     :: Text
       -- ^ sender
-    -> ChainId
+    -> P.ChainId
       -- ^ chain id of execution
     -> [SomeKeyPairCaps]
       -- ^ signer keys
@@ -358,7 +362,7 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def
   where
-    f _ b "ERROR" d = doLog error b "ERROR" d
+    f _ b "ERROR" d = doLog (\_ -> return ()) b "ERROR" d
     f _ b "DEBUG" d | not showAll = doLog (\_ -> return ()) b "DEBUG" d
     f _ b "INFO" d | not showAll = doLog (\_ -> return ()) b "INFO" d
     f _ b "DDL" d | not showAll = doLog (\_ -> return ()) b "DDL" d
@@ -380,9 +384,9 @@ data PactTransaction = PactTransaction
   , _pactData :: Maybe Value
   } deriving (Eq, Show)
 
-evalPactServiceM :: TestPactCtx cas -> PactServiceM cas a -> IO a
-evalPactServiceM ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
-    (a,s') <- runStateT (runReaderT pact (_testPactCtxEnv ctx)) s
+evalPactServiceM_ :: TestPactCtx cas -> PactServiceM cas a -> IO a
+evalPactServiceM_ ctx pact = modifyMVar (_testPactCtxState ctx) $ \s -> do
+    T2 a s' <- runPactServiceM s (_testPactCtxEnv ctx) pact
     return (s',a)
 
 destroyTestPactCtx :: TestPactCtx cas -> IO ()
@@ -392,46 +396,67 @@ testPactCtx
     :: PayloadCas cas
     => ChainwebVersion
     -> Version.ChainId
-    -> Maybe (MVar (CutDb cas))
     -> BlockHeaderDb
     -> PayloadDb cas
     -> IO (TestPactCtx cas)
-testPactCtx v cid cdbv bhdb pdb = do
+testPactCtx v cid bhdb pdb = do
     cpe <- initInMemoryCheckpointEnv loggers logger
     let rs = readRewards v
+        t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
-        <$> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
-    evalPactServiceM ctx (initialPayloadState v cid)
+        <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+        <*> pure (pactServiceEnv cpe rs)
+    evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName "PactService"
-    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
-    pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+    pactServiceEnv cpe rs = PactServiceEnv
+        { _psMempoolAccess = Nothing
+        , _psCheckpointEnv = cpe
+        , _psPdb = pdb
+        , _psBlockHeaderDb = bhdb
+        , _psGasModel = constGasModel 0
+        , _psMinerRewards = rs
+        , _psEnableUserContracts = True
+        , _psReorgLimit = defaultReorgLimit
+        , _psOnFatalError = defaultOnFatalError mempty
+        , _psVersion = v
+        }
 
 testPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
   -> Version.ChainId
-  -> Maybe (MVar (CutDb cas))
   -> BlockHeaderDb
   -> PayloadDb cas
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
-testPactCtxSQLite v cid cdbv bhdb pdb sqlenv = do
+testPactCtxSQLite v cid bhdb pdb sqlenv = do
     cpe <- initRelationalCheckpointer initBlockState sqlenv logger
     let rs = readRewards v
+        t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
-      <$> newMVar (PactServiceState Nothing)
-      <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
-    evalPactServiceM ctx (initialPayloadState v cid)
+      <$> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+      <*> pure (pactServiceEnv cpe rs)
+    evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
     return ctx
   where
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
-    spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
-    pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
+    pactServiceEnv cpe rs = PactServiceEnv
+        { _psMempoolAccess = Nothing
+        , _psCheckpointEnv = cpe
+        , _psPdb = pdb
+        , _psBlockHeaderDb = bhdb
+        , _psGasModel = constGasModel 0
+        , _psMinerRewards = rs
+        , _psEnableUserContracts = True
+        , _psReorgLimit = defaultReorgLimit
+        , _psOnFatalError = defaultOnFatalError mempty
+        , _psVersion = v
+        }
+
 
 -- | A test PactExecutionService for a single chain
 --
@@ -439,25 +464,26 @@ testPactExecutionService
     :: PayloadCas cas
     => ChainwebVersion
     -> Version.ChainId
-    -> Maybe (MVar (CutDb cas))
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
     -> MemPoolAccess
        -- ^ transaction generator
     -> SQLiteEnv
     -> IO PactExecutionService
-testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
+testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
     bhdb <- bhdbIO
     pdb <- pdbIO
-    ctx <- testPactCtxSQLite v cid cutDB bhdb pdb sqlenv
+    ctx <- testPactCtxSQLite v cid bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p t -> evalPactServiceM ctx $ execNewBlock mempoolAccess p m t
+        { _pactNewBlock = \m p t -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m t
         , _pactValidateBlock = \h d ->
-            evalPactServiceM ctx $ execValidateBlock h d
+            evalPactServiceM_ ctx $ execValidateBlock h d
         , _pactLocal = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
         , _pactLookup = error
             "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
+        , _pactPreInsertCheck = error
+            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactPreInsertCheck: not implemented"
         }
 
 -- | A test PactExecutionService for a chainweb
@@ -465,14 +491,13 @@ testPactExecutionService v cid cutDB bhdbIO pdbIO mempoolAccess sqlenv = do
 testWebPactExecutionService
     :: PayloadCas cas
     => ChainwebVersion
-    -> Maybe (MVar (CutDb cas))
     -> IO WebBlockHeaderDb
     -> IO (PayloadDb cas)
     -> (Version.ChainId -> MemPoolAccess)
        -- ^ transaction generator
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
-testWebPactExecutionService v cutDB webdbIO pdbIO mempoolAccess sqlenvs
+testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
     = fmap mkWebPactExecutionService
     $ fmap HM.fromList
     $ traverse mkPact
@@ -485,7 +510,7 @@ testWebPactExecutionService v cutDB webdbIO pdbIO mempoolAccess sqlenvs
         let bhdbs = _webBlockHeaderDb webdb
         let bhdb = fromJuste $ HM.lookup c bhdbs
         let bhdbIO = return bhdb
-        (c,) <$> testPactExecutionService v c cutDB bhdbIO pdbIO (mempoolAccess c) sqlenv
+        (c,) <$> testPactExecutionService v c bhdbIO pdbIO (mempoolAccess c) sqlenv
 
 -- | This enforces that only a single test can use the pact context at a time.
 -- It's up to the user to ensure that tests are scheduled in the right order.
@@ -493,21 +518,20 @@ testWebPactExecutionService v cutDB webdbIO pdbIO mempoolAccess sqlenvs
 withPactCtx
     :: PayloadCas cas
     => ChainwebVersion
-    -> Maybe (MVar (CutDb cas))
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
     -> ((forall a . PactServiceM cas a -> IO a) -> TestTree)
     -> TestTree
-withPactCtx v cutDB bhdbIO pdbIO f =
+withPactCtx v bhdbIO pdbIO f =
     withResource start destroyTestPactCtx $
     \ctxIO -> f $ \pact -> do
         ctx <- ctxIO
-        evalPactServiceM ctx pact
+        evalPactServiceM_ ctx pact
   where
     start = do
         bhdb <- bhdbIO
         pdb <- pdbIO
-        testPactCtx v (someChainId v) cutDB bhdb pdb
+        testPactCtx v (someChainId v) bhdb pdb
 
 initializeSQLite :: IO (IO (), SQLiteEnv)
 initializeSQLite = do
@@ -528,36 +552,50 @@ type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO
 withPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
-  -> Maybe (MVar (CutDb cas))
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)
+  -> Maybe GasModel
   -> (WithPactCtxSQLite cas -> TestTree)
   -> TestTree
-withPactCtxSQLite v cutDB bhdbIO pdbIO f =
+withPactCtxSQLite v bhdbIO pdbIO gasModel f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io -> do
-      withResource (start io cutDB) (destroy io) $ \ctxIO -> f $ \toPact -> do
+      withResource (start io) (destroy io) $ \ctxIO -> f $ \toPact -> do
           (ctx, dbSt) <- ctxIO
-          evalPactServiceM ctx (toPact dbSt)
+          evalPactServiceM_ ctx (toPact dbSt)
   where
     destroy = const (destroyTestPactCtx . fst)
-    start ios cdbv = do
-      let loggers = pactTestLogger False
-          logger = newLogger loggers $ LogName "PactService"
-          spv = maybe noSPVSupport (\cdb -> pactSPV cid cdb) cdbv
-          cid = someChainId v
-          pd = def & pdPublicMeta . pmChainId .~ (ChainId $ chainIdToText cid)
-      bhdb <- bhdbIO
-      pdb <- pdbIO
-      (_,s) <- ios
-      (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
-      let rs = readRewards v
-      !ctx <- TestPactCtx
-        <$!> newMVar (PactServiceState Nothing)
-        <*> pure (PactServiceEnv Nothing cpe spv pd pdb bhdb (constGasModel 0) rs)
-      evalPactServiceM ctx (initialPayloadState v cid)
-      return (ctx, dbSt)
+    start ios = do
+        let loggers = pactTestLogger False
+            logger = newLogger loggers $ LogName "PactService"
+            cid = someChainId v
+
+        bhdb <- bhdbIO
+        pdb <- pdbIO
+        (_,s) <- ios
+        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
+        let rs = readRewards v
+            t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+            gm = fromMaybe (constGasModel 0) gasModel
+        !ctx <- TestPactCtx
+          <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+          <*> pure (pactServiceEnv cpe pdb bhdb gm rs)
+        evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
+        return (ctx, dbSt)
+      where
+        pactServiceEnv cpe pdb bhdb gm rs = PactServiceEnv
+            { _psMempoolAccess = Nothing
+            , _psCheckpointEnv = cpe
+            , _psPdb = pdb
+            , _psBlockHeaderDb = bhdb
+            , _psGasModel = gm
+            , _psMinerRewards = rs
+            , _psEnableUserContracts = True
+            , _psReorgLimit = defaultReorgLimit
+            , _psOnFatalError = defaultOnFatalError mempty
+            , _psVersion = v
+            }
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
 withMVarResource value = withResource (newMVar value) (const $ return ())
@@ -572,7 +610,7 @@ mkKeyset p ks = object
   ]
 
 stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
 -- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair
@@ -616,24 +654,46 @@ withPact
     -> IO BlockHeaderDb
     -> MemPoolAccess
     -> IO FilePath
+    -> Word64
     -> (IO PactQueue -> TestTree)
     -> TestTree
-withPact version logLevel iopdb iobhdb mempool iodir f =
-    withResource startPact stopPact $ f . fmap snd
+withPact version logLevel iopdb iobhdb mempool iodir deepForkLimit f =
+    withResource startPact stopPact $ f . fmap (view _3)
   where
     startPact = do
-        mv <- newEmptyMVar
-        reqQ <- atomically $ newTBQueue pactQueueSize
+        reqQ <- atomically $ newTBQueue 2000
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        a <- async $ initPactService version cid logger reqQ mempool mv
-                                     bhdb pdb (Just dir) Nothing False
-        return (a, reqQ)
+        sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
+        a <- async $
+             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv deepForkLimit
+        return (a, sqlEnv, reqQ)
 
-    stopPact (a, _) = cancel a
+    stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
 
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
 
 newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
+
+dummyLogger :: GenericLogger
+dummyLogger = genericLogger Quiet T.putStrLn
+
+someTestVersion :: ChainwebVersion
+someTestVersion = FastTimedCPM peterson
+
+someTestVersionHeader :: BlockHeader
+someTestVersionHeader = someBlockHeader someTestVersion 10
+
+epochCreationTime :: BlockCreationTime
+epochCreationTime = BlockCreationTime epoch
+
+someBlockHeader :: ChainwebVersion -> BlockHeight -> BlockHeader
+someBlockHeader v h = setHeight $ head (testBlockHeaders $ ParentHeader gbh0)
+  where
+    gbh0 = genesisBlockHeader v (unsafeChainId 0)
+    setHeight bh = bh { _blockHeight = h }
+
+someBlockHeaderCreationTime :: (BlockHeader, BlockCreationTime)
+someBlockHeaderCreationTime = (someTestVersionHeader,epochCreationTime)

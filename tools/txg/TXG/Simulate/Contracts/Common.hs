@@ -28,6 +28,10 @@ module TXG.Simulate.Contracts.Common
   , parseBytes
     -- * Utils
   , stockKey
+    -- * useful constants
+  , defGasLimit
+  , defGasPrice
+  , defTTL
   ) where
 
 import Control.Lens hiding ((.=), elements, uncons)
@@ -61,10 +65,11 @@ import Text.Printf
 
 import Pact.ApiReq (mkExec, ApiKeyPair(..), mkKeyPairs)
 import Pact.Parse
-import qualified Pact.Types.ChainId as CM
-import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 import Pact.Types.Crypto
+import Pact.Types.Gas
+import qualified Pact.Types.ChainId as CM
+import qualified Pact.Types.ChainMeta as CM
 
 -- CHAINWEB
 
@@ -125,7 +130,7 @@ coinAccountNames :: [Account]
 coinAccountNames = (Account . ("sender0" <>) . show) <$> [0 :: Int .. 9]
 
 stockKeyFile :: ByteString
-stockKeyFile = $(embedFile "pact/genesis/testnet/keys.yaml")
+stockKeyFile = $(embedFile "pact/genesis/devnet/keys.yaml")
 
 -- | Convenient access to predefined testnet sender accounts
 stockKey :: Text -> IO ApiKeyPair
@@ -182,22 +187,31 @@ distinctPairSenders = fakeInt 0 9 >>= go
       if n == m then go n else return (append n, append m)
 
 -- hardcoded sender (sender00)
-makeMeta :: ChainId -> IO CM.PublicMeta
-makeMeta cid = do
+makeMeta :: ChainId -> CM.TTLSeconds -> GasPrice -> GasLimit -> IO CM.PublicMeta
+makeMeta cid ttl gasPrice gasLimit = do
     t <- toTxCreationTime <$> getCurrentTimeIntegral
     return $ CM.PublicMeta
         {
           CM._pmChainId = CM.ChainId $ toText cid
         , CM._pmSender = "sender00"
-        , CM._pmGasLimit = 10000
-        , CM._pmGasPrice = 0.001
-        , CM._pmTTL = 3600
+        , CM._pmGasLimit = gasLimit
+        , CM._pmGasPrice = gasPrice
+        , CM._pmTTL = ttl
         , CM._pmCreationTime = t
         }
 
-makeMetaWithSender :: String -> ChainId -> IO CM.PublicMeta
-makeMetaWithSender sender cid =
-    set CM.pmSender (T.pack sender) <$> makeMeta cid
+defGasLimit :: GasLimit
+defGasLimit = 600
+
+defGasPrice :: GasPrice
+defGasPrice = 0.001
+
+defTTL :: CM.TTLSeconds
+defTTL = 3600
+
+makeMetaWithSender :: String -> CM.TTLSeconds -> GasPrice -> GasLimit -> ChainId -> IO CM.PublicMeta
+makeMetaWithSender sender ttl gasPrice gasLimit cid =
+    set CM.pmSender (T.pack sender) <$> makeMeta cid ttl gasPrice gasLimit
 
 newtype ContractName = ContractName { getContractName :: String }
   deriving (Eq, Ord, Show, Generic)

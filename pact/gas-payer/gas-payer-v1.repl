@@ -1,10 +1,15 @@
-(load "../coin-contract/coin.repl")
+(begin-tx)
+(load "../coin-contract/fungible-v1.pact")
+(load "../coin-contract/coin.pact")
+(load "gas-payer-v1.pact")
+(commit-tx)
+(load "../namespaces/ns.repl")
 (env-data {'gas-payer-operate: ["operate"]})
 (env-keys ["operate"])
-(load "gas-payer-v1.pact")
+
 (load "gas-payer-v1-reference.pact")
 
-(verify 'gas-payer-v1-reference)
+(verify "user.gas-payer-v1-reference")
 
 (env-data {'alice: ["alice"], "buyer": ["buyer"]})
 (env-keys ["operate","buyer"])
@@ -31,11 +36,15 @@
 ;; key pinning for security.
 (env-sigs [{"key": "alice", "caps": [(GAS_PAYER "alice" 1 1.0)]}])
 
-(expect-failure "Cannot unlock payer account"
-  (coin.transfer "gas-payer" "gas-buyer" 1.0))
+(test-capability (coin.GAS))
+
+(expect-failure
+  "Cannot unlock payer account"
+  "not granted"
+  (coin.buy-gas "gas-payer" 1.0))
 
 (expect "GAS_PAYER acquired"
-  "Capability granted"
+  "Capability acquired"
   (test-capability (GAS_PAYER "alice" 1 1.0)))
 
 (expect "gas is allowed after cap is installed"
@@ -48,4 +57,4 @@
 
 (expect "Gas buy succeeds"
   "Write succeeded"
-  (coin.transfer "gas-payer" "gas-buyer" 1.0))
+  (coin.buy-gas "gas-payer" 1.0))

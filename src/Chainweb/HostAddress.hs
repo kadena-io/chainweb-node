@@ -75,11 +75,17 @@ module Chainweb.HostAddress
 , localhost
 , localhostIPv4
 , localhostIPv6
+, anyIpv4
+, broadcast
+, loopback
 , readHostnameBytes
 , hostnameToText
 , hostnameFromText
 , unsafeHostnameFromText
 , pHostname
+, isReservedHostname
+, isPrivateHostname
+, isLocalIp
 
 -- * HostAddresses
 , HostAddress(..)
@@ -94,6 +100,8 @@ module Chainweb.HostAddress
 , pHostAddress
 , pHostAddress'
 , hostAddressToBaseUrl
+, isPrivateHostAddress
+, isReservedHostAddress
 
 -- * Arbitrary Values
 , arbitraryPort
@@ -121,6 +129,7 @@ import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.CaseInsensitive as CI
 import Data.Hashable (Hashable(..))
+import Data.IP
 import qualified Data.List as L
 import Data.Streaming.Network.Internal
 import qualified Data.Text as T
@@ -348,6 +357,57 @@ localhostIPv6 :: Hostname
 localhostIPv6 = HostnameIPv6 "::1"
 {-# INLINE localhostIPv6 #-}
 
+anyIpv4 :: Hostname
+anyIpv4 = HostnameIPv4 "0.0.0.0"
+{-# INLINE anyIpv4 #-}
+
+loopback :: Hostname
+loopback = HostnameIPv4 "127.0.0.1"
+{-# INLINE loopback #-}
+
+broadcast :: Hostname
+broadcast = HostnameIPv4 "255.255.255.255"
+{-# INLINE broadcast #-}
+
+isPrivateHostname :: Hostname -> Bool
+isPrivateHostname (HostnameIPv4 ip) = isPrivateIp (read $ B8.unpack $ CI.original ip)
+isPrivateHostname h
+    | h == localhost = True
+    | h == localhostIPv4 = True
+    | h == localhostIPv6 = True
+    | otherwise = False
+
+isReservedHostname :: Hostname -> Bool
+isReservedHostname (HostnameIPv4 ip) = isReservedIp (read $ B8.unpack $ CI.original ip)
+isReservedHostname h = isPrivateHostname h
+
+isLocalIp :: IPv4 -> Bool
+isLocalIp ip =
+    isMatchedTo ip $ makeAddrRange (toIPv4 [127,0,0,0]) 8
+
+isPrivateIp :: IPv4 -> Bool
+isPrivateIp ip = any id
+    [ isMatchedTo ip $ makeAddrRange (toIPv4 [10,0,0,0]) 8
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [172,16,0,0]) 12
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,168,0,0]) 16
+    ]
+
+isReservedIp :: IPv4 -> Bool
+isReservedIp ip = isLocalIp ip || isPrivateIp ip || any id
+    [ isMatchedTo ip $ makeAddrRange (toIPv4 [0,0,0,0]) 8
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [100,64,0,0]) 10
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [169,254,0,0]) 16
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,0,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,0,2,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,88,99,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [192,18,0,0]) 15
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [198,51,100,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [203,0,113,0]) 24
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [224,0,0,0]) 4
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [240,0,0,0]) 4
+    , isMatchedTo ip $ makeAddrRange (toIPv4 [255,255,255,255]) 32
+    ]
+
 hostnameBytes :: Hostname -> B8.ByteString
 hostnameBytes (HostnameName b) = CI.original b
 hostnameBytes (HostnameIPv4 b) = CI.original b
@@ -503,6 +563,14 @@ hostAddressToBaseUrl s (HostAddress hn p) = BaseUrl s hn' p' ""
   where
     hn' = T.unpack $ hostnameToText hn
     p'  = fromIntegral p
+
+isPrivateHostAddress :: HostAddress -> Bool
+isPrivateHostAddress (HostAddress n _) = isPrivateHostname n
+{-# INLINE isPrivateHostAddress #-}
+
+isReservedHostAddress :: HostAddress -> Bool
+isReservedHostAddress (HostAddress n _) = isReservedHostname n
+{-# INLINE isReservedHostAddress #-}
 
 -- -------------------------------------------------------------------------- --
 -- Host Preference Utils

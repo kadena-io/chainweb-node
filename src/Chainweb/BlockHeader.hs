@@ -33,8 +33,17 @@
 --
 module Chainweb.BlockHeader
 (
+-- * Newtype wrappers for function parameters
+  ParentHeader(..)
+, ParentCreationTime(..)
+
+-- * Validation Guards
+--
+-- $guards
+, slowEpochGuard
+
 -- * Block Height
-  BlockHeight(..)
+, BlockHeight(..)
 , encodeBlockHeight
 , decodeBlockHeight
 , encodeBlockHeightBe
@@ -177,16 +186,64 @@ import Numeric.AffineSpace
 import Text.Read (readEither)
 
 -- -------------------------------------------------------------------------- --
+-- Guards for changes to validation rules
+--
+-- $guards
+--
+-- The guards in this section encode when changes to validation rules for data
+-- on the chain become effective.
+--
+-- Only the following types are allowed as parameters for guards
+--
+-- * BlockHeader,
+-- * ParentHeader,
+-- * BlockCreationTime, and
+-- * ParentCreationTime
+--
+-- The result is a simple 'Bool'.
+--
+-- Guards should have meaningful names and should be used in a way that all
+-- places in the code base that depend on the guard should reference the
+-- respective guard. That way all dependent code can be easily identified using
+-- ide tools, like for instance @grep@.
+--
+-- Each guard should have a description that provides background for the change
+-- and provides all information needed for maintaining the code or code that
+-- depends on it.
+--
+
+-- | Turn off slow epochs (emergency DA) for blocks from 80,000 onwward.
+--
+-- Emergency DA is considered a miss-feature.
+--
+-- It's intended purpose is to prevent chain hopping attacks, where an attacker
+-- temporarily adds a large amount of hash power, thus increasing the
+-- difficulty. When the hash power is removed, the remaining hash power may not
+-- be enough to reach the next block in reasonable time.
+--
+-- In practice, emergency DAs cause more problems than they solve. In
+-- particular, they increase the chance of deep forks. Also they make the
+-- behavior of the system unpredictable in states of emergency, when stability
+-- is usually more important than throughput.
+--
+slowEpochGuard :: ParentHeader -> Bool
+slowEpochGuard (ParentHeader p)
+    | Mainnet01 <- _chainwebVersion p = _blockHeight p < 80000
+    | otherwise = False
+{-# INLINE slowEpochGuard #-}
+
+-- -------------------------------------------------------------------------- --
 -- | BlockHeight
 --
 newtype BlockHeight = BlockHeight { _height :: Word64 }
-    deriving (Show, Eq, Ord, Generic)
+    deriving (Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype
         ( Hashable, ToJSON, FromJSON
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , Num, Integral, Real, Enum
         )
+instance Show BlockHeight where show (BlockHeight b) = show b
 
 instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
     type Tag BlockHeight = 'BlockHeightTag
@@ -322,7 +379,7 @@ decodeEpochStartTime :: MonadGet m => m EpochStartTime
 decodeEpochStartTime = EpochStartTime <$> decodeTime
 
 -- | During the first epoch after genesis there are 10 extra difficulty
--- adjustments. This is to account for rapidly changing total hash power in this
+-- adjustments. This is to account for rapidly changing total hash power in the
 -- early stages of the network.
 --
 effectiveWindow :: BlockHeader -> Maybe WindowWidth
@@ -345,7 +402,25 @@ isLastInEpoch h = case effectiveWindow h of
         | otherwise -> False
 {-# INLINE isLastInEpoch #-}
 
--- | Compute the POW target for a new BlockHeader
+-- | If it is discovered that the last DA occured significantly in the past, we
+-- assume that a large amount of hash power has suddenly dropped out of the
+-- network. Thus we must perform Emergency Difficulty Adjustment to avoid
+-- stalling the chain.
+--
+slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
+slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
+  where
+    EpochStartTime es = _blockEpochStart p
+    BlockRate s = blockRate (_blockChainwebVersion p)
+    WindowWidth ww = fromJuste $ window (_blockChainwebVersion p)
+
+    expected :: Seconds
+    expected = s * int ww
+
+    actual :: Seconds
+    actual = timeSpanToSeconds $ ct .-. es
+
+-- | Compute the POW target for a new BlockHeader.
 --
 powTarget
     :: BlockHeader
@@ -354,9 +429,11 @@ powTarget
         -- ^ block creation time of new block
     -> HashTarget
         -- ^ POW target of new block
-powTarget p (BlockCreationTime bt) = case effectiveWindow p of
+powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
     Nothing -> maxTarget
     Just w
+        | slowEpochGuard (ParentHeader p) && slowEpoch p bct ->
+            adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
         | isLastInEpoch p ->
             adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
         | otherwise -> _blockTarget p
@@ -399,6 +476,12 @@ instance IsMerkleLogEntry ChainwebHashTag FeatureFlags where
     fromMerkleNode = decodeMerkleInputNode decodeFeatureFlags
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
+
+-- -------------------------------------------------------------------------- --
+-- Newtype wrappers for function parameters
+
+newtype ParentCreationTime = ParentCreationTime BlockCreationTime
+newtype ParentHeader = ParentHeader BlockHeader
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
@@ -847,14 +930,14 @@ newBlockHeader
         -- ^ payload hash
     -> Nonce
         -- ^ Randomness to affect the block hash
-    -> Time Micros
+    -> BlockCreationTime
         -- ^ Creation time of the block
-    -> BlockHeader
+    -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader adj pay nonce t b = fromLog $ newMerkleLog
+newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
     $ nonce
-    :+: BlockCreationTime t
+    :+: t
     :+: _blockHash b
     :+: target
     :+: pay
@@ -862,13 +945,13 @@ newBlockHeader adj pay nonce t b = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: epochStart b (BlockCreationTime t)
+    :+: epochStart b t
     :+: FeatureFlags 0
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId b
     v = _blockChainwebVersion b
-    target = powTarget b (BlockCreationTime t)
+    target = powTarget b t
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
@@ -892,11 +975,11 @@ testBlockHeader
         -- ^ Adjacent parent hashes
     -> Nonce
         -- ^ Randomness to affect the block hash
-    -> BlockHeader
+    -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-testBlockHeader adj nonce b
-    = newBlockHeader adj (testBlockPayload b) nonce (add second t) b
+testBlockHeader adj nonce p@(ParentHeader b) =
+    newBlockHeader adj (testBlockPayload b) nonce (BlockCreationTime $ add second t) p
   where
     BlockCreationTime t = _blockCreationTime b
 
@@ -905,17 +988,17 @@ testBlockHeader adj nonce b
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeaders :: BlockHeader -> [BlockHeader]
-testBlockHeaders = unfoldr (Just . (id &&& id) . f)
+testBlockHeaders :: ParentHeader -> [BlockHeader]
+testBlockHeaders (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
   where
-    f b = testBlockHeader (BlockHashRecord mempty) (_blockNonce b) b
+    f b = testBlockHeader (BlockHashRecord mempty) (_blockNonce b) $ ParentHeader b
 
 -- | Given a `BlockHeader` of some initial parent, generate an infinite stream
 -- of `BlockHeader`s which form a legal chain.
 --
 -- Should only be used for testing purposes.
 --
-testBlockHeadersWithNonce :: Nonce -> BlockHeader -> [BlockHeader]
-testBlockHeadersWithNonce n = unfoldr (Just . (id &&& id) . f)
+testBlockHeadersWithNonce :: Nonce -> ParentHeader -> [BlockHeader]
+testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
   where
-    f b = testBlockHeader (BlockHashRecord mempty) n b
+    f b = testBlockHeader (BlockHashRecord mempty) n $ ParentHeader b

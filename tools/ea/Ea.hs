@@ -5,8 +5,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
-
 -- |
 -- Module: Ea
 -- Copyright: Copyright © 2019 Kadena LLC.
@@ -27,7 +27,7 @@
 --
 -- Eä means "to be" in Quenya, the ancient language of Tolkien's elves.
 --
-module Ea ( main ) where
+module Ea ( main, genTxModules ) where
 
 import BasePrelude
 
@@ -45,79 +45,72 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 
+import Ea.Genesis
+
 import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
 import Chainweb.BlockHeaderDB
-import Chainweb.Graph
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
-import Chainweb.Transaction (mkPayloadWithText)
+import Chainweb.Transaction (mkPayloadWithText, ChainwebTransaction, chainwebPayloadCodec)
+import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Parse
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
-import Pact.Types.SPV (noSPVSupport)
 
 ---
 
 main :: IO ()
-main = do
-    for_ chain0 $ \(v, tag, txs) -> do
-        printf "Generating special Genesis Payload for %s on Chain 0...\n" $ show v
-        genPayloadModule v (tag <> "0") txs
-    for_ otherChains $ \(v, tag, txs) -> do
-        printf "Generating Genesis Payload for %s on all other Chains...\n" $ show v
-        genPayloadModule v (tag <> "N") txs
-    putStrLn "Done."
+main = devnet
+    >> fastnet
+    >> testnet
+    >> mainnet
+    >> putStrLn "Done."
   where
-    otherChains =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNGrants, devNs])
-      , (Testnet02, "Testnet", [ fungibleAsset, coinContract, prodNGrants, prodNs ])
+    devnet  = mkPayloads [development0, developmentN]
+    fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
+    testnet = mkPayloads [testnet0, testnetN]
+    mainnet = mkPayloads
+      [ mainnet0
+      , mainnet1
+      , mainnet2
+      , mainnet3
+      , mainnet4
+      , mainnet5
+      , mainnet6
+      , mainnet7
+      , mainnet8
+      , mainnet9
       ]
 
-    chain0 =
-      [ (Development, "Development", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (FastTimedCPM petersonChainGraph, "FastTimedCPM", [fungibleAsset, coinContract, devNs, devAllocations, dev0Grants])
-      , (Testnet02, "Testnet", [fungibleAsset, coinContract, prodNs, prodAllocations, prod0Grants])
-      ]
+-- | Generate paylaods for a traversable of txs
+--
+mkPayloads :: Traversable t => t Genesis -> IO ()
+mkPayloads = traverse_ mkPayload
 
-coinContract :: FilePath
-coinContract = "pact/coin-contract/load-coin-contract.yaml"
-
-fungibleAsset :: FilePath
-fungibleAsset = "pact/coin-contract/load-fungible-asset.yaml"
-
-dev0Grants :: FilePath
-dev0Grants = "pact/genesis/testnet/grants0.yaml"
-
-devNGrants :: FilePath
-devNGrants = "pact/genesis/testnet/grantsN.yaml"
-
-prod0Grants :: FilePath
-prod0Grants = "pact/genesis/prodnet/grants0.yaml"
-
-prodNGrants :: FilePath
-prodNGrants = "pact/genesis/prodnet/grantsN.yaml"
-
-devNs :: FilePath
-devNs = "pact/genesis/testnet/ns.yaml"
-
-prodNs :: FilePath
-prodNs = "pact/genesis/prodnet/ns.yaml"
-
-devAllocations :: FilePath
-devAllocations = "pact/genesis/testnet/allocations.yaml"
-
-prodAllocations :: FilePath
-prodAllocations = "pact/genesis/prodnet/allocations.yaml"
+-- | Generate a payload for a given genesis transaction
+--
+mkPayload :: Genesis -> IO ()
+mkPayload (Genesis v tag cid c k a ns) = do
+    printf ("Generating Genesis Payload for %s on " <> show_ cid <> "...\n") $ show v
+    genPayloadModule v (tag <> sshow cid) txs
+  where
+    show_ = \case
+      N -> "all chains"
+      n -> "Chain " <> show n
+    -- coin contract genesis txs
+    cc = [fungibleAsset, coinContract, gasPayer]
+    -- final tx list.
+    -- NB: this is position-sensitive data.
+    txs = cc <> toList ns <> toList k <> toList a <> toList c
 
 ---------------------
 -- Payload Generation
@@ -127,21 +120,13 @@ genPayloadModule :: ChainwebVersion -> Text -> [FilePath] -> IO ()
 genPayloadModule v tag txFiles =
     withTempRocksDb "chainweb-ea" $ \rocks ->
     withBlockHeaderDb rocks v cid $ \bhdb -> do
-        rawTxs <- traverse mkTx txFiles
-        cwTxs <- forM rawTxs $ \(_, cmd) -> do
-            let cmdBS = fmap TE.encodeUtf8 cmd
-                procCmd = verifyCommand cmdBS
-            case procCmd of
-                f@ProcFail{} -> fail (show f)
-                ProcSucc c -> do
-                  let t = toTxCreationTime (Time (TimeSpan 0))
-                  return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+        cwTxs <- mkChainwebTxs txFiles
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
-        payloadWO <- initPactService' v cid logger noSPVSupport
-                         bhdb pdb Nothing Nothing False $
-                         execNewGenesisBlock noMiner (V.fromList cwTxs)
+        payloadWO <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
+            initPactService' v cid logger bhdb pdb env 1000 $
+                execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO
             modl = T.unlines $ startModule tag <> [payloadYaml] <> endModule
@@ -149,12 +134,8 @@ genPayloadModule v tag txFiles =
 
         TIO.writeFile (T.unpack fileName) modl
   where
-    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
-    setTTL = set (cmdPayload . pMeta . pmTTL)
-    toTxCreationTime :: Time Integer -> TxCreationTime
-    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-      Seconds s -> TxCreationTime $ ParsedInteger s
     cid = someChainId v
+
 
 startModule :: Text -> [Text]
 startModule tag =
@@ -186,5 +167,81 @@ mkTx yamlFile = do
     (_,cmd) <- mkApiReq yamlFile
     pure (encodeJSON cmd,cmd)
 
+mkChainwebTxs :: [FilePath] -> IO [ChainwebTransaction]
+mkChainwebTxs txFiles = do
+  rawTxs <- traverse mkTx txFiles
+  forM rawTxs $ \(_, cmd) -> do
+    let cmdBS = fmap TE.encodeUtf8 cmd
+        procCmd = verifyCommand cmdBS
+    case procCmd of
+      f@ProcFail{} -> fail (show f)
+      ProcSucc c -> do
+        let t = toTxCreationTime (Time (TimeSpan 0))
+        return $! mkPayloadWithText <$> (c & setTxTime t & setTTL (TTLSeconds $ 2 * 24 * 60 * 60))
+  where
+    setTxTime = set (cmdPayload . pMeta . pmCreationTime)
+    setTTL = set (cmdPayload . pMeta . pmTTL)
+    toTxCreationTime :: Time Integer -> TxCreationTime
+    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
+      Seconds s -> TxCreationTime $ ParsedInteger s
+
 encodeJSON :: ToJSON a => a -> ByteString
 encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })
+
+------------------------------------------------------
+-- Transaction Generation for coin v2 and remediations
+------------------------------------------------------
+
+genTxModules :: IO ()
+genTxModules = genDevTxs >> genMainnetTxs >> genOtherTxs >> putStrLn "Done."
+  where
+    gen tag remeds = genTxModule tag $ upgrades <> remeds
+    genOtherTxs = gen "Other" []
+    genDevTxs = gen "Development"
+      ["pact/coin-contract/remediations/devother/remediations.yaml"]
+    genMain :: Int -> IO ()
+    genMain chain = gen ("Mainnet" <> sshow chain)
+      ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
+    genMainnetTxs = mapM_ genMain [0..9]
+
+    upgrades = [ "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
+               , "pact/coin-contract/v2/load-coin-contract-v2.yaml"
+               ]
+
+genTxModule :: Text -> [FilePath] -> IO ()
+genTxModule tag txFiles = do
+  putStrLn $ "Generating tx module for " ++ show tag
+  cwTxs <- mkChainwebTxs txFiles
+
+  let encTxs = map quoteTx cwTxs
+      quoteTx tx = "    \"" <> encTx tx <> "\""
+      encTx = encodeB64UrlNoPaddingText . codecEncode chainwebPayloadCodec
+      modl = T.unlines $ startTxModule tag <> [T.intercalate "\n    ,\n" encTxs] <> endTxModule
+      fileName = "src/Chainweb/Pact/Transactions/" <> tag <> "Transactions.hs"
+
+  TIO.writeFile (T.unpack fileName) modl
+
+startTxModule :: Text -> [Text]
+startTxModule tag =
+    [ "{-# LANGUAGE OverloadedStrings #-}"
+    , ""
+    , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
+    , ""
+    , "module Chainweb.Pact.Transactions." <> tag <> "Transactions ( transactions ) where"
+    , ""
+    , "import Data.Bifunctor (first)"
+    , ""
+    , "import Chainweb.Transaction"
+    , "import Chainweb.Utils"
+    , ""
+    , "transactions :: IO [ChainwebTransaction]"
+    , "transactions ="
+    , "  let decodeTx t ="
+    , "        fromEitherM . (first (userError . show)) . codecDecode chainwebPayloadCodec =<< decodeB64UrlNoPaddingText t"
+    , "  in mapM decodeTx ["
+    ]
+
+endTxModule :: [Text]
+endTxModule =
+    [ "    ]"
+    ]

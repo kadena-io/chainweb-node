@@ -7,6 +7,9 @@ import Text.Printf
 
 import qualified Chain2Gexf
 import qualified Ea
+import qualified EncodeDecodeB64Util
+import qualified GenConf
+import qualified HeaderDump
 import qualified RunNodes
 import qualified SlowTests
 import qualified TXG
@@ -82,6 +85,18 @@ topLevelCommands =
       "test-miner"
       "Test an external miner"
       TestMiner.main
+  , CommandSpec
+      "genconf"
+      "Interactively generate a chainweb-node config"
+      GenConf.main
+  , CommandSpec
+      "header-dump"
+      "Dump Block Headers to a JSON array"
+      HeaderDump.main
+  , CommandSpec
+      "b64"
+      "Command line utlis for Chainweb's base64 encode/decode"
+      EncodeDecodeB64Util.main
   , CommandSpec
       "db-checksum"
       "Generate a checksum of all the checkpointer database tables between\

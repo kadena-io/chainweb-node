@@ -10,6 +10,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -37,10 +38,12 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
-, MinAdjustment(..)
-, minAdjust
--- ** Date-based Transaction Disabling
-, txSilenceDates
+-- ** Date- and Version-based Transaction Disabling and Enabling
+, txEnabledDate
+, transferActivationDate
+, vuln797FixDate
+, upgradeCoinV2Date
+, userContractActivationDate
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -117,7 +120,7 @@ import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
 import Chainweb.MerkleUniverse
-import Chainweb.Time (Micros, Seconds(..), Time)
+import Chainweb.Time
 import Chainweb.Utils
 
 import Data.Singletons
@@ -220,7 +223,8 @@ data ChainwebVersion
     -----------------------
     -- PRODUCTION INSTANCES
     -----------------------
-    | Testnet02
+    | Testnet04
+    | Mainnet01
     deriving (Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
 
@@ -248,12 +252,14 @@ chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
 chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
 chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersion v
 chainwebVersionId Development = 0x00000001
-chainwebVersionId Testnet02 = 0x00000004
+chainwebVersionId Testnet04 = 0x00000007
+chainwebVersionId Mainnet01 = 0x00000005
 {-# INLINABLE chainwebVersionId #-}
 
 fromChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromChainwebVersionId 0x00000001 = Development
-fromChainwebVersionId 0x00000004 = Testnet02
+fromChainwebVersionId 0x00000007 = Testnet04
+fromChainwebVersionId 0x00000005 = Mainnet01
 fromChainwebVersionId i = fromTestChainwebVersionId i
 {-# INLINABLE fromChainwebVersionId #-}
 
@@ -283,7 +289,8 @@ instance IsMerkleLogEntry ChainwebHashTag ChainwebVersion where
 -- new `ChainwebVersion` value!
 chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Development = "development"
-chainwebVersionToText Testnet02 = "testnet02"
+chainwebVersionToText Testnet04 = "testnet04"
+chainwebVersionToText Mainnet01 = "mainnet01"
 chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 {-# INLINABLE chainwebVersionToText #-}
 
@@ -293,7 +300,8 @@ chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "development" = pure Development
-chainwebVersionFromText "testnet02" = pure Testnet02
+chainwebVersionFromText "testnet04" = pure Testnet04
+chainwebVersionFromText "mainnet01" = pure Mainnet01
 chainwebVersionFromText t =
     case HM.lookup t chainwebVersions of
         Just v -> pure v
@@ -323,7 +331,8 @@ chainwebVersions = HM.fromList $
     <> f TimedCPM "timedCPM"
     <> f FastTimedCPM "fastTimedCPM"
     <> [ ("development", Development)
-       , ("testnet02", Testnet02)
+       , ("testnet04", Testnet04)
+       , ("mainnet01", Mainnet01)
        ]
   where
     f v p = map (\(k, g) -> (p <> k, v g)) pairs
@@ -392,7 +401,9 @@ testVersionToCode TimedCPM{} = 0x80000003
 testVersionToCode FastTimedCPM{} = 0x80000004
 testVersionToCode Development =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
-testVersionToCode Testnet02 =
+testVersionToCode Testnet04 =
+    error "Illegal ChainwebVersion passed to toTestChainwebVersion"
+testVersionToCode Mainnet01 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
@@ -505,7 +516,8 @@ chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph (FastTimedCPM g) = g
 chainwebVersionGraph Development = petersonChainGraph
-chainwebVersionGraph Testnet02 = petersonChainGraph
+chainwebVersionGraph Testnet04 = petersonChainGraph
+chainwebVersionGraph Mainnet01 = petersonChainGraph
 
 instance HasChainGraph ChainwebVersion where
     _chainGraph = chainwebVersionGraph
@@ -523,20 +535,20 @@ newtype BlockRate = BlockRate Seconds
 -- number of seconds we expect to pass while a miner mines on various chains,
 -- eventually succeeding on one.
 --
-blockRate :: ChainwebVersion -> Maybe BlockRate
-blockRate Test{} = Nothing
-blockRate TimedConsensus{} = Just $ BlockRate 4
-blockRate PowConsensus{} = Just $ BlockRate 10
-blockRate TimedCPM{} = Just $ BlockRate 4
+blockRate :: ChainwebVersion -> BlockRate
+blockRate Test{} = BlockRate 0
+blockRate TimedConsensus{} = BlockRate 4
+blockRate PowConsensus{} = BlockRate 10
+blockRate TimedCPM{} = BlockRate 4
+blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate FastTimedCPM{} = Just $ BlockRate 1
-blockRate Development = Just $ BlockRate 30
--- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Testnet02 = Just $ BlockRate 30
+blockRate Development = BlockRate 30
+blockRate Testnet04 = BlockRate 30
+blockRate Mainnet01 = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
--- algorithm seen in `hashTarget`.
+-- algorithm seen in `adjust`.
 --
 newtype WindowWidth = WindowWidth Natural
 
@@ -553,32 +565,64 @@ window FastTimedCPM{} = Nothing
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
-window Testnet02 = Just $ WindowWidth 120
+window Testnet04 = Just $ WindowWidth 120
+window Mainnet01 = Just $ WindowWidth 120
 
-txSilenceDates :: ChainwebVersion -> Maybe (Time Micros)
-txSilenceDates Test{} = Nothing
-txSilenceDates TimedConsensus{} = Nothing
-txSilenceDates PowConsensus{} = Nothing
-txSilenceDates TimedCPM{} = Nothing
-txSilenceDates FastTimedCPM{} = Nothing
-txSilenceDates Development = Nothing
-txSilenceDates Testnet02 = Nothing
-
--- | The minimum factor of change that a single application of `adjust` must
--- apply to some `HashTarget` for it to be accepted. As mentioned in `adjust`,
--- this value should be above \(e = 2.71828\cdots\).
+-- | This is used in a core validation rule and has been present for several
+-- versions of the node software. Changing it risks a fork in the network.
+-- Must be AFTER 'upgradeCoinV2Date', and BEFORE 'transferActivationDate' in mainnet.
 --
-newtype MinAdjustment = MinAdjustment Natural
+txEnabledDate :: ChainwebVersion -> Maybe (Time Micros)
+txEnabledDate Test{} = Nothing
+txEnabledDate TimedConsensus{} = Nothing
+txEnabledDate PowConsensus{} = Nothing
+txEnabledDate TimedCPM{} = Nothing
+txEnabledDate FastTimedCPM{} = Nothing
+txEnabledDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
+txEnabledDate Testnet04 = Nothing
+txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:30:00.0 |]
 
--- | The Proof-of-Work `MinAdjustment` for each `ChainwebVersion`. For chainwebs
--- that do not expect to perform POW, this should be `Nothing`.
+-- | KILLSWITCH: The date after which nodes in the 1.1.x series will
+-- spontaneously allow Transactions in the system. This constant can be removed
+-- once the date has passed, and /must not be used in core validation code/.
+-- Must be after 'txEnabledDate' in mainnet.
 --
-minAdjust :: ChainwebVersion -> Maybe MinAdjustment
-minAdjust Test{} = Nothing
-minAdjust TimedConsensus{} = Nothing
-minAdjust PowConsensus{} = Just $ MinAdjustment 1
-minAdjust TimedCPM{} = Nothing
-minAdjust FastTimedCPM{} = Nothing
--- See `adjust` for motivation.
-minAdjust Development = Just $ MinAdjustment 1
-minAdjust Testnet02 = Just $ MinAdjustment 1
+transferActivationDate :: ChainwebVersion -> Maybe (Time Micros)
+transferActivationDate Test{} = Nothing
+transferActivationDate TimedConsensus{} = Nothing
+transferActivationDate PowConsensus{} = Nothing
+transferActivationDate TimedCPM{} = Nothing
+transferActivationDate FastTimedCPM{} = Nothing
+transferActivationDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
+transferActivationDate Testnet04 = Nothing
+transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
+
+userContractActivationDate :: ChainwebVersion -> Maybe (Time Micros)
+userContractActivationDate Development = Just epoch
+userContractActivationDate Mainnet01 = Just [timeMicrosQQ| 2020-01-15T16:00:00.0 |]
+userContractActivationDate _ = Nothing
+
+-- | Time after which fixes for vuln797 will be validated in blocks.
+--
+vuln797FixDate :: ChainwebVersion -> Time (Micros)
+vuln797FixDate Test{} = epoch
+vuln797FixDate TimedConsensus{} = epoch
+vuln797FixDate PowConsensus{} = epoch
+vuln797FixDate TimedCPM{} = epoch
+vuln797FixDate FastTimedCPM{} = epoch
+vuln797FixDate Development = epoch
+vuln797FixDate Testnet04 = epoch
+vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
+{-# INLINE vuln797FixDate #-}
+
+-- | Upgrade coin v2 at time, or at block height 1
+-- | Must be BEFORE 'txEnabledDate' in mainnet.
+upgradeCoinV2Date :: ChainwebVersion -> Maybe (Time Micros)
+upgradeCoinV2Date Test{} = Nothing
+upgradeCoinV2Date TimedConsensus{} = Nothing
+upgradeCoinV2Date PowConsensus{} = Nothing
+upgradeCoinV2Date TimedCPM{} = Nothing
+upgradeCoinV2Date FastTimedCPM{} = Nothing
+upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-14T18:50:00.0 |]
+upgradeCoinV2Date Testnet04 = Nothing
+upgradeCoinV2Date Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:00:00.0 |]
