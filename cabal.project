@@ -26,5 +26,8 @@ source-repository-package
 constraints:
       base-unicode-symbols < 0.2.4,
       megaparsec < 8,
-      neat-interpolation < 0.4
+      neat-interpolation < 0.4,
+      network == 3.0.0.1
 
+package chainweb
+    flags: -use_systemd
