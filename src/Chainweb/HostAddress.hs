@@ -114,6 +114,9 @@ module Chainweb.HostAddress
 , hostPreferenceToText
 , hostPreferenceFromText
 
+-- * SockAddr from network package
+, sockAddrToHostAddress
+
 -- * Properties
 , properties
 ) where
@@ -138,6 +141,8 @@ import Data.Word (Word16, Word8)
 
 import GHC.Generics (Generic)
 import GHC.Stack (HasCallStack)
+
+import qualified Network.Socket as N
 
 import Servant.Client (BaseUrl(..), Scheme(..))
 
@@ -600,6 +605,23 @@ instance HasTextRepresentation HostPreference where
     {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
+-- Sock Address
+
+sockAddrToHostAddress :: N.SockAddr -> Maybe HostAddress
+sockAddrToHostAddress (N.SockAddrInet p ha) = Just HostAddress
+    { _hostAddressHost = ha2hn ha
+    , _hostAddressPort = int p
+    }
+sockAddrToHostAddress (N.SockAddrInet6 _p _f _h _s) = Nothing -- TODO
+sockAddrToHostAddress _ = Nothing
+
+ha2hn:: N.HostAddress -> Hostname
+ha2hn ha = HostnameIPv4 $ CI.mk $
+    B8.intercalate "." $ sshow <$> [a0,a1,a2,a3]
+  where
+    (a0,a1,a2,a3) = N.hostAddressToTuple ha
+
+-- -------------------------------------------------------------------------- --
 -- Properties
 
 properties :: [(String, Property)]
@@ -607,3 +629,4 @@ properties =
     [ ("readHostnameBytes", property prop_readHostnameBytes)
     , ("readHostAddressBytes", property prop_readHostAddressBytes)
     ]
+
