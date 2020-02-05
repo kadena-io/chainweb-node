@@ -72,6 +72,11 @@ module Chainweb.BlockHeaderDB.RestAPI
 , headerStreamApi
 , someHeaderStreamApi
 
+-- * PowHeader API
+, PowHeader(..)
+, PowHeaderApi
+, powHeaderApi
+
 -- * Sub APIs
 , BranchHashesApi
 , branchHashesApi
@@ -87,7 +92,7 @@ module Chainweb.BlockHeaderDB.RestAPI
 , hashesApi
 ) where
 
-import Control.Monad.Identity
+import Control.Lens hiding ((.=))
 
 import Data.Aeson
 import Data.Bifunctor
@@ -95,6 +100,7 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString.Lazy as BL
 import Data.Proxy
+import Data.Swagger
 import Data.Text (Text)
 
 import Network.HTTP.Media ((//), (/:))
@@ -109,7 +115,7 @@ import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Paging
 import Chainweb.Version
 
 import Data.Singletons
@@ -320,7 +326,7 @@ type HeaderApi_
 
 -- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>@
 --
--- Returns a single block headers for a given block hash.
+-- Returns a single block header for a given block hash.
 --
 type HeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
     = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderApi_
@@ -360,6 +366,7 @@ type BlockHeaderDbApi v c
     :<|> HeaderPutApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
+    :<|> PowHeaderApi v c
 
 blockHeaderDbApi
     :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
@@ -408,3 +415,47 @@ headerStreamApi = Proxy
 
 someHeaderStreamApi :: ChainwebVersion -> SomeApi
 someHeaderStreamApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v
+
+-- -------------------------------------------------------------------------- --
+-- POW Header
+
+-- | A `BlockHeader` that includes its POW Hash information.
+--
+data PowHeader = PowHeader
+    { _rhHeader :: !(ObjectEncoded BlockHeader)
+    , _rhPowHash :: Text }
+
+instance ToJSON PowHeader where
+    toJSON o = object
+        [ "header"  .= _rhHeader o
+        , "powHash" .= _rhPowHash o ]
+
+instance FromJSON PowHeader where
+    parseJSON = withObject "PowHeader" $ \v -> PowHeader
+        <$> v .: "header"
+        <*> v .: "powHash"
+
+instance ToSchema PowHeader where
+    declareNamedSchema _ = return $ NamedSchema (Just "PowHeader") $ mempty
+        & title ?~ "POW Header"
+        & description ?~ "BlockHeader with its POW Hash"
+        & type_ .~ Just SwaggerObject
+        & required .~ [ "header", "powHash" ]
+
+type PowHeaderApi_
+    = "header"
+    :> Capture "BlockHash" BlockHash
+    :> "pow"
+    :> Get '[JSON] PowHeader
+
+-- | @GET \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header\/\<BlockHash\>\/pow@
+--
+-- Returns a single block header for a given block hash, including its POW hash.
+--
+type PowHeaderApi (v :: ChainwebVersionT) (c :: ChainIdT)
+    = 'ChainwebEndpoint v :> ChainEndpoint c :> PowHeaderApi_
+
+powHeaderApi
+    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
+    . Proxy (PowHeaderApi v c)
+powHeaderApi = Proxy

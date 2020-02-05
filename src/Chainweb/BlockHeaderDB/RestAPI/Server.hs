@@ -61,6 +61,7 @@ import qualified Streaming.Prelude as SP
 
 -- internal modules
 
+import Chainweb.BlockHash (BlockHash)
 import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
@@ -267,6 +268,7 @@ blockHeaderDbServer (BlockHeaderDb_ db)
     :<|> headerPutHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db
+    :<|> powHeaderHandler db
 
 -- -------------------------------------------------------------------------- --
 -- Application for a single BlockHeaderDB
@@ -337,3 +339,15 @@ headerStreamHandler db = Tagged $ \req respond -> do
     f :: HeaderUpdate -> ServerEvent
     f hu = ServerEvent (Just $ fromByteString "BlockHeader") Nothing
         [ fromLazyByteString . encode $ toJSON hu ]
+
+-- -------------------------------------------------------------------------- --
+-- POW Header
+
+powHeaderHandler :: BlockHeaderDb -> BlockHash -> Handler PowHeader
+powHeaderHandler db k = liftIO (lookup db k) >>= \case
+    Nothing -> throwError $ err404Msg $ object
+        [ "reason" .= ("key not found" :: String)
+        , "key" .= k ]
+    Just e -> do
+        let p = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow e
+        pure $ PowHeader (ObjectEncoded e) p
