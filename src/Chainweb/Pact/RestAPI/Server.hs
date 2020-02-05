@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
@@ -29,7 +30,7 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (view, (^.), (^?!), _head)
+import Control.Lens (set, view, (^.), (^?!), _head)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Except (ExceptT)
@@ -40,6 +41,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.CAS
+import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.List (find)
@@ -48,8 +50,10 @@ import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Singletons
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Tuple.Strict
+import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import qualified GHC.Event as Ev
@@ -68,6 +72,8 @@ import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
+import Pact.Types.PactError (PactError(..), PactErrorType(..))
+import Pact.Types.Pretty (pretty)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -78,7 +84,7 @@ import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertError, InsertType(..), MempoolBackend(..), TransactionHash(..))
+    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -396,11 +402,15 @@ internalPoll cutR cid chain cut requestKeys0 = do
     results0 <- _pactLookup pactEx (DoRewind chainLeaf) requestKeys >>= either throwM return
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
-    let results = V.map (\(a, b) -> (a, fromJuste b)) $
-                  V.filter (isJust . snd) $
-                  V.zip requestKeysV results0
-    (HM.fromList . catMaybes . V.toList) <$> mapM lookup results
+    let results1 = V.zip requestKeysV results0
+    let (present0, missing) = V.unstablePartition (isJust . snd) results1
+    let present = V.map (\(a, b) -> (a, fromJuste b)) present0
+    lookedUp <- (catMaybes . V.toList) <$> mapM lookup present
+    badlisted <- V.toList <$> checkBadList (V.map fst missing)
+    let outputs = lookedUp ++ badlisted
+    return $! HM.fromList outputs
   where
+    mempool = _chainResMempool chain
     pactEx = view chainResPact chain
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
     !requestKeys = V.map (Pact.fromUntypedHash . unRequestKey) requestKeysV
@@ -426,13 +436,38 @@ internalPoll cutR cid chain cut requestKeys0 = do
                 out <- MaybeT $ return $! decodeStrict' output
                 when (_crReqKey out /= key) $
                     fail "internal error: Transaction output doesn't match its hash!"
-                return out
+                enrichCR blockHeader out
             Nothing -> mzero
 
     fromTx (!tx, !out) = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
 
+    checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
+    checkBadList rkeys = do
+        let thash = TransactionHash . SB.toShort . unHash . unRequestKey
+        let !hashes = V.map thash rkeys
+        out <- mempoolCheckBadList mempool hashes
+        let bad = V.map (RequestKey . Hash . SB.fromShort . unTransactionHash . fst) $
+                  V.filter snd $ V.zip hashes out
+        return $! V.map hashIsOnBadList bad
+
+    hashIsOnBadList :: RequestKey -> (RequestKey, CommandResult Hash)
+    hashIsOnBadList rk =
+        let res = PactResult (Left err)
+            err = PactError TxFailure def [] doc
+            doc = pretty (T.pack $ show InsertErrorBadlisted)
+            !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing
+        in (rk, cr)
+
+    enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
+    enrichCR BlockHeader{..} = return . set crMetaData
+      (Just $ object
+       [ "blockHeight" .= _blockHeight
+       , "blockTime" .= _blockCreationTime
+       , "blockHash" .= _blockHash
+       , "prevBlockHash" .= _blockParent
+       ])
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b

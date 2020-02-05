@@ -115,6 +115,7 @@ toMempoolBackend v mempool = do
       , mempoolInsertCheck = insertCheck
       , mempoolMarkValidated = markValidated
       , mempoolAddToBadList = addToBadList
+      , mempoolCheckBadList = checkBadList
       , mempoolGetBlock = getBlock
       , mempoolPrune = prune
       , mempoolGetPendingTransactions = getPending
@@ -132,6 +133,7 @@ toMempoolBackend v mempool = do
     insertCheck = insertCheckInMem cfg v lockMVar
     markValidated = markValidatedInMem lockMVar
     addToBadList = addToBadListInMem lockMVar
+    checkBadList = checkBadListInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     prune = pruneInMem lockMVar
@@ -236,6 +238,17 @@ addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
     let !bad' = HashMap.insert tx endTime bad
     writeIORef (_inmemPending mdata) pnd'
     writeIORef (_inmemBadMap mdata) bad'
+
+
+------------------------------------------------------------------------------
+checkBadListInMem
+    :: MVar (InMemoryMempoolData t)
+    -> Vector TransactionHash
+    -> IO (Vector Bool)
+checkBadListInMem lock hashes = withMVarMasked lock $ \mdata -> do
+    !bad <- readIORef $ _inmemBadMap mdata
+    return $! V.map (flip HashMap.member bad) hashes
+
 
 maxNumPending :: Int
 maxNumPending = 10000
