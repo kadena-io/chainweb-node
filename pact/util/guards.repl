@@ -3,9 +3,8 @@
 (env-data
  { 'util-ns-users: ["util-ns-user"]
  , 'util-ns-admin: ["util-ns-admin"]
- , 'util-guards-gov: ["util-guards-gov"]
  })
-(env-keys ["util-ns-user", "util-ns-admin", "util-guards-gov"])
+(env-keys ["util-ns-user", "util-ns-admin"])
 
 (begin-tx)
 (load "util-ns.pact")

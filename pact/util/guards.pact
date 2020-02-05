@@ -1,10 +1,13 @@
-(define-keyset 'util-guards-gov)
+;; guards.pact
 
 (namespace 'util)
 
-(module guards 'util-guards-gov
+(module guards AUTONOMOUS
 
   "Functions for implementing various user guards."
+
+  (defcap AUTONOMOUS ()
+    (enforce false "Non-upgradeable"))
 
   (defun after-date:guard (date:time)
     "Guard to enforce chain time is after DATE."
