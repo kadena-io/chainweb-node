@@ -84,13 +84,12 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
   where
     low = _startBlockHeight args
     high = case _endBlockHeight args of
-      Nothing -> do
-        result <- getMaxHeight
-        case result of
-          [[SInt maxheight]] -> return $ BlockHeight $ fromIntegral maxheight
-          err ->
-            error (printf "Encountered this result %s while trying to get highest blockheight" (show err))
-      Just h -> return h
+      Nothing -> BlockHeight <$> getMaxHeight
+      Just h@(BlockHeight bheight) -> do
+        maxheight <- getMaxHeight
+        when (bheight > maxheight) $
+          error (printf "Requested height %d is greater than the greatest recorded height %d in the BlockHistory table" bheight maxheight)
+        return h
 
     go = do
         h <- high
@@ -99,7 +98,10 @@ work args = withSQLiteConnection (_sqliteFile args) chainwebPragmas False (runRe
 
     todl = foldr (\a b ->  (a:) . b) id
 
-    getMaxHeight = callDb dbcall $ \db -> qry_ db maxheightstmt [RInt]
+    getMaxHeight = (callDb dbcall $ \db -> qry_ db maxheightstmt [RInt]) >>= \case
+        [[SInt maxheight]] -> return $ fromIntegral maxheight
+        err ->
+          error (printf "Encountered this result %s while trying to get highest blockheight" (show err))
       where
         maxheightstmt = "SELECT MAX(blockheight) FROM BlockHistory;"
         dbcall = "Getting max height from BlockHistory"
@@ -279,26 +281,27 @@ instance FromJSON (Args -> Args) where
 argsParser :: MParser Args
 argsParser = id
   <$< sqliteFile .:: textOption
-      % long "The sqlite file"
+      % long "sqlite-file"
       <> metavar "FILE"
       <> help "Pact sqlite file"
   <*< startBlockHeight .:: option auto
-    % long "Starting blockheight"
-    <> metavar "BlockHeight"
+    % long "initial-blockheight"
+    <> metavar "BLOCKHEIGHT"
+    <> help "Initial blockheight"
   <*< endBlockHeight .:: option auto
-    % long "LastBlockheight"
-    <> metavar "BlockHeight"
-    <> help "Last blockheight"
+    % long "final-blockheight"
+    <> metavar "BLOCKHEIGHT"
+    <> help "Final blockheight"
   <*< entireDBOutputFile .:: option auto
-    % long "outputDBFile"
+    % long "output-db-file"
     <> metavar "FILE"
     <> help "Location to dump the sha1 checksum of some portion (limited by some range of blocks) of the database"
   <*< tablesOutputLocation .:: option auto
-    % long "tablesOutputLocation"
+    % long "tables-output-dir"
     <> metavar "DIRECTORY"
     <> help "Directory where sha1 checksums of each individual table will be stored."
   <*< getAllTables .:: option auto
-    % long "getAllTables"
+    % long "get-all-tables"
     <> metavar "BOOL"
     <> help "Flag to decide whether to get hash of all tables or individual hashes of each table."
 
