@@ -16,6 +16,7 @@ import qualified TXG
 import qualified Standalone
 import qualified TestMiner
 import qualified TxStream
+import qualified CheckpointerDBChecksum
 
 main :: IO ()
 main = do
@@ -96,6 +97,11 @@ topLevelCommands =
       "b64"
       "Command line utlis for Chainweb's base64 encode/decode"
       EncodeDecodeB64Util.main
+  , CommandSpec
+      "db-checksum"
+      "Generate a checksum of all the checkpointer database tables between\
+      \\n an inclusive range of blocks."
+      CheckpointerDBChecksum.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()
