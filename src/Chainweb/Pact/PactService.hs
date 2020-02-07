@@ -91,7 +91,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
-import Pact.Types.Exp (ParsedCode (..))
+import Pact.Types.Exp (ParsedCode(..))
 import Pact.Types.ExpParser (mkTextInfo)
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
@@ -129,6 +129,8 @@ import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Data.CAS (casLookupM)
+import Data.LogMessage
+import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 
@@ -227,7 +229,7 @@ initPactService
 initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
     initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
         initialPayloadState chainwebLogger ver cid
-        serviceRequests mempoolAccess reqQ
+        serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -330,12 +332,12 @@ initializeCoinContract _logger v cid pwo = do
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
-    :: forall cas
-    . PayloadCas cas
-    => MemPoolAccess
+    :: PayloadCas cas
+    => LogFunction
+    -> MemPoolAccess
     -> PactQueue
     -> PactServiceM cas ()
-serviceRequests memPoolAccess reqQ = do
+serviceRequests logFn memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
@@ -349,21 +351,29 @@ serviceRequests memPoolAccess reqQ = do
                 tryOne "execLocal" _localResultVar $ execLocal _localRequest
                 go
             NewBlockMsg NewBlockReq {..} -> do
-                tryOne "execNewBlock" _newResultVar $
+                trace logFn "Chainweb.Pact.PactService.execNewBlock"
+                    _newBlockHeader 1 $
+                    tryOne "execNewBlock" _newResultVar $
                     execNewBlock memPoolAccess _newBlockHeader _newMiner
                         _newCreationTime
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne "execValidateBlock"
-                        _valResultVar $
-                        execValidateBlock _valBlockHeader _valPayloadData
+                trace logFn "Chainweb.Pact.PactService.execValidateBlock"
+                    _valBlockHeader
+                    (length (_payloadDataTransactions _valPayloadData)) $
+                    tryOne "execValidateBlock" _valResultVar $
+                    execValidateBlock _valBlockHeader _valPayloadData
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
-                tryOne "execLookupPactTxs" resultVar $
+                trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
+                    (length txHashes) $
+                    tryOne "execLookupPactTxs" resultVar $
                     execLookupPactTxs restorePoint txHashes
                 go
             PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
-                tryOne "execPreInsertCheckReq" resultVar $
+                trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
+                    (length txs) $
+                    tryOne "execPreInsertCheckReq" resultVar $
                     fmap (V.map (() <$)) $ execPreInsertCheckReq txs
                 go
 
