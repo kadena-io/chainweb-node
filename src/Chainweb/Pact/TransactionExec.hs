@@ -91,8 +91,8 @@ import Pact.Types.SPV
 
 -- internal Chainweb modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
@@ -101,8 +101,7 @@ import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils (sshow)
-import Chainweb.Version
-
+import Chainweb.Version as V
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
@@ -239,15 +238,13 @@ applyCoinbase
       -- ^ Contains block height, time, prev hash + metadata
     -> BlockHeader
       -- ^ parent header
-    -> BlockCreationTime
-      -- ^ current block creation time
     -> EnforceCoinbaseFailure
       -- ^ enforce coinbase failure or not
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentHeader currCreationTime
+applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentHeader
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
@@ -262,6 +259,9 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     fork1_3InEffect = blockTime >= forkTime
     throwCritical = fork1_3InEffect || enfCBFailure
     blockTime = blockTimeOf pd
+        -- FIXME check and point out that it holds that @blockTime == _blockCreationTime parentHeader@
+    bh = fromIntegral $ _pdBlockHeight pd
+    cid = V._chainId parentHeader
 
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
@@ -285,8 +285,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
             <> " to "
             <> sshow mid
 
-          upgradedModuleCache <-
-            applyUpgrades v parentHeader currCreationTime
+          upgradedModuleCache <- applyUpgrades v cid bh
           logs <- use txLogs
 
           return $! T2
@@ -375,32 +374,19 @@ readInitModules logger dbEnv pd =
 
 applyUpgrades
   :: ChainwebVersion
-  -> BlockHeader
-  -> BlockCreationTime
+  -> V.ChainId
+  -> BlockHeight
   -> TransactionM p (Maybe ModuleCache)
-applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
-  case upgradeCoinV2Date v of
-    Nothing -> testBlock1
-    Just t -> testUpgradeTime t
+applyUpgrades v cid height
+    | coinV2Upgrade v cid height = go
+    | otherwise = noop
+
   where
-
-    testBlock1 | parentBlockHeight == 0 = go
-               | otherwise = noop
-    parentBlockHeight = _blockHeight parentHeader
-
-    testUpgradeTime t | isUpgradeBlockTime t = go
-                      | otherwise = noop
-    isUpgradeBlockTime upgradeTime =
-      parentTime < upgradeTime
-      &&
-      upgradeTime <= currCreationTime
-    (BlockCreationTime parentTime) = _blockCreationTime parentHeader
-
     noop = return Nothing
 
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
 
-    go = applyTxs (upgradeTransactions v $ _blockChainId parentHeader)
+    go = applyTxs (upgradeTransactions v cid)
 
     infoLog s = do
       l <- view txLogger

@@ -35,7 +35,6 @@ import Pact.Types.Hash
 
 -- internal chainweb modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -87,10 +86,10 @@ type PactExMVar t = MVar (Either PactException t)
 data NewBlockReq = NewBlockReq
     { _newBlockHeader :: BlockHeader
     , _newMiner :: Miner
-    , _newCreationTime :: !BlockCreationTime
     , _newResultVar :: PactExMVar PayloadWithOutputs
     }
-instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
+instance Show NewBlockReq where
+    show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
 
 data ValidateBlockReq = ValidateBlockReq
     { _valBlockHeader :: BlockHeader

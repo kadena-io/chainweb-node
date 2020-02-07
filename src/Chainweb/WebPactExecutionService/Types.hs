@@ -11,7 +11,6 @@ import Data.Vector (Vector)
 import Pact.Types.Command
 import Pact.Types.Hash
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -24,7 +23,7 @@ import Chainweb.Transaction
 
 data PactExecutionService = PactExecutionService
     { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
-    , _pactNewBlock :: Miner -> BlockHeader -> BlockCreationTime -> IO PayloadWithOutputs
+    , _pactNewBlock :: Miner -> BlockHeader -> IO PayloadWithOutputs
     , _pactLocal :: ChainwebTransaction -> IO (Either PactException (CommandResult Hash))
     , _pactLookup
         :: Rewind

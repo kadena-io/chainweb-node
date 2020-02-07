@@ -184,10 +184,10 @@ newWork logFun choice eminer pact tpw c = do
     public (ParentHeader p) miner = case getAdjacentParents c p of
         Nothing -> pure Nothing
         Just adj -> do
-            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
             -- This is an expensive call --
             payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
-                (_pactNewBlock pact miner p creationTime)
+                (_pactNewBlock pact miner p)
+            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
             pure . Just $ T2 (T2 payload creationTime) adj
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId

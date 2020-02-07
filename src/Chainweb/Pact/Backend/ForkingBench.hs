@@ -230,12 +230,12 @@ mineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce pdb bhdb r = do
 
-     -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-
-     mv <- newBlock noMiner parentHeader creationTime r
+     mv <- newBlock noMiner parentHeader r
 
      payload <- assertNotLeft =<< takeMVar mv
+
+     -- assemble block without nonce and timestamp
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
      let bh = newBlockHeader
               (BlockHashRecord mempty)
@@ -269,12 +269,12 @@ noMineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 noMineBlock validate parentHeader nonce r = do
 
-     -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-
-     mv <- newBlock noMiner parentHeader creationTime r
+     mv <- newBlock noMiner parentHeader r
 
      payload <- assertNotLeft =<< takeMVar mv
+
+     -- assemble block without nonce and timestamp
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
      let bh = newBlockHeader
               (BlockHashRecord mempty)

@@ -37,6 +37,8 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Time
 import Chainweb.Transaction
 
+import Numeric.AffineSpace
+
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
 fromPactChainId (P.ChainId t) = chainIdFromText t
 
@@ -70,15 +72,22 @@ maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- This is probably going to be changed. Let us make it 2 days for now.
 
 -- prop_tx_ttl_newBlock/validateBlock
-timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
+timingsCheck
+    :: BlockCreationTime
+        -- ^ block creation time of parent header
+    -> Command (Payload PublicMeta ParsedCode)
+    -> Bool
 timingsCheck (BlockCreationTime blockOriginationTime) tx =
     ttl > 0
     && blockOriginationTime >= (toMicrosFromSeconds 0)
     && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime < blockOriginationTime
+    && toMicrosFromSeconds txOriginationTime < (blockOriginationTime .+^ graceTime)
     && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
     && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
     toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
     (TxCreationTime txOriginationTime) = creationTimeOf tx
+
+    -- FIXME apply this only to old blocks?
+    graceTime = TimeSpan (Micros 300000000)

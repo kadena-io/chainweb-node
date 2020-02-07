@@ -87,7 +87,8 @@ chainDataTest t time =
     withPayloadDb $ \pdb ->
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
-    -- tx origination times need to come before block origination times.
+    -- tx origination times need to come before block origination times
+    -- (where block origination time is the creation time of the parent header)
     withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir 100000
         (testCase ("chain-data." <> T.unpack t) .
          run genblock pdb bhdb)
@@ -141,7 +142,7 @@ run genesisBlock iopdb iobhdb rr = do
           startHeight = fromIntegral $ _blockHeight start
           go = do
               r <- ask
-              pblock <- get
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
               liftIO $ modifyIORef' ncounter succ
@@ -149,33 +150,34 @@ run genesisBlock iopdb iobhdb rr = do
               return ret
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
-mineBlock parentHeader nonce iopdb iobhdb r = do
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
+mineBlock parentHeader@(ParentHeader ph) nonce iopdb iobhdb r = do
 
-     -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-     mv <- r >>= newBlock noMiner parentHeader creationTime
+     mv <- r >>= newBlock noMiner ph
      payload <- takeMVar mv >>= \case
         Right x -> return x
         Left e -> throwM $ TestException
             { _exInnerException = toException e
+            , _exParentHeader = parentHeader
             , _exNewBlockResults = Nothing
             , _exValidateBlockResults = Nothing
             , _exNewBlockHeader = Nothing
             , _exMessage = "failure during newBlock"
             }
 
+     -- assemble block without nonce and timestamp
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
      let bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
@@ -188,6 +190,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
         Right x -> return x
         Left e -> throwM $ TestException
             { _exInnerException = toException e
+            , _exParentHeader = parentHeader
             , _exNewBlockResults = Just payload
             , _exValidateBlockResults = Nothing
             , _exNewBlockHeader = Just newHeader
@@ -200,6 +203,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
      bhdb <- iobhdb
      insert bhdb newHeader `catch` \e -> throwM $ TestException
         { _exInnerException = e
+        , _exParentHeader = parentHeader
         , _exNewBlockResults = Just payload
         , _exValidateBlockResults = Just payload'
         , _exNewBlockHeader = Just newHeader
@@ -220,6 +224,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
 
 data TestException = TestException
     { _exInnerException :: !SomeException
+    , _exParentHeader :: !ParentHeader
     , _exNewBlockResults :: !(Maybe PayloadWithOutputs)
     , _exValidateBlockResults :: !(Maybe PayloadWithOutputs)
     , _exNewBlockHeader :: !(Maybe BlockHeader)
@@ -231,7 +236,10 @@ instance Exception TestException
 
 testMemPoolAccess :: T.Text -> IO (Time Integer) -> MemPoolAccess
 testMemPoolAccess t iotime = mempty
-    { mpaGetBlock = \validate bh hash _parentHeader -> do
+    { mpaGetBlock = \validate bh hash ph -> if isGenesisBlockHeader ph
+      then
+        return mempty
+      else do
         time <- f bh <$> iotime
         getTestBlock t time validate bh hash
     }

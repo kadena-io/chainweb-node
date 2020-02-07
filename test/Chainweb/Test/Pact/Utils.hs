@@ -67,7 +67,6 @@ module Chainweb.Test.Pact.Utils
 , epochCreationTime
 , someTestVersionHeader
 , someBlockHeader
-, someBlockHeaderCreationTime
 ) where
 
 import Control.Concurrent.Async
@@ -479,7 +478,7 @@ testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p t -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m t
+        { _pactNewBlock = \m p -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
             evalPactServiceM_ ctx $ execValidateBlock h d
         , _pactLocal = error
@@ -701,5 +700,3 @@ someBlockHeader v h = setHeight $ head (testBlockHeaders $ ParentHeader gbh0)
     gbh0 = genesisBlockHeader v (unsafeChainId 0)
     setHeight bh = bh { _blockHeight = h }
 
-someBlockHeaderCreationTime :: (BlockHeader, BlockCreationTime)
-someBlockHeaderCreationTime = (someTestVersionHeader,epochCreationTime)

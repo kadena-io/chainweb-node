@@ -188,11 +188,11 @@ mineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
+     mv <- r >>= newBlock noMiner parentHeader
+     payload <- assertNotLeft =<< takeMVar mv
+
      -- assemble block without nonce and timestamp
      creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-
-     mv <- r >>= newBlock noMiner parentHeader creationTime
-     payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
               (BlockHashRecord mempty)

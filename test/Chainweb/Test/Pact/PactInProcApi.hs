@@ -46,7 +46,6 @@ import Pact.Parse
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.ChainId
@@ -57,7 +56,6 @@ import Chainweb.Pact.Service.PactQueue (PactQueue)
 import Chainweb.Pact.Service.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
-import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
@@ -89,8 +87,7 @@ newBlockTest :: String -> IO PactQueue -> TestTree
 newBlockTest label reqIO = golden label $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
-    let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-    respVar <- newBlock noMiner genesisHeader (BlockCreationTime blockTime) reqQ
+    respVar <- newBlock noMiner genesisHeader reqQ
     goldenBytes "new-block" =<< takeMVar respVar
   where
     cid = someChainId testVersion
@@ -121,13 +118,11 @@ badlistNewBlockTest :: IO PactQueue -> TestTree
 badlistNewBlockTest reqIO = testCase "badlist-new-block-test" $ do
     reqQ <- reqIO
     expectBadlistException $ do
-        m <- newBlock noMiner genesisHeader blockTime reqQ
+        m <- newBlock noMiner genesisHeader reqQ
         takeMVar m >>= either throwIO (const (return ()))
   where
     cid = someChainId testVersion
     genesisHeader = genesisBlockHeader testVersion cid
-    blockTime = BlockCreationTime $ Time $ secondsToTimeSpan $
-                Seconds $ succ 1000000
     -- verify that the pact service attempts to badlist the bad tx at mempool
     expectBadlistException m = do
         let wrap = m >> fail "expected exception"
@@ -193,7 +188,7 @@ testMemPoolAccess = mempty
         outtxs' <- goldenTestTransactions txs
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60
-                in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger 1000000))) tx
+                in fmap (g ttl . f (TxCreationTime $ ParsedInteger 0)) tx
         oks <- validate bHeight bHash outtxs
         when (not $ V.and oks) $ do
             fail $ mconcat [ "tx failed validation! input list: \n"

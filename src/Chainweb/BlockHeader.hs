@@ -381,7 +381,9 @@ mkFeatureFlags = FeatureFlags 0x0
 -- Newtype wrappers for function parameters
 
 newtype ParentCreationTime = ParentCreationTime BlockCreationTime
+    deriving (Show)
 newtype ParentHeader = ParentHeader BlockHeader
+    deriving (Show)
 
 -- -------------------------------------------------------------------------- --
 -- Block Header

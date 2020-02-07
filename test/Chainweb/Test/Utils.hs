@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -146,18 +145,18 @@ import Text.Printf (printf)
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
-import Chainweb.Logger (Logger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
+import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
@@ -169,7 +168,6 @@ import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Logger (GenericLogger)
 
 import Data.CAS.RocksDB
 
@@ -201,7 +199,7 @@ testRocksDb
     -> IO RocksDb
 testRocksDb l = rocksDbNamespace (const prefix)
   where
-    prefix = (<>) l . sshow <$> (randomIO @Word64)
+    prefix = (<>) l . sshow <$> randomIO @Word64
 
 withRocksResource :: (IO RocksDb -> TestTree) -> TestTree
 withRocksResource m = withResource create destroy wrap
@@ -215,7 +213,7 @@ withRocksResource m = withResource create destroy wrap
         closeRocksDb rocks
         destroyRocksDb dir
         removeDirectoryRecursive dir
-          `catchAllSynchronous` (const $ return ())
+          `catchAllSynchronous` const (return ())
     wrap ioact = let io' = snd <$> ioact in m io'
 
 
@@ -232,7 +230,7 @@ toyChainId :: ChainId
 toyChainId = someChainId toyVersion
 
 toyGenesis :: ChainId -> BlockHeader
-toyGenesis cid = genesisBlockHeader toyVersion cid
+toyGenesis = genesisBlockHeader toyVersion
 
 -- | Initialize an length-1 `BlockHeaderDb` for testing purposes.
 --
@@ -381,7 +379,7 @@ testBlockHeaderDbs rdb v = mapM toEntry $ toList $ chainIds v
   where
     toEntry c = do
         d <- testBlockHeaderDb rdb (genesisBlockHeader v c)
-        return $! (c, d)
+        return (c, d)
 
 petersonGenesisBlockHeaderDbs
     :: RocksDb -> IO [(ChainId, BlockHeaderDb)]
@@ -569,8 +567,8 @@ clientEnvWithChainwebTestServer
     -> IO (ChainwebServerDbs t GenericLogger cas)
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-clientEnvWithChainwebTestServer tls v dbsIO f =
-    withChainwebTestServer tls v mkApp mkEnv f
+clientEnvWithChainwebTestServer tls v dbsIO =
+    withChainwebTestServer tls v mkApp mkEnv
   where
     miningRes :: Maybe (MiningCoordination GenericLogger cas)
     miningRes = Nothing

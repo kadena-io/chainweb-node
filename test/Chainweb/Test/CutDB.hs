@@ -55,7 +55,6 @@ import Test.Tasty
 
 -- internal modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -395,8 +394,7 @@ tryMineForChain
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
 tryMineForChain miner webPact cutDb c cid = do
-    creationTime <- getCurrentTimeIntegral
-    outputs <- _webPactNewBlock webPact miner parent (BlockCreationTime creationTime)
+    outputs <- _webPactNewBlock webPact miner parent
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
     x <- testMineWithPayloadHash (Nonce 0) t payloadHash cid c
@@ -481,7 +479,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
               $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
-  , _pactNewBlock = \_ _ _ -> do
+  , _pactNewBlock = \_ _ -> do
         payload <- generate $ V.fromList . getNonEmpty <$> arbitrary
         return $ newPayloadWithOutputs fakeMiner coinbase payload
 

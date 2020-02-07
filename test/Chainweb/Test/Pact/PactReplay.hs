@@ -105,9 +105,12 @@ onRestart pdb bhdb r = do
 
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 testMemPoolAccess iot = mempty
-    { mpaGetBlock = \validate bh hash _header  -> do
-            t <- f bh <$> iot
-            getTestBlock t validate bh hash
+    { mpaGetBlock = \validate bh hash _header  -> if isGenesisBlockHeader _header
+      then
+        return mempty
+      else do
+        t <- f bh <$> iot
+        getTestBlock t validate bh hash
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
@@ -140,9 +143,12 @@ testMemPoolAccess iot = mempty
 
 dupegenMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
 dupegenMemPoolAccess iot = MemPoolAccess
-    { mpaGetBlock = \validate bh hash _header -> do
-            t <- f bh <$> iot
-            getTestBlock t validate bh hash _header
+    { mpaGetBlock = \validate bh hash _header -> if isGenesisBlockHeader _header
+      then
+        return mempty
+      else do
+        t <- f bh <$> iot
+        getTestBlock t validate bh hash _header
     , mpaSetLastHeader = \_ -> return ()
     , mpaProcessFork = \_ -> return ()
     , mpaBadlistTx = \_ -> return ()
@@ -209,9 +215,10 @@ testDupes
   -> IO PactQueue
   -> Assertion
 testDupes genesisBlock iopdb iobhdb rr = do
-    (T3 _ newblock payload) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
-    expectException newblock payload $ liftIO $
-        mineBlock newblock (Nonce 2) iopdb iobhdb rr
+    (T3 _ newblock1 _) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
+    (T3 _ newblock2 payload) <- liftIO $ mineBlock newblock1 (Nonce 2) iopdb iobhdb rr
+    expectException newblock2 payload $ liftIO $
+        mineBlock newblock2 (Nonce 3) iopdb iobhdb rr
   where
     expectException newblock payload act = do
         m <- wrap `catch` h
@@ -279,11 +286,11 @@ mineBlock
     -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
+     mv <- r >>= newBlock noMiner parentHeader
+     payload <- assertNotLeft =<< takeMVar mv
+
      -- assemble block without nonce and timestamp
      creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-
-     mv <- r >>= newBlock noMiner parentHeader creationTime
-     payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
               (BlockHashRecord mempty)
