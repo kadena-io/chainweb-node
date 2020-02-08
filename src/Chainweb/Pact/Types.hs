@@ -69,6 +69,7 @@ module Chainweb.Pact.Types
   , psReorgLimit
   , psOnFatalError
   , psVersion
+  , psValidateHashesOnReplay
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -296,6 +297,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
+    , _psValidateHashesOnReplay :: !Bool
     }
 makeLenses ''PactServiceEnv
 

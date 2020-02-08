@@ -44,9 +44,9 @@ import Chainweb.Utils (len)
 
 treeDbInvariants
     :: (TreeDb db, IsBlockHeader (DbEntry db), Ord (DbEntry db), Ord (DbKey db))
-    -- | Given a generic entry, should yield a database for testing, and then
-    -- safely close it after use.
     => (DbEntry db -> (db -> IO Bool) -> IO Bool)
+        -- ^ Given a generic entry, should yield a database for testing, and then
+        -- safely close it after use.
     -> RunStyle
     -> TestTree
 treeDbInvariants f rs = testGroup "TreeDb Invariants"

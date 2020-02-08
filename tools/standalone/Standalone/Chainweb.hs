@@ -120,8 +120,9 @@ withChainResourcesStandalone
             -- placing mempool access shim here
             -- putting a default here for now.
               let mpa = onlyCoinTransferMemPoolAccess cid 10
+              let bePedantic = True -- check payload hashes during replay
               withSqliteDb v cid logger dbDir nodeid resetDb $ \sqlenv ->
-                withPactService' v cid (setComponent "pact" logger) mpa cdb payloadDb sqlenv pactQueueSize 1000 $
+                withPactService' v cid (setComponent "pact" logger) mpa cdb payloadDb sqlenv pactQueueSize 1000 bePedantic $
                   \requestQ -> do
                       -- prune blockheader db
                       when prune $ do

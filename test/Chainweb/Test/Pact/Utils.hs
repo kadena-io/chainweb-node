@@ -422,6 +422,7 @@ testPactCtx v cid bhdb pdb = do
         , _psReorgLimit = defaultReorgLimit
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
+        , _psValidateHashesOnReplay = True
         }
 
 testPactCtxSQLite
@@ -455,6 +456,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
         , _psReorgLimit = defaultReorgLimit
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
+        , _psValidateHashesOnReplay = True
         }
 
 
@@ -595,6 +597,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
             , _psReorgLimit = defaultReorgLimit
             , _psOnFatalError = defaultOnFatalError mempty
             , _psVersion = v
+            , _psValidateHashesOnReplay = True
             }
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
@@ -666,8 +669,9 @@ withPact version logLevel iopdb iobhdb mempool iodir deepForkLimit f =
         bhdb <- iobhdb
         dir <- iodir
         sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
+        let bePedantic = True
         a <- async $
-             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv deepForkLimit
+             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv deepForkLimit bePedantic
         return (a, sqlEnv, reqQ)
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
