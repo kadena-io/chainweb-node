@@ -226,10 +226,10 @@ initPactService
     -> SQLiteEnv
     -> Word64
     -> Bool
-        -- ^ Be pedantic during pact validation. Re-validate payload hashes during replay.
+        -- ^ Re-validate payload hashes during replay.
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit pedantic =
-    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit pedantic $ do
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit revalidate =
+    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit revalidate $ do
         initialPayloadState chainwebLogger ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
@@ -244,10 +244,10 @@ initPactService'
     -> SQLiteEnv
     -> Word64
     -> Bool
-        -- ^ Be pedantic during pact validation. Re-validate payload hashes during replay.
+        -- ^ Re-validate payload hashes during replay.
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit pedantic act = do
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit revalidate act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
         !gasModel = officialGasModel
@@ -263,7 +263,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit pedantic act 
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
-                , _psValidateHashesOnReplay = pedantic
+                , _psValidateHashesOnReplay = revalidate
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
