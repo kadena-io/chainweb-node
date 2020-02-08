@@ -7,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE StandaloneDeriving   #-}
 {-# LANGUAGE TypeApplications     #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -17,8 +18,10 @@ import Configuration.Utils hiding (action, encode, Error, Lens', (<.>))
 import Control.Monad.Reader
 import Control.Exception.Safe (tryAny)
 
-import qualified Data.Binary as Binary
-import Data.ByteString (ByteString)
+import Crypto.Hash
+
+import Data.ByteArray (convert)
+import qualified Data.ByteString as B (ByteString, writeFile)
 import Data.ByteString.Builder
 import qualified Data.HashSet as HashSet
 import Data.Int
@@ -30,8 +33,6 @@ import Data.String.Conv
 import Data.Text (Text)
 
 import Database.SQLite3.Direct as SQ3
-
-import Data.Digest.Pure.SHA
 
 import GHC.Generics
 
@@ -55,11 +56,11 @@ main = runWithConfiguration mainInfo $ \args -> do
     case _getAllTables args of
         True -> do
             putStrLn "----------Computing \"entire\" db----------"
-            let !checksum = sha1 $ toLazyByteString entiredb
+            let !checksum = convert @(Digest SHA1) @B.ByteString . hashlazy $ toLazyByteString entiredb
             exists <- doesFileExist $ _entireDBOutputFile args
             -- Just rewrite the file. Let's not do anything complicated here.
             when exists $ removeFile $ _entireDBOutputFile args
-            Binary.encodeFile (_entireDBOutputFile args) checksum
+            B.writeFile (_entireDBOutputFile args) checksum
         False -> do
             putStrLn "----------Computing tables----------"
             let dir = _tablesOutputLocation args
@@ -69,13 +70,13 @@ main = runWithConfiguration mainInfo $ \args -> do
             void $ M.traverseWithKey (go (_tablesOutputLocation args)) tables
     putStrLn "----------All done----------"
   where
-    go :: String -> ByteString -> ByteString -> IO ()
+    go :: String -> B.ByteString -> B.ByteString -> IO ()
     go dir tablename tablebytes = do
-        let !checksum = sha1 $ toS tablebytes
-        Binary.encodeFile (dir <> "/" <> toS tablename) checksum
+        let !checksum = convert @(Digest SHA1) @B.ByteString . hashlazy $ toS tablebytes
+        B.writeFile (dir <> "/" <> toS tablename) checksum
 
-type TableName = ByteString
-type TableContents = ByteString
+type TableName = B.ByteString
+type TableContents = B.ByteString
 
 -- this will produce both the raw bytes for all of the tables concatenated
 -- together, and the raw bytes of each individual table (this is over a single chain)
@@ -203,7 +204,7 @@ callDb callerName action = do
       Left err -> internalError $ "callDb (" <> callerName <> "): " <> toS (show err)
       Right r -> return r
 
-getUserTables :: BlockHeight -> BlockHeight -> ReaderT SQLiteEnv IO [ByteString]
+getUserTables :: BlockHeight -> BlockHeight -> ReaderT SQLiteEnv IO [B.ByteString]
 getUserTables low high = callDb "getUserTables" $ \db -> do
     usertables <-
       (traverse toByteString . concat) <$> qry db stmt (SInt . fromIntegral <$> [low, high]) [RText]
@@ -218,7 +219,7 @@ getUserTables low high = callDb "getUserTables" $ \db -> do
     stmt = "SELECT DISTINCT tablename FROM VersionedTableCreation\
            \ WHERE createBlockheight >= ? AND createBlockheight <= ? \
            \ORDER BY tablename DESC;"
-    check :: Database -> [ByteString] -> IO ()
+    check :: Database -> [B.ByteString] -> IO ()
     check db tbls = do
         r <-
           fmap HashSet.fromList . traverse toByteString . concat <$> qry_ db alltables [RText]
