@@ -65,6 +65,8 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger

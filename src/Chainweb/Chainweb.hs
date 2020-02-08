@@ -165,6 +165,7 @@ import qualified Pact.Types.Command as P
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources

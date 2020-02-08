@@ -49,6 +49,8 @@ import Servant.API
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty hiding (properties)

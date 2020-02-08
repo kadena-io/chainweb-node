@@ -40,6 +40,7 @@ import Prelude hiding (lookup)
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Utils
 

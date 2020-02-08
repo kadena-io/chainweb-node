@@ -38,6 +38,7 @@ import Text.XML.Generator
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockWeight
 import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.Time

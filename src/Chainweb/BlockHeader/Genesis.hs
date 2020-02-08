@@ -41,6 +41,8 @@ import Pact.Types.Hash (Hash)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0

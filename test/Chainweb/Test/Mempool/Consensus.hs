@@ -36,6 +36,7 @@ import Pact.Types.Gas
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)

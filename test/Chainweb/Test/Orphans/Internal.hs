@@ -27,6 +27,8 @@ import Test.QuickCheck.Gen (chooseAny)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty

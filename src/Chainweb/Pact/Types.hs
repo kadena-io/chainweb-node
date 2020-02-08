@@ -135,6 +135,7 @@ import Pact.Types.Term (PactId(..), Ref)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types

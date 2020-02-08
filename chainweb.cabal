@@ -141,6 +141,8 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.BlockHeaderDB.Types
+        , Chainweb.BlockHeight
+        , Chainweb.BlockWeight
         , Chainweb.ChainId
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
