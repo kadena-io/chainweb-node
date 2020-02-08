@@ -33,6 +33,7 @@ import Test.Tasty.QuickCheck
 -- internal modules
 import Pact.Types.Gas
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB

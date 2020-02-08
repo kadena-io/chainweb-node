@@ -127,6 +127,7 @@ import Pact.Types.Util (toB16Text)
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)

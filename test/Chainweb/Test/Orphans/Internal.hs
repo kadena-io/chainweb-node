@@ -25,6 +25,7 @@ import Test.QuickCheck.Gen (chooseAny)
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight

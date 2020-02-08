@@ -144,6 +144,7 @@ import Text.Printf (printf)
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Logger (Logger)

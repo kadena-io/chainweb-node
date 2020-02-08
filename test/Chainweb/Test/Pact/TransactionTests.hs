@@ -47,6 +47,7 @@ import Pact.Types.SPV
 
 -- internal chainweb modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Miner.Pact

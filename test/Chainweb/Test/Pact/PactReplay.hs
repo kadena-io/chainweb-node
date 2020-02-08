@@ -36,6 +36,7 @@ import Pact.ApiReq
 
 -- chainweb imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis

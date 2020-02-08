@@ -116,7 +116,8 @@ library
     autogen-modules:
         Paths_chainweb
     exposed-modules:
-          Chainweb.BlockHash
+          Chainweb.BlockCreationTime
+        , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload

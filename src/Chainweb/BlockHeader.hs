@@ -54,11 +54,6 @@ module Chainweb.BlockHeader
 , encodeNonceToWord64
 , decodeNonce
 
--- * BlockCreationTime
-, BlockCreationTime(..)
-, encodeBlockCreationTime
-, decodeBlockCreationTime
-
 -- * EpochStartTime
 , EpochStartTime(..)
 , encodeEpochStartTime
@@ -150,6 +145,7 @@ import GHC.Generics (Generic)
 
 -- Internal imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
@@ -252,27 +248,6 @@ instance ToJSON Nonce where
 instance FromJSON Nonce where
     parseJSON = withText "Nonce"
         $ either fail (return . Nonce) . readEither . T.unpack
-
--- -------------------------------------------------------------------------- --
--- Block Creation Time
-
-newtype BlockCreationTime = BlockCreationTime { _bct :: (Time Micros) }
-    deriving stock (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
-
-instance IsMerkleLogEntry ChainwebHashTag BlockCreationTime where
-    type Tag BlockCreationTime = 'BlockCreationTimeTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
-    fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockCreationTime :: MonadPut m => BlockCreationTime -> m ()
-encodeBlockCreationTime (BlockCreationTime t) = encodeTime t
-
-decodeBlockCreationTime :: MonadGet m => m BlockCreationTime
-decodeBlockCreationTime = BlockCreationTime <$> decodeTime
 
 -- -------------------------------------------------------------------------- --
 -- POW Target Computation

@@ -58,6 +58,7 @@ import Pact.Types.Hash (Hash)
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId

@@ -36,6 +36,7 @@ import Text.XML.Generator
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockWeight

@@ -64,6 +64,7 @@ import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation (prop_block_pow)
