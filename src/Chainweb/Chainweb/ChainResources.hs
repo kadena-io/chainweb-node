@@ -148,8 +148,8 @@ withChainResources
 
                     -- FIXME At the time of writing his payload hashes are not
                     -- unique. The pruning algorithm can handle non-uniquness
-                    -- between within a chain between forks, but not accross
-                    -- chains. Also cas-deletion is sound for payload hashes if
+                    -- within a chain between forks, but not accross chains.
+                    -- Also cas-deletion is sound for payload hashes if
                     -- outputs are unique for payload hashes.
                     --
                     -- Renable this code once pact
@@ -158,9 +158,7 @@ withChainResources
                     -- includes the transaction hash into the respective output hash, and
                     -- guarantees that transaction hashes are unique.
                     --
-                    -- unless payloadInUse
-                    --     $ casDelete payloadDb (_blockPayloadHash h)
-                    return ()
+                    unless payloadInUse $ casDelete payloadDb (_blockPayloadHash h)
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
             let pex = pes requestQ
             putMVar pexMv pex
