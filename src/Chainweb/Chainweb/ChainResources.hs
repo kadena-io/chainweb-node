@@ -52,6 +52,7 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -73,6 +74,7 @@ import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
+import Data.CAS
 import Data.CAS.RocksDB
 
 import P2P.Node
@@ -144,12 +146,12 @@ withChainResources
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"
-                x <- pruneForks logger cdb (diam * 3) $ \_h _payloadInUse ->
+                x <- pruneForks logger cdb (diam * 3) $ \h payloadInUse ->
 
                     -- FIXME At the time of writing his payload hashes are not
                     -- unique. The pruning algorithm can handle non-uniquness
-                    -- between within a chain between forks, but not accross
-                    -- chains. Also cas-deletion is sound for payload hashes if
+                    -- within a chain between forks, but not accross chains.
+                    -- Also cas-deletion is sound for payload hashes if
                     -- outputs are unique for payload hashes.
                     --
                     -- Renable this code once pact
@@ -158,9 +160,7 @@ withChainResources
                     -- includes the transaction hash into the respective output hash, and
                     -- guarantees that transaction hashes are unique.
                     --
-                    -- unless payloadInUse
-                    --     $ casDelete payloadDb (_blockPayloadHash h)
-                    return ()
+                    unless payloadInUse $ casDelete payloadDb (_blockPayloadHash h)
                 logg Info $ "finished pruning block header database. Deleted " <> sshow x <> " block headers."
             let pex = pes requestQ
             putMVar pexMv pex
