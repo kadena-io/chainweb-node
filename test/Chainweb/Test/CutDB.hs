@@ -53,9 +53,6 @@ import qualified Streaming.Prelude as S
 import Test.QuickCheck
 import Test.Tasty
 
-import Pact.Types.Command (CommandResult)
-import Pact.Types.Hash (Hash)
-
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -494,5 +491,5 @@ fakePact = WebPactExecutionService $ PactExecutionService
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes
-    coinbase = CoinbaseOutput $ encodeToByteString (noCoinbase :: CommandResult Hash)
+    coinbase = noCoinbaseOutput
     fakeMiner = MinerData "fakeMiner"

@@ -34,9 +34,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
-import Pact.Types.Command (CommandResult)
-import Pact.Types.Hash (Hash)
-
 -- internal modules
 
 import Chainweb.BlockCreationTime
@@ -103,8 +100,7 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
   where
     (BlockPayload h i o) = newBlockPayload miner coinbase mempty
     miner = MinerData $ encodeToByteString noMiner
-    coinbase = CoinbaseOutput $ encodeToByteString
-      (noCoinbase :: CommandResult Hash)
+    coinbase = noCoinbaseOutput
 
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
