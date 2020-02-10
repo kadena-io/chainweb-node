@@ -64,6 +64,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.HostAddress
 import Chainweb.Logger

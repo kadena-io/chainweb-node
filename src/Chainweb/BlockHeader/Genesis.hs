@@ -34,13 +34,13 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 
-import Pact.Types.Command (CommandResult)
-import Pact.Types.Hash (Hash)
-
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
@@ -100,8 +100,7 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
   where
     (BlockPayload h i o) = newBlockPayload miner coinbase mempty
     miner = MinerData $ encodeToByteString noMiner
-    coinbase = CoinbaseOutput $ encodeToByteString
-      (noCoinbase :: CommandResult Hash)
+    coinbase = noCoinbaseOutput
 
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
@@ -196,7 +195,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         :+: BlockHeight 0
         :+: v
         :+: EpochStartTime t
-        :+: FeatureFlags 0
+        :+: mkFeatureFlags
         :+: MerkleLogBody (blockHashRecordToVector adjParents)
     adjParents = BlockHashRecord $ HM.fromList $
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)

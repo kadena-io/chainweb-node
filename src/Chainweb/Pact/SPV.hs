@@ -46,6 +46,7 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Utils (aeson)
 import Chainweb.Payload

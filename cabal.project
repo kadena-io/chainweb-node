@@ -25,4 +25,6 @@ source-repository-package
 
 constraints:
       base-unicode-symbols < 0.2.4,
-      megaparsec < 8
+      megaparsec < 8,
+      neat-interpolation < 0.4
+
