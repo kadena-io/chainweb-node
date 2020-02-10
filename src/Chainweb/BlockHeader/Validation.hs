@@ -61,6 +61,7 @@ import qualified Data.List as L
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash)

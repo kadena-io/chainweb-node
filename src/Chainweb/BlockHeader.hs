@@ -42,20 +42,6 @@ module Chainweb.BlockHeader
 -- $guards
 , slowEpochGuard
 
--- * Block Height
-, BlockHeight(..)
-, encodeBlockHeight
-, decodeBlockHeight
-, encodeBlockHeightBe
-, decodeBlockHeightBe
-
--- * Block Weight
-, BlockWeight(..)
-, encodeBlockWeight
-, decodeBlockWeight
-, encodeBlockWeightBe
-, decodeBlockWeightBe
-
 -- * Block Payload Hash
 , BlockPayloadHash(..)
 , encodeBlockPayloadHash
@@ -67,11 +53,6 @@ module Chainweb.BlockHeader
 , encodeNonce
 , encodeNonceToWord64
 , decodeNonce
-
--- * BlockCreationTime
-, BlockCreationTime(..)
-, encodeBlockCreationTime
-, decodeBlockCreationTime
 
 -- * EpochStartTime
 , EpochStartTime(..)
@@ -165,7 +146,10 @@ import GHC.Generics (Generic)
 
 -- Internal imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
@@ -181,7 +165,6 @@ import Chainweb.Version
 
 import Data.CAS
 
-import Numeric.Additive
 import Numeric.AffineSpace
 
 import Text.Read (readEither)
@@ -234,76 +217,6 @@ slowEpochGuard (ParentHeader p)
 {-# INLINE slowEpochGuard #-}
 
 -- -------------------------------------------------------------------------- --
--- | BlockHeight
---
-newtype BlockHeight = BlockHeight { _height :: Word64 }
-    deriving (Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype
-        ( Hashable, ToJSON, FromJSON
-        , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
-        , Num, Integral, Real, Enum
-        )
-instance Show BlockHeight where show (BlockHeight b) = show b
-
-instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
-    type Tag BlockHeight = 'BlockHeightTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockHeight
-    fromMerkleNode = decodeMerkleInputNode decodeBlockHeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
-encodeBlockHeight (BlockHeight h) = putWord64le h
-
-decodeBlockHeight :: MonadGet m => m BlockHeight
-decodeBlockHeight = BlockHeight <$> getWord64le
-
-encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
-encodeBlockHeightBe (BlockHeight r) = putWord64be r
-
-decodeBlockHeightBe :: MonadGet m => m BlockHeight
-decodeBlockHeightBe = BlockHeight <$> getWord64be
-
--- -------------------------------------------------------------------------- --
--- Block Weight
---
--- This is the accumulated Hash difficulty
---
-newtype BlockWeight = BlockWeight HashDifficulty
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype
-        ( Hashable
-        , ToJSON, FromJSON, ToJSONKey, FromJSONKey
-        , AdditiveSemigroup, AdditiveAbelianSemigroup
-        , Num
-        )
-
-instance IsMerkleLogEntry ChainwebHashTag BlockWeight where
-    type Tag BlockWeight = 'BlockWeightTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockWeight
-    fromMerkleNode = decodeMerkleInputNode decodeBlockWeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
-encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
-{-# INLINE encodeBlockWeight #-}
-
-decodeBlockWeight :: MonadGet m => m BlockWeight
-decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
-{-# INLINE decodeBlockWeight #-}
-
-encodeBlockWeightBe :: MonadPut m => BlockWeight -> m ()
-encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
-{-# INLINE encodeBlockWeightBe #-}
-
-decodeBlockWeightBe :: MonadGet m => m BlockWeight
-decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
-{-# INLINE decodeBlockWeightBe #-}
-
--- -------------------------------------------------------------------------- --
 -- Nonce
 
 -- | FIXME: is 64 bit enough for the nonce. It seems that it may not be
@@ -336,27 +249,6 @@ instance ToJSON Nonce where
 instance FromJSON Nonce where
     parseJSON = withText "Nonce"
         $ either fail (return . Nonce) . readEither . T.unpack
-
--- -------------------------------------------------------------------------- --
--- Block Creation Time
-
-newtype BlockCreationTime = BlockCreationTime { _bct :: (Time Micros) }
-    deriving stock (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
-
-instance IsMerkleLogEntry ChainwebHashTag BlockCreationTime where
-    type Tag BlockCreationTime = 'BlockCreationTimeTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
-    fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockCreationTime :: MonadPut m => BlockCreationTime -> m ()
-encodeBlockCreationTime (BlockCreationTime t) = encodeTime t
-
-decodeBlockCreationTime :: MonadGet m => m BlockCreationTime
-decodeBlockCreationTime = BlockCreationTime <$> decodeTime
 
 -- -------------------------------------------------------------------------- --
 -- POW Target Computation
@@ -407,6 +299,10 @@ isLastInEpoch h = case effectiveWindow h of
 -- assume that a large amount of hash power has suddenly dropped out of the
 -- network. Thus we must perform Emergency Difficulty Adjustment to avoid
 -- stalling the chain.
+--
+-- NOTE: emergency DAs are now regarded a misfeature and have been disabled in
+-- all chainweb version. Emergency DAs are enabled (and have occured) only on
+-- mainnet01 for cut heights smaller than 80,000.
 --
 slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
 slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)

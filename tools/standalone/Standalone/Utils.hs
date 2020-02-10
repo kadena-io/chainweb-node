@@ -51,6 +51,8 @@ import Pact.Types.Util hiding (unwrap)
 -- chainweb imports
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB

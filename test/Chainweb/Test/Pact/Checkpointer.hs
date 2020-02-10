@@ -41,7 +41,7 @@ import Test.Tasty.HUnit
 -- internal imports
 
 import Chainweb.BlockHash (BlockHash(..), nullBlockHash)
-import Chainweb.BlockHeader (BlockHeight(..))
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)

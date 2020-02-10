@@ -120,6 +120,8 @@ import System.Timeout
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
