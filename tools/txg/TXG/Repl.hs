@@ -27,10 +27,13 @@ module TXG.Repl
   , rk
   , chain
   , chain0
+  , genTestModules
   , host
   , verToChainId
+  , verToChainIdMin
   , listenResponse
   , mkCmdStr
+  , mkCmdDataStr
   , mkKey
   , mkKeyCombined
   , k2g
@@ -41,6 +44,8 @@ module TXG.Repl
   , stockKey
   , mkKeyset
   , signedCode
+  , testAdminKey
+  , testModuleUpdates
   , verToPactNetId
 
   , module Chainweb.ChainId
@@ -51,6 +56,7 @@ module TXG.Repl
 
 import Control.Exception
 import Control.Lens hiding ((.=), from, to)
+import Control.Monad (forM)
 
 import Data.Aeson.Types (Parser)
 import Data.Aeson
@@ -59,11 +65,13 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString.Random
 import Data.Decimal
 import Data.Foldable
+import Data.HashSet ()
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
-import           Data.Ratio
+import Data.Ratio
 import Data.String
+import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -83,12 +91,16 @@ import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
+import Pact.Types.Gas
+-- import Pact.Types.Hash
 import Pact.Types.Scheme
 import Pact.Types.Util
 
 import Chainweb.ChainId
 import Chainweb.HostAddress
 import Chainweb.Version
+
+import System.Time.Extra
 
 import TXG.ReplInternals
 import TXG.Simulate.Contracts.CoinContract
@@ -186,13 +198,31 @@ sampleKeyPairCaps = do
   mkKeyPairs [s]
 
 mkCmdStr :: PublicMeta -> ChainwebVersion -> [SomeKeyPairCaps] -> String -> IO (Command Text)
-mkCmdStr meta ver kps str = do
+mkCmdStr meta ver kps str =
   cmd str Null meta kps (Just (verToPactNetId ver)) Nothing
+
+mkCmdDataStr
+  :: PublicMeta
+  -> ChainwebVersion
+  -> [SomeKeyPairCaps]
+  -> String
+  -> Value
+  -> IO (Command Text)
+mkCmdDataStr meta ver kps cmdCode cmdData =
+  cmd cmdCode cmdData meta kps (Just (verToPactNetId ver)) Nothing
 
 verToChainId :: ChainwebVersion -> ChainId
 verToChainId ver = foldr const err $ chainIds ver
   where
     err = error "Chainweb version has 0 chains"
+
+-- get the minimum ChainId from a Version
+verToChainIdMin :: ChainwebVersion -> ChainId
+verToChainIdMin ver =
+  foldr min z0 ids
+  where
+    z0 = verToChainId ver -- error on empty set or pick a default for the next foldr
+    ids = chainIds ver
 
 verToPactNetId :: ChainwebVersion -> P.NetworkId
 verToPactNetId cvw =
@@ -204,7 +234,7 @@ pollResponse nw (Right rks) = do
   pollResp <- poll nw rks
   case pollResp of
     Left err -> putStrLn $ "Poll error: " ++ show err
-    Right pollResponses -> putStrLn $ show pollResponses
+    Right pollResponses -> print pollResponses
 
 listenResponse :: Network -> Either ClientError RequestKeys -> IO ()
 listenResponse _nw (Left err) = putStrLn $ "There was a failure in the send: " ++ show err
@@ -212,10 +242,10 @@ listenResponse nw (Right (RequestKeys (k :| []))) = do
   listResp <- listen nw k
   case listResp of
     Left err -> putStrLn $ "Listen error: " ++ show err
-    Right listenResp -> putStrLn $ show listenResp
+    Right listenResp -> print listenResp
 -- listenResponse nw (Right (RequestKeys (rk :| rks))) =
 listenResponse _nw (Right _r) =
-  putStrLn $ "Listen can only be used with a single request key"
+  putStrLn "Listen can only be used with a single request key"
 
 randomCmd :: PublicMeta -> ChainwebVersion -> IO (Command Text)
 randomCmd meta ver = do
@@ -225,10 +255,81 @@ randomCmd meta ver = do
   kps <- sampleKeyPairCaps
   mkCmdStr meta ver kps someWords
 
+genTestModules :: PublicMeta -> ChainwebVersion -> Int -> Bool -> IO [Command Text]
+genTestModules meta ver nModules createTable = do
+  let ints = [0..(nModules-1)]
+  forM ints ( \n -> do
+    s <- testModule n createTable
+    kps <- sampleKeyPairCaps
+    mkCmdDataStr meta ver kps s testAdminKey )
+
+testModuleUpdates :: PublicMeta -> ChainwebVersion -> Int -> Int -> IO [Command Text]
+testModuleUpdates meta ver initialVal lastVal = do
+  let ints = [initialVal..lastVal]
+  forM ints ( \n -> do
+    let s = updatingModule n
+    kps <- sampleKeyPairCaps
+    mkCmdDataStr meta ver kps s testAdminKey )
+
+testModule :: Int -> Bool -> IO String
+testModule n createTable = do
+  t <- getPOSIXTime
+  let z = round t :: Integer
+  let theKey = show z ++ show n
+  let s = "(define-keyset 'module-admin-" ++ theKey ++ " (read-keyset \"test-module-keyset\"))"
+          ++ "\n" ++ "(namespace 'free)"
+          ++ "\n" ++ "(module test-module-" ++ theKey ++ " 'module-admin-" ++ theKey
+          ++ "\n" ++ "(defschema test-module-schema-" ++ theKey
+          ++ "\n" ++ "accountId:string"
+          ++ "\n" ++ "name:string"
+          ++ "\n" ++ "balance:decimal)"
+          ++ "\n" ++ "(deftable test-module-tbl-" ++ theKey
+          ++ ":{test-module-schema-" ++ theKey ++ "})"
+          ++ "\n" ++ "(defun insert-row (id name bal)"
+          ++ "\n" ++ "(insert test-module-tbl-" ++ theKey ++ " id"
+          ++ "\n" ++ "{ \"accountId\": id, \"name\": name, \"balance\": bal }))"
+          ++ "\n" ++ ")"
+  return $ if createTable
+             then s ++ testTableCreate n theKey
+             else s
+
+updatingModule :: Int -> String
+updatingModule n =
+  "(define-keyset 'updating-module-admin (read-keyset \"test-module-keyset\"))"
+    ++ "\n" ++ "(namespace 'free)"
+    ++ "\n" ++ "(module test-updating-module 'updating-module-admin"
+    ++ "\n" ++ "(defun add-constant:decimal (k)"
+    ++ "\n" ++ "(+ " ++ show n ++ " k))"
+    ++ "\n" ++ ")"
+
+updateCount :: String
+updateCount = "(free.test-updating-module.add-constant 0)"
+
+testTableCreate :: Int -> String -> String
+testTableCreate n theKey =
+  "\n" ++ "(create-table test-module-tbl-" ++ theKey ++ ")"
+  ++ "\n" ++ "(insert-row (id-" ++ theKey ++ " name-" ++ show n ++ " " ++ show n ++ ")"
+
+testAdminKey :: Value
+testAdminKey =
+  object [ "test-module-keyset" .= kSet ]
+  where
+    kSet = object
+      [ "pred" .= p
+      , "keys" .= ks
+      ]
+    p = ">" :: Text
+    ks = [PubBS "sender00"] :: [PublicKeyBS]
+
 -- **************************************************
--- Temp paste into Repl.hs if doing many code reloads:
--- TODO: remove this before commit
+-- The following are all temporarily very useful to avoid entering many repetitive REPL commands.
+-- These can eventually be deleted
 -- **************************************************
+_testAdminKeySet :: Value
+_testAdminKeySet =
+  let t = "{\"data\": {\"test-module-keyset\": {\"keys\":[\"sender00\"], \"pred\":\"<\"}}}" :: Text
+  in toJSON t
+
 _hostAddr :: HostAddress
 _hostAddr = host "us1.tn1.chainweb.com"
 
@@ -236,13 +337,16 @@ _ver :: ChainwebVersion
 _ver = Development
 
 _cid :: ChainId
-_cid = verToChainId _ver
+_cid = verToChainIdMin _ver
 
 _nw :: Network
 _nw = Network _ver _hostAddr _cid
 
 _metaIO :: IO PublicMeta
 _metaIO = makeMeta _cid defTTL defGasPrice defGasLimit
+
+_metaIO' :: GasLimit -> IO PublicMeta
+_metaIO' = makeMeta _cid defTTL defGasPrice
 
 _cmd1IO :: IO (Command Text)
 _cmd1IO = do
@@ -255,3 +359,61 @@ _cmd2IO = do
   meta <- _metaIO
   kps <- sampleKeyPairCaps
   mkCmdStr meta _ver kps "(+ 2 2)"
+
+_cmdSIO :: String -> IO (Command Text)
+_cmdSIO s = do
+  meta <- _metaIO
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps s
+
+_cmdSIO' :: GasLimit -> String -> IO (Command Text)
+_cmdSIO' gl s = do
+  meta <- _metaIO' gl
+  kps <- sampleKeyPairCaps
+  mkCmdStr meta _ver kps s
+
+_sendIt :: Command Text -> IO (Either ClientError RequestKeys)
+_sendIt theCmd = _sendThem [theCmd]
+
+_sendlm :: IO (Either ClientError RequestKeys)
+_sendlm = do
+  theCmd <- _cmdSIO "(list-modules)"
+  _sendIt theCmd
+
+_moduleCount :: IO (Either ClientError RequestKeys)
+_moduleCount = do
+  theCmd <- _cmdSIO "(length (list-modules))"
+  _sendIt theCmd
+
+_sendThem :: [Command Text] -> IO (Either ClientError RequestKeys)
+_sendThem theCmds = send _nw theCmds
+
+_tblRows :: IO (Either ClientError RequestKeys)
+_tblRows = do
+  theCmd <- _cmdSIO "(free.csv-import.table-len)"
+  _sendIt theCmd
+
+_tblRows' :: GasLimit -> IO (Either ClientError RequestKeys)
+_tblRows' gl = do
+  theCmd <- _cmdSIO' gl "(free.csv-import.table-len)"
+  _sendIt theCmd
+
+_testNewMods :: Int -> Bool -> IO (Either ClientError RequestKeys)
+_testNewMods nModules createTable = do
+  meta <- _metaIO
+  cmds <- genTestModules meta _ver nModules createTable
+  _sendThem cmds
+
+_testModUpdates :: Int -> IO (Either ClientError RequestKeys)
+_testModUpdates = _testModUpdates' 1
+
+_testModUpdates' :: Int -> Int -> IO (Either ClientError RequestKeys)
+_testModUpdates' initialVal lastVal = do
+  meta <- _metaIO
+  cmds <- testModuleUpdates meta _ver initialVal lastVal
+  _sendThem cmds
+
+_updatesCount :: IO (Either ClientError RequestKeys)
+_updatesCount = do
+  theCmd <- _cmdSIO updateCount
+  _sendIt theCmd

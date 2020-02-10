@@ -1,0 +1,6 @@
+tablesOutputLocation: dboutputhashes
+getAllTables: true
+endBlockHeight: 5
+sqliteFile: no-known-file
+startBlockHeight: 0
+entireDBOutputFile: dboutput.hash

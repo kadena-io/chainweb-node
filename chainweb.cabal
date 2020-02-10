@@ -116,7 +116,8 @@ library
     autogen-modules:
         Paths_chainweb
     exposed-modules:
-          Chainweb.BlockHash
+          Chainweb.BlockCreationTime
+        , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
@@ -141,6 +142,8 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.BlockHeaderDB.Types
+        , Chainweb.BlockHeight
+        , Chainweb.BlockWeight
         , Chainweb.ChainId
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
@@ -265,6 +268,7 @@ library
         , Chainweb.Pact.Backend.SQLite.V2
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
+        , Chainweb.Pact.NoCoinbase
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
@@ -453,6 +457,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
+        Chainweb.Test.Pact.NoCoinbase
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
@@ -684,7 +689,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -693,6 +698,7 @@ executable cwtool
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
+        CheckpointerDBChecksum
         Ea
         Ea.Genesis
         EncodeDecodeB64Util
@@ -732,19 +738,23 @@ executable cwtool
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
+        , cereal >= 0.5
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
+        , cryptonite >= 0.25
         , data-default >= 0.7
         , deepseq >= 1.4
+        , direct-sqlite >= 2.3
         , directory >= 1.3
         , file-embed
         , filepath
         , errors >= 2.3
         , exceptions >= 0.8
+        , extra >= 1.6
         , fake >= 0.1.1.1
         , file-embed >= 0.0
         , formatting >= 6.3
@@ -755,6 +765,7 @@ executable cwtool
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
+        , memory >=0.14
         , mmorph >= 1.1
         , mtl >= 2.2
         , mwc-random >= 0.13
@@ -765,13 +776,14 @@ executable cwtool
         , pact >= 2.6
         , paths >= 0.2
         , pretty-simple >= 2.1
-        , process >= 1.5
         , primitive >= 0.6
+        , process >= 1.5
         , random >= 1.1
         , random-bytestring >= 0.1
         , random-strings
         , resourcet >= 1.2
         , rocksdb-haskell >= 1.0
+        , safe-exceptions >= 0.1
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
@@ -780,6 +792,7 @@ executable cwtool
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , streaming-concurrency >= 0.3.1.3
+        , strict-tuple >= 0.1.3
         , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3

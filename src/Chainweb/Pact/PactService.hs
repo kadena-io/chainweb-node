@@ -100,10 +100,12 @@ import qualified Pact.Types.SPV as P
 ------------------------------------------------------------------------------
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -111,6 +113,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -125,6 +128,8 @@ import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Data.CAS (casLookupM)
+import Data.LogMessage
+import Utils.Logging.Trace
 
 -- -------------------------------------------------------------------------- --
 
@@ -219,11 +224,13 @@ initPactService
     -> PayloadDb cas
     -> SQLiteEnv
     -> Word64
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
-    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit revalidate =
+    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit revalidate $ do
         initialPayloadState chainwebLogger ver cid
-        serviceRequests mempoolAccess reqQ
+        serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -235,9 +242,11 @@ initPactService'
     -> PayloadDb cas
     -> SQLiteEnv
     -> Word64
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit revalidate act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
         !gasModel = officialGasModel
@@ -253,6 +262,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
+                , _psValidateHashesOnReplay = revalidate
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
@@ -326,12 +336,12 @@ initializeCoinContract _logger v cid pwo = do
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
-    :: forall cas
-    . PayloadCas cas
-    => MemPoolAccess
+    :: PayloadCas cas
+    => LogFunction
+    -> MemPoolAccess
     -> PactQueue
     -> PactServiceM cas ()
-serviceRequests memPoolAccess reqQ = do
+serviceRequests logFn memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
@@ -345,21 +355,29 @@ serviceRequests memPoolAccess reqQ = do
                 tryOne "execLocal" _localResultVar $ execLocal _localRequest
                 go
             NewBlockMsg NewBlockReq {..} -> do
-                tryOne "execNewBlock" _newResultVar $
+                trace logFn "Chainweb.Pact.PactService.execNewBlock"
+                    _newBlockHeader 1 $
+                    tryOne "execNewBlock" _newResultVar $
                     execNewBlock memPoolAccess _newBlockHeader _newMiner
                         _newCreationTime
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne "execValidateBlock"
-                        _valResultVar $
-                        execValidateBlock _valBlockHeader _valPayloadData
+                trace logFn "Chainweb.Pact.PactService.execValidateBlock"
+                    _valBlockHeader
+                    (length (_payloadDataTransactions _valPayloadData)) $
+                    tryOne "execValidateBlock" _valResultVar $
+                    execValidateBlock _valBlockHeader _valPayloadData
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
-                tryOne "execLookupPactTxs" resultVar $
+                trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
+                    (length txHashes) $
+                    tryOne "execLookupPactTxs" resultVar $
                     execLookupPactTxs restorePoint txHashes
                 go
             PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
-                tryOne "execPreInsertCheckReq" resultVar $
+                trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
+                    (length txs) $
+                    tryOne "execPreInsertCheckReq" resultVar $
                     fmap (V.map (() <$)) $ execPreInsertCheckReq txs
                 go
 
@@ -668,7 +686,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
           $! buyGas cmd miner
 
         case cr of
-            Left _ -> return (T2 mcache (Left InsertErrorNoGas))
+            Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
             Right t -> return (T2 (_txCache t) (Right tx))
 
 -- | The principal validation logic for groups of Pact Transactions.
@@ -1031,6 +1049,11 @@ playOneBlock currHeader plData pdbenv = do
     -- transactions are now successfully validated.
     !results <- go miner trans
     psStateValidated .= Just currHeader
+
+    -- Validate hashes if requested
+    asks _psValidateHashesOnReplay >>= \x -> when x $
+        either throwM (void . return) $!
+        validateHashes currHeader plData miner results
 
     return $! T2 miner results
 

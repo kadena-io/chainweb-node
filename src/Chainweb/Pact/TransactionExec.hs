@@ -91,6 +91,7 @@ import Pact.Types.SPV
 
 -- internal Chainweb modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
