@@ -117,7 +117,7 @@ instance Arbitrary EpochStartTime where
     arbitrary = EpochStartTime <$> arbitrary
 
 instance Arbitrary FeatureFlags where
-    arbitrary = FeatureFlags <$> arbitrary
+    arbitrary = return mkFeatureFlags
 
 instance Arbitrary BlockHeader where
     arbitrary = fromLog . newMerkleLog <$> entries

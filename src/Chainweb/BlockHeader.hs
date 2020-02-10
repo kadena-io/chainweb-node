@@ -61,7 +61,8 @@ module Chainweb.BlockHeader
 , epochStart
 
 -- * FeatureFlags
-, FeatureFlags(..)
+, FeatureFlags
+, mkFeatureFlags
 , encodeFeatureFlags
 , decodeFeatureFlags
 
@@ -356,7 +357,7 @@ epochStart p (BlockCreationTime bt)
 -- Feature Flags
 
 newtype FeatureFlags = FeatureFlags Word64
-    deriving stock (Show, Generic)
+    deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON)
 
@@ -373,6 +374,9 @@ instance IsMerkleLogEntry ChainwebHashTag FeatureFlags where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+mkFeatureFlags :: FeatureFlags
+mkFeatureFlags = FeatureFlags 0x0
+
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
 
@@ -383,6 +387,10 @@ newtype ParentHeader = ParentHeader BlockHeader
 -- Block Header
 
 -- | BlockHeader
+--
+-- Values of this type should never be constructed directly by external code.
+-- Instead the 'newBlockHeader' smart constructor should be used. Once
+-- constructed 'BlockHeader' values must not be modified.
 --
 -- Some redundant, aggregated information is included in the block and the block
 -- hash. This enables nodes to be checked inductively with respect to existing
@@ -819,15 +827,19 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
 -- -------------------------------------------------------------------------- --
 -- Create new BlockHeader
 
+-- | Creates a new block header. No validation of the input parameters is
+-- performaned.
+--
 newBlockHeader
     :: BlockHashRecord
         -- ^ Adjacent parent hashes
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
-        -- ^ Randomness to affect the block hash
+        -- ^ Randomness to affect the block hash. It is not verified that the
+        -- nonce is valid with respect to the target.
     -> BlockCreationTime
-        -- ^ Creation time of the block
+        -- ^ Creation time of the block.
     -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
@@ -842,7 +854,7 @@ newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockHeight b + 1
     :+: v
     :+: epochStart b t
-    :+: FeatureFlags 0
+    :+: mkFeatureFlags
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId b

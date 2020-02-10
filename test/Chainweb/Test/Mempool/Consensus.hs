@@ -343,7 +343,7 @@ header' h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart h t'
-            :+: FeatureFlags 0
+            :+: mkFeatureFlags
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
