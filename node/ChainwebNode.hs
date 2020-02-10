@@ -70,7 +70,7 @@ import Numeric.Natural
 import qualified Streaming.Prelude as S
 
 import System.Directory
-import System.IO (hSetBuffering, stderr, BufferMode(LineBuffering))
+import System.IO (BufferMode(LineBuffering), hSetBuffering, stderr)
 import qualified System.Logger as L
 import System.LogLevel
 
@@ -95,7 +95,6 @@ import Chainweb.Payload.PayloadStore.Types
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
-import Chainweb.Utils.Watchdog (notifyReady, withWatchdog)
 import Chainweb.Version
 
 import Data.LogMessage
@@ -318,7 +317,6 @@ node conf logger = do
     when (_nodeConfigResetChainDbs conf) $ destroyRocksDb rocksDbDir
     withRocksDb rocksDbDir $ \rocksDb -> do
         logFunctionText logger Info $ "opened rocksdb in directory " <> sshow rocksDbDir
-        notifyReady
         withChainweb cwConf logger rocksDb (_nodeConfigDatabaseDirectory conf) (_nodeConfigResetChainDbs conf) $ \cw -> mapConcurrently_ id
             [ runChainweb cw
               -- we should probably push 'onReady' deeper here but this should be ok
@@ -506,7 +504,7 @@ mainInfo = programInfoValidate
     validateChainwebNodeConfiguration
 
 main :: IO ()
-main = withWatchdog . runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
+main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
     let v = _configChainwebVersion $ _nodeConfigChainweb conf
     hSetBuffering stderr LineBuffering
     withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
