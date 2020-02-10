@@ -83,6 +83,8 @@ import System.IO.Unsafe
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Utils

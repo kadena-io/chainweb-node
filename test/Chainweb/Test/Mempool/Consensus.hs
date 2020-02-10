@@ -33,9 +33,11 @@ import Test.Tasty.QuickCheck
 -- internal modules
 import Pact.Types.Gas
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.Difficulty (targetToDifficulty)
@@ -341,7 +343,7 @@ header' h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart h t'
-            :+: FeatureFlags 0
+            :+: mkFeatureFlags
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h

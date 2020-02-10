@@ -16,6 +16,7 @@ import Control.Monad.Catch
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (emptyPayload)
 import Chainweb.ChainId

@@ -33,7 +33,7 @@ import Pact.Types.Runtime (mdModule,_MDModule,mHash)
 
 -- chainweb imports
 
-import Chainweb.BlockHeader
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId
@@ -151,6 +151,7 @@ initPactService'' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
+                , _psValidateHashesOnReplay = True
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport
     runPactServiceM pst pse act

@@ -127,7 +127,7 @@ import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
@@ -197,7 +197,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBadlisted
                  | InsertErrorMetadataMismatch
                  | InsertErrorTransactionsDisabled
-                 | InsertErrorNoGas
+                 | InsertErrorBuyGas Text
                  | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
   deriving (Generic, Eq)
@@ -213,7 +213,7 @@ instance Show InsertError
         "Transaction metadata (chain id, chainweb version) conflicts with this \
         \endpoint"
     show InsertErrorTransactionsDisabled = "Transactions are disabled until 2019 Dec 5"
-    show InsertErrorNoGas = "Sender account has insufficient gas."
+    show (InsertErrorBuyGas msg) = "Attempt to buy gas failed with: " <> T.unpack msg
     show (InsertErrorCompilationFailed msg) = "Transaction compilation failed: " <> T.unpack msg
     show (InsertErrorOther m) = "insert error: " <> T.unpack m
 
@@ -244,6 +244,9 @@ data MempoolBackend t = MempoolBackend {
 
     -- | Mark a transaction as bad.
   , mempoolAddToBadList :: TransactionHash -> IO ()
+
+    -- | Returns 'True' if the transaction is badlisted.
+  , mempoolCheckBadList :: Vector TransactionHash -> IO (Vector Bool)
 
     -- | given maximum block size, produce a candidate block of transactions
     -- for mining.
@@ -281,6 +284,7 @@ noopMempool = do
     , mempoolInsertCheck = noopInsertCheck
     , mempoolMarkValidated = noopMV
     , mempoolAddToBadList = noopAddToBadList
+    , mempoolCheckBadList = noopCheckBadList
     , mempoolGetBlock = noopGetBlock
     , mempoolPrune = return ()
     , mempoolGetPendingTransactions = noopGetPending
@@ -301,6 +305,7 @@ noopMempool = do
     noopInsertCheck _ = fail "unsupported"
     noopMV = const $ return ()
     noopAddToBadList = const $ return ()
+    noopCheckBadList v = return $ V.replicate (V.length v) False
     noopGetBlock _ _ _ = return V.empty
     noopGetPending = const $ const $ return (0,0)
     noopClear = return ()
@@ -508,7 +513,7 @@ syncMempools log us localMempool remoteMempool =
 -- TODO: production versions of this kind of DB should salt with a
 -- runtime-generated constant to avoid collision attacks; see the \"hashing and
 -- security\" section of the hashable docs.
-newtype TransactionHash = TransactionHash SB.ShortByteString
+newtype TransactionHash = TransactionHash { unTransactionHash :: SB.ShortByteString }
   deriving stock (Read, Eq, Ord, Generic)
   deriving anyclass (NFData)
 

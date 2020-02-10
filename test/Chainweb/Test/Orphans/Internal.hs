@@ -25,8 +25,11 @@ import Test.QuickCheck.Gen (chooseAny)
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
@@ -114,7 +117,7 @@ instance Arbitrary EpochStartTime where
     arbitrary = EpochStartTime <$> arbitrary
 
 instance Arbitrary FeatureFlags where
-    arbitrary = FeatureFlags <$> arbitrary
+    arbitrary = return mkFeatureFlags
 
 instance Arbitrary BlockHeader where
     arbitrary = fromLog . newMerkleLog <$> entries

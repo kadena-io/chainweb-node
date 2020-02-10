@@ -33,6 +33,7 @@ import Prelude hiding (lookup)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Version
 

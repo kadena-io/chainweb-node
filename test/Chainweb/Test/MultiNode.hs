@@ -74,6 +74,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Chainweb
 import Chainweb.Chainweb.CutResources
 import Chainweb.Chainweb.PeerResources

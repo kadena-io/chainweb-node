@@ -191,6 +191,18 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "1vg0m27phd6yf0pszcy2c2wbqx509fr9gacn34yja521z17cxd8z";
       };
 
+      lens-aeson = callHackageDirect {
+        pkg = "lens-aeson";
+        ver = "1.1";
+        sha256 = "0bx7ay7dx6ljhy1a6bmjdz52vfwmx8af8sd96p38yc0m9irjz02h";
+      };
+
+      streaming-concurrency = callHackageDirect {
+        pkg = "streaming-concurrency";
+        ver = "0.3.1.3";
+        sha256 = "11mgp53kpdnjnrx3l8z6nhm48rhl5i0sgn0vydqa488xinj3h28a";
+      };
+
       servant = dontCheck (callHackageDirect {
         pkg = "servant";
         ver = "0.16.2";
