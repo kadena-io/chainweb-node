@@ -361,7 +361,7 @@ library
         , mwc-random >= 0.13
         , mwc-probability >= 2.0 && <2.2
         , neat-interpolation >= 0.3.2
-        , network >= 2.6 && < 3
+        , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
         , pact >= 2.6
         , paths >= 0.2
@@ -509,7 +509,7 @@ test-suite chainweb-tests
         , loglevel >= 0.1
         , mtl >= 2.2
         , neat-interpolation >= 0.3
-        , network >= 2.6 && < 3
+        , network >= 2.6 && < 3.1.1
         , http-client-tls >=0.3
         , pact >= 2.6
         , paths >= 0.2
@@ -769,7 +769,7 @@ executable cwtool
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
-        , network >= 2.6 && < 3
+        , network >= 2.6 && < 3.1.1
         , nonempty-containers >= 0.1
         , optparse-applicative >= 0.14
         , pact >= 2.6
