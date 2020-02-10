@@ -228,9 +228,11 @@ initPactService
     -> PayloadDb cas
     -> SQLiteEnv
     -> Word64
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
-    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit revalidate =
+    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit revalidate $ do
         initialPayloadState chainwebLogger ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
@@ -244,9 +246,11 @@ initPactService'
     -> PayloadDb cas
     -> SQLiteEnv
     -> Word64
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit revalidate act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
         !gasModel = officialGasModel
@@ -262,6 +266,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
+                , _psValidateHashesOnReplay = revalidate
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
@@ -1061,6 +1066,11 @@ playOneBlock currHeader plData pdbenv = do
     -- transactions are now successfully validated.
     !results <- go miner trans
     psStateValidated .= Just currHeader
+
+    -- Validate hashes if requested
+    asks _psValidateHashesOnReplay >>= \x -> when x $
+        either throwM (void . return) $!
+        validateHashes currHeader plData miner results
 
     return $! T2 miner results
 

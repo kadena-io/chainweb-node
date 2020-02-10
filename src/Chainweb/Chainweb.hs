@@ -317,6 +317,8 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configBlockGasLimit :: !Mempool.GasLimit
     , _configPactQueueSize :: !Natural
     , _configReorgLimit :: !Natural
+    , _configValidateHashesOnReplay :: !Bool
+        -- ^ Re-validate payload hashes during replay.
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -348,6 +350,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configBlockGasLimit = 15000
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
+    , _configValidateHashesOnReplay = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -365,6 +368,7 @@ instance ToJSON ChainwebConfiguration where
         , "gasLimitOfBlock" .= _configBlockGasLimit o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
+        , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -382,6 +386,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
+        <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -415,7 +420,9 @@ pChainwebConfiguration = id
         <> help "Max allowed reorg depth.\
                 \ Consult https://github.com/kadena-io/chainweb-node/blob/master/docs/RecoveringFromDeepForks.md for\
                 \ more information. "
-
+    <*< configValidateHashesOnReplay .:: boolOption_
+        % long "validateHashesOnReplay"
+        <> help "Re-validate payload hashes during transaction replay."
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -567,7 +574,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg payloadDb prune dbDir nodeid
-                     resetDb deepForkLimit (_configPactQueueSize conf))
+                     resetDb deepForkLimit (_configPactQueueSize conf) (_configValidateHashesOnReplay conf))
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs))

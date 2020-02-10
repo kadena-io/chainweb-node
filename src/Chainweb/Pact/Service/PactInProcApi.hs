@@ -70,11 +70,13 @@ withPactService
     -> Bool
     -> Natural
     -> Natural
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> (PactQueue -> IO a)
     -> IO a
-withPactService ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize deepForkLimit action =
+withPactService ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize deepForkLimit revalidate action =
     PS.withSqliteDb ver cid logger dbDir nodeid resetDb $ \sqlenv ->
-        withPactService' ver cid logger mpa bhdb pdb sqlenv pactQueueSize deepForkLimit action
+        withPactService' ver cid logger mpa bhdb pdb sqlenv pactQueueSize deepForkLimit revalidate action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -92,9 +94,11 @@ withPactService'
     -> SQLiteEnv
     -> Natural
     -> Natural
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv pactQueueSize deepForkLimit0 action = do
+withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv pactQueueSize deepForkLimit0 revalidate action = do
     reqQ <- atomically $ newTBQueue pactQueueSize
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
@@ -103,7 +107,7 @@ withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv pactQueueSize deep
     deepForkLimit = fromIntegral deepForkLimit0
     client reqQ = action reqQ
     server reqQ = runForever logg "pact-service"
-        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv deepForkLimit
+        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv deepForkLimit revalidate
     logg = logFunction logger
 
 pactMemPoolAccess
