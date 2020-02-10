@@ -39,7 +39,7 @@ import Servant
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.CutDB
 import Chainweb.Payload.PayloadStore

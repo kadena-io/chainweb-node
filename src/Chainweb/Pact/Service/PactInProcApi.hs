@@ -39,6 +39,7 @@ import System.LogLevel
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.Mempool.Consensus

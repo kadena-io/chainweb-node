@@ -116,7 +116,8 @@ library
     autogen-modules:
         Paths_chainweb
     exposed-modules:
-          Chainweb.BlockHash
+          Chainweb.BlockCreationTime
+        , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
@@ -141,6 +142,8 @@ library
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
         , Chainweb.BlockHeaderDB.Types
+        , Chainweb.BlockHeight
+        , Chainweb.BlockWeight
         , Chainweb.ChainId
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
@@ -265,6 +268,7 @@ library
         , Chainweb.Pact.Backend.SQLite.V2
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
+        , Chainweb.Pact.NoCoinbase
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
@@ -452,6 +456,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
+        Chainweb.Test.Pact.NoCoinbase
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay

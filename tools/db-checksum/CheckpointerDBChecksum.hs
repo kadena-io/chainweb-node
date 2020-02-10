@@ -44,7 +44,7 @@ import Text.Printf
 import Pact.Types.SQLite
 
 -- chainweb imports
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils hiding (callDb)
 import Chainweb.Pact.Service.Types

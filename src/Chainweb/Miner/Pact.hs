@@ -59,7 +59,7 @@ import Data.Word
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeight(..))
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph (HasChainGraph(..), order)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils

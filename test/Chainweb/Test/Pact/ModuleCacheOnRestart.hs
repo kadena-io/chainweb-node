@@ -33,7 +33,7 @@ import Pact.Types.Runtime (mdModule,_MDModule,mHash)
 
 -- chainweb imports
 
-import Chainweb.BlockHeader
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId
