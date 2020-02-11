@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -36,6 +40,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 ) where
 
 import Control.Concurrent.Async
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -63,7 +68,6 @@ import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Client
-import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Time
 import Chainweb.TreeDB
 import qualified Chainweb.TreeDB as TDB
@@ -82,6 +86,89 @@ import P2P.Peer
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
+
+-- -------------------------------------------------------------------------- --
+-- Tag Values With a ChainId
+
+data ChainValue a = ChainValue !ChainId !a
+    deriving (Show, Eq, Ord, Generic)
+    deriving (Functor, Foldable, Traversable)
+    deriving anyclass (NFData, Hashable)
+
+instance TraversableWithIndex ChainId ChainValue where
+  itraverse f (ChainValue cid v) = ChainValue cid <$> f cid v
+  {-# INLINE itraverse #-}
+
+instance FoldableWithIndex ChainId ChainValue
+instance FunctorWithIndex ChainId ChainValue
+
+instance IsCasValue a => IsCasValue (ChainValue a) where
+    type CasKeyType (ChainValue a) = ChainValue (CasKeyType a)
+    casKey (ChainValue cid a) = ChainValue cid (casKey a)
+    {-# INLINE casKey #-}
+
+instance HasChainId (ChainValue a) where
+    _chainId (ChainValue cid _) = cid
+    {-# INLINE _chainId #-}
+
+-- -------------------------------------------------------------------------- --
+-- Append Only CAS for WebBlockHeaderDb
+
+newtype WebBlockHeaderCas = WebBlockHeaderCas WebBlockHeaderDb
+
+instance HasChainwebVersion WebBlockHeaderCas where
+    _chainwebVersion (WebBlockHeaderCas db) = _chainwebVersion db
+    {-# INLINE _chainwebVersion #-}
+
+-- -------------------------------------------------------------------------- --
+-- Obtain and Validate Block Payloads
+
+data WebBlockPayloadStore cas = WebBlockPayloadStore
+    { _webBlockPayloadStoreCas :: !(PayloadDb cas)
+        -- ^ Cas for storing complete payload data including outputs.
+    , _webBlockPayloadStoreMemo :: !(TaskMap BlockPayloadHash PayloadData)
+        -- ^ Internal memo table for active tasks
+    , _webBlockPayloadStoreQueue :: !(PQueue (Task ClientEnv PayloadData))
+        -- ^ task queue for scheduling tasks with the task server
+    , _webBlockPayloadStoreLogFunction :: !LogFunction
+        -- ^ LogFunction
+    , _webBlockPayloadStoreMgr :: !HTTP.Manager
+        -- ^ Manager object for making HTTP requests
+    , _webBlockPayloadStorePact :: !WebPactExecutionService
+        -- ^ handle to the pact execution service for validating transactions
+        -- and computing outputs.
+    }
+
+-- -------------------------------------------------------------------------- --
+-- WebBlockHeaderStore
+
+-- | In order to use this a processor for the queue is needed.
+--
+-- The module P2P.TaskQueue provides a P2P session that serves the queue.
+--
+-- TODO
+--
+-- * Find a better name
+-- * Parameterize in cas
+-- * This is currently based on TreeDB (for API) and BlockHeaderDB, it
+--   would be possible to run this on top of any CAS and API that offers
+--   a simple GET.
+--
+data WebBlockHeaderStore = WebBlockHeaderStore
+    { _webBlockHeaderStoreCas :: !WebBlockHeaderDb
+    , _webBlockHeaderStoreMemo :: !(TaskMap (ChainValue BlockHash) (ChainValue BlockHeader))
+    , _webBlockHeaderStoreQueue :: !(PQueue (Task ClientEnv (ChainValue BlockHeader)))
+    , _webBlockHeaderStoreLogFunction :: !LogFunction
+    , _webBlockHeaderStoreMgr :: !HTTP.Manager
+    }
+
+instance HasChainwebVersion WebBlockHeaderStore where
+    _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph WebBlockHeaderStore where
+    _chainGraph = _chainGraph . _webBlockHeaderStoreCas
+    {-# INLINE _chainGraph #-}
 
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap

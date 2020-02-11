@@ -75,7 +75,7 @@ import Chainweb.Mempool.InMemTypes (MempoolStats(..))
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.Payload.PayloadStore
-import Chainweb.Sync.WebBlockHeaderStore.Types
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version

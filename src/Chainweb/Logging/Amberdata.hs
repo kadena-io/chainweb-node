@@ -73,7 +73,7 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.Types
-import Chainweb.Sync.WebBlockHeaderStore.Types
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version

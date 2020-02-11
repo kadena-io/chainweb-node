@@ -213,7 +213,6 @@ library
         , Chainweb.Store.CAS.FS
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Sync.WebBlockHeaderStore.Test
-        , Chainweb.Sync.WebBlockHeaderStore.Types
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
