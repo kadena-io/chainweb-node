@@ -65,7 +65,7 @@ import qualified P2P.TaskQueue.Test (properties)
 main :: IO ()
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db -> do
+    withToyDB rdb toyChainId $ \h0 db ->
         defaultMain
             $ adjustOption adj
             $ testGroup "Chainweb Tests" . schedule Sequential

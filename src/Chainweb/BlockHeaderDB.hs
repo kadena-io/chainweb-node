@@ -103,7 +103,7 @@ decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 
 encodeRankedBlockHash :: MonadPut m => RankedBlockHash -> m ()
 encodeRankedBlockHash (RankedBlockHash r bh) = do
-    encodeBlockHeightBe r
+    encodeBlockHeightBe r -- big endian encoding for lexicographical order
     encodeBlockHash bh
 {-# INLINE encodeRankedBlockHash #-}
 

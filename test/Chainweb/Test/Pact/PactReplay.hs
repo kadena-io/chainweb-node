@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -16,7 +15,6 @@ import Data.Aeson
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.IORef
-import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -93,7 +91,7 @@ tests =
 
 onRestart
     :: IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 onRestart pdb bhdb r = do
@@ -114,8 +112,7 @@ testMemPoolAccess iot = mempty
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
@@ -126,14 +123,14 @@ testMemPoolAccess iot = mempty
             nonce 10000 0.00000000001
             3600 (toTxCreationTime txOrigTime) (tx bh)
         oks <- validate bHeight hash outtxs
-        when (not $ V.and oks) $ do
-            fail $ mconcat [ "tx failed validation! input list: \n"
-                           , show (tx bh)
-                           , "\n\nouttxs: "
-                           , show outtxs
-                           , "\n\noks: "
-                           , show oks
-                           ]
+        unless (V.and oks) $ fail $ mconcat
+            [ "tx failed validation! input list: \n"
+            , show (tx bh)
+            , "\n\nouttxs: "
+            , show outtxs
+            , "\n\noks: "
+            , show oks
+            ]
         return outtxs
       where
         ksData :: Text -> Value
@@ -155,8 +152,7 @@ dupegenMemPoolAccess iot = MemPoolAccess
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight bHash _bHeader = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
@@ -167,24 +163,23 @@ dupegenMemPoolAccess iot = MemPoolAccess
           nonce 10000 0.00000000001
           3600 (toTxCreationTime txOrigTime) (tx nonce)
         oks <- validate bHeight bHash outtxs
-        when (not $ V.and oks) $ do
-          fail $ mconcat [ "tx failed validation! input list: \n"
-                         , show (tx nonce)
-                         , "\n\nouttxs: "
-                         , "\n\noks: "
-                         , show oks
-                         ]
+        unless (V.and oks) $ fail $ mconcat
+            [ "tx failed validation! input list: \n"
+            , show (tx nonce)
+            , "\n\nouttxs: "
+            , "\n\noks: "
+            , show oks
+            ]
         return outtxs
       where
         ksData :: Text -> Value
         ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-        tx nonce = V.singleton $ PactTransaction (code nonce) (Just $ ksData nonce)
-        code nonce = defModule nonce
+        tx nonce = V.singleton $ PactTransaction (defModule nonce) (Just $ ksData nonce)
 
 firstPlayThrough
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 firstPlayThrough genesisBlock iopdb iobhdb rr = do
@@ -211,7 +206,7 @@ firstPlayThrough genesisBlock iopdb iobhdb rr = do
 testDupes
   :: BlockHeader
   -> IO (PayloadDb HashMapCas)
-  -> IO (BlockHeaderDb)
+  -> IO BlockHeaderDb
   -> IO PactQueue
   -> Assertion
 testDupes genesisBlock iopdb iobhdb rr = do
@@ -243,7 +238,7 @@ testDupes genesisBlock iopdb iobhdb rr = do
 testDeepForkLimit
   :: Word64
   -> IO (PayloadDb HashMapCas)
-  -> IO (BlockHeaderDb)
+  -> IO BlockHeaderDb
   -> IO PactQueue
   -> Assertion
 testDeepForkLimit deepForkLimit iopdb iobhdb rr = do

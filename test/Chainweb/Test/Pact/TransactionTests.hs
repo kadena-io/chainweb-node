@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 -- |
@@ -143,7 +142,7 @@ buildExecWithoutData :: Assertion
 buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 
 badMinerId :: MinerId
-badMinerId = MinerId ("alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha")
+badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
 
 minerKeys0 :: MinerKeys
 minerKeys0 = MinerKeys $ mkKeySet
@@ -161,7 +160,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     cmd <- buildExecParsedCode Nothing "(coin.get-balance \"tester01\")"
 
-    doCoinbaseExploit pdb mc preForkTime cmd False $ \pr -> case pr of
+    doCoinbaseExploit pdb mc preForkTime cmd False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 1000.1 -> return ()
@@ -173,7 +172,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     cmd' <- buildExecParsedCode Nothing
       "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
 
-    doCoinbaseExploit pdb mc postForkTime cmd' False $ \pr -> case pr of
+    doCoinbaseExploit pdb mc postForkTime cmd' False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.1 -> return ()
@@ -182,7 +181,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "pre-fork code injection fails, enforced precompile"
 
-    doCoinbaseExploit pdb mc preForkTime cmd' True $ \pr -> case pr of
+    doCoinbaseExploit pdb mc preForkTime cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.2 -> return ()
@@ -191,7 +190,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "post-fork code injection fails, enforced precompile"
 
-    doCoinbaseExploit pdb mc postForkTime cmd' True $ \pr -> case pr of
+    doCoinbaseExploit pdb mc postForkTime cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.3 -> return ()
