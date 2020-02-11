@@ -65,15 +65,29 @@ instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+-- | Little endian encoding of block height. This the default encoding for
+-- exchanging chainweb data.
+--
 encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeight (BlockHeight h) = putWord64le h
 
+-- | Little endian encoding of block height. This the default encoding for
+-- exchanging chainweb data.
+--
 decodeBlockHeight :: MonadGet m => m BlockHeight
 decodeBlockHeight = BlockHeight <$> getWord64le
 
+-- | Encodings for data exchange use little endian by default. Big endian
+-- encodings are provided for use in internal storage when a bytewise
+-- lexicographcial ordering is required.
+--
 encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
 encodeBlockHeightBe (BlockHeight r) = putWord64be r
 
+-- | Encodings for data exchange use little endian by default. Big endian
+-- encodings are provided for use in internal storage when a bytewise
+-- lexicographcial ordering is required.
+--
 decodeBlockHeightBe :: MonadGet m => m BlockHeight
 decodeBlockHeightBe = BlockHeight <$> getWord64be
 
