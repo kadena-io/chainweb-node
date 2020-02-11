@@ -227,7 +227,6 @@ library
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
-        , Chainweb.WebPactExecutionService.Types
 
         , Control.Concurrent.FixedThreadPool
 
