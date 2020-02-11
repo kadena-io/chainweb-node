@@ -1,10 +1,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExplicitForAll #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -23,7 +21,7 @@ module Chainweb.Test.Pact.PactInProcApi
 import Control.Concurrent.MVar.Strict
 import Control.Exception
 import Control.Lens hiding ((.=))
-import Control.Monad (when)
+import Control.Monad (unless)
 
 import Data.Aeson (object, (.=))
 import qualified Data.ByteString.Lazy as BL
@@ -195,13 +193,13 @@ testMemPoolAccess = mempty
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60
                 in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger 1000000))) tx
         oks <- validate bHeight bHash outtxs
-        when (not $ V.and oks) $ do
-            fail $ mconcat [ "tx failed validation! input list: \n"
-                           , show txs
-                           , "\n\nouttxs: "
-                           , show outtxs
-                           , "\n\noks: "
-                           , show oks ]
+        unless (V.and oks) $ fail $ mconcat
+            [ "tx failed validation! input list: \n"
+            , show txs
+            , "\n\nouttxs: "
+            , show outtxs
+            , "\n\noks: "
+            , show oks ]
         return outtxs
 
 

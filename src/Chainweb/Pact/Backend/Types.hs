@@ -128,7 +128,7 @@ makeLenses ''PactDbEnvPersist
 
 data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
 
-data PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
+newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
 
 makeLenses ''PactDbState
 
