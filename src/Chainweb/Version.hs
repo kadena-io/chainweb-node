@@ -116,6 +116,7 @@ import System.Random
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
@@ -623,11 +624,9 @@ vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 -- respective chains.
 --
 coinV2Upgrade
-    :: (Ord a, Num a)
-    => ChainwebVersion
+    :: ChainwebVersion
     -> ChainId
-    -> a
-        -- ^ FIXME this should be BlockHeight
+    -> BlockHeight
     -> Bool
 coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 0 = h == 140808
