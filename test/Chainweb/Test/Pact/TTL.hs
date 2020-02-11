@@ -1,7 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -14,7 +12,6 @@ import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Bytes.Put
 import Data.CAS.HashMap
-import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict
@@ -97,7 +94,7 @@ tests =
 testTTL
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
@@ -113,7 +110,7 @@ testTTL genesisBlock iopdb iobhdb rr = do
         h :: SomeException -> IO (Maybe String)
         h _ = return Nothing
         wrap = do
-          (T3 _ _ _) <- act
+          T3{} <- act
           return $ Just "Expected a transaction validation failure."
 
 testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
@@ -124,8 +121,7 @@ testMemPoolAccess _ttlcase iot = mempty
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
