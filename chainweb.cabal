@@ -226,7 +226,6 @@ library
         , Chainweb.Utils.Watchdog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
-        , Chainweb.WebBlockHeaderDB.Types
         , Chainweb.WebPactExecutionService
         , Chainweb.WebPactExecutionService.Types
 
