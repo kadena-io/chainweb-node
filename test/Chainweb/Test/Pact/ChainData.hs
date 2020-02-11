@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- {-# OPTIONS_GHC -fno-warn-unused-imports #-}
@@ -88,8 +87,7 @@ chainDataTest t time =
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
     withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir 100000
-        (testCase ("chain-data." <> T.unpack t) .
-         run genblock pdb bhdb)
+        (testCase ("chain-data." <> T.unpack t) . run genblock pdb bhdb)
   where
     genblock = genesisBlockHeader testVer testChainId
 
@@ -109,13 +107,13 @@ getTestBlock t txOrigTime _validate _bh _hash = do
     let nonce = (<> t) . T.pack . show @(Time Integer) $ txOrigTime
     txs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10000 0.00000000001 3600 (toTxCreationTime txOrigTime) tx
     oks <- _validate _bh _hash txs
-    when (not $ V.and oks) $ do
-        fail $ mconcat [ "tx failed validation! input list: \n"
-                       , show tx
-                       , "\n\nouttxs: "
-                       , show txs
-                       , "\n\noks: "
-                       , show oks ]
+    unless (V.and oks) $ fail $ mconcat
+        [ "tx failed validation! input list: \n"
+        , show tx
+        , "\n\nouttxs: "
+        , show txs
+        , "\n\noks: "
+        , show oks ]
     return txs
   where
     code = "(at \"" <> t <> "\" (chain-data))"
@@ -127,7 +125,7 @@ getTestBlock t txOrigTime _validate _bh _hash = do
 run
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 run genesisBlock iopdb iobhdb rr = do

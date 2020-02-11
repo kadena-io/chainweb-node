@@ -103,7 +103,7 @@ data LocalReq = LocalReq
     { _localRequest :: ChainwebTransaction
     , _localResultVar :: PactExMVar (CommandResult Hash)
     }
-instance Show LocalReq where show LocalReq{..} = show (_localRequest)
+instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !Rewind

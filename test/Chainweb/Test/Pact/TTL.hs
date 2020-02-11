@@ -1,7 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -96,7 +94,7 @@ tests =
 testTTL
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
@@ -112,7 +110,7 @@ testTTL genesisBlock iopdb iobhdb rr = do
         h :: SomeException -> IO (Maybe String)
         h _ = return Nothing
         wrap = do
-          (T3 _ _ _) <- act
+          T3{} <- act
           return $ Just "Expected a transaction validation failure."
 
 testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
