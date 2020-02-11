@@ -40,6 +40,7 @@ module Chainweb.BlockHeader.Validation
 , prop_block_genesis_parent
 , prop_block_genesis_target
 , prop_block_target
+, prop_block_featureFlags
 
 -- * Inductive BlockHeader Properties
 , prop_block_epoch
@@ -60,6 +61,7 @@ import qualified Data.List as L
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash)
@@ -102,6 +104,7 @@ instance Show ValidationFailure where
             BlockInTheFuture -> "The creation time of the block is in the future"
             IncorrectPayloadHash -> "The payload hash does not match the payload hash that results from payload validation"
             MissingPayload -> "The payload of the block is missing"
+            InvalidFeatureFlags -> "The block has an invalid feature flag value"
 
 -- | An enumeration of possible validation failures for a block header.
 --
@@ -148,6 +151,8 @@ data ValidationFailureType
         -- ^ The validation of the payload hash failed.
     | MissingPayload
         -- ^ The payload for the block is missing.
+    | InvalidFeatureFlags
+        -- ^ The block has an invalid feature flag setting
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
@@ -311,6 +316,7 @@ validateIntrinsic t b = concat
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
     , [ BlockInTheFuture | not (prop_block_current t b)]
+    , [ InvalidFeatureFlags | not (prop_block_featureFlags b)]
     ]
 
 -- | Validate properties of a block with respect to a given parent.
@@ -395,6 +401,9 @@ prop_block_genesis_target b = isGenesisBlockHeader b
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
+
+prop_block_featureFlags :: BlockHeader -> Bool
+prop_block_featureFlags b = _blockFlags b == mkFeatureFlags
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties

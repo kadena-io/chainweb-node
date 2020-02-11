@@ -32,7 +32,7 @@ import Servant.Client
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.SPV
 import Chainweb.SPV.RestAPI

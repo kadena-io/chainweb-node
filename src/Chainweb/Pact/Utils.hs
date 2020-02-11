@@ -31,7 +31,7 @@ import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 
-import Chainweb.BlockHeader
+import Chainweb.BlockCreationTime
 import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Time

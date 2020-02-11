@@ -76,6 +76,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB.Types
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Logger
 import Chainweb.TreeDB
@@ -102,7 +103,7 @@ decodeRankedBlockHeader = RankedBlockHeader <$!> decodeBlockHeader
 
 encodeRankedBlockHash :: MonadPut m => RankedBlockHash -> m ()
 encodeRankedBlockHash (RankedBlockHash r bh) = do
-    encodeBlockHeightBe r
+    encodeBlockHeightBe r -- big endian encoding for lexicographical order
     encodeBlockHash bh
 {-# INLINE encodeRankedBlockHash #-}
 
