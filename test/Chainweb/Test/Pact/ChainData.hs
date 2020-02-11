@@ -17,7 +17,6 @@ import Control.Monad.State
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.IORef
-import Data.List (foldl')
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
@@ -239,5 +238,4 @@ testMemPoolAccess t iotime = mempty
     -- tx origination times needed to be unique to ensure that the corresponding
     -- tx hashes are also unique.
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)

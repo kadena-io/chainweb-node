@@ -16,7 +16,6 @@ import Data.Aeson
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.IORef
-import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
@@ -111,8 +110,7 @@ testMemPoolAccess iot = mempty
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
@@ -149,8 +147,7 @@ dupegenMemPoolAccess iot = MemPoolAccess
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight bHash _bHeader = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]

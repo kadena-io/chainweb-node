@@ -14,7 +14,6 @@ import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Bytes.Put
 import Data.CAS.HashMap
-import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict
@@ -124,8 +123,7 @@ testMemPoolAccess _ttlcase iot = mempty
     }
   where
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
