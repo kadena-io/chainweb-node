@@ -99,7 +99,7 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB

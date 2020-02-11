@@ -192,7 +192,6 @@ library
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
         , Chainweb.Payload.PayloadStore.RocksDB
-        , Chainweb.Payload.PayloadStore.Types
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client

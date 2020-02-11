@@ -72,7 +72,7 @@ import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.Utils hiding (check)

@@ -48,7 +48,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion)

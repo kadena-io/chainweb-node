@@ -47,7 +47,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
