@@ -153,7 +153,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
-import Chainweb.WebBlockHeaderDB.Types
+import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 -- ----------------------------------------------------------------------- --
@@ -508,7 +508,7 @@ testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
   where
     mkPact (sqlenv, c) = do
         webdb <- webdbIO
-        let bhdbs = _webBlockHeaderDb webdb
+        let bhdbs = view webBlockHeaderDb webdb
         let bhdb = fromJuste $ HM.lookup c bhdbs
         let bhdbIO = return bhdb
         (c,) <$> testPactExecutionService v c bhdbIO pdbIO (mempoolAccess c) sqlenv
