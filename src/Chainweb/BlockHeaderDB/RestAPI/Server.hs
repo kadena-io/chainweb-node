@@ -69,7 +69,7 @@ import Chainweb.ChainId
 import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadStore)
 import Chainweb.Difficulty (showTargetHex)
 import Chainweb.Payload (PayloadWithOutputs(..))
-import Chainweb.Payload.PayloadStore.Types (PayloadCas, PayloadDb)
+import Chainweb.Payload.PayloadStore (PayloadCas, PayloadDb)
 import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
