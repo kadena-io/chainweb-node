@@ -1,12 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -62,8 +57,8 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeader.Validation
-import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -174,7 +169,7 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
         runClientM (payloadClient v cid k) originEnv >>= \case
             (Right !x) -> do
                 logfun Debug $ taskMsg k "received from origin"
-                return $! Just x
+                return $ Just x
             Left (e :: ClientError) -> do
                 logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
                 return Nothing
@@ -232,14 +227,14 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- - task queue of P2P network
         --
         (maybeOrigin', header) <- casLookup candidateHeaderCas k' >>= \case
-            Just !x -> return $! (maybeOrigin, x)
+            Just !x -> return (maybeOrigin, x)
             Nothing -> pullOrigin k maybeOrigin >>= \case
                 Nothing -> do
                     t <- queryBlockHeaderTask k
                     pQueueInsert queue t
                     (ChainValue _ !x) <- awaitTask t
-                    return $! (Nothing, x)
-                (Just !x) -> return $! (maybeOrigin, x)
+                    return (Nothing, x)
+                (Just !x) -> return (maybeOrigin, x)
 
         -- Check that the chain id is correct. The candidate cas is indexed just
         -- by the block hash. So, if this fails it is most likely a bug in code
@@ -332,7 +327,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
             logg Warn $ taskMsg k $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
             throwM e
-        logg Debug $ taskMsg k $ "getBlockHeaderInternal pact validation succeeded"
+        logg Debug $ taskMsg k "getBlockHeaderInternal pact validation succeeded"
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
         return $! chainValue header
@@ -369,7 +364,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
-            l @T.Text Debug $ taskMsg ck $ "query remote block header"
+            l @T.Text Debug $ taskMsg ck "query remote block header"
             !r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
                 l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
                 throwM e
@@ -390,7 +385,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         return Nothing
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
-        logg Debug $ taskMsg ck $ "lookup origin"
+        logg Debug $ taskMsg ck "lookup origin"
         !r <- TDB.lookup (rDb v cid originEnv) k
         logg Debug $ taskMsg ck "received from origin"
         return r

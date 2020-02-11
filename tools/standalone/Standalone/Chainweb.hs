@@ -37,6 +37,7 @@ import System.LogLevel
 import Chainweb.Miner.Config
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources

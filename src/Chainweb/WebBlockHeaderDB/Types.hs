@@ -20,7 +20,7 @@ import qualified Data.HashMap.Strict as HM
 
 -- internal modules
 
-import Chainweb.BlockHeaderDB.Types
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Version
 

@@ -138,10 +138,11 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet9Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
+        , Chainweb.BlockHeaderDB.Internal
+        , Chainweb.BlockHeaderDB.PruneForks
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
-        , Chainweb.BlockHeaderDB.Types
         , Chainweb.BlockHeight
         , Chainweb.BlockWeight
         , Chainweb.ChainId
