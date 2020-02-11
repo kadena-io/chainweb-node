@@ -100,7 +100,7 @@ import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (sshow, encodeToByteString)
 import Chainweb.Version as V
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
@@ -258,16 +258,26 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     forkTime = vuln797FixDate v
     fork1_3InEffect = blockTime >= forkTime
     throwCritical = fork1_3InEffect || enfCBFailure
+
     blockTime = blockTimeOf pd
-        -- FIXME check and point out that it holds that @blockTime == _blockCreationTime parentHeader@
+        -- FIXME it should hold that @blockTime == _blockCreationTime parentHeader@, but
+        -- in some unit test runs that is not the case
+
     bh = fromIntegral $ _pdBlockHeight pd
+
     cid = V._chainId parentHeader
+        -- FIXME it should hold that
+        -- @cid == unsafeFromText $ P._chainId $ _pmChainId $ _pdPublicMeta pd@
+        -- but in some unit test runs that is not the case. The chain id in public data is empty.
+
+    chash = Pact.Hash $ encodeToByteString $ _blockHash parentHeader
+        -- FIXME ceck that @ _pdPrevBlockHash pd == encode _blockHash@
+        -- FIXME chash includes the quoted text of the parent header. Is that correct?
 
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
            Nothing 0.0 rk 0 restrictiveExecutionConfig
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
-    chash = Pact.Hash (sshow $ _blockHash parentHeader)
     rk = RequestKey chash
 
     go interp cexec = evalTransactionM tenv txst $! do
