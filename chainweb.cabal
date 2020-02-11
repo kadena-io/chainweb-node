@@ -161,7 +161,6 @@ library
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
-        , Chainweb.CutDB.Types
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
