@@ -676,7 +676,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -695,9 +695,6 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
-        Standalone
-        Standalone.Chainweb
-        Standalone.Utils
         TXG
         TXG.Repl
         TXG.ReplInternals
