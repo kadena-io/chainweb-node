@@ -6,9 +6,9 @@ signers:
 networkId: mainnet01
 nonce: install-util-guard-mainnet
 publicMeta:
-  #chainId:
-  #sender:
+  chainId: #chainId
+  sender: 8cc8da8ea7cbfaf6510dbc5f402b025dceaa9a3eaf7145e0ba933d468b63d358
   gasLimit: 600
   gasPrice: 0.0000000001
-  #creationTime:
-  ttl: 28800
+  creationTime: 1581549642
+  ttl: 150000
