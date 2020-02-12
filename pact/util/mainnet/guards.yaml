@@ -1,0 +1,5 @@
+type: exec
+codeFile: ../guards.pact
+signers: []
+networkId: mainnet01
+nonce: install-util-guard-mainnet
