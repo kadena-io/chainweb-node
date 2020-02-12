@@ -1,12 +1,11 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -41,6 +40,7 @@ module Chainweb.Sync.WebBlockHeaderStore
 ) where
 
 import Control.Concurrent.Async
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -62,13 +62,12 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeader.Validation
-import Chainweb.BlockHeaderDB.Types
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Client
-import Chainweb.Sync.WebBlockHeaderStore.Types
 import Chainweb.Time
 import Chainweb.TreeDB
 import qualified Chainweb.TreeDB as TDB
@@ -87,6 +86,89 @@ import P2P.Peer
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
+
+-- -------------------------------------------------------------------------- --
+-- Tag Values With a ChainId
+
+data ChainValue a = ChainValue !ChainId !a
+    deriving (Show, Eq, Ord, Generic)
+    deriving (Functor, Foldable, Traversable)
+    deriving anyclass (NFData, Hashable)
+
+instance TraversableWithIndex ChainId ChainValue where
+  itraverse f (ChainValue cid v) = ChainValue cid <$> f cid v
+  {-# INLINE itraverse #-}
+
+instance FoldableWithIndex ChainId ChainValue
+instance FunctorWithIndex ChainId ChainValue
+
+instance IsCasValue a => IsCasValue (ChainValue a) where
+    type CasKeyType (ChainValue a) = ChainValue (CasKeyType a)
+    casKey (ChainValue cid a) = ChainValue cid (casKey a)
+    {-# INLINE casKey #-}
+
+instance HasChainId (ChainValue a) where
+    _chainId (ChainValue cid _) = cid
+    {-# INLINE _chainId #-}
+
+-- -------------------------------------------------------------------------- --
+-- Append Only CAS for WebBlockHeaderDb
+
+newtype WebBlockHeaderCas = WebBlockHeaderCas WebBlockHeaderDb
+
+instance HasChainwebVersion WebBlockHeaderCas where
+    _chainwebVersion (WebBlockHeaderCas db) = _chainwebVersion db
+    {-# INLINE _chainwebVersion #-}
+
+-- -------------------------------------------------------------------------- --
+-- Obtain and Validate Block Payloads
+
+data WebBlockPayloadStore cas = WebBlockPayloadStore
+    { _webBlockPayloadStoreCas :: !(PayloadDb cas)
+        -- ^ Cas for storing complete payload data including outputs.
+    , _webBlockPayloadStoreMemo :: !(TaskMap BlockPayloadHash PayloadData)
+        -- ^ Internal memo table for active tasks
+    , _webBlockPayloadStoreQueue :: !(PQueue (Task ClientEnv PayloadData))
+        -- ^ task queue for scheduling tasks with the task server
+    , _webBlockPayloadStoreLogFunction :: !LogFunction
+        -- ^ LogFunction
+    , _webBlockPayloadStoreMgr :: !HTTP.Manager
+        -- ^ Manager object for making HTTP requests
+    , _webBlockPayloadStorePact :: !WebPactExecutionService
+        -- ^ handle to the pact execution service for validating transactions
+        -- and computing outputs.
+    }
+
+-- -------------------------------------------------------------------------- --
+-- WebBlockHeaderStore
+
+-- | In order to use this a processor for the queue is needed.
+--
+-- The module P2P.TaskQueue provides a P2P session that serves the queue.
+--
+-- TODO
+--
+-- * Find a better name
+-- * Parameterize in cas
+-- * This is currently based on TreeDB (for API) and BlockHeaderDB, it
+--   would be possible to run this on top of any CAS and API that offers
+--   a simple GET.
+--
+data WebBlockHeaderStore = WebBlockHeaderStore
+    { _webBlockHeaderStoreCas :: !WebBlockHeaderDb
+    , _webBlockHeaderStoreMemo :: !(TaskMap (ChainValue BlockHash) (ChainValue BlockHeader))
+    , _webBlockHeaderStoreQueue :: !(PQueue (Task ClientEnv (ChainValue BlockHeader)))
+    , _webBlockHeaderStoreLogFunction :: !LogFunction
+    , _webBlockHeaderStoreMgr :: !HTTP.Manager
+    }
+
+instance HasChainwebVersion WebBlockHeaderStore where
+    _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph WebBlockHeaderStore where
+    _chainGraph = _chainGraph . _webBlockHeaderStoreCas
+    {-# INLINE _chainGraph #-}
 
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap
@@ -174,7 +256,7 @@ getBlockPayload s candidateStore priority maybeOrigin h = do
         runClientM (payloadClient v cid k) originEnv >>= \case
             (Right !x) -> do
                 logfun Debug $ taskMsg k "received from origin"
-                return $! Just x
+                return $ Just x
             Left (e :: ClientError) -> do
                 logfun Debug $ taskMsg k $ "failed to receive from origin: " <> sshow e
                 return Nothing
@@ -232,14 +314,14 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- - task queue of P2P network
         --
         (maybeOrigin', header) <- casLookup candidateHeaderCas k' >>= \case
-            Just !x -> return $! (maybeOrigin, x)
+            Just !x -> return (maybeOrigin, x)
             Nothing -> pullOrigin k maybeOrigin >>= \case
                 Nothing -> do
                     t <- queryBlockHeaderTask k
                     pQueueInsert queue t
                     (ChainValue _ !x) <- awaitTask t
-                    return $! (Nothing, x)
-                (Just !x) -> return $! (maybeOrigin, x)
+                    return (Nothing, x)
+                (Just !x) -> return (maybeOrigin, x)
 
         -- Check that the chain id is correct. The candidate cas is indexed just
         -- by the block hash. So, if this fails it is most likely a bug in code
@@ -332,7 +414,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         validateAndInsertPayload header p `catch` \(e :: SomeException) -> do
             logg Warn $ taskMsg k $ "getBlockHeaderInternal pact validation for " <> sshow h <> " failed with :" <> sshow e
             throwM e
-        logg Debug $ taskMsg k $ "getBlockHeaderInternal pact validation succeeded"
+        logg Debug $ taskMsg k "getBlockHeaderInternal pact validation succeeded"
 
         logg Debug $ taskMsg k $ "getBlockHeaderInternal return header " <> sshow h
         return $! chainValue header
@@ -369,7 +451,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
 
     queryBlockHeaderTask ck@(ChainValue cid k)
         = newTask (sshow ck) priority $ \l env -> chainValue <$> do
-            l @T.Text Debug $ taskMsg ck $ "query remote block header"
+            l @T.Text Debug $ taskMsg ck "query remote block header"
             !r <- TDB.lookupM (rDb v cid env) k `catchAllSynchronous` \e -> do
                 l @T.Text Debug $ taskMsg ck $ "failed: " <> sshow e
                 throwM e
@@ -390,7 +472,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         return Nothing
     pullOrigin ck@(ChainValue cid k) (Just origin) = do
         let originEnv = peerInfoClientEnv mgr origin
-        logg Debug $ taskMsg ck $ "lookup origin"
+        logg Debug $ taskMsg ck "lookup origin"
         !r <- TDB.lookup (rDb v cid originEnv) k
         logg Debug $ taskMsg ck "received from origin"
         return r

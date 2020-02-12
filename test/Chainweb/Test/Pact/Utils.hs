@@ -153,7 +153,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
 import qualified Chainweb.Version as Version
-import Chainweb.WebBlockHeaderDB.Types
+import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 -- ----------------------------------------------------------------------- --
@@ -259,7 +259,7 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap _ = id
 
 adminData :: IO (Maybe Value)
-adminData = fmap k $ testKeyPairs sender00KeyPair Nothing
+adminData = k <$> testKeyPairs sender00KeyPair Nothing
   where
     k ks = Just $ object
         [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
@@ -296,8 +296,8 @@ mkTestExecTransactions
     -> Vector PactTransaction
       -- ^ the pact transactions with data to run
     -> IO (Vector ChainwebTransaction)
-mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
-    fmap snd $ foldM go (0 :: Int, mempty) txs
+mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs =
+    snd <$> foldM go (0 :: Int, mempty) txs
   where
     go (!n,acc) (PactTransaction c d) = do
       let dd = mergeObjects (toList d)
@@ -312,7 +312,7 @@ mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs = do
             -- r = fmap (k t) $ SB.toShort <$> cmd
             r = mkPayloadWithText <$> t
             -- order matters for these tests
-          in return $ (succ n, Vector.snoc acc r)
+          in return (succ n, Vector.snoc acc r)
         ProcFail e -> throwM $ userError e
 
     -- k t bs = PayloadWithText bs (_cmdPayload t)
@@ -355,11 +355,8 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
 
     cmd <- mkCommand ks pm nonce Nothing msg
     case verifyCommand cmd of
-      -- ProcSucc t -> return $ Vector.singleton $ fmap (k t) (SB.toShort <$> cmd)
       ProcSucc t -> return $ Vector.singleton $ mkPayloadWithText <$> t
       ProcFail e -> throwM $ userError e
-  where
-    -- k t bs = PayloadWithText bs (_cmdPayload t)
 
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def
@@ -371,7 +368,7 @@ pactTestLogger showAll = initLoggers putStrLn f def
     f a b c d = doLog a b c d
 
 mkCoinSig :: Text -> [PactValue] -> SigCapability
-mkCoinSig n ps = SigCapability (QualifiedName (ModuleName "coin" Nothing) n def) ps
+mkCoinSig n = SigCapability (QualifiedName (ModuleName "coin" Nothing) n def)
 
 -- -------------------------------------------------------------------------- --
 -- Test Pact Execution Context
@@ -511,7 +508,7 @@ testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
   where
     mkPact (sqlenv, c) = do
         webdb <- webdbIO
-        let bhdbs = _webBlockHeaderDb webdb
+        let bhdbs = view webBlockHeaderDb webdb
         let bhdb = fromJuste $ HM.lookup c bhdbs
         let bhdbIO = return bhdb
         (c,) <$> testPactExecutionService v c bhdbIO pdbIO (mempoolAccess c) sqlenv
@@ -544,7 +541,7 @@ initializeSQLite = do
       case e of
         Left (_err, _msg) ->
           internalError "initializeSQLite: A connection could not be opened."
-        Right r ->  return $ (del, SQLiteEnv r (SQLiteConfig file chainwebPragmas))
+        Right r ->  return (del, SQLiteEnv r (SQLiteConfig file chainwebPragmas))
 
 freeSQLiteResource :: (IO (), SQLiteEnv) -> IO ()
 freeSQLiteResource (del,sqlenv) = do
@@ -564,7 +561,7 @@ withPactCtxSQLite
 withPactCtxSQLite v bhdbIO pdbIO gasModel f =
   withResource
     initializeSQLite
-    freeSQLiteResource $ \io -> do
+    freeSQLiteResource $ \io ->
       withResource (start io) (destroy io) $ \ctxIO -> f $ \toPact -> do
           (ctx, dbSt) <- ctxIO
           evalPactServiceM_ ctx (toPact dbSt)

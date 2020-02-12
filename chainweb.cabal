@@ -138,10 +138,11 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet9Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
+        , Chainweb.BlockHeaderDB.Internal
+        , Chainweb.BlockHeaderDB.PruneForks
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
-        , Chainweb.BlockHeaderDB.Types
         , Chainweb.BlockHeight
         , Chainweb.BlockWeight
         , Chainweb.ChainId
@@ -160,7 +161,6 @@ library
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
-        , Chainweb.CutDB.Types
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
@@ -192,7 +192,6 @@ library
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
         , Chainweb.Payload.PayloadStore.RocksDB
-        , Chainweb.Payload.PayloadStore.Types
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
@@ -213,7 +212,6 @@ library
         , Chainweb.Store.CAS.FS
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Sync.WebBlockHeaderStore.Test
-        , Chainweb.Sync.WebBlockHeaderStore.Types
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
@@ -227,9 +225,7 @@ library
         , Chainweb.Utils.Watchdog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
-        , Chainweb.WebBlockHeaderDB.Types
         , Chainweb.WebPactExecutionService
-        , Chainweb.WebPactExecutionService.Types
 
         , Control.Concurrent.FixedThreadPool
 
@@ -362,7 +358,7 @@ library
         , mwc-random >= 0.13
         , mwc-probability >= 2.0 && <2.2
         , neat-interpolation >= 0.3.2
-        , network >= 2.6
+        , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
         , pact >= 2.6
         , paths >= 0.2
@@ -510,7 +506,7 @@ test-suite chainweb-tests
         , loglevel >= 0.1
         , mtl >= 2.2
         , neat-interpolation >= 0.3
-        , network >= 2.6
+        , network >= 2.6 && < 3.1.1
         , http-client-tls >=0.3
         , pact >= 2.6
         , paths >= 0.2
@@ -689,7 +685,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -708,9 +704,6 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
-        Standalone
-        Standalone.Chainweb
-        Standalone.Utils
         TXG
         TXG.Repl
         TXG.ReplInternals
@@ -770,7 +763,7 @@ executable cwtool
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
-        , network >= 2.6
+        , network >= 2.6 && < 3.1.1
         , nonempty-containers >= 0.1
         , optparse-applicative >= 0.14
         , pact >= 2.6

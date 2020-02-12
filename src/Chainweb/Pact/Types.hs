@@ -142,7 +142,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils

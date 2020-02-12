@@ -31,7 +31,7 @@ import Pact.Types.Gas
 import Pact.Types.RPC
 import Pact.Types.Term
 
-import Chainweb.BlockHeader
+import Chainweb.BlockCreationTime
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Utils
 import Chainweb.Time

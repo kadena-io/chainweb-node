@@ -77,7 +77,7 @@ import Chainweb.Graph
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
