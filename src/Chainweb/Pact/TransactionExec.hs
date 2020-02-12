@@ -143,15 +143,16 @@ applyCmd
       -- ^ command with payload to execute
     -> ModuleCache
       -- ^ cached module state
-    -> Bool
+    -> [ExecutionFlag]
       -- ^ execution config for module install
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
+applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMods =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
-    executionConfigNoHistory = ExecutionConfig ecMod False
+    executionConfigNoHistory = ExecutionConfig
+      (S.fromList (ecMods <> [FlagDisableHistoryInTransactionalMode]))
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
@@ -405,10 +406,13 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
       l <- view txLogger
       liftIO $! logLog l "INFO" $! T.unpack s
 
+    enableModuleInstall e = set (txExecutionConfig . ecFlags) configWithModuleInstallEnabled e
+      where configWithModuleInstallEnabled = S.delete FlagDisableModuleInstall (_ecFlags $ _txExecutionConfig e)
+
     applyTxs txsIO = do
       infoLog $ "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
-      local (set (txExecutionConfig . ecAllowModuleInstall) True) $
+      local enableModuleInstall $
         mapM_ applyTx txs
       mc <- use txCache
       return $ Just mc
@@ -581,7 +585,7 @@ buyGas cmd (Miner mid mks) = go
     initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
-      findPayer >>= \r -> case r of
+      (findPayer cmd) >>= \r -> case r of
         Nothing -> input
         Just withPayerCap -> withPayerCap input
 
@@ -603,13 +607,17 @@ buyGas cmd (Miner mid mks) = go
         Nothing -> fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
 
-findPayer :: Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
-findPayer = runMaybeT $ do
+findPayer
+  :: Command (Payload PublicMeta ParsedCode)
+  -> Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
+findPayer cmd = runMaybeT $ do
     (!m,!qn,!as) <- MaybeT findPayerCap
     pMod <- MaybeT $ lookupModule qn m
     capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
     return $ runCap (getInfo qn) capRef as
   where
+    setEnvMsgBody v e = set eeMsgBody v e
+
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
@@ -626,7 +634,10 @@ findPayer = runMaybeT $ do
     mkApp i r as = App (TVar r i) (map (liftTerm . fromPactValue) as) i
 
     runCap i capRef as input = do
-      ar <- evalCap i CapCallStack False $ mkApp i capRef as
+      msgBody <- enrichedMsgBody cmd
+      ar <- local (setEnvMsgBody msgBody) $
+        evalCap i CapCallStack False $ mkApp i capRef as
+
       case ar of
         NewlyAcquired -> do
           r <- input
@@ -634,6 +645,34 @@ findPayer = runMaybeT $ do
           return r
         _ -> evalError' i "Internal error, GAS_PAYER already acquired"
 
+enrichedMsgBody :: Command (Payload PublicMeta ParsedCode) -> Eval e Value
+enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
+  Exec (ExecMsg (ParsedCode _ exps) _) -> return $
+    object [ "tx-type" A..= ( "exec" :: Text)
+           , "exec-code" A..= map renderCompactText exps --TODO should we do both?
+           , "exec-exprs" A..= map renderExp exps ]
+  Continuation _ -> do
+    s <- get
+    let pactExecData = case (_evalPactExec s) of
+          Nothing -> object []
+          Just pe -> toJSON pe
+    return $
+      object [ "tx-type" A..= ("cont" :: Text)
+             , "cont-data" A..= pactExecData ]
+  where
+    renderExp e = case e of
+      ELiteral (LiteralExp l _) ->
+        object [ "type" A..= ("literal" :: Text)
+               , "expr" A..= toJSON l ]
+      EAtom ae ->
+        object [ "type" A..= ("atom" :: Text)
+               , "expr" A..= (toJSON $ renderCompactText ae) ]
+      EList (ListExp li _ _) ->
+        object [ "type" A..= ("list" :: Text)
+               , "expr" A..= (toJSON (map renderExp li)) ]
+      ESeparator se ->
+        object [ "type" A..= ("seperator" :: Text)
+               , "expr" A..= (toJSON $ renderCompactText se) ]
 
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')
