@@ -105,10 +105,12 @@ import Pact.Types.Term (Term(..))
 ------------------------------------------------------------------------------
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -116,6 +118,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -226,9 +229,11 @@ initPactService
     -> PayloadDb cas
     -> SQLiteEnv
     -> Word64
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
-    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit revalidate =
+    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit revalidate $ do
         initialPayloadState chainwebLogger ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
@@ -242,9 +247,11 @@ initPactService'
     -> PayloadDb cas
     -> SQLiteEnv
     -> Word64
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit revalidate act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
         !gasModel = officialGasModel
@@ -260,6 +267,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psReorgLimit = reorgLimit
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
+                , _psValidateHashesOnReplay = revalidate
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
@@ -375,7 +383,7 @@ serviceRequests logFn memPoolAccess reqQ = do
                 trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
                     (length txs) $
                     tryOne "execPreInsertCheckReq" resultVar $
-                    fmap (V.map (() <$)) $ execPreInsertCheckReq txs
+                    V.map (() <$) <$> execPreInsertCheckReq txs
                 go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
@@ -385,7 +393,7 @@ serviceRequests logFn memPoolAccess reqQ = do
         -> MVar (Either PactException a)
         -> PactServiceM cas a
         -> PactServiceM cas ()
-    tryOne which mvar m = tryOne' which mvar Right m
+    tryOne which mvar = tryOne' which mvar Right
 
     tryOne'
         :: String
@@ -511,9 +519,9 @@ validateHashes bHeader pData miner transactions =
       check desc extra expect actual
         | expect == actual = []
         | otherwise =
-          [A.object $ [ "mismatch" A..= errorMsg desc expect actual ] ++ extra]
+          [A.object $ "mismatch" A..= errorMsg desc expect actual :  extra]
 
-      errorMsg desc expect actual = A.object $
+      errorMsg desc expect actual = A.object
         [ "type" A..= (desc :: Text)
         , "actual" A..= actual
         , "expected" A..= expect
@@ -536,7 +544,7 @@ validateHashes bHeader pData miner transactions =
         ]
 
       toPairCR cr = over (P.crLogs . _Just)
-        (\l -> CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr)) l) cr
+        (CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr))) cr
 
       details = concat
         [ check "Miner" [] prevMiner newMiner
@@ -716,11 +724,11 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
       found <- _cpLookupProcessedTx cp (P._cmdHash t)
       case found of
         Nothing -> pure $ Right t
-        Just _ -> pure $ Left $ InsertErrorDuplicate
+        Just _ -> pure $ Left InsertErrorDuplicate
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t | timingsCheck blockOriginationTime $ fmap payloadObj t = return $ Right t
-                 | otherwise = return $ (Left InsertErrorInvalidTime)
+                 | otherwise = return $ Left InsertErrorInvalidTime
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs
@@ -744,7 +752,7 @@ checkCompile allowModuleInstall tx = case payload of
     payload = P._pPayload $ payloadObj $ P._cmdPayload tx
     compileCode p =
       compileExps (mkTextInfo (P._pcCode p)) (P._pcExps p)
-    bailOnModule (TModule {}) _ = Left $ InsertErrorCompilationFailed "Module/interface install not supported"
+    bailOnModule TModule {} _ = Left $ InsertErrorCompilationFailed "Module/interface install not supported"
     bailOnModule _ b =  b
 
 skipDebitGas :: RunGas
@@ -807,7 +815,7 @@ minerReward
     -> BlockHeight
     -> IO P.ParsedDecimal
 minerReward (MinerRewards rs q) bh =
-    case V.find ((<=) bh) q of
+    case V.find (bh <=) q of
       Nothing -> err
       Just h -> case HM.lookup h rs of
         Nothing -> err
@@ -838,8 +846,8 @@ withEnableUserContracts'
        -- ^ block header for chainweb version
     -> PactServiceM cas a
     -> PactServiceM cas a
-withEnableUserContracts' isGenesis creationTime bh act =
-    locally psEnableUserContracts (const allowModules) act
+withEnableUserContracts' isGenesis creationTime bh =
+    locally psEnableUserContracts (const allowModules)
   where
     allowModules = checkEnableUserContracts isGenesis creationTime (_blockChainwebVersion bh)
 
@@ -897,7 +905,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
           runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
               runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs = do
+          validate bhi _bha txs =
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
             -- which we determined was unnecessary and was a db hit
@@ -1023,7 +1031,7 @@ logDebug = logg "DEBUG"
 setBlockData :: BlockHeader -> PactServiceM cas ()
 setBlockData bh = do
     psBlockHeight .= succ (_blockHeight bh)
-    psBlockTime .= (_blockCreationTime bh)
+    psBlockTime .= _blockCreationTime bh
     psParentHash .= (Just $ _blockParent bh)
 
     bdb <- view psBlockHeaderDb
@@ -1059,6 +1067,11 @@ playOneBlock currHeader plData pdbenv = do
     -- transactions are now successfully validated.
     !results <- go miner trans
     psStateValidated .= Just currHeader
+
+    -- Validate hashes if requested
+    asks _psValidateHashesOnReplay >>= \x -> when x $
+        either throwM (void . return) $!
+        validateHashes currHeader plData miner results
 
     return $! T2 miner results
 
@@ -1106,7 +1119,7 @@ rewindTo
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
     -> PactServiceM cas ()
-rewindTo rewindLimit mb = maybe rewindGenesis doRewind mb
+rewindTo rewindLimit = maybe rewindGenesis doRewind
   where
     rewindGenesis = return ()
     doRewind (reqHeight, parentHash) = do
@@ -1225,11 +1238,9 @@ execTransactions nonGenesisParentHeaderCurrCreate miner ctxs enfCBFail usePrecom
     mc <- use psInitCache
     coinOut <- runCoinbase nonGenesisParentHeaderCurrCreate pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
-    return $! Transactions (paired txOuts) coinOut
+    return $! Transactions (V.zip ctxs txOuts) coinOut
   where
     !isGenesis = isNothing nonGenesisParentHeaderCurrCreate
-    paired outs = V.zip ctxs outs
-
 
 runCoinbase
     :: Maybe (BlockHeader,BlockCreationTime)
@@ -1251,14 +1262,14 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
     reward <- liftIO $! minerReward rs bh
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
-    void $ traverse upgradeInitCache upgradedCacheM
+    mapM_ upgradeInitCache upgradedCacheM
 
     return $! cr
 
   where
 
     upgradeInitCache newCache = do
-      logInfo $ "Updating init cache for upgrade"
+      logInfo "Updating init cache for upgrade"
       psInitCache %= HM.union newCache
 
 
@@ -1324,7 +1335,7 @@ transactionsFromPayload plData = do
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
-            <> (T.intercalate ". " ls)
+            <> T.intercalate ". " ls
     return $! V.fromList theRights
   where
     toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
@@ -1366,7 +1377,7 @@ execLookupPactTxs restorePoint txs
       NoRewind _ ->
         liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
       DoRewind bh -> do
-        let !t = Just $! (_blockHeight bh + 1,_blockHash bh)
+        let !t = Just (_blockHeight bh + 1, _blockHash bh)
         withCheckpointerRewind t "lookupPactTxs" $ \_ ->
           liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
@@ -1400,7 +1411,7 @@ freeModuleLoadGasModel = modifiedGasModel
     defGasModel = tableGasModel defaultGasConfig
     fullRunFunction = P.runGasModel defGasModel
     modifiedRunFunction name ga = case ga of
-      P.GPostRead (P.ReadModule {}) -> 0
+      P.GPostRead P.ReadModule {} -> 0
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 

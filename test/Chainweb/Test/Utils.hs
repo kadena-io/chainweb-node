@@ -144,12 +144,15 @@ import Text.Printf (printf)
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Logger (Logger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
@@ -356,7 +359,7 @@ header h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart h t'
-            :+: FeatureFlags 0
+            :+: mkFeatureFlags
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h

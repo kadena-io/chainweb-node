@@ -120,11 +120,12 @@ import System.Timeout
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
-import Chainweb.CutDB.Types
 import Chainweb.Graph
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
@@ -210,6 +211,29 @@ cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
         (runGet $ (,,) <$> decodeBlockHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
 
+-- -------------------------------------------------------------------------- --
+-- Cut DB
+
+-- | This is a singleton DB that contains the latest chainweb cut as only entry.
+--
+data CutDb cas = CutDb
+    { _cutDbCut :: !(TVar Cut)
+    , _cutDbQueue :: !(PQueue (Down CutHashes))
+    , _cutDbAsync :: !(Async ())
+    , _cutDbLogFunction :: !LogFunction
+    , _cutDbHeaderStore :: !WebBlockHeaderStore
+    , _cutDbPayloadStore :: !(WebBlockPayloadStore cas)
+    , _cutDbQueueSize :: !Natural
+    , _cutDbStore :: !(RocksDbCas CutHashes)
+    }
+
+instance HasChainGraph (CutDb cas) where
+    _chainGraph = _chainGraph . _cutDbHeaderStore
+    {-# INLINE _chainGraph #-}
+
+instance HasChainwebVersion (CutDb cas) where
+    _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
+    {-# INLINE _chainwebVersion #-}
 cutDbPayloadCas :: Getter (CutDb cas) (PayloadDb cas)
 cutDbPayloadCas = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
 {-# INLINE cutDbPayloadCas #-}
@@ -406,8 +430,8 @@ lookupCutHashes
     :: WebBlockHeaderDb
     -> CutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
-lookupCutHashes wbhdb hs = do
-    flip itraverse (_cutHashes hs) $ \cid (_, h) -> do
+lookupCutHashes wbhdb hs =
+    flip itraverse (_cutHashes hs) $ \cid (_, h) ->
         give wbhdb $ lookupWebBlockHeaderDb cid h
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
@@ -431,12 +455,12 @@ processCuts
     -> TVar Cut
     -> IO ()
 processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = queueToStream
-    & S.chain (\c -> loggc Debug c $ "start processing")
+    & S.chain (\c -> loggc Debug c "start processing")
     & S.filterM (fmap not . isVeryOld)
     & S.filterM (fmap not . farAhead)
     & S.filterM (fmap not . isOld)
     & S.filterM (fmap not . isCurrent)
-    & S.chain (\c -> loggc Debug c $ "fetch all prerequesites")
+    & S.chain (\c -> loggc Debug c "fetch all prerequesites")
     & S.mapM (cutHashesToBlockHeaderMap conf logFun headerStore payloadStore)
     & S.chain (either
         (\(T2 hsid c) -> loggc Warn hsid $ "failed to get prerequesites for some blocks. Missing: " <> encodeToText c)
@@ -582,7 +606,7 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
 
     toOrd :: Either BlockHeader BlockHeader -> Int
     toOrd (Right a) = int $ uniqueBlockNumber a
-    toOrd (Left a) = 0 - int (uniqueBlockNumber a)
+    toOrd (Left a) = negate $ int (uniqueBlockNumber a)
 
 -- | Assign each block a unique number that respects the order of blocks in a
 -- chain:
@@ -591,7 +615,7 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
 --
 uniqueBlockNumber :: BlockHeader -> Natural
 uniqueBlockNumber bh
-    = chainIdInt (_chainId bh) + (int $ _blockHeight bh) * (order $ _chainGraph bh)
+    = chainIdInt (_chainId bh) + int (_blockHeight bh) * order (_chainGraph bh)
 
 blockStream :: MonadIO m => CutDb cas -> S.Stream (Of BlockHeader) m r
 blockStream db = cutStreamToHeaderStream db $ cutStream db

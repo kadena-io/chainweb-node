@@ -111,6 +111,7 @@ import Pact.Types.Runtime
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Transaction
 
@@ -127,7 +128,7 @@ makeLenses ''PactDbEnvPersist
 
 data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
 
-data PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
+newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
 
 makeLenses ''PactDbState
 

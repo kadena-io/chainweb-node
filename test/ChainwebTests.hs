@@ -34,6 +34,7 @@ import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.ChainData
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
+import qualified Chainweb.Test.Pact.NoCoinbase
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactReplay
@@ -64,7 +65,7 @@ import qualified P2P.TaskQueue.Test (properties)
 main :: IO ()
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db -> do
+    withToyDB rdb toyChainId $ \h0 db ->
         defaultMain
             $ adjustOption adj
             $ testGroup "Chainweb Tests" . schedule Sequential
@@ -91,6 +92,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.ModuleCacheOnRestart.tests
         , Chainweb.Test.Pact.TTL.tests
         , Chainweb.Test.Pact.RewardsTest.tests
+        , Chainweb.Test.Pact.NoCoinbase.tests
         ]
 
 suite :: RocksDb -> [ScheduledTest]

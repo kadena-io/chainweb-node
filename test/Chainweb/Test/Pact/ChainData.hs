@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- {-# OPTIONS_GHC -fno-warn-unused-imports #-}
@@ -17,7 +16,6 @@ import Control.Monad.State
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.IORef
-import Data.List (foldl')
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
@@ -34,10 +32,12 @@ import Pact.ApiReq
 
 -- chainweb imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
@@ -47,7 +47,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -87,8 +87,7 @@ chainDataTest t time =
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
     withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir 100000
-        (testCase ("chain-data." <> T.unpack t) .
-         run genblock pdb bhdb)
+        (testCase ("chain-data." <> T.unpack t) . run genblock pdb bhdb)
   where
     genblock = genesisBlockHeader testVer testChainId
 
@@ -108,13 +107,13 @@ getTestBlock t txOrigTime _validate _bh _hash = do
     let nonce = (<> t) . T.pack . show @(Time Integer) $ txOrigTime
     txs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10000 0.00000000001 3600 (toTxCreationTime txOrigTime) tx
     oks <- _validate _bh _hash txs
-    when (not $ V.and oks) $ do
-        fail $ mconcat [ "tx failed validation! input list: \n"
-                       , show tx
-                       , "\n\nouttxs: "
-                       , show txs
-                       , "\n\noks: "
-                       , show oks ]
+    unless (V.and oks) $ fail $ mconcat
+        [ "tx failed validation! input list: \n"
+        , show tx
+        , "\n\nouttxs: "
+        , show txs
+        , "\n\noks: "
+        , show oks ]
     return txs
   where
     code = "(at \"" <> t <> "\" (chain-data))"
@@ -126,7 +125,7 @@ getTestBlock t txOrigTime _validate _bh _hash = do
 run
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 run genesisBlock iopdb iobhdb rr = do
@@ -237,5 +236,4 @@ testMemPoolAccess t iotime = mempty
     -- tx origination times needed to be unique to ensure that the corresponding
     -- tx hashes are also unique.
     f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f b = add (scaleTimeSpan b millisecond)

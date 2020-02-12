@@ -69,6 +69,7 @@ module Chainweb.Pact.Types
   , psReorgLimit
   , psOnFatalError
   , psVersion
+  , psValidateHashesOnReplay
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -134,13 +135,15 @@ import Pact.Types.Term (PactId(..), Ref)
 
 -- internal chainweb modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
@@ -308,6 +311,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
+    , _psValidateHashesOnReplay :: !Bool
     }
 makeLenses ''PactServiceEnv
 

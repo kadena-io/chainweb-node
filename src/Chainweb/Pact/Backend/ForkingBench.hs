@@ -82,10 +82,12 @@ import Pact.Types.Util hiding (unwrap)
 
 -- chainweb imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Logger
@@ -97,7 +99,7 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -348,7 +350,8 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
 
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- atomically $ newTBQueue pactQueueSize
-        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv 100000
+        let bePedantic = False
+        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv 100000 bePedantic
         return (a, reqQ)
 
     stopPact (a, _) = cancel a
