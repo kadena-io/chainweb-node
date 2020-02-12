@@ -109,6 +109,7 @@ import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error)
 import Data.HashMap.Strict (HashMap)
+import qualified Data.Set as S
 import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
@@ -127,7 +128,7 @@ import Pact.Types.Gas
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData)
+import Pact.Types.Runtime (ExecutionFlag(..), ExecutionConfig(..), ModuleData)
 import Pact.Types.SPV
 import Pact.Types.Term (PactId(..), Ref)
 
@@ -158,16 +159,27 @@ data PactDbStatePersist = PactDbStatePersist
     }
 makeLenses ''PactDbStatePersist
 
+{-- TODO delete after PR Review
+data ExecutionConfig = ExecutionConfig
+  { _ecAllowModuleInstall :: Bool
+  -- ^ Permit 'module' and 'interface' actions.
+  , _ecAllowHistoryInTx :: Bool
+  -- ^ Allow database history actions in non-local execution.
+  } deriving (Eq,Show)
+--}
+
 -- | No installs or history
 restrictiveExecutionConfig :: ExecutionConfig
-restrictiveExecutionConfig = ExecutionConfig False False
+restrictiveExecutionConfig = ExecutionConfig
+  (S.fromList [FlagDisableModuleInstall, FlagDisableHistoryInTransactionalMode])
 
 permissiveExecutionConfig :: ExecutionConfig
-permissiveExecutionConfig = ExecutionConfig True True
+permissiveExecutionConfig = ExecutionConfig (S.fromList [])
 
 -- | Only allow installs
 justInstallsExecutionConfig :: ExecutionConfig
-justInstallsExecutionConfig = ExecutionConfig True False
+justInstallsExecutionConfig = ExecutionConfig
+  (S.fromList [FlagDisableHistoryInTransactionalMode])
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils

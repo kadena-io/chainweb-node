@@ -55,6 +55,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 
 import qualified Data.Aeson as A
+import Data.Bool (bool)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
@@ -1288,7 +1289,8 @@ applyPactCmd
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     logger <- view (psCheckpointEnv . cpeLogger)
     gasModel <- view psGasModel
-    excfg <- view psEnableUserContracts
+    areUserContractsEnabled <- view psEnableUserContracts
+    let excfg = bool [P.FlagDisableModuleInstall] [] areUserContractsEnabled
 
     T2 result mcache' <- if isGenesis
       then liftIO $! applyGenesisCmd logger dbEnv def P.noSPVSupport (payloadObj <$> cmdIn)
