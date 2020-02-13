@@ -876,6 +876,7 @@ execNewBlock mpAccess parentHeader miner = go
     newblockRewindLimit = Just 8
 
     parentCreationTime = _blockCreationTime parentHeader
+
     doPreBlock pdbenv = do
       cp <- getCheckpointer
       psEnv <- ask
