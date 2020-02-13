@@ -73,6 +73,7 @@ import Chainweb.TreeDB
 import Chainweb.TreeDB.Validation
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.CAS

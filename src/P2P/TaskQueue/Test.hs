@@ -34,6 +34,7 @@ import Test.QuickCheck.Monadic
 -- internal modules
 
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import Data.PQueue
 

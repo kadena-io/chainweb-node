@@ -122,6 +122,7 @@ import Chainweb.Graph
 import Chainweb.MerkleUniverse
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import Data.Singletons
 

@@ -43,6 +43,7 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.Logger
 import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec)
+import Chainweb.Utils.Text
 
 import Data.CAS
 import Data.CAS.RocksDB

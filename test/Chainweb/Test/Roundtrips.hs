@@ -19,6 +19,8 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
+import Network.HostAddress
+
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.QuickCheck
@@ -33,7 +35,6 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
-import Chainweb.HostAddress
 import Chainweb.MerkleLogHash
 import Chainweb.NodeId
 import Chainweb.Payload
@@ -43,6 +44,7 @@ import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import P2P.Node

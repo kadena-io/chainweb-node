@@ -68,6 +68,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Utils (maxTTL)
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version (ChainwebVersion, transferActivationDate)
 
 ------------------------------------------------------------------------------

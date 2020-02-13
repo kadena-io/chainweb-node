@@ -50,7 +50,7 @@ import Test.QuickCheck
 
 -- internal imports
 
-import Chainweb.Utils
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb NodeId

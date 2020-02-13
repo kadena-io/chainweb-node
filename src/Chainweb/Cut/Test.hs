@@ -89,6 +89,7 @@ import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
 import Chainweb.Time (Micros(..), Time, getCurrentTimeIntegral, second)
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 

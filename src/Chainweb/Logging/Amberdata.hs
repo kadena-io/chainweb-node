@@ -48,9 +48,9 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 
-
 import GHC.Generics
 
+import Network.HostAddress
 import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
@@ -69,13 +69,13 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.CutDB
-import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.LogMessage

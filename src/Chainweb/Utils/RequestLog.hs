@@ -67,6 +67,7 @@ import System.LogLevel
 
 import Chainweb.Logger
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Request Logger

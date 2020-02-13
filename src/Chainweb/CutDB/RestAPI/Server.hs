@@ -38,6 +38,7 @@ import Data.IxSet.Typed
 import Data.Proxy
 import Data.Semigroup
 
+import Network.HostAddress
 import Network.Wai.Handler.Warp hiding (Port)
 
 import Servant.API
@@ -49,7 +50,6 @@ import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
-import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Utils

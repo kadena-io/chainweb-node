@@ -43,6 +43,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions

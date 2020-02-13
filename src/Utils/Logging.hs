@@ -141,6 +141,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.Utils hiding (check)
+import Chainweb.Utils.Text
 
 import Data.LogMessage
 

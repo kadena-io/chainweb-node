@@ -143,6 +143,7 @@ import qualified Data.Vector as V
 
 import GHC.Generics hiding (from)
 
+import Network.HostAddress
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket)
 import Network.Wai
@@ -174,7 +175,6 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.HostAddress
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMemTypes as Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
@@ -192,6 +192,7 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
@@ -332,8 +333,7 @@ instance HasChainGraph ChainwebConfiguration where
     {-# INLINE _chainGraph #-}
 
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
-validateChainwebConfiguration c = do
-    validateMinerConfig (_configMining c)
+validateChainwebConfiguration c = validateMinerConfig (_configMining c)
 
 defaultChainwebConfiguration :: ChainwebVersion -> ChainwebConfiguration
 defaultChainwebConfiguration v = ChainwebConfiguration

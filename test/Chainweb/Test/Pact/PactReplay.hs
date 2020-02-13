@@ -52,7 +52,8 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils (runGet, sshow)
+import Chainweb.Utils (runGet)
+import Chainweb.Utils.Text (sshow)
 import Chainweb.Version
 
 testVer :: ChainwebVersion

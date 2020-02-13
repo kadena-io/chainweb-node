@@ -31,13 +31,14 @@ import qualified Data.Text.Encoding as T
 
 import GHC.Generics
 
+import Network.HostAddress
 import qualified Network.HTTP.Client as HTTP
 
 -- internal modules
 
-import Chainweb.HostAddress
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --

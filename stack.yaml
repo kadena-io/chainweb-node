@@ -17,6 +17,7 @@ extra-deps:
   - random-strings-0.1.1.0
   - streaming-concurrency-0.3.1.3
   - streaming-with-0.2.2.1
+  - hostaddress-0.1.0.0
 
   # --- Transitive Pact Dependencies --- #
   - ed25519-donna-0.1.1
@@ -42,3 +43,11 @@ extra-deps:
 build:
   test-arguments:
     additional-args: ["--hide-successes", "--color", "never"]
+
+flags:
+  configuration-tools:
+    remote-configs: false
+  hostaddress:
+    with-aeson: true
+    with-configuration-tools: true
+    with-quickcheck: true

@@ -63,6 +63,7 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph (HasChainGraph(..), order)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), mkKeySet)

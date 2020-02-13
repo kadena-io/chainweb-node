@@ -87,6 +87,7 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- BlockHash

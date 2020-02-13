@@ -49,6 +49,7 @@ import qualified Data.Text.Encoding as T
 
 import Fake (fake, generate)
 
+import Network.HostAddress
 import Network.HTTP.Client hiding (Proxy, host)
 
 import Servant.API
@@ -78,9 +79,9 @@ import qualified Pact.Types.Hash as H
 -- CHAINWEB
 import Chainweb.ChainId
 import Chainweb.Graph
-import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import TXG.Simulate.Contracts.CoinContract

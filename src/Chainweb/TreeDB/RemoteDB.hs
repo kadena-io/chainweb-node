@@ -41,7 +41,7 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.ChainId (ChainId)
 import Chainweb.TreeDB
-import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Utils.Paging
 import Chainweb.Version (ChainwebVersion)
 

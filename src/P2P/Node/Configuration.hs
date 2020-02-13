@@ -51,6 +51,7 @@ import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
+import Chainweb.Utils.Text
 
 import P2P.Peer
 

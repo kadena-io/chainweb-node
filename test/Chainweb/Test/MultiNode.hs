@@ -60,6 +60,8 @@ import qualified Data.Text.IO as T
 
 import GHC.Generics
 
+import Network.HostAddress
+
 import Numeric.Natural
 
 import qualified Streaming.Prelude as S
@@ -81,7 +83,6 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
@@ -90,6 +91,7 @@ import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 

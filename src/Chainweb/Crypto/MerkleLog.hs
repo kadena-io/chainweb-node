@@ -188,6 +188,7 @@ import System.IO.Unsafe
 -- internal modules
 
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions

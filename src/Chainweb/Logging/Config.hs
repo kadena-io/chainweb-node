@@ -55,6 +55,7 @@ import Chainweb.Utils
 
 import Utils.Logging.Config
 import Utils.Logging
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Logging System Configuration

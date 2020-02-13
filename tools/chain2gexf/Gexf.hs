@@ -32,6 +32,8 @@ import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import qualified Data.Text as T
 
+import Network.HostAddress
+
 import Text.XML.Generator
 
 -- internal modules
@@ -41,9 +43,9 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockWeight
 import Chainweb.Difficulty
-import Chainweb.HostAddress
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import P2P.Node
 import P2P.Peer

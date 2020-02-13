@@ -6,7 +6,7 @@ module Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Version
 import Chainweb.Transaction
 import Chainweb.Pact.Service.Types
-import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import qualified Chainweb.Pact.Transactions.Mainnet0Transactions as MN0
 import qualified Chainweb.Pact.Transactions.Mainnet1Transactions as MN1

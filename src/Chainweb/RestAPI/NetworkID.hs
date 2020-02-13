@@ -61,6 +61,7 @@ import Test.QuickCheck.Instances ()  -- Arbitrary V4.UUID
 
 import Chainweb.ChainId
 import Chainweb.Utils hiding (check)
+import Chainweb.Utils.Text
 
 import Data.Singletons
 

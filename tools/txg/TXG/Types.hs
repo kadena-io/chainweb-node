@@ -61,6 +61,7 @@ import qualified Data.List.NonEmpty as NEL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
+import Network.HostAddress
 import Network.HTTP.Client hiding (Proxy, host)
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned hiding (name)
@@ -72,9 +73,9 @@ import System.Random.MWC (Gen)
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool (TransactionHash)
-import Chainweb.Utils (HasTextRepresentation(..), fromJuste, textOption)
+import Chainweb.Utils (fromJuste, textOption)
+import Chainweb.Utils.Text (HasTextRepresentation(..))
 import Chainweb.Version
 
 import Pact.Parse

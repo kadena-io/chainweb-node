@@ -95,6 +95,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.LogMessage

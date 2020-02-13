@@ -77,16 +77,6 @@ module Chainweb.Utils
 -- ** Codecs
 , Codec(..)
 
--- ** Text
-, sshow
-, tread
-, treadM
-, HasTextRepresentation(..)
-, eitherFromText
-, unsafeFromText
-, parseM
-, parseText
-
 -- ** Base64
 , encodeB64Text
 , decodeB64Text
@@ -211,7 +201,6 @@ import Control.Monad.Reader as Reader
 
 import Data.Aeson.Text (encodeToLazyText)
 import qualified Data.Aeson.Types as Aeson
-import qualified Data.Attoparsec.Text as A
 import Data.Bifunctor
 import Data.Bits
 import Data.Bool (bool)
@@ -271,7 +260,10 @@ import qualified System.Random.MWC.Probability as Prob
 import System.Timeout
 
 import Text.Printf (printf)
-import Text.Read (readEither)
+
+-- internal modules
+
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- SI unit prefixes
@@ -451,86 +443,6 @@ runGetEither g = first (DecodeException . T.pack) . runGetS g
 runPut :: Put -> B.ByteString
 runPut = runPutS
 {-# INLINE runPut #-}
-
--- -------------------------------------------------------------------------- --
--- ** Text
-
--- | Show a value as any type that is an instance of 'IsString'.
---
-sshow :: Show a => IsString b => a -> b
-sshow = fromString . show
-{-# INLINE sshow #-}
-
--- | Read a value from a textual encoding using its 'Read' instance. Returns and
--- textual error message if the operation fails.
---
-tread :: Read a => T.Text -> Either T.Text a
-tread = first T.pack . readEither . T.unpack
-{-# INLINE tread #-}
-
--- | Throws 'TextFormatException' on failure.
---
-treadM :: MonadThrow m => Read a => T.Text -> m a
-treadM = fromEitherM . first TextFormatException . tread
-{-# INLINE treadM #-}
-
--- | Class of types that have an textual representation.
---
-class HasTextRepresentation a where
-    toText :: a -> T.Text
-    fromText :: MonadThrow m => T.Text -> m a
-
-instance HasTextRepresentation T.Text where
-    toText = id
-    {-# INLINE toText #-}
-    fromText = return
-    {-# INLINE fromText #-}
-
-instance HasTextRepresentation [Char] where
-    toText = T.pack
-    {-# INLINE toText #-}
-    fromText = return . T.unpack
-    {-# INLINE fromText #-}
-
-instance HasTextRepresentation Int where
-    toText = sshow
-    {-# INLINE toText #-}
-    fromText = treadM
-    {-# INLINE fromText #-}
-
--- | Decode a value from its textual representation.
---
-eitherFromText
-    :: HasTextRepresentation a
-    => T.Text
-    -> Either String a
-eitherFromText = either f return . fromText
-  where
-    f e = Left $ case fromException e of
-        Just (TextFormatException err) -> T.unpack err
-        _ -> displayException e
-{-# INLINE eitherFromText #-}
-
--- | Unsafely decode a value rom its textual representation. It is an program
--- error if decoding fails.
---
-unsafeFromText :: HasCallStack => HasTextRepresentation a => T.Text -> a
-unsafeFromText = fromJuste . fromText
-{-# INLINE unsafeFromText #-}
-
--- | Run a 'A.Parser' on a text input. All input must be consume by the parser.
--- A 'TextFormatException' is thrown if parsing fails.
---
-parseM :: MonadThrow m => A.Parser a -> T.Text -> m a
-parseM p = either (throwM . TextFormatException . T.pack) return
-    . A.parseOnly (p <* A.endOfInput)
-{-# INLINE parseM #-}
-
--- | A parser for types with an 'HasTextRepresentation' instance.
---
-parseText :: HasTextRepresentation a => A.Parser T.Text -> A.Parser a
-parseText p = either (fail . sshow) return . fromText =<< p
-{-# INLINE parseText #-}
 
 -- -------------------------------------------------------------------------- --
 -- ** Base64
@@ -1000,7 +912,7 @@ timeoutStream msecs = go
   where
     go s = lift (timeout msecs (S.next s)) >>= \case
         Nothing -> return Nothing
-        Just (Left r) -> return $! Just r
+        Just (Left r) -> return $ Just r
         Just (Right (a, s')) -> S.yield a >> go s'
 
 -- | Drop successive equal items from a stream.
@@ -1072,7 +984,7 @@ data Codec t = Codec
 -- @
 --
 withTempDir :: String -> (Path Absolute -> IO a) -> IO a
-withTempDir tag f = bracket create delete f
+withTempDir tag = bracket create delete
   where
     create :: IO (Path Absolute)
     create = do
@@ -1205,8 +1117,7 @@ approximateThreadDelay d = withMVar threadDelayRng (approximately d)
 
 manager :: Int -> IO HTTP.Manager
 manager micros = HTTP.newManager
-    $ setManagerRequestTimeout micros
-    $ HTTP.tlsManagerSettings
+    $ setManagerRequestTimeout micros HTTP.tlsManagerSettings
 
 unsafeManager :: Int -> IO HTTP.Manager
 unsafeManager micros = HTTP.newTlsManagerWith
@@ -1217,7 +1128,7 @@ setManagerRequestTimeout :: Int -> HTTP.ManagerSettings -> HTTP.ManagerSettings
 setManagerRequestTimeout micros settings = settings
     { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro micros
         -- timeout connection-attempts after 10 sec instead of the default of 30 sec
-    , HTTP.managerModifyRequest = \req -> do
+    , HTTP.managerModifyRequest = \req ->
         HTTP.managerModifyRequest settings req
             { HTTP.responseTimeout = HTTP.responseTimeoutMicro micros
                 -- overwrite the explicit connection timeout from servant-client

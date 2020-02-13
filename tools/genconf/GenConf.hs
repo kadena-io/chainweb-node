@@ -12,6 +12,8 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Yaml as Y
 
+import Network.HostAddress
+
 import System.Directory
 import System.Exit
 import System.IO
@@ -19,7 +21,6 @@ import System.Process
 
 -- chainweb imports
 import Chainweb.Chainweb
-import Chainweb.HostAddress
 import Chainweb.Miner.Config
 import Chainweb.Version
 

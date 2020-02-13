@@ -73,6 +73,7 @@ import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils (testRocksDb)
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService

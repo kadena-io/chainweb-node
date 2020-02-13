@@ -42,7 +42,7 @@ import qualified System.Logger.Types as L
 
 -- internal modules
 
-import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import Data.LogMessage
 

@@ -52,6 +52,7 @@ import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.CAS.RocksDB

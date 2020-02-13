@@ -33,16 +33,22 @@ let # Working on getting this function upstreamed into nixpkgs, but
         sha256 = "03ihjgwqpif68870wwsgz1s4yz45zql1slky1lj4ixfxbig06md4";
       }) {});
 
-      configuration-tools = dontCheck (callHackageDirect {
+      configuration-tools = dontCheck (disableCabalFlag (callHackageDirect {
         pkg = "configuration-tools";
         ver = "0.4.1";
         sha256 = "1sbn4dbb2y1gwdwjvz5vf6a1g349z0jha5iz4dmp2v67dv86fzs5";
-      });
+      }) "remote-configs");
 
       digraph = dontCheck (callHackageDirect {
         pkg = "digraph";
         ver = "0.1.0.2";
         sha256 = "1alqdzzlw8ns6hy8vh3ic4ign7jjxxa0cyxkv26zz7k2dihf3hzg";
+      });
+
+      digraph = dontCheck (callHackageDirect {
+        pkg = "hostaddress";
+        ver = "0.1.0.0";
+        sha256 = "1alqdzzlw8ns6hy8vh3ic4ign7jjxxa0cyxkv26zz7k2dihf3hz0";
       });
 
       fake = doJailbreak (callHackageDirect {

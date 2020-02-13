@@ -161,6 +161,7 @@ import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.TreeDB (TreeDbEntry(..))
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.CAS

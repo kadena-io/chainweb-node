@@ -88,6 +88,7 @@ import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Chainweb.Payload

@@ -22,7 +22,7 @@ import Pact.Types.Crypto
 import Pact.Types.Util (toB16Text)
 
 import Chainweb.Version
-import Chainweb.Utils
+import Chainweb.Utils.Text
 
 testApiKeyPairs :: NonEmpty ApiKeyPair
 testApiKeyPairs =

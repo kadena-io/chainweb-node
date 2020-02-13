@@ -114,6 +114,7 @@ import Test.QuickCheck (Arbitrary(..), Gen)
 -- internal imports
 
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Numeric.Additive
 import Numeric.AffineSpace
 import Numeric.Cast

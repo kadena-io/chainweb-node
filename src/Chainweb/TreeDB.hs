@@ -112,6 +112,7 @@ import Test.QuickCheck
 
 import Chainweb.Utils hiding ((==>))
 import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Exceptions

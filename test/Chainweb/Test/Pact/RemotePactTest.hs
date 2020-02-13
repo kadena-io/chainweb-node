@@ -59,6 +59,7 @@ import Data.Text.Encoding (encodeUtf8)
 import NeatInterpolation
 
 import Network.Connection as HTTP
+import Network.HostAddress
 import Network.HTTP.Client.TLS as HTTP
 
 import Numeric.Natural
@@ -92,7 +93,6 @@ import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
-import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
 import Chainweb.Miner.Config
@@ -105,6 +105,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.CAS.RocksDB

@@ -73,10 +73,10 @@ module P2P.Peer
 import Configuration.Utils hiding (Lens')
 
 import Control.DeepSeq
+import Control.Exception (evaluate)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Control.Monad.Catch
-import Control.Exception (evaluate)
 
 import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString as B
@@ -90,6 +90,7 @@ import qualified Data.Text.IO as T
 import GHC.Generics (Generic)
 import GHC.Stack
 
+import Network.HostAddress
 import qualified Network.HTTP.Client as HTTP
 
 import Servant.Client
@@ -98,8 +99,9 @@ import Test.QuickCheck
 
 -- internal modules
 
-import Chainweb.HostAddress
 import Chainweb.Utils hiding (check)
+import Chainweb.Utils.HostPreference
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Network.X509.SelfSigned

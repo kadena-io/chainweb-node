@@ -75,7 +75,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStoreCas)
 import Chainweb.TreeDB
-import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 

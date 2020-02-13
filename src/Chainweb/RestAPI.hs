@@ -70,6 +70,7 @@ import qualified Data.Text.Encoding as T
 
 import GHC.Generics (Generic)
 
+import Network.HostAddress
 import Network.Socket
 import Network.Wai (Middleware, mapResponseHeaders)
 import Network.Wai.Handler.Warp hiding (Port)
@@ -92,7 +93,6 @@ import Chainweb.ChainId
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI.Server
-import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
 import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
@@ -109,6 +109,7 @@ import Chainweb.RestAPI.NodeInfo
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV.RestAPI.Server
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Network.X509.SelfSigned

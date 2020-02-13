@@ -132,6 +132,7 @@ import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Data.LogMessage (LogFunctionText)
 
 ------------------------------------------------------------------------------

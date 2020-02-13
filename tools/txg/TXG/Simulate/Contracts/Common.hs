@@ -76,6 +76,7 @@ import qualified Pact.Types.ChainMeta as CM
 import Chainweb.ChainId
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import TXG.Simulate.Utils
 

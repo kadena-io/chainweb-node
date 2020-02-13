@@ -113,6 +113,7 @@ import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import Data.CAS
 

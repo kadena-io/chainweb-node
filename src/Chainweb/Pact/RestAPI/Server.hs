@@ -99,6 +99,7 @@ import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
 

@@ -159,7 +159,6 @@ library
         , Chainweb.CutDB.Sync
         , Chainweb.Difficulty
         , Chainweb.Graph
-        , Chainweb.HostAddress
         , Chainweb.Logger
         , Chainweb.Logging.Amberdata
         , Chainweb.Logging.Config
@@ -216,8 +215,10 @@ library
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
         , Chainweb.Utils.Bench
+        , Chainweb.Utils.HostPreference
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
+        , Chainweb.Utils.Text
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
@@ -336,6 +337,7 @@ library
         , hashable >= 1.2
         , heaps >= 0.3
         , hourglass >=0.2
+        , hostaddress >=0.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-media >= 0.7
@@ -490,6 +492,7 @@ test-suite chainweb-tests
         , extra >= 1.6
         , file-embed >= 0.0
         , hashable >= 1.2
+        , hostaddress >=0.1
         , http-client >= 0.5
         , http-types >= 0.12
         , lens >= 4.16
@@ -743,6 +746,7 @@ executable cwtool
         , file-embed >= 0.0
         , formatting >= 6.3
         , generic-lens >= 1.1
+        , hostaddress >=0.1
         , http-client >= 0.5
         , http-client-tls >=0.3
         , http-types >= 0.12

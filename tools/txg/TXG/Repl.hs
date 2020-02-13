@@ -77,6 +77,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Time.Clock.POSIX
 
+import Network.HostAddress
 
 import Servant.Client
 
@@ -97,7 +98,6 @@ import Pact.Types.Scheme
 import Pact.Types.Util
 
 import Chainweb.ChainId
-import Chainweb.HostAddress
 import Chainweb.Version
 
 import System.Time.Extra

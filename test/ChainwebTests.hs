@@ -21,7 +21,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import qualified Chainweb.Cut.Test (properties)
 import qualified Chainweb.Difficulty (properties)
-import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeaderDB
@@ -117,7 +116,6 @@ suite rdb =
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
-        , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties
         , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
         , testProperties "P2P.TaskQueue.Test" P2P.TaskQueue.Test.properties

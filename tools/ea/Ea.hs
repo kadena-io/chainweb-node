@@ -59,6 +59,7 @@ import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction (mkPayloadWithText, ChainwebTransaction, chainwebPayloadCodec)
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.ApiReq (mkApiReq)

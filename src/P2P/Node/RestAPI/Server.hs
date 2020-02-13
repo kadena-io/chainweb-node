@@ -47,6 +47,7 @@ import Data.IxSet.Typed (getEQ, toAscList)
 import Data.Proxy
 import qualified Data.Text.IO as T
 
+import Network.HostAddress
 import Network.Socket
 import Network.Wai.Handler.Warp hiding (Port)
 
@@ -60,11 +61,11 @@ import qualified Streaming.Prelude as SP
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.Singletons

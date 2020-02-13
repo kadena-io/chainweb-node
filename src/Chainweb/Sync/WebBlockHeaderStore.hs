@@ -73,6 +73,7 @@ import Chainweb.TreeDB
 import qualified Chainweb.TreeDB as TDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService

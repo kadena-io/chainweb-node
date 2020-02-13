@@ -38,7 +38,7 @@ import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 
 -- chainweb
 
-import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 

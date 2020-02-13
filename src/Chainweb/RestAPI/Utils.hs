@@ -10,7 +10,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -88,6 +87,7 @@ import qualified Data.Text as T
 import GHC.Generics
 import GHC.TypeLits
 
+import Network.HostAddress
 import qualified Network.HTTP.Types.Header as HTTP
 import qualified Network.Socket as N
 import Network.Wai.Handler.Warp (HostPreference)
@@ -99,7 +99,6 @@ import Servant.Swagger
 
 -- internal modules
 import Chainweb.ChainId
-import Chainweb.HostAddress
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Utils

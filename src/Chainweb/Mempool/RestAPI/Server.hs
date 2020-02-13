@@ -29,6 +29,7 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 ------------------------------------------------------------------------------

@@ -51,6 +51,7 @@ import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload.PayloadStore
 import Chainweb.Transaction
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version (ChainwebVersion)
 
 import Data.LogMessage

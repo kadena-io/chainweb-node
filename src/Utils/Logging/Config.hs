@@ -67,6 +67,7 @@ import System.Logger.Backend.ColorOption
 -- internal modules
 
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Log Format

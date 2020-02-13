@@ -168,6 +168,7 @@ import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.Logger (GenericLogger)
 

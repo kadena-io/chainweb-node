@@ -44,6 +44,7 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.HashSet as HS
 import Data.IxSet.Typed (getEQ, getOne)
 
+import Network.HostAddress
 import qualified Network.HTTP.Client as HTTP
 import Network.Socket (Socket, close)
 import Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort)
@@ -55,11 +56,11 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.Counter
-import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.RestAPI.NetworkID
 import Chainweb.RestAPI.Utils
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Network.X509.SelfSigned

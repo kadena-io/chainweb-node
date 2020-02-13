@@ -74,6 +74,7 @@ import Test.QuickCheck (Arbitrary(..))
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import Data.Singletons
 

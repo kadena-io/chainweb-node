@@ -102,6 +102,8 @@ import Data.Time.Clock
 
 import GHC.Generics
 
+import Network.HostAddress hiding (properties)
+
 import Numeric.Natural
 
 import Prelude hiding (null)
@@ -116,7 +118,6 @@ import Test.QuickCheck (Arbitrary(..), Property, ioProperty, property, (===))
 -- internal modules
 
 import Chainweb.ChainId
-import Chainweb.HostAddress hiding (properties)
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils
 import Chainweb.Version

@@ -51,6 +51,7 @@ import qualified Data.Text.IO as T
 
 import GHC.Generics
 
+import Network.HostAddress
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 
@@ -66,12 +67,12 @@ import System.LogLevel
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.CutDB.RestAPI.Client
-import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.LogMessage

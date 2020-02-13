@@ -6,6 +6,12 @@ package chainweb
 package aeson
     flags: +cffi
 
+package hostaddress
+    flags: +with-aeson +with-configuration-tools +with-quickcheck
+
+package configuration-tools
+    flags: -remote-configs
+
 debug-info: True
 
 source-repository-package

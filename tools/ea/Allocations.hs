@@ -51,7 +51,7 @@ import qualified Data.Vector as V
 
 import qualified Text.Printf as T
 
-import Chainweb.Utils
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------- --
 -- Tx gen

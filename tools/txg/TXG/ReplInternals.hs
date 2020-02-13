@@ -17,6 +17,7 @@ import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import Network.HostAddress
 import Network.HTTP.Client hiding (Proxy(..))
 import Network.HTTP.Client.TLS
 import Network.X509.SelfSigned
@@ -39,7 +40,6 @@ import Pact.Types.Hash
 -- chainweb imports
 
 import Chainweb.ChainId
-import Chainweb.HostAddress
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Version
 

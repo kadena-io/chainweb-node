@@ -104,6 +104,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Pact.Types.Command
@@ -114,12 +115,12 @@ import Pact.Types.PactError
 #define REMOTE_DB 0
 
 #if REMOTE_DB
+import Network.HostAddress
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 
 import Servant.Client
 
-import Chainweb.HostAddress
 import Chainweb.TreeDB.RemoteDB
 #endif
 

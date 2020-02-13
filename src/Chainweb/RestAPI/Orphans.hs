@@ -40,6 +40,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.UUID as V4
 
+import Network.HostAddress hiding (properties)
+
 import Numeric.Natural
 
 import Servant.API
@@ -56,7 +58,6 @@ import Chainweb.ChainId
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty hiding (properties)
 import Chainweb.Graph
-import Chainweb.HostAddress hiding (properties)
 import Chainweb.MerkleLogHash (MerkleLogHash, merkleLogHashBytesCount)
 import Chainweb.Miner.Core (ChainBytes, HeaderBytes, WorkBytes)
 import Chainweb.Miner.Pact (Miner, defaultMiner)
@@ -67,6 +68,7 @@ import Chainweb.Time (Micros, Time, TimeSpan)
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Pact.Parse (ParsedInteger(..))

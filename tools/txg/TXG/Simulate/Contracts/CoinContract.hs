@@ -26,7 +26,7 @@ import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 
 -- CHAINWEB
 
-import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import TXG.Simulate.Contracts.Common

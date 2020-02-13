@@ -80,6 +80,7 @@ import Data.Tuple
 
 import GHC.Generics
 
+import Network.HostAddress (isReservedHostAddress)
 import qualified Network.HTTP.Client as HTTP
 
 import Numeric.Natural
@@ -95,12 +96,12 @@ import Test.QuickCheck (Arbitrary(..), oneof)
 
 -- Internal imports
 
-import Chainweb.HostAddress (isReservedHostAddress)
 import Chainweb.NodeVersion
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Utils.Paging
+import Chainweb.Utils.Text
 import Chainweb.Version
 
 import Data.LogMessage

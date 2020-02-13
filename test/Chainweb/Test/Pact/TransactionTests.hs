@@ -56,6 +56,7 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Utils.Text
 import Chainweb.Version
 import Chainweb.Test.Pact.Utils
 

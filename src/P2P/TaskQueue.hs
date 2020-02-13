@@ -61,6 +61,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.Utils
+import Chainweb.Utils.Text
 
 import Data.IVar
 import Data.LogMessage

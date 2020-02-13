@@ -74,6 +74,7 @@ import Test.QuickCheck.Instances ()
 -- internal modules
 
 import Chainweb.Utils hiding ((==>))
+import Chainweb.Utils.Text
 
 -- -------------------------------------------------------------------------- --
 -- Limit
