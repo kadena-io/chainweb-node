@@ -885,8 +885,6 @@ execNewBlock mpAccess parentHeader miner = go
             where
               runGas = attemptBuyGas miner pdbenv txs
 
-          !notGenesis = isNotGenesisBlockHeader parentHeader
-
           validate bhi _bha txs =
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
@@ -895,7 +893,7 @@ execNewBlock mpAccess parentHeader miner = go
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True)) <$>
               validateChainwebTxs cp parentCreationTime bhi
-                txs runDebitGas (notGenesis || forkingChange parentHeader EnableUserContracts)
+                txs runDebitGas (forkingChange parentHeader EnableUserContracts)
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -906,15 +904,11 @@ execNewBlock mpAccess parentHeader miner = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- do
-          let !enableUC = forkingChange parentHeader EnableUserContracts
-          let !notGenesis = True
-
-          locally psEnableUserContracts (const (notGenesis || enableUC)) $
-            execTransactions (Just parentHeader) miner newTrans
-            (EnforceCoinbaseFailure True)
-            (CoinbaseUsePrecompiled True)
-            pdbenv
+        results <- locally psEnableUserContracts (const (forkingChange parentHeader EnableUserContracts)) $
+              execTransactions (Just parentHeader) miner newTrans
+              (EnforceCoinbaseFailure True)
+              (CoinbaseUsePrecompiled True)
+              pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -1056,10 +1050,14 @@ playOneBlock currHeader plData pdbenv = do
         return $! _blockCreationTime ph
 
     -- prop_tx_ttl_validate
-    oks <- do
-      liftIO $ fmap (either (const False) (const True)) <$>
-        validateChainwebTxs cp parentCreationTime (_blockHeight currHeader)
-          trans skipDebitGas (forkingChange currHeader EnableUserContracts)
+    oks <- liftIO $ do
+      let !enableUC = forkingChange currHeader EnableUserContracts
+          !notGenesis = isNotGenesisBlockHeader currHeader
+
+      fmap (either (const False) (const True)) <$>
+        validateChainwebTxs cp parentCreationTime
+          (_blockHeight currHeader) trans
+          skipDebitGas (enableUC && notGenesis)
 
     let mbad = V.elemIndex False oks
     case mbad of
@@ -1110,8 +1108,9 @@ playOneBlock currHeader plData pdbenv = do
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         --
         let enableUC = forkingChange currHeader EnableUserContracts
+            !notGenesis = isNotGenesisBlockHeader currHeader
 
-        locally psEnableUserContracts (const enableUC) $
+        locally psEnableUserContracts (const $ enableUC && notGenesis) $
           execTransactions (Just ph) m txs
           (EnforceCoinbaseFailure False)
           (CoinbaseUsePrecompiled False)
@@ -1376,7 +1375,7 @@ execPreInsertCheckReq txs = do
                 liftIO (Discard <$>
                         validateChainwebTxs cp parentCreationTime (h + 1) txs
                         (runGas pdb psState psEnv)
-                        (False || forkingChange parentHeader EnableUserContracts))
+                        (False && forkingChange parentHeader EnableUserContracts))
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)

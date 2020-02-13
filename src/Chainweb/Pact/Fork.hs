@@ -32,7 +32,7 @@ forkingChange
     -> Bool
 forkingChange !bh !forkTy = case forkTy of
     EnableUserContracts -> case userContractActivationDate v of
-      Just d | d `isPastBlockTime` bh && notGenesis -> False
+      Just d | d `isPastBlockTime` bh -> False
       _ -> True
 
     TxEnabled -> case txEnabledDate v of
