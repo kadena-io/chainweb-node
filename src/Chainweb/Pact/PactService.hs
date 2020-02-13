@@ -1051,14 +1051,16 @@ playOneBlock currHeader plData pdbenv = do
         return $! _blockCreationTime ph
 
     -- prop_tx_ttl_validate
-    oks <- liftIO $ do
+    oks <- do
       let !enableUC = forkingChange currHeader EnableUserContracts
           !notGenesis = isNotGenesisBlockHeader currHeader
+          !allowModuleInstall = enableUC && notGenesis
 
-      fmap (either (const False) (const True)) <$>
-        validateChainwebTxs cp parentCreationTime
-          (_blockHeight currHeader) trans
-          skipDebitGas (enableUC && notGenesis)
+      locally psEnableUserContracts (const allowModuleInstall) $ liftIO $
+        fmap (either (const False) (const True)) <$>
+          validateChainwebTxs cp parentCreationTime
+            (_blockHeight currHeader) trans
+            skipDebitGas allowModuleInstall
 
     let mbad = V.elemIndex False oks
     case mbad of
@@ -1189,10 +1191,12 @@ execValidateBlock currHeader plData = do
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
 
-    return (forkingChange currHeader TxEnabled) >>= \case
-      True | not (V.null $ _payloadDataTransactions plData) ->
-        throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded currHeader
-      _ -> return ()
+    let !txEnabled = forkingChange currHeader TxEnabled
+        !notGenesis = isNotGenesisBlockHeader currHeader
+        !plNonEmpty = not $ V.null $ _payloadDataTransactions plData
+
+    when (txEnabled && notGenesis && plNonEmpty) $
+      throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded currHeader
 
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
@@ -1376,7 +1380,7 @@ execPreInsertCheckReq txs = do
                 liftIO (Discard <$>
                         validateChainwebTxs cp parentCreationTime (h + 1) txs
                         (runGas pdb psState psEnv)
-                        (False && forkingChange parentHeader EnableUserContracts))
+                        (forkingChange parentHeader EnableUserContracts))
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)

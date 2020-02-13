@@ -931,26 +931,30 @@ testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) 
 --
 isPastOrEqBlockTime :: Time Micros -> BlockHeader -> Bool
 isPastOrEqBlockTime t bh =
-  let (BlockCreationTime bt) = _blockCreationTime bh
-  in t >= bt
+    let (BlockCreationTime bt) = _blockCreationTime bh
+    in t >= bt
 {-# INLINE isPastOrEqBlockTime #-}
 
 -- | Test if a time is less than or equal to block creation time
 --
 isBeforeOrEqBlockTime :: Time Micros -> BlockHeader -> Bool
 isBeforeOrEqBlockTime t bh =
-  let (BlockCreationTime bt) = _blockCreationTime bh
-  in t <= bt
+    let (BlockCreationTime bt) = _blockCreationTime bh
+    in t <= bt
 {-# INLINE isBeforeOrEqBlockTime #-}
 
 -- | Test if a time is strictly after block creation time
 --
 isPastBlockTime :: Time Micros -> BlockHeader -> Bool
-isPastBlockTime t bh = not (isBeforeOrEqBlockTime t bh)
+isPastBlockTime t bh =
+    let (BlockCreationTime bt) = _blockCreationTime bh
+    in t > bt
 {-# INLINE isPastBlockTime #-}
 
 -- | Test if a time is before block creation time
 --
 isBeforeBlockTime :: Time Micros -> BlockHeader -> Bool
-isBeforeBlockTime t bh = not (isPastOrEqBlockTime t bh)
+isBeforeBlockTime t bh =
+  let (BlockCreationTime bt) = _blockCreationTime bh
+  in t < bt
 {-# INLINE isBeforeBlockTime #-}
