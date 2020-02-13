@@ -51,9 +51,34 @@ import Chainweb.Graph
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebBlockHeaderDB.Types
 
 import Data.CAS.RocksDB
+
+-- -------------------------------------------------------------------------- --
+-- Web Chain Database
+
+-- | Every WebChain has the following properties
+--
+-- * All entires of _webBlockHeaderDb are valid BlockHeaderDbs
+-- * There are no dangling adjacent parent hashes
+-- * The adjacent hashes of all block headers conform with the chain graph
+--   of the web chain.
+--
+--  TODO: in order to enforce these invariants the insertion to
+--  the dbs must be guarded see issue #123.
+--
+data WebBlockHeaderDb = WebBlockHeaderDb
+    { _webBlockHeaderDb :: !(HM.HashMap ChainId BlockHeaderDb)
+    , _webChainwebVersion :: !ChainwebVersion
+    }
+
+instance HasChainGraph WebBlockHeaderDb where
+    _chainGraph = _chainGraph . _webChainwebVersion
+    {-# INLINE _chainGraph #-}
+
+instance HasChainwebVersion WebBlockHeaderDb where
+    _chainwebVersion = _webChainwebVersion
+    {-# INLINE _chainwebVersion #-}
 
 webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb

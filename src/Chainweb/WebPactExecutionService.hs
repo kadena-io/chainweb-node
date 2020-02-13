@@ -13,18 +13,55 @@ module Chainweb.WebPactExecutionService
 import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Monad.Catch
+
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
+-- internal modules
+
 import Chainweb.BlockCreationTime
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (emptyPayload)
+import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
-import Chainweb.WebPactExecutionService.Types
+import Chainweb.Transaction
+
+import Data.Tuple.Strict
+import Data.Vector (Vector)
+
+import Pact.Types.Command
+import Pact.Types.Hash
+
+-- -------------------------------------------------------------------------- --
+-- PactExecutionService
+
+data PactExecutionService = PactExecutionService
+    { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
+    , _pactNewBlock :: Miner -> BlockHeader -> BlockCreationTime -> IO PayloadWithOutputs
+    , _pactLocal :: ChainwebTransaction -> IO (Either PactException (CommandResult Hash))
+    , _pactLookup
+        :: Rewind
+            -- restore point. 'NoRewind' means we
+            -- don't care about the restore point.
+        -> Vector PactHash
+            -- txs to lookup
+        -> IO (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash))))
+    , _pactPreInsertCheck
+        :: ChainId
+        -> Vector ChainwebTransaction
+        -> IO (Either PactException (Vector (Either InsertError ())))
+    }
+
+newtype WebPactExecutionService = WebPactExecutionService
+    { _webPactExecutionService :: PactExecutionService
+    }
 
 _webPactNewBlock
     :: WebPactExecutionService
@@ -91,7 +128,7 @@ emptyPactExecutionService :: PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
     , _pactNewBlock = \_ _ _ -> pure emptyPayload
-    , _pactLocal = \_ -> throwM (userError $ "emptyPactExecutionService: attempted `local` call")
+    , _pactLocal = \_ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
     }

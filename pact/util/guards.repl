@@ -1,0 +1,132 @@
+;; guards.repl
+
+(env-data
+ { 'util-ns-users: ["util-ns-user"]
+ , 'util-ns-admin: ["util-ns-admin"]
+ })
+(env-keys ["util-ns-user", "util-ns-admin"])
+
+(begin-tx)
+(load "util-ns.pact")
+(commit-tx)
+
+
+(begin-tx)
+(load "guards.pact")
+(commit-tx)
+
+(use util.guards)
+
+(module T G
+  (defcap G () true)
+  (defconst JAN (time "2020-01-01T00:00:00Z"))
+  (defconst FEB (time "2020-02-01T00:00:00Z"))
+  )
+
+;; JAN chain time
+(env-chain-data { 'block-time: JAN })
+
+;; test JAN vs FEB
+(expect-failure
+ "after-date fails" "must be after"
+ (enforce-guard
+  (after-date FEB)))
+
+(expect-failure
+ "at-after-date fails" "must be at or after"
+ (enforce-guard
+  (at-after-date FEB)))
+
+(expect
+ "before succeeds" true
+ (enforce-guard
+  (before-date FEB)))
+
+(expect
+ "at-before succeeds" true
+ (enforce-guard
+  (at-before-date FEB)))
+
+;; test JAN vs JAN
+
+(expect-failure
+ "after-date fails on same" "must be after"
+ (enforce-guard
+  (after-date JAN)))
+
+(expect
+ "at-after-date succeeds on same" true
+ (enforce-guard
+  (at-after-date JAN)))
+
+(expect-failure
+ "before fails on same" "must be before"
+ (enforce-guard
+  (before-date JAN)))
+
+(expect
+ "at-before succeeds on same" true
+ (enforce-guard
+  (at-before-date JAN)))
+
+;; FEB chain time
+
+(env-chain-data { 'block-time: FEB })
+
+;; test FEB vs JAN
+
+(expect
+ "after-date succeeds" true
+ (enforce-guard
+  (after-date JAN)))
+
+(expect
+ "at-after-date succeeds" true
+ (enforce-guard
+  (at-after-date JAN)))
+
+(expect-failure
+ "before fails" "must be before"
+ (enforce-guard
+  (before-date JAN)))
+
+(expect-failure
+ "at-before fails" "must be at or before"
+ (enforce-guard
+  (at-before-date JAN)))
+
+;; test compositions
+
+(env-keys ["yes"])
+(env-data { "yes": ["yes"], "no": ["no"] })
+(define-keyset 'yes)
+(define-keyset 'no)
+
+(expect
+ "guard-and succeeds" true
+ (enforce-guard
+  (guard-and
+   (keyset-ref-guard "yes")
+    (after-date JAN))))
+
+(expect-failure
+ "guard-and fails" "must be after"
+ (enforce-guard
+  (guard-and
+   (keyset-ref-guard "yes")
+    (after-date FEB))))
+
+;; BOOO pact bug, running 'enforce-one' in a user guard
+;; violates buggy containment logic: enforce-one is "EnvReadOnly"
+;; but user guards are "EnvSysOnly", and attempting to elevate
+;; to read only throws "internal error: attempting db read in sys-only context"
+;;
+;; SLP 20200204: tested with enforce-one set to 'runSysOnly', just to ensure the pact code
+;; works. Bug fix will roll out at some point ...
+;; uncomment below after fix
+
+; (expect
+;  "guard-or succeeds" true
+;  (enforce-guard
+;   (guard-or
+;    (after-date JAN) (after-date JAN))))

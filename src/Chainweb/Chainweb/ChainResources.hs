@@ -53,6 +53,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
