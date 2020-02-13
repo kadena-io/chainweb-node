@@ -63,14 +63,17 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.Types
-import Chainweb.Sync.WebBlockHeaderStore.Types
+import Chainweb.Payload.PayloadStore
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version

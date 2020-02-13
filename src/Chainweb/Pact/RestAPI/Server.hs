@@ -77,6 +77,7 @@ import Pact.Types.Pretty (pretty)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources

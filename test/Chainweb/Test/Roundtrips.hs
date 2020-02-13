@@ -29,6 +29,8 @@ import Test.QuickCheck.Instances ()
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.HostAddress

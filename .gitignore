@@ -46,3 +46,4 @@ cache/
 *.dump-hi
 standalonedbs/
 TAGS
+*.hie

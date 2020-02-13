@@ -127,7 +127,7 @@ import Pact.Types.Gas (GasLimit(..), GasPrice(..))
 import qualified Pact.Types.Hash as H
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Time (Micros(..), Time(..), TimeSpan(..))
 import qualified Chainweb.Time as Time
 import Chainweb.Transaction

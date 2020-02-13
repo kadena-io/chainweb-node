@@ -124,8 +124,9 @@ genPayloadModule v tag txFiles =
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
+        let bePedantic = True -- validate payload hashes during replay
         payloadWO <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
-            initPactService' v cid logger bhdb pdb env 1000 $
+            initPactService' v cid logger bhdb pdb env 1000 bePedantic $
                 execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

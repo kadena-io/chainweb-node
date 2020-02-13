@@ -53,6 +53,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
@@ -128,11 +129,13 @@ withChainResources
     -> Natural
     -> Natural
         -- ^ deep fork limit
+    -> Bool
+        -- ^ Re-validate payload hashes during replay.
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
   v cid rdb peer logger mempoolCfg0 payloadDb prune dbDir nodeid resetDb
-  pactQueueSize deepForkLimit inner =
+  pactQueueSize deepForkLimit revalidate inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
@@ -140,7 +143,7 @@ withChainResources
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
                         payloadDb dbDir nodeid resetDb pactQueueSize
-                        deepForkLimit $ \requestQ -> do
+                        deepForkLimit revalidate $ \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"

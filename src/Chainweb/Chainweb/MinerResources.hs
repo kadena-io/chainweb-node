@@ -49,6 +49,7 @@ import qualified System.Random.MWC as MWC
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
