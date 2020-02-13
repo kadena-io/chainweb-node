@@ -49,10 +49,6 @@ source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
 
-flag use_systemd
-    description: Use systemd watchdog features if set.
-    default: True
-
 flag ed25519
     description:
         Use ED25519 certificates; depends on the master branch of the tls
@@ -222,7 +218,6 @@ library
         , Chainweb.Utils.Bench
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
-        , Chainweb.Utils.Watchdog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
@@ -415,9 +410,6 @@ library
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
-    if flag(use_systemd) && os(linux)
-        build-depends: systemd >= 1.2
-        cpp-options: -DWITH_SYSTEMD=1
     if flag(ghc-flags)
         ghc-options: -fplugin GhcFlags.Plugin
         build-depends: ghcflags
@@ -684,7 +676,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -703,9 +695,6 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
-        Standalone
-        Standalone.Chainweb
-        Standalone.Utils
         TXG
         TXG.Repl
         TXG.ReplInternals
