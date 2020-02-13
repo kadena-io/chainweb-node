@@ -904,12 +904,14 @@ execNewBlock mpAccess parentHeader miner = go
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
+        let enableUC = forkingChange parentHeader EnableUserContracts
+
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- locally psEnableUserContracts (const (forkingChange parentHeader EnableUserContracts)) $
-              execTransactions (Just parentHeader) miner newTrans
-              (EnforceCoinbaseFailure True)
-              (CoinbaseUsePrecompiled True)
-              pdbenv
+        results <- locally psEnableUserContracts (const enableUC) $
+            execTransactions (Just parentHeader) miner newTrans
+            (EnforceCoinbaseFailure True)
+            (CoinbaseUsePrecompiled True)
+            pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -1051,16 +1053,15 @@ playOneBlock currHeader plData pdbenv = do
         return $! _blockCreationTime ph
 
     -- prop_tx_ttl_validate
-    oks <- do
+    oks <- liftIO $ do
       let !enableUC = forkingChange currHeader EnableUserContracts
           !notGenesis = isNotGenesisBlockHeader currHeader
           !allowModuleInstall = enableUC && notGenesis
 
-      locally psEnableUserContracts (const allowModuleInstall) $ liftIO $
-        fmap (either (const False) (const True)) <$>
-          validateChainwebTxs cp parentCreationTime
-            (_blockHeight currHeader) trans
-            skipDebitGas allowModuleInstall
+      fmap (either (const False) (const True)) <$>
+        validateChainwebTxs cp parentCreationTime
+        (_blockHeight currHeader) trans
+        skipDebitGas allowModuleInstall
 
     let mbad = V.elemIndex False oks
     case mbad of
@@ -1197,6 +1198,8 @@ execValidateBlock currHeader plData = do
 
     when (txEnabled && notGenesis && plNonEmpty) $
       throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded currHeader
+
+    liftIO $ putStrLn "HERE!"
 
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
