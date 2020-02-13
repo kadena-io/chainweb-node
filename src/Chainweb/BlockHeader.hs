@@ -106,6 +106,7 @@ module Chainweb.BlockHeader
 
 -- * Genesis BlockHeader
 , isGenesisBlockHeader
+, isNotGenesisBlockHeader
 
 -- * Create a new BlockHeader
 , newBlockHeader
@@ -118,6 +119,12 @@ module Chainweb.BlockHeader
 
 -- * CAS Constraint
 , BlockHeaderCas
+
+-- * Block header time combinators
+, isPastBlockTime
+, isBeforeBlockTime
+, isPastOrEqBlockTime
+, isBeforeOrEqBlockTime
 ) where
 
 import Control.Arrow ((&&&))
@@ -735,6 +742,10 @@ isGenesisBlockHeader :: BlockHeader -> Bool
 isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
 {-# INLINE isGenesisBlockHeader #-}
 
+isNotGenesisBlockHeader :: BlockHeader -> Bool
+isNotGenesisBlockHeader = not . isGenesisBlockHeader
+{-# INLINE isNotGenesisBlockHeader #-}
+
 -- | The Proof-Of-Work hash includes all data in the block except for the
 -- '_blockHash'. The value (interpreted as 'BlockHashNat' must be smaller than
 -- the value of '_blockTarget' (interpreted as 'BlockHashNat').
@@ -912,3 +923,34 @@ testBlockHeadersWithNonce :: Nonce -> ParentHeader -> [BlockHeader]
 testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
   where
     f b = testBlockHeader (BlockHashRecord mempty) n $ ParentHeader b
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader combinators
+
+-- | Test if a time is greater than or equal to block creation time
+--
+isPastOrEqBlockTime :: Time Micros -> BlockHeader -> Bool
+isPastOrEqBlockTime t bh =
+  let (BlockCreationTime bt) = _blockCreationTime bh
+  in t >= bt
+{-# INLINE isPastOrEqBlockTime #-}
+
+-- | Test if a time is less than or equal to block creation time
+--
+isBeforeOrEqBlockTime :: Time Micros -> BlockHeader -> Bool
+isBeforeOrEqBlockTime t bh =
+  let (BlockCreationTime bt) = _blockCreationTime bh
+  in t <= bt
+{-# INLINE isBeforeOrEqBlockTime #-}
+
+-- | Test if a time is strictly after block creation time
+--
+isPastBlockTime :: Time Micros -> BlockHeader -> Bool
+isPastBlockTime t bh = not (isBeforeOrEqBlockTime t bh)
+{-# INLINE isPastBlockTime #-}
+
+-- | Test if a time is before block creation time
+--
+isBeforeBlockTime :: Time Micros -> BlockHeader -> Bool
+isBeforeBlockTime t bh = not (isPastOrEqBlockTime t bh)
+{-# INLINE isBeforeBlockTime #-}
