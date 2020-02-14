@@ -121,7 +121,7 @@ module Chainweb.BlockHeader
 , BlockHeaderCas
 
 -- * Block header time combinators
-, isPastBlockTime
+, isAfterBlockTime
 ) where
 
 import Control.Arrow ((&&&))
@@ -926,8 +926,8 @@ testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) 
 
 -- | Test if a time is strictly after block creation time
 --
-isPastBlockTime :: Time Micros -> BlockHeader -> Bool
-isPastBlockTime t bh =
+isAfterBlockTime :: Time Micros -> BlockHeader -> Bool
+isAfterBlockTime t bh =
     let (BlockCreationTime bt) = _blockCreationTime bh
     in t > bt
-{-# INLINE isPastBlockTime #-}
+{-# INLINE isAfterBlockTime #-}
