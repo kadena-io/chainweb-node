@@ -844,6 +844,7 @@ minerReward (MinerRewards rs q) bh =
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
+
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
@@ -1107,7 +1108,6 @@ playOneBlock currHeader plData pdbenv = do
               }
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        --
         locally psEnableUserContracts (const $ allowModuleInstall && not isGenesisBlock) $
           execTransactions (Just ph) m txs
           (EnforceCoinbaseFailure False)
