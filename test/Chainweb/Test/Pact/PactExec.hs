@@ -84,6 +84,7 @@ tests = ScheduledTest label $
             , execTxsTest ctx "testTfrGas" testTfrGas
             , execTxsTest ctx "testGasPayer" testGasPayer
             , execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
+            , execTxsTest ctx "testExecGasPayer" testExecGasPayer
             ]
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
@@ -305,24 +306,81 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
         V.fromList (map (`PactTransaction` Nothing) setupExprs')
 
     runStepTwoWithGasPayer = do
-      sender01ks <- testKeyPairs sender01KeyPair $ Just
+      ks <- testKeyPairs sender01KeyPair $ Just
         [ SigCapability (QualifiedName (ModuleName "gas-payer-for-cont" (Just "user")) "GAS_PAYER" def)
           [pString "sender01",pInteger 10000,pDecimal 0.01] ]
-      mkTestContTransaction "gas-payer" "0" sender01ks "testContinuationGasPayer" 10000 0.01
+      mkTestContTransaction "gas-payer" "0" ks "testContinuationGasPayer" 10000 0.01
         1 (PactId "gIl7YDog5jdDszuQ_boYg_Q-KyJ02omV04cSU0GNgtw") False Nothing 1000000 0 Null
+
+    balanceCheck = do
+      sender00ks <- testKeyPairs sender00KeyPair Nothing
+      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer2" 10000 0.01 1000000 0 $
+        V.fromList [PactTransaction "(coin.get-balance \"gas-payer\")" Nothing]
 
     txs = do
       s <- setupTest
       r <- runStepTwoWithGasPayer
-      return $! s <> r
+      b <- balanceCheck
+      return $! s <> r <> b
 
-    test li = assertFailure $ "Testing to see results: " ++ show li
-    --test [impl,fundGasAcct,contFirstStep] = do
-    --  checkPactResultSuccess "impl" impl $ assertEqual "impl" (pString "TableCreated"
-    {--test (Left err) = assertFailure err
-    test (Right (TestResponse li _)) = do
-      print $ show (map snd li)
-      assertFailure "Testing to see results"--}
+    test [impl,fundGasAcct,contFirstStep,balCheck1,paidSecondStep,balCheck2] = do
+      checkPactResultSuccess "impl" impl $ assertEqual "impl"
+        (pString "Loaded module user.simple-cont-module, hash 9zgtgl1BBs7dOhS_oa_wakfSsjELU1PO02xAUP7-ohA")
+      checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct"
+        (pString "Write succeeded")
+      checkPactResultSuccess "contFirstStep" contFirstStep $ assertEqual "contFirstStep"
+        (pString "Step One")
+      checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
+      checkPactResultSuccess "paidSecondStep" paidSecondStep $ assertEqual "paidSecondStep"
+        (pString "Step Two")
+      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.95)
+    test r = assertFailure $ "Expected 6 results, got: " ++ show r
+
+testExecGasPayer :: TxsTest
+testExecGasPayer = (txs,checkResultSuccess test)
+  where
+    setupExprs = do
+      implCode <- getPactCode (File "../pact/exec-gas-payer.pact")
+      return [ implCode
+             , "(coin.transfer-create \"sender00\" \"gas-payer\" (gas-payer-for-exec.create-gas-payer-guard) 100.0)"
+             , "(coin.get-balance \"gas-payer\")" ]
+    setupTest = do
+      setupExprs' <- setupExprs
+      sender00ks <- testKeyPairs sender00KeyPair $ Just
+        [ SigCapability (QualifiedName "coin" "TRANSFER" def)
+          [pString "sender00",pString "gas-payer",pDecimal 100.0]
+        , SigCapability (QualifiedName "coin" "GAS" def) []
+        ]
+      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer" 10000 0.01 1000000 0 $
+        V.fromList (map (`PactTransaction` Nothing) setupExprs')
+
+    runPaidTx = do
+      ks <- testKeyPairs sender01KeyPair $ Just
+        [ SigCapability (QualifiedName (ModuleName "gas-payer-for-exec" (Just "user")) "GAS_PAYER" def)
+          [pString "sender01",pInteger 10000,pDecimal 0.01] ]
+      mkTestExecTransactions "gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
+        V.fromList [PactTransaction "(+ 1 2)" Nothing]
+
+    balanceCheck = do
+      sender00ks <- testKeyPairs sender00KeyPair Nothing
+      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer2" 10000 0.01 1000000 0 $
+        V.fromList [PactTransaction "(coin.get-balance \"gas-payer\")" Nothing]
+
+    txs = do
+      s <- setupTest
+      r <- runPaidTx
+      b <- balanceCheck
+      return $! s <> r <> b
+
+    test [impl,fundGasAcct,balCheck1,paidTx,balCheck2] = do
+      checkPactResultSuccess "impl" impl $ assertEqual "impl"
+        (pString "Loaded module user.gas-payer-for-exec, hash PXHExH65JOgSKqMi04aGwN0p_eoj3H9Jfq581X5kTx0")
+      checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct"
+        (pString "Write succeeded")
+      checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
+      checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
+      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.96)
+    test r = assertFailure $ "Expected 6 results, got: " ++ show r
 
 testFailureRedeem :: TxsTest
 testFailureRedeem = (txs,checkResultSuccess test)
