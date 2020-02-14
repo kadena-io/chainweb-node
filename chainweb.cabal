@@ -409,7 +409,7 @@ library
         , yet-another-logger >= 0.3.1
 
         -- this should eventually go into pact
-        , prettyprinter == 1.6.0
+        , prettyprinter < 1.6.1
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
