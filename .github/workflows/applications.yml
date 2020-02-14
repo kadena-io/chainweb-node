@@ -77,7 +77,9 @@ jobs:
               pruneChainDatabase: false
         EOF
     - name: Validate mainnet01 history
-      run: ./bin/chainweb-node --config-file=config.yaml --log-level=warn
+      run: |
+        chmod 755 ./bin/chainweb-node
+        ./bin/chainweb-node --config-file=config.yaml --log-level=warn
 
   # Build Chainweb Node
   #
@@ -91,7 +93,6 @@ jobs:
         cabal: ['3.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
-        distcache: ['false']
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
@@ -101,11 +102,6 @@ jobs:
       CABAL_CACHE_BUCKET: kadena-cabal-cache
       SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
       SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
-
-      # Dist Cache
-      DIST_CACHE_BUCKET: kadena-cabal-cache
-      SYNC_TO_DIST_CACHE: aws s3 sync dist-newstyle "s3://kadena-cabal-cache/dist/${{ matrix.os }}/${{ matrix.ghc }}/dist-newstyle"
-      SYNC_FROM_DIST_CACHE: aws s3 sync "s3://kadena-cabal-cache/dist/${{ matrix.os }}/${{ matrix.ghc }}/dist-newstyle" dist-newstyle && rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/setup
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
@@ -193,13 +189,6 @@ jobs:
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
     
-    - name: Sync from dist cache
-      if: matrix.distcache == 'true'
-      run: |
-        eval $SYNC_FROM_DIST_CACHE
-        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*
-      continue-on-error: true
-
     # Build
     - name: Update package database
       run: cabal v2-update
@@ -216,9 +205,6 @@ jobs:
       run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/Chainweb.Test.Pact.SPV/ && !/deep-fork-limit/ && !/SPV transaction proof test/'
     - name: Run Benchmarks and Certificate Validation Tests
       run: cabal v2-run cwtool -- slow-tests
-    - name: Sync dist cache
-      if: always() && (matrix.distcache == 'true')
-      run: eval $SYNC_TO_DIST_CACHE
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
       run: eval $SYNC_TO_CACHE
