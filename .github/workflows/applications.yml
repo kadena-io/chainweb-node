@@ -191,6 +191,7 @@ jobs:
         key: ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-${{ github.sha }}
         restore-keys: |
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
+          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
     
     - name: Sync from dist cache
       if: matrix.distcache == 'true'
