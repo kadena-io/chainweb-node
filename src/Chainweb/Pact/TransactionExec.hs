@@ -752,7 +752,7 @@ gasInterpreter g = do
 initialGasOf :: PayloadWithText -> Gas
 initialGasOf cmd = gasFee
   where
-    feePerByte :: Decimal = 0.01
+    feePerByte :: Rational = 0.01
 
     contProofSize =
       case _pPayload (payloadObj cmd) of
@@ -765,7 +765,7 @@ initialGasOf cmd = gasFee
     gasFee = ceiling (costPerByte + sizePenalty)
 {-# INLINE initialGasOf #-}
 
-txSizeAccelerationFee :: Decimal -> Decimal
+txSizeAccelerationFee :: Rational -> Rational
 txSizeAccelerationFee costPerByte = total
   where
     total = (costPerByte / bytePenalty) ^ power

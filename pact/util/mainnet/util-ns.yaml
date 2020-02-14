@@ -1,0 +1,30 @@
+type: exec
+codeFile: ../util-ns.pact
+signers:
+  - public: a241430816f0112add2179e3e3939ebab5336ab024be990960e684e38eb87d80
+  - public: 8cc8da8ea7cbfaf6510dbc5f402b025dceaa9a3eaf7145e0ba933d468b63d358
+  - public: 56ff9e5c1b5ec3e98172a76aa3cdc03d3ec664f147267fd99eee4dd09763c853
+data:
+  util-ns-users:
+    keys:
+    - a241430816f0112add2179e3e3939ebab5336ab024be990960e684e38eb87d80
+    - 56ff9e5c1b5ec3e98172a76aa3cdc03d3ec664f147267fd99eee4dd09763c853
+    - 8cc8da8ea7cbfaf6510dbc5f402b025dceaa9a3eaf7145e0ba933d468b63d358
+    - cc21dbb944f9fbc9b02ab72d1635d1b6fba90b91472e39ef34633fde822cf8e4
+    pred: keys-2
+  util-ns-admin:
+    keys:
+    - a241430816f0112add2179e3e3939ebab5336ab024be990960e684e38eb87d80
+    - 56ff9e5c1b5ec3e98172a76aa3cdc03d3ec664f147267fd99eee4dd09763c853
+    - 8cc8da8ea7cbfaf6510dbc5f402b025dceaa9a3eaf7145e0ba933d468b63d358
+    - cc21dbb944f9fbc9b02ab72d1635d1b6fba90b91472e39ef34633fde822cf8e4
+    pred: keys-2
+networkId: mainnet01
+nonce: define-namespace-util-mainnet
+publicMeta:
+  chainId: #chainId
+  sender: 8cc8da8ea7cbfaf6510dbc5f402b025dceaa9a3eaf7145e0ba933d468b63d358
+  gasLimit: 600
+  gasPrice: 0.0000000001
+  creationTime: 1581549642
+  ttl: 150000
