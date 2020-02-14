@@ -65,6 +65,7 @@ import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
+import Pact.Types.Runtime (PactId(..))
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -82,6 +83,7 @@ tests = ScheduledTest label $
             , execTest ctx testReq5
             , execTxsTest ctx "testTfrGas" testTfrGas
             , execTxsTest ctx "testGasPayer" testGasPayer
+            , execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
             ]
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
@@ -280,7 +282,47 @@ testGasPayer = (txs,checkResultSuccess test)
       checkPactResultSuccess "setupUser" setupUser $ assertEqual "setupUser" (pString "Write succeeded")
       checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct" (pString "Write succeeded")
       checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
-    test r = assertFailure $ "Expected 5 results, got: " ++ show r
+    test r = assertFailure $ "Expected 4 results, got: " ++ show r
+
+
+testContinuationGasPayer :: TxsTest
+testContinuationGasPayer = (txs,checkResultSuccess test)
+  where
+    setupExprs = do
+      implCode <- getPactCode (File "../pact/continuation-gas-payer.pact")
+      return [ implCode
+             , "(coin.transfer-create \"sender00\" \"gas-payer\" (gas-payer-for-cont.create-gas-payer-guard) 100.0)"
+             , "(simple-cont-module.some-two-step-pact)"
+             , "(coin.get-balance \"gas-payer\")" ]
+    setupTest = do
+      setupExprs' <- setupExprs
+      sender00ks <- testKeyPairs sender00KeyPair $ Just
+        [ SigCapability (QualifiedName "coin" "TRANSFER" def)
+          [pString "sender00",pString "gas-payer",pDecimal 100.0]
+        , SigCapability (QualifiedName "coin" "GAS" def) []
+        ]
+      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer" 10000 0.01 1000000 0 $
+        V.fromList (map (`PactTransaction` Nothing) setupExprs')
+
+    runStepTwoWithGasPayer = do
+      sender01ks <- testKeyPairs sender01KeyPair $ Just
+        [ SigCapability (QualifiedName (ModuleName "gas-payer-for-cont" (Just "user")) "GAS_PAYER" def)
+          [pString "sender01",pInteger 10000,pDecimal 0.01] ]
+      mkTestContTransaction "gas-payer" "0" sender01ks "testContinuationGasPayer" 10000 0.01
+        1 (PactId "gIl7YDog5jdDszuQ_boYg_Q-KyJ02omV04cSU0GNgtw") False Nothing 1000000 0 Null
+
+    txs = do
+      s <- setupTest
+      r <- runStepTwoWithGasPayer
+      return $! s <> r
+
+    test li = assertFailure $ "Testing to see results: " ++ show li
+    --test [impl,fundGasAcct,contFirstStep] = do
+    --  checkPactResultSuccess "impl" impl $ assertEqual "impl" (pString "TableCreated"
+    {--test (Left err) = assertFailure err
+    test (Right (TestResponse li _)) = do
+      print $ show (map snd li)
+      assertFailure "Testing to see results"--}
 
 testFailureRedeem :: TxsTest
 testFailureRedeem = (txs,checkResultSuccess test)

@@ -64,6 +64,7 @@ import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
+import Data.Maybe (isJust)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -648,19 +649,22 @@ findPayer cmd = runMaybeT $ do
 
 enrichedMsgBody :: Command (Payload PublicMeta ParsedCode) -> Eval e Value
 enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
-  Exec (ExecMsg (ParsedCode _ exps) _) -> return $
+  Exec (ExecMsg (ParsedCode _ exps) userData) -> return $
     object [ "tx-type" A..= ( "exec" :: Text)
            , "exec-code" A..= map renderCompactText exps --TODO should we do both?
+           , "exec-user-data" A..= pactFriendlyUserData userData
            , "exec-exprs" A..= map renderExp exps ]
-  Continuation _ -> do
-    s <- get
-    let pactExecData = case (_evalPactExec s) of
-          Nothing -> object []
-          Just pe -> toJSON pe
-    return $
-      object [ "tx-type" A..= ("cont" :: Text)
-             , "cont-data" A..= pactExecData ]
+  Continuation (ContMsg pid step isRollback userData proof) -> return $
+    object [ "tx-type" A..= ("cont" :: Text)
+           , "cont-pact-id" A..= pid
+           , "cont-step" A..= (LInteger $ toInteger step)
+           , "cont-is-rollback" A..= LBool isRollback
+           , "cont-user-data" A..= pactFriendlyUserData userData
+           , "cont-has-proof" A..= (LBool $ isJust proof)
+           ]
   where
+    pactFriendlyUserData Null = object []
+    pactFriendlyUserData v = v
     renderExp e = case e of
       ELiteral (LiteralExp l _) ->
         object [ "type" A..= ("literal" :: Text)
