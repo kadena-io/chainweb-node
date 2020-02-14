@@ -75,6 +75,7 @@ module Chainweb.Pact.Backend.Types
     , MemPoolAccess(..)
 
     , PactServiceException(..)
+    , WithCheckpointerResult(..)
     ) where
 
 import Control.Exception
@@ -327,3 +328,8 @@ instance Show PactServiceException where
              ]
 
 instance Exception PactServiceException
+
+
+data WithCheckpointerResult a
+    = Discard !a
+    | Save BlockHeader !a

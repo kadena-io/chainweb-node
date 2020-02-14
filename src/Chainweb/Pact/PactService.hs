@@ -117,6 +117,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.Fork
 import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
@@ -579,10 +580,6 @@ restoreCheckpointer maybeBB caller = do
     logInfo $ "restoring (with caller " <> caller <> ") " <> sshow maybeBB
     liftIO $ _cpRestore checkPointer maybeBB
 
-data WithCheckpointerResult a
-    = Discard !a
-    | Save BlockHeader !a
-
 -- | Execute an action in the context of an @Block@ that is provided by the
 -- checkpointer.
 --
@@ -823,47 +820,6 @@ minerReward (MinerRewards rs q) bh =
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
-withEnableUserContracts
-    :: BlockHeader
-    -> PactServiceM cas a
-    -> PactServiceM cas a
-withEnableUserContracts bh =
-  withEnableUserContracts'
-    (isGenesisBlockHeader bh)
-    (_blockCreationTime bh)
-    bh
-
--- | If user contracts are enabled, check the block time against
--- the activation date.
---
-withEnableUserContracts'
-    :: Bool
-       -- ^ is block genesis
-    -> BlockCreationTime
-       -- ^ block creation time, in new block we can't get this from header
-    -> BlockHeader
-       -- ^ block header for chainweb version
-    -> PactServiceM cas a
-    -> PactServiceM cas a
-withEnableUserContracts' isGenesis creationTime bh =
-    locally psEnableUserContracts (const allowModules)
-  where
-    allowModules = checkEnableUserContracts isGenesis creationTime (_blockChainwebVersion bh)
-
-checkEnableUserContracts
-    :: Bool
-     -- ^ is block genesis
-    -> BlockCreationTime
-       -- ^ block creation time, in new block we can't get this from header
-    -> ChainwebVersion
-    -> Bool
-checkEnableUserContracts isGenesis (BlockCreationTime blockTime) v =
-    case activated of
-      Just d | d > blockTime && not isGenesis -> False
-      _ -> True
-  where
-    activated = userContractActivationDate v
-
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
 --
@@ -896,6 +852,8 @@ execNewBlock mpAccess parentHeader miner creationTime = go
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
+    !allowModuleInstall = forkingChange parentHeader EnableUserContracts
+
     doPreBlock pdbenv = do
       cp <- getCheckpointer
       psEnv <- ask
@@ -912,8 +870,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True)) <$>
               validateChainwebTxs cp creationTime bhi
-                txs runDebitGas
-                (checkEnableUserContracts False creationTime (_blockChainwebVersion parentHeader))
+                txs runDebitGas allowModuleInstall
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -924,7 +881,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- withEnableUserContracts' False creationTime parentHeader $
+        results <- locally psEnableUserContracts (const $ allowModuleInstall) $
           execTransactions (Just (parentHeader,creationTime)) miner newTrans
             (EnforceCoinbaseFailure True)
             (CoinbaseUsePrecompiled True)
@@ -1050,11 +1007,9 @@ playOneBlock currHeader plData pdbenv = do
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
     -- prop_tx_ttl_validate
-    oks <- withEnableUserContracts currHeader $ do
-        allowModuleInstall <- view psEnableUserContracts
-        liftIO $ fmap (either (const False) (const True)) <$>
-          validateChainwebTxs cp creationTime (_blockHeight currHeader)
-            trans skipDebitGas allowModuleInstall
+    oks <- liftIO $ fmap (either (const False) (const True)) <$>
+      validateChainwebTxs cp creationTime (_blockHeight currHeader)
+      trans skipDebitGas enableUC
 
     let mbad = V.elemIndex False oks
     case mbad of
@@ -1085,9 +1040,10 @@ playOneBlock currHeader plData pdbenv = do
       , " failed to validate"
       ]
 
-    isGenesisBlock = isGenesisBlockHeader currHeader
-
-    currCreationTime = _blockCreationTime currHeader
+    !isGenesisBlock = isGenesisBlockHeader currHeader
+    !allowModuleInstall = forkingChange currHeader EnableUserContracts
+    !currCreationTime = _blockCreationTime currHeader
+    !enableUC = allowModuleInstall && not isGenesisBlock
 
     go m txs = if isGenesisBlock
       then do
@@ -1100,9 +1056,9 @@ playOneBlock currHeader plData pdbenv = do
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        withEnableUserContracts currHeader $
+        locally psEnableUserContracts (const $ enableUC) $
           execTransactions (Just (ph,currCreationTime)) m txs
-            (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
+          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -1171,7 +1127,7 @@ execValidateBlock
 execValidateBlock currHeader plData = do
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
-    validateTxEnabled currHeader plData
+    void $! validateTxEnabled
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
@@ -1215,15 +1171,12 @@ execValidateBlock currHeader plData = do
     handleEx (RewindLimitExceeded a h1 h2) = fatalRewindError a h1 h2
     handleEx e = throwM e
 
-validateTxEnabled :: BlockHeader -> PayloadData -> PactServiceM cas ()
-validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
-    Just end | end > blockTime && not isGenesisBlock && not payloadIsEmpty ->
-        throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded bh
-    _ -> pure ()
-  where
-    blockTime = _bct $ _blockCreationTime bh
-    payloadIsEmpty = V.null $ _payloadDataTransactions plData
-    isGenesisBlock = isGenesisBlockHeader bh
+    validateTxEnabled = do
+      let !txEnabled = forkingChange currHeader TxEnabled
+          !payloadNonEmpty = not $ V.null $ _payloadDataTransactions plData
+      when (not txEnabled && not isGenesisBlock && payloadNonEmpty) $
+        throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded currHeader
+
 
 execTransactions
     :: Maybe (BlockHeader,BlockCreationTime)
@@ -1353,11 +1306,14 @@ execPreInsertCheckReq txs = do
                 now <- liftIO getCurrentTimeIntegral
                 psEnv <- ask
                 psState <- get
+
                 let creationTime = BlockCreationTime now
+                    !allowModuleInstall = forkingChange parentHeader EnableUserContracts
+
                 liftIO (Discard <$>
                         validateChainwebTxs cp creationTime (h + 1) txs
                         (runGas pdb psState psEnv)
-                        (checkEnableUserContracts False creationTime (_psVersion psEnv)))
+                        allowModuleInstall)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)

@@ -106,6 +106,7 @@ module Chainweb.BlockHeader
 
 -- * Genesis BlockHeader
 , isGenesisBlockHeader
+, isNotGenesisBlockHeader
 
 -- * Create a new BlockHeader
 , newBlockHeader
@@ -118,6 +119,9 @@ module Chainweb.BlockHeader
 
 -- * CAS Constraint
 , BlockHeaderCas
+
+-- * Block header time combinators
+, isAfterBlockTime
 ) where
 
 import Control.Arrow ((&&&))
@@ -733,6 +737,10 @@ isGenesisBlockHeader :: BlockHeader -> Bool
 isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
 {-# INLINE isGenesisBlockHeader #-}
 
+isNotGenesisBlockHeader :: BlockHeader -> Bool
+isNotGenesisBlockHeader = not . isGenesisBlockHeader
+{-# INLINE isNotGenesisBlockHeader #-}
+
 -- | The Proof-Of-Work hash includes all data in the block except for the
 -- '_blockHash'. The value (interpreted as 'BlockHashNat' must be smaller than
 -- the value of '_blockTarget' (interpreted as 'BlockHashNat').
@@ -910,3 +918,14 @@ testBlockHeadersWithNonce :: Nonce -> ParentHeader -> [BlockHeader]
 testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
   where
     f b = testBlockHeader (BlockHashRecord mempty) n $ ParentHeader b
+
+-- -------------------------------------------------------------------------- --
+-- BlockHeader combinators
+
+-- | Test if a time is strictly after block creation time
+--
+isAfterBlockTime :: Time Micros -> BlockHeader -> Bool
+isAfterBlockTime t bh =
+    let (BlockCreationTime bt) = _blockCreationTime bh
+    in t > bt
+{-# INLINE isAfterBlockTime #-}
