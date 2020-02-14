@@ -1,3 +1,4 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Pact.Utils
@@ -79,7 +80,7 @@ timingsCheck
     -> Bool
 timingsCheck (BlockCreationTime blockOriginationTime) tx =
     ttl > 0
-    && blockOriginationTime >= (toMicrosFromSeconds 0)
+    && blockOriginationTime >= toMicrosFromSeconds 0
     && txOriginationTime >= 0
     && toMicrosFromSeconds txOriginationTime < (blockOriginationTime .+^ graceTime)
     && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
@@ -89,5 +90,5 @@ timingsCheck (BlockCreationTime blockOriginationTime) tx =
     toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
     (TxCreationTime txOriginationTime) = creationTimeOf tx
 
-    -- FIXME apply this only to old blocks?
-    graceTime = TimeSpan (Micros 300000000)
+    -- TODO apply this only to old blocks?
+    graceTime = TimeSpan (Micros 180_000_000)
