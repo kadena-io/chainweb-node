@@ -22,7 +22,9 @@ jobs:
       uses: actions/cache@v1
       with:
         path: db
-        key: chain-db
+        key: chain-db-${{ hashFiles('**/MANIFEST') }}
+        restore-keys: |
+          chain-db-
     - name: Sync chain database from S3
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -186,7 +188,9 @@ jobs:
       name: Cache dist-newstyle
       with:
         path: dist-newstyle
-        key: ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-${{ github.sha }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
     
     - name: Sync from dist cache
       if: matrix.distcache == 'true'
