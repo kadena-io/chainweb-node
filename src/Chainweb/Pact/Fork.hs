@@ -20,8 +20,6 @@ import Chainweb.Version
 data ForkType
     = EnableUserContracts
       -- ^ enable user contracts for non-genesis
-    | Vuln797Fix
-      -- ^ enable vuln797 fix
     | TxEnabled
       -- ^ check tx enabled date
 
@@ -36,10 +34,7 @@ forkingChange !bh !forkTy = case forkTy of
       _ -> True
 
     TxEnabled -> case txEnabledDate v of
-      Just end | end `isPastBlockTime` bh && notGenesis -> False
+      Just end | end `isPastBlockTime` bh -> False
       _ -> True
-
-    _ -> False
   where
-    !notGenesis = isNotGenesisBlockHeader bh
     !v = _blockChainwebVersion bh

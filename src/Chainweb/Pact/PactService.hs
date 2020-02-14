@@ -1196,10 +1196,8 @@ execValidateBlock currHeader plData = do
         !notGenesis = isNotGenesisBlockHeader currHeader
         !plNonEmpty = not $ V.null $ _payloadDataTransactions plData
 
-    when (txEnabled && notGenesis && plNonEmpty) $
+    when (not txEnabled && notGenesis && plNonEmpty) $
       throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded currHeader
-
-    liftIO $ putStrLn "HERE!"
 
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
