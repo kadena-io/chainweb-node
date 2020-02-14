@@ -22,7 +22,7 @@ jobs:
       uses: actions/cache@v1
       with:
         path: db
-        key: chain-db-${{ hashFiles('**/MANIFEST') }}
+        key: chain-db-
         restore-keys: |
           chain-db-
     - name: Sync chain database from S3
