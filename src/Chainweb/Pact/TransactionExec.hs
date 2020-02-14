@@ -145,16 +145,15 @@ applyCmd
       -- ^ command with payload to execute
     -> ModuleCache
       -- ^ cached module state
-    -> [ExecutionFlag]
+    -> Bool
       -- ^ execution config for module install
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMods =
+applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
-    executionConfigNoHistory = ExecutionConfig
-      (S.fromList (ecMods <> [FlagDisableHistoryInTransactionalMode]))
+    executionConfigNoHistory = ExecutionConfig ecMod False
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
@@ -408,13 +407,10 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
       l <- view txLogger
       liftIO $! logLog l "INFO" $! T.unpack s
 
-    enableModuleInstall e = set (txExecutionConfig . ecFlags) configWithModuleInstallEnabled e
-      where configWithModuleInstallEnabled = S.delete FlagDisableModuleInstall (_ecFlags $ _txExecutionConfig e)
-
     applyTxs txsIO = do
       infoLog $ "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
-      local enableModuleInstall $
+      local (set (txExecutionConfig . ecAllowModuleInstall) True) $
         mapM_ applyTx txs
       mc <- use txCache
       return $ Just mc
