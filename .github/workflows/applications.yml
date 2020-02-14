@@ -9,6 +9,76 @@ on:
     - release-candidate/*
 
 jobs:
+
+  # Synchronize Mainnet01 Chain Database
+  #
+  sync-chain-db:
+    name: Synchronize the chain database cache
+    runs-on: 'ubuntu-latest'
+    steps:
+    # Caches are limited to 5GB per repository. Currently the size of the db is 3.5GB
+    - name: Sync chain database from cache
+      id: cache-chain-db
+      uses: actions/cache@v1
+      with:
+        path: db
+        key: chain-db
+    - name: Sync chain database from S3
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+        run: |
+          aws s3 sync "s3://chainweb-chain-db/mainnet01/" db/ --delete --exclude=LOCK
+    - name: Store chain database as artifact
+      uses: actions/upload-artifact@v1
+      with:
+        name: chain-db
+        path: db
+
+  # Validate Mainnet01 Chain Database With chainweb-node
+  #
+  validate-chain-db:
+    name: Validate mainnet01 history with build
+    needs: [sync-chain-db, build]
+    runs-on: 'ubuntu-18.04'
+    steps:
+    - name: Download chain database artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chain-db
+        path: db
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.ghc-8.8.2.ubuntu-18.04
+        path: bin
+    - name: Create configuration file for validating the chainweb history
+      run: |
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db/rocksDb"
+          resetChainDatabases: false
+          chainweb:
+            validateHashesOnReplay: true
+            p2p:
+              peer:
+                hostaddress:
+                  hostname: localhost
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            headerStream: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: false
+        EOF
+    - name: Validate mainnet01 history
+      run: ./bin/chainweb-node --config-file=config.yaml --log-level=warn
+
+  # Build Chainweb Node
+  #
   build:
     name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
