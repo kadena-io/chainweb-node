@@ -44,6 +44,10 @@ jobs:
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
     steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb zlib1g libtinfo libsqlite3 libz3 z3
     - name: Download chain database artifact
       uses: actions/download-artifact@v1
       with:
