@@ -27,8 +27,8 @@ jobs:
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
-        run: |
-          aws s3 sync "s3://chainweb-chain-db/mainnet01/" db/ --delete --exclude=LOCK
+      run: |
+        aws s3 sync "s3://chainweb-chain-db/mainnet01/" db/ --delete --exclude=LOCK
     - name: Store chain database as artifact
       uses: actions/upload-artifact@v1
       with:
