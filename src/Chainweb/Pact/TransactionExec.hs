@@ -42,7 +42,6 @@ module Chainweb.Pact.TransactionExec
 , networkIdOf
 , gasSupplyOf
 , gasPriceOf
-, blockTimeOf
 
   -- * Utilities
 , buildExecParsedCode

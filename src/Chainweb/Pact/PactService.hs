@@ -878,6 +878,8 @@ execNewBlock mpAccess parentHeader miner = go
 
     parentCreationTime = _blockCreationTime parentHeader
 
+    !allowModuleInstall = forkingChange parentHeader EnableUserContracts
+
     doPreBlock pdbenv = do
       cp <- getCheckpointer
       psEnv <- ask
@@ -895,7 +897,7 @@ execNewBlock mpAccess parentHeader miner = go
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True)) <$>
               validateChainwebTxs cp parentCreationTime bhi
-                txs runDebitGas (forkingChange parentHeader EnableUserContracts)
+                txs runDebitGas allowModuleInstall
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -905,11 +907,9 @@ execNewBlock mpAccess parentHeader miner = go
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        let !allowModuleInstall = forkingChange parentHeader EnableUserContracts
-
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- locally psEnableUserContracts (const $ allowModuleInstall) $
-            execTransactions (Just parentHeader) miner newTrans
+          execTransactions (Just parentHeader) miner newTrans
             (EnforceCoinbaseFailure True)
             (CoinbaseUsePrecompiled True)
             pdbenv
@@ -1273,10 +1273,8 @@ runCoinbase (Just parentHeader) dbEnv miner enfCBFail usePrecomp mc = do
     let !bh = BlockHeight $ P._pdBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
-
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader enfCBFail usePrecomp mc
-
     mapM_ upgradeInitCache upgradedCacheM
 
     return $! cr
