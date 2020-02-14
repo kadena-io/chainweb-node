@@ -122,9 +122,6 @@ module Chainweb.BlockHeader
 
 -- * Block header time combinators
 , isPastBlockTime
-, isBeforeBlockTime
-, isPastOrEqBlockTime
-, isBeforeOrEqBlockTime
 ) where
 
 import Control.Arrow ((&&&))
@@ -927,22 +924,6 @@ testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader combinators
 
--- | Test if a time is greater than or equal to block creation time
---
-isPastOrEqBlockTime :: Time Micros -> BlockHeader -> Bool
-isPastOrEqBlockTime t bh =
-    let (BlockCreationTime bt) = _blockCreationTime bh
-    in t >= bt
-{-# INLINE isPastOrEqBlockTime #-}
-
--- | Test if a time is less than or equal to block creation time
---
-isBeforeOrEqBlockTime :: Time Micros -> BlockHeader -> Bool
-isBeforeOrEqBlockTime t bh =
-    let (BlockCreationTime bt) = _blockCreationTime bh
-    in t <= bt
-{-# INLINE isBeforeOrEqBlockTime #-}
-
 -- | Test if a time is strictly after block creation time
 --
 isPastBlockTime :: Time Micros -> BlockHeader -> Bool
@@ -950,11 +931,3 @@ isPastBlockTime t bh =
     let (BlockCreationTime bt) = _blockCreationTime bh
     in t > bt
 {-# INLINE isPastBlockTime #-}
-
--- | Test if a time is before block creation time
---
-isBeforeBlockTime :: Time Micros -> BlockHeader -> Bool
-isBeforeBlockTime t bh =
-  let (BlockCreationTime bt) = _blockCreationTime bh
-  in t < bt
-{-# INLINE isBeforeBlockTime #-}
