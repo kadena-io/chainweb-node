@@ -877,6 +877,8 @@ execNewBlock mpAccess parentHeader miner = go
 
     parentCreationTime = _blockCreationTime parentHeader
 
+    !enableUC = forkingChange parentHeader EnableUserContracts
+
     doPreBlock pdbenv = do
       cp <- getCheckpointer
       psEnv <- ask
@@ -894,7 +896,7 @@ execNewBlock mpAccess parentHeader miner = go
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True)) <$>
               validateChainwebTxs cp parentCreationTime bhi
-                txs runDebitGas (forkingChange parentHeader EnableUserContracts)
+                txs runDebitGas enableUC
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -903,8 +905,6 @@ execNewBlock mpAccess parentHeader miner = go
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
-
-        let enableUC = forkingChange parentHeader EnableUserContracts
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- locally psEnableUserContracts (const enableUC) $
@@ -1054,8 +1054,8 @@ playOneBlock currHeader plData pdbenv = do
 
     -- prop_tx_ttl_validate
     oks <- liftIO $ do
-      let !enableUC = forkingChange currHeader EnableUserContracts
-          !notGenesis = isNotGenesisBlockHeader currHeader
+
+      let !notGenesis = isNotGenesisBlockHeader currHeader
           !allowModuleInstall = enableUC && notGenesis
 
       fmap (either (const False) (const True)) <$>
@@ -1093,7 +1093,9 @@ playOneBlock currHeader plData pdbenv = do
       , " failed to validate"
       ]
 
-    isGenesisBlock = isGenesisBlockHeader currHeader
+    !isGenesisBlock = isGenesisBlockHeader currHeader
+
+    !enableUC = forkingChange currHeader EnableUserContracts
 
     go m txs = if isGenesisBlock
       then do
@@ -1111,10 +1113,7 @@ playOneBlock currHeader plData pdbenv = do
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         --
-        let enableUC = forkingChange currHeader EnableUserContracts
-            !notGenesis = isNotGenesisBlockHeader currHeader
-
-        locally psEnableUserContracts (const $ enableUC && notGenesis) $
+        locally psEnableUserContracts (const $ enableUC && not isGenesisBlock) $
           execTransactions (Just ph) m txs
           (EnforceCoinbaseFailure False)
           (CoinbaseUsePrecompiled False)
@@ -1192,12 +1191,7 @@ execValidateBlock currHeader plData = do
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
 
-    let !txEnabled = forkingChange currHeader TxEnabled
-        !notGenesis = isNotGenesisBlockHeader currHeader
-        !plNonEmpty = not $ V.null $ _payloadDataTransactions plData
-
-    when (not txEnabled && notGenesis && plNonEmpty) $
-      throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded currHeader
+    void $! assertTxEnabled
 
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
@@ -1211,6 +1205,14 @@ execValidateBlock currHeader plData = do
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
+
+    assertTxEnabled = do
+      let !txEnabled = forkingChange currHeader TxEnabled
+          !notGenesis = isNotGenesisBlockHeader currHeader
+          !plNonEmpty = not $ V.null $ _payloadDataTransactions plData
+
+      when (not txEnabled && notGenesis && plNonEmpty) $
+        throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded currHeader
 
     -- TODO: knob to configure whether this rewind is fatal
     fatalRewindError a h1 h2 = do
@@ -1378,10 +1380,12 @@ execPreInsertCheckReq txs = do
                       , _pactServiceExceptionInner = Just e
                       }
                 let parentCreationTime = _blockCreationTime parentHeader
+                    !enableUC = forkingChange parentHeader EnableUserContracts
+
                 liftIO (Discard <$>
                         validateChainwebTxs cp parentCreationTime (h + 1) txs
                         (runGas pdb psState psEnv)
-                        (forkingChange parentHeader EnableUserContracts))
+                        enableUC)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
