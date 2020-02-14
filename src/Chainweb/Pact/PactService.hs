@@ -877,8 +877,6 @@ execNewBlock mpAccess parentHeader miner = go
 
     parentCreationTime = _blockCreationTime parentHeader
 
-    !enableUC = forkingChange parentHeader EnableUserContracts
-
     doPreBlock pdbenv = do
       cp <- getCheckpointer
       psEnv <- ask
@@ -896,7 +894,7 @@ execNewBlock mpAccess parentHeader miner = go
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True)) <$>
               validateChainwebTxs cp parentCreationTime bhi
-                txs runDebitGas enableUC
+                txs runDebitGas (forkingChange parentHeader EnableUserContracts)
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -906,8 +904,10 @@ execNewBlock mpAccess parentHeader miner = go
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
+        let !allowModuleInstall = forkingChange parentHeader EnableUserContracts
+
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- locally psEnableUserContracts (const enableUC) $
+        results <- locally psEnableUserContracts (const $ allowModuleInstall) $
             execTransactions (Just parentHeader) miner newTrans
             (EnforceCoinbaseFailure True)
             (CoinbaseUsePrecompiled True)
@@ -1053,15 +1053,10 @@ playOneBlock currHeader plData pdbenv = do
         return $! _blockCreationTime ph
 
     -- prop_tx_ttl_validate
-    oks <- liftIO $ do
-
-      let !notGenesis = isNotGenesisBlockHeader currHeader
-          !allowModuleInstall = enableUC && notGenesis
-
-      fmap (either (const False) (const True)) <$>
+    oks <- liftIO $ fmap (either (const False) (const True)) <$>
         validateChainwebTxs cp parentCreationTime
         (_blockHeight currHeader) trans
-        skipDebitGas allowModuleInstall
+        skipDebitGas (allowModuleInstall && not isGenesisBlock)
 
     let mbad = V.elemIndex False oks
     case mbad of
@@ -1095,7 +1090,7 @@ playOneBlock currHeader plData pdbenv = do
 
     !isGenesisBlock = isGenesisBlockHeader currHeader
 
-    !enableUC = forkingChange currHeader EnableUserContracts
+    !allowModuleInstall = forkingChange currHeader EnableUserContracts
 
     go m txs = if isGenesisBlock
       then do
@@ -1113,7 +1108,7 @@ playOneBlock currHeader plData pdbenv = do
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         --
-        locally psEnableUserContracts (const $ enableUC && not isGenesisBlock) $
+        locally psEnableUserContracts (const $ allowModuleInstall && not isGenesisBlock) $
           execTransactions (Just ph) m txs
           (EnforceCoinbaseFailure False)
           (CoinbaseUsePrecompiled False)
@@ -1191,7 +1186,7 @@ execValidateBlock currHeader plData = do
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
 
-    void $! assertTxEnabled
+    void $! validateTxEnabled
 
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
@@ -1206,7 +1201,7 @@ execValidateBlock currHeader plData = do
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    assertTxEnabled = do
+    validateTxEnabled = do
       let !txEnabled = forkingChange currHeader TxEnabled
           !notGenesis = isNotGenesisBlockHeader currHeader
           !plNonEmpty = not $ V.null $ _payloadDataTransactions plData
@@ -1279,8 +1274,8 @@ runCoinbase (Just parentHeader) dbEnv miner enfCBFail usePrecomp mc = do
 
     reward <- liftIO $! minerReward rs bh
 
-    T2 cr upgradedCacheM <- liftIO $
-      applyCoinbase v logger dbEnv miner reward pd parentHeader enfCBFail usePrecomp mc
+    (T2 cr upgradedCacheM) <-
+      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader enfCBFail usePrecomp mc
 
     mapM_ upgradeInitCache upgradedCacheM
 
@@ -1380,12 +1375,12 @@ execPreInsertCheckReq txs = do
                       , _pactServiceExceptionInner = Just e
                       }
                 let parentCreationTime = _blockCreationTime parentHeader
-                    !enableUC = forkingChange parentHeader EnableUserContracts
+                    !allowModuleInstall = forkingChange parentHeader EnableUserContracts
 
                 liftIO (Discard <$>
                         validateChainwebTxs cp parentCreationTime (h + 1) txs
                         (runGas pdb psState psEnv)
-                        enableUC)
+                        allowModuleInstall)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
