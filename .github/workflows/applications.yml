@@ -105,6 +105,7 @@ jobs:
     - name: Validate mainnet01 history
       run: |
         chmod 755 ./bin/chainweb-node
+        set -o pipefail
         ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p ; q}' ; killall chainweb-node ; }
     - name: Delete Pact SQL db
       run: |
