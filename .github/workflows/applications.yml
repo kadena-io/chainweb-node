@@ -61,7 +61,7 @@ jobs:
     - name: Create configuration file for validating the chainweb history
       run: |
         cat >> config.yaml <<EOF
-          databaseDirectory: "db/rocksDb"
+          databaseDirectory: "db/rocksdb"
           resetChainDatabases: false
           chainweb:
             validateHashesOnReplay: true
@@ -101,7 +101,7 @@ jobs:
       run: |
         ls -liash .
         ls -liash db
-        ls -liash rocksDb
+        ls -liash rocksdb
     - name: Validate mainnet01 history
       run: |
         chmod 755 ./bin/chainweb-node
@@ -109,8 +109,8 @@ jobs:
     - name: Delete Pact SQL db
       run: |
         ls -liash db
-        ls -liash db/rocksDb
-        rm -rf db/rocksDb/sqlite
+        ls -liash db/rocksdb
+        rm -rf db/rocksdb/sqlite
 
   # Build Chainweb Node
   #
