@@ -404,8 +404,8 @@ prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
 
 prop_block_featureFlags :: BlockHeader -> Bool
 prop_block_featureFlags b
-    | skipFeatureFlagValidationGuard b = _blockFlags b == mkFeatureFlags
-    | otherwise = True
+    | skipFeatureFlagValidationGuard b = True
+    | otherwise = _blockFlags b == mkFeatureFlags
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
