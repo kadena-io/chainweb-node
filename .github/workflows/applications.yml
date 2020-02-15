@@ -79,11 +79,28 @@ jobs:
               enabled: false
             cuts:
               pruneChainDatabase: false
+          logging:
+            telemetryBackend:
+              enabled: true
+              configuration:
+                handle: stdout
+                color: "True"
+            backend:
+              handle: stdout
+              color: "True"
+            logger:
+              log_level: info
+            filter:
+              rules:
+              - key: component
+                value: pact
+                level: warn
+              default: info
         EOF
     - name: Validate mainnet01 history
       run: |
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml --log-level=warn
+        ./bin/chainweb-node --config-file=config.yaml | { gsed -u -e '/start chainweb node/{p ; q}' ; killall chainweb-node ; }
 
   # Build Chainweb Node
   #
