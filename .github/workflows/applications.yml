@@ -100,7 +100,7 @@ jobs:
     - name: Validate mainnet01 history
       run: |
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | { gsed -u -e '/start chainweb node/{p ; q}' ; killall chainweb-node ; }
+        ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p ; q}' ; killall chainweb-node ; }
 
   # Build Chainweb Node
   #
