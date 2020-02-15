@@ -41,6 +41,7 @@ module Chainweb.BlockHeader
 --
 -- $guards
 , slowEpochGuard
+, skipFeatureFlagValidationGuard
 
 -- * Block Payload Hash
 , BlockPayloadHash(..)
@@ -215,6 +216,23 @@ slowEpochGuard (ParentHeader p)
     | Mainnet01 <- _chainwebVersion p = _blockHeight p < 80000
     | otherwise = False
 {-# INLINE slowEpochGuard #-}
+
+-- | Skip validation of feature flags for block heights up to 340000.
+--
+-- Unused feature flag bits are supposed to be set to 0. This was not enforced
+-- in chainweb-node versions <= 1.5. There is a large number of blocks in the
+-- history of mainnet before 2020-02-20, that have non-zero feature flags. In
+-- order to prepare future use of fleature flag feature flag validation will
+-- start at block height 340000.
+--
+-- This guard grandfathers the this behavior up to block height 340000.
+--
+-- Blockheight 340000 is expected to occur on mainnet01 on 2019-02-24.
+--
+skipFeatureFlagValidationGuard :: BlockHeader -> Bool
+skipFeatureFlagValidationGuard hdr
+    | Mainnet01 <- _chainwebVersion hdr = _blockHeight hdr < 340000
+    | otherwise = True
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
