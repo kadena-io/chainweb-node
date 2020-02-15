@@ -97,10 +97,20 @@ jobs:
                 level: warn
               default: info
         EOF
+    - name: Check Setup
+      run: |
+        ls -liash .
+        ls -liash db
+        ls -liash rocksDb
     - name: Validate mainnet01 history
       run: |
         chmod 755 ./bin/chainweb-node
         ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p ; q}' ; killall chainweb-node ; }
+    - name: Delete Pact SQL db
+      run: |
+        ls -liash db
+        ls -liash db/rocksDb
+        rm -rf db/rocksDb/sqlite
 
   # Build Chainweb Node
   #
