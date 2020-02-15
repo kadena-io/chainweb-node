@@ -101,7 +101,7 @@ jobs:
       run: |
         ls -liash .
         ls -liash db
-        ls -liash rocksdb
+        ls -liash db/rocksdb
     - name: Validate mainnet01 history
       run: |
         chmod 755 ./bin/chainweb-node
@@ -231,11 +231,11 @@ jobs:
     - name: Install build dependencies
       run: cabal v2-build --only-dependencies
     - name: Build
-      run: cabal v2-build chainweb-node
-    - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/Chainweb.Test.Pact.SPV/ && !/deep-fork-limit/ && !/SPV transaction proof test/'
-    - name: Run Benchmarks and Certificate Validation Tests
-      run: cabal v2-run cwtool -- slow-tests
+      run: cabal v2-build
+    # - name: Run Tests
+    #   run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/Chainweb.Test.Pact.SPV/ && !/deep-fork-limit/ && !/SPV transaction proof test/'
+    # - name: Run Benchmarks and Certificate Validation Tests
+    #   run: cabal v2-run cwtool -- slow-tests
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
       run: eval $SYNC_TO_CACHE
