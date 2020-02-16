@@ -292,14 +292,14 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
     setupExprs = do
       implCode <- getPactCode (File "../pact/continuation-gas-payer.pact")
       return [ implCode
-             , "(coin.transfer-create \"sender00\" \"gas-payer\" (gas-payer-for-cont.create-gas-payer-guard) 100.0)"
+             , "(coin.transfer-create \"sender00\" \"cont-gas-payer\" (gas-payer-for-cont.create-gas-payer-guard) 100.0)"
              , "(simple-cont-module.some-two-step-pact)"
-             , "(coin.get-balance \"gas-payer\")" ]
+             , "(coin.get-balance \"cont-gas-payer\")" ]
     setupTest = do
       setupExprs' <- setupExprs
       sender00ks <- testKeyPairs sender00KeyPair $ Just
         [ SigCapability (QualifiedName "coin" "TRANSFER" def)
-          [pString "sender00",pString "gas-payer",pDecimal 100.0]
+          [pString "sender00",pString "cont-gas-payer",pDecimal 100.0]
         , SigCapability (QualifiedName "coin" "GAS" def) []
         ]
       mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer" 10000 0.01 1000000 0 $
@@ -309,13 +309,13 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
       ks <- testKeyPairs sender01KeyPair $ Just
         [ SigCapability (QualifiedName (ModuleName "gas-payer-for-cont" (Just "user")) "GAS_PAYER" def)
           [pString "sender01",pInteger 10000,pDecimal 0.01] ]
-      mkTestContTransaction "gas-payer" "0" ks "testContinuationGasPayer" 10000 0.01
-        1 (PactId "gIl7YDog5jdDszuQ_boYg_Q-KyJ02omV04cSU0GNgtw") False Nothing 1000000 0 Null
+      mkTestContTransaction "cont-gas-payer" "0" ks "testContinuationGasPayer" 10000 0.01
+        1 (PactId "0zt5pzWrDKJXfSmzCr36xGCMde5ow6FB-3rAwlc4tLU") False Nothing 1000000 0 Null
 
     balanceCheck = do
       sender00ks <- testKeyPairs sender00KeyPair Nothing
       mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer2" 10000 0.01 1000000 0 $
-        V.fromList [PactTransaction "(coin.get-balance \"gas-payer\")" Nothing]
+        V.fromList [PactTransaction "(coin.get-balance \"cont-gas-payer\")" Nothing]
 
     txs = do
       s <- setupTest
@@ -342,13 +342,13 @@ testExecGasPayer = (txs,checkResultSuccess test)
     setupExprs = do
       implCode <- getPactCode (File "../pact/exec-gas-payer.pact")
       return [ implCode
-             , "(coin.transfer-create \"sender00\" \"gas-payer\" (gas-payer-for-exec.create-gas-payer-guard) 100.0)"
-             , "(coin.get-balance \"gas-payer\")" ]
+             , "(coin.transfer-create \"sender00\" \"exec-gas-payer\" (gas-payer-for-exec.create-gas-payer-guard) 100.0)"
+             , "(coin.get-balance \"exec-gas-payer\")" ]
     setupTest = do
       setupExprs' <- setupExprs
       sender00ks <- testKeyPairs sender00KeyPair $ Just
         [ SigCapability (QualifiedName "coin" "TRANSFER" def)
-          [pString "sender00",pString "gas-payer",pDecimal 100.0]
+          [pString "sender00",pString "exec-gas-payer",pDecimal 100.0]
         , SigCapability (QualifiedName "coin" "GAS" def) []
         ]
       mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer" 10000 0.01 1000000 0 $
@@ -358,13 +358,13 @@ testExecGasPayer = (txs,checkResultSuccess test)
       ks <- testKeyPairs sender01KeyPair $ Just
         [ SigCapability (QualifiedName (ModuleName "gas-payer-for-exec" (Just "user")) "GAS_PAYER" def)
           [pString "sender01",pInteger 10000,pDecimal 0.01] ]
-      mkTestExecTransactions "gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
+      mkTestExecTransactions "exec-gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
         V.fromList [PactTransaction "(+ 1 2)" Nothing]
 
     balanceCheck = do
       sender00ks <- testKeyPairs sender00KeyPair Nothing
       mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer2" 10000 0.01 1000000 0 $
-        V.fromList [PactTransaction "(coin.get-balance \"gas-payer\")" Nothing]
+        V.fromList [PactTransaction "(coin.get-balance \"exec-gas-payer\")" Nothing]
 
     txs = do
       s <- setupTest
