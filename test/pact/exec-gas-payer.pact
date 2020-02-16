@@ -19,9 +19,8 @@
       price:decimal
     )
     (enforce (= "exec" (at "tx-type" (read-msg))) "Inside an exec")
-    (enforce (= 1 (length (at "exec-exprs" (read-msg)))) "Tx of only one expression")
-    (enforce (= "list" (at "type" (at 0 (at "exec-exprs" (read-msg))))) "Expression is a list or function")
-    (enforce (= "+" (at "expr" (at 0 (at "expr" (at 0 (at "exec-exprs" (read-msg))))))) "Expression if `+` function")
+    (enforce (= 1 (length (at "exec-code" (read-msg)))) "Tx of only one pact function")
+    (enforce (= "+" (take -1 (take 2 (at 0 (at "exec-code" (read-msg)))))) "Only `+` functions")
     (compose-capability (ALLOW_GAS))
   )
 

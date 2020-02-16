@@ -632,7 +632,7 @@ findPayer cmd = runMaybeT $ do
     mkApp i r as = App (TVar r i) (map (liftTerm . fromPactValue) as) i
 
     runCap i capRef as input = do
-      msgBody <- enrichedMsgBody cmd
+      let msgBody = enrichedMsgBody cmd
       ar <- local (setEnvMsgBody msgBody) $
         evalCap i CapCallStack False $ mkApp i capRef as
 
@@ -643,14 +643,13 @@ findPayer cmd = runMaybeT $ do
           return r
         _ -> evalError' i "Internal error, GAS_PAYER already acquired"
 
-enrichedMsgBody :: Command (Payload PublicMeta ParsedCode) -> Eval e Value
+enrichedMsgBody :: Command (Payload PublicMeta ParsedCode) -> Value
 enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
-  Exec (ExecMsg (ParsedCode _ exps) userData) -> return $
+  Exec (ExecMsg (ParsedCode _ exps) userData) ->
     object [ "tx-type" A..= ( "exec" :: Text)
-           , "exec-code" A..= map renderCompactText exps --TODO should we do both?
-           , "exec-user-data" A..= pactFriendlyUserData userData
-           , "exec-exprs" A..= map renderExp exps ]
-  Continuation (ContMsg pid step isRollback userData proof) -> return $
+           , "exec-code" A..= map renderCompactText exps
+           , "exec-user-data" A..= pactFriendlyUserData userData ]
+  Continuation (ContMsg pid step isRollback userData proof) ->
     object [ "tx-type" A..= ("cont" :: Text)
            , "cont-pact-id" A..= pid
            , "cont-step" A..= (LInteger $ toInteger step)
@@ -661,19 +660,6 @@ enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
   where
     pactFriendlyUserData Null = object []
     pactFriendlyUserData v = v
-    renderExp e = case e of
-      ELiteral (LiteralExp l _) ->
-        object [ "type" A..= ("literal" :: Text)
-               , "expr" A..= toJSON l ]
-      EAtom ae ->
-        object [ "type" A..= ("atom" :: Text)
-               , "expr" A..= (toJSON $ renderCompactText ae) ]
-      EList (ListExp li _ _) ->
-        object [ "type" A..= ("list" :: Text)
-               , "expr" A..= (toJSON (map renderExp li)) ]
-      ESeparator se ->
-        object [ "type" A..= ("seperator" :: Text)
-               , "expr" A..= (toJSON $ renderCompactText se) ]
 
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')

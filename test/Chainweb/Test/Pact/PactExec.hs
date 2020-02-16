@@ -359,7 +359,7 @@ testExecGasPayer = (txs,checkResultSuccess test)
         [ SigCapability (QualifiedName (ModuleName "gas-payer-for-exec" (Just "user")) "GAS_PAYER" def)
           [pString "sender01",pInteger 10000,pDecimal 0.01] ]
       mkTestExecTransactions "exec-gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
-        V.fromList [PactTransaction "(+ 1 2)" Nothing]
+        V.fromList [PactTransaction "( + 1  2)" Nothing]
 
     balanceCheck = do
       sender00ks <- testKeyPairs sender00KeyPair Nothing
@@ -374,7 +374,7 @@ testExecGasPayer = (txs,checkResultSuccess test)
 
     test [impl,fundGasAcct,balCheck1,paidTx,balCheck2] = do
       checkPactResultSuccess "impl" impl $ assertEqual "impl"
-        (pString "Loaded module user.gas-payer-for-exec, hash PXHExH65JOgSKqMi04aGwN0p_eoj3H9Jfq581X5kTx0")
+        (pString "Loaded module user.gas-payer-for-exec, hash _S7ASfb_Lvr5wmjERG_XwPUoojW6GHBWI2u0W6jmID0")
       checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct"
         (pString "Write succeeded")
       checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
