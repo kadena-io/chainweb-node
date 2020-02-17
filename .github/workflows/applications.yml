@@ -17,14 +17,14 @@ jobs:
     runs-on: 'ubuntu-latest'
     steps:
     # Caches are limited to 5GB per repository. Currently the size of the db is 3.5GB
-    - name: Sync chain database from cache
-      id: cache-chain-db
-      uses: actions/cache@v1
-      with:
-        path: db
-        key: chain-db-
-        restore-keys: |
-          chain-db-
+    # - name: Sync chain database from cache
+    #   id: cache-chain-db
+    #   uses: actions/cache@v1
+    #   with:
+    #     path: db
+    #     key: chain-db-
+    #     restore-keys: |
+    #       chain-db-
     - name: Sync chain database from S3
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -36,7 +36,33 @@ jobs:
       with:
         name: chain-db
         path: db
-  
+
+  # Run benchmarks and slow tests
+  #
+  slow-tests:
+    name: Run slow tests and benchmarks
+    needs: [sync-chain-db, build]
+    runs-on: 'ubuntu-18.04'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chain database artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chain-db
+        path: db
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.2.ubuntu-18.04
+        path: bin
+    - name: Validate block header database
+      run: |
+        chmod 755 ./bin/cwtool
+        ./bin/cwtool slow-tests
+
   # Validate Mainnet01 Chain Database With chainweb-node
   #
   validate-header-db:
@@ -235,6 +261,10 @@ jobs:
         restore-keys: |
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
+    - name: Delete old build artifacts from cache
+      run: |
+        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/chainweb-node
+        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/cwtool
 
     # Build
     - name: Update package database
@@ -248,10 +278,8 @@ jobs:
       run: cabal v2-build --only-dependencies
     - name: Build
       run: cabal v2-build
-    # - name: Run Tests
-    #   run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/Chainweb.Test.Pact.SPV/ && !/deep-fork-limit/ && !/SPV transaction proof test/'
-    # - name: Run Benchmarks and Certificate Validation Tests
-    #   run: cabal v2-run cwtool -- slow-tests
+    - name: Run Tests
+      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/Chainweb.Test.Pact.SPV/ && !/deep-fork-limit/ && !/SPV transaction proof test/'
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
       run: eval $SYNC_TO_CACHE
