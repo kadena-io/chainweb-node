@@ -71,6 +71,7 @@ import Data.CAS.RocksDB
 import qualified Data.CaseInsensitive as CI
 import Data.Functor.Of
 import qualified Data.HashSet as HS
+import qualified Data.List as L
 import Data.LogMessage
 import Data.Maybe
 import Data.Semigroup hiding (option)
@@ -95,6 +96,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.Logger
@@ -102,6 +104,7 @@ import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
+import Chainweb.Time
 import Chainweb.TreeDB hiding (key)
 import Chainweb.Utils
 import Chainweb.Version
@@ -136,6 +139,7 @@ data Output
     | OutputPayload
     | OutputRawPayload
     | OutputAll
+    | OutputNone
     deriving (Show, Eq, Ord, Generic, Enum, Bounded)
 
 instance HasTextRepresentation Output where
@@ -149,6 +153,7 @@ instance HasTextRepresentation Output where
         "payload" -> return OutputPayload
         "raw-payload" -> return OutputRawPayload
         "all" -> return OutputAll
+        "none" -> return OutputNone
         o -> throwM $ DecodeException $ "unknown result type: " <> sshow o
 
     toText Header = "header"
@@ -160,6 +165,7 @@ instance HasTextRepresentation Output where
     toText OutputPayload = "payload"
     toText OutputRawPayload = "raw-payload"
     toText OutputAll = "all"
+    toText OutputNone = "none"
 
 instance FromJSON Output where
     parseJSON = parseJsonFromText "Output"
@@ -189,6 +195,7 @@ data Config = Config
     , _configStart :: !(Maybe (Min Natural))
     , _configEnd :: !(Maybe (Max Natural))
     , _configOutput :: !Output
+    , _configValidate :: !Bool
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -205,6 +212,7 @@ defaultConfig = Config
     , _configStart = Nothing
     , _configEnd = Nothing
     , _configOutput = Header
+    , _configValidate = False
     }
 
 instance ToJSON Config where
@@ -218,6 +226,7 @@ instance ToJSON Config where
         , "start" .= _configStart o
         , "end" .= _configEnd o
         , "output" .= _configOutput o
+        , "validate" .= _configValidate o
         ]
 
 instance FromJSON (Config -> Config) where
@@ -231,6 +240,7 @@ instance FromJSON (Config -> Config) where
         <*< configStart ..: "start" % o
         <*< configEnd ..: "end" % o
         <*< configOutput ..: "output" % o
+        <*< configValidate ..: "validate" % o
 
 pConfig :: MParser Config
 pConfig = id
@@ -264,6 +274,9 @@ pConfig = id
         <> short 'o'
         <> metavar (enumMetavar @Output)
         <> help "which component of the payload to output"
+    <*< configValidate .:: boolOption_
+        % long "validate"
+        <> help "Validate BlockHeaders in the Database"
 
 validateConfig :: ConfigValidation Config []
 validateConfig o = do
@@ -323,13 +336,13 @@ instance ToJSON a => ToJSON (ChainData a) where
 -- Print Transactions
 
 mainWithConfig :: Config -> IO ()
-mainWithConfig config = withLog $ \logger -> do
+mainWithConfig config = withLog $ \logger ->
     liftIO $ run config $ logger
         & addLabel ("version", toText $ _configChainwebVersion config)
         -- & addLabel ("chain", toText $ _configChainId config)
   where
     logconfig = Y.defaultLogConfig
-        & Y.logConfigLogger . Y.loggerConfigThreshold .~ (_configLogLevel config)
+        & Y.logConfigLogger . Y.loggerConfigThreshold .~ _configLogLevel config
         & Y.logConfigBackend . Y.handleBackendConfigHandle .~ _configLogHandle config
     withLog inner = Y.withHandleBackend_ logText (logconfig ^. Y.logConfigBackend)
         $ \backend -> Y.withLogger (logconfig ^. Y.logConfigLogger) backend inner
@@ -356,7 +369,7 @@ withBlockHeaders logger config inner = do
         let pdb = newPayloadDb rdb
         initializePayloadDb v pdb
         liftIO $ logg Info "start traversing block headers"
-        withChainDbsConcurrent rdb v cids start end $ inner pdb . void
+        withChainDbsConcurrent rdb v cids (_configValidate config) start end $ inner pdb . void
   where
     logg :: LogFunctionText
     logg = logFunction logger
@@ -376,6 +389,8 @@ run :: Logger l => Config -> l -> IO ()
 run config logger = withBlockHeaders logger config $ \pdb x -> x
     & progress logg
     & \s -> case _configOutput config of
+        OutputNone -> s
+            & S.effects
         Header -> s
             & S.map ObjectEncoded
             & S.map encodeJson
@@ -436,6 +451,68 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
     encodeJson
         | _configPretty config = T.decodeUtf8 . BL.toStrict . encodePretty
         | otherwise = encodeToText
+
+validate :: S.Stream (Of BlockHeader) IO () -> S.Stream (Of BlockHeader) IO ()
+validate s = do
+    now <- liftIO getCurrentTimeIntegral
+    s
+        & S.copy
+        & S.foldM_ (step now) (return initial) (\_ -> return ())
+  where
+    -- state: (height, parents, currents, initial)
+    initial :: (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+    initial = (0, [], [], True)
+
+    step
+        :: MonadIO m
+        => Time Micros
+        -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+        -> BlockHeader
+        -> m (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+    step now state c = liftIO $ do
+        let state' = update state c
+        val now state' c
+        return state'
+
+    update
+        :: (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+        -> BlockHeader
+        -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+    update (h, parents, currents, i) c
+        -- initially set the block height to the current header
+        | i = (_blockHeight c, parents, c : currents, i)
+        | _blockHeight c == h = (h, parents, c : currents, i)
+        | _blockHeight c == (h + 1) = (h + 1, currents, [c], False)
+        | _blockHeight c < h = error "height invariant violation in enumeration of headers. Height of current header smaller than previous headers"
+        | otherwise = error
+            $ "height invariant violation in enumeration of headers."
+            <> " Height of current header skips block height."
+            <> "\ncurrent block: " <> sshow c
+            <> "\ninitial: " <> sshow i
+            <> "\nheight: " <> sshow h
+            <> "\nparents: " <> sshow parents
+
+    val
+        :: Time Micros
+        -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+        -> BlockHeader
+        -> IO ()
+    val now (_, parents, _, isInitial) c
+        | isGenesisBlockHeader c = validateBlockHeaderM now c c
+        | otherwise =
+            case L.find (\x -> _blockParent c == _blockHash x) parents of
+                Nothing
+
+                    -- at the initial block height it's expected that parents are missing
+                    | isInitial -> validateIntrinsicM now c
+
+                    -- later on a missing parent is an violation of the block header db
+                    -- invariant.
+                    | otherwise -> error
+                        $ "missing parent header for block: " <> sshow c
+                        <> "\ncurrent parents: " <> sshow parents
+
+                Just p -> validateBlockHeaderM now p c
 
 -- -------------------------------------------------------------------------- --
 -- Tools
@@ -527,7 +604,7 @@ commandWithOutputsValue (c, o) = object
     , "payload" .= either
         (const $ String $ _cmdPayload c)
         (id @Value)
-        (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
+        (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
     , "output" .= o
     ]
 
@@ -538,7 +615,7 @@ commandValue c = object
     , "payload" .= either
         (const $ String $ _cmdPayload c)
         (id @Value)
-        (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload $ c)
+        (eitherDecodeStrict' $ T.encodeUtf8 $ _cmdPayload c)
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -563,22 +640,27 @@ withChainDbsConcurrent
     :: RocksDb
     -> ChainwebVersion
     -> [ChainId]
+    -> Bool
+        -- ^ whether to validate
     -> Maybe MinRank
     -> Maybe MaxRank
     -> (S.Stream (Of BlockHeader) IO () -> IO a)
     -> IO a
-withChainDbsConcurrent rdb v cids start end f = go cids mempty
+withChainDbsConcurrent rdb v cids doValidation start end f = go cids mempty
   where
 
     -- This is not a very efficient way to paralleize and merge the streams
+    --
     go [] !s = f s
     go (cid:t) !s = withBlockHeaderDb rdb v cid $ \cdb ->
         entries cdb Nothing Nothing start end $ \x ->
             S.withBuffer buffer (S.writeStreamBasket x) $ \out ->
                 S.withStreamBasket out $ \y ->
-                    go t (() <$ S.mergeOn _blockHeight s y)
+                    go t (() <$ S.mergeOn _blockHeight s (y & val))
 
     buffer = S.bounded 4000
+
+    val = if doValidation then validate else id
 
 #if REMOTE_DB
 -- -------------------------------------------------------------------------- --
