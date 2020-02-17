@@ -69,6 +69,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
@@ -404,8 +405,11 @@ prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
 
 prop_block_featureFlags :: BlockHeader -> Bool
 prop_block_featureFlags b
-    | skipFeatureFlagValidationGuard b = True
+    | skipFeatureFlagValidationGuard v h = True
     | otherwise = _blockFlags b == mkFeatureFlags
+  where
+    v = _chainwebVersion b
+    h = _blockHeight b
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
