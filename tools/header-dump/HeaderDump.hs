@@ -459,44 +459,59 @@ validate s = do
         & S.copy
         & S.foldM_ (step now) (return initial) (\_ -> return ())
   where
-    -- state: (height, parents, currents)
-    initial :: (BlockHeight, [BlockHeader], [BlockHeader])
-    initial = (0, [], [])
+    -- state: (height, parents, currents, initial)
+    initial :: (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+    initial = (0, [], [], True)
 
     step
         :: MonadIO m
         => Time Micros
-        -> (BlockHeight, [BlockHeader], [BlockHeader])
+        -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
         -> BlockHeader
-        -> m (BlockHeight, [BlockHeader], [BlockHeader])
+        -> m (BlockHeight, [BlockHeader], [BlockHeader], Bool)
     step now state c = liftIO $ do
         let state' = update state c
         val now state' c
         return state'
 
     update
-        :: (BlockHeight, [BlockHeader], [BlockHeader])
+        :: (BlockHeight, [BlockHeader], [BlockHeader], Bool)
         -> BlockHeader
-        -> (BlockHeight, [BlockHeader], [BlockHeader])
-    update (h, parents, currents) c
-        | isGenesisBlockHeader c = (0, [], [c])
-        | _blockHeight c == h = (h, parents, c : currents)
-        | _blockHeight c == (h + 1) = (h + 1, currents, [c])
+        -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
+    update (h, parents, currents, i) c
+        -- initially set the block height to the current header
+        | i = (_blockHeight c, parents, c : currents, i)
+        | _blockHeight c == h = (h, parents, c : currents, i)
+        | _blockHeight c == (h + 1) = (h + 1, currents, [c], False)
         | _blockHeight c < h = error "height invariant violation in enumeration of headers. Height of current header smaller than previous headers"
-        | otherwise = error "height invariant violation in enumeration of headers. Height of current header skips block height"
+        | otherwise = error
+            $ "height invariant violation in enumeration of headers."
+            <> " Height of current header skips block height."
+            <> "\ncurrent block: " <> sshow c
+            <> "\ninitial: " <> sshow i
+            <> "\nheight: " <> sshow h
+            <> "\nparents: " <> sshow parents
 
     val
         :: Time Micros
-        -> (BlockHeight, [BlockHeader], [BlockHeader])
+        -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
         -> BlockHeader
         -> IO ()
-    val now (_, parents, _) c
+    val now (_, parents, _, isInitial) c
         | isGenesisBlockHeader c = validateBlockHeaderM now c c
         | otherwise =
             case L.find (\x -> _blockParent c == _blockHash x) parents of
-                Nothing -> error
-                    $ "missing parent header for block: " <> sshow c
-                    <> "\ncurrent parents: " <> sshow parents
+                Nothing
+
+                    -- at the initial block height it's expected that parents are missing
+                    | isInitial -> validateIntrinsicM now c
+
+                    -- later on a missing parent is an violation of the block header db
+                    -- invariant.
+                    | otherwise -> error
+                        $ "missing parent header for block: " <> sshow c
+                        <> "\ncurrent parents: " <> sshow parents
+
                 Just p -> validateBlockHeaderM now p c
 
 -- -------------------------------------------------------------------------- --
