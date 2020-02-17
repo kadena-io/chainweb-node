@@ -665,7 +665,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         pd <- mkPublicData' (publicMetaOf cmd) ph
         spv <- use psSpvSupport
-        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig
+        let ec = mkExecutionConfig
+              [ P.FlagDisableModuleInstall
+              , P.FlagDisableHistoryInTransactionalMode ]
+        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
