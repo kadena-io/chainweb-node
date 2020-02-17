@@ -24,6 +24,7 @@ import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
+import qualified Chainweb.Test.BlockHeader.Validation
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
@@ -116,6 +117,7 @@ suite rdb =
         , Chainweb.Test.Miner.Core.tests
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
+        , Chainweb.Test.BlockHeader.Validation.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties

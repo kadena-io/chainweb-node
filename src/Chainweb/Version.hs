@@ -701,5 +701,5 @@ skipFeatureFlagValidationGuard
         -- ^ height of header
     -> Bool
 skipFeatureFlagValidationGuard Mainnet01 h = h < 340000
-skipFeatureFlagValidationGuard _ _ = True
+skipFeatureFlagValidationGuard _ _ = False
 

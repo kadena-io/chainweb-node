@@ -243,7 +243,7 @@ validateIntrinsicM
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateIntrinsicM t e = unless (null $ failures)
+validateIntrinsicM t e = unless (null failures)
     $ throwM (ValidationFailure Nothing e failures)
   where
     failures = validateIntrinsic t e
