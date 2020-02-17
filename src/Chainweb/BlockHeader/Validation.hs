@@ -403,7 +403,9 @@ prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
 
 prop_block_featureFlags :: BlockHeader -> Bool
-prop_block_featureFlags b = _blockFlags b == mkFeatureFlags
+-- prop_block_featureFlags b = _blockFlags b == mkFeatureFlags
+prop_block_featureFlags _b = True
+    -- For now disable validation of feature flags.
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
