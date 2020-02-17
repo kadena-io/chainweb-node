@@ -1,5 +1,15 @@
 # `chainweb-node` Changelog
 
+## 1.5 (2019-02-18)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2019-02-20T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **TODO**.
+
+TODO
+
 ## 1.5 (2019-01-13)
 
 This version replaces all previous versions. Any prior version will stop working
