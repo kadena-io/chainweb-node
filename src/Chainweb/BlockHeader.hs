@@ -231,7 +231,7 @@ slowEpochGuard (ParentHeader p)
 --
 skipFeatureFlagValidationGuard :: BlockHeader -> Bool
 skipFeatureFlagValidationGuard hdr
-    | Mainnet01 <- _chainwebVersion hdr = _blockHeight hdr < 340000
+    | Mainnet01 <- _chainwebVersion hdr = _blockHeight hdr < 200000
     | otherwise = True
 
 -- -------------------------------------------------------------------------- --
