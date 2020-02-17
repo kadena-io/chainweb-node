@@ -36,6 +36,32 @@ jobs:
       with:
         name: chain-db
         path: db
+  
+  # Validate Mainnet01 Chain Database With chainweb-node
+  #
+  validate-header-db:
+    name: Validate mainnet01 block header db
+    needs: [sync-chain-db, build]
+    runs-on: 'ubuntu-18.04'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chain database artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chain-db
+        path: db
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.2.ubuntu-18.04
+        path: bin
+    - name: Validate block header database
+      run: |
+        chmod 755 ./bin/cwtool
+        ./bin/cwtool header-dump --database=db/rocksdb --chainweb-version=mainnet01 -o none --validate
 
   # Validate Mainnet01 Chain Database With chainweb-node
   #
@@ -97,21 +123,10 @@ jobs:
                 level: warn
               default: info
         EOF
-    - name: Check Setup
-      run: |
-        ls -liash .
-        ls -liash db
-        ls -liash db/rocksdb
     - name: Validate mainnet01 history
       run: |
         chmod 755 ./bin/chainweb-node
-        set -o pipefail
-        ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p ; q}' ; killall chainweb-node ; }
-    - name: Delete Pact SQL db
-      run: |
-        ls -liash db
-        ls -liash db/rocksdb
-        rm -rf db/rocksdb/sqlite
+        ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p;q0};/\[Error\]/{p;q1}'; x=$?; killall chainweb-node ; exit $x ; }
 
   # Build Chainweb Node
   #
@@ -211,7 +226,7 @@ jobs:
           semigroups
           servant-swagger:swagger2
         EOF
-    
+
     - uses: actions/cache@v1
       name: Cache dist-newstyle
       with:
@@ -220,7 +235,7 @@ jobs:
         restore-keys: |
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
-    
+
     # Build
     - name: Update package database
       run: cabal v2-update
@@ -247,6 +262,7 @@ jobs:
         mkdir -p dist-newstyle/artifacts/applications
         mkdir -p dist-newstyle/artifacts/docs
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/chainweb-node dist-newstyle/artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/cwtool dist-newstyle/artifacts/applications
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:
