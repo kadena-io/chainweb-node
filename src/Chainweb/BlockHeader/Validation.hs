@@ -69,6 +69,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
@@ -227,7 +228,7 @@ validateBlockHeaderM
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateBlockHeaderM t p e = unless (null $ failures)
+validateBlockHeaderM t p e = unless (null failures)
     $ throwM (ValidationFailure (Just p) e failures)
   where
     failures = validateBlockHeader t p e
@@ -242,7 +243,7 @@ validateIntrinsicM
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateIntrinsicM t e = unless (null $ failures)
+validateIntrinsicM t e = unless (null failures)
     $ throwM (ValidationFailure Nothing e failures)
   where
     failures = validateIntrinsic t e
@@ -257,7 +258,7 @@ validateInductiveM
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateInductiveM p e = unless (null $ failures)
+validateInductiveM p e = unless (null failures)
     $ throwM (ValidationFailure Nothing e failures)
   where
     failures = validateInductive p e
@@ -403,7 +404,12 @@ prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
 
 prop_block_featureFlags :: BlockHeader -> Bool
-prop_block_featureFlags b = _blockFlags b == mkFeatureFlags
+prop_block_featureFlags b
+    | skipFeatureFlagValidationGuard v h = True
+    | otherwise = _blockFlags b == mkFeatureFlags
+  where
+    v = _chainwebVersion b
+    h = _blockHeight b
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties

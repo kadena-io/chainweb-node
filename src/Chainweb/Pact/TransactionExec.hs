@@ -153,7 +153,10 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
-    executionConfigNoHistory = ExecutionConfig ecMod False
+
+    executionConfigNoHistory = mkExecutionConfig $
+      [ FlagDisableHistoryInTransactionalMode ] ++
+      if ecMod then [] else [ FlagDisableModuleInstall ]
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
@@ -214,7 +217,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv Transactional dbEnv logger pd spv nid 0.0 rk 0
-           justInstallsExecutionConfig
+           def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
@@ -224,7 +227,6 @@ applyGenesisCmd logger dbEnv pd spv cmd =
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
-
 
 applyCoinbase
     :: ChainwebVersion
@@ -264,8 +266,11 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     throwCritical = fork1_3InEffect || enfCBFailure
     blockTime = blockTimeOf pd
 
+    ec = mkExecutionConfig
+      [ FlagDisableModuleInstall
+      , FlagDisableHistoryInTransactionalMode ]
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
-           Nothing 0.0 rk 0 restrictiveExecutionConfig
+           Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     chash = Pact.Hash (sshow $ _blockHash parentHeader)
@@ -322,7 +327,7 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
     tenv = TransactionEnv Local dbEnv logger pd spv nid gasPrice
-           rk (fromIntegral gasLimit) permissiveExecutionConfig
+           rk (fromIntegral gasLimit) def
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
@@ -357,7 +362,7 @@ readInitModules logger dbEnv pd =
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger pd noSPVSupport nid 0.0
-           rk 0 permissiveExecutionConfig
+           rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
 
@@ -410,7 +415,7 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
     applyTxs txsIO = do
       infoLog $ "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
-      local (set (txExecutionConfig . ecAllowModuleInstall) True) $
+      local (set txExecutionConfig def) $
         mapM_ applyTx txs
       mc <- use txCache
       return $ Just mc
