@@ -44,6 +44,7 @@ module Chainweb.Version
 , vuln797FixDate
 , upgradeCoinV2Date
 , userContractActivationDate
+, pactBackCompat_v16
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , skipFeatureFlagValidationGuard
@@ -703,3 +704,13 @@ skipFeatureFlagValidationGuard
 skipFeatureFlagValidationGuard Mainnet01 h = h < 340000
 skipFeatureFlagValidationGuard _ _ = False
 
+-- | Preserve Pact bugs pre 1.6 chainweb version
+-- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
+-- Devnet 1 hour of blocks
+pactBackCompat_v16
+  :: ChainwebVersion
+  -> BlockHeight
+  -> Bool
+pactBackCompat_v16 Mainnet01 h = h < 328000
+pactBackCompat_v16 Development h = h < 120
+pactBackCompat_v16 _ _ = False
