@@ -690,7 +690,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         cr <- liftIO
           $! P.catchesPactError
           $! execTransactionM buyGasEnv txst
-          $! buyGas cmd miner
+          $! buyGas False cmd miner
 
         case cr of
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
@@ -1303,13 +1303,14 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     logger <- view (psCheckpointEnv . cpeLogger)
     gasModel <- view psGasModel
     excfg <- view psEnableUserContracts
+    v <- view psVersion
 
     T2 result mcache' <- if isGenesis
       then liftIO $! applyGenesisCmd logger dbEnv def P.noSPVSupport (payloadObj <$> cmdIn)
       else do
         pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
-        liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
+        liftIO $! applyCmd v logger dbEnv miner gasModel pd spv cmdIn mcache excfg
         {- the following can be used instead of above to nerf transaction execution
         return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
                       (P.PactResult (Right (P.PLiteral (P.LInteger 1))))
