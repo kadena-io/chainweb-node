@@ -40,10 +40,10 @@ import Chainweb.Version
 
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Blockheader.Validation"
-    [ prop_featureFlag Mainnet01
-    , prop_featureFlag Testnet04
-    , prop_featureFlag Development
-    , prop_validateMainnet
+    [ prop_validateMainnet
+    -- , prop_featureFlag Mainnet01
+    -- , prop_featureFlag Testnet04
+    -- , prop_featureFlag Development
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -52,9 +52,12 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
 -- There is an input for which the rule fails.
 --
 
+{-
+-- Feature flag validation is currently disabled on Mainnet. Uncomment this
+-- code once it is enabled.
 prop_featureFlag :: ChainwebVersion -> TestTree
 prop_featureFlag v = testCase ("Invalid feature flags fail validation for " <> sshow v) $ do
-    hdr <- (blockHeight .~ 400000)
+    hdr <- (blockHeight .~ TODO)
         . (blockFlags .~ fromJuste (decode "1"))
         . (blockChainwebVersion .~ v)
         <$> generate arbitrary
@@ -62,6 +65,7 @@ prop_featureFlag v = testCase ("Invalid feature flags fail validation for " <> s
     assertBool
         ("feature flag validation succeeded unexpectedly: " <> sshow  hdr)
         (not r)
+-}
 
 -- -------------------------------------------------------------------------- --
 -- Rules are sound

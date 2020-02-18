@@ -683,23 +683,23 @@ slowEpochGuard Mainnet01 h = h < 80000
 slowEpochGuard _ _ = False
 {-# INLINE slowEpochGuard #-}
 
--- | Skip validation of feature flags for block heights up to 340000.
+-- | Skip validation of feature flags.
 --
--- Unused feature flag bits are supposed to be set to 0. This was not enforced
--- in chainweb-node versions <= 1.5. There is a large number of blocks in the
--- history of mainnet before 2020-02-20, that have non-zero feature flags. In
--- order to prepare future use of fleature flag feature flag validation will
--- start at block height 340000.
+-- Unused feature flag bits are supposed to be set to 0. This isn't enforced
+-- currently (chainweb-node versions <= 1.6). There is a large number of blocks
+-- in the history of mainnet before 2020-02-20, that have non-zero feature
+-- flags.
 --
--- This guard grandfathers the this behavior up to block height 340000.
---
--- Blockheight 340000 is expected to occur on mainnet01 on 2019-02-24.
+-- This guard permits the use of the last 64 bits of a block header as a nonce
+-- value for all blogs which pass this guard.
 --
 skipFeatureFlagValidationGuard
     :: ChainwebVersion
     -> BlockHeight
         -- ^ height of header
     -> Bool
-skipFeatureFlagValidationGuard Mainnet01 h = h < 340000
+skipFeatureFlagValidationGuard Mainnet01 _ = True
+skipFeatureFlagValidationGuard Development _ = True
+skipFeatureFlagValidationGuard Testnet04 _ = True
 skipFeatureFlagValidationGuard _ _ = False
 
