@@ -30,6 +30,8 @@ import Test.Tasty.HUnit
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
+import Chainweb.BlockHeight
+import Chainweb.Graph
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHeader -})
 import Chainweb.Time
 import Chainweb.Utils
@@ -41,9 +43,7 @@ import Chainweb.Version
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Blockheader.Validation"
     [ prop_validateMainnet
-    -- , prop_featureFlag Mainnet01
-    -- , prop_featureFlag Testnet04
-    -- , prop_featureFlag Development
+    , prop_featureFlag (Test petersonChainGraph) 10
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -52,12 +52,9 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
 -- There is an input for which the rule fails.
 --
 
-{-
--- Feature flag validation is currently disabled on Mainnet. Uncomment this
--- code once it is enabled.
-prop_featureFlag :: ChainwebVersion -> TestTree
-prop_featureFlag v = testCase ("Invalid feature flags fail validation for " <> sshow v) $ do
-    hdr <- (blockHeight .~ TODO)
+prop_featureFlag :: ChainwebVersion -> BlockHeight -> TestTree
+prop_featureFlag v h = testCase ("Invalid feature flags fail validation for " <> sshow v) $ do
+    hdr <- (blockHeight .~ h)
         . (blockFlags .~ fromJuste (decode "1"))
         . (blockChainwebVersion .~ v)
         <$> generate arbitrary
@@ -65,7 +62,6 @@ prop_featureFlag v = testCase ("Invalid feature flags fail validation for " <> s
     assertBool
         ("feature flag validation succeeded unexpectedly: " <> sshow  hdr)
         (not r)
--}
 
 -- -------------------------------------------------------------------------- --
 -- Rules are sound
