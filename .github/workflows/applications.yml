@@ -256,10 +256,6 @@ jobs:
         restore-keys: |
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
           ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
-    - name: Delete old build artifacts from cache
-      run: |
-        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/chainweb-node
-        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/cwtool
 
     # Build
     - name: Update package database
@@ -284,8 +280,9 @@ jobs:
       run: |
         mkdir -p dist-newstyle/artifacts/applications
         mkdir -p dist-newstyle/artifacts/docs
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/chainweb-node dist-newstyle/artifacts/applications
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/cwtool dist-newstyle/artifacts/applications
+        export VER=$(grep '^version' chainweb.cabal | gsed -e 's/.*: *//')
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node dist-newstyle/artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool dist-newstyle/artifacts/applications
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:
