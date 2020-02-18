@@ -64,6 +64,7 @@ import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
+import Data.Maybe (isJust)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -587,7 +588,7 @@ buyGas cmd (Miner mid mks) = go
     initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
-      findPayer >>= \r -> case r of
+      (findPayer cmd) >>= \r -> case r of
         Nothing -> input
         Just withPayerCap -> withPayerCap input
 
@@ -609,13 +610,17 @@ buyGas cmd (Miner mid mks) = go
         Nothing -> fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
 
-findPayer :: Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
-findPayer = runMaybeT $ do
+findPayer
+  :: Command (Payload PublicMeta ParsedCode)
+  -> Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
+findPayer cmd = runMaybeT $ do
     (!m,!qn,!as) <- MaybeT findPayerCap
     pMod <- MaybeT $ lookupModule qn m
     capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
     return $ runCap (getInfo qn) capRef as
   where
+    setEnvMsgBody v e = set eeMsgBody v e
+
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
@@ -632,7 +637,10 @@ findPayer = runMaybeT $ do
     mkApp i r as = App (TVar r i) (map (liftTerm . fromPactValue) as) i
 
     runCap i capRef as input = do
-      ar <- evalCap i CapCallStack False $ mkApp i capRef as
+      let msgBody = enrichedMsgBody cmd
+      ar <- local (setEnvMsgBody msgBody) $
+        evalCap i CapCallStack False $ mkApp i capRef as
+
       case ar of
         NewlyAcquired -> do
           r <- input
@@ -640,6 +648,23 @@ findPayer = runMaybeT $ do
           return r
         _ -> evalError' i "Internal error, GAS_PAYER already acquired"
 
+enrichedMsgBody :: Command (Payload PublicMeta ParsedCode) -> Value
+enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
+  Exec (ExecMsg (ParsedCode _ exps) userData) ->
+    object [ "tx-type" A..= ( "exec" :: Text)
+           , "exec-code" A..= map renderCompactText exps
+           , "exec-user-data" A..= pactFriendlyUserData userData ]
+  Continuation (ContMsg pid step isRollback userData proof) ->
+    object [ "tx-type" A..= ("cont" :: Text)
+           , "cont-pact-id" A..= pid
+           , "cont-step" A..= (LInteger $ toInteger step)
+           , "cont-is-rollback" A..= LBool isRollback
+           , "cont-user-data" A..= pactFriendlyUserData userData
+           , "cont-has-proof" A..= (LBool $ isJust proof)
+           ]
+  where
+    pactFriendlyUserData Null = object []
+    pactFriendlyUserData v = v
 
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')
