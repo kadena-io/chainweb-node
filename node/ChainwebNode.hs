@@ -491,10 +491,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 1.4
+-- KILLSWITCH for version 1.5
 --
 killSwitchDate :: Maybe String
-killSwitchDate = Just "2020-02-20T00:00:00Z"
+killSwitchDate = Just "2020-04-02T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate
