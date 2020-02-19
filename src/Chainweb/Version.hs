@@ -42,7 +42,7 @@ module Chainweb.Version
 , txEnabledDate
 , transferActivationDate
 , vuln797FixDate
-, upgradeCoinV2Date
+, coinV2Upgrade
 , userContractActivationDate
 , pactBackCompat_v16
 -- ** BlockHeader Validation Guards
@@ -613,7 +613,7 @@ userContractActivationDate _ = Nothing
 
 -- | Time after which fixes for vuln797 will be validated in blocks.
 --
-vuln797FixDate :: ChainwebVersion -> Time (Micros)
+vuln797FixDate :: ChainwebVersion -> Time Micros
 vuln797FixDate Test{} = epoch
 vuln797FixDate TimedConsensus{} = epoch
 vuln797FixDate PowConsensus{} = epoch
@@ -624,17 +624,31 @@ vuln797FixDate Testnet04 = epoch
 vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 {-# INLINE vuln797FixDate #-}
 
--- | Upgrade coin v2 at time, or at block height 1
--- | Must be BEFORE 'txEnabledDate' in mainnet.
-upgradeCoinV2Date :: ChainwebVersion -> Maybe (Time Micros)
-upgradeCoinV2Date Test{} = Nothing
-upgradeCoinV2Date TimedConsensus{} = Nothing
-upgradeCoinV2Date PowConsensus{} = Nothing
-upgradeCoinV2Date TimedCPM{} = Nothing
-upgradeCoinV2Date FastTimedCPM{} = Nothing
-upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-14T18:50:00.0 |]
-upgradeCoinV2Date Testnet04 = Nothing
-upgradeCoinV2Date Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:00:00.0 |]
+-- | Mainnet upgrade to coin v2 at time at @[timeMicrosQQ| 2019-12-17T15:00:00.0 |]@,
+-- which was BEFORE 'txEnableDate'. All other chainweb versions use coin v2 from
+-- the genesis block on.
+--
+-- This function provides the block heights when coin v2 became effective on the
+-- respective chains.
+--
+coinV2Upgrade
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Bool
+coinV2Upgrade Mainnet01 cid h
+    | cid == unsafeChainId 0 = h == 140808
+    | cid == unsafeChainId 1 = h == 140809
+    | cid == unsafeChainId 2 = h == 140808
+    | cid == unsafeChainId 3 = h == 140809
+    | cid == unsafeChainId 4 = h == 140808
+    | cid == unsafeChainId 5 = h == 140808
+    | cid == unsafeChainId 6 = h == 140808
+    | cid == unsafeChainId 7 = h == 140809
+    | cid == unsafeChainId 8 = h == 140808
+    | cid == unsafeChainId 9 = h == 140808
+    | otherwise = error $ "invalid chain id " <> sshow cid
+coinV2Upgrade _ _ h = h == 0
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
@@ -714,3 +728,4 @@ pactBackCompat_v16
 pactBackCompat_v16 Mainnet01 h = h < 328000
 pactBackCompat_v16 Development h = h < 120
 pactBackCompat_v16 _ _ = False
+

@@ -1,11 +1,8 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
@@ -420,7 +417,7 @@ execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     d <- adminData
     trans <- goldenTestTransactions . V.fromList $ fmap (k d) cmdStrs
-    results <- runPact $ execTransactions (Just someBlockHeaderCreationTime) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+    results <- runPact $ execTransactions (Just someTestVersionHeader) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) (toHashCommandResult <$> outputs))
@@ -439,7 +436,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- try $ runPact $ execTransactions (Just someBlockHeaderCreationTime) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+      results' <- try $ runPact $ execTransactions (Just someTestVersionHeader) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results

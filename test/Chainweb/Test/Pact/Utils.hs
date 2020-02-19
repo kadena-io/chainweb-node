@@ -67,7 +67,6 @@ module Chainweb.Test.Pact.Utils
 , epochCreationTime
 , someTestVersionHeader
 , someBlockHeader
-, someBlockHeaderCreationTime
 ) where
 
 import Control.Concurrent.Async
@@ -698,5 +697,3 @@ someBlockHeader v h = setHeight $ head (testBlockHeaders $ ParentHeader gbh0)
     gbh0 = genesisBlockHeader v (unsafeChainId 0)
     setHeight bh = bh { _blockHeight = h }
 
-someBlockHeaderCreationTime :: (BlockHeader, BlockCreationTime)
-someBlockHeaderCreationTime = (someTestVersionHeader,epochCreationTime)

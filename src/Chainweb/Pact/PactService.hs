@@ -881,6 +881,7 @@ checkEnableUserContracts
      -- ^ is block genesis
     -> BlockCreationTime
        -- ^ block creation time, in new block we can't get this from header
+       -- TODO: replace guard by block height
     -> ChainwebVersion
     -> Bool
 checkEnableUserContracts isGenesis (BlockCreationTime blockTime) v =
@@ -951,7 +952,7 @@ execNewBlock mpAccess parentHeader miner creationTime = go
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- withEnableUserContracts' False creationTime parentHeader $
-          execTransactions (Just (parentHeader,creationTime)) miner newTrans
+          execTransactions (Just parentHeader) miner newTrans
             (EnforceCoinbaseFailure True)
             (CoinbaseUsePrecompiled True)
             pdbenv
@@ -1071,6 +1072,10 @@ setBlockData bh = do
 playOneBlock
     :: (PayloadCas cas)
     => BlockHeader
+        -- ^ this is the current header. We may consider changing this to the parent
+        -- header to avoid confusion with new block and prevent using data from this
+        -- header when we should use the respective values from the parent header
+        -- instead.
     -> PayloadData
     -> PactDbEnv'
     -> PactServiceM cas (T2 Miner Transactions)
@@ -1117,8 +1122,6 @@ playOneBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    currCreationTime = _blockCreationTime currHeader
-
     go m txs = if isGenesisBlock
       then do
         setBlockData currHeader
@@ -1135,7 +1138,7 @@ playOneBlock currHeader plData pdbenv = do
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         withEnableUserContracts currHeader $
-          execTransactions (Just (ph,currCreationTime)) m txs
+          execTransactions (Just ph) m txs
             (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
@@ -1264,23 +1267,23 @@ validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
     isGenesisBlock = isGenesisBlockHeader bh
 
 execTransactions
-    :: Maybe (BlockHeader,BlockCreationTime)
+    :: Maybe BlockHeader
     -> Miner
     -> Vector ChainwebTransaction
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHeaderCurrCreate miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
+execTransactions nonGenesisParentHeader miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHeaderCurrCreate pactdbenv miner enfCBFail usePrecomp mc
+    coinOut <- runCoinbase nonGenesisParentHeader pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (V.zip ctxs txOuts) coinOut
   where
-    !isGenesis = isNothing nonGenesisParentHeaderCurrCreate
+    !isGenesis = isNothing nonGenesisParentHeader
 
 runCoinbase
-    :: Maybe (BlockHeader,BlockCreationTime)
+    :: Maybe BlockHeader
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
@@ -1288,7 +1291,7 @@ runCoinbase
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
-runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecomp mc = do
+runCoinbase (Just parentHeader) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
     v <- view chainwebVersion
@@ -1298,7 +1301,7 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
 
     reward <- liftIO $! minerReward rs bh
     (T2 cr upgradedCacheM) <-
-      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
+      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
 
     return $! cr

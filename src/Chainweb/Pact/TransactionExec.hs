@@ -76,8 +76,7 @@ import Pact.Eval (eval, liftTerm, lookupModule)
 import Pact.Gas (freeGasEnv)
 import Pact.Interpreter
 import Pact.Native.Capabilities (evalCap)
-import Pact.Parse (parseExprs)
-import Pact.Parse (ParsedDecimal(..))
+import Pact.Parse (ParsedDecimal(..), parseExprs)
 import Pact.Runtime.Capabilities (popCapStack)
 import Pact.Types.Capability
 import Pact.Types.Command
@@ -92,7 +91,6 @@ import Pact.Types.SPV
 
 -- internal Chainweb modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
@@ -102,8 +100,8 @@ import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Time hiding (second)
 import Chainweb.Transaction
-import Chainweb.Utils (sshow)
-import Chainweb.Version
+import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Version as V
 
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
@@ -247,15 +245,13 @@ applyCoinbase
       -- ^ Contains block height, time, prev hash + metadata
     -> BlockHeader
       -- ^ parent header
-    -> BlockCreationTime
-      -- ^ current block creation time
     -> EnforceCoinbaseFailure
       -- ^ enforce coinbase failure or not
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentHeader currCreationTime
+applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentHeader
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
@@ -269,8 +265,6 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     forkTime = vuln797FixDate v
     fork1_3InEffect = blockTime >= forkTime
     throwCritical = fork1_3InEffect || enfCBFailure
-    blockTime = blockTimeOf pd
-
     ec = mkExecutionConfig
       [ FlagDisableModuleInstall
       , FlagDisableHistoryInTransactionalMode ]
@@ -278,8 +272,22 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
-    chash = Pact.Hash (sshow $ _blockHash parentHeader)
     rk = RequestKey chash
+    bh = fromIntegral $ _pdBlockHeight pd
+    blockTime = blockTimeOf pd
+        -- NOTE it should hold that @blockTime == _blockCreationTime parentHeader@, but
+        -- in some unit test runs that is not the case. That is fine because coinbase
+        -- is a special case
+
+    cid = V._chainId parentHeader
+        -- NOTE: generally should hold that
+        -- @cid == unsafeFromText $ P._chainId $ _pmChainId $ _pdPublicMeta pd@
+        -- but in some unit test runs the chain id in public data is empty. This is
+        -- fine since coinbase is a special case.
+
+    chash = Pact.Hash $ encodeToByteString $ _blockHash parentHeader
+        -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
+        -- NOTE: chash includes the /quoted/ text of the parent header.
 
     go interp cexec = evalTransactionM tenv txst $! do
       cr <- catchesPactError $!
@@ -296,8 +304,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
             <> " to "
             <> sshow mid
 
-          upgradedModuleCache <-
-            applyUpgrades v parentHeader currCreationTime
+          upgradedModuleCache <- applyUpgrades v cid bh
           logs <- use txLogs
 
           return $! T2
@@ -386,32 +393,15 @@ readInitModules logger dbEnv pd =
 
 applyUpgrades
   :: ChainwebVersion
-  -> BlockHeader
-  -> BlockCreationTime
+  -> V.ChainId
+  -> BlockHeight
   -> TransactionM p (Maybe ModuleCache)
-applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
-  case upgradeCoinV2Date v of
-    Nothing -> testBlock1
-    Just t -> testUpgradeTime t
+applyUpgrades v cid height
+     | coinV2Upgrade v cid height = go
+     | otherwise = return Nothing
   where
-
-    testBlock1 | parentBlockHeight == 0 = go
-               | otherwise = noop
-    parentBlockHeight = _blockHeight parentHeader
-
-    testUpgradeTime t | isUpgradeBlockTime t = go
-                      | otherwise = noop
-    isUpgradeBlockTime upgradeTime =
-      parentTime < upgradeTime
-      &&
-      upgradeTime <= currCreationTime
-    (BlockCreationTime parentTime) = _blockCreationTime parentHeader
-
-    noop = return Nothing
-
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
-
-    go = applyTxs (upgradeTransactions v $ _blockChainId parentHeader)
+    go = applyTxs (upgradeTransactions v cid)
 
     infoLog s = do
       l <- view txLogger
@@ -429,18 +419,13 @@ applyUpgrades v parentHeader (BlockCreationTime currCreationTime) =
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
-
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
-
       r <- try $ runGenesis tx permissiveNamespacePolicy interp
-
       case r of
         Right _ -> return ()
         Left (e :: SomeException) -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           return ()
-
-
 
 blockTimeOf :: PublicData -> Time Micros
 blockTimeOf pd = Time (TimeSpan (Micros $ _pdBlockTime pd))
