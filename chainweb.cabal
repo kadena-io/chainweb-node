@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.5
+version:      1.6
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -432,6 +432,7 @@ test-suite chainweb-tests
     main-is: ChainwebTests.hs
     other-modules:
         Chainweb.Test.BlockHeader.Genesis
+        Chainweb.Test.BlockHeader.Validation
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.CutDB
         Chainweb.Test.Mempool

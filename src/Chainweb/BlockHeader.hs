@@ -37,11 +37,6 @@ module Chainweb.BlockHeader
   ParentHeader(..)
 , ParentCreationTime(..)
 
--- * Validation Guards
---
--- $guards
-, slowEpochGuard
-
 -- * Block Payload Hash
 , BlockPayloadHash(..)
 , encodeBlockPayloadHash
@@ -170,53 +165,6 @@ import Numeric.AffineSpace
 import Text.Read (readEither)
 
 -- -------------------------------------------------------------------------- --
--- Guards for changes to validation rules
---
--- $guards
---
--- The guards in this section encode when changes to validation rules for data
--- on the chain become effective.
---
--- Only the following types are allowed as parameters for guards
---
--- * BlockHeader,
--- * ParentHeader,
--- * BlockCreationTime, and
--- * ParentCreationTime
---
--- The result is a simple 'Bool'.
---
--- Guards should have meaningful names and should be used in a way that all
--- places in the code base that depend on the guard should reference the
--- respective guard. That way all dependent code can be easily identified using
--- ide tools, like for instance @grep@.
---
--- Each guard should have a description that provides background for the change
--- and provides all information needed for maintaining the code or code that
--- depends on it.
---
-
--- | Turn off slow epochs (emergency DA) for blocks from 80,000 onwward.
---
--- Emergency DA is considered a miss-feature.
---
--- It's intended purpose is to prevent chain hopping attacks, where an attacker
--- temporarily adds a large amount of hash power, thus increasing the
--- difficulty. When the hash power is removed, the remaining hash power may not
--- be enough to reach the next block in reasonable time.
---
--- In practice, emergency DAs cause more problems than they solve. In
--- particular, they increase the chance of deep forks. Also they make the
--- behavior of the system unpredictable in states of emergency, when stability
--- is usually more important than throughput.
---
-slowEpochGuard :: ParentHeader -> Bool
-slowEpochGuard (ParentHeader p)
-    | Mainnet01 <- _chainwebVersion p = _blockHeight p < 80000
-    | otherwise = False
-{-# INLINE slowEpochGuard #-}
-
--- -------------------------------------------------------------------------- --
 -- Nonce
 
 -- | FIXME: is 64 bit enough for the nonce. It seems that it may not be
@@ -329,7 +277,7 @@ powTarget
 powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
     Nothing -> maxTarget
     Just w
-        | slowEpochGuard (ParentHeader p) && slowEpoch p bct ->
+        | slowEpochGuard ver (_blockHeight p) && slowEpoch p bct ->
             adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
         | isLastInEpoch p ->
             adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)

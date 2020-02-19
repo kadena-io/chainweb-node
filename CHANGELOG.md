@@ -1,9 +1,38 @@
 # `chainweb-node` Changelog
 
+## 1.6 (2019-02-18)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-02-20T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-04-02T00:00:00Z**.
+
+* Adds enriched message body to gas payer execution (#912)
+
+* Pact fix for enforce-one, guards runtime TC (#916)
+
+* Gas perf improvements (#871)
+
+* Remove custom `systemd` usage (#908)
+
+* Mine an additional cut height in SPV tests (#889)
+
+* Add configuration options for checking payload hashes during pact replay (#903)
+
+* pact: poll: report when a transaction is on the bad list. (#842)
+
+* More detailed errors when attempt buy gas fails (#893)
+
+* Fix performance of applyRank (#892)
+
+* improve performance of branchEntries (#885)
+
+
 ## 1.5 (2019-01-13)
 
 This version replaces all previous versions. Any prior version will stop working
-on **2019-01-15T00:00:00Z**. Node administrators must upgrade to this version
+on **2020-01-15T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
 This version will stop working on **2020-02-20T00:00:00Z**.

@@ -206,7 +206,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
           tenv = TransactionEnv Transactional pdb logger def
-            noSPVSupport Nothing 0.0 (RequestKey h) 0 permissiveExecutionConfig
+            noSPVSupport Nothing 0.0 (RequestKey h) 0 def
           txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
       CommandResult _ _ (PactResult pr) _ _ _ _ <- evalTransactionM tenv txst $!

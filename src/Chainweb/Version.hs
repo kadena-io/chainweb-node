@@ -44,6 +44,11 @@ module Chainweb.Version
 , vuln797FixDate
 , coinV2Upgrade
 , userContractActivationDate
+, pactBackCompat_v16
+-- ** BlockHeader Validation Guards
+, slowEpochGuard
+, skipFeatureFlagValidationGuard
+
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -569,6 +574,9 @@ window Development = Just $ WindowWidth 120
 window Testnet04 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
 
+-- -------------------------------------------------------------------------- --
+-- Pact Validation Guards
+
 -- | This is used in a core validation rule and has been present for several
 -- versions of the node software. Changing it risks a fork in the network.
 -- Must be AFTER 'upgradeCoinV2Date', and BEFORE 'transferActivationDate' in mainnet.
@@ -641,4 +649,83 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 9 = h == 140808
     | otherwise = error $ "invalid chain id " <> sshow cid
 coinV2Upgrade _ _ h = h == 0
+
+-- -------------------------------------------------------------------------- --
+-- Header Validation Guards
+--
+-- The guards in this section encode when changes to validation rules for data
+-- on the chain become effective.
+--
+-- Only the following types are allowed as parameters for guards
+--
+-- * BlockHeader,
+-- * ParentHeader,
+-- * BlockCreationTime, and
+-- * ParentCreationTime
+--
+-- The result is a simple 'Bool'.
+--
+-- Guards should have meaningful names and should be used in a way that all
+-- places in the code base that depend on the guard should reference the
+-- respective guard. That way all dependent code can be easily identified using
+-- ide tools, like for instance @grep@.
+--
+-- Each guard should have a description that provides background for the change
+-- and provides all information needed for maintaining the code or code that
+-- depends on it.
+--
+
+-- | Turn off slow epochs (emergency DA) for blocks from 80,000 onwward.
+--
+-- Emergency DA is considered a miss-feature.
+--
+-- It's intended purpose is to prevent chain hopping attacks, where an attacker
+-- temporarily adds a large amount of hash power, thus increasing the
+-- difficulty. When the hash power is removed, the remaining hash power may not
+-- be enough to reach the next block in reasonable time.
+--
+-- In practice, emergency DAs cause more problems than they solve. In
+-- particular, they increase the chance of deep forks. Also they make the
+-- behavior of the system unpredictable in states of emergency, when stability
+-- is usually more important than throughput.
+--
+slowEpochGuard
+    :: ChainwebVersion
+    -> BlockHeight
+        -- ^ BlockHeight of parent Header
+    -> Bool
+slowEpochGuard Mainnet01 h = h < 80000
+slowEpochGuard _ _ = False
+{-# INLINE slowEpochGuard #-}
+
+-- | Skip validation of feature flags.
+--
+-- Unused feature flag bits are supposed to be set to 0. This isn't enforced
+-- currently (chainweb-node versions <= 1.6). There is a large number of blocks
+-- in the history of mainnet before 2020-02-20, that have non-zero feature
+-- flags.
+--
+-- This guard permits the use of the last 64 bits of a block header as a nonce
+-- value for all blogs which pass this guard.
+--
+skipFeatureFlagValidationGuard
+    :: ChainwebVersion
+    -> BlockHeight
+        -- ^ height of header
+    -> Bool
+skipFeatureFlagValidationGuard Mainnet01 _ = True
+skipFeatureFlagValidationGuard Development _ = True
+skipFeatureFlagValidationGuard Testnet04 _ = True
+skipFeatureFlagValidationGuard _ _ = False
+
+-- | Preserve Pact bugs pre 1.6 chainweb version
+-- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
+-- Devnet 1 hour of blocks
+pactBackCompat_v16
+  :: ChainwebVersion
+  -> BlockHeight
+  -> Bool
+pactBackCompat_v16 Mainnet01 h = h < 328000
+pactBackCompat_v16 Development h = h < 120
+pactBackCompat_v16 _ _ = False
 

@@ -9,6 +9,148 @@ on:
     - release-candidate/*
 
 jobs:
+
+  # Synchronize Mainnet01 Chain Database
+  #
+  sync-chain-db:
+    name: Synchronize the chain database cache
+    runs-on: 'ubuntu-latest'
+    steps:
+    # Caches are limited to 5GB per repository. Currently the size of the db is 3.5GB
+    # - name: Sync chain database from cache
+    #   id: cache-chain-db
+    #   uses: actions/cache@v1
+    #   with:
+    #     path: db
+    #     key: chain-db-
+    #     restore-keys: |
+    #       chain-db-
+    - name: Sync chain database from S3
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+      run: |
+        aws s3 sync "s3://chainweb-chain-db/mainnet01/" db/ --delete --exclude=LOCK
+    - name: Store chain database as artifact
+      uses: actions/upload-artifact@v1
+      with:
+        name: chain-db
+        path: db
+
+  # Run benchmarks and slow tests
+  #
+  slow-tests:
+    name: Run slow tests and benchmarks
+    needs: [sync-chain-db, build]
+    runs-on: 'ubuntu-18.04'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.2.ubuntu-18.04
+        path: bin
+    - name: Validate block header database
+      run: |
+        chmod 755 ./bin/cwtool
+        ./bin/cwtool slow-tests
+
+  # Validate Mainnet01 Chain Database With chainweb-node
+  #
+  validate-header-db:
+    name: Validate mainnet01 block header db
+    needs: [sync-chain-db, build]
+    runs-on: 'ubuntu-18.04'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chain database artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chain-db
+        path: db
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.2.ubuntu-18.04
+        path: bin
+    - name: Validate block header database
+      run: |
+        chmod 755 ./bin/cwtool
+        ./bin/cwtool header-dump --database=db/rocksdb --chainweb-version=mainnet01 -o none --validate
+
+  # Validate Mainnet01 Chain Database With chainweb-node
+  #
+  validate-chain-db:
+    name: Validate mainnet01 history with build
+    needs: [sync-chain-db, build]
+    runs-on: 'ubuntu-18.04'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chain database artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chain-db
+        path: db
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.2.ubuntu-18.04
+        path: bin
+    - name: Create configuration file for validating the chainweb history
+      run: |
+        cat >> config.yaml <<EOF
+          databaseDirectory: "db/rocksdb"
+          resetChainDatabases: false
+          chainweb:
+            validateHashesOnReplay: true
+            p2p:
+              peer:
+                hostaddress:
+                  hostname: localhost
+                  port: 4445
+              private: true
+              ignoreBootstrapNodes: true
+            transactionIndex:
+              enabled: false
+            headerStream: false
+            mempoolP2p:
+              enabled: false
+            cuts:
+              pruneChainDatabase: false
+          logging:
+            telemetryBackend:
+              enabled: true
+              configuration:
+                handle: stdout
+                color: "True"
+            backend:
+              handle: stdout
+              color: "True"
+            logger:
+              log_level: info
+            filter:
+              rules:
+              - key: component
+                value: pact
+                level: warn
+              default: info
+        EOF
+    - name: Validate mainnet01 history
+      run: |
+        chmod 755 ./bin/chainweb-node
+        ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p;q0};/\[Error\]/{p;q1}'; x=$?; killall chainweb-node ; exit $x ; }
+
+  # Build Chainweb Node
+  #
   build:
     name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -19,7 +161,6 @@ jobs:
         cabal: ['3.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
-        distcache: ['false']
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
@@ -29,11 +170,6 @@ jobs:
       CABAL_CACHE_BUCKET: kadena-cabal-cache
       SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
       SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
-
-      # Dist Cache
-      DIST_CACHE_BUCKET: kadena-cabal-cache
-      SYNC_TO_DIST_CACHE: aws s3 sync dist-newstyle "s3://kadena-cabal-cache/dist/${{ matrix.os }}/${{ matrix.ghc }}/dist-newstyle"
-      SYNC_FROM_DIST_CACHE: aws s3 sync "s3://kadena-cabal-cache/dist/${{ matrix.os }}/${{ matrix.ghc }}/dist-newstyle" dist-newstyle && rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/setup
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
@@ -111,12 +247,15 @@ jobs:
           semigroups
           servant-swagger:swagger2
         EOF
-    - name: Sync from dist cache
-      if: matrix.distcache == 'true'
-      run: |
-        eval $SYNC_FROM_DIST_CACHE
-        rm -rf dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*
-      continue-on-error: true
+
+    - uses: actions/cache@v1
+      name: Cache dist-newstyle
+      with:
+        path: dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-${{ github.sha }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
+          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
 
     # Build
     - name: Update package database
@@ -129,14 +268,9 @@ jobs:
     - name: Install build dependencies
       run: cabal v2-build --only-dependencies
     - name: Build
-      run: cabal v2-build chainweb-node
+      run: cabal v2-build
     - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/Chainweb.Test.Pact.SPV/'
-    - name: Run Benchmarks and Certificate Validation Tests
-      run: cabal v2-run cwtool -- slow-tests
-    - name: Sync dist cache
-      if: always() && (matrix.distcache == 'true')
-      run: eval $SYNC_TO_DIST_CACHE
+      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/Chainweb.Test.Pact.SPV/ && !/deep-fork-limit/ && !/SPV transaction proof test/ && !/getPending high water marks/'
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
       run: eval $SYNC_TO_CACHE
@@ -146,7 +280,9 @@ jobs:
       run: |
         mkdir -p dist-newstyle/artifacts/applications
         mkdir -p dist-newstyle/artifacts/docs
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-*/opt/build/*/chainweb-node dist-newstyle/artifacts/applications
+        export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node dist-newstyle/artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool dist-newstyle/artifacts/applications
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:

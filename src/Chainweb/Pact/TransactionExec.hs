@@ -64,6 +64,7 @@ import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
 import Data.Foldable (for_)
 import qualified Data.HashMap.Strict as HM
+import Data.Maybe (isJust)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -127,7 +128,8 @@ magic_GENESIS = mkMagicCapSlot "GENESIS"
 -- orchestrates gas buys/redemption, and executing payloads.
 --
 applyCmd
-    :: Logger
+    :: ChainwebVersion
+    -> Logger
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
@@ -146,12 +148,17 @@ applyCmd
     -> Bool
       -- ^ execution config for module install
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
+applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
-    executionConfigNoHistory = ExecutionConfig ecMod False
+
+    executionConfigNoHistory = mkExecutionConfig $
+      [ FlagDisableHistoryInTransactionalMode ] ++
+      [ FlagDisableModuleInstall | not ecMod ] ++
+      [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
@@ -161,13 +168,14 @@ applyCmd logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
+    isPactBackCompatV16 = pactBackCompat_v16 v (BlockHeight $ _pdBlockHeight pd)
 
     redeemAllGas r = do
       txGasUsed .= fromIntegral gasLimit
       applyRedeem r
 
     applyBuyGas =
-      catchesPactError (buyGas cmd miner) >>= \case
+      catchesPactError (buyGas isPactBackCompatV16 cmd miner) >>= \case
         Left e -> fatal $ "tx failure for requestKey when buying gas: " <> sshow e
         Right _ -> checkTooBigTx initialGas gasLimit applyPayload redeemAllGas
 
@@ -212,7 +220,7 @@ applyGenesisCmd logger dbEnv pd spv cmd =
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
     tenv = TransactionEnv Transactional dbEnv logger pd spv nid 0.0 rk 0
-           justInstallsExecutionConfig
+           def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
@@ -222,7 +230,6 @@ applyGenesisCmd logger dbEnv pd spv cmd =
       case cr of
         Left e -> fatal $ "Genesis command failed: " <> sshow e
         Right r -> r <$ debug "successful genesis tx for request key"
-
 
 applyCoinbase
     :: ChainwebVersion
@@ -274,8 +281,11 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
         -- FIXME ceck that @ _pdPrevBlockHash pd == encode _blockHash@
         -- FIXME chash includes the quoted text of the parent header. Is that correct?
 
+    ec = mkExecutionConfig
+      [ FlagDisableModuleInstall
+      , FlagDisableHistoryInTransactionalMode ]
     tenv = TransactionEnv Transactional dbEnv logger pd noSPVSupport
-           Nothing 0.0 rk 0 restrictiveExecutionConfig
+           Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
@@ -330,7 +340,7 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
     tenv = TransactionEnv Local dbEnv logger pd spv nid gasPrice
-           rk (fromIntegral gasLimit) permissiveExecutionConfig
+           rk (fromIntegral gasLimit) def
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
@@ -365,7 +375,7 @@ readInitModules logger dbEnv pd =
     nid = Nothing
     chash = pactInitialHash
     tenv = TransactionEnv Local dbEnv logger pd noSPVSupport nid 0.0
-           rk 0 permissiveExecutionConfig
+           rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
 
@@ -405,7 +415,7 @@ applyUpgrades v cid height
     applyTxs txsIO = do
       infoLog $ "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
-      local (set (txExecutionConfig . ecAllowModuleInstall) True) $
+      local (set txExecutionConfig def) $
         mapM_ applyTx txs
       mc <- use txCache
       return $ Just mc
@@ -571,14 +581,14 @@ applyContinuation' interp cm@(ContMsg pid s rb d _) senderSigs hsh nsp = do
 --
 -- see: 'pact/coin-contract/coin.pact#fund-tx'
 --
-buyGas :: Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM p ()
-buyGas cmd (Miner mid mks) = go
+buyGas :: Bool -> Command (Payload PublicMeta ParsedCode) -> Miner -> TransactionM p ()
+buyGas isPactBackCompatV16 cmd (Miner mid mks) = go
   where
     sender = view (cmdPayload . pMeta . pmSender) cmd
     initState mc = setModuleCache mc $ initCapabilities [magic_GAS]
 
     run input = do
-      findPayer >>= \r -> case r of
+      (findPayer isPactBackCompatV16 cmd) >>= \r -> case r of
         Nothing -> input
         Just withPayerCap -> withPayerCap input
 
@@ -600,13 +610,18 @@ buyGas cmd (Miner mid mks) = go
         Nothing -> fatal "buyGas: Internal error - empty continuation"
         Just pe -> void $! txGasId .= (Just $! GasId (_pePactId pe))
 
-findPayer :: Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
-findPayer = runMaybeT $ do
+findPayer
+  :: Bool
+  -> Command (Payload PublicMeta ParsedCode)
+  -> Eval e (Maybe (Eval e [Term Name] -> Eval e [Term Name]))
+findPayer isPactBackCompatV16 cmd = runMaybeT $ do
     (!m,!qn,!as) <- MaybeT findPayerCap
     pMod <- MaybeT $ lookupModule qn m
     capRef <- MaybeT $ return $ lookupIfaceModRef qn pMod
     return $ runCap (getInfo qn) capRef as
   where
+    setEnvMsgBody v e = set eeMsgBody v e
+
     findPayerCap :: Eval e (Maybe (ModuleName,QualifiedName,[PactValue]))
     findPayerCap = preview $ eeMsgSigs . folded . folded . to sigPayerCap . _Just
 
@@ -623,7 +638,12 @@ findPayer = runMaybeT $ do
     mkApp i r as = App (TVar r i) (map (liftTerm . fromPactValue) as) i
 
     runCap i capRef as input = do
-      ar <- evalCap i CapCallStack False $ mkApp i capRef as
+      let msgBody = enrichedMsgBody cmd
+          enrichMsgBody | isPactBackCompatV16 = id
+                        | otherwise = setEnvMsgBody msgBody
+      ar <- local enrichMsgBody $
+        evalCap i CapCallStack False $ mkApp i capRef as
+
       case ar of
         NewlyAcquired -> do
           r <- input
@@ -631,6 +651,23 @@ findPayer = runMaybeT $ do
           return r
         _ -> evalError' i "Internal error, GAS_PAYER already acquired"
 
+enrichedMsgBody :: Command (Payload PublicMeta ParsedCode) -> Value
+enrichedMsgBody cmd = case (_pPayload $ _cmdPayload cmd) of
+  Exec (ExecMsg (ParsedCode _ exps) userData) ->
+    object [ "tx-type" A..= ( "exec" :: Text)
+           , "exec-code" A..= map renderCompactText exps
+           , "exec-user-data" A..= pactFriendlyUserData userData ]
+  Continuation (ContMsg pid step isRollback userData proof) ->
+    object [ "tx-type" A..= ("cont" :: Text)
+           , "cont-pact-id" A..= pid
+           , "cont-step" A..= (LInteger $ toInteger step)
+           , "cont-is-rollback" A..= LBool isRollback
+           , "cont-user-data" A..= pactFriendlyUserData userData
+           , "cont-has-proof" A..= (LBool $ isJust proof)
+           ]
+  where
+    pactFriendlyUserData Null = object []
+    pactFriendlyUserData v = v
 
 -- | Build and execute 'coin.redeem-gas' command from miner info and previous
 -- command results (see 'TransactionExec.applyCmd')
