@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -74,6 +75,8 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 
+import GHC.Generics
+
 import System.Directory
 import System.IO
 import System.LogLevel
@@ -134,6 +137,22 @@ import Chainweb.Version
 import Data.CAS (casLookupM)
 import Data.LogMessage
 import Utils.Logging.Trace
+
+-- -------------------------------------------------------------------------- --
+-- Pact Service Exception
+
+-- | A type for exception that are thrown within Pact Service and that are
+-- caused by bugs in the code.
+--
+data InternalPactServiceException = InternalPactServiceException
+    { _pactServiceExceptionMsg :: !T.Text
+    , _pactServiceExceptionInner :: !(Maybe SomeException)
+    }
+    deriving (Show, Generic)
+
+instance Exception InternalPactServiceException where
+    displayException = show
+    {-# INLINE displayException #-}
 
 -- -------------------------------------------------------------------------- --
 
@@ -330,6 +349,10 @@ initializeCoinContract _logger v cid pwo = do
       let target = Just (succ bhe, bhash)
       bhdb <- asks _psBlockHeaderDb
       parentHeader <- liftIO $! lookupM bhdb bhash
+        `catch` \e -> throwM $ InternalPactServiceException
+          { _pactServiceExceptionMsg = "failed lookup of parent header in initializeCoinContract"
+          , _pactServiceExceptionInner = Just e
+          }
       setBlockData parentHeader
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
@@ -1000,6 +1023,10 @@ execLocal cmd = withDiscardedBatch $ do
     bhDb <- asks _psBlockHeaderDb
 
     parentHeader <- liftIO $! lookupM bhDb bhash
+      `catch` \e -> throwM $ InternalPactServiceException
+        { _pactServiceExceptionMsg = "failed lookup of parent header in execLocal"
+        , _pactServiceExceptionInner = Just e
+        }
 
     -- NOTE: On local calls, there might be code which needs the results of
     -- (chain-data). In such a case, the function `setBlockData` provides the
@@ -1101,6 +1128,10 @@ playOneBlock currHeader plData pdbenv = do
       else do
         bhDb <- asks _psBlockHeaderDb
         ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
+          `catch` \e -> throwM $ InternalPactServiceException
+            { _pactServiceExceptionMsg = "failed lookup of parent header in playOneBlock.go"
+            , _pactServiceExceptionInner = Just e
+            }
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         withEnableUserContracts currHeader $
@@ -1144,6 +1175,10 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
 
     playFork bhdb payloadDb parentHash lastHeader = do
         parentHeader <- liftIO $ lookupM bhdb parentHash
+          `catch` \e -> throwM $ InternalPactServiceException
+            { _pactServiceExceptionMsg = "failed lookup of parent header in rewindTo"
+            , _pactServiceExceptionInner = Just e
+            }
 
         (!_, _, newBlocks) <-
             liftIO $ collectForkBlocks bhdb lastHeader parentHeader

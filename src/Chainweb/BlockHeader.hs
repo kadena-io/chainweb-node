@@ -328,8 +328,16 @@ mkFeatureFlags = FeatureFlags 0x0
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
 
-newtype ParentCreationTime = ParentCreationTime BlockCreationTime
-newtype ParentHeader = ParentHeader BlockHeader
+newtype ParentCreationTime = ParentCreationTime
+    { _parentCreationTime :: BlockCreationTime }
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
+
+newtype ParentHeader = ParentHeader
+    { _parentHeader :: BlockHeader }
+    deriving (Show, Generic)
+    deriving anyclass (NFData)
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
