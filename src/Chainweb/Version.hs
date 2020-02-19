@@ -625,8 +625,7 @@ vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
 {-# INLINE vuln797FixDate #-}
 
 -- | Mainnet upgrade to coin v2 at time at @[timeMicrosQQ| 2019-12-17T15:00:00.0 |]@,
--- which was BEFORE 'txEnableDate'. All other chainweb versions use coin v2 from
--- the genesis block on.
+-- which was BEFORE 'txEnableDate'.
 --
 -- This function provides the block heights when coin v2 became effective on the
 -- respective chains.
@@ -648,7 +647,8 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 8 = h == 140808
     | cid == unsafeChainId 9 = h == 140808
     | otherwise = error $ "invalid chain id " <> sshow cid
-coinV2Upgrade _ _ h = h == 0
+coinV2Upgrade _ _ 1 = True
+coinV2Upgrade _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56

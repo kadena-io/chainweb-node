@@ -274,6 +274,10 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
     bh = fromIntegral $ _pdBlockHeight pd
+        -- NOTE generally it should hold that @bh == 1 + _blockHeight parentHeader@.
+        -- This isn't the case for some unit tests, that don't mine blocks in order
+        -- from the genesisblock but skip ahead using 'someTestVersionHeader'.
+
     blockTime = blockTimeOf pd
         -- NOTE it should hold that @blockTime == _blockCreationTime parentHeader@, but
         -- in some unit test runs that is not the case. That is fine because coinbase

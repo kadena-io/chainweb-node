@@ -691,9 +691,15 @@ someTestVersionHeader = someBlockHeader someTestVersion 10
 epochCreationTime :: BlockCreationTime
 epochCreationTime = BlockCreationTime epoch
 
+-- | The runtime is linear in the requested height. This can is slow if a large
+-- block height is requested for a chainweb version that simulates realtime
+-- mining. It is fast enough for testing purposes with "fast" mining chainweb
+-- versions like 'someTestVersion' for block heights up to, say, 1000.
+--
 someBlockHeader :: ChainwebVersion -> BlockHeight -> BlockHeader
-someBlockHeader v h = setHeight $ head (testBlockHeaders $ ParentHeader gbh0)
-  where
-    gbh0 = genesisBlockHeader v (unsafeChainId 0)
-    setHeight bh = bh { _blockHeight = h }
+someBlockHeader v 0 = genesisBlockHeader v (unsafeChainId 0)
+someBlockHeader v h = (!! (int h - 1))
+    $ testBlockHeaders
+    $ ParentHeader
+    $ genesisBlockHeader v (unsafeChainId 0)
 
