@@ -39,11 +39,8 @@ module Chainweb.Version
 , WindowWidth(..)
 , window
 -- ** Date- and Version-based Transaction Disabling and Enabling
-, txEnabledDate
-, transferActivationDate
 , vuln797FixDate
 , coinV2Upgrade
-, userContractActivationDate
 , pactBackCompat_v16
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
@@ -576,40 +573,6 @@ window Mainnet01 = Just $ WindowWidth 120
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
-
--- | This is used in a core validation rule and has been present for several
--- versions of the node software. Changing it risks a fork in the network.
--- Must be AFTER 'upgradeCoinV2Date', and BEFORE 'transferActivationDate' in mainnet.
---
-txEnabledDate :: ChainwebVersion -> Maybe (Time Micros)
-txEnabledDate Test{} = Nothing
-txEnabledDate TimedConsensus{} = Nothing
-txEnabledDate PowConsensus{} = Nothing
-txEnabledDate TimedCPM{} = Nothing
-txEnabledDate FastTimedCPM{} = Nothing
-txEnabledDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
-txEnabledDate Testnet04 = Nothing
-txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:30:00.0 |]
-
--- | KILLSWITCH: The date after which nodes in the 1.1.x series will
--- spontaneously allow Transactions in the system. This constant can be removed
--- once the date has passed, and /must not be used in core validation code/.
--- Must be after 'txEnabledDate' in mainnet.
---
-transferActivationDate :: ChainwebVersion -> Maybe (Time Micros)
-transferActivationDate Test{} = Nothing
-transferActivationDate TimedConsensus{} = Nothing
-transferActivationDate PowConsensus{} = Nothing
-transferActivationDate TimedCPM{} = Nothing
-transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
-transferActivationDate Testnet04 = Nothing
-transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
-
-userContractActivationDate :: ChainwebVersion -> Maybe (Time Micros)
-userContractActivationDate Development = Just epoch
-userContractActivationDate Mainnet01 = Just [timeMicrosQQ| 2020-01-15T16:00:00.0 |]
-userContractActivationDate _ = Nothing
 
 -- | Time after which fixes for vuln797 will be validated in blocks.
 --

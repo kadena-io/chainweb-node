@@ -65,7 +65,6 @@ module Chainweb.Pact.Types
   , psBlockHeaderDb
   , psGasModel
   , psMinerRewards
-  , psEnableUserContracts
   , psReorgLimit
   , psOnFatalError
   , psVersion
@@ -285,7 +284,6 @@ data PactServiceEnv cas = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psEnableUserContracts :: !Bool
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion

@@ -6,8 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
@@ -145,19 +143,16 @@ applyCmd
       -- ^ command with payload to execute
     -> ModuleCache
       -- ^ cached module state
-    -> Bool
-      -- ^ execution config for module install
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
+applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
 
-    executionConfigNoHistory = mkExecutionConfig $
-      [ FlagDisableHistoryInTransactionalMode ] ++
-      [ FlagDisableModuleInstall | not ecMod ] ++
-      [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+    executionConfigNoHistory = mkExecutionConfig
+      $ FlagDisableHistoryInTransactionalMode
+      : [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
 
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
