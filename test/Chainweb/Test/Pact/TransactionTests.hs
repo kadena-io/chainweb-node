@@ -168,7 +168,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     cmd <- buildExecParsedCode Nothing "(coin.get-balance \"tester01\")"
 
-    doCoinbaseExploit pdb mc preForkTime cmd False $ \case
+    doCoinbaseExploit pdb mc preForkHeight cmd False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 1000.1 -> return ()
@@ -180,7 +180,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     cmd' <- buildExecParsedCode Nothing
       "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
 
-    doCoinbaseExploit pdb mc postForkTime cmd' False $ \case
+    doCoinbaseExploit pdb mc postForkHeight cmd' False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.1 -> return ()
@@ -189,7 +189,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "pre-fork code injection fails, enforced precompile"
 
-    doCoinbaseExploit pdb mc preForkTime cmd' True $ \case
+    doCoinbaseExploit pdb mc preForkHeight cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.2 -> return ()
@@ -198,7 +198,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "post-fork code injection fails, enforced precompile"
 
-    doCoinbaseExploit pdb mc postForkTime cmd' True $ \case
+    doCoinbaseExploit pdb mc postForkHeight cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.3 -> return ()
@@ -206,10 +206,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       Right l -> assertFailure $ "wrong return type: " <> show l
 
   where
-    doCoinbaseExploit pdb mc t localCmd precompile testResult = do
-      let pd = PublicData def blockHeight' t ""
+    doCoinbaseExploit pdb mc height localCmd precompile testResult = do
+      let pd = PublicData def (int height) 0 ""
 
-      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd testVersionHeader
+      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd (mkTestHeader $ height - 1)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
@@ -226,17 +226,23 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       (MinerId "tester01\" (read-keyset \"miner-keyset\") 1000.0)(coin.coinbase \"tester01")
       (MinerKeys $ mkKeySet ["b67e109352e8e33c8fe427715daad57d35d25d025914dd705b97db35b1bfbaa5"] "keys-all")
 
-    preForkTime = toInt64 [timeMicrosQQ| 2019-12-09T01:00:00.0 |]
-    postForkTime = toInt64 [timeMicrosQQ| 2019-12-11T01:00:00.0 |]
-    toInt64 (Time (TimeSpan (Micros m))) = m
-    blockHeight' = 123
+    preForkHeight = 121451
+    postForkHeight = 121452
+
     logger = newLogger neverLog ""
+
+    -- | someBlockHeader is a bit slow for the vuln797Fix to trigger. So, instead
+    -- of mining a full chain we fake the height.
+    --
+    mkTestHeader :: BlockHeight -> BlockHeader
+    mkTestHeader h = (someBlockHeader (FastTimedCPM singleton) 10)
+        { _blockHeight = h }
 
 
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData testVersionHeader
+    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData someTestVersionHeader
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) ->
@@ -304,7 +310,4 @@ testCoinbaseUpgradeDevnet cid upgradeHeight = do
       { _blockChainwebVersion = v
       , _blockChainId = cid
       }
-
-testVersionHeader :: BlockHeader
-testVersionHeader = someTestVersionHeader
 

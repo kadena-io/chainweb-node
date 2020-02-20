@@ -39,13 +39,12 @@ module Chainweb.Version
 , WindowWidth(..)
 , window
 -- ** Date- and Version-based Transaction Disabling and Enabling
-, vuln797FixDate
+, vuln797Fix
 , coinV2Upgrade
 , pactBackCompat_v16
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , skipFeatureFlagValidationGuard
-
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -574,21 +573,32 @@ window Mainnet01 = Just $ WindowWidth 120
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
 
--- | Time after which fixes for vuln797 will be validated in blocks.
+-- | Mainnet applied vlun797Fix at @[timeMicrosQQ| 2019-12-10T21:00:00.0 |]@.
 --
-vuln797FixDate :: ChainwebVersion -> Time Micros
-vuln797FixDate Test{} = epoch
-vuln797FixDate TimedConsensus{} = epoch
-vuln797FixDate PowConsensus{} = epoch
-vuln797FixDate TimedCPM{} = epoch
-vuln797FixDate FastTimedCPM{} = epoch
-vuln797FixDate Development = epoch
-vuln797FixDate Testnet04 = epoch
-vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
-{-# INLINE vuln797FixDate #-}
+-- This function provides the block heights when the fix became effective on the
+-- respective chains.
+--
+vuln797Fix
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Bool
+vuln797Fix Mainnet01 cid h
+    | cid == unsafeChainId 0 = h >= 121452
+    | cid == unsafeChainId 1 = h >= 121452
+    | cid == unsafeChainId 2 = h >= 121452
+    | cid == unsafeChainId 3 = h >= 121451
+    | cid == unsafeChainId 4 = h >= 121451
+    | cid == unsafeChainId 5 = h >= 121452
+    | cid == unsafeChainId 6 = h >= 121452
+    | cid == unsafeChainId 7 = h >= 121451
+    | cid == unsafeChainId 8 = h >= 121452
+    | cid == unsafeChainId 9 = h >= 121451
+    | otherwise = error $ "invalid chain id " <> sshow cid
+vuln797Fix _ _ _ = True
+{-# INLINE vuln797Fix #-}
 
--- | Mainnet upgrade to coin v2 at time at @[timeMicrosQQ| 2019-12-17T15:00:00.0 |]@,
--- which was BEFORE 'txEnableDate'.
+-- | Mainnet upgraded to coin v2 at time at @[timeMicrosQQ| 2019-12-17T15:00:00.0 |]@.
 --
 -- This function provides the block heights when coin v2 became effective on the
 -- respective chains.
