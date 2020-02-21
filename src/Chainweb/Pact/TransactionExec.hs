@@ -423,13 +423,18 @@ applyUpgrades v cid height
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
+
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
+
       r <- try $ runGenesis tx permissiveNamespacePolicy interp
+
       case r of
         Right _ -> return ()
         Left (e :: SomeException) -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           return ()
+
+
 
 blockTimeOf :: PublicData -> Time Micros
 blockTimeOf pd = Time (TimeSpan (Micros $ _pdBlockTime pd))
