@@ -647,6 +647,9 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 8 = h == 140808
     | cid == unsafeChainId 9 = h == 140808
     | otherwise = error $ "invalid chain id " <> sshow cid
+coinV2Upgrade Development cid h
+    | cid == unsafeChainId 0 = h == 3
+    | otherwise = h == 4
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 

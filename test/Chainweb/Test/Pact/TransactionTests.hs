@@ -1,7 +1,8 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB
@@ -22,9 +23,13 @@ import Control.Exception (SomeException, try)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Data.Aeson
+import Data.Aeson.Lens
 import Data.Foldable (for_, traverse_)
+import Data.Function (on)
+import Data.List (intercalate)
 import Data.Text (isInfixOf,unpack)
 import Data.Default
+import Data.Tuple.Strict (T2(..))
 
 -- internal pact modules
 
@@ -45,6 +50,7 @@ import Pact.Types.SPV
 -- internal chainweb modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
@@ -52,7 +58,7 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version
+import Chainweb.Version as V
 import Chainweb.Test.Pact.Utils
 
 
@@ -77,6 +83,8 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   , testGroup "Coinbase Vuln Fix Tests"
     [ testCoinbase797DateFix
     , testCase "testCoinbaseEnforceFailure" testCoinbaseEnforceFailure
+    , testCase "testCoinbaseUpgradeDevnet0" (testCoinbaseUpgradeDevnet (unsafeChainId 0) 3)
+    , testCase "testCoinbaseUpgradeDevnet1" (testCoinbaseUpgradeDevnet (unsafeChainId 1) 4)
     ]
   ]
 
@@ -245,6 +253,58 @@ testCoinbaseEnforceFailure = do
     logger = newLogger neverLog ""
 
 
+testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
+testCoinbaseUpgradeDevnet cid upgradeHeight = do
+    (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
+    r <- try $ applyCoinbase v logger pdb miner 0.1 pubData parentHeader
+      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    case r of
+      Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
+      Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
+        (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
+        (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
+        (Just logs,_) -> do
+          void $ matchLogs (logResults logs)
+  where
+    logResults logs = flip fmap logs $ \l ->
+      ( _txDomain l
+      , _txKey l
+      , preview (_Object . ix "balance") (_txValue l)
+      )
+
+    expectedResults =
+      [ ("USER_coin_coin-table","abcd",Just (Number 0.1))
+      , ("SYS_modules","fungible-v2",Nothing)
+      , ("SYS_modules","coin",Nothing)
+      , ("USER_coin_coin-table","sender07",Just (Number 998662.3))
+      , ("USER_coin_coin-table","sender09",Just (Number 998662.1))
+      ]
+
+    matchLogs actualResults
+      | length actualResults /= length expectedResults =
+          assertFailure $ intercalate "\n" $
+            [ "matchLogs: length mismatch "
+                <> show (length actualResults) <> " /= " <> show (length expectedResults)
+            , "actual: " ++ show actualResults
+            , "expected: " ++ show expectedResults
+            ]
+      | otherwise = zipWithM matchLog actualResults expectedResults
+
+    matchLog actual expected = do
+      (assertEqual "domain matches" `on` view _1) actual expected
+      (assertEqual "key matches" `on` view _2) actual expected
+      (assertEqual "balance matches" `on` view _3) actual expected
+
+    v = Development
+    miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
+    pubData = PublicData def (int upgradeHeight) 0 ""
+    logger = newLogger neverLog "" -- set to alwaysLog to debug
+
+    parentHeader = (someBlockHeader v upgradeHeight)
+      { _blockChainwebVersion = v
+      , _blockChainId = cid
+      }
 
 testVersionHeader :: BlockHeader
 testVersionHeader = someTestVersionHeader
+
