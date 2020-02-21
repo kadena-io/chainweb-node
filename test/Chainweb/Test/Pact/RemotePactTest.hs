@@ -307,6 +307,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       void $ liftIO $ step "pollApiClient: poll until key is found"
       void $ liftIO $ polling sid cenv rks ExpectPactResult
 
+      void $ liftIO $ step "wait 500ms for evidence to propagate to target chain"
+      liftIO $ threadDelay 500_000
+
       void $ liftIO $ step "spvApiClient: submit request key"
       liftIO $ spv sid cenv (SpvRequest (NEL.head $ _rkRequestKeys rks) tid)
 
