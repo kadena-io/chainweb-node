@@ -6,8 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
@@ -98,7 +96,6 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
-import Chainweb.Time hiding (second)
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow)
 import Chainweb.Version as V
@@ -145,19 +142,16 @@ applyCmd
       -- ^ command with payload to execute
     -> ModuleCache
       -- ^ cached module state
-    -> Bool
-      -- ^ execution config for module install
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 ecMod =
+applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
     txst = TransactionState mcache0 mempty 0 Nothing (_geGasModel freeGasEnv)
 
-    executionConfigNoHistory = mkExecutionConfig $
-      [ FlagDisableHistoryInTransactionalMode ] ++
-      [ FlagDisableModuleInstall | not ecMod ] ++
-      [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+    executionConfigNoHistory = mkExecutionConfig
+      $ FlagDisableHistoryInTransactionalMode
+      : [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
 
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -262,8 +256,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     let interp = initStateInterpreter initState
     go interp cexec
   where
-    forkTime = vuln797FixDate v
-    fork1_3InEffect = blockTime >= forkTime
+    fork1_3InEffect = vuln797Fix v cid bh
     throwCritical = fork1_3InEffect || enfCBFailure
     ec = mkExecutionConfig
       [ FlagDisableModuleInstall
@@ -273,15 +266,11 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
+
     bh = fromIntegral $ _pdBlockHeight pd
         -- NOTE generally it should hold that @bh == 1 + _blockHeight parentHeader@.
         -- This isn't the case for some unit tests, that don't mine blocks in order
         -- from the genesisblock but skip ahead using 'someTestVersionHeader'.
-
-    blockTime = blockTimeOf pd
-        -- NOTE it should hold that @blockTime == _blockCreationTime parentHeader@, but
-        -- in some unit test runs that is not the case. That is fine because coinbase
-        -- is a special case
 
     cid = V._chainId parentHeader
         -- NOTE: generally should hold that
@@ -433,11 +422,6 @@ applyUpgrades v cid height
         Left (e :: SomeException) -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           return ()
-
-
-
-blockTimeOf :: PublicData -> Time Micros
-blockTimeOf pd = Time (TimeSpan (Micros $ _pdBlockTime pd))
 
 jsonErrorResult
     :: PactError
