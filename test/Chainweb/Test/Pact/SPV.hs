@@ -42,8 +42,10 @@ import Data.Function
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (isInfixOf)
+import Data.Reflection (give)
 import Data.Text (pack,Text)
 import qualified Data.Text.IO as T
+import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector, fromList)
 import qualified Data.Vector as Vector
 import Data.Word
@@ -69,9 +71,11 @@ import Pact.Types.Term
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Cut.Test
 import Chainweb.CutDB
 import Chainweb.Graph
 import Chainweb.Pact.Backend.Types
@@ -87,6 +91,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
+import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.RocksDB
 import Data.LogMessage
@@ -169,6 +174,20 @@ withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
   where
     with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
     with g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
+
+doit :: IO ()
+doit = do
+  withTempRocksDb "doit" $ \rdb -> do
+    wdb <- initWebBlockHeaderDb rdb v
+    let initCut = genesisCut v
+        cid = unsafeChainId 0
+        payHash = _payloadWithOutputsPayloadHash $ genesisBlockPayload v cid
+    r <- testCut wdb (Nonce 0) (offsetBlockTime second) payHash cid initCut
+    case r of
+      Left l -> error $ show l
+      Right rr@(T2 bh c') -> do
+        print rr
+        print =<< give wdb (lookupWebBlockHeaderDb cid (_blockHash bh))
 
 roundtrip
     :: Int

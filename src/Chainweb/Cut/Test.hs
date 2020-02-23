@@ -28,6 +28,8 @@ module Chainweb.Cut.Test
 
   MineFailure(..)
 , testMine
+, testCut
+, offsetBlockTime
 , testMineWithPayloadHash
 , createNewCut
 , randomChainId
@@ -87,7 +89,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
-import Chainweb.Time (Micros(..), Time, getCurrentTimeIntegral, second)
+import Chainweb.Time (Micros(..), Time, TimeSpan, getCurrentTimeIntegral, second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -100,6 +102,7 @@ import Numeric.AffineSpace
 -- Test Mining
 
 data MineFailure = BadNonce | BadAdjacents
+  deriving (Show)
 
 -- Try to mine a new block header on the given chain for the given cut.
 -- Returns 'Nothing' if mining isn't possible because of missing adjacent
@@ -118,6 +121,27 @@ testMine
 testMine n t payloadHash i c =
     forM (createNewCut n t payloadHash i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
+
+-- | Add a new header to a cut with no POW validation.
+testCut
+    :: WebBlockHeaderDb
+    -> Nonce
+    -> (Cut -> ChainId -> Time Micros)
+    -- ^ block time generation function
+    -> BlockPayloadHash
+    -> ChainId
+    -> Cut
+    -> IO (Either MineFailure (T2 BlockHeader Cut))
+testCut wdb n t payloadHash i c =
+  give wdb $
+    forM (createNewCut' (const True) n (t c i) payloadHash i c) $ \p@(T2 h _) ->
+        p <$ insertWebBlockHeaderDb h
+
+-- | Block time generation that offsets from previous chain block in cut.
+offsetBlockTime :: TimeSpan Micros -> Cut -> ChainId -> Time Micros
+offsetBlockTime offset cut cid = add offset t
+  where
+    BlockCreationTime t = _blockCreationTime $ cut ^?! ixg cid
 
 testMineWithPayloadHash
     :: forall cid
@@ -143,9 +167,27 @@ createNewCut
     -> cid
     -> Cut
     -> Either MineFailure (T2 BlockHeader Cut)
-createNewCut n t pay i c = do
+createNewCut = createNewCut' checkPOW
+  where
+    checkPOW h = checkTarget (_blockTarget h) $ _blockPow h
+
+-- | Create a new block. Only produces a new cut but doesn't insert it into the
+-- chain database. Optional POW validation.
+--
+createNewCut'
+    :: HasCallStack
+    => HasChainId cid
+    => (BlockHeader -> Bool)
+    -- ^ POW validator
+    -> Nonce
+    -> Time Micros
+    -> BlockPayloadHash
+    -> cid
+    -> Cut
+    -> Either MineFailure (T2 BlockHeader Cut)
+createNewCut' checkPOW n t pay i c = do
     h <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
-    unless (checkTarget (_blockTarget h) $ _blockPow h) $ Left BadNonce
+    unless (checkPOW h) $ Left BadNonce
     c' <- first (\e -> error $ "Chainweb.Cut.createNewCut: " <> sshow e)
         $ monotonicCutExtension c h
     return $ T2 h c'
