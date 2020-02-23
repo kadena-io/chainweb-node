@@ -623,7 +623,7 @@ stockKey s = do
 decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
-toTxCreationTime :: Time Integer -> TxCreationTime
+toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
@@ -699,4 +699,3 @@ someBlockHeader v h = (!! (int h - 1))
     $ testBlockHeaders
     $ ParentHeader
     $ genesisBlockHeader v (unsafeChainId 0)
-

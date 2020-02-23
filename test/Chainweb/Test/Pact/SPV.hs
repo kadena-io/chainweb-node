@@ -34,6 +34,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 
 import Data.Aeson as Aeson
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Lazy (toStrict)
 import Data.CAS (casLookupM)
@@ -59,7 +60,7 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
-import Pact.Types.ChainId as Pact
+import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Runtime (toPactId)
@@ -69,6 +70,7 @@ import Pact.Types.Term
 
 -- internal chainweb modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
@@ -82,6 +84,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.SPV.CreateProof
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Test.CutDB
@@ -93,6 +96,7 @@ import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
 import Chainweb.WebBlockHeaderDB
 
+import Data.CAS
 import Data.CAS.RocksDB
 import Data.LogMessage
 
@@ -175,19 +179,133 @@ withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
     with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
     with g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
-doit :: IO ()
-doit = do
-  withTempRocksDb "doit" $ \rdb -> do
-    wdb <- initWebBlockHeaderDb rdb v
-    let initCut = genesisCut v
-        cid = unsafeChainId 0
-        payHash = _payloadWithOutputsPayloadHash $ genesisBlockPayload v cid
-    r <- testCut wdb (Nonce 0) (offsetBlockTime second) payHash cid initCut
-    case r of
-      Left l -> error $ show l
-      Right rr@(T2 bh c') -> do
-        print rr
-        print =<< give wdb (lookupWebBlockHeaderDb cid (_blockHash bh))
+type TestBlockDb = MVar (WebBlockHeaderDb, PayloadDb RocksDbCas, Cut)
+
+withTestBlockDb :: ChainwebVersion -> (TestBlockDb -> IO a) -> IO a
+withTestBlockDb cv a = do
+  withTempRocksDb "TestBlockDb" $ \rdb -> do
+    wdb <- initWebBlockHeaderDb rdb cv
+    let pdb = newPayloadDb rdb
+    initializePayloadDb cv pdb
+    let initCut = genesisCut cv
+    v <- newMVar (wdb,pdb,initCut)
+    a v
+
+addTestBlockDb :: TestBlockDb -> Nonce -> GenBlockTime -> ChainId -> PayloadWithOutputs -> IO ()
+addTestBlockDb tbdb n gbt cid outs = do
+  (wdb,pdb,c) <- takeMVar tbdb
+  r <- testCut wdb n gbt (_payloadWithOutputsPayloadHash outs) cid c
+  (T2 _ c') <- fromEitherM $ first (userError . show) $ r
+  casInsert pdb outs
+  putMVar tbdb $ (wdb,pdb,c')
+
+getParentTestBlockDb :: TestBlockDb -> ChainId -> IO BlockHeader
+getParentTestBlockDb tbdb cid = do
+  (wdb,pdb,c) <- readMVar tbdb
+  fromMaybeM (userError $ "Internal error, parent not found for cid " ++ show cid) $ HM.lookup cid $ _cutMap c
+
+
+addPayloadBlock :: TestBlockDb -> ChainId -> PayloadWithOutputs -> IO ()
+addPayloadBlock db = addTestBlockDb db (Nonce 0) (offsetBlockTime second)
+
+addEmptyBlock :: TestBlockDb -> ChainId -> IO ()
+addEmptyBlock db cid = addPayloadBlock db cid emptyPayload
+
+roundtrip'
+    :: Int
+      -- ^ source chain id
+    -> Int
+      -- ^ target chain id
+    -> BurnGenerator
+      -- ^ burn tx generator
+    -> CreatesGenerator
+      -- ^ create tx generator
+    -> IO (CutOutputs, CutOutputs)
+roundtrip' sid0 tid0 burn create = do
+  withTestBlockDb v $ \bdb -> withAll v $ \sqlenvs -> do
+
+
+    sid <- mkChainId v sid0
+    tid <- mkChainId v tid0
+
+    -- track the continuation pact id
+    pidv <- newEmptyMVar @PactId
+
+    srcParent <- getParentTestBlockDb bdb sid
+    let (BlockCreationTime t1) = _blockCreationTime srcParent
+    txGen1 <- burn t1 pidv sid tid
+
+    (wdb,pdb,_) <- readMVar bdb
+    tg <- newMVar txGen1
+    pact <- testWebPactExecutionService v
+              (return wdb) (return pdb)
+              (chainToMPA' tg) sqlenvs
+    undefined
+    {-
+
+            pact1 <- testWebPactExecutionService v
+                         (return webHeaderDb) (return pdb)
+                         (chainToMPA txGen1) sqlenv1s
+            syncPact cutDb pact1
+
+            c0 <- _cut cutDb
+
+            -- _debugCut "c0" c0 payloadDb
+
+            -- get tx output from `(coin.delete-coin ...)` call.
+            -- Note: we must mine at least (diam + 1) * graph order many blocks
+            -- to ensure we synchronize the cutdb across all chains.
+
+            c1 <- fromJuste <$!> extendAwait cutDb pact1 ((diam + 1) * gorder)
+                (((<) `on` height sid) c0)
+
+            -- _debugCut "c1" c1 payloadDb
+
+
+            -- A proof can only be constructed if the block hash of the source
+            -- block is included in the block hash of the target. Extending the
+            -- cut db with `distance(source, target) * order(graph) + 2 *
+            -- diameter(graph) * order(graph)` should be sufficient to guarantee
+            -- that a proof exists (modulo off-by-one errors)
+
+            -- For example, for the Triangle graph, you would mine at least 1 * 3 (order
+            -- of the graph) new blocks. Since extending the cut db picks chains randomly
+            -- you mine another 2 * 3 * 3 = 18 blocks to make up for uneven height
+            -- distribution.
+
+            -- So in total you would add at least 21 blocks which would guarantee that
+            -- all chains advanced by at least 2 blocks. This is probably an
+            -- over-approximation, I guess the formula could be made a little
+            -- more tight, but the that’s the overall idea. The idea behind the
+            -- `2 * diameter(graph) * order(graph)` corrective is that, the
+            -- block heights between any two chains can be at most
+            -- `diameter(graph)` apart. We mine an extra cut height on all blocks
+            -- to make sure the proof is visible on all chains.
+
+            c2 <- fromJuste <$!> extendAwait cutDb pact1 30
+                (\c -> height tid c > diam + height sid c1)
+
+            -- _debugCut "c2" c2 payloadDb
+
+            -- execute '(coin.create-coin ...)' using the  correct chain id and block height
+            t2 <- getCurrentTimeIntegral
+            txGen2 <- create t2 cdb pidv sid tid (height sid c1)
+
+            pact2 <- testWebPactExecutionService v
+                         (return webHeaderDb) (return pdb)
+                         (chainToMPA txGen2) sqlenv2s
+            syncPact cutDb pact2
+
+            -- consume the stream and mine second batch of transactions
+            c3 <- fromJuste <$!> extendAwait cutDb pact2
+                ((diam + 1) * gorder) (((<) `on` height tid) c2)
+
+            -- _debugCut "c3" c3 payloadDb
+
+            (,) <$!> cutToPayloadOutputs c1 payloadDb <*>
+              cutToPayloadOutputs c3 payloadDb
+
+    -}
 
 roundtrip
     :: Int
@@ -319,6 +437,14 @@ chainToMPA f cid = mempty
     { mpaGetBlock = const $ f cid
     }
 
+chainToMPA' :: MVar TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess
+chainToMPA' f cid = mempty
+    { mpaGetBlock = \_pc hi ha he -> do
+        tg <- readMVar f
+        tg cid hi ha he
+    }
+
+
 -- -------------------------------------------------------------------------- --
 -- transaction generators
 
@@ -330,10 +456,10 @@ type TransactionGenerator
     -> IO (Vector ChainwebTransaction)
 
 type BurnGenerator
-    = Time Integer -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
+    = Time Micros -> MVar PactId -> Chainweb.ChainId -> Chainweb.ChainId -> IO TransactionGenerator
 
 type CreatesGenerator
-    = Time Integer
+    = Time Micros
     -> MVar (CutDb RocksDbCas)
     -> MVar PactId
     -> Chainweb.ChainId

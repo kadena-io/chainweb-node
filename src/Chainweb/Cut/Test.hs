@@ -29,6 +29,7 @@ module Chainweb.Cut.Test
   MineFailure(..)
 , testMine
 , testCut
+, GenBlockTime
 , offsetBlockTime
 , testMineWithPayloadHash
 , createNewCut
@@ -122,11 +123,13 @@ testMine n t payloadHash i c =
     forM (createNewCut n t payloadHash i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
 
+type GenBlockTime = Cut -> ChainId -> Time Micros
+
 -- | Add a new header to a cut with no POW validation.
 testCut
     :: WebBlockHeaderDb
     -> Nonce
-    -> (Cut -> ChainId -> Time Micros)
+    -> GenBlockTime
     -- ^ block time generation function
     -> BlockPayloadHash
     -> ChainId
@@ -138,7 +141,7 @@ testCut wdb n t payloadHash i c =
         p <$ insertWebBlockHeaderDb h
 
 -- | Block time generation that offsets from previous chain block in cut.
-offsetBlockTime :: TimeSpan Micros -> Cut -> ChainId -> Time Micros
+offsetBlockTime :: TimeSpan Micros -> GenBlockTime
 offsetBlockTime offset cut cid = add offset t
   where
     BlockCreationTime t = _blockCreationTime $ cut ^?! ixg cid
