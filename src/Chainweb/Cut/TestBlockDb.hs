@@ -26,8 +26,8 @@ import Chainweb.Cut.Test
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
-import Chainweb.Utils hiding (check)
-import Chainweb.Version as Chainweb
+import Chainweb.Utils
+import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
