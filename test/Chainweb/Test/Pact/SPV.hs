@@ -124,26 +124,26 @@ _handle' e =
 
 standard :: Assertion
 standard = do
-  (c1,c3) <- roundtrip' 0 1 txGenerator1 txGenerator2
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator2
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
 
 wrongChain :: Assertion
 wrongChain = do
-  (c1,c3) <- roundtrip' 0 1 txGenerator1 txGenerator3
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator3
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: enforceYield: yield provenance"
 
 invalidProof :: Assertion
 invalidProof = do
-  (c1,c3) <- roundtrip' 0 1 txGenerator1 txGenerator4
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator4
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: resumePact: no previous execution found"
 
 wrongChainProof :: Assertion
 wrongChainProof = do
-  (c1,c3) <- roundtrip' 0 1 txGenerator1 txGenerator5
+  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator5
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "cannot redeem continuation proof on wrong target chain"
   return ()
@@ -181,7 +181,7 @@ runCut bdb pact = do
   getCutOutputs bdb
 
 
-roundtrip'
+roundtrip
     :: Int
       -- ^ source chain id
     -> Int
@@ -191,7 +191,7 @@ roundtrip'
     -> CreatesGenerator
       -- ^ create tx generator
     -> IO (CutOutputs, CutOutputs)
-roundtrip' sid0 tid0 burn create = do
+roundtrip sid0 tid0 burn create = do
   withTestBlockDb v $ \bdb@(TestBlockDb wdb pdb _) -> withAll v $ \sqlenvs -> do
 
     sid <- mkChainId v sid0
