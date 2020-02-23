@@ -124,26 +124,26 @@ _handle' e =
 
 standard :: Assertion
 standard = do
-  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator2
+  (c1,c3) <- roundtrip 0 1 burnGen createSuccess
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
 
 wrongChain :: Assertion
 wrongChain = do
-  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator3
+  (c1,c3) <- roundtrip 0 1 burnGen createWrongTargetChain
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: enforceYield: yield provenance"
 
 invalidProof :: Assertion
 invalidProof = do
-  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator4
+  (c1,c3) <- roundtrip 0 1 burnGen createInvalidProof
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: resumePact: no previous execution found"
 
 wrongChainProof :: Assertion
 wrongChainProof = do
-  (c1,c3) <- roundtrip 0 1 txGenerator1 txGenerator5
+  (c1,c3) <- roundtrip 0 1 burnGen createProofBadTargetChain
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "cannot redeem continuation proof on wrong target chain"
   return ()
@@ -288,8 +288,8 @@ type CreatesGenerator
 
 -- | Generate burn/create Pact Service commands on arbitrarily many chains
 --
-txGenerator1 :: BurnGenerator
-txGenerator1 time pidv sid tid = do
+burnGen :: BurnGenerator
+burnGen time pidv sid tid = do
     ref0 <- newIORef False
     ref1 <- newIORef False
     return $ go ref0 ref1
@@ -343,8 +343,8 @@ txGenerator1 time pidv sid tid = do
 -- Note that we maintain an atomic update to make sure that if a given chain id
 -- has already called the 'create-coin' half of the transaction, it will not do so again.
 --
-txGenerator2 :: CreatesGenerator
-txGenerator2 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+createSuccess :: CreatesGenerator
+createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -367,8 +367,8 @@ txGenerator2 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
 
 -- | Execute on the create-coin command on the wrong target chain
 --
-txGenerator3 :: CreatesGenerator
-txGenerator3 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+createWrongTargetChain :: CreatesGenerator
+createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -391,8 +391,8 @@ txGenerator3 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
 
 -- | Execute create-coin command with invalid proof
 --
-txGenerator4 :: CreatesGenerator
-txGenerator4 time _ pidv _ tid _ = do
+createInvalidProof :: CreatesGenerator
+createInvalidProof time _ pidv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where
@@ -413,8 +413,8 @@ txGenerator4 time _ pidv _ tid _ = do
 -- | Execute on the create-coin command on the correct target chain, with a proof
 -- pointing at the wrong target chain
 --
-txGenerator5 :: CreatesGenerator
-txGenerator5 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
+createProofBadTargetChain :: CreatesGenerator
+createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
