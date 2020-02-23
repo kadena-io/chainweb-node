@@ -33,7 +33,6 @@ import Control.Exception (SomeException, finally)
 import Control.Monad
 
 import Data.Aeson as Aeson
-import Data.Bifunctor (first)
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Lazy (toStrict)
 import Data.CAS (casLookupM)
@@ -43,7 +42,6 @@ import Data.IORef
 import Data.List (isInfixOf)
 import Data.Text (pack,Text)
 import qualified Data.Text.IO as T
-import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector, fromList)
 import qualified Data.Vector as Vector
 import Data.Word
@@ -74,13 +72,13 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.Test
+import Chainweb.Cut.TestBlockDb
 import Chainweb.Graph
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Payload.PayloadStore.RocksDB
 import Chainweb.SPV.CreateProof
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
@@ -88,11 +86,8 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils hiding (check)
 import Chainweb.Version as Chainweb
-import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
-import Data.CAS
-import Data.CAS.RocksDB
 import Data.LogMessage
 
 
@@ -165,39 +160,13 @@ withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
     with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
     with g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
-type TestBlockDb = MVar (WebBlockHeaderDb, PayloadDb RocksDbCas, Cut)
-
-withTestBlockDb :: ChainwebVersion -> (TestBlockDb -> IO a) -> IO a
-withTestBlockDb cv a = do
-  withTempRocksDb "TestBlockDb" $ \rdb -> do
-    wdb <- initWebBlockHeaderDb rdb cv
-    let pdb = newPayloadDb rdb
-    initializePayloadDb cv pdb
-    let initCut = genesisCut cv
-    db <- newMVar (wdb,pdb,initCut)
-    a db
-
-addTestBlockDb :: TestBlockDb -> Nonce -> GenBlockTime -> ChainId -> PayloadWithOutputs -> IO ()
-addTestBlockDb tbdb n gbt cid outs = do
-  (wdb,pdb,c) <- takeMVar tbdb
-  r <- testCut wdb n gbt (_payloadWithOutputsPayloadHash outs) cid c
-  (T2 _ c') <- fromEitherM $ first (userError . show) $ r
-  casInsert pdb outs
-  putMVar tbdb $ (wdb,pdb,c')
-
-getParentTestBlockDb :: TestBlockDb -> ChainId -> IO BlockHeader
-getParentTestBlockDb tbdb cid = do
-  (_wdb,_pdb,c) <- readMVar tbdb
-  fromMaybeM (userError $ "Internal error, parent not found for cid " ++ show cid) $
-    HM.lookup cid $ _cutMap c
-
 
 addPayloadBlock :: TestBlockDb -> ChainId -> PayloadWithOutputs -> IO ()
 addPayloadBlock db = addTestBlockDb db (Nonce 0) (offsetBlockTime second)
 
 getCutOutputs :: TestBlockDb -> IO CutOutputs
-getCutOutputs db = do
-  (_wdb,pdb,c) <- readMVar db
+getCutOutputs (TestBlockDb _ pdb cmv) = do
+  c <- readMVar cmv
   cutToPayloadOutputs c pdb
 
 runCut :: TestBlockDb -> WebPactExecutionService -> IO CutOutputs
@@ -223,7 +192,7 @@ roundtrip'
       -- ^ create tx generator
     -> IO (CutOutputs, CutOutputs)
 roundtrip' sid0 tid0 burn create = do
-  withTestBlockDb v $ \bdb -> withAll v $ \sqlenvs -> do
+  withTestBlockDb v $ \bdb@(TestBlockDb wdb pdb _) -> withAll v $ \sqlenvs -> do
 
     sid <- mkChainId v sid0
     tid <- mkChainId v tid0
@@ -231,8 +200,6 @@ roundtrip' sid0 tid0 burn create = do
     -- track the continuation pact id
     pidv <- newEmptyMVar @PactId
 
-
-    (wdb,pdb,_) <- readMVar bdb
     tg <- newMVar mempty
     pact <- testWebPactExecutionService v
               (return wdb) (return pdb)
@@ -377,7 +344,7 @@ txGenerator1 time pidv sid tid = do
 -- has already called the 'create-coin' half of the transaction, it will not do so again.
 --
 txGenerator2 :: CreatesGenerator
-txGenerator2 time cdbv pidv sid tid bhe = do
+txGenerator2 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -386,7 +353,6 @@ txGenerator2 time cdbv pidv sid tid bhe = do
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
-                (wdb,pdb,_c) <- readMVar cdbv
                 q <- fmap toJSON
                     $ createTransactionOutputProof_ wdb pdb tid sid bhe 0
 
@@ -402,7 +368,7 @@ txGenerator2 time cdbv pidv sid tid bhe = do
 -- | Execute on the create-coin command on the wrong target chain
 --
 txGenerator3 :: CreatesGenerator
-txGenerator3 time cdbv pidv sid tid bhe = do
+txGenerator3 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -411,7 +377,6 @@ txGenerator3 time cdbv pidv sid tid bhe = do
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
-                (wdb,pdb,_c) <- readMVar cdbv
                 q <- fmap toJSON
                     $ createTransactionOutputProof_ wdb pdb tid sid bhe 0
 
@@ -427,7 +392,7 @@ txGenerator3 time cdbv pidv sid tid bhe = do
 -- | Execute create-coin command with invalid proof
 --
 txGenerator4 :: CreatesGenerator
-txGenerator4 time _cdbv pidv _ tid _ = do
+txGenerator4 time _ pidv _ tid _ = do
     ref <- newIORef False
     return $ go ref
   where
@@ -449,7 +414,7 @@ txGenerator4 time _cdbv pidv _ tid _ = do
 -- pointing at the wrong target chain
 --
 txGenerator5 :: CreatesGenerator
-txGenerator5 time cdbv pidv sid tid bhe = do
+txGenerator5 time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
     ref <- newIORef False
     return $ go ref
   where
@@ -458,7 +423,6 @@ txGenerator5 time cdbv pidv sid tid bhe = do
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
-                (wdb,pdb,_c) <- readMVar cdbv
                 tid' <- chainIdFromText "2"
                 q <- fmap toJSON
                     $ createTransactionOutputProof_ wdb pdb tid' sid bhe 0
