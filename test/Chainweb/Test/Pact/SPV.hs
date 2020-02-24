@@ -74,7 +74,6 @@ import Chainweb.Cut
 import Chainweb.Cut.Test
 import Chainweb.Cut.TestBlockDb
 import Chainweb.Graph
-import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload
@@ -160,24 +159,16 @@ withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
     with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
     with g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
-
-addPayloadBlock :: TestBlockDb -> ChainId -> PayloadWithOutputs -> IO ()
-addPayloadBlock db = addTestBlockDb db (Nonce 0) (offsetBlockTime second)
-
 getCutOutputs :: TestBlockDb -> IO CutOutputs
 getCutOutputs (TestBlockDb _ pdb cmv) = do
   c <- readMVar cmv
   cutToPayloadOutputs c pdb
 
-runCut :: TestBlockDb -> WebPactExecutionService -> IO CutOutputs
-runCut bdb pact = do
-  forM_ (chainIds v) $ \cid -> do
-    ph <- getParentTestBlockDb bdb cid
-    -- print (_blockHeight ph, cid)
-    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime ph)
-    addPayloadBlock bdb cid pout
-    h <- getParentTestBlockDb bdb cid
-    void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
+-- | Populate blocks for every chain of the current cut. Uses provided pact
+-- service to produce a new block, add it
+runCut' :: TestBlockDb -> WebPactExecutionService -> IO CutOutputs
+runCut' bdb pact = do
+  runCut v bdb pact (offsetBlockTime second) zeroNoncer
   getCutOutputs bdb
 
 
@@ -206,13 +197,13 @@ roundtrip sid0 tid0 burn create = do
               (chainToMPA' tg) sqlenvs
 
     -- cut 0: empty run (not sure why this is needed but test fails without it)
-    void $ runCut bdb pact
+    void $ runCut' bdb pact
 
     -- cut 1: burn
     (BlockCreationTime t1) <- _blockCreationTime <$> getParentTestBlockDb bdb sid
     txGen1 <- burn t1 pidv sid tid
     void $ swapMVar tg txGen1
-    co1 <- runCut bdb pact
+    co1 <- runCut' bdb pact
 
     -- setup create txgen with cut 1
     (BlockCreationTime t2) <- _blockCreationTime <$> getParentTestBlockDb bdb tid
@@ -221,11 +212,11 @@ roundtrip sid0 tid0 burn create = do
 
     -- cut 2: empty cut for diameter 1
     void $ swapMVar tg mempty
-    void $ runCut bdb pact
+    void $ runCut' bdb pact
 
     -- cut 3: create
     void $ swapMVar tg txGen2
-    co2 <- runCut bdb pact
+    co2 <- runCut' bdb pact
 
     return (co1,co2)
 

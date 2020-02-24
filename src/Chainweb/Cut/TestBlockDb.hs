@@ -53,7 +53,7 @@ withTestBlockDb cv a = do
 addTestBlockDb :: TestBlockDb -> Nonce -> GenBlockTime -> ChainId -> PayloadWithOutputs -> IO ()
 addTestBlockDb (TestBlockDb wdb pdb cmv) n gbt cid outs = do
   c <- takeMVar cmv
-  r <- testCut wdb n gbt (_payloadWithOutputsPayloadHash outs) cid c
+  r <- testMine' wdb n gbt (_payloadWithOutputsPayloadHash outs) cid c
   (T2 _ c') <- fromEitherM $ first (userError . show) $ r
   casInsert pdb outs
   putMVar cmv c'

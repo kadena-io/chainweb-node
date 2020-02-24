@@ -28,7 +28,7 @@ module Chainweb.Cut.Test
 
   MineFailure(..)
 , testMine
-, testCut
+, testMine'
 , GenBlockTime
 , offsetBlockTime
 , testMineWithPayloadHash
@@ -105,7 +105,7 @@ import Numeric.AffineSpace
 data MineFailure = BadNonce | BadAdjacents
   deriving (Show)
 
--- Try to mine a new block header on the given chain for the given cut.
+-- | Try to mine a new block header on the given chain for the given cut.
 -- Returns 'Nothing' if mining isn't possible because of missing adjacent
 -- dependencies.
 --
@@ -120,24 +120,25 @@ testMine
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMine n t payloadHash i c =
-    forM (createNewCut n t payloadHash i c) $ \p@(T2 h _) ->
-        p <$ insertWebBlockHeaderDb h
+    testMine' given n (\_ _ -> t) payloadHash i c
 
 type GenBlockTime = Cut -> ChainId -> Time Micros
 
--- | Add a new header to a cut with no POW validation.
-testCut
-    :: WebBlockHeaderDb
+-- | Version of 'testMine' with block time function.
+testMine'
+    :: forall cid
+    . HasChainId cid
+    => WebBlockHeaderDb
     -> Nonce
     -> GenBlockTime
     -- ^ block time generation function
     -> BlockPayloadHash
-    -> ChainId
+    -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testCut wdb n t payloadHash i c =
+testMine' wdb n t payloadHash i c =
   give wdb $
-    forM (createNewCut' (const True) n (t c i) payloadHash i c) $ \p@(T2 h _) ->
+    forM (createNewCut n (t c (_chainId i)) payloadHash i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
 
 -- | Block time generation that offsets from previous chain block in cut.
@@ -170,27 +171,9 @@ createNewCut
     -> cid
     -> Cut
     -> Either MineFailure (T2 BlockHeader Cut)
-createNewCut = createNewCut' checkPOW
-  where
-    checkPOW h = checkTarget (_blockTarget h) $ _blockPow h
-
--- | Create a new block. Only produces a new cut but doesn't insert it into the
--- chain database. Optional POW validation.
---
-createNewCut'
-    :: HasCallStack
-    => HasChainId cid
-    => (BlockHeader -> Bool)
-    -- ^ POW validator
-    -> Nonce
-    -> Time Micros
-    -> BlockPayloadHash
-    -> cid
-    -> Cut
-    -> Either MineFailure (T2 BlockHeader Cut)
-createNewCut' checkPOW n t pay i c = do
+createNewCut n t pay i c = do
     h <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
-    unless (checkPOW h) $ Left BadNonce
+    unless (checkTarget (_blockTarget h) $ _blockPow h) $ Left BadNonce
     c' <- first (\e -> error $ "Chainweb.Cut.createNewCut: " <> sshow e)
         $ monotonicCutExtension c h
     return $ T2 h c'
