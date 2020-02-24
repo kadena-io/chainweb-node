@@ -138,7 +138,7 @@ run genesisBlock iopdb iobhdb rr = do
           startHeight = fromIntegral $ _blockHeight start
           go = do
               r <- ask
-              pblock <- get
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
               liftIO $ modifyIORef' ncounter succ
@@ -146,12 +146,12 @@ run genesisBlock iopdb iobhdb rr = do
               return ret
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
@@ -172,7 +172,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 

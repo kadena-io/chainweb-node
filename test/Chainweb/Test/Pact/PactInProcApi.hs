@@ -88,7 +88,7 @@ newBlockTest label reqIO = golden label $ do
     reqQ <- reqIO
     let genesisHeader = genesisBlockHeader testVersion cid
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-    respVar <- newBlock noMiner genesisHeader (BlockCreationTime blockTime) reqQ
+    respVar <- newBlock noMiner (ParentHeader genesisHeader) (BlockCreationTime blockTime) reqQ
     goldenBytes "new-block" =<< takeMVar respVar
   where
     cid = someChainId testVersion
@@ -119,7 +119,7 @@ badlistNewBlockTest :: IO PactQueue -> TestTree
 badlistNewBlockTest reqIO = testCase "badlist-new-block-test" $ do
     reqQ <- reqIO
     expectBadlistException $ do
-        m <- newBlock noMiner genesisHeader blockTime reqQ
+        m <- newBlock noMiner (ParentHeader genesisHeader) blockTime reqQ
         takeMVar m >>= either throwIO (const (return ()))
   where
     cid = someChainId testVersion

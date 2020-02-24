@@ -98,8 +98,8 @@ testTTL
     -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
-    (T3 _ newblock _) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
-    expectException $ mineBlock newblock (Nonce 2) iopdb iobhdb rr
+    (T3 _ newblock _) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iopdb iobhdb rr
+    expectException $ mineBlock (ParentHeader newblock) (Nonce 2) iopdb iobhdb rr
   where
     expectException act = do
         m <- wrap `catch` h
@@ -176,12 +176,12 @@ defModule idx = [text| ;;
 
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
@@ -195,7 +195,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 

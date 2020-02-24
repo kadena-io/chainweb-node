@@ -10,7 +10,6 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -42,6 +41,7 @@ module Chainweb.Version
 , vuln797Fix
 , coinV2Upgrade
 , pactBackCompat_v16
+, useCurrentHeaderCreationTimeForTxValidation
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , skipFeatureFlagValidationGuard
@@ -636,6 +636,29 @@ pactBackCompat_v16
 pactBackCompat_v16 Mainnet01 h = h < 328000
 pactBackCompat_v16 Development h = h < 120
 pactBackCompat_v16 _ _ = False
+
+-- | If this is true the creation time of the current header is used for pact tx
+-- creation time and ttl validation.
+--
+-- Once the block height for triggering this on mainnet is in the past, the
+-- result of this guard becomes trivial for `newBlock` applications and the
+-- dependency of `newBlock` on the creation time of the current header can be
+-- removed.
+--
+useCurrentHeaderCreationTimeForTxValidation
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Bool
+useCurrentHeaderCreationTimeForTxValidation Mainnet01 h = True
+useCurrentHeaderCreationTimeForTxValidation Development h = h < 2000
+useCurrentHeaderCreationTimeForTxValidation _ h = h <= 1
+    -- For most chainweb versions there is a large gap between creation times of
+    -- the genesis blocks and the corresponding first blocks.
+    --
+    -- Some tests fake block heights without updating pdData appropriately. This
+    -- causes tx validation at height 1, even though the block height is larger.
+    -- By using the current header time for the block of height <= 1 we relax
+    -- the tx timing checks a bit.
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards

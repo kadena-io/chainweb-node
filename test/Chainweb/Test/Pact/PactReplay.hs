@@ -98,7 +98,7 @@ onRestart pdb bhdb r = do
     bhdb' <- bhdb
     block <- maxEntry bhdb'
     let nonce = Nonce $ fromIntegral $ _blockHeight block
-    T3 _ b _ <- mineBlock block nonce pdb bhdb r
+    T3 _ b _ <- mineBlock (ParentHeader block) nonce pdb bhdb r
     assertEqual "Invalid BlockHeight" 9 (_blockHeight b)
 
 testMemPoolAccess :: IO (Time Integer) -> MemPoolAccess
@@ -190,7 +190,7 @@ firstPlayThrough genesisBlock iopdb iobhdb rr = do
           startHeight = fromIntegral $ _blockHeight start
           go = do
               r <- ask
-              pblock <- get
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
               liftIO $ modifyIORef' ncounter succ
@@ -204,9 +204,9 @@ testDupes
   -> IO PactQueue
   -> Assertion
 testDupes genesisBlock iopdb iobhdb rr = do
-    (T3 _ newblock payload) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
+    (T3 _ newblock payload) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iopdb iobhdb rr
     expectException newblock payload $ liftIO $
-        mineBlock newblock (Nonce 2) iopdb iobhdb rr
+        mineBlock (ParentHeader newblock) (Nonce 2) iopdb iobhdb rr
   where
     expectException newblock payload act = do
         m <- wrap `catch` h
@@ -257,7 +257,7 @@ testDeepForkLimit deepForkLimit iopdb iobhdb rr = do
           startHeight = fromIntegral $ _blockHeight start
           go = do
               r <- ask
-              pblock <- get
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
               liftIO $ modifyIORef' ncounter succ
@@ -266,12 +266,12 @@ testDeepForkLimit deepForkLimit iopdb iobhdb rr = do
 
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
@@ -285,7 +285,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 

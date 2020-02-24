@@ -237,7 +237,7 @@ applyCoinbase
       -- ^ Miner reward
     -> PublicData
       -- ^ Contains block height, time, prev hash + metadata
-    -> BlockHeader
+    -> ParentHeader
       -- ^ parent header
     -> EnforceCoinbaseFailure
       -- ^ enforce coinbase failure or not
@@ -278,7 +278,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd parentH
         -- but in some unit test runs the chain id in public data is empty. This is
         -- fine since coinbase is a special case.
 
-    chash = Pact.Hash $ encodeToByteString $ _blockHash parentHeader
+    chash = Pact.Hash $ encodeToByteString $ _blockHash $ _parentHeader parentHeader
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
 

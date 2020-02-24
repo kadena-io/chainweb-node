@@ -1,3 +1,4 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Pact.Utils
@@ -70,15 +71,23 @@ maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 -- This is probably going to be changed. Let us make it 2 days for now.
 
 -- prop_tx_ttl_newBlock/validateBlock
-timingsCheck :: BlockCreationTime -> Command (Payload PublicMeta ParsedCode) -> Bool
-timingsCheck (BlockCreationTime blockOriginationTime) tx =
+timingsCheck
+    :: BlockCreationTime
+        -- ^ reference time for tx validation.
+        --  If @useCurrentHeaderCreationTimeForTxValidation blockHeight@
+        --  this is the the creation time of the current block. Otherwise it
+        --  is the creation time of the parent block header.
+    -> Command (Payload PublicMeta ParsedCode)
+    -> Bool
+timingsCheck (BlockCreationTime txValidationTime) tx =
     ttl > 0
-    && blockOriginationTime >= (toMicrosFromSeconds 0)
+    && txValidationTime >= toMicrosFromSeconds 0
     && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime < blockOriginationTime
-    && toMicrosFromSeconds (txOriginationTime + ttl) >= blockOriginationTime
+    && toMicrosFromSeconds txOriginationTime < txValidationTime
+    && toMicrosFromSeconds (txOriginationTime + ttl) >= txValidationTime
     && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
     toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
     (TxCreationTime txOriginationTime) = creationTimeOf tx
+
