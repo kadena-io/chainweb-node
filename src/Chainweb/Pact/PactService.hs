@@ -345,12 +345,7 @@ initializeCoinContract _logger v cid pwo = do
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
       let target = Just (succ bhe, bhash)
-      bhdb <- asks _psBlockHeaderDb
-      parentHeader <- liftIO $! lookupM bhdb bhash
-        `catch` \e -> throwM $ InternalPactServiceException
-          { _pactServiceExceptionMsg = "failed lookup of parent header in initializeCoinContract"
-          , _pactServiceExceptionInner = Just e
-          }
+      parentHeader <- getParentHeader "initializeCoinContract" bhash
       setBlockData parentHeader
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
@@ -655,6 +650,16 @@ finalizeCheckpointer finalize = do
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
 
+-- | Get ParentHeader of currently validated block payload
+--
+getParentHeader :: T.Text -> BlockHash -> PactServiceM cas BlockHeader
+getParentHeader loc bhash = do
+    bhDb <- asks _psBlockHeaderDb
+    liftIO $! lookupM bhDb bhash
+      `catch` \e -> throwM $ InternalPactServiceException
+        { _pactServiceExceptionMsg = "failed lookup of parent header in " <> loc
+        , _pactServiceExceptionInner = Just e
+        }
 
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
 --
@@ -970,13 +975,7 @@ execLocal cmd = withDiscardedBatch $ do
                        Nothing -> throwM NoBlockValidatedYet
                        (Just !p) -> return p
     let target = Just (succ bhe, bhash)
-    bhDb <- asks _psBlockHeaderDb
-
-    parentHeader <- liftIO $! lookupM bhDb bhash
-      `catch` \e -> throwM $ InternalPactServiceException
-        { _pactServiceExceptionMsg = "failed lookup of parent header in execLocal"
-        , _pactServiceExceptionInner = Just e
-        }
+    parentHeader <- getParentHeader "execLocal" bhash
 
     -- NOTE: On local calls, there might be code which needs the results of
     -- (chain-data). In such a case, the function `setBlockData` provides the
@@ -1075,15 +1074,10 @@ playOneBlock currHeader plData pdbenv = do
         execTransactions Nothing m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
-        bhDb <- asks _psBlockHeaderDb
-        ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
-          `catch` \e -> throwM $ InternalPactServiceException
-            { _pactServiceExceptionMsg = "failed lookup of parent header in playOneBlock.go"
-            , _pactServiceExceptionInner = Just e
-            }
-        setBlockData ph
+        parentHeader <- getParentHeader "playOneBlock.go" (_blockParent currHeader)
+        setBlockData parentHeader
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactions (Just ph) m txs
+        execTransactions (Just parentHeader) m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
@@ -1122,11 +1116,7 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
     playFork bhdb payloadDb parentHash lastHeader = do
-        parentHeader <- liftIO $ lookupM bhdb parentHash
-          `catch` \e -> throwM $ InternalPactServiceException
-            { _pactServiceExceptionMsg = "failed lookup of parent header in rewindTo"
-            , _pactServiceExceptionInner = Just e
-            }
+        parentHeader <- getParentHeader "rewindTo" parentHash
 
         (!_, _, newBlocks) <-
             liftIO $ collectForkBlocks bhdb lastHeader parentHeader
