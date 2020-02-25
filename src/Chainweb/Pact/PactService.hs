@@ -907,14 +907,18 @@ execNewBlock mpAccess parentHeader miner creationTime = go
           runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
               runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs =
+          validate bhi _bha txs = do
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
             -- which we determined was unnecessary and was a db hit
             --
-            -- TODO: propagate the underlying error type?
-            V.map (either (const False) (const True)) <$>
-              validateChainwebTxs cp txValidationTime bhi txs runDebitGas
+            -- TODO: propagate the underlying error type? Yes, please!
+            results <- validateChainwebTxs cp txValidationTime bhi txs runDebitGas
+            V.forM results $ \case
+                Right _ -> return True
+                Left _e -> do
+                    -- print (sshow _e)
+                    return False
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash (_parentHeader parentHeader)

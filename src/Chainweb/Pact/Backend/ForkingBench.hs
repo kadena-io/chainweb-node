@@ -401,7 +401,7 @@ testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
 
-toTxCreationTime :: Time Integer -> TxCreationTime
+toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
@@ -607,7 +607,7 @@ makeMetaWithSender sender c =
 -- hardcoded sender (sender00)
 makeMeta :: ChainId -> IO PublicMeta
 makeMeta c = do
-    t <- toTxCreationTime <$> getCurrentTimeIntegral
+    t <- toTxCreationTime @Int <$> getCurrentTimeIntegral
     return $ PublicMeta
         {
           _pmChainId = Pact.ChainId $ chainIdToText c
