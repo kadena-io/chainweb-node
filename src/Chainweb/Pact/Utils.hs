@@ -83,8 +83,8 @@ timingsCheck (BlockCreationTime txValidationTime) tx =
     ttl > 0
     && txValidationTime >= toMicrosFromSeconds 0
     && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime < txValidationTime
-    && toMicrosFromSeconds (txOriginationTime + ttl) >= txValidationTime
+    && toMicrosFromSeconds txOriginationTime <= txValidationTime
+    && toMicrosFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
