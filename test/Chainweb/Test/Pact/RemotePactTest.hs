@@ -87,10 +87,13 @@ import Pact.Types.Term
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.PeerResources
+import Chainweb.CutDB.RestAPI.Client
+import Chainweb.Cut.CutHashes
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
@@ -148,7 +151,10 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
     [ withNodes rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
           withTime $ \iot ->
-            testGroup "remote pact tests" [
+            testGroup "remote pact tests"
+              [ testCase "await network" $
+                awaitNetworkHeight net 100
+              , after AllSucceed "await network" $
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $
                 testGroup "remote spv" [spvTest iot net]
@@ -173,6 +179,15 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 [ caplistTest iot net ]
               ]
     ]
+
+-- | Network initialization takes some time. Within my ghci session it took
+-- about 10 seconds. Once initialization is complete even large numbers of empty
+-- blocks were mined almost instantaneously.
+--
+awaitNetworkHeight :: IO ChainwebNetwork -> BlockHeight -> IO ()
+awaitNetworkHeight nio h = do
+    cenv <- _getClientEnv <$> nio
+    void $ awaitCutHeight cenv h
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
@@ -622,6 +637,27 @@ getClientEnv url = do
     let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
     mgr <- HTTP.newTlsManagerWith mgrSettings
     return $ mkClientEnv mgr url
+
+awaitCutHeight
+    :: ClientEnv
+    -> BlockHeight
+    -> IO CutHashes
+awaitCutHeight cenv i = do
+    result <- retrying (exponentialBackoff 20000 <> limitRetries 9) checkRetry
+        $ const $ runClientM (cutGetClient v) cenv
+    case result of
+        Left e -> throwM e
+        Right x -> return x
+  where
+    checkRetry _ Left{} = return True
+    checkRetry s (Right c)
+        | _cutHashesHeight c >= i = return False
+        | otherwise = do
+            debug
+                $ "awaiting cut of height " <> show i
+                <> ". Current height: " <> show (_cutHashesHeight c)
+                <> " [" <> show (view rsIterNumberL s) <> "]"
+            return True
 
 -- | Calls to /local via the pact local api client with retry
 --
