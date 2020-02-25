@@ -61,6 +61,10 @@ module Chainweb.Test.Pact.Utils
 , testPactCtxSQLite
 , withPact
 , WithPactCtxSQLite
+-- * Block formation
+, runCut
+, Noncer
+, zeroNoncer
 -- * miscellaneous
 , ChainwebNetwork(..)
 , dummyLogger
@@ -132,6 +136,8 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Cut.Test
+import Chainweb.Cut.TestBlockDb
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -144,6 +150,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types (internalError)
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Test.Utils
@@ -510,6 +517,23 @@ testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
         let bhdbIO = return bhdb
         (c,) <$> testPactExecutionService v c bhdbIO pdbIO (mempoolAccess c) sqlenv
 
+type Noncer = ChainId -> IO Nonce
+
+zeroNoncer :: Noncer
+zeroNoncer = const (return $ Nonce 0)
+
+-- | Populate blocks for every chain of the current cut. Uses provided pact
+-- service to produce a new block, add it
+runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockTime -> Noncer -> IO ()
+runCut v bdb pact genTime noncer =
+  forM_ (chainIds v) $ \cid -> do
+    ph <- getParentTestBlockDb bdb cid
+    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime ph)
+    n <- noncer cid
+    addTestBlockDb bdb n genTime cid pout
+    h <- getParentTestBlockDb bdb cid
+    void $ _webPactValidateBlock pact h (payloadWithOutputsToPayloadData pout)
+
 -- | This enforces that only a single test can use the pact context at a time.
 -- It's up to the user to ensure that tests are scheduled in the right order.
 --
@@ -623,7 +647,7 @@ stockKey s = do
 decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
-toTxCreationTime :: Time Integer -> TxCreationTime
+toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
@@ -699,4 +723,3 @@ someBlockHeader v h = (!! (int h - 1))
     $ testBlockHeaders
     $ ParentHeader
     $ genesisBlockHeader v (unsafeChainId 0)
-

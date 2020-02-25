@@ -28,6 +28,9 @@ module Chainweb.Cut.Test
 
   MineFailure(..)
 , testMine
+, testMine'
+, GenBlockTime
+, offsetBlockTime
 , testMineWithPayloadHash
 , createNewCut
 , randomChainId
@@ -87,7 +90,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
-import Chainweb.Time (Micros(..), Time, getCurrentTimeIntegral, second)
+import Chainweb.Time (Micros(..), Time, TimeSpan, getCurrentTimeIntegral, second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -100,8 +103,9 @@ import Numeric.AffineSpace
 -- Test Mining
 
 data MineFailure = BadNonce | BadAdjacents
+  deriving (Show)
 
--- Try to mine a new block header on the given chain for the given cut.
+-- | Try to mine a new block header on the given chain for the given cut.
 -- Returns 'Nothing' if mining isn't possible because of missing adjacent
 -- dependencies.
 --
@@ -116,8 +120,32 @@ testMine
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMine n t payloadHash i c =
-    forM (createNewCut n t payloadHash i c) $ \p@(T2 h _) ->
+    testMine' given n (\_ _ -> t) payloadHash i c
+
+type GenBlockTime = Cut -> ChainId -> Time Micros
+
+-- | Version of 'testMine' with block time function.
+testMine'
+    :: forall cid
+    . HasChainId cid
+    => WebBlockHeaderDb
+    -> Nonce
+    -> GenBlockTime
+    -- ^ block time generation function
+    -> BlockPayloadHash
+    -> cid
+    -> Cut
+    -> IO (Either MineFailure (T2 BlockHeader Cut))
+testMine' wdb n t payloadHash i c =
+  give wdb $
+    forM (createNewCut n (t c (_chainId i)) payloadHash i c) $ \p@(T2 h _) ->
         p <$ insertWebBlockHeaderDb h
+
+-- | Block time generation that offsets from previous chain block in cut.
+offsetBlockTime :: TimeSpan Micros -> GenBlockTime
+offsetBlockTime offset cut cid = add offset t
+  where
+    BlockCreationTime t = _blockCreationTime $ cut ^?! ixg cid
 
 testMineWithPayloadHash
     :: forall cid
