@@ -95,10 +95,10 @@ import Data.LogMessage
 --
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Pact.SPV"
-    [ testCase "standard SPV verification round trip" standard
-    , testCase "wrong chain execution fails" wrongChain
-    , testCase "invalid proof formats fail" invalidProof
-    , testCase "wrong target chain in proofs fail" wrongChainProof
+    [ testCaseSteps "standard SPV verification round trip" standard
+    , testCaseSteps "wrong chain execution fails" wrongChain
+    , testCaseSteps "invalid proof formats fail" invalidProof
+    , testCaseSteps "wrong target chain in proofs fail" wrongChainProof
     ]
 
 v :: ChainwebVersion
@@ -121,28 +121,28 @@ _handle' e =
 -- -------------------------------------------------------------------------- --
 -- tests
 
-standard :: Assertion
-standard = do
-  (c1,c3) <- roundtrip 0 1 burnGen createSuccess
+standard :: (String -> IO ()) -> Assertion
+standard step = do
+  (c1,c3) <- roundtrip 0 1 burnGen createSuccess step
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Write succeeded"
 
 
-wrongChain :: Assertion
-wrongChain = do
-  (c1,c3) <- roundtrip 0 1 burnGen createWrongTargetChain
+wrongChain :: (String -> IO ()) -> Assertion
+wrongChain step = do
+  (c1,c3) <- roundtrip 0 1 burnGen createWrongTargetChain step
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: enforceYield: yield provenance"
 
-invalidProof :: Assertion
-invalidProof = do
-  (c1,c3) <- roundtrip 0 1 burnGen createInvalidProof
+invalidProof :: (String -> IO ()) -> Assertion
+invalidProof step = do
+  (c1,c3) <- roundtrip 0 1 burnGen createInvalidProof step
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "Failure: resumePact: no previous execution found"
 
-wrongChainProof :: Assertion
-wrongChainProof = do
-  (c1,c3) <- roundtrip 0 1 burnGen createProofBadTargetChain
+wrongChainProof :: (String -> IO ()) -> Assertion
+wrongChainProof step = do
+  (c1,c3) <- roundtrip 0 1 burnGen createProofBadTargetChain step
   checkResult c1 0 "ObjectMap"
   checkResult c3 1 "cannot redeem continuation proof on wrong target chain"
   return ()
@@ -181,8 +181,9 @@ roundtrip
       -- ^ burn tx generator
     -> CreatesGenerator
       -- ^ create tx generator
+    -> (String -> IO ())
     -> IO (CutOutputs, CutOutputs)
-roundtrip sid0 tid0 burn create = do
+roundtrip sid0 tid0 burn create step = do
   withTestBlockDb v $ \bdb@(TestBlockDb wdb pdb _) -> withAll v $ \sqlenvs -> do
 
     sid <- mkChainId v sid0
@@ -197,24 +198,29 @@ roundtrip sid0 tid0 burn create = do
               (chainToMPA' tg) sqlenvs
 
     -- cut 0: empty run (not sure why this is needed but test fails without it)
+    step "cut 0: empty run"
     void $ runCut' bdb pact
 
     -- cut 1: burn
+    step "cut 1: burn"
     (BlockCreationTime t1) <- _blockCreationTime <$> getParentTestBlockDb bdb sid
     txGen1 <- burn t1 pidv sid tid
     void $ swapMVar tg txGen1
     co1 <- runCut' bdb pact
 
     -- setup create txgen with cut 1
+    step "setup create txgen with cut 1"
     (BlockCreationTime t2) <- _blockCreationTime <$> getParentTestBlockDb bdb tid
     hi <- _blockHeight <$> getParentTestBlockDb bdb sid
     txGen2 <- create t2 bdb pidv sid tid hi
 
     -- cut 2: empty cut for diameter 1
+    step "cut 2: empty cut for diameter 1"
     void $ swapMVar tg mempty
     void $ runCut' bdb pact
 
     -- cut 3: create
+    step "cut 3: create"
     void $ swapMVar tg txGen2
     co2 <- runCut' bdb pact
 
