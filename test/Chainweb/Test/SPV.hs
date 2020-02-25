@@ -146,15 +146,12 @@ spvTest rdb v step = do
             & S.toList_
 
         -- Confirm size of proofs
-        let (coef, r) = regress samples
-        step $ show r
+        let (coef, r2) = regress samples
+        step $ show r2
         step $ show coef
-        assertBool "proof size is not constant in the block height" (r > 0.8)
-
-        let (coef', r') = regressWithHeightDiff samples
-        step $ show r'
-        step $ show coef'
-        assertBool "proof size is not constant in the block height" (abs (coef' V.! 1) < 1)
+        assertBool
+            ("proof size is not constant in the block height: r-value " <> sshow r2 <> " is < 0.8")
+            (r2 > 0.8)
   where
 
     -- Stream of all transactions in a block. Each returned item is
@@ -242,22 +239,26 @@ spvTest rdb v step = do
     reachable :: CutDb as -> BlockHeader -> ChainId -> IO Bool
     reachable cutDb h trgChain = do
         m <- maxRank $ cutDb ^?! cutDbBlockHeaderDb trgChain
-        return $ (int m - int (_blockHeight h)) >= (distance cutDb h trgChain)
+        return $ (int m - int (_blockHeight h)) >= distance cutDb h trgChain
 
-    -- regression model with @createTransactionOutputProof@. Proof size doesn't depend on target height.
+    -- regression model with @createTransactionOutputProof@. Proof size doesn't
+    -- depend on target height.
+    --
+    -- (This proof size is logarithmic in the block size and linear in the
+    -- distance and transation size)
     --
     regress r
         | [proofSize, blockSize, _heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
             = olsRegress [V.map (logBase 2) blockSize, chainDist, txSize] proofSize
         | otherwise = error "Chainweb.Test.SPV.spvTest.regress: fail to match regressor list. This is a bug in the test code."
 
-    -- regression model for @createTransactionOutputProof'@. Proof size depends on target height.
-    -- When used with @createTransactionOutputProof@ the coefficient for the target height must be small.
+    -- regression model for @createTransactionOutputProof'@. Proof size depends
+    -- on target height.
     --
-    regressWithHeightDiff r
-        | [proofSize, blockSize, heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
-            = olsRegress [V.map (logBase 2) blockSize, heightDiff, chainDist, txSize] proofSize
-        | otherwise = error "Chainweb.Test.SPV.spvTest.regress: fail to match regressor list. This is a bug in the test code."
+    -- regressWithHeightDiff r
+    --     | [proofSize, blockSize, heightDiff, chainDist, txSize] <- V.fromList <$> L.transpose r
+    --         = olsRegress [V.map (logBase 2) blockSize, heightDiff, chainDist, txSize] proofSize
+    --     | otherwise = error "Chainweb.Test.SPV.spvTest.regress: fail to match regressor list. This is a bug in the test code."
 
 
 -- -------------------------------------------------------------------------- --
@@ -372,7 +373,7 @@ txApiTests envIO step = do
 
         case txProof of
 
-            Left err -> do
+            Left err ->
                 assertFailure $ "request for transaction proof failed: " <> sshow err
 
             Right proof -> do
