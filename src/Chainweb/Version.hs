@@ -649,7 +649,7 @@ useCurrentHeaderCreationTimeForTxValidation
     :: ChainwebVersion
     -> BlockHeight
     -> Bool
-useCurrentHeaderCreationTimeForTxValidation Mainnet01 h = True
+useCurrentHeaderCreationTimeForTxValidation Mainnet01 _ = True
 useCurrentHeaderCreationTimeForTxValidation Development h = h < 2000
 useCurrentHeaderCreationTimeForTxValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
