@@ -17,8 +17,10 @@
 --
 module Chainweb.SPV.CreateProof
 ( createTransactionProof
+, createTransactionProof_
 , createTransactionProof'
 , createTransactionOutputProof
+, createTransactionOutputProof_
 , createTransactionOutputProof'
 ) where
 
@@ -83,10 +85,33 @@ createTransactionProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionProof SHA512t_256)
-createTransactionProof cutDb tcid scid bh i = do
-    trgHeader <- minimumTrgHeader cutDb tcid scid bh
+createTransactionProof cutDb tcid scid bh i =
+  createTransactionProof_
+    (view cutDbWebBlockHeaderDb cutDb)
+    (view cutDbPayloadCas cutDb)
+    tcid scid bh i
+
+-- | Version without CutDb dependency
+createTransactionProof_
+    :: HasCallStack
+    => PayloadCas cas
+    => WebBlockHeaderDb
+    -> PayloadDb cas
+    -> ChainId
+        -- ^ target chain. The proof asserts that the subject is included in
+        -- this chain
+    -> ChainId
+        -- ^ source chain. This the chain of the subject
+    -> BlockHeight
+        -- ^ The block height of the transaction
+    -> Int
+        -- ^ The index of the transaction in the block
+    -> IO (TransactionProof SHA512t_256)
+createTransactionProof_ headerDb payloadDb tcid scid bh i = do
+    trgHeader <- minimumTrgHeader headerDb tcid scid bh
     TransactionProof tcid
-        <$> createPayloadProof_ transactionProofPrefix cutDb tcid scid bh i trgHeader
+        <$> createPayloadProof_ transactionProofPrefix headerDb payloadDb tcid scid bh i trgHeader
+
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb.
 --
@@ -158,10 +183,35 @@ createTransactionOutputProof
     -> Int
         -- ^ The index of the transaction in the block
     -> IO (TransactionOutputProof SHA512t_256)
-createTransactionOutputProof cutDb tcid scid bh i = do
-    trgHeader <- minimumTrgHeader cutDb tcid scid bh
+createTransactionOutputProof cutDb tcid scid bh i =
+  createTransactionOutputProof_
+    (view cutDbWebBlockHeaderDb cutDb)
+    (view cutDbPayloadCas cutDb)
+    tcid scid bh i
+
+
+-- | Version without CutDb dependency
+createTransactionOutputProof_
+    :: HasCallStack
+    => PayloadCas cas
+    => WebBlockHeaderDb
+    -> PayloadDb cas
+        -- ^ Block Header Database
+    -> ChainId
+        -- ^ target chain. The proof asserts that the subject is included in
+        -- this chain
+    -> ChainId
+        -- ^ source chain. This the chain of the subject
+    -> BlockHeight
+        -- ^ The block height of the transaction
+    -> Int
+        -- ^ The index of the transaction in the block
+    -> IO (TransactionOutputProof SHA512t_256)
+createTransactionOutputProof_ headerDb payloadDb tcid scid bh i = do
+    trgHeader <- minimumTrgHeader headerDb tcid scid bh
     TransactionOutputProof tcid
-        <$> createPayloadProof_ outputProofPrefix cutDb tcid scid bh i trgHeader
+        <$> createPayloadProof_ outputProofPrefix headerDb payloadDb tcid scid bh i trgHeader
+
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb.
 --
@@ -238,9 +288,10 @@ createPayloadProof
     -> IO (MerkleProof SHA512t_256)
 createPayloadProof getPrefix cutDb tcid scid txHeight txIx = do
     trgHeadHeader <- maxEntry trgChain
-    createPayloadProof_ getPrefix cutDb tcid scid txHeight txIx trgHeadHeader
+    createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHeadHeader
   where
     headerDb = view cutDbWebBlockHeaderDb cutDb
+    payloadDb = view cutDbPayloadCas cutDb
     trgChain = headerDb ^?! ixg tcid
 
 -- | Creates a witness that a transaction is included in a chain of a chainweb
@@ -250,8 +301,8 @@ createPayloadProof_
     :: HasCallStack
     => PayloadCas cas
     => (Int -> PayloadDb cas -> BlockPayload -> IO PayloadProofPrefix)
-    -> CutDb cas
-        -- ^ Block Header Database
+    -> WebBlockHeaderDb
+    -> PayloadDb cas
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -264,7 +315,7 @@ createPayloadProof_
     -> BlockHeader
         -- ^ the target header of the proof
     -> IO (MerkleProof SHA512t_256)
-createPayloadProof_ getPrefix cutDb tcid scid txHeight txIx trgHeader = give headerDb $ do
+createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHeader = give headerDb $ do
     --
     -- 1. TransactionTree
     -- 2. BlockPayload
@@ -351,8 +402,6 @@ createPayloadProof_ getPrefix cutDb tcid scid txHeight txIx trgHeader = give hea
 
   where
     pDb = _transactionDbBlockPayloads $ _transactionDb payloadDb
-    payloadDb = view cutDbPayloadCas cutDb
-    headerDb = view cutDbWebBlockHeaderDb cutDb
 
     append :: N.NonEmpty a -> [a] -> N.NonEmpty a
     append (h N.:| t) l = h N.:| (t <> l)
@@ -414,8 +463,7 @@ crumbsToChain srcCid trgHeader
         go adjpHdr t ((adjIdx, cur) : acc)
 
 minimumTrgHeader
-    :: CutDb cas
-        -- ^ Block Header Database
+    :: WebBlockHeaderDb
     -> ChainId
         -- ^ target chain. The proof asserts that the subject is included in
         -- this chain
@@ -424,7 +472,7 @@ minimumTrgHeader
     -> BlockHeight
         -- ^ The block height of the transaction
     -> IO BlockHeader
-minimumTrgHeader cutDb tcid scid bh = do
+minimumTrgHeader headerDb tcid scid bh = do
     trgHeadHeader <- maxEntry trgChain
     trgHeader <- seekAncestor trgChain trgHeadHeader trgHeight >>= \case
         Just x -> return $! x
@@ -437,10 +485,8 @@ minimumTrgHeader cutDb tcid scid bh = do
             }
     return trgHeader
   where
-    headerDb = view cutDbWebBlockHeaderDb cutDb
     trgChain = headerDb ^?! ixg tcid
     trgHeight = int bh + int (length path)
 
     graph = _chainGraph @WebBlockHeaderDb headerDb
     path = shortestPath tcid scid graph
-
