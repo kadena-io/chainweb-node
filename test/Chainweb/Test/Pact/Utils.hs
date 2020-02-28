@@ -574,14 +574,6 @@ freeSQLiteResource (del,sqlenv) = do
 
 type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
 
-defaultPactServiceConfig :: PactServiceConfig
-defaultPactServiceConfig = PactServiceConfig
-      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
-      , _pactRevalidate = True
-      , _pactQueueSize = 1000
-      , _pactResetDb = True
-      , _pactAllowReadsInLocal = False
-      }
 
 withPactCtxSQLite
   :: PayloadCas cas

@@ -95,6 +95,7 @@ module Chainweb.Pact.Types
   , defaultOnFatalError
   , defaultReorgLimit
   , mkExecutionConfig
+  , defaultPactServiceConfig
   ) where
 
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
@@ -302,6 +303,16 @@ instance HasChainId (PactServiceEnv c) where
 
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
+
+defaultPactServiceConfig :: PactServiceConfig
+defaultPactServiceConfig = PactServiceConfig
+      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      , _pactRevalidate = True
+      , _pactQueueSize = 1000
+      , _pactResetDb = True
+      , _pactAllowReadsInLocal = False
+      }
+
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
