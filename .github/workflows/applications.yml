@@ -13,8 +13,13 @@ jobs:
   # Synchronize Mainnet01 Chain Database
   #
   sync-chain-db:
-    name: Synchronize the chain database cache
+    name: Synchronize ${{ matrix.chainwebVersion }} chain database
     runs-on: 'ubuntu-latest'
+    strategy:
+      fail-fast: false
+      matrix:
+        chainwebVersion: ['mainnet01', 'development']
+
     steps:
     # Caches are limited to 5GB per repository. Currently the size of the db is 3.5GB
     # - name: Sync chain database from cache
@@ -22,19 +27,19 @@ jobs:
     #   uses: actions/cache@v1
     #   with:
     #     path: db
-    #     key: chain-db-
+    #     key: chain-db-${{ matrix.chainwebVersion }}-
     #     restore-keys: |
-    #       chain-db-
+    #       chain-db-${{ matrix.chainwebVersion }}-
     - name: Sync chain database from S3
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
       run: |
-        aws s3 sync "s3://chainweb-chain-db/mainnet01/" db/ --delete --exclude=LOCK
+        aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/" db/ --delete --exclude=LOCK
     - name: Store chain database as artifact
       uses: actions/upload-artifact@v1
       with:
-        name: chain-db
+        name: chain-db-${{ matrix.chainwebVersion }}
         path: db
 
   # Run benchmarks and slow tests
@@ -61,44 +66,52 @@ jobs:
   # Validate Mainnet01 Chain Database With chainweb-node
   #
   validate-header-db:
-    name: Validate mainnet01 block header db
+    name: Validate ${{ matrix.chainwebVersion }} block header db
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
+    strategy:
+      fail-fast: false
+      matrix:
+        chainwebVersion: ['mainnet01', 'development']
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download chain database artifact
+    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v1
       with:
-        name: chain-db
+        name: chain-db-${{ matrix.chainwebVersion }}
         path: db
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
         name: chainweb-applications.8.8.2.ubuntu-18.04
         path: bin
-    - name: Validate block header database
+    - name: Validate ${{ matrix.chainwebVersion }} block header database
       run: |
         chmod 755 ./bin/cwtool
-        ./bin/cwtool header-dump --database=db/rocksdb --chainweb-version=mainnet01 -o none --validate
+        ./bin/cwtool header-dump --database=db/rocksdb --chainweb-version=${{ matrix.chainwebVersion }} -o none --validate
 
   # Validate Mainnet01 Chain Database With chainweb-node
   #
   validate-chain-db:
-    name: Validate mainnet01 history with build
+    name: Validate ${{ matrix.chainwebVersion }} history with build
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
+    strategy:
+      fail-fast: false
+      matrix:
+        chainwebVersion: ['mainnet01', 'development']
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download chain database artifact
+    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
       uses: actions/download-artifact@v1
       with:
-        name: chain-db
+        name: chain-db-${{ matrix.chainwebVersion}}
         path: db
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
@@ -111,6 +124,7 @@ jobs:
           databaseDirectory: "db/rocksdb"
           resetChainDatabases: false
           chainweb:
+            chainwebVersion: ${{ matrix.chainwebVersion }}
             validateHashesOnReplay: true
             p2p:
               peer:
@@ -144,7 +158,7 @@ jobs:
                 level: warn
               default: info
         EOF
-    - name: Validate mainnet01 history
+    - name: Validate ${{ matrix.chainwebVersion }} history
       run: |
         chmod 755 ./bin/chainweb-node
         ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p;q0};/\[Error\]/{p;q1}'; x=$?; killall chainweb-node ; exit $x ; }
