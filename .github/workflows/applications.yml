@@ -284,7 +284,7 @@ jobs:
     - name: Build
       run: cabal v2-build
     - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/spv client tests/ && !/getPending high water marks/'
+      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/spv client tests/ && !/getPending high water marks/ && !/remote pact tests/'
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
       run: eval $SYNC_TO_CACHE
