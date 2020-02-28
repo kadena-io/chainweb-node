@@ -69,6 +69,7 @@ module Chainweb.Pact.Types
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
+  , psAllowReadsInLocal
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -144,7 +145,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
-
 
 
 data Transactions = Transactions
@@ -288,6 +288,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
+    , _psAllowReadsInLocal :: !Bool
     }
 makeLenses ''PactServiceEnv
 

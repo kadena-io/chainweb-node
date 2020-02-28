@@ -1,5 +1,5 @@
-{ pactRef ? "731a9c07dd7486dc8d5c1b11905ceb34d9bd8af0"
-, pactSha ? "0gq0yngz69jxv4zxazclq3i5bwsics15f6z0ca5s7cmhg2jy5qbr"
+{ pactRef ? "b59a305b65a8bca5afb82b9c347cca1b71c40211"
+, pactSha ? "0wv2nm2rs9qd7kdx9gmfc64j3mrb7vhgqzp36zy1d81ffl61nmcr"
 , system ? builtins.currentSystem
 }:
 
