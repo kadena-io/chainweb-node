@@ -280,9 +280,13 @@ jobs:
       if: matrix.cabalcache == 'true'
       run: eval $SYNC_FROM_CACHE
     - name: Install build dependencies
-      run: cabal v2-build --only-dependencies
+      run: |
+          touch node/ChainwebNode.hs
+          touch test/ChainwebTests.hs
+          touch tools/cwtool/CwTool.hs
+          cabal v2-build --only-dependencies
     - name: Build
-      run: cabal v2-build
+      run: cabal v2-build --enable-executable-stripping --enable-library-stripping
     - name: Run Tests
       run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/spv client tests/ && !/getPending high water marks/ && !/remote pact tests/'
     - name: Sync cabal cache
@@ -295,9 +299,9 @@ jobs:
         mkdir -p artifacts/applications
         mkdir -p artifacts/docs
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
-        mv dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
-        mv dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
-        rm -f dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
+        # rm -f dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:
