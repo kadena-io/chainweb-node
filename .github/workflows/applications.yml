@@ -292,22 +292,23 @@ jobs:
     # Publish Artifacts
     - name: Prepare artifacts
       run: |
-        mkdir -p dist-newstyle/artifacts/applications
-        mkdir -p dist-newstyle/artifacts/docs
+        mkdir -p artifacts/applications
+        mkdir -p artifacts/docs
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node dist-newstyle/artifacts/applications
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool dist-newstyle/artifacts/applications
+        mv dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
+        mv dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
+        rm -f dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
-        path: dist-newstyle/artifacts/applications
+        path: artifacts/applications
 
     # Publish to S3
     - name: Publish applications to S3
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
-        tar -C ./dist-newstyle/artifacts/applications/ -czf $BINFILE chainweb-node
+        tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$BINFILE --acl public-read
     - name: Link latest-build application in S3
