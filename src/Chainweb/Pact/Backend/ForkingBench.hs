@@ -97,6 +97,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
@@ -350,8 +351,7 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
 
     startPact version l bhdb pdb mempool sqlEnv = do
         reqQ <- atomically $ newTBQueue pactQueueSize
-        let bePedantic = False
-        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv 100000 bePedantic
+        a <- async $ initPactService version cid l reqQ mempool bhdb pdb sqlEnv defaultPactServiceConfig
         return (a, reqQ)
 
     stopPact (a, _) = cancel a

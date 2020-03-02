@@ -320,8 +320,9 @@ applyLocal
     -> Command PayloadWithText
       -- ^ command with payload to execute
     -> ModuleCache
+    -> ExecutionConfig
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv gasModel pd spv cmdIn mc =
+applyLocal logger dbEnv gasModel pd spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -332,7 +333,7 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc =
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
     tenv = TransactionEnv Local dbEnv logger pd spv nid gasPrice
-           rk (fromIntegral gasLimit) def
+           rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
 

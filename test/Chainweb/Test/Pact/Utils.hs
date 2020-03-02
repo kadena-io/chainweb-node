@@ -61,6 +61,7 @@ module Chainweb.Test.Pact.Utils
 , testPactCtxSQLite
 , withPact
 , WithPactCtxSQLite
+, defaultPactServiceConfig
 -- * Block formation
 , runCut
 , Noncer
@@ -148,7 +149,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.PactQueue
-import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -427,6 +428,7 @@ testPactCtx v cid bhdb pdb = do
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
         , _psValidateHashesOnReplay = True
+        , _psAllowReadsInLocal = False
         }
 
 testPactCtxSQLite
@@ -460,6 +462,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
         , _psOnFatalError = defaultOnFatalError mempty
         , _psVersion = v
         , _psValidateHashesOnReplay = True
+        , _psAllowReadsInLocal = False
         }
 
 
@@ -571,15 +574,17 @@ freeSQLiteResource (del,sqlenv) = do
 
 type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO a
 
+
 withPactCtxSQLite
   :: PayloadCas cas
   => ChainwebVersion
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)
   -> Maybe GasModel
+  -> PactServiceConfig
   -> (WithPactCtxSQLite cas -> TestTree)
   -> TestTree
-withPactCtxSQLite v bhdbIO pdbIO gasModel f =
+withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
   withResource
     initializeSQLite
     freeSQLiteResource $ \io ->
@@ -613,10 +618,11 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel f =
             , _psBlockHeaderDb = bhdb
             , _psGasModel = gm
             , _psMinerRewards = rs
-            , _psReorgLimit = defaultReorgLimit
+            , _psReorgLimit = fromIntegral $ _pactReorgLimit config
             , _psOnFatalError = defaultOnFatalError mempty
             , _psVersion = v
-            , _psValidateHashesOnReplay = True
+            , _psValidateHashesOnReplay = _pactRevalidate config
+            , _psAllowReadsInLocal = _pactAllowReadsInLocal config
             }
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
@@ -688,9 +694,10 @@ withPact version logLevel iopdb iobhdb mempool iodir deepForkLimit f =
         bhdb <- iobhdb
         dir <- iodir
         sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
-        let bePedantic = True
+        let pactConfig = defaultPactServiceConfig { _pactReorgLimit = fromIntegral deepForkLimit }
+
         a <- async $
-             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv deepForkLimit bePedantic
+             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
         return (a, sqlEnv, reqQ)
 
     stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv

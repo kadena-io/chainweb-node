@@ -26,6 +26,7 @@ import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 -- internal pact modules
 
@@ -46,6 +47,24 @@ import Chainweb.Transaction
 import Chainweb.Utils (encodeToText)
 import Chainweb.Version
 
+
+-- | Externally-injected PactService properties.
+data PactServiceConfig = PactServiceConfig
+  { _pactReorgLimit :: Natural
+    -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
+    -- hardcodes this to 8 currently.
+  , _pactRevalidate :: Bool
+    -- ^ Re-validate payload hashes during transaction replay
+  , _pactAllowReadsInLocal :: Bool
+    -- ^ Allow direct database reads in local mode
+  , _pactQueueSize :: Natural
+    -- ^ max size of pact internal queue.
+  , _pactResetDb :: Bool
+    -- ^ blow away pact dbs
+  } deriving (Eq,Show)
+
+
+
 data PactException
   = BlockValidationFailure Value
   | PactInternalError Text
@@ -56,7 +75,7 @@ data PactException
   | PactDuplicateTableError Text
   | TransactionDecodeFailure Text
   | RewindLimitExceeded Text BlockHeight BlockHeight
-  -- The only argument Text is the duplicate table name.
+  | BlockHeaderLookupFailure Text
   deriving (Eq,Generic)
 
 instance Show PactException where

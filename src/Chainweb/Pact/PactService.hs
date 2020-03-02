@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -32,6 +31,7 @@ module Chainweb.Pact.PactService
     , execNewBlock
     , execValidateBlock
     , execTransactions
+    , execLocal
     , initPactService
     , readCoinAccount
     , readAccountBalance
@@ -74,9 +74,6 @@ import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
-
-import GHC.Generics
 
 import System.Directory
 import System.IO
@@ -138,23 +135,6 @@ import Data.CAS (casLookupM)
 import Data.LogMessage
 import Utils.Logging.Trace
 
--- -------------------------------------------------------------------------- --
--- Pact Service Exception
-
--- | A type for exception that are thrown within Pact Service and that are
--- caused by bugs in the code.
---
-data InternalPactServiceException = InternalPactServiceException
-    { _pactServiceExceptionMsg :: !T.Text
-    , _pactServiceExceptionInner :: !(Maybe SomeException)
-    }
-    deriving (Show, Generic)
-
-instance Exception InternalPactServiceException where
-    displayException = show
-    {-# INLINE displayException #-}
-
--- -------------------------------------------------------------------------- --
 
 withSqliteDb
     :: Logger logger
@@ -246,12 +226,10 @@ initPactService
     -> BlockHeaderDb
     -> PayloadDb cas
     -> SQLiteEnv
-    -> Word64
-    -> Bool
-        -- ^ Re-validate payload hashes during replay.
+    -> PactServiceConfig
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit revalidate =
-    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit revalidate $ do
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
+    initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
@@ -264,12 +242,10 @@ initPactService'
     -> BlockHeaderDb
     -> PayloadDb cas
     -> SQLiteEnv
-    -> Word64
-    -> Bool
-        -- ^ Re-validate payload hashes during replay.
+    -> PactServiceConfig
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit revalidate act = do
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
         !gasModel = officialGasModel
@@ -281,10 +257,11 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit revalidate ac
                 , _psBlockHeaderDb = bhDb
                 , _psGasModel = gasModel
                 , _psMinerRewards = rs
-                , _psReorgLimit = reorgLimit
+                , _psReorgLimit = fromIntegral $ _pactReorgLimit config
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
-                , _psValidateHashesOnReplay = revalidate
+                , _psValidateHashesOnReplay = _pactRevalidate config
+                , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
@@ -346,7 +323,7 @@ initializeCoinContract _logger v cid pwo = do
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
       let target = Just (succ bhe, bhash)
-      parentHeader <- getParentHeader "initializeCoinContract" bhash
+      parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "initializeCoinContract"
       setBlockData parentHeader
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
@@ -354,6 +331,14 @@ initializeCoinContract _logger v cid pwo = do
         mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
         psInitCache .= mc
         return $! Discard ()
+
+lookupBlockHeader :: BlockHash -> Text -> PactServiceM cas BlockHeader
+lookupBlockHeader bhash ctx = do
+  bhdb <- asks _psBlockHeaderDb
+  liftIO $! lookupM bhdb bhash
+        `catch` \e -> throwM $ BlockHeaderLookupFailure $
+                      "failed lookup of parent header in " <> ctx <> ": " <> sshow (e :: SomeException)
+
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
@@ -652,17 +637,6 @@ finalizeCheckpointer finalize = do
 
 _liftCPErr :: Either String a -> PactServiceM cas a
 _liftCPErr = either internalError' return
-
--- | Get ParentHeader of currently validated block payload
---
-getParentHeader :: T.Text -> BlockHash -> PactServiceM cas ParentHeader
-getParentHeader loc bhash = ParentHeader <$> do
-    bhDb <- asks _psBlockHeaderDb
-    liftIO $! lookupM bhDb bhash
-      `catch` \e -> throwM $ InternalPactServiceException
-        { _pactServiceExceptionMsg = "failed lookup of parent header in " <> loc
-        , _pactServiceExceptionInner = Just e
-        }
 
 -- | Performs a dry run of PactExecution's `buyGas` function for transactions being validated.
 --
@@ -998,7 +972,7 @@ execLocal cmd = withDiscardedBatch $ do
                        Nothing -> throwM NoBlockValidatedYet
                        (Just !p) -> return p
     let target = Just (succ bhe, bhash)
-    parentHeader <- getParentHeader "execLocal" bhash
+    parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "execLocal"
 
     -- NOTE: On local calls, there might be code which needs the results of
     -- (chain-data). In such a case, the function `setBlockData` provides the
@@ -1010,7 +984,10 @@ execLocal cmd = withDiscardedBatch $ do
         mc <- use psInitCache
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
+        execConfig <- view psAllowReadsInLocal >>= \b ->
+          return $ if b then mkExecutionConfig [P.FlagAllowReadInLocal] else def
+        r <- liftIO $
+          applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -1062,7 +1039,7 @@ playOneBlock currHeader plData pdbenv = do
       else do
         -- FIXME don't do this twice. Instead store the parent header in the context
         -- (and don't use the current header at all)
-        parentHeader <- getParentHeader "playOneBlock" (_blockParent currHeader)
+        parentHeader <- ParentHeader <$!> lookupBlockHeader  (_blockParent currHeader) "playOneBlock"
         return $! _blockCreationTime $ _parentHeader parentHeader
 
     -- prop_tx_ttl_validate
@@ -1110,7 +1087,7 @@ playOneBlock currHeader plData pdbenv = do
         execTransactions Nothing m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
-        parentHeader <- getParentHeader "playOneBlock.go" (_blockParent currHeader)
+        parentHeader <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
         setBlockData parentHeader
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         execTransactions (Just parentHeader) m txs
@@ -1152,7 +1129,7 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
     playFork bhdb payloadDb parentHash lastHeader = do
-        parentHeader <- getParentHeader "rewindTo" parentHash
+        parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"
 
         (!_, _, newBlocks) <-
             liftIO $ collectForkBlocks bhdb lastHeader $ _parentHeader parentHeader
@@ -1360,7 +1337,7 @@ execPreInsertCheckReq txs = do
                   then
                     BlockCreationTime <$> liftIO getCurrentTimeIntegral
                   else do
-                    parentHeader <- getParentHeader "execPreInsertCheckReq" parentHash
+                    parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "execPreInsertCheckReq"
                     return $ _blockCreationTime $ _parentHeader parentHeader
                 liftIO $ Discard <$>
                     validateChainwebTxs cp txValidationTime currHeight txs (runGas pdb psState psEnv)

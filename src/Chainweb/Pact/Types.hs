@@ -69,6 +69,7 @@ module Chainweb.Pact.Types
   , psOnFatalError
   , psVersion
   , psValidateHashesOnReplay
+  , psAllowReadsInLocal
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -94,6 +95,7 @@ module Chainweb.Pact.Types
   , defaultOnFatalError
   , defaultReorgLimit
   , mkExecutionConfig
+  , defaultPactServiceConfig
   ) where
 
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
@@ -144,7 +146,6 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
-
 
 
 data Transactions = Transactions
@@ -288,6 +289,7 @@ data PactServiceEnv cas = PactServiceEnv
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
     , _psValidateHashesOnReplay :: !Bool
+    , _psAllowReadsInLocal :: !Bool
     }
 makeLenses ''PactServiceEnv
 
@@ -301,6 +303,16 @@ instance HasChainId (PactServiceEnv c) where
 
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
+
+defaultPactServiceConfig :: PactServiceConfig
+defaultPactServiceConfig = PactServiceConfig
+      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      , _pactRevalidate = True
+      , _pactQueueSize = 1000
+      , _pactResetDb = True
+      , _pactAllowReadsInLocal = False
+      }
+
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 
