@@ -151,6 +151,7 @@ initPactService'' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
                 , _psValidateHashesOnReplay = True
+                , _psAllowReadsInLocal = False
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport
     runPactServiceM pst pse act
