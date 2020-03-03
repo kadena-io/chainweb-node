@@ -30,8 +30,6 @@ import qualified Data.ByteString.Short as SB
 import Data.IORef
 import Data.Vector (Vector)
 
-import Numeric.Natural (Natural)
-
 import qualified Pact.Types.Hash as Pact
 
 import System.LogLevel
@@ -46,6 +44,7 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.NodeId
 import Chainweb.Pact.Backend.Types
+import Chainweb.Pact.Service.Types
 import qualified Chainweb.Pact.PactService as PS
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload.PayloadStore
@@ -67,16 +66,12 @@ withPactService
     -> PayloadDb cas
     -> Maybe FilePath
     -> Maybe NodeId
-    -> Bool
-    -> Natural
-    -> Natural
-    -> Bool
-        -- ^ Re-validate payload hashes during replay.
+    -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
-withPactService ver cid logger mpc bhdb pdb dbDir nodeid resetDb pactQueueSize deepForkLimit revalidate action =
-    PS.withSqliteDb ver cid logger dbDir nodeid resetDb $ \sqlenv ->
-        withPactService' ver cid logger mpa bhdb pdb sqlenv pactQueueSize deepForkLimit revalidate action
+withPactService ver cid logger mpc bhdb pdb dbDir nodeid config action =
+    PS.withSqliteDb ver cid logger dbDir nodeid (_pactResetDb config) $ \sqlenv ->
+        withPactService' ver cid logger mpa bhdb pdb sqlenv config action
   where
     mpa = pactMemPoolAccess mpc logger
 
@@ -92,22 +87,18 @@ withPactService'
     -> BlockHeaderDb
     -> PayloadDb cas
     -> SQLiteEnv
-    -> Natural
-    -> Natural
-    -> Bool
-        -- ^ Re-validate payload hashes during replay.
+    -> PactServiceConfig
     -> (PactQueue -> IO a)
     -> IO a
-withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv pactQueueSize deepForkLimit0 revalidate action = do
-    reqQ <- atomically $ newTBQueue pactQueueSize
+withPactService' ver cid logger memPoolAccess bhDb pdb sqlenv config action = do
+    reqQ <- atomically $ newTBQueue (_pactQueueSize config)
     race (server reqQ) (client reqQ) >>= \case
         Left () -> error "pact service terminated unexpectedly"
         Right a -> return a
   where
-    deepForkLimit = fromIntegral deepForkLimit0
     client reqQ = action reqQ
     server reqQ = runForever logg "pact-service"
-        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv deepForkLimit revalidate
+        $ PS.initPactService ver cid logger reqQ memPoolAccess bhDb pdb sqlenv config
     logg = logFunction logger
 
 pactMemPoolAccess
