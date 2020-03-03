@@ -183,6 +183,7 @@ import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
 import Chainweb.Pact.Types (defaultReorgLimit)
+import Chainweb.Pact.Service.Types (PactServiceConfig(..))
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -319,6 +320,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configReorgLimit :: !Natural
     , _configValidateHashesOnReplay :: !Bool
         -- ^ Re-validate payload hashes during replay.
+    , _configAllowReadsInLocal :: !Bool
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -351,6 +353,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configPactQueueSize = 2000
     , _configReorgLimit = int defaultReorgLimit
     , _configValidateHashesOnReplay = False
+    , _configAllowReadsInLocal = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -369,6 +372,7 @@ instance ToJSON ChainwebConfiguration where
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
+        , "allowReadsInLocal" .= _configAllowReadsInLocal o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -387,6 +391,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
+        <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -423,6 +428,9 @@ pChainwebConfiguration = id
     <*< configValidateHashesOnReplay .:: boolOption_
         % long "validateHashesOnReplay"
         <> help "Re-validate payload hashes during transaction replay."
+    <*< configAllowReadsInLocal .:: boolOption_
+        % long "allowReadsInLocal"
+        <> help "Enable direct database reads of smart contract tables in local queries."
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -574,13 +582,19 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
             let mcfg = validatingMempoolConfig cid v (_configBlockGasLimit conf)
             withChainResources v cid rocksDb peer (chainLogger cid)
                      mcfg payloadDb prune dbDir nodeid
-                     resetDb deepForkLimit (_configPactQueueSize conf) (_configValidateHashesOnReplay conf))
+                     pactConfig)
 
         -- initialize global resources after all chain resources are initialized
         (\cs -> global (HM.fromList $ zip cidsList cs))
         cidsList
   where
-    deepForkLimit = _configReorgLimit conf
+    pactConfig = PactServiceConfig
+      { _pactReorgLimit = _configReorgLimit conf
+      , _pactRevalidate = _configValidateHashesOnReplay conf
+      , _pactQueueSize = _configPactQueueSize conf
+      , _pactResetDb = resetDb
+      , _pactAllowReadsInLocal = _configAllowReadsInLocal conf
+      }
 
     prune :: Bool
     prune = _cutPruneChainDatabase $ _configCuts conf
