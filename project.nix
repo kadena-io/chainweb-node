@@ -1,15 +1,8 @@
-{ pactRef ? "731a9c07dd7486dc8d5c1b11905ceb34d9bd8af0"
-, pactSha ? "0gq0yngz69jxv4zxazclq3i5bwsics15f6z0ca5s7cmhg2jy5qbr"
-, system ? builtins.currentSystem
+{ system ? builtins.currentSystem
 , kpkgs ? import ./dep/kpkgs {}
 }:
 
 let
-pactSrc = builtins.fetchTarball {
-  url = "https://github.com/kadena-io/pact/archive/${pactRef}.tar.gz";
-  sha256 = pactSha;
-};
-
 proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
 
   let
@@ -23,8 +16,7 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
     });
   in {
     name = "chainweb";
-    overrides = self: super: (import ./overrides.nix { inherit pkgs; } self super) // {
-      pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
+    overrides = self: super: {
       chainweb = enableCabalFlag (
         justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
     };
