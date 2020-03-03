@@ -78,17 +78,13 @@ tests = ScheduledTest label $
     testGroup label
     [ withPactTestBlockDb testVersion cid Warn testMemPoolAccess conf
           (newBlockTest "new-block-0")
-    , -- after AllSucceed "new-block-0" $
-      withPactTestBlockDb testVersion cid Warn testMemPoolAccess conf
+    , withPactTestBlockDb testVersion cid Warn testMemPoolAccess conf
           newBlockAndValidate
-    , -- after AllSucceed "newBlockAndValidate" $
-      withPactTestBlockDb testVersion cid Warn (testMempoolChainData noncer) conf
+    , withPactTestBlockDb testVersion cid Warn (testMempoolChainData noncer) conf
           (newBlockRewindValidate noncer)
-    , -- after AllSucceed "newBlockRewindValidate" $
-      withPactTestBlockDb testVersion cid Warn testEmptyMemPool conf
+    , withPactTestBlockDb testVersion cid Warn testEmptyMemPool conf
           (newBlockTest "empty-block-tests")
-    , -- after AllSucceed "empty-block-tests" $
-      withPactTestBlockDb testVersion cid Quiet badlistMPA  conf
+    , withPactTestBlockDb testVersion cid Quiet badlistMPA  conf
           badlistNewBlockTest
     ]
   where
