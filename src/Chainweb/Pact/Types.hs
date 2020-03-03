@@ -149,12 +149,6 @@ data Transactions = Transactions
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
     } deriving (Eq, Show)
 
-data PactDbStatePersist = PactDbStatePersist
-    { _pdbspRestoreFile :: !(Maybe FilePath)
-    , _pdbspPactDbState :: !PactDbState
-    }
-makeLenses ''PactDbStatePersist
-
 mkExecutionConfig :: [ExecutionFlag] -> ExecutionConfig
 mkExecutionConfig = ExecutionConfig . S.fromList
 
