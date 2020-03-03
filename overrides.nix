@@ -2,19 +2,7 @@
 self: super: with pkgs.haskell.lib;
 let callHackageDirect = args: self.callHackageDirect args {};
 
-    # Includes test suite and benchmark binaries in the output derivation.
-    # Has the side effect of causing nix-build to not run them.
-    convertCabalTestsAndBenchmarksToExecutables = p:
-      overrideCabal p (drv: {
-        preConfigure = (drv.preConfigure or "") + ''
-          sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
-        '';
-      });
-
     ourOverrides = {
-      chainweb = enableCabalFlag (
-        justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
-
       http2 = callHackageDirect {
         pkg = "http2";
         ver = "2.0.3";

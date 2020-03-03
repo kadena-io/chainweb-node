@@ -10,10 +10,23 @@ pactSrc = builtins.fetchTarball {
   sha256 = pactSha;
 };
 
-proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib; {
+proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
+
+  let
+  # Includes test suite and benchmark binaries in the output derivation.
+  # Has the side effect of causing nix-build to not run them.
+  convertCabalTestsAndBenchmarksToExecutables = p:
+    overrideCabal p (drv: {
+      preConfigure = (drv.preConfigure or "") + ''
+        sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
+      '';
+    });
+  in {
     name = "chainweb";
     overrides = self: super: (import ./overrides.nix { inherit pkgs; } self super) // {
       pact = dontCheck ( addBuildDepend (self.callCabal2nix "pact" pactSrc {}) pkgs.z3);
+      chainweb = enableCabalFlag (
+        justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
     };
 
     packages = {
