@@ -13,11 +13,10 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 
-import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.IORef
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
 
@@ -39,9 +38,7 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Difficulty
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
-import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -53,7 +50,6 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
-import Chainweb.Utils (runGet)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -69,24 +65,24 @@ testChainId = someChainId testVer
 --
 tests :: ScheduledTest
 tests = testGroupSch label
-    [ withTime $ chainDataTest "block-time"
-    , withTime $ chainDataTest "block-height"
-    , withTime $ chainDataTest "gas-limit"
-    , withTime $ chainDataTest "gas-price"
-    , withTime $ chainDataTest "chain-id"
-    , withTime $ chainDataTest "sender"
+    [ chainDataTest "block-time"
+    , chainDataTest "block-height"
+    , chainDataTest "gas-limit"
+    , chainDataTest "gas-price"
+    , chainDataTest "chain-id"
+    , chainDataTest "sender"
     ]
   where
     label = "Chainweb.Test.Pact.ChainData"
 
-chainDataTest :: T.Text -> IO (Time Micros) -> TestTree
-chainDataTest t time =
+chainDataTest :: T.Text ->TestTree
+chainDataTest t =
     withRocksResource $ \rocksIO ->
     withPayloadDb $ \pdb ->
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
-    withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir 100000
+    withPact testVer Warn pdb bhdb (testMemPoolAccess t) dir 100000
         (testCase ("chain-data." <> T.unpack t) . run genblock pdb bhdb)
   where
     genblock = genesisBlockHeader testVer testChainId
@@ -155,8 +151,7 @@ mineBlock
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-     mv <- r >>= newBlock noMiner parentHeader creationTime
+     mv <- r >>= newBlock noMiner parentHeader
      payload <- takeMVar mv >>= \case
         Right x -> return x
         Left e -> throwM $ TestException
@@ -173,13 +168,8 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               nonce
               creationTime
               parentHeader
-         hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-         tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-     T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
-     newHeader <- runGet decodeBlockHeaderWithoutHash new
-
-     mv' <- r >>= validateBlock newHeader (toPayloadData payload)
+     mv' <- r >>= validateBlock bh (toPayloadData payload)
 
      payload' <- takeMVar mv' >>= \case
         Right x -> return x
@@ -187,7 +177,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
             { _exInnerException = toException e
             , _exNewBlockResults = Just payload
             , _exValidateBlockResults = Nothing
-            , _exNewBlockHeader = Just newHeader
+            , _exNewBlockHeader = Just bh
             , _exMessage = "failure during validateBlock"
             }
 
@@ -195,25 +185,30 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
      addNewPayload pdb payload
 
      bhdb <- iobhdb
-     insert bhdb newHeader `catch` \e -> throwM $ TestException
+     insert bhdb bh `catch` \e -> throwM $ TestException
         { _exInnerException = e
         , _exNewBlockResults = Just payload
         , _exValidateBlockResults = Just payload'
-        , _exNewBlockHeader = Just newHeader
+        , _exNewBlockHeader = Just bh
         , _exMessage = "failure during insert in block header db"
         }
 
-     return $ T3 parentHeader newHeader payload
+     return $ T3 parentHeader bh payload
 
-     where
-       toPayloadData :: PayloadWithOutputs -> PayloadData
-       toPayloadData d = PayloadData
-                 { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
-                 , _payloadDataMiner = _payloadWithOutputsMiner d
-                 , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
-                 , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
-                 , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
-                 }
+   where
+     creationTime = BlockCreationTime
+        $ add second
+        $ _bct $ _blockCreationTime
+        $ _parentHeader parentHeader
+
+     toPayloadData :: PayloadWithOutputs -> PayloadData
+     toPayloadData d = PayloadData
+        { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
+        , _payloadDataMiner = _payloadWithOutputsMiner d
+        , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
+        , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
+        , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
+        }
 
 data TestException = TestException
     { _exInnerException :: !SomeException
@@ -226,14 +221,8 @@ data TestException = TestException
 
 instance Exception TestException
 
-testMemPoolAccess :: T.Text -> IO (Time Micros) -> MemPoolAccess
-testMemPoolAccess t iotime = mempty
-    { mpaGetBlock = \validate bh hash _parentHeader -> do
-        time <- f bh <$> iotime
-        getTestBlock t time validate bh hash
+testMemPoolAccess :: T.Text -> MemPoolAccess
+testMemPoolAccess t = mempty
+    { mpaGetBlock = \validate bh hash parentHdr ->
+        getTestBlock t (_bct $ _blockCreationTime parentHdr) validate bh hash
     }
-  where
-    -- tx origination times needed to be unique to ensure that the corresponding
-    -- tx hashes are also unique.
-    f :: BlockHeight -> Time Micros -> Time Micros
-    f b = add (scaleTimeSpan b millisecond)

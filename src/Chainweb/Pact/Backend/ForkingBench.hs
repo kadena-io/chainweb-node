@@ -232,12 +232,11 @@ mineBlock
 mineBlock parentHeader nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-
-     mv <- newBlock noMiner parentHeader creationTime r
+     mv <- newBlock noMiner parentHeader r
 
      payload <- assertNotLeft =<< takeMVar mv
 
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
      let bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
@@ -271,12 +270,12 @@ noMineBlock
 noMineBlock validate parentHeader nonce r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
 
-     mv <- newBlock noMiner parentHeader creationTime r
+     mv <- newBlock noMiner parentHeader r
 
      payload <- assertNotLeft =<< takeMVar mv
 
+     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
      let bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)

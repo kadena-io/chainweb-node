@@ -153,7 +153,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
           withTime $ \iot ->
             testGroup "remote pact tests"
               [ testCase "await network" $
-                awaitNetworkHeight net 100
+                awaitNetworkHeight net 20
               , after AllSucceed "await network" $
                 withRequestKeys iot iomvar net $ responseGolden net
               , after AllSucceed "remote-golden" $

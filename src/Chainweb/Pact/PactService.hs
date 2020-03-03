@@ -106,7 +106,7 @@ import qualified Pact.Types.SPV as P
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
+import Chainweb.BlockHeader.Genesis (genesisParentBlockHash, genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.Logger
@@ -338,6 +338,9 @@ lookupBlockHeader bhash ctx = do
         `catch` \e -> throwM $ BlockHeaderLookupFailure $
                       "failed lookup of parent header in " <> ctx <> ": " <> sshow (e :: SomeException)
 
+isGenesisParent :: ParentHeader -> Bool
+isGenesisParent (ParentHeader p)
+    = _blockParent p == genesisParentBlockHash (_chainwebVersion p) p
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
@@ -363,7 +366,7 @@ serviceRequests logFn memPoolAccess reqQ = do
                 trace logFn "Chainweb.Pact.PactService.execNewBlock"
                     (_parentHeader _newBlockHeader) 1 $
                     tryOne "execNewBlock" _newResultVar $
-                    execNewBlock memPoolAccess _newBlockHeader _newMiner _newCreationTime
+                    execNewBlock memPoolAccess _newBlockHeader _newMiner
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
                 trace logFn "Chainweb.Pact.PactService.execValidateBlock"
@@ -746,6 +749,30 @@ validateChainwebTxs cp txValidationTime bh txs doBuyGas
     runValid f (Right r) = f r
     runValid _ l@Left{} = pure l
 
+-- | Validate just the timings of the transaction of a new block. This check is
+-- strictly stricter than the timing checks in 'valdiatechainwebTxs'.
+--
+-- DON'T USE FOR BLOCK VALITION OF BLOCK ON THE CHAIN.
+--
+-- This code can be removed once the transition is complete and the guard
+-- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+-- of all chainweb versions.
+--
+validateChainwebNewBlockTxsTimings
+    :: ParentHeader
+    -> Vector ChainwebTransaction
+    -> IO ValidateTxs
+validateChainwebNewBlockTxsTimings parentHeader txs
+  | isGenesisParent parentHeader = pure $! V.map Right txs
+  | V.null txs = pure V.empty
+  | otherwise = V.mapM checkTimes txs
+ where
+  txValidationTime = _blockCreationTime $ _parentHeader parentHeader
+  checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
+  checkTimes t
+      | newBlockTimingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
+      | otherwise = return $ Left InsertErrorInvalidTime
+
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
 
@@ -838,18 +865,15 @@ execNewBlock
     => MemPoolAccess
     -> ParentHeader
     -> Miner
-    -> BlockCreationTime
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parentHeader miner creationTime = go
+execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
+    updateMempool
+    withDiscardedBatch $ do
+      setBlockData parentHeader
+      rewindTo newblockRewindLimit target
+      newTrans <- withCheckpointer target "preBlock" doPreBlock
+      withCheckpointer target "execNewBlock" (doNewBlock newTrans)
   where
-    go = handle onTxFailure $ do
-        updateMempool
-        withDiscardedBatch $ do
-          setBlockData parentHeader
-          rewindTo newblockRewindLimit target
-          newTrans <- withCheckpointer target "preBlock" doPreBlock
-          withCheckpointer target "execNewBlock" (doNewBlock newTrans)
-
     onTxFailure e@(PactTransactionExecError rk _) = do
         -- add the failing transaction to the mempool bad list, so it is not
         -- re-selected for mining.
@@ -862,15 +886,10 @@ execNewBlock mpAccess parentHeader miner creationTime = go
     -- less than this are failing in PactReplay test.
     newblockRewindLimit = Just 8
 
-    v = _chainwebVersion parentHeader
-    h = succ . _blockHeight . _parentHeader $ parentHeader
-
-    -- Select the reference time for tx validation depending on the
-    -- chainweb version and block height.
+    -- The reference time for tx validation for new blocks is the
+    -- creation time of the parent header.
     --
-    txValidationTime
-      | useCurrentHeaderCreationTimeForTxValidation v h = creationTime
-      | otherwise = _blockCreationTime $ _parentHeader parentHeader
+    txValidationTime = _blockCreationTime $ _parentHeader parentHeader
 
     doPreBlock pdbenv = do
       cp <- getCheckpointer
@@ -886,7 +905,15 @@ execNewBlock mpAccess parentHeader miner creationTime = go
             -- which we determined was unnecessary and was a db hit
             --
             -- TODO: propagate the underlying error type? Yes, please!
-            results <- validateChainwebTxs cp txValidationTime bhi txs runDebitGas
+            results <- V.zipWith (>>)
+                <$> validateChainwebTxs cp txValidationTime bhi txs runDebitGas
+
+                -- This code can be removed once the transition is complete and the guard
+                -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+                -- of all chainweb versions.
+                --
+                <*> validateChainwebNewBlockTxsTimings parentHeader txs
+
             V.forM results $ \case
                 Right _ -> return True
                 Left _e -> do
@@ -1330,16 +1357,11 @@ execPreInsertCheckReq txs = do
             withCheckpointer (Just (currHeight, parentHash)) "execPreInsertCheckReq" $ \pdb -> do
                 psEnv <- ask
                 psState <- get
-                txValidationTime <- do
-                  v <- view psVersion
-                  if useCurrentHeaderCreationTimeForTxValidation v currHeight
-                  then
-                    BlockCreationTime <$> liftIO getCurrentTimeIntegral
-                  else do
-                    parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "execPreInsertCheckReq"
-                    return $ _blockCreationTime $ _parentHeader parentHeader
-                liftIO $ Discard <$>
-                    validateChainwebTxs cp txValidationTime currHeight txs (runGas pdb psState psEnv)
+                parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "execPreInsertCheckReq"
+                let txValidationTime = _blockCreationTime $ _parentHeader parentHeader
+                liftIO $ fmap Discard $ V.zipWith (>>)
+                    <$> validateChainwebTxs cp txValidationTime currHeight txs (runGas pdb psState psEnv)
+                    <*> validateChainwebNewBlockTxsTimings parentHeader txs
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)

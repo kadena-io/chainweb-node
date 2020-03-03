@@ -17,6 +17,7 @@ module Chainweb.Pact.Utils
     -- * time-to-live related items
     , maxTTL
     , timingsCheck
+    , newBlockTimingsCheck
     , fromPactChainId
     ) where
 
@@ -89,4 +90,36 @@ timingsCheck (BlockCreationTime txValidationTime) tx =
     (TTLSeconds ttl) = timeToLiveOf tx
     toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
     (TxCreationTime txOriginationTime) = creationTimeOf tx
+
+-- -------------------------------------------------------------------------- --
+-- New Block timings check
+
+-- | Only used during new block. MUST NOT be used during block validation.
+--
+-- prop_tx_ttl_newBlock/validateBlock
+--
+newBlockTimingsCheck
+    :: BlockCreationTime
+        -- ^ validation of the parent header
+    -> Command (Payload PublicMeta ParsedCode)
+    -> Bool
+newBlockTimingsCheck (BlockCreationTime txValidationTime) tx =
+    ttl > 0
+    && txValidationTime >= toMicrosFromSeconds 0
+    && txOriginationTime >= 0
+    && toMicrosFromSeconds txOriginationTime <= txValidationTime
+    && toMicrosFromSeconds (txOriginationTime + (ttl - compatPeriod)) > txValidationTime
+    && ttl <= maxTTL
+    && ttl >= minTTL
+  where
+    (TTLSeconds ttl) = timeToLiveOf tx
+    toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+    (TxCreationTime txOriginationTime) = creationTimeOf tx
+
+    -- ensure that every block that validates with
+    -- @txValidationTime == _blockCreatinTime parentHeader@ (new behavior) also validates with
+    -- @txValidationTime == _blockCreationTime currentHeader@ (old behavior).
+    --
+    compatPeriod = 60 * 30 -- 30 minutes
+    minTTL = ParsedInteger $ 60 * 60 -- 60 min
 
