@@ -389,8 +389,6 @@ instance HasTextRepresentation MinerData where
 -- -------------------------------------------------------------------------- --
 -- Block Transactions
 
-
-
 -- | The block transactions
 --
 data BlockTransactions = BlockTransactions
@@ -729,7 +727,7 @@ newBlockPayload mi co s = blockPayload txs outs
 -- | This contains all non-redundant payload data for a block. It doesn't
 -- contain any data that can be recomputed.
 --
--- This data structure is used maintly to transfer payloads over the wire.
+-- This data structure is used mainly to transfer payloads over the wire.
 --
 data PayloadData = PayloadData
     { _payloadDataTransactions :: !(V.Vector Transaction)

@@ -98,8 +98,8 @@ testTTL
     -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
-    (T3 _ newblock _) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
-    expectException $ mineBlock newblock (Nonce 2) iopdb iobhdb rr
+    (T3 _ newblock _) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iopdb iobhdb rr
+    expectException $ mineBlock (ParentHeader newblock) (Nonce 2) iopdb iobhdb rr
   where
     expectException act = do
         m <- wrap `catch` h
@@ -113,23 +113,23 @@ testTTL genesisBlock iopdb iobhdb rr = do
           T3{} <- act
           return $ Just "Expected a transaction validation failure."
 
-testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
+testMemPoolAccess :: TTLTestCase -> IO (Time Micros) -> MemPoolAccess
 testMemPoolAccess _ttlcase iot = mempty
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
     }
   where
-    f :: BlockHeight -> Time Integer -> Time Integer
+    f :: BlockHeight -> Time Micros -> Time Micros
     f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
-        let nonce = T.pack . show @(Time Integer) $ txOrigTime
+        let nonce = T.pack $ show txOrigTime
             (txOrigTime', badttl) = case _ttlcase of
               BadTTL b -> (toTxCreationTime txOrigTime, b)
-              BadTxTime g -> (g txOrigTime, 24 * 60 * 60)
-              BadExpirationTime g ttl -> (g txOrigTime, ttl)
+              BadTxTime g -> (g (castTime txOrigTime), 24 * 60 * 60)
+              BadExpirationTime g ttl -> (g (castTime txOrigTime), ttl)
         outtxs <-
           mkTestExecTransactions
             "sender00" "0" kp0
@@ -176,12 +176,12 @@ defModule idx = [text| ;;
 
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
@@ -195,7 +195,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 

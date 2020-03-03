@@ -270,7 +270,8 @@ data Checkpointer = Checkpointer
     , _cpDiscard :: IO ()
       -- ^ discard pending block changes
     , _cpGetLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
-      -- ^ get the checkpointer's idea of the latest block
+      -- ^ get the checkpointer's idea of the latest block. The block height is
+      -- is the height of the block of the block hash.
     , _cpBeginCheckpointerBatch :: IO ()
     , _cpCommitCheckpointerBatch :: IO ()
     , _cpDiscardCheckpointerBatch :: IO ()

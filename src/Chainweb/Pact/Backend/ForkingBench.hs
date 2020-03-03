@@ -135,22 +135,22 @@ bench = C.bgroup "PactService" $
         void $ playLine pdb bhdb forkLength1 join1 pactQueue nonceCounter
         void $ playLine pdb bhdb forkLength2 join1 pactQueue nonceCounter
 
-    oneBlock validate txCount = withResources 1 Error $ go
+    oneBlock validate txCount = withResources 1 Error go
       where
         go mainLineBlocks _pdb _bhdb _nonceCounter pactQueue txsPerBlock =
           C.bench name $ C.whnfIO $ do
             writeIORef txsPerBlock txCount
-            let (T3 _ join1 _) = mainLineBlocks !! 0
-            noMineBlock validate join1 (Nonce 1234) pactQueue
+            let (T3 _ join1 _) = head mainLineBlocks
+            noMineBlock validate (ParentHeader join1) (Nonce 1234) pactQueue
         name = "block-new" ++ (if validate then "-valid" else "") ++
                "[" ++ show txCount ++ "]"
 
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Int -> MemPoolAccess
 testMemPoolAccess txsPerBlock accounts t = mempty
     { mpaGetBlock = \validate bh hash _header -> getTestBlock accounts t validate bh hash }
   where
 
-    setTime time = \pb -> pb { _pmCreationTime = toTxCreationTime time }
+    setTime time pb = pb { _pmCreationTime = toTxCreationTime time }
 
     getTestBlock mVarAccounts txOrigTime validate bHeight@(BlockHeight bh) hash
         | bh == 1 = do
@@ -203,11 +203,11 @@ playLine
     -> BlockHeader
     -> PactQueue
     -> IORef Word64
-    -> IO [T3 BlockHeader BlockHeader PayloadWithOutputs]
+    -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
 playLine  pdb bhdb trunkLength startingBlock rr =
     mineLine startingBlock trunkLength
   where
-    mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 BlockHeader BlockHeader PayloadWithOutputs]
+    mineLine :: BlockHeader -> Word64 -> IORef Word64 -> IO [T3 ParentHeader BlockHeader PayloadWithOutputs]
     mineLine start l ncounter =
         evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. startHeight + l - 1]) rr) start
       where
@@ -215,7 +215,7 @@ playLine  pdb bhdb trunkLength startingBlock rr =
         startHeight = fromIntegral $ _blockHeight start
         go = do
             r <- ask
-            pblock <- get
+            pblock <- gets ParentHeader
             n <- liftIO $ Nonce <$> readIORef ncounter
             ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n pdb bhdb r
             liftIO $ modifyIORef' ncounter succ
@@ -223,12 +223,12 @@ playLine  pdb bhdb trunkLength startingBlock rr =
             return ret
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> PayloadDb HashMapCas
     -> BlockHeaderDb
     -> PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
@@ -243,7 +243,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
@@ -264,10 +264,10 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
 noMineBlock
     :: Bool
-    -> BlockHeader
+    -> ParentHeader
     -> Nonce
     -> PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 noMineBlock validate parentHeader nonce r = do
 
      -- assemble block without nonce and timestamp
@@ -282,7 +282,7 @@ noMineBlock validate parentHeader nonce r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
 
      when validate $ do
        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
@@ -300,7 +300,7 @@ data Resources
     , blockHeaderDb :: !BlockHeaderDb
     , tempDir :: !FilePath
     , pactService :: !(Async (), PactQueue)
-    , mainTrunkBlocks :: ![T3 BlockHeader BlockHeader PayloadWithOutputs]
+    , mainTrunkBlocks :: ![T3 ParentHeader BlockHeader PayloadWithOutputs]
     , coinAccounts :: !(MVar (Map Account (NonEmpty SomeKeyPairCaps)))
     , nonceCounter :: !(IORef Word64)
     , txPerBlock :: !(IORef Int)
@@ -308,7 +308,7 @@ data Resources
     }
 
 type RunPactService =
-  [T3 BlockHeader BlockHeader PayloadWithOutputs]
+  [T3 ParentHeader BlockHeader PayloadWithOutputs]
   -> PayloadDb HashMapCas
   -> BlockHeaderDb
   -> IORef Word64
@@ -401,7 +401,7 @@ testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
 
-toTxCreationTime :: Time Integer -> TxCreationTime
+toTxCreationTime :: Time Int -> TxCreationTime
 toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 

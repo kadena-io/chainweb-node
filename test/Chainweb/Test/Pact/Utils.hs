@@ -530,8 +530,8 @@ zeroNoncer = const (return $ Nonce 0)
 runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockTime -> Noncer -> IO ()
 runCut v bdb pact genTime noncer =
   forM_ (chainIds v) $ \cid -> do
-    ph <- getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime ph)
+    ph <- ParentHeader <$> getParentTestBlockDb bdb cid
+    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime $ _parentHeader ph)
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
@@ -628,7 +628,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
 withMVarResource value = withResource (newMVar value) (const $ return ())
 
-withTime :: (IO (Time Integer) -> TestTree) -> TestTree
+withTime :: (IO (Time Micros) -> TestTree) -> TestTree
 withTime = withResource getCurrentTimeIntegral (const (return ()))
 
 mkKeyset :: Text -> [PublicKeyBS] -> Value
