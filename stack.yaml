@@ -1,4 +1,4 @@
-resolver: lts-14.21
+resolver: lts-14.25
 
 #ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
@@ -30,12 +30,12 @@ extra-deps:
   - lens-aeson-1.1
   - tls-1.5.3
   - tls-session-manager-0.0.4
-  - warp-3.3.6
-  - warp-tls-3.2.10
+  - warp-3.3.9
+  - warp-tls-3.2.11
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 43f2bbb50c8c77a180dc3b32c928e94f2e7b2718
+    commit: b59a305b65a8bca5afb82b9c347cca1b71c40211
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
 

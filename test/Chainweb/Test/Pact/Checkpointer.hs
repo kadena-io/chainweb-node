@@ -41,7 +41,7 @@ import Test.Tasty.HUnit
 -- internal imports
 
 import Chainweb.BlockHash (BlockHash(..), nullBlockHash)
-import Chainweb.BlockHeader (BlockHeight(..))
+import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.MerkleLogHash (merkleLogHash)
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)
@@ -193,7 +193,7 @@ checkpointerTest name initdata =
 
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
                       cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
-                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 def
                       cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
                   evalTransactionM cmdenv cmdst $
@@ -206,7 +206,7 @@ checkpointerTest name initdata =
 
                   let h' = H.toUntypedHash (H.hash "" :: H.PactHash)
                       cmdenv = TransactionEnv Transactional pactdbenv _cpeLogger def
-                               noSPVSupport Nothing 0.0 (RequestKey h') 0 permissiveExecutionConfig
+                               noSPVSupport Nothing 0.0 (RequestKey h') 0 def
                       cmdst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
                   evalTransactionM cmdenv cmdst $

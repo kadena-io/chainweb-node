@@ -27,18 +27,16 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Mempool.RestAPI
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils
 import Chainweb.Version
 
 ------------------------------------------------------------------------------
 insertHandler
     :: forall t
-    .  ChainwebVersion
-    -> MempoolBackend t
+    . MempoolBackend t
     -> [T.Text]
     -> Handler NoContent
-insertHandler v mempool txsT = handleErrs (NoContent <$ begin)
+insertHandler mempool txsT = handleErrs (NoContent <$ begin)
   where
     txcfg = mempoolTxConfig mempool
 
@@ -50,19 +48,11 @@ insertHandler v mempool txsT = handleErrs (NoContent <$ begin)
         Left e -> throwM . DecodeException $ T.pack e
         Right t -> return t
 
-    -- | KILLSWITCH The logic involving `transferActivationDate` can be removed
-    -- once the actual date has passed. Until then, this serves as an additional
-    -- block against Transactions entering the system.
-    --
     begin :: Handler ()
     begin = do
-        now <- liftIO getCurrentTimeIntegral
-        case transferActivationDate v of
-            Just start | start < now -> pure ()
-            _ -> do
-                txs <- mapM go txsT
-                let txV = V.fromList txs
-                liftIO $ mempoolInsert mempool CheckedInsert txV
+        txs <- mapM go txsT
+        let txV = V.fromList txs
+        liftIO $ mempoolInsert mempool CheckedInsert txV
 
 
 memberHandler :: Show t => MempoolBackend t -> [TransactionHash] -> Handler [Bool]
@@ -137,8 +127,8 @@ someMempoolServers v = mconcat
 
 
 mempoolServer :: Show t => ChainwebVersion -> Mempool_ v c t -> Server (MempoolApi v c)
-mempoolServer v (Mempool_ mempool) =
-    insertHandler v mempool
+mempoolServer _v (Mempool_ mempool) =
+    insertHandler mempool
     :<|> memberHandler mempool
     :<|> lookupHandler mempool
     :<|> getPendingHandler mempool

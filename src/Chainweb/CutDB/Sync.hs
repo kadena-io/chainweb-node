@@ -33,7 +33,7 @@ import System.LogLevel
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeight)
+import Chainweb.BlockHeight
 import Chainweb.Cut (_cutHeight)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB

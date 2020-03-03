@@ -31,7 +31,7 @@ import Pact.Types.Logger
 
 -- internal modules
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types (internalError)
 

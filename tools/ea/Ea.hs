@@ -55,6 +55,7 @@ import Chainweb.BlockHeaderDB
 import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
+import Chainweb.Pact.Types (defaultPactServiceConfig)
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction (mkPayloadWithText, ChainwebTransaction, chainwebPayloadCodec)
@@ -125,7 +126,7 @@ genPayloadModule v tag txFiles =
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
         payloadWO <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
-            initPactService' v cid logger bhdb pdb env 1000 $
+            initPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
                 execNewGenesisBlock noMiner (V.fromList cwTxs)
 
         let payloadYaml = TE.decodeUtf8 $ Yaml.encode payloadWO

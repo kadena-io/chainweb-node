@@ -51,7 +51,6 @@ import qualified Data.Serialize
 import qualified Data.Set as Set
 import Data.String
 import Data.String.Conv
-import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -76,7 +75,7 @@ import Pact.Types.Util (AsString(..))
 -- chainweb
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)

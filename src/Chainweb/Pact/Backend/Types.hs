@@ -113,6 +113,7 @@ import Pact.Types.Runtime
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Transaction
 

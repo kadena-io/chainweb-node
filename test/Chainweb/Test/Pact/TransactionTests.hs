@@ -1,8 +1,8 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Test.BlockHeaderDB
@@ -25,7 +25,8 @@ import Control.Monad
 import Data.Aeson
 import Data.Aeson.Lens
 import Data.Foldable (for_, traverse_)
-import Data.Functor (void)
+import Data.Function (on)
+import Data.List (intercalate)
 import Data.Text (isInfixOf,unpack)
 import Data.Default
 import Data.Tuple.Strict (T2(..))
@@ -49,6 +50,7 @@ import Pact.Types.SPV
 -- internal chainweb modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Templates
 import Chainweb.Pact.TransactionExec
@@ -56,7 +58,7 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version
+import Chainweb.Version as V
 import Chainweb.Test.Pact.Utils
 
 
@@ -81,7 +83,8 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
   , testGroup "Coinbase Vuln Fix Tests"
     [ testCoinbase797DateFix
     , testCase "testCoinbaseEnforceFailure" testCoinbaseEnforceFailure
-    , testCase "testCoinbaseUpgradeDevnet" testCoinbaseUpgradeDevnet
+    , testCase "testCoinbaseUpgradeDevnet0" (testCoinbaseUpgradeDevnet (unsafeChainId 0) 3)
+    , testCase "testCoinbaseUpgradeDevnet1" (testCoinbaseUpgradeDevnet (unsafeChainId 1) 4)
     ]
   ]
 
@@ -147,7 +150,7 @@ buildExecWithoutData :: Assertion
 buildExecWithoutData = void $ buildExecParsedCode Nothing "(+ 1 1)"
 
 badMinerId :: MinerId
-badMinerId = MinerId ("alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha")
+badMinerId = MinerId "alpha\" (read-keyset \"miner-keyset\") 9999999.99)(coin.coinbase \"alpha"
 
 minerKeys0 :: MinerKeys
 minerKeys0 = MinerKeys $ mkKeySet
@@ -165,7 +168,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     cmd <- buildExecParsedCode Nothing "(coin.get-balance \"tester01\")"
 
-    doCoinbaseExploit pdb mc preForkTime cmd False $ \pr -> case pr of
+    doCoinbaseExploit pdb mc preForkHeight cmd False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 1000.1 -> return ()
@@ -177,7 +180,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     cmd' <- buildExecParsedCode Nothing
       "(coin.get-balance \"tester01\\\" (read-keyset \\\"miner-keyset\\\") 1000.0)(coin.coinbase \\\"tester01\")"
 
-    doCoinbaseExploit pdb mc postForkTime cmd' False $ \pr -> case pr of
+    doCoinbaseExploit pdb mc postForkHeight cmd' False $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.1 -> return ()
@@ -186,7 +189,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "pre-fork code injection fails, enforced precompile"
 
-    doCoinbaseExploit pdb mc preForkTime cmd' True $ \pr -> case pr of
+    doCoinbaseExploit pdb mc preForkHeight cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.2 -> return ()
@@ -195,7 +198,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
     step "post-fork code injection fails, enforced precompile"
 
-    doCoinbaseExploit pdb mc postForkTime cmd' True $ \pr -> case pr of
+    doCoinbaseExploit pdb mc postForkHeight cmd' True $ \case
       Left _ -> assertFailure "local call to get-balance failed"
       Right (PLiteral (LDecimal d))
         | d == 0.3 -> return ()
@@ -203,15 +206,15 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       Right l -> assertFailure $ "wrong return type: " <> show l
 
   where
-    doCoinbaseExploit pdb mc t localCmd precompile testResult = do
-      let pd = PublicData def blockHeight' t ""
+    doCoinbaseExploit pdb mc height localCmd precompile testResult = do
+      let pd = PublicData def (int height) 0 ""
 
-      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd testVersionHeader
-        epochCreationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
+      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd (mkTestHeader $ height - 1)
+        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
           tenv = TransactionEnv Transactional pdb logger def
-            noSPVSupport Nothing 0.0 (RequestKey h) 0 permissiveExecutionConfig
+            noSPVSupport Nothing 0.0 (RequestKey h) 0 def
           txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
       CommandResult _ _ (PactResult pr) _ _ _ _ <- evalTransactionM tenv txst $!
@@ -223,18 +226,24 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
       (MinerId "tester01\" (read-keyset \"miner-keyset\") 1000.0)(coin.coinbase \"tester01")
       (MinerKeys $ mkKeySet ["b67e109352e8e33c8fe427715daad57d35d25d025914dd705b97db35b1bfbaa5"] "keys-all")
 
-    preForkTime = toInt64 [timeMicrosQQ| 2019-12-09T01:00:00.0 |]
-    postForkTime = toInt64 [timeMicrosQQ| 2019-12-11T01:00:00.0 |]
-    toInt64 (Time (TimeSpan (Micros m))) = m
-    blockHeight' = 123
+    preForkHeight = 121451
+    postForkHeight = 121452
+
     logger = newLogger neverLog ""
+
+    -- | someBlockHeader is a bit slow for the vuln797Fix to trigger. So, instead
+    -- of mining a full chain we fake the height.
+    --
+    mkTestHeader :: BlockHeight -> BlockHeader
+    mkTestHeader h = (someBlockHeader (FastTimedCPM singleton) 10)
+        { _blockHeight = h }
 
 
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData testVersionHeader
-      epochCreationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData someTestVersionHeader
+      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) ->
         if isInfixOf "CoinbaseFailure" (sshow e) then
@@ -250,52 +259,55 @@ testCoinbaseEnforceFailure = do
     logger = newLogger neverLog ""
 
 
-testCoinbaseUpgradeDevnet :: Assertion
-testCoinbaseUpgradeDevnet = do
+testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
+testCoinbaseUpgradeDevnet cid upgradeHeight = do
     (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
-    r <- try $ applyCoinbase v logger pdb miner 0.1 pubData devnetHeader
-      creationTime (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
+    r <- try $ applyCoinbase v logger pdb miner 0.1 pubData parentHeader
+      (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
       Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
         (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
         (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
         (Just logs,_) -> do
-          void $ matchLogs logs
-            [("USER_coin_coin-table","abcd",Just 0.1)
-            ,("SYS_modules","fungible-v2",Nothing)
-            ,("SYS_modules","coin",Nothing)
-            ,("USER_coin_coin-table","sender07",Just 998662.3)
-            ,("USER_coin_coin-table","sender09",Just 998662.1)]
+          void $ matchLogs (logResults logs)
   where
-    matchLogs logs logTests
-      | length logs /= length logTests =
-          assertFailure $ "matchLogs: length mismatch " ++ show (length logs) ++
-          " /= " ++ show (length logTests)
-      | otherwise = zipWithM matchLog logs logTests
-    matchLog log' (domain,key',balanceM) = do
-          assertEqual "domain matches" domain (_txDomain log')
-          assertEqual "key matches" key' (_txKey log')
-          case balanceM of
-            Nothing -> return ()
-            Just bal ->
-              assertEqual "balance matches" (Just (Number bal))
-                (preview (_Object . ix "balance") (_txValue log'))
+    logResults logs = flip fmap logs $ \l ->
+      ( _txDomain l
+      , _txKey l
+      , preview (_Object . ix "balance") (_txValue l)
+      )
+
+    expectedResults =
+      [ ("USER_coin_coin-table","abcd",Just (Number 0.1))
+      , ("SYS_modules","fungible-v2",Nothing)
+      , ("SYS_modules","coin",Nothing)
+      , ("USER_coin_coin-table","sender07",Just (Number 998662.3))
+      , ("USER_coin_coin-table","sender09",Just (Number 998662.1))
+      ]
+
+    matchLogs actualResults
+      | length actualResults /= length expectedResults =
+          assertFailure $ intercalate "\n" $
+            [ "matchLogs: length mismatch "
+                <> show (length actualResults) <> " /= " <> show (length expectedResults)
+            , "actual: " ++ show actualResults
+            , "expected: " ++ show expectedResults
+            ]
+      | otherwise = zipWithM matchLog actualResults expectedResults
+
+    matchLog actual expected = do
+      (assertEqual "domain matches" `on` view _1) actual expected
+      (assertEqual "key matches" `on` view _2) actual expected
+      (assertEqual "balance matches" `on` view _3) actual expected
+
     v = Development
     miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
-    pubData = PublicData def blockHeight' (toInt64 blockTime) ""
-    upgradeTime = fromJuste $ upgradeCoinV2Date v
-    blockTime = add (TimeSpan (Micros (- 1000))) upgradeTime
-    creationTime = BlockCreationTime $ add (TimeSpan (Micros 1000)) upgradeTime
-    toInt64 (Time (TimeSpan (Micros m))) = m
-    blockHeight' = 123
+    pubData = PublicData def (int upgradeHeight) 0 ""
     logger = newLogger neverLog "" -- set to alwaysLog to debug
-    devnetHeader = setBlockTime blockTime $ someBlockHeader v (BlockHeight blockHeight')
 
+    parentHeader = (someBlockHeader v upgradeHeight)
+      { _blockChainwebVersion = v
+      , _blockChainId = cid
+      }
 
-
-testVersionHeader :: BlockHeader
-testVersionHeader = someTestVersionHeader
-
-setBlockTime :: Time Micros -> BlockHeader -> BlockHeader
-setBlockTime c b = b { _blockCreationTime = BlockCreationTime c }

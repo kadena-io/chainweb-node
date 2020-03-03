@@ -6,15 +6,15 @@ import System.Exit
 import Text.Printf
 
 import qualified Chain2Gexf
+import qualified CheckpointerDBChecksum
 import qualified Ea
 import qualified EncodeDecodeB64Util
 import qualified GenConf
 import qualified HeaderDump
 import qualified RunNodes
 import qualified SlowTests
-import qualified TXG
-import qualified Standalone
 import qualified TestMiner
+import qualified TXG
 import qualified TxStream
 
 main :: IO ()
@@ -73,10 +73,6 @@ topLevelCommands =
       "Run slow Chainweb tests"
       SlowTests.main
   , CommandSpec
-      "standalone"
-      "Run a leaner chainweb instance for optimization work"
-      Standalone.main
-  , CommandSpec
       "tx-list"
       "List all transactions in a chain starting with the most recent block"
       TxStream.main
@@ -96,6 +92,11 @@ topLevelCommands =
       "b64"
       "Command line utlis for Chainweb's base64 encode/decode"
       EncodeDecodeB64Util.main
+  , CommandSpec
+      "db-checksum"
+      "Generate a checksum of all the checkpointer database tables between\
+      \\n an inclusive range of blocks."
+      CheckpointerDBChecksum.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()

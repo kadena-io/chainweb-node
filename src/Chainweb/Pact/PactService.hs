@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -30,6 +31,7 @@ module Chainweb.Pact.PactService
     , execNewBlock
     , execValidateBlock
     , execTransactions
+    , execLocal
     , initPactService
     , readCoinAccount
     , readAccountBalance
@@ -72,7 +74,6 @@ import qualified Data.Text.Encoding as T
 import Data.Tuple.Strict (T2(..))
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
 
 import System.Directory
 import System.IO
@@ -91,7 +92,7 @@ import qualified Pact.Interpreter as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
-import Pact.Types.Exp (ParsedCode (..))
+import Pact.Types.Exp (ParsedCode(..))
 import Pact.Types.ExpParser (mkTextInfo)
 import qualified Pact.Types.Hash as P
 import qualified Pact.Types.Logger as P
@@ -99,15 +100,16 @@ import qualified Pact.Types.PactValue as P
 import Pact.Types.RPC
 import qualified Pact.Types.Runtime as P
 import qualified Pact.Types.SPV as P
-import Pact.Types.Term (Term(..))
 
 ------------------------------------------------------------------------------
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader, genesisBlockPayload)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Pact
@@ -115,6 +117,7 @@ import Chainweb.NodeId
 import Chainweb.Pact.Backend.RelationalCheckpointer (initRelationalCheckpointer)
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
+import Chainweb.Pact.NoCoinbase
 import Chainweb.Pact.Service.PactQueue (PactQueue, getNextRequest)
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -129,8 +132,9 @@ import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Data.CAS (casLookupM)
+import Data.LogMessage
+import Utils.Logging.Trace
 
--- -------------------------------------------------------------------------- --
 
 withSqliteDb
     :: Logger logger
@@ -222,12 +226,12 @@ initPactService
     -> BlockHeaderDb
     -> PayloadDb cas
     -> SQLiteEnv
-    -> Word64
+    -> PactServiceConfig
     -> IO ()
-initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv deepForkLimit =
-    initPactService' ver cid chainwebLogger bhDb pdb sqlenv deepForkLimit $ do
+initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
+    initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger ver cid
-        serviceRequests mempoolAccess reqQ
+        serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
 initPactService'
     :: Logger logger
@@ -238,10 +242,10 @@ initPactService'
     -> BlockHeaderDb
     -> PayloadDb cas
     -> SQLiteEnv
-    -> Word64
+    -> PactServiceConfig
     -> PactServiceM cas a
     -> IO a
-initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
+initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
     let !rs = readRewards ver
         !gasModel = officialGasModel
@@ -253,10 +257,11 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
                 , _psBlockHeaderDb = bhDb
                 , _psGasModel = gasModel
                 , _psMinerRewards = rs
-                , _psEnableUserContracts = True
-                , _psReorgLimit = reorgLimit
+                , _psReorgLimit = fromIntegral $ _pactReorgLimit config
                 , _psOnFatalError = defaultOnFatalError (logFunctionText chainwebLogger)
                 , _psVersion = ver
+                , _psValidateHashesOnReplay = _pactRevalidate config
+                , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
     evalPactServiceM pst pse act
@@ -318,8 +323,7 @@ initializeCoinContract _logger v cid pwo = do
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
       let target = Just (succ bhe, bhash)
-      bhdb <- asks _psBlockHeaderDb
-      parentHeader <- liftIO $! lookupM bhdb bhash
+      parentHeader <- lookupBlockHeader bhash "initializeCoinContract"
       setBlockData parentHeader
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
@@ -328,14 +332,22 @@ initializeCoinContract _logger v cid pwo = do
         psInitCache .= mc
         return $! Discard ()
 
+lookupBlockHeader :: BlockHash -> Text -> PactServiceM cas BlockHeader
+lookupBlockHeader bhash ctx = do
+  bhdb <- asks _psBlockHeaderDb
+  liftIO $! lookupM bhdb bhash
+        `catch` \e -> throwM $ BlockHeaderLookupFailure $
+                      "failed lookup of parent header in " <> ctx <> ": " <> sshow (e :: SomeException)
+
+
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
-    :: forall cas
-    . PayloadCas cas
-    => MemPoolAccess
+    :: PayloadCas cas
+    => LogFunction
+    -> MemPoolAccess
     -> PactQueue
     -> PactServiceM cas ()
-serviceRequests memPoolAccess reqQ = do
+serviceRequests logFn memPoolAccess reqQ = do
     logInfo "Starting service"
     go `finally` logInfo "Stopping service"
   where
@@ -349,22 +361,30 @@ serviceRequests memPoolAccess reqQ = do
                 tryOne "execLocal" _localResultVar $ execLocal _localRequest
                 go
             NewBlockMsg NewBlockReq {..} -> do
-                tryOne "execNewBlock" _newResultVar $
+                trace logFn "Chainweb.Pact.PactService.execNewBlock"
+                    _newBlockHeader 1 $
+                    tryOne "execNewBlock" _newResultVar $
                     execNewBlock memPoolAccess _newBlockHeader _newMiner
                         _newCreationTime
                 go
             ValidateBlockMsg ValidateBlockReq {..} -> do
-                tryOne "execValidateBlock"
-                        _valResultVar $
-                        execValidateBlock _valBlockHeader _valPayloadData
+                trace logFn "Chainweb.Pact.PactService.execValidateBlock"
+                    _valBlockHeader
+                    (length (_payloadDataTransactions _valPayloadData)) $
+                    tryOne "execValidateBlock" _valResultVar $
+                    execValidateBlock _valBlockHeader _valPayloadData
                 go
             LookupPactTxsMsg (LookupPactTxsReq restorePoint txHashes resultVar) -> do
-                tryOne "execLookupPactTxs" resultVar $
+                trace logFn "Chainweb.Pact.PactService.execLookupPactTxs" ()
+                    (length txHashes) $
+                    tryOne "execLookupPactTxs" resultVar $
                     execLookupPactTxs restorePoint txHashes
                 go
             PreInsertCheckMsg (PreInsertCheckReq txs resultVar) -> do
-                tryOne "execPreInsertCheckReq" resultVar $
-                    fmap (V.map (() <$)) $ execPreInsertCheckReq txs
+                trace logFn "Chainweb.Pact.PactService.execPreInsertCheckReq" ()
+                    (length txs) $
+                    tryOne "execPreInsertCheckReq" resultVar $
+                    V.map (() <$) <$> execPreInsertCheckReq txs
                 go
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
@@ -374,7 +394,7 @@ serviceRequests memPoolAccess reqQ = do
         -> MVar (Either PactException a)
         -> PactServiceM cas a
         -> PactServiceM cas ()
-    tryOne which mvar m = tryOne' which mvar Right m
+    tryOne which mvar = tryOne' which mvar Right
 
     tryOne'
         :: String
@@ -500,9 +520,9 @@ validateHashes bHeader pData miner transactions =
       check desc extra expect actual
         | expect == actual = []
         | otherwise =
-          [A.object $ [ "mismatch" A..= errorMsg desc expect actual ] ++ extra]
+          [A.object $ "mismatch" A..= errorMsg desc expect actual :  extra]
 
-      errorMsg desc expect actual = A.object $
+      errorMsg desc expect actual = A.object
         [ "type" A..= (desc :: Text)
         , "actual" A..= actual
         , "expected" A..= expect
@@ -525,7 +545,7 @@ validateHashes bHeader pData miner transactions =
         ]
 
       toPairCR cr = over (P.crLogs . _Just)
-        (\l -> CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr)) l) cr
+        (CRLogPair (fromJuste $ P._crLogs (toHashCommandResult cr))) cr
 
       details = concat
         [ check "Miner" [] prevMiner newMiner
@@ -647,7 +667,10 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 
         pd <- mkPublicData' (publicMetaOf cmd) ph
         spv <- use psSpvSupport
-        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl restrictiveExecutionConfig
+        let ec = mkExecutionConfig
+              [ P.FlagDisableModuleInstall
+              , P.FlagDisableHistoryInTransactionalMode ]
+        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
@@ -669,7 +692,7 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         cr <- liftIO
           $! P.catchesPactError
           $! execTransactionM buyGasEnv txst
-          $! buyGas cmd miner
+          $! buyGas False cmd miner
 
         case cr of
             Left err -> return (T2 mcache (Left (InsertErrorBuyGas (T.pack $ show err))))
@@ -686,9 +709,8 @@ validateChainwebTxs
     -> BlockHeight
     -> Vector ChainwebTransaction
     -> RunGas
-    -> Bool
     -> IO ValidateTxs
-validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
+validateChainwebTxs cp blockOriginationTime bh txs doBuyGas
   | bh == 0 = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
@@ -698,18 +720,18 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
 
     validations t = runValid checkUnique t
       >>= runValid checkTimes
-      >>= runValid (return . checkCompile allowModuleInstall)
+      >>= runValid (return . checkCompile)
 
     checkUnique :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkUnique t = do
       found <- _cpLookupProcessedTx cp (P._cmdHash t)
       case found of
         Nothing -> pure $ Right t
-        Just _ -> pure $ Left $ InsertErrorDuplicate
+        Just _ -> pure $ Left InsertErrorDuplicate
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t | timingsCheck blockOriginationTime $ fmap payloadObj t = return $ Right t
-                 | otherwise = return $ (Left InsertErrorInvalidTime)
+                 | otherwise = return $ Left InsertErrorInvalidTime
 
     initTxList :: ValidateTxs
     initTxList = V.map Right txs
@@ -721,20 +743,17 @@ validateChainwebTxs cp blockOriginationTime bh txs doBuyGas allowModuleInstall
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
 
-checkCompile :: Bool -> ChainwebTransaction -> Either InsertError ChainwebTransaction
-checkCompile allowModuleInstall tx = case payload of
+checkCompile :: ChainwebTransaction -> Either InsertError ChainwebTransaction
+checkCompile tx = case payload of
   Exec (ExecMsg parsedCode _) ->
     case compileCode parsedCode of
       Left perr -> Left $ InsertErrorCompilationFailed (sshow perr)
-      Right terms | allowModuleInstall -> Right tx
-                  | otherwise -> foldr bailOnModule (Right tx) terms
+      Right _ -> Right tx
   _ -> Right tx
   where
     payload = P._pPayload $ payloadObj $ P._cmdPayload tx
     compileCode p =
       compileExps (mkTextInfo (P._pcCode p)) (P._pcExps p)
-    bailOnModule (TModule {}) _ = Left $ InsertErrorCompilationFailed "Module/interface install not supported"
-    bailOnModule _ b =  b
 
 skipDebitGas :: RunGas
 skipDebitGas = return
@@ -796,7 +815,7 @@ minerReward
     -> BlockHeight
     -> IO P.ParsedDecimal
 minerReward (MinerRewards rs q) bh =
-    case V.find ((<=) bh) q of
+    case V.find (bh <=) q of
       Nothing -> err
       Just h -> case HM.lookup h rs of
         Nothing -> err
@@ -804,47 +823,6 @@ minerReward (MinerRewards rs q) bh =
   where
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
-
-withEnableUserContracts
-    :: BlockHeader
-    -> PactServiceM cas a
-    -> PactServiceM cas a
-withEnableUserContracts bh =
-  withEnableUserContracts'
-    (isGenesisBlockHeader bh)
-    (_blockCreationTime bh)
-    bh
-
--- | If user contracts are enabled, check the block time against
--- the activation date.
---
-withEnableUserContracts'
-    :: Bool
-       -- ^ is block genesis
-    -> BlockCreationTime
-       -- ^ block creation time, in new block we can't get this from header
-    -> BlockHeader
-       -- ^ block header for chainweb version
-    -> PactServiceM cas a
-    -> PactServiceM cas a
-withEnableUserContracts' isGenesis creationTime bh act =
-    locally psEnableUserContracts (const allowModules) act
-  where
-    allowModules = checkEnableUserContracts isGenesis creationTime (_blockChainwebVersion bh)
-
-checkEnableUserContracts
-    :: Bool
-     -- ^ is block genesis
-    -> BlockCreationTime
-       -- ^ block creation time, in new block we can't get this from header
-    -> ChainwebVersion
-    -> Bool
-checkEnableUserContracts isGenesis (BlockCreationTime blockTime) v =
-    case activated of
-      Just d | d > blockTime && not isGenesis -> False
-      _ -> True
-  where
-    activated = userContractActivationDate v
 
 -- | Note: The BlockHeader param here is the PARENT HEADER of the new
 -- block-to-be
@@ -886,16 +864,14 @@ execNewBlock mpAccess parentHeader miner creationTime = go
           runDebitGas txs = evalPactServiceM psState psEnv runGas
             where
               runGas = attemptBuyGas miner pdbenv txs
-          validate bhi _bha txs = do
+          validate bhi _bha txs =
             -- note that here we previously were doing a validation
             -- that target == cpGetLatestBlock
             -- which we determined was unnecessary and was a db hit
             --
             -- TODO: propagate the underlying error type?
             V.map (either (const False) (const True)) <$>
-              validateChainwebTxs cp creationTime bhi
-                txs runDebitGas
-                (checkEnableUserContracts False creationTime (_blockChainwebVersion parentHeader))
+              validateChainwebTxs cp creationTime bhi txs runDebitGas
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash parentHeader
@@ -906,11 +882,10 @@ execNewBlock mpAccess parentHeader miner creationTime = go
                 <> " (parent hash = " <> sshow pHash <> ")"
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- withEnableUserContracts' False creationTime parentHeader $
-          execTransactions (Just (parentHeader,creationTime)) miner newTrans
-            (EnforceCoinbaseFailure True)
-            (CoinbaseUsePrecompiled True)
-            pdbenv
+        results <- execTransactions (Just parentHeader) miner newTrans
+          (EnforceCoinbaseFailure True)
+          (CoinbaseUsePrecompiled True)
+          pdbenv
 
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
@@ -976,9 +951,7 @@ execLocal cmd = withDiscardedBatch $ do
                        Nothing -> throwM NoBlockValidatedYet
                        (Just !p) -> return p
     let target = Just (succ bhe, bhash)
-    bhDb <- asks _psBlockHeaderDb
-
-    parentHeader <- liftIO $! lookupM bhDb bhash
+    parentHeader <- lookupBlockHeader bhash "execLocal"
 
     -- NOTE: On local calls, there might be code which needs the results of
     -- (chain-data). In such a case, the function `setBlockData` provides the
@@ -990,7 +963,10 @@ execLocal cmd = withDiscardedBatch $ do
         mc <- use psInitCache
         pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
-        r <- liftIO $ applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc
+        execConfig <- view psAllowReadsInLocal >>= \b ->
+          return $ if b then mkExecutionConfig [P.FlagAllowReadInLocal] else def
+        r <- liftIO $
+          applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
@@ -1012,7 +988,7 @@ logDebug = logg "DEBUG"
 setBlockData :: BlockHeader -> PactServiceM cas ()
 setBlockData bh = do
     psBlockHeight .= succ (_blockHeight bh)
-    psBlockTime .= (_blockCreationTime bh)
+    psBlockTime .= _blockCreationTime bh
     psParentHash .= (Just $ _blockParent bh)
 
     bdb <- view psBlockHeaderDb
@@ -1023,6 +999,10 @@ setBlockData bh = do
 playOneBlock
     :: (PayloadCas cas)
     => BlockHeader
+        -- ^ this is the current header. We may consider changing this to the parent
+        -- header to avoid confusion with new block and prevent using data from this
+        -- header when we should use the respective values from the parent header
+        -- instead.
     -> PayloadData
     -> PactDbEnv'
     -> PactServiceM cas (T2 Miner Transactions)
@@ -1032,11 +1012,8 @@ playOneBlock currHeader plData pdbenv = do
     cp <- getCheckpointer
     let creationTime = _blockCreationTime currHeader
     -- prop_tx_ttl_validate
-    oks <- withEnableUserContracts currHeader $ do
-        allowModuleInstall <- view psEnableUserContracts
-        liftIO $ fmap (either (const False) (const True)) <$>
-          validateChainwebTxs cp creationTime (_blockHeight currHeader)
-            trans skipDebitGas allowModuleInstall
+    oks <- liftIO $ fmap (either (const False) (const True)) <$>
+        validateChainwebTxs cp creationTime (_blockHeight currHeader) trans skipDebitGas
 
     let mbad = V.elemIndex False oks
     case mbad of
@@ -1048,6 +1025,11 @@ playOneBlock currHeader plData pdbenv = do
     -- transactions are now successfully validated.
     !results <- go miner trans
     psStateValidated .= Just currHeader
+
+    -- Validate hashes if requested
+    asks _psValidateHashesOnReplay >>= \x -> when x $
+        either throwM (void . return) $!
+        validateHashes currHeader plData miner results
 
     return $! T2 miner results
 
@@ -1064,8 +1046,6 @@ playOneBlock currHeader plData pdbenv = do
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
-    currCreationTime = _blockCreationTime currHeader
-
     go m txs = if isGenesisBlock
       then do
         setBlockData currHeader
@@ -1073,13 +1053,11 @@ playOneBlock currHeader plData pdbenv = do
         execTransactions Nothing m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
-        bhDb <- asks _psBlockHeaderDb
-        ph <- liftIO $! lookupM bhDb (_blockParent currHeader)
+        ph <- lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
         setBlockData ph
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        withEnableUserContracts currHeader $
-          execTransactions (Just (ph,currCreationTime)) m txs
-            (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
+        execTransactions (Just ph) m txs
+          (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
 --
@@ -1095,7 +1073,7 @@ rewindTo
         --
         -- It holds that @(_blockHeight parentHeader == pred height)@
     -> PactServiceM cas ()
-rewindTo rewindLimit mb = maybe rewindGenesis doRewind mb
+rewindTo rewindLimit = maybe rewindGenesis doRewind
   where
     rewindGenesis = return ()
     doRewind (reqHeight, parentHash) = do
@@ -1117,7 +1095,8 @@ rewindTo rewindLimit mb = maybe rewindGenesis doRewind mb
     failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
 
     playFork bhdb payloadDb parentHash lastHeader = do
-        parentHeader <- liftIO $ lookupM bhdb parentHash
+        parentHeader <- lookupBlockHeader parentHash "rewindTo"
+
 
         (!_, _, newBlocks) <-
             liftIO $ collectForkBlocks bhdb lastHeader parentHeader
@@ -1148,7 +1127,6 @@ execValidateBlock
 execValidateBlock currHeader plData = do
     psEnv <- ask
     let reorgLimit = fromIntegral $ view psReorgLimit psEnv
-    validateTxEnabled currHeader plData
     (T2 miner transactions) <- handle handleEx $ withBatch $ do
         rewindTo (Just reorgLimit) mb
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
@@ -1192,36 +1170,24 @@ execValidateBlock currHeader plData = do
     handleEx (RewindLimitExceeded a h1 h2) = fatalRewindError a h1 h2
     handleEx e = throwM e
 
-validateTxEnabled :: BlockHeader -> PayloadData -> PactServiceM cas ()
-validateTxEnabled bh plData = case txEnabledDate (_blockChainwebVersion bh) of
-    Just end | end > blockTime && not isGenesisBlock && not payloadIsEmpty ->
-        throwM . BlockValidationFailure . A.toJSON $ ObjectEncoded bh
-    _ -> pure ()
-  where
-    blockTime = _bct $ _blockCreationTime bh
-    payloadIsEmpty = V.null $ _payloadDataTransactions plData
-    isGenesisBlock = isGenesisBlockHeader bh
-
 execTransactions
-    :: Maybe (BlockHeader,BlockCreationTime)
+    :: Maybe BlockHeader
     -> Miner
     -> Vector ChainwebTransaction
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHeaderCurrCreate miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
+execTransactions nonGenesisParentHeader miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHeaderCurrCreate pactdbenv miner enfCBFail usePrecomp mc
+    coinOut <- runCoinbase nonGenesisParentHeader pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
-    return $! Transactions (paired txOuts) coinOut
+    return $! Transactions (V.zip ctxs txOuts) coinOut
   where
-    !isGenesis = isNothing nonGenesisParentHeaderCurrCreate
-    paired outs = V.zip ctxs outs
-
+    !isGenesis = isNothing nonGenesisParentHeader
 
 runCoinbase
-    :: Maybe (BlockHeader,BlockCreationTime)
+    :: Maybe BlockHeader
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
@@ -1229,7 +1195,7 @@ runCoinbase
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
-runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecomp mc = do
+runCoinbase (Just parentHeader) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
     v <- view chainwebVersion
@@ -1239,15 +1205,15 @@ runCoinbase (Just (parentHeader,currCreateTime)) dbEnv miner enfCBFail usePrecom
 
     reward <- liftIO $! minerReward rs bh
     (T2 cr upgradedCacheM) <-
-      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader currCreateTime enfCBFail usePrecomp mc
-    void $ traverse upgradeInitCache upgradedCacheM
+      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader enfCBFail usePrecomp mc
+    mapM_ upgradeInitCache upgradedCacheM
 
     return $! cr
 
   where
 
     upgradeInitCache newCache = do
-      logInfo $ "Updating init cache for upgrade"
+      logInfo "Updating init cache for upgrade"
       psInitCache %= HM.union newCache
 
 
@@ -1278,14 +1244,14 @@ applyPactCmd
 applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     logger <- view (psCheckpointEnv . cpeLogger)
     gasModel <- view psGasModel
-    excfg <- view psEnableUserContracts
+    v <- view psVersion
 
     T2 result mcache' <- if isGenesis
       then liftIO $! applyGenesisCmd logger dbEnv def P.noSPVSupport (payloadObj <$> cmdIn)
       else do
         pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
-        liftIO $! applyCmd logger dbEnv miner gasModel pd spv cmdIn mcache excfg
+        liftIO $! applyCmd v logger dbEnv miner gasModel pd spv cmdIn mcache
         {- the following can be used instead of above to nerf transaction execution
         return $! T2 (P.CommandResult (P.cmdToRequestKey cmdIn) Nothing
                       (P.PactResult (Right (P.PLiteral (P.LInteger 1))))
@@ -1312,7 +1278,7 @@ transactionsFromPayload plData = do
     unless (null theLefts) $ do
         let ls = map T.pack theLefts
         throwM $ TransactionDecodeFailure $ "Failed to decode pact transactions: "
-            <> (T.intercalate ". " ls)
+            <> T.intercalate ". " ls
     return $! V.fromList theRights
   where
     toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
@@ -1333,10 +1299,8 @@ execPreInsertCheckReq txs = do
                 psEnv <- ask
                 psState <- get
                 let creationTime = BlockCreationTime now
-                liftIO (Discard <$>
-                        validateChainwebTxs cp creationTime (h + 1) txs
-                        (runGas pdb psState psEnv)
-                        (checkEnableUserContracts False creationTime (_psVersion psEnv)))
+                liftIO $ Discard <$>
+                    validateChainwebTxs cp creationTime (h + 1) txs (runGas pdb psState psEnv)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
@@ -1354,7 +1318,7 @@ execLookupPactTxs restorePoint txs
       NoRewind _ ->
         liftIO $! V.mapM (_cpLookupProcessedTx cp) txs
       DoRewind bh -> do
-        let !t = Just $! (_blockHeight bh + 1,_blockHash bh)
+        let !t = Just (_blockHeight bh + 1, _blockHash bh)
         withCheckpointerRewind t "lookupPactTxs" $ \_ ->
           liftIO $ Discard <$> V.mapM (_cpLookupProcessedTx cp) txs
 
@@ -1388,7 +1352,7 @@ freeModuleLoadGasModel = modifiedGasModel
     defGasModel = tableGasModel defaultGasConfig
     fullRunFunction = P.runGasModel defGasModel
     modifiedRunFunction name ga = case ga of
-      P.GPostRead (P.ReadModule {}) -> 0
+      P.GPostRead P.ReadModule {} -> 0
       _ -> fullRunFunction name ga
     modifiedGasModel = defGasModel { P.runGasModel = modifiedRunFunction }
 

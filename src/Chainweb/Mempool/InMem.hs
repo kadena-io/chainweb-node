@@ -61,14 +61,14 @@ import System.Random
 -- internal imports
 
 import Chainweb.BlockHash
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Logger
 import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.Utils (maxTTL)
 import Chainweb.Time
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, transferActivationDate)
+import Chainweb.Version (ChainwebVersion)
 
 ------------------------------------------------------------------------------
 compareOnGasPrice :: TransactionConfig t -> t -> t -> Ordering
@@ -103,10 +103,9 @@ newInMemMempoolData =
 ------------------------------------------------------------------------------
 toMempoolBackend
     :: NFData t
-    => ChainwebVersion
-    -> InMemoryMempool t
+    => InMemoryMempool t
     -> IO (MempoolBackend t)
-toMempoolBackend v mempool = do
+toMempoolBackend mempool = do
     return $! MempoolBackend
       { mempoolTxConfig = tcfg
       , mempoolMember = member
@@ -115,6 +114,7 @@ toMempoolBackend v mempool = do
       , mempoolInsertCheck = insertCheck
       , mempoolMarkValidated = markValidated
       , mempoolAddToBadList = addToBadList
+      , mempoolCheckBadList = checkBadList
       , mempoolGetBlock = getBlock
       , mempoolPrune = prune
       , mempoolGetPendingTransactions = getPending
@@ -128,10 +128,11 @@ toMempoolBackend v mempool = do
     InMemConfig tcfg _ _ _ _ = cfg
     member = memberInMem lockMVar
     lookup = lookupInMem tcfg lockMVar
-    insert = insertInMem cfg v lockMVar
-    insertCheck = insertCheckInMem cfg v lockMVar
+    insert = insertInMem cfg lockMVar
+    insertCheck = insertCheckInMem cfg lockMVar
     markValidated = markValidatedInMem lockMVar
     addToBadList = addToBadListInMem lockMVar
+    checkBadList = checkBadListInMem lockMVar
     getBlock = getBlockInMem cfg lockMVar
     getPending = getPendingInMem cfg nonce lockMVar
     prune = pruneInMem lockMVar
@@ -147,9 +148,9 @@ withInMemoryMempool :: ToJSON t
                     -> ChainwebVersion
                     -> (MempoolBackend t -> IO a)
                     -> IO a
-withInMemoryMempool cfg v f = do
+withInMemoryMempool cfg _v f = do
     let action inMem = do
-          back <- toMempoolBackend v inMem
+          back <- toMempoolBackend inMem
           f $! back
     bracket (makeInMemPool cfg) destroyInMemPool action
 
@@ -160,10 +161,10 @@ withInMemoryMempool_ :: Logger logger
                      -> ChainwebVersion
                      -> (MempoolBackend t -> IO a)
                      -> IO a
-withInMemoryMempool_ l cfg v f = do
+withInMemoryMempool_ l cfg _v f = do
     let action inMem = do
           r <- race (monitor inMem) $ do
-            back <- toMempoolBackend v inMem
+            back <- toMempoolBackend inMem
             f $! back
           case r of
             Left () -> throw $ InternalInvariantViolation "mempool monitor exited unexpectedly"
@@ -237,6 +238,17 @@ addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
     writeIORef (_inmemPending mdata) pnd'
     writeIORef (_inmemBadMap mdata) bad'
 
+
+------------------------------------------------------------------------------
+checkBadListInMem
+    :: MVar (InMemoryMempoolData t)
+    -> Vector TransactionHash
+    -> IO (Vector Bool)
+checkBadListInMem lock hashes = withMVarMasked lock $ \mdata -> do
+    !bad <- readIORef $ _inmemBadMap mdata
+    return $! V.map (flip HashMap.member bad) hashes
+
+
 maxNumPending :: Int
 maxNumPending = 10000
 
@@ -249,11 +261,10 @@ insertCheckInMem
     :: forall t
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
-    -> ChainwebVersion
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Either (T2 TransactionHash InsertError) ())
-insertCheckInMem cfg v lock txs
+insertCheckInMem cfg lock txs
   | V.null txs = pure $ Right ()
   | otherwise = do
     now <- getCurrentTimeIntegral
@@ -264,7 +275,7 @@ insertCheckInMem cfg v lock txs
     let withHashes :: Either (T2 TransactionHash InsertError) (Vector (T2 TransactionHash t))
         withHashes = for txs $ \tx ->
           let !h = hasher tx
-          in bimap (T2 h) (T2 h) $ validateOne cfg v badmap now tx h
+          in bimap (T2 h) (T2 h) $ validateOne cfg badmap now tx h
 
     case withHashes of
         Left _ -> pure $! void withHashes
@@ -279,15 +290,13 @@ validateOne
     :: forall t a
     .  NFData t
     => InMemConfig t
-    -> ChainwebVersion
     -> HashMap TransactionHash a
     -> Time Micros
     -> t
     -> TransactionHash
     -> Either InsertError t
-validateOne cfg v badmap now t h =
-    transactionsEnabled
-    >> sizeOK
+validateOne cfg badmap now t h =
+    sizeOK
     >> gasPriceRoundingCheck
     >> ttlCheck
     >> notInBadMap
@@ -295,14 +304,6 @@ validateOne cfg v badmap now t h =
   where
     txcfg :: TransactionConfig t
     txcfg = _inmemTxCfg cfg
-
-    -- | KILLSWITCH This can be removed once the date itself has passed. Until
-    -- then, this prevents any transaction from entering the mempool.
-    --
-    transactionsEnabled :: Either InsertError ()
-    transactionsEnabled = case transferActivationDate v of
-        Just start | now < start -> Left InsertErrorTransactionsDisabled
-        _ -> pure ()
 
     sizeOK :: Either InsertError ()
     sizeOK = ebool_ (InsertErrorOversized maxSize) (getSize t <= maxSize)
@@ -345,11 +346,10 @@ insertCheckInMem'
     :: forall t
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
-    -> ChainwebVersion
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> Vector t  -- ^ new transactions
     -> IO (Vector (T2 TransactionHash t))
-insertCheckInMem' cfg v lock txs
+insertCheckInMem' cfg lock txs
   | V.null txs = pure V.empty
   | otherwise = do
     now <- getCurrentTimeIntegral
@@ -358,7 +358,7 @@ insertCheckInMem' cfg v lock txs
     let withHashes :: Vector (T2 TransactionHash t)
         withHashes = flip V.mapMaybe txs $ \tx ->
           let !h = hasher tx
-          in (T2 h) <$> hush (validateOne cfg v badmap now tx h)
+          in (T2 h) <$> hush (validateOne cfg badmap now tx h)
 
     V.mapMaybe hush <$!> _inmemPreInsertBatchChecks cfg withHashes
   where
@@ -369,12 +369,11 @@ insertInMem
     :: forall t
     .  NFData t
     => InMemConfig t    -- ^ in-memory config
-    -> ChainwebVersion
     -> MVar (InMemoryMempoolData t)  -- ^ in-memory state
     -> InsertType
     -> Vector t  -- ^ new transactions
     -> IO ()
-insertInMem cfg v lock runCheck txs0 = do
+insertInMem cfg lock runCheck txs0 = do
     txhashes <- insertCheck
     withMVarMasked lock $ \mdata -> do
         let countRef = _inmemCountPending mdata
@@ -393,7 +392,7 @@ insertInMem cfg v lock runCheck txs0 = do
   where
     insertCheck :: IO (Vector (T2 TransactionHash t))
     insertCheck = if runCheck == CheckedInsert
-                  then insertCheckInMem' cfg v lock txs0
+                  then insertCheckInMem' cfg lock txs0
                   else return $! V.map (\tx -> T2 (hasher tx) tx) txs0
 
     txcfg = _inmemTxCfg cfg

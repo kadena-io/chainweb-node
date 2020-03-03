@@ -44,7 +44,7 @@ import Servant.API
 
 -- internal modules
 
-import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils

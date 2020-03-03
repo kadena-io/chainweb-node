@@ -37,25 +37,6 @@ module Chainweb.BlockHeader
   ParentHeader(..)
 , ParentCreationTime(..)
 
--- * Validation Guards
---
--- $guards
-, slowEpochGuard
-
--- * Block Height
-, BlockHeight(..)
-, encodeBlockHeight
-, decodeBlockHeight
-, encodeBlockHeightBe
-, decodeBlockHeightBe
-
--- * Block Weight
-, BlockWeight(..)
-, encodeBlockWeight
-, decodeBlockWeight
-, encodeBlockWeightBe
-, decodeBlockWeightBe
-
 -- * Block Payload Hash
 , BlockPayloadHash(..)
 , encodeBlockPayloadHash
@@ -68,11 +49,6 @@ module Chainweb.BlockHeader
 , encodeNonceToWord64
 , decodeNonce
 
--- * BlockCreationTime
-, BlockCreationTime(..)
-, encodeBlockCreationTime
-, decodeBlockCreationTime
-
 -- * EpochStartTime
 , EpochStartTime(..)
 , encodeEpochStartTime
@@ -80,7 +56,8 @@ module Chainweb.BlockHeader
 , epochStart
 
 -- * FeatureFlags
-, FeatureFlags(..)
+, FeatureFlags
+, mkFeatureFlags
 , encodeFeatureFlags
 , decodeFeatureFlags
 
@@ -164,7 +141,10 @@ import GHC.Generics (Generic)
 
 -- Internal imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty
@@ -180,127 +160,9 @@ import Chainweb.Version
 
 import Data.CAS
 
-import Numeric.Additive
 import Numeric.AffineSpace
 
 import Text.Read (readEither)
-
--- -------------------------------------------------------------------------- --
--- Guards for changes to validation rules
---
--- $guards
---
--- The guards in this section encode when changes to validation rules for data
--- on the chain become effective.
---
--- Only the following types are allowed as parameters for guards
---
--- * BlockHeader,
--- * ParentHeader,
--- * BlockCreationTime, and
--- * ParentCreationTime
---
--- The result is a simple 'Bool'.
---
--- Guards should have meaningful names and should be used in a way that all
--- places in the code base that depend on the guard should reference the
--- respective guard. That way all dependent code can be easily identified using
--- ide tools, like for instance @grep@.
---
--- Each guard should have a description that provides background for the change
--- and provides all information needed for maintaining the code or code that
--- depends on it.
---
-
--- | Turn off slow epochs (emergency DA) for blocks from 80,000 onwward.
---
--- Emergency DA is considered a miss-feature.
---
--- It's intended purpose is to prevent chain hopping attacks, where an attacker
--- temporarily adds a large amount of hash power, thus increasing the
--- difficulty. When the hash power is removed, the remaining hash power may not
--- be enough to reach the next block in reasonable time.
---
--- In practice, emergency DAs cause more problems than they solve. In
--- particular, they increase the chance of deep forks. Also they make the
--- behavior of the system unpredictable in states of emergency, when stability
--- is usually more important than throughput.
---
-slowEpochGuard :: ParentHeader -> Bool
-slowEpochGuard (ParentHeader p)
-    | Mainnet01 <- _chainwebVersion p = _blockHeight p < 80000
-    | otherwise = False
-{-# INLINE slowEpochGuard #-}
-
--- -------------------------------------------------------------------------- --
--- | BlockHeight
---
-newtype BlockHeight = BlockHeight { _height :: Word64 }
-    deriving (Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype
-        ( Hashable, ToJSON, FromJSON
-        , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
-        , Num, Integral, Real, Enum
-        )
-instance Show BlockHeight where show (BlockHeight b) = show b
-
-instance IsMerkleLogEntry ChainwebHashTag BlockHeight where
-    type Tag BlockHeight = 'BlockHeightTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockHeight
-    fromMerkleNode = decodeMerkleInputNode decodeBlockHeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockHeight :: MonadPut m => BlockHeight -> m ()
-encodeBlockHeight (BlockHeight h) = putWord64le h
-
-decodeBlockHeight :: MonadGet m => m BlockHeight
-decodeBlockHeight = BlockHeight <$> getWord64le
-
-encodeBlockHeightBe :: MonadPut m => BlockHeight -> m ()
-encodeBlockHeightBe (BlockHeight r) = putWord64be r
-
-decodeBlockHeightBe :: MonadGet m => m BlockHeight
-decodeBlockHeightBe = BlockHeight <$> getWord64be
-
--- -------------------------------------------------------------------------- --
--- Block Weight
---
--- This is the accumulated Hash difficulty
---
-newtype BlockWeight = BlockWeight HashDifficulty
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype
-        ( Hashable
-        , ToJSON, FromJSON, ToJSONKey, FromJSONKey
-        , AdditiveSemigroup, AdditiveAbelianSemigroup
-        , Num
-        )
-
-instance IsMerkleLogEntry ChainwebHashTag BlockWeight where
-    type Tag BlockWeight = 'BlockWeightTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockWeight
-    fromMerkleNode = decodeMerkleInputNode decodeBlockWeight
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockWeight :: MonadPut m => BlockWeight -> m ()
-encodeBlockWeight (BlockWeight w) = encodeHashDifficulty w
-{-# INLINE encodeBlockWeight #-}
-
-decodeBlockWeight :: MonadGet m => m BlockWeight
-decodeBlockWeight = BlockWeight <$> decodeHashDifficulty
-{-# INLINE decodeBlockWeight #-}
-
-encodeBlockWeightBe :: MonadPut m => BlockWeight -> m ()
-encodeBlockWeightBe (BlockWeight w) = encodeHashDifficultyBe w
-{-# INLINE encodeBlockWeightBe #-}
-
-decodeBlockWeightBe :: MonadGet m => m BlockWeight
-decodeBlockWeightBe = BlockWeight <$> decodeHashDifficultyBe
-{-# INLINE decodeBlockWeightBe #-}
 
 -- -------------------------------------------------------------------------- --
 -- Nonce
@@ -335,27 +197,6 @@ instance ToJSON Nonce where
 instance FromJSON Nonce where
     parseJSON = withText "Nonce"
         $ either fail (return . Nonce) . readEither . T.unpack
-
--- -------------------------------------------------------------------------- --
--- Block Creation Time
-
-newtype BlockCreationTime = BlockCreationTime { _bct :: (Time Micros) }
-    deriving stock (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData)
-    deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
-
-instance IsMerkleLogEntry ChainwebHashTag BlockCreationTime where
-    type Tag BlockCreationTime = 'BlockCreationTimeTag
-    toMerkleNode = encodeMerkleInputNode encodeBlockCreationTime
-    fromMerkleNode = decodeMerkleInputNode decodeBlockCreationTime
-    {-# INLINE toMerkleNode #-}
-    {-# INLINE fromMerkleNode #-}
-
-encodeBlockCreationTime :: MonadPut m => BlockCreationTime -> m ()
-encodeBlockCreationTime (BlockCreationTime t) = encodeTime t
-
-decodeBlockCreationTime :: MonadGet m => m BlockCreationTime
-decodeBlockCreationTime = BlockCreationTime <$> decodeTime
 
 -- -------------------------------------------------------------------------- --
 -- POW Target Computation
@@ -407,6 +248,10 @@ isLastInEpoch h = case effectiveWindow h of
 -- network. Thus we must perform Emergency Difficulty Adjustment to avoid
 -- stalling the chain.
 --
+-- NOTE: emergency DAs are now regarded a misfeature and have been disabled in
+-- all chainweb version. Emergency DAs are enabled (and have occured) only on
+-- mainnet01 for cut heights smaller than 80,000.
+--
 slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
 slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
   where
@@ -432,7 +277,7 @@ powTarget
 powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
     Nothing -> maxTarget
     Just w
-        | slowEpochGuard (ParentHeader p) && slowEpoch p bct ->
+        | slowEpochGuard ver (_blockHeight p) && slowEpoch p bct ->
             adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
         | isLastInEpoch p ->
             adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
@@ -460,7 +305,7 @@ epochStart p (BlockCreationTime bt)
 -- Feature Flags
 
 newtype FeatureFlags = FeatureFlags Word64
-    deriving stock (Show, Generic)
+    deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON)
 
@@ -477,16 +322,31 @@ instance IsMerkleLogEntry ChainwebHashTag FeatureFlags where
     {-# INLINE toMerkleNode #-}
     {-# INLINE fromMerkleNode #-}
 
+mkFeatureFlags :: FeatureFlags
+mkFeatureFlags = FeatureFlags 0x0
+
 -- -------------------------------------------------------------------------- --
 -- Newtype wrappers for function parameters
 
-newtype ParentCreationTime = ParentCreationTime BlockCreationTime
-newtype ParentHeader = ParentHeader BlockHeader
+newtype ParentCreationTime = ParentCreationTime
+    { _parentCreationTime :: BlockCreationTime }
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype (ToJSON, FromJSON, Hashable, LeftTorsor)
+
+newtype ParentHeader = ParentHeader
+    { _parentHeader :: BlockHeader }
+    deriving (Show, Generic)
+    deriving anyclass (NFData)
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
 
 -- | BlockHeader
+--
+-- Values of this type should never be constructed directly by external code.
+-- Instead the 'newBlockHeader' smart constructor should be used. Once
+-- constructed 'BlockHeader' values must not be modified.
 --
 -- Some redundant, aggregated information is included in the block and the block
 -- hash. This enables nodes to be checked inductively with respect to existing
@@ -923,15 +783,19 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
 -- -------------------------------------------------------------------------- --
 -- Create new BlockHeader
 
+-- | Creates a new block header. No validation of the input parameters is
+-- performaned.
+--
 newBlockHeader
     :: BlockHashRecord
         -- ^ Adjacent parent hashes
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
-        -- ^ Randomness to affect the block hash
+        -- ^ Randomness to affect the block hash. It is not verified that the
+        -- nonce is valid with respect to the target.
     -> BlockCreationTime
-        -- ^ Creation time of the block
+        -- ^ Creation time of the block.
     -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
@@ -946,7 +810,7 @@ newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockHeight b + 1
     :+: v
     :+: epochStart b t
-    :+: FeatureFlags 0
+    :+: mkFeatureFlags
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId b
