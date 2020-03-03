@@ -145,12 +145,12 @@ bench = C.bgroup "PactService" $
         name = "block-new" ++ (if validate then "-valid" else "") ++
                "[" ++ show txCount ++ "]"
 
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Integer -> MemPoolAccess
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Int -> MemPoolAccess
 testMemPoolAccess txsPerBlock accounts t = mempty
     { mpaGetBlock = \validate bh hash _header -> getTestBlock accounts t validate bh hash }
   where
 
-    setTime time = \pb -> pb { _pmCreationTime = toTxCreationTime time }
+    setTime time pb = pb { _pmCreationTime = toTxCreationTime time }
 
     getTestBlock mVarAccounts txOrigTime validate bHeight@(BlockHeight bh) hash
         | bh == 1 = do
@@ -401,7 +401,7 @@ testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
 
-toTxCreationTime :: Integral a => Time a -> TxCreationTime
+toTxCreationTime :: Time Int -> TxCreationTime
 toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
@@ -607,7 +607,7 @@ makeMetaWithSender sender c =
 -- hardcoded sender (sender00)
 makeMeta :: ChainId -> IO PublicMeta
 makeMeta c = do
-    t <- toTxCreationTime @Int <$> getCurrentTimeIntegral
+    t <- toTxCreationTime <$> getCurrentTimeIntegral
     return $ PublicMeta
         {
           _pmChainId = Pact.ChainId $ chainIdToText c

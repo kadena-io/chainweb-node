@@ -1,4 +1,3 @@
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE BangPatterns #-}
 -- |
 -- Module: Chainweb.Pact.Utils
