@@ -60,6 +60,8 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+, withTestBlockDbTest
+, withPactTestBlockDb
 , WithPactCtxSQLite
 , defaultPactServiceConfig
 -- * Block formation
@@ -674,6 +676,43 @@ withBlockHeaderDb iordb b = withResource start stop
 
 withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
 withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
+
+withTestBlockDbTest
+  :: ChainwebVersion -> (IO TestBlockDb -> TestTree) -> TestTree
+withTestBlockDbTest v a =
+  withRocksResource $ \rdb ->
+  withResource (start rdb) (const $ return ()) a
+  where
+    start r = r >>= mkTestBlockDb v
+
+
+withPactTestBlockDb
+    :: ChainwebVersion
+    -> ChainId
+    -> LogLevel
+    -> MemPoolAccess
+    -> PactServiceConfig
+    -> (IO (PactQueue,TestBlockDb) -> TestTree)
+    -> TestTree
+withPactTestBlockDb version cid logLevel mempool pactConfig f =
+  withTemporaryDir $ \iodir ->
+  withTestBlockDbTest version $ \bdbio ->
+  withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
+  where
+    startPact bdbio iodir = do
+        reqQ <- atomically $ newTBQueue 2000
+        dir <- iodir
+        bdb <- bdbio
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
+        let pdb = _bdbPayloadDb bdb
+        sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
+        a <- async $
+             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+        return (a, sqlEnv, (reqQ,bdb))
+
+    stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
+
+    logger = genericLogger logLevel T.putStrLn
 
 withPact
     :: ChainwebVersion
