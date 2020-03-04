@@ -209,7 +209,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     doCoinbaseExploit pdb mc height localCmd precompile testResult = do
       let pd = PublicData def (int height) 0 ""
 
-      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd (mkTestHeader $ height - 1)
+      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd (mkTestParentHeader $ height - 1)
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
@@ -234,15 +234,15 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
     -- | someBlockHeader is a bit slow for the vuln797Fix to trigger. So, instead
     -- of mining a full chain we fake the height.
     --
-    mkTestHeader :: BlockHeight -> BlockHeader
-    mkTestHeader h = (someBlockHeader (FastTimedCPM singleton) 10)
+    mkTestParentHeader :: BlockHeight -> ParentHeader
+    mkTestParentHeader h = ParentHeader $ (someBlockHeader (FastTimedCPM singleton) 10)
         { _blockHeight = h }
 
 
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData someTestVersionHeader
+    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData someParentHeader
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) ->
@@ -257,6 +257,7 @@ testCoinbaseEnforceFailure = do
     toInt64 (Time (TimeSpan (Micros m))) = m
     blockHeight' = 123
     logger = newLogger neverLog ""
+    someParentHeader = ParentHeader someTestVersionHeader
 
 
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
@@ -306,7 +307,7 @@ testCoinbaseUpgradeDevnet cid upgradeHeight = do
     pubData = PublicData def (int upgradeHeight) 0 ""
     logger = newLogger neverLog "" -- set to alwaysLog to debug
 
-    parentHeader = (someBlockHeader v upgradeHeight)
+    parentHeader = ParentHeader $ (someBlockHeader v upgradeHeight)
       { _blockChainwebVersion = v
       , _blockChainId = cid
       }

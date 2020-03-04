@@ -104,10 +104,10 @@ data RequestMsg = NewBlockMsg NewBlockReq
 type PactExMVar t = MVar (Either PactException t)
 
 data NewBlockReq = NewBlockReq
-    { _newBlockHeader :: BlockHeader
-    , _newMiner :: Miner
+    { _newBlockHeader :: !ParentHeader
+    , _newMiner :: !Miner
     , _newCreationTime :: !BlockCreationTime
-    , _newResultVar :: PactExMVar PayloadWithOutputs
+    , _newResultVar :: !(PactExMVar PayloadWithOutputs)
     }
 instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
 

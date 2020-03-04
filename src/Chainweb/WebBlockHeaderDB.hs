@@ -130,12 +130,12 @@ mkWebBlockHeaderDb v m = WebBlockHeaderDb m v
 getWebBlockHeaderDb
     :: MonadThrow m
     => HasChainId p
-    => Given WebBlockHeaderDb
-    => p
+    => WebBlockHeaderDb
+    -> p
     -> m BlockHeaderDb
-getWebBlockHeaderDb p = do
-    checkWebChainId (given @WebBlockHeaderDb) p
-    return $! _webBlockHeaderDb given HM.! _chainId p
+getWebBlockHeaderDb db p = do
+    checkWebChainId db p
+    return $! _webBlockHeaderDb db HM.! _chainId p
 
 lookupWebBlockHeaderDb
     :: Given WebBlockHeaderDb
@@ -144,7 +144,7 @@ lookupWebBlockHeaderDb
     -> IO BlockHeader
 lookupWebBlockHeaderDb c h = do
     checkWebChainId (given @WebBlockHeaderDb) c
-    db <- getWebBlockHeaderDb c
+    db <- getWebBlockHeaderDb given c
     lookupM db h
 
 blockAdjacentParentHeaders
@@ -179,7 +179,7 @@ insertWebBlockHeaderDb
     => BlockHeader
     -> IO ()
 insertWebBlockHeaderDb h = do
-    db <- getWebBlockHeaderDb h
+    db <- getWebBlockHeaderDb given h
     checkBlockAdjacentParents h
     insert db h
 

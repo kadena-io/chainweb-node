@@ -60,6 +60,8 @@ module Chainweb.Test.Pact.Utils
 , freeSQLiteResource
 , testPactCtxSQLite
 , withPact
+, withTestBlockDbTest
+, withPactTestBlockDb
 , WithPactCtxSQLite
 , defaultPactServiceConfig
 -- * Block formation
@@ -530,8 +532,8 @@ zeroNoncer = const (return $ Nonce 0)
 runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockTime -> Noncer -> IO ()
 runCut v bdb pact genTime noncer =
   forM_ (chainIds v) $ \cid -> do
-    ph <- getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime ph)
+    ph <- ParentHeader <$> getParentTestBlockDb bdb cid
+    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime $ _parentHeader ph)
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
@@ -628,7 +630,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
 withMVarResource value = withResource (newMVar value) (const $ return ())
 
-withTime :: (IO (Time Integer) -> TestTree) -> TestTree
+withTime :: (IO (Time Micros) -> TestTree) -> TestTree
 withTime = withResource getCurrentTimeIntegral (const (return ()))
 
 mkKeyset :: Text -> [PublicKeyBS] -> Value
@@ -674,6 +676,43 @@ withBlockHeaderDb iordb b = withResource start stop
 
 withTemporaryDir :: (IO FilePath -> TestTree) -> TestTree
 withTemporaryDir = withResource (fst <$> newTempDir) removeDirectoryRecursive
+
+withTestBlockDbTest
+  :: ChainwebVersion -> (IO TestBlockDb -> TestTree) -> TestTree
+withTestBlockDbTest v a =
+  withRocksResource $ \rdb ->
+  withResource (start rdb) (const $ return ()) a
+  where
+    start r = r >>= mkTestBlockDb v
+
+
+withPactTestBlockDb
+    :: ChainwebVersion
+    -> ChainId
+    -> LogLevel
+    -> MemPoolAccess
+    -> PactServiceConfig
+    -> (IO (PactQueue,TestBlockDb) -> TestTree)
+    -> TestTree
+withPactTestBlockDb version cid logLevel mempool pactConfig f =
+  withTemporaryDir $ \iodir ->
+  withTestBlockDbTest version $ \bdbio ->
+  withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
+  where
+    startPact bdbio iodir = do
+        reqQ <- atomically $ newTBQueue 2000
+        dir <- iodir
+        bdb <- bdbio
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
+        let pdb = _bdbPayloadDb bdb
+        sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
+        a <- async $
+             initPactService version cid logger reqQ mempool bhdb pdb sqlEnv pactConfig
+        return (a, sqlEnv, (reqQ,bdb))
+
+    stopPact (a, sqlEnv, _) = cancel a >> stopSqliteDb sqlEnv
+
+    logger = genericLogger logLevel T.putStrLn
 
 withPact
     :: ChainwebVersion
