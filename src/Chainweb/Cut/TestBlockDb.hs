@@ -10,6 +10,7 @@
 module Chainweb.Cut.TestBlockDb
   ( TestBlockDb(..)
   , withTestBlockDb
+  , mkTestBlockDb
   , addTestBlockDb
   , getParentTestBlockDb
   ) where
@@ -43,11 +44,17 @@ data TestBlockDb = TestBlockDb
 withTestBlockDb :: ChainwebVersion -> (TestBlockDb -> IO a) -> IO a
 withTestBlockDb cv a = do
   withTempRocksDb "TestBlockDb" $ \rdb -> do
+    bdb <- mkTestBlockDb cv rdb
+    a bdb
+
+-- | Initialize TestBlockDb.
+mkTestBlockDb :: ChainwebVersion -> RocksDb -> IO TestBlockDb
+mkTestBlockDb cv rdb = do
     wdb <- initWebBlockHeaderDb rdb cv
     let pdb = newPayloadDb rdb
     initializePayloadDb cv pdb
     initCut <- newMVar $ genesisCut cv
-    a $ TestBlockDb wdb pdb initCut
+    return $! TestBlockDb wdb pdb initCut
 
 -- | Add a block.
 addTestBlockDb :: TestBlockDb -> Nonce -> GenBlockTime -> ChainId -> PayloadWithOutputs -> IO ()

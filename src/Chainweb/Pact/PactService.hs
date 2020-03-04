@@ -928,6 +928,8 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
+        setBlockData parentHeader -- could have been overwritten in rewind, so set again
+
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- execTransactions (Just parentHeader) miner newTrans
           (EnforceCoinbaseFailure True)
@@ -1069,18 +1071,13 @@ playOneBlock currHeader plData pdbenv = do
         return $! _blockCreationTime $ _parentHeader parentHeader
 
     -- prop_tx_ttl_validate
-    oks <- liftIO $ fmap (either (const False) (const True)) <$>
-        validateChainwebTxs cp txValidationTime (_blockHeight currHeader) trans skipDebitGas
+    valids <- V.zip trans <$> liftIO
+      (validateChainwebTxs cp txValidationTime (_blockHeight currHeader) trans skipDebitGas)
 
-    let mbad = V.elemIndex False oks
-    case mbad of
-        Nothing -> return ()  -- ok
-        Just idx -> let badtx = (V.!) trans idx
-                        hash = P._cmdHash badtx
-                        msg = [ (hash, validationErr hash) ]
-                    in throwM $ TransactionValidationException msg
+    case foldr handleValids [] valids of
+      [] -> return ()
+      errs -> throwM $ TransactionValidationException $ errs
 
-    -- transactions are now successfully validated.
     !results <- go miner trans
     psStateValidated .= Just currHeader
 
@@ -1092,17 +1089,12 @@ playOneBlock currHeader plData pdbenv = do
     return $! T2 miner results
 
   where
+
+    handleValids (tx,Left e) es = (P._cmdHash tx, sshow e):es
+    handleValids _ es = es
+
     v = _chainwebVersion currHeader
     h = _blockHeight currHeader
-    validationErr hash = mconcat
-      ["At "
-      , sshow (_blockHeight currHeader)
-      , " and "
-      , sshow (_blockHash currHeader)
-      , " this transaction (its hash): "
-      , sshow hash
-      , " failed to validate"
-      ]
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
@@ -1266,7 +1258,7 @@ runCoinbase (Just parentHeader) dbEnv miner enfCBFail usePrecomp mc = do
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
-
+    debugResult "runCoinbase" cr
     return $! cr
 
   where
@@ -1320,6 +1312,8 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     when isGenesis $
       psInitCache <>= mcache'
 
+    unless isGenesis $ debugResult "applyPactCmd" result
+
     cp <- getCheckpointer
     -- mark the tx as processed at the checkpointer.
     liftIO $ _cpRegisterProcessedTx cp (P._cmdHash cmdIn)
@@ -1342,6 +1336,14 @@ transactionsFromPayload plData = do
   where
     toCWTransaction bs = evaluate (force (codecDecode chainwebPayloadCodec $
                                           _transactionBytes bs))
+
+debugResult :: A.ToJSON a => Text -> a -> PactServiceM cas ()
+debugResult msg result =
+  logDebug $ T.unpack $ trunc $ msg <> " result: " <> encodeToText result
+  where
+    trunc t | T.length t < limit = t
+            | otherwise = T.take limit t <> " [truncated]"
+    limit = 5000
 
 execPreInsertCheckReq
     :: PayloadCas cas
