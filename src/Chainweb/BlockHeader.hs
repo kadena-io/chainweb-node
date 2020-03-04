@@ -339,6 +339,19 @@ newtype ParentHeader = ParentHeader
     deriving (Show, Generic)
     deriving anyclass (NFData)
 
+
+instance HasChainId ParentHeader where
+    _chainId = _chainId . _parentHeader
+    {-# INLINE _chainId #-}
+
+instance HasChainwebVersion ParentHeader where
+    _chainwebVersion = _chainwebVersion . _parentHeader
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph ParentHeader where
+    _chainGraph = _chainGraph . _parentHeader
+    {-# INLINE _chainGraph #-}
+
 -- -------------------------------------------------------------------------- --
 -- Block Header
 

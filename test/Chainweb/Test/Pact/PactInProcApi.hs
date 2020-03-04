@@ -96,7 +96,7 @@ newBlockTest :: String -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockTest label reqIO = golden label $ do
     (reqQ,_) <- reqIO
     let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-    respVar <- newBlock noMiner genesisHeader (BlockCreationTime blockTime) reqQ
+    respVar <- newBlock noMiner (ParentHeader genesisHeader) (BlockCreationTime blockTime) reqQ
     goldenBytes "new-block" =<< takeMVar respVar
 
 forSuccess :: String -> IO (MVar (Either PactException a)) -> IO a
@@ -114,7 +114,7 @@ runBlock
 runBlock q bdb blockTime msg = do
   ph <- getParentTestBlockDb bdb cid
   nb <- forSuccess (msg <> ": newblock") $
-        newBlock noMiner ph (BlockCreationTime blockTime) q
+        newBlock noMiner (ParentHeader ph) (BlockCreationTime blockTime) q
   forM_ (chainIds testVersion) $ \c -> do
     let o | c == cid = nb
           | otherwise = emptyPayload
@@ -182,7 +182,7 @@ badlistNewBlockTest :: IO (PactQueue,TestBlockDb) -> TestTree
 badlistNewBlockTest reqIO = testCase "badlist-new-block-test" $ do
     (reqQ,_) <- reqIO
     expectBadlistException $ do
-        m <- newBlock noMiner genesisHeader blockTime reqQ
+        m <- newBlock noMiner (ParentHeader genesisHeader) blockTime reqQ
         takeMVar m >>= either throwIO (const (return ()))
   where
     blockTime = BlockCreationTime $ Time $ secondsToTimeSpan $

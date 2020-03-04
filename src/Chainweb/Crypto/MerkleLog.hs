@@ -359,7 +359,7 @@ data MerkleLogEntries
         -> MerkleLogEntries u t b
         -> MerkleLogEntries u (h ': t) b
 
-    -- TODO: shold we support lazy lists/streams in the body or more
+    -- TODO: should we support lazy lists/streams in the body or more
     -- generally abstracting a store the may be backed by a persisted
     -- database? All we need is the ability to enumerate items in order. We
     -- may also consider support to lookup the index of an item for creating

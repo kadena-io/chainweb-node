@@ -198,7 +198,7 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
-localTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
+localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
     cenv <- fmap _getClientEnv nio
     mv <- newMVar 0
@@ -210,7 +210,7 @@ localTest iot nio = do
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
-localChainDataTest :: IO (Time Integer) -> IO ChainwebNetwork -> IO ()
+localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
     cenv <- fmap _getClientEnv nio
     mv <- newMVar (0 :: Int)
@@ -253,7 +253,7 @@ pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
     void $ polling sid cenv rks ExpectPactError
 
 
-sendValidationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
     testCaseSteps "/send reports validation failure" $ \step -> do
         step "check sending poisoned TTL batch"
@@ -309,7 +309,7 @@ expectSendFailure expectErr act = do
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (isInfixOf expectErr)
 
 
-spvTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
@@ -360,7 +360,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= tid
         ]
 
-txTooBigGasTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     sid <- mkChainId v (0 :: Int)
@@ -425,7 +425,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     txcode1 = txcode0 <> "(identity 1)"
 
 
-caplistTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+caplistTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step -> do
 
     let testCaseStep = void . liftIO . step
@@ -472,7 +472,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     tx0 = PactTransaction "(coin.transfer \"sender00\" \"sender01\" 100.0)" Nothing
 
 
-allocationTest :: IO (Time Integer) -> IO ChainwebNetwork -> TestTree
+allocationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     let testCaseStep = void . liftIO . step
@@ -601,7 +601,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 -- Utils
 
 mkSingletonBatch
-    :: IO (Time Integer)
+    :: IO (Time Micros)
     -> ChainwebKeyPair
     -> PactTransaction
     -> Maybe String
@@ -616,7 +616,7 @@ mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
     return $ SubmitBatch (cmd NEL.:| [])
 
 withRequestKeys
-    :: IO (Time Integer)
+    :: IO (Time Micros)
     -> IO (MVar Int)
     -> IO ChainwebNetwork
     -> (IO RequestKeys -> TestTree)
@@ -629,7 +629,7 @@ withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) 
         mNonce <- ioNonce
         testSend iot mNonce cenv
 
-testSend :: IO (Time Integer) -> MVar Int -> ClientEnv -> IO RequestKeys
+testSend :: IO (Time Micros) -> MVar Int -> ClientEnv -> IO RequestKeys
 testSend iot mNonce env = testBatch iot mNonce gp >>= sending cid env
 
 getClientEnv :: BaseUrl -> IO ClientEnv
@@ -773,7 +773,7 @@ polling sid cenv rks pollingExpectation =
       Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
       Nothing -> False
 
-testBatch'' :: Pact.ChainId -> IO (Time Integer) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch'' :: Pact.ChainId -> IO (Time Micros) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
@@ -784,10 +784,10 @@ testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
     pm = Pact.PublicMeta chain "sender00" 1000 gp' (fromInteger ttl)
 
-testBatch' :: IO (Time Integer) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch' :: IO (Time Micros) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch' = testBatch'' pactCid
 
-testBatch :: IO (Time Integer) -> MVar Int -> GasPrice -> IO SubmitBatch
+testBatch :: IO (Time Micros) -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch iot mnonce = testBatch' iot ttl mnonce
   where
     ttl = 2 * 24 * 60 * 60

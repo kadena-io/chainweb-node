@@ -407,7 +407,7 @@ tryMineForChain miner webPact cutDb c cid = do
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where
-    parent = c ^?! ixg cid -- parent to mine on
+    parent = ParentHeader $ c ^?! ixg cid -- parent to mine on
 
     payloadDb = view cutDbPayloadCas cutDb
     webDb = view cutDbWebBlockHeaderDb cutDb
