@@ -37,7 +37,6 @@ module Chainweb.Miner.Coordinator
 
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
-import Data.Coerce (coerce)
 
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
@@ -52,7 +51,7 @@ import Data.Foldable (foldl')
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
@@ -97,7 +96,7 @@ type CachedPayload = T2 PayloadWithOutputs BlockCreationTime
 -- `publish`.
 --
 newtype MiningState = MiningState
-    (M.Map (T2 BlockCreationTime BlockPayloadHash) (T3 Miner PrevTime PayloadWithOutputs))
+    (M.Map (T2 BlockCreationTime BlockPayloadHash) (T2 Miner PayloadWithOutputs))
     deriving stock (Generic)
     deriving newtype (Semigroup, Monoid)
 
@@ -137,7 +136,7 @@ newWork
     -> PactExecutionService
     -> TVar PrimedWork
     -> Cut
-    -> IO (T3 PrevTime BlockHeader PayloadWithOutputs)
+    -> IO (T2 BlockHeader PayloadWithOutputs)
 newWork logFun choice eminer pact tpw c = do
     -- Randomly pick a chain to mine on, unless the caller specified a specific
     -- one.
@@ -164,7 +163,7 @@ newWork logFun choice eminer pact tpw c = do
             --
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
-            pure $ T3 (PrevTime . _blockCreationTime $ coerce p) header payload
+            pure $ T2 header payload
   where
     primed
         :: Miner
@@ -214,7 +213,7 @@ publish lf (MiningState ms) cdb bh = do
         -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
         -- Payload we know about, reject it.
         --
-        T3 m _ pl <- M.lookup (T2 bct phash) ms
+        T2 m pl <- M.lookup (T2 bct phash) ms
             ?? T2 "Unknown" "No associated Payload"
 
         let !miner = m ^. minerId . _Unwrapped

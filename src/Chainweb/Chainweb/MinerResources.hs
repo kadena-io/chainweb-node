@@ -35,7 +35,7 @@ import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
 import Data.List (foldl')
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
 import Control.Concurrent (threadDelay)
@@ -196,7 +196,7 @@ withMiningCoordination logger conf cdb inner
         ago <- over (_Unwrapped . _Unwrapped) (subtract maxAge) <$> getCurrentTimeIntegral
         m@(MiningState ms) <- atomically $ do
             ms <- readTVar t
-            modifyTVar' t . over _Unwrapped $ M.filter (f ago)
+            modifyTVar' t . over _Unwrapped $ M.filterWithKey (f ago)
             pure ms
         count503 <- readIORef c503
         count403 <- readIORef c403
@@ -216,14 +216,14 @@ withMiningCoordination logger conf cdb inner
     -- sufficient to mine a block this constant must be changed in order to
     -- recover.
     --
-    f :: Time Micros -> T3 a PrevTime b -> Bool
-    f ago (T3 _ (PrevTime p) _) = p > BlockCreationTime ago
+    f :: Time Micros -> T2 BlockCreationTime c -> v -> Bool
+    f ago (T2 ct _) _ = ct > BlockCreationTime ago
 
     avgTxs :: MiningState -> Int
     avgTxs (MiningState ms) = summed `div` max 1 (M.size ms)
       where
         summed :: Int
-        summed = M.foldl' (\acc (T3 _ _ ps) -> acc + g ps) 0 ms
+        summed = M.foldl' (\acc (T2 _ ps) -> acc + g ps) 0 ms
 
         g :: PayloadWithOutputs -> Int
         g = V.length . _payloadWithOutputsTransactions

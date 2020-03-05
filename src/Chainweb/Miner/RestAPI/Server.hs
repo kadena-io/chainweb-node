@@ -38,7 +38,7 @@ import Data.Proxy (Proxy(..))
 import qualified Data.Set as S
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T2(..))
 
 import Network.HTTP.Types.Status
 import Network.Wai (responseLBS)
@@ -102,10 +102,10 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
+    T2 bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (minerStatus m) p pl
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T2 (minerStatus m) pl
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     logf :: LogFunction
