@@ -145,7 +145,7 @@ newBlockRewindValidate noncer reqIO = testCase "newBlockRewindValidate" $ do
   -- rewind to cut 1a to trigger replay with chain data bug
   void $ swapMVar (_bdbCut bdb) cut1a
   void $ swapMVar nonce "2"
-  runBlock q bdb (scaleTimeSpan 2 second) "newBlockRewindValidate-2"
+  runBlock q bdb (secondsToTimeSpan 2) "newBlockRewindValidate-2"
 
 
 
