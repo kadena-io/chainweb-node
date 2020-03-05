@@ -32,11 +32,13 @@ import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 
+import Chainweb.BlockHeader
 import Chainweb.BlockCreationTime
 import Chainweb.ChainId
 import Chainweb.Pact.Backend.Types
 import Chainweb.Time
 import Chainweb.Transaction
+import Chainweb.Version
 
 fromPactChainId :: MonadThrow m => P.ChainId -> m ChainId
 fromPactChainId (P.ChainId t) = chainIdFromText t
@@ -81,14 +83,14 @@ timingsCheck
     -> Bool
 timingsCheck (BlockCreationTime txValidationTime) tx =
     ttl > 0
-    && txValidationTime >= toMicrosFromSeconds 0
+    && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime <= txValidationTime
-    && toMicrosFromSeconds (txOriginationTime + ttl) > txValidationTime
+    && timeFromSeconds txOriginationTime <= txValidationTime
+    && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
-    toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+    timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
     (TxCreationTime txOriginationTime) = creationTimeOf tx
 
 -- -------------------------------------------------------------------------- --
@@ -99,27 +101,47 @@ timingsCheck (BlockCreationTime txValidationTime) tx =
 -- prop_tx_ttl_newBlock/validateBlock
 --
 newBlockTimingsCheck
-    :: BlockCreationTime
+    :: ParentHeader
+    -> BlockCreationTime
         -- ^ validation of the parent header
     -> Command (Payload PublicMeta ParsedCode)
     -> Bool
-newBlockTimingsCheck (BlockCreationTime txValidationTime) tx =
+newBlockTimingsCheck parentHeader (BlockCreationTime txValidationTime) tx =
     ttl > 0
-    && txValidationTime >= toMicrosFromSeconds 0
+    && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime <= txValidationTime
-    && toMicrosFromSeconds (txOriginationTime + (ttl - compatPeriod)) > txValidationTime
+    && timeFromSeconds txOriginationTime <= txValidationTime
+    && timeFromSeconds (txOriginationTime + ttl - compatPeriod) > txValidationTime
     && ttl <= maxTTL
-    && ttl >= minTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
-    toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+    timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
     (TxCreationTime txOriginationTime) = creationTimeOf tx
 
     -- ensure that every block that validates with
     -- @txValidationTime == _blockCreatinTime parentHeader@ (new behavior) also validates with
     -- @txValidationTime == _blockCreationTime currentHeader@ (old behavior).
     --
-    compatPeriod = 60 * 30 -- 30 minutes
-    minTTL = ParsedInteger $ 60 * 60 -- 60 min
+    -- The compat period puts an effective lower limit on the TTL value. During
+    -- the transition period any transactions that is submitted with a lower TTL
+    -- value is considered expired and rejected immediately. After the
+    -- transition period, which will probably last a few days, the compat period
+    -- is disabled again.
+    --
+    -- The time between two blocks is distributed exponentially with a rate \(r\) of 2
+    -- blocks per minutes. The quantiles of the exponential distribution with
+    -- parameter \(r\) is \(quantile(x) = \frac{- ln(1 - x)}{r}\).
+    --
+    -- Thus the 99.99% will be solved in less than @(- log (1 - 0.9999)) / 2@
+    -- minutes, which is less than 5 minutes.
+    --
+    -- In practice, due to the effects of difficulty adjustement, the
+    -- distribution is skewed such that the 99.99 percentile is actually a
+    -- little less than 3 minutes.
+    --
+    compatPeriod
+        | useCurrentHeaderCreationTimeForTxValidation v bh =  60 * 3
+        | otherwise = 0
+    v = _chainwebVersion parentHeader
+    bh = succ $ _blockHeight $ _parentHeader parentHeader
 

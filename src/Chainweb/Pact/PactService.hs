@@ -770,7 +770,7 @@ validateChainwebNewBlockTxsTimings parentHeader txs
   txValidationTime = _blockCreationTime $ _parentHeader parentHeader
   checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
   checkTimes t
-      | newBlockTimingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
+      | newBlockTimingsCheck parentHeader txValidationTime $ fmap payloadObj t = return $ Right t
       | otherwise = return $ Left InsertErrorInvalidTime
 
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
