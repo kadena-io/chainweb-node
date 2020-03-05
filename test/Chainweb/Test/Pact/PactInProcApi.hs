@@ -45,6 +45,7 @@ import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.Cut.TestBlockDb
@@ -106,9 +107,10 @@ forSuccess msg mvio = (`catch` handler) $ do
   where
     handler (e :: SomeException) = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
-runBlock :: PactQueue -> TestBlockDb -> Time Micros -> String -> IO ()
-runBlock q bdb blockTime msg = do
+runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO ()
+runBlock q bdb timeOffset msg = do
   ph <- getParentTestBlockDb bdb cid
+  let blockTime = add timeOffset $ _bct $ _blockCreationTime ph
   nb <- forSuccess (msg <> ": newblock") $
         newBlock noMiner (ParentHeader ph) q
   forM_ (chainIds testVersion) $ \c -> do
@@ -123,30 +125,27 @@ runBlock q bdb blockTime msg = do
 newBlockAndValidate :: IO (PactQueue,TestBlockDb) -> TestTree
 newBlockAndValidate reqIO = testCase "newBlockAndValidate" $ do
   (q,bdb) <- reqIO
-  let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
-  void $ runBlock q bdb blockTime "newBlockAndValidate"
+  void $ runBlock q bdb second "newBlockAndValidate"
 
 newBlockRewindValidate :: IO (MVar T.Text) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockRewindValidate noncer reqIO = testCase "newBlockRewindValidate" $ do
   (q,bdb) <- reqIO
   nonce <- noncer
-  let blockTime = Time $ secondsToTimeSpan $ Seconds $ succ 1000000
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
   -- cut 1a
-  runBlock q bdb blockTime "newBlockRewindValidate-1a"
+  runBlock q bdb second "newBlockRewindValidate-1a"
   cut1a <- readMVar $ _bdbCut bdb
 
   -- rewind, cut 1b
   void $ swapMVar (_bdbCut bdb) cut0
   void $ swapMVar nonce "1'"
-  runBlock q bdb blockTime "newBlockRewindValidate-1b"
+  runBlock q bdb second "newBlockRewindValidate-1b"
 
   -- rewind to cut 1a to trigger replay with chain data bug
   void $ swapMVar (_bdbCut bdb) cut1a
   void $ swapMVar nonce "2"
-  let bt2 = succ blockTime
-  runBlock q bdb bt2 "newBlockRewindValidate-2"
+  runBlock q bdb (scaleTimeSpan 2 second) "newBlockRewindValidate-2"
 
 
 
@@ -216,11 +215,10 @@ modifyPayloadWithText f pwt = mkPayloadWithText newPayload
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = mempty
-    { mpaGetBlock = \validate bh hash _header ->
-        getTestBlock validate bh hash
+    { mpaGetBlock = getTestBlock
     }
   where
-    getTestBlock validate bHeight bHash = do
+    getTestBlock validate bHeight bHash parentHeader = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         d <- adminData
         let txs = V.fromList
@@ -238,11 +236,11 @@ testMemPoolAccess = mempty
               ]
         let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
             g = modifyPayloadWithText . set (pMeta . pmTTL)
+            t = toTxCreationTime $ _bct $ _blockCreationTime parentHeader
         outtxs' <- goldenTestTransactions txs
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60
-                in fmap ((g ttl) . (f (TxCreationTime $ ParsedInteger 0))) tx
-                    -- genesisBlockHeader has block time 0
+                in fmap (g ttl . f t) tx
         oks <- validate bHeight bHash outtxs
         unless (V.and oks) $ fail $ mconcat
             [ "tx failed validation! input list: \n"
@@ -267,9 +265,11 @@ testMempoolChainData noncer = mempty {
     ts bh = do
       let txs = V.fromList [ PactTransaction "(chain-data)" Nothing ]
           c = P.ChainId $ sshow (chainIdInt (_blockChainId bh) :: Integer)
+          txTime = toTxCreationTime $ _bct $ _blockCreationTime bh
+          txTtl = 1000 -- seconds
       n <- readMVar =<< noncer
       ks <- testKeyPairs sender00KeyPair Nothing
-      mkTestExecTransactions "sender00" c ks n 10000 0.01 1000 1000000 txs
+      mkTestExecTransactions "sender00" c ks n 10000 0.01 txTtl txTime txs
 
 
 _testLocal :: IO ChainwebTransaction
