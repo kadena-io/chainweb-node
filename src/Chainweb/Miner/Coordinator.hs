@@ -52,13 +52,10 @@ import Data.Foldable (foldl')
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
-import Data.Ratio ((%))
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
-
-import Numeric.Natural (Natural)
 
 import System.LogLevel (LogLevel(..))
 
@@ -72,12 +69,11 @@ import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
-import Chainweb.Difficulty
 import Chainweb.Logging.Miner
 import Chainweb.Miner.Pact (Miner(..), MinerId(..), minerId)
 import Chainweb.Payload
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Micros(..), getCurrentTimeIntegral)
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
@@ -218,7 +214,7 @@ publish lf (MiningState ms) cdb bh = do
         -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
         -- Payload we know about, reject it.
         --
-        T3 m p pl <- M.lookup (T2 bct phash) ms
+        T3 m _ pl <- M.lookup (T2 bct phash) ms
             ?? T2 "Unknown" "No associated Payload"
 
         let !miner = m ^. minerId . _Unwrapped
@@ -251,10 +247,8 @@ publish lf (MiningState ms) cdb bh = do
                 { _minedBlockHeader = ObjectEncoded bh
                 , _minedBlockTrans = int . V.length $ _payloadWithOutputsTransactions pl
                 , _minedBlockSize = int bytes
-                , _minedHashAttempts = estimatedHashes p bh
                 , _minedBlockMiner = miner
-                , _minedBlockDiscoveredAt = now
-                }
+                , _minedBlockDiscoveredAt = now }
     case res of
         -- The solution is already stale, so we can do whatever work we want to
         -- here.
@@ -262,19 +256,6 @@ publish lf (MiningState ms) cdb bh = do
             let !p = c ^?! ixg (_chainId bh)
             lf Info . JsonLog $ OrphanedBlock (ObjectEncoded bh) (ObjectEncoded p) now mnr msg
         Right r -> lf Info $ JsonLog r
-
--- | The estimated per-second Hash Power of the network, guessed from the time
--- it took to mine this block among all miners on the chain.
---
-estimatedHashes :: PrevTime -> BlockHeader -> Natural
-estimatedHashes (PrevTime p) b = floor $ (d % t) * 1000000
-  where
-    t :: Integer
-    t = case timeBetween (_blockCreationTime b) p of Micros t' -> int t'
-
-    d :: Integer
-    d = case targetToDifficulty $ _blockTarget b of
-        HashDifficulty (PowHashNat w) -> int w
 
 getAdjacentParents :: Cut -> BlockHeader -> Maybe BlockHashRecord
 getAdjacentParents c p = BlockHashRecord <$> newAdjHashes
