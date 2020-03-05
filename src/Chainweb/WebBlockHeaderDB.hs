@@ -51,9 +51,34 @@ import Chainweb.Graph
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.WebBlockHeaderDB.Types
 
 import Data.CAS.RocksDB
+
+-- -------------------------------------------------------------------------- --
+-- Web Chain Database
+
+-- | Every WebChain has the following properties
+--
+-- * All entires of _webBlockHeaderDb are valid BlockHeaderDbs
+-- * There are no dangling adjacent parent hashes
+-- * The adjacent hashes of all block headers conform with the chain graph
+--   of the web chain.
+--
+--  TODO: in order to enforce these invariants the insertion to
+--  the dbs must be guarded see issue #123.
+--
+data WebBlockHeaderDb = WebBlockHeaderDb
+    { _webBlockHeaderDb :: !(HM.HashMap ChainId BlockHeaderDb)
+    , _webChainwebVersion :: !ChainwebVersion
+    }
+
+instance HasChainGraph WebBlockHeaderDb where
+    _chainGraph = _chainGraph . _webChainwebVersion
+    {-# INLINE _chainGraph #-}
+
+instance HasChainwebVersion WebBlockHeaderDb where
+    _chainwebVersion = _webChainwebVersion
+    {-# INLINE _chainwebVersion #-}
 
 webBlockHeaderDb :: Getter WebBlockHeaderDb (HM.HashMap ChainId BlockHeaderDb)
 webBlockHeaderDb = to _webBlockHeaderDb
@@ -105,12 +130,12 @@ mkWebBlockHeaderDb v m = WebBlockHeaderDb m v
 getWebBlockHeaderDb
     :: MonadThrow m
     => HasChainId p
-    => Given WebBlockHeaderDb
-    => p
+    => WebBlockHeaderDb
+    -> p
     -> m BlockHeaderDb
-getWebBlockHeaderDb p = do
-    checkWebChainId (given @WebBlockHeaderDb) p
-    return $! _webBlockHeaderDb given HM.! _chainId p
+getWebBlockHeaderDb db p = do
+    checkWebChainId db p
+    return $! _webBlockHeaderDb db HM.! _chainId p
 
 lookupWebBlockHeaderDb
     :: Given WebBlockHeaderDb
@@ -119,7 +144,7 @@ lookupWebBlockHeaderDb
     -> IO BlockHeader
 lookupWebBlockHeaderDb c h = do
     checkWebChainId (given @WebBlockHeaderDb) c
-    db <- getWebBlockHeaderDb c
+    db <- getWebBlockHeaderDb given c
     lookupM db h
 
 blockAdjacentParentHeaders
@@ -154,7 +179,7 @@ insertWebBlockHeaderDb
     => BlockHeader
     -> IO ()
 insertWebBlockHeaderDb h = do
-    db <- getWebBlockHeaderDb h
+    db <- getWebBlockHeaderDb given h
     checkBlockAdjacentParents h
     insert db h
 

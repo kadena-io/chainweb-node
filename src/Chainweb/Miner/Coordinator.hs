@@ -64,9 +64,11 @@ import System.LogLevel (LogLevel(..))
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation (prop_block_pow)
+import Chainweb.BlockHeight
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -179,7 +181,7 @@ newWork logFun choice eminer pact tpw c = do
         <*> getAdjacentParents c p
 
     public :: ParentHeader -> Miner -> IO (Maybe (T2 CachedPayload BlockHashRecord))
-    public (ParentHeader p) miner = case getAdjacentParents c p of
+    public p miner = case getAdjacentParents c (_parentHeader p) of
         Nothing -> pure Nothing
         Just adj -> do
             creationTime <- BlockCreationTime <$> getCurrentTimeIntegral

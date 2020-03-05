@@ -24,6 +24,7 @@ import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
+import qualified Chainweb.Test.BlockHeader.Validation
 import qualified Chainweb.Test.BlockHeaderDB
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
@@ -34,6 +35,7 @@ import qualified Chainweb.Test.Misc
 import qualified Chainweb.Test.Pact.ChainData
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
+import qualified Chainweb.Test.Pact.NoCoinbase
 import qualified Chainweb.Test.Pact.PactExec
 import qualified Chainweb.Test.Pact.PactInProcApi
 import qualified Chainweb.Test.Pact.PactReplay
@@ -64,7 +66,7 @@ import qualified P2P.TaskQueue.Test (properties)
 main :: IO ()
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
-    withToyDB rdb toyChainId $ \h0 db -> do
+    withToyDB rdb toyChainId $ \h0 db ->
         defaultMain
             $ adjustOption adj
             $ testGroup "Chainweb Tests" . schedule Sequential
@@ -91,6 +93,7 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.ModuleCacheOnRestart.tests
         , Chainweb.Test.Pact.TTL.tests
         , Chainweb.Test.Pact.RewardsTest.tests
+        , Chainweb.Test.Pact.NoCoinbase.tests
         ]
 
 suite :: RocksDb -> [ScheduledTest]
@@ -114,6 +117,7 @@ suite rdb =
         , Chainweb.Test.Miner.Core.tests
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
+        , Chainweb.Test.BlockHeader.Validation.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties

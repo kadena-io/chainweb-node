@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.5
+version:      1.6
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -48,10 +48,6 @@ data-files:
 source-repository head
     type: git
     location: https://github.com/kadena-io/chainweb.git
-
-flag use_systemd
-    description: Use systemd watchdog features if set.
-    default: True
 
 flag ed25519
     description:
@@ -116,7 +112,8 @@ library
     autogen-modules:
         Paths_chainweb
     exposed-modules:
-          Chainweb.BlockHash
+          Chainweb.BlockCreationTime
+        , Chainweb.BlockHash
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
@@ -137,10 +134,13 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet9Payload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
+        , Chainweb.BlockHeaderDB.Internal
+        , Chainweb.BlockHeaderDB.PruneForks
         , Chainweb.BlockHeaderDB.RestAPI
         , Chainweb.BlockHeaderDB.RestAPI.Client
         , Chainweb.BlockHeaderDB.RestAPI.Server
-        , Chainweb.BlockHeaderDB.Types
+        , Chainweb.BlockHeight
+        , Chainweb.BlockWeight
         , Chainweb.ChainId
         , Chainweb.Chainweb
         , Chainweb.Chainweb.ChainResources
@@ -151,13 +151,13 @@ library
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
         , Chainweb.Cut.Test
+        , Chainweb.Cut.TestBlockDb
         , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
         , Chainweb.CutDB.RestAPI.Client
         , Chainweb.CutDB.RestAPI.Server
         , Chainweb.CutDB.Sync
-        , Chainweb.CutDB.Types
         , Chainweb.Difficulty
         , Chainweb.Graph
         , Chainweb.HostAddress
@@ -189,7 +189,6 @@ library
         , Chainweb.Payload.PayloadStore
         , Chainweb.Payload.PayloadStore.InMemory
         , Chainweb.Payload.PayloadStore.RocksDB
-        , Chainweb.Payload.PayloadStore.Types
         , Chainweb.Payload.RestAPI
         , Chainweb.Payload.RestAPI.Server
         , Chainweb.Payload.RestAPI.Client
@@ -210,7 +209,6 @@ library
         , Chainweb.Store.CAS.FS
         , Chainweb.Sync.WebBlockHeaderStore
         , Chainweb.Sync.WebBlockHeaderStore.Test
-        , Chainweb.Sync.WebBlockHeaderStore.Types
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
@@ -221,12 +219,9 @@ library
         , Chainweb.Utils.Bench
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
-        , Chainweb.Utils.Watchdog
         , Chainweb.Version
         , Chainweb.WebBlockHeaderDB
-        , Chainweb.WebBlockHeaderDB.Types
         , Chainweb.WebPactExecutionService
-        , Chainweb.WebPactExecutionService.Types
 
         , Control.Concurrent.FixedThreadPool
 
@@ -265,6 +260,7 @@ library
         , Chainweb.Pact.Backend.SQLite.V2
         , Chainweb.Pact.Backend.Types
         , Chainweb.Pact.Backend.Utils
+        , Chainweb.Pact.NoCoinbase
         , Chainweb.Pact.PactService
         , Chainweb.Pact.RestAPI
         , Chainweb.Pact.RestAPI.Server
@@ -359,7 +355,7 @@ library
         , mwc-random >= 0.13
         , mwc-probability >= 2.0 && <2.2
         , neat-interpolation >= 0.3.2
-        , network >= 2.6
+        , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
         , pact >= 2.6
         , paths >= 0.2
@@ -415,11 +411,11 @@ library
         , yaml >= 0.11
         , yet-another-logger >= 0.3.1
 
+        -- this should eventually go into pact
+        , prettyprinter < 1.6.1
+
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
-    if flag(use_systemd) && os(linux)
-        build-depends: systemd >= 1.2
-        cpp-options: -DWITH_SYSTEMD=1
     if flag(ghc-flags)
         ghc-options: -fplugin GhcFlags.Plugin
         build-depends: ghcflags
@@ -439,6 +435,7 @@ test-suite chainweb-tests
     main-is: ChainwebTests.hs
     other-modules:
         Chainweb.Test.BlockHeader.Genesis
+        Chainweb.Test.BlockHeader.Validation
         Chainweb.Test.BlockHeaderDB
         Chainweb.Test.CutDB
         Chainweb.Test.Mempool
@@ -454,6 +451,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
+        Chainweb.Test.Pact.NoCoinbase
         Chainweb.Test.Pact.RewardsTest
         Chainweb.Test.Pact.PactExec
         Chainweb.Test.Pact.PactReplay
@@ -506,7 +504,7 @@ test-suite chainweb-tests
         , loglevel >= 0.1
         , mtl >= 2.2
         , neat-interpolation >= 0.3
-        , network >= 2.6
+        , network >= 2.6 && < 3.1.1
         , http-client-tls >=0.3
         , pact >= 2.6
         , paths >= 0.2
@@ -685,7 +683,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/standalone tools/txg tools/txstream tools/test-miner tools/header-dump node test
+    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txg tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -694,6 +692,7 @@ executable cwtool
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
+        CheckpointerDBChecksum
         Ea
         Ea.Genesis
         EncodeDecodeB64Util
@@ -703,9 +702,6 @@ executable cwtool
         Network.X509.SelfSigned.Test
         RunNodes
         SlowTests
-        Standalone
-        Standalone.Chainweb
-        Standalone.Utils
         TXG
         TXG.Repl
         TXG.ReplInternals
@@ -733,14 +729,17 @@ executable cwtool
         , base16-bytestring >= 0.1
         , bytes >= 0.15
         , bytestring >= 0.10
+        , cereal >= 0.5
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
+        , cryptonite >= 0.25
         , data-default >= 0.7
         , deepseq >= 1.4
+        , direct-sqlite >= 2.3
         , directory >= 1.3
         , file-embed
         , filepath
@@ -757,23 +756,25 @@ executable cwtool
         , lens >= 4.16
         , loglevel >= 0.1
         , managed >= 1.0
+        , memory >=0.14
         , mmorph >= 1.1
         , mtl >= 2.2
         , mwc-random >= 0.13
         , neat-interpolation >= 0.3.2
-        , network >= 2.6
+        , network >= 2.6 && < 3.1.1
         , nonempty-containers >= 0.1
         , optparse-applicative >= 0.14
         , pact >= 2.6
         , paths >= 0.2
         , pretty-simple >= 2.1
-        , process >= 1.5
         , primitive >= 0.6
+        , process >= 1.5
         , random >= 1.1
         , random-bytestring >= 0.1
         , random-strings
         , resourcet >= 1.2
         , rocksdb-haskell >= 1.0
+        , safe-exceptions >= 0.1
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16
@@ -782,6 +783,7 @@ executable cwtool
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , streaming-concurrency >= 0.3.1.3
+        , strict-tuple >= 0.1.3
         , string-conv >= 0.1
         , tasty >= 1.0
         , tasty-golden >= 2.3

@@ -44,8 +44,6 @@ import qualified Data.Text as T
 
 import qualified Network.HTTP.Client as HTTP
 
-import Numeric.Natural (Natural)
-
 import Prelude hiding (log)
 
 import System.LogLevel
@@ -53,6 +51,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Graph
@@ -66,6 +65,7 @@ import Chainweb.Mempool.P2pConfig
 import qualified Chainweb.Mempool.RestAPI.Client as MPC
 import Chainweb.NodeId
 import Chainweb.Pact.Service.PactInProcApi
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Transaction
@@ -123,24 +123,18 @@ withChainResources
     -> Maybe FilePath
         -- ^ database directory for checkpointer
     -> Maybe NodeId
-    -> Bool
-        -- ^ reset database directory
-    -> Natural
-    -> Natural
-        -- ^ deep fork limit
+    -> PactServiceConfig
     -> (ChainResources logger -> IO a)
     -> IO a
 withChainResources
-  v cid rdb peer logger mempoolCfg0 payloadDb prune dbDir nodeid resetDb
-  pactQueueSize deepForkLimit inner =
+  v cid rdb peer logger mempoolCfg0 payloadDb prune dbDir nodeid pactConfig inner =
     withBlockHeaderDb rdb v cid $ \cdb -> do
       pexMv <- newEmptyMVar
       let mempoolCfg = mempoolCfg0 pexMv
       Mempool.withInMemoryMempool_ (setComponent "mempool" logger) mempoolCfg v $ \mempool -> do
         mpc <- MPCon.mkMempoolConsensus mempool cdb $ Just payloadDb
         withPactService v cid (setComponent "pact" logger) mpc cdb
-                        payloadDb dbDir nodeid resetDb pactQueueSize
-                        deepForkLimit $ \requestQ -> do
+                        payloadDb dbDir nodeid pactConfig $ \requestQ -> do
             -- prune block header db
             when prune $ do
                 logg Info "start pruning block header database"

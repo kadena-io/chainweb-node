@@ -95,7 +95,6 @@ import qualified Data.Heap as H
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
-import Data.Reflection hiding (int)
 import Data.These
 
 import GHC.Generics (Generic)
@@ -112,6 +111,8 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeaders)
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.TreeDB hiding (properties)
@@ -242,7 +243,7 @@ limitCut wdb h c
     ch = h `div` int gorder
 
     go cid bh = do
-        !db <- give wdb $ getWebBlockHeaderDb cid
+        !db <- getWebBlockHeaderDb wdb cid
         fromJuste <$> seekAncestor db bh (min (int $ _blockHeight bh) (int ch))
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
@@ -430,7 +431,7 @@ join_ wdb prioFun a b = do
         -> (ChainId, BlockHeader, BlockHeader)
         -> IO (HM.HashMap ChainId BlockHeader, JoinQueue a)
     f (m, q) (cid, x, y) = do
-        db <- give wdb $ getWebBlockHeaderDb cid
+        db <- getWebBlockHeaderDb wdb cid
         (q' :> h) <- S.fold g q id $ branchDiff_ db x y
         let !h' = q' `seq` h `seq` HM.insert cid h m
         return $! (h', q')
@@ -558,7 +559,7 @@ meet wdb a b = do
     return $! Cut r (_chainwebVersion wdb)
   where
     f (!cid, !x, !y) = (cid,) <$!> do
-        db <- give wdb $ getWebBlockHeaderDb cid
+        db <- getWebBlockHeaderDb wdb cid
         forkEntry db x y
 
 forkDepth

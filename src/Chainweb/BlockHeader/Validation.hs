@@ -40,6 +40,7 @@ module Chainweb.BlockHeader.Validation
 , prop_block_genesis_parent
 , prop_block_genesis_target
 , prop_block_target
+, prop_block_featureFlags
 
 -- * Inductive BlockHeader Properties
 , prop_block_epoch
@@ -60,6 +61,7 @@ import qualified Data.List as L
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash)
@@ -67,6 +69,7 @@ import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.Utils
+import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Validation
@@ -102,6 +105,7 @@ instance Show ValidationFailure where
             BlockInTheFuture -> "The creation time of the block is in the future"
             IncorrectPayloadHash -> "The payload hash does not match the payload hash that results from payload validation"
             MissingPayload -> "The payload of the block is missing"
+            InvalidFeatureFlags -> "The block has an invalid feature flag value"
 
 -- | An enumeration of possible validation failures for a block header.
 --
@@ -148,6 +152,8 @@ data ValidationFailureType
         -- ^ The validation of the payload hash failed.
     | MissingPayload
         -- ^ The payload for the block is missing.
+    | InvalidFeatureFlags
+        -- ^ The block has an invalid feature flag setting
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
@@ -222,7 +228,7 @@ validateBlockHeaderM
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateBlockHeaderM t p e = unless (null $ failures)
+validateBlockHeaderM t p e = unless (null failures)
     $ throwM (ValidationFailure (Just p) e failures)
   where
     failures = validateBlockHeader t p e
@@ -237,7 +243,7 @@ validateIntrinsicM
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateIntrinsicM t e = unless (null $ failures)
+validateIntrinsicM t e = unless (null failures)
     $ throwM (ValidationFailure Nothing e failures)
   where
     failures = validateIntrinsic t e
@@ -252,7 +258,7 @@ validateInductiveM
     -> BlockHeader
         -- ^ The block header to be checked
     -> m ()
-validateInductiveM p e = unless (null $ failures)
+validateInductiveM p e = unless (null failures)
     $ throwM (ValidationFailure Nothing e failures)
   where
     failures = validateInductive p e
@@ -311,6 +317,7 @@ validateIntrinsic t b = concat
     , [ IncorrectGenesisParent | not (prop_block_genesis_parent b)]
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
     , [ BlockInTheFuture | not (prop_block_current t b)]
+    , [ InvalidFeatureFlags | not (prop_block_featureFlags b)]
     ]
 
 -- | Validate properties of a block with respect to a given parent.
@@ -395,6 +402,14 @@ prop_block_genesis_target b = isGenesisBlockHeader b
 
 prop_block_current :: Time Micros -> BlockHeader -> Bool
 prop_block_current t b = BlockCreationTime t >= _blockCreationTime b
+
+prop_block_featureFlags :: BlockHeader -> Bool
+prop_block_featureFlags b
+    | skipFeatureFlagValidationGuard v h = True
+    | otherwise = _blockFlags b == mkFeatureFlags
+  where
+    v = _chainwebVersion b
+    h = _blockHeight b
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties

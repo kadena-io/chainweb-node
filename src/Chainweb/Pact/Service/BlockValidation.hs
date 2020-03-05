@@ -29,8 +29,10 @@ import Data.Vector (Vector)
 import Pact.Types.Command
 import Pact.Types.Hash
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.PactQueue
@@ -39,7 +41,7 @@ import Chainweb.Payload
 import Chainweb.Transaction
 
 
-newBlock :: Miner -> BlockHeader -> BlockCreationTime -> PactQueue ->
+newBlock :: Miner -> ParentHeader -> BlockCreationTime -> PactQueue ->
             IO (MVar (Either PactException PayloadWithOutputs))
 newBlock mi bHeader creationTime reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))

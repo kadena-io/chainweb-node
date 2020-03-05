@@ -1,7 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- {-# OPTIONS_GHC -fno-warn-unused-imports #-}
@@ -17,7 +16,6 @@ import Control.Monad.State
 import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.IORef
-import Data.List (foldl')
 import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
@@ -34,10 +32,12 @@ import Pact.ApiReq
 
 -- chainweb imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
@@ -47,7 +47,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -79,7 +79,7 @@ tests = testGroupSch label
   where
     label = "Chainweb.Test.Pact.ChainData"
 
-chainDataTest :: T.Text -> IO (Time Integer) -> TestTree
+chainDataTest :: T.Text -> IO (Time Micros) -> TestTree
 chainDataTest t time =
     withRocksResource $ \rocksIO ->
     withPayloadDb $ \pdb ->
@@ -87,8 +87,7 @@ chainDataTest t time =
     withTemporaryDir $ \dir ->
     -- tx origination times need to come before block origination times.
     withPact testVer Warn pdb bhdb (testMemPoolAccess t time) dir 100000
-        (testCase ("chain-data." <> T.unpack t) .
-         run genblock pdb bhdb)
+        (testCase ("chain-data." <> T.unpack t) . run genblock pdb bhdb)
   where
     genblock = genesisBlockHeader testVer testChainId
 
@@ -97,7 +96,7 @@ chainDataTest t time =
 
 getTestBlock
     :: T.Text
-    -> Time Integer
+    -> Time Micros
     -> MempoolPreBlockCheck ChainwebTransaction
     -> BlockHeight
     -> BlockHash
@@ -105,16 +104,16 @@ getTestBlock
 getTestBlock t txOrigTime _validate _bh _hash = do
     akp0 <- stockKey "sender00"
     kp0 <- mkKeyPairs [akp0]
-    let nonce = (<> t) . T.pack . show @(Time Integer) $ txOrigTime
+    let nonce = (<> t) . T.pack $ show txOrigTime
     txs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10000 0.00000000001 3600 (toTxCreationTime txOrigTime) tx
     oks <- _validate _bh _hash txs
-    when (not $ V.and oks) $ do
-        fail $ mconcat [ "tx failed validation! input list: \n"
-                       , show tx
-                       , "\n\nouttxs: "
-                       , show txs
-                       , "\n\noks: "
-                       , show oks ]
+    unless (V.and oks) $ fail $ mconcat
+        [ "tx failed validation! input list: \n"
+        , show tx
+        , "\n\nouttxs: "
+        , show txs
+        , "\n\noks: "
+        , show oks ]
     return txs
   where
     code = "(at \"" <> t <> "\" (chain-data))"
@@ -126,7 +125,7 @@ getTestBlock t txOrigTime _validate _bh _hash = do
 run
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 run genesisBlock iopdb iobhdb rr = do
@@ -139,7 +138,7 @@ run genesisBlock iopdb iobhdb rr = do
           startHeight = fromIntegral $ _blockHeight start
           go = do
               r <- ask
-              pblock <- get
+              pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
               liftIO $ modifyIORef' ncounter succ
@@ -147,12 +146,12 @@ run genesisBlock iopdb iobhdb rr = do
               return ret
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
@@ -173,7 +172,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
@@ -227,7 +226,7 @@ data TestException = TestException
 
 instance Exception TestException
 
-testMemPoolAccess :: T.Text -> IO (Time Integer) -> MemPoolAccess
+testMemPoolAccess :: T.Text -> IO (Time Micros) -> MemPoolAccess
 testMemPoolAccess t iotime = mempty
     { mpaGetBlock = \validate bh hash _parentHeader -> do
         time <- f bh <$> iotime
@@ -236,6 +235,5 @@ testMemPoolAccess t iotime = mempty
   where
     -- tx origination times needed to be unique to ensure that the corresponding
     -- tx hashes are also unique.
-    f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f :: BlockHeight -> Time Micros -> Time Micros
+    f b = add (scaleTimeSpan b millisecond)

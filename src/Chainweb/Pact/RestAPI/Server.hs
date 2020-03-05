@@ -30,7 +30,7 @@ import Control.Applicative
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq
-import Control.Lens (view, (^.), (^?!), _head, set)
+import Control.Lens (set, view, (^.), (^?!), _head)
 import Control.Monad.Catch hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Trans.Except (ExceptT)
@@ -41,6 +41,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
 import Data.CAS
+import Data.Default (def)
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
 import Data.List (find)
@@ -49,8 +50,10 @@ import qualified Data.List.NonEmpty as NEL
 import Data.Maybe
 import Data.Singletons
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Text.Encoding
 import Data.Tuple.Strict
+import Data.Vector (Vector)
 import qualified Data.Vector as V
 
 import qualified GHC.Event as Ev
@@ -69,9 +72,12 @@ import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash (Hash(..))
 import qualified Pact.Types.Hash as Pact
+import Pact.Types.PactError (PactError(..), PactErrorType(..))
+import Pact.Types.Pretty (pretty)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.CutResources
@@ -79,7 +85,7 @@ import Chainweb.Cut
 import qualified Chainweb.CutDB as CutDB
 import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-    (InsertError, InsertType(..), MempoolBackend(..), TransactionHash(..))
+    (InsertError(..), InsertType(..), MempoolBackend(..), TransactionHash(..))
 import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.SPV
@@ -89,7 +95,6 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV (SpvException(..))
 import Chainweb.SPV.CreateProof
-import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Transaction (ChainwebTransaction, mkPayloadWithText)
 import qualified Chainweb.TreeDB as TreeDB
 import Chainweb.Utils
@@ -138,12 +143,11 @@ pactServer (cut, chain) =
     pactApiHandlers :<|> pactSpvHandler
   where
     cid = FromSing (SChainId :: Sing c)
-    v = FromSing (SChainwebVersion :: Sing v)
     mempool = _chainResMempool chain
     logger = _chainResLogger chain
 
     pactApiHandlers
-      = sendHandler logger v mempool
+      = sendHandler logger mempool
       :<|> pollHandler logger cut cid chain
       :<|> listenHandler logger cut cid chain
       :<|> localHandler logger cut cid chain
@@ -173,31 +177,22 @@ data PactCmdLog
   | PactCmdLogSpv Text
   deriving (Show, Generic, ToJSON, NFData)
 
-
--- | KILLSWITCH The logic here involving `transferActivationDate` can be removed
--- once the date itself has passed. Until then, this prevents any "real" Pact
--- transactions from being submitted to the system.
---
 sendHandler
     :: Logger logger
     => logger
-    -> ChainwebVersion
     -> MempoolBackend ChainwebTransaction
     -> SubmitBatch
     -> Handler RequestKeys
-sendHandler logger v mempool (SubmitBatch cmds) = Handler $ do
+sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
     liftIO $ logg Info (PactCmdLogSend cmds)
-    now <- liftIO getCurrentTimeIntegral
-    case transferActivationDate v of
-        Just end | now < end -> failWith "Transactions are disabled until 2019 Dec 6"
-        _ -> case traverse validateCommand cmds of
-            Right enriched -> do
-                let txs = V.fromList $ NEL.toList enriched
-                -- If any of the txs in the batch fail validation, we reject them all.
-                liftIO (mempoolInsertCheck mempool txs) >>= checkResult
-                liftIO (mempoolInsert mempool UncheckedInsert txs)
-                return $! RequestKeys $ NEL.map cmdToRequestKey enriched
-            Left err -> failWith $ "Validation failed: " <> err
+    case traverse validateCommand cmds of
+       Right enriched -> do
+           let txs = V.fromList $ NEL.toList enriched
+           -- If any of the txs in the batch fail validation, we reject them all.
+           liftIO (mempoolInsertCheck mempool txs) >>= checkResult
+           liftIO (mempoolInsert mempool UncheckedInsert txs)
+           return $! RequestKeys $ NEL.map cmdToRequestKey enriched
+       Left err -> failWith $ "Validation failed: " <> err
   where
     failWith :: String -> ExceptT ServerError IO a
     failWith err = throwError $ err400 { errBody = BSL8.pack err }
@@ -397,11 +392,15 @@ internalPoll cutR cid chain cut requestKeys0 = do
     results0 <- _pactLookup pactEx (DoRewind chainLeaf) requestKeys >>= either throwM return
         -- TODO: are we sure that all of these are raised locally. This will cause the
         -- server to shut down the connection without returning a result to the user.
-    let results = V.map (\(a, b) -> (a, fromJuste b)) $
-                  V.filter (isJust . snd) $
-                  V.zip requestKeysV results0
-    (HM.fromList . catMaybes . V.toList) <$> mapM lookup results
+    let results1 = V.zip requestKeysV results0
+    let (present0, missing) = V.unstablePartition (isJust . snd) results1
+    let present = V.map (\(a, b) -> (a, fromJuste b)) present0
+    lookedUp <- (catMaybes . V.toList) <$> mapM lookup present
+    badlisted <- V.toList <$> checkBadList (V.map fst missing)
+    let outputs = lookedUp ++ badlisted
+    return $! HM.fromList outputs
   where
+    mempool = _chainResMempool chain
     pactEx = view chainResPact chain
     !requestKeysV = V.fromList $ NEL.toList requestKeys0
     !requestKeys = V.map (Pact.fromUntypedHash . unRequestKey) requestKeysV
@@ -434,6 +433,23 @@ internalPoll cutR cid chain cut requestKeys0 = do
         !tx' <- MaybeT (return (toPactTx tx))
         return $! (tx', out)
 
+    checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
+    checkBadList rkeys = do
+        let thash = TransactionHash . SB.toShort . unHash . unRequestKey
+        let !hashes = V.map thash rkeys
+        out <- mempoolCheckBadList mempool hashes
+        let bad = V.map (RequestKey . Hash . SB.fromShort . unTransactionHash . fst) $
+                  V.filter snd $ V.zip hashes out
+        return $! V.map hashIsOnBadList bad
+
+    hashIsOnBadList :: RequestKey -> (RequestKey, CommandResult Hash)
+    hashIsOnBadList rk =
+        let res = PactResult (Left err)
+            err = PactError TxFailure def [] doc
+            doc = pretty (T.pack $ show InsertErrorBadlisted)
+            !cr = CommandResult rk Nothing res 0 Nothing Nothing Nothing
+        in (rk, cr)
+
     enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
     enrichCR BlockHeader{..} = return . set crMetaData
       (Just $ object
@@ -442,7 +458,6 @@ internalPoll cutR cid chain cut requestKeys0 = do
        , "blockHash" .= _blockHash
        , "prevBlockHash" .= _blockParent
        ])
-
 
 toPactTx :: Transaction -> Maybe (Command Text)
 toPactTx (Transaction b) = decodeStrict' b

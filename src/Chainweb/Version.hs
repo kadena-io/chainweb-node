@@ -10,7 +10,6 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -39,11 +38,13 @@ module Chainweb.Version
 , WindowWidth(..)
 , window
 -- ** Date- and Version-based Transaction Disabling and Enabling
-, txEnabledDate
-, transferActivationDate
-, vuln797FixDate
-, upgradeCoinV2Date
-, userContractActivationDate
+, vuln797Fix
+, coinV2Upgrade
+, pactBackCompat_v16
+, useCurrentHeaderCreationTimeForTxValidation
+-- ** BlockHeader Validation Guards
+, slowEpochGuard
+, skipFeatureFlagValidationGuard
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -116,6 +117,7 @@ import System.Random
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Graph
@@ -568,61 +570,161 @@ window Development = Just $ WindowWidth 120
 window Testnet04 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
 
--- | This is used in a core validation rule and has been present for several
--- versions of the node software. Changing it risks a fork in the network.
--- Must be AFTER 'upgradeCoinV2Date', and BEFORE 'transferActivationDate' in mainnet.
+-- -------------------------------------------------------------------------- --
+-- Pact Validation Guards
+
+-- | Mainnet applied vlun797Fix at @[timeMicrosQQ| 2019-12-10T21:00:00.0 |]@.
 --
-txEnabledDate :: ChainwebVersion -> Maybe (Time Micros)
-txEnabledDate Test{} = Nothing
-txEnabledDate TimedConsensus{} = Nothing
-txEnabledDate PowConsensus{} = Nothing
-txEnabledDate TimedCPM{} = Nothing
-txEnabledDate FastTimedCPM{} = Nothing
-txEnabledDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
-txEnabledDate Testnet04 = Nothing
-txEnabledDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:30:00.0 |]
-
--- | KILLSWITCH: The date after which nodes in the 1.1.x series will
--- spontaneously allow Transactions in the system. This constant can be removed
--- once the date has passed, and /must not be used in core validation code/.
--- Must be after 'txEnabledDate' in mainnet.
+-- This function provides the block heights when the fix became effective on the
+-- respective chains.
 --
-transferActivationDate :: ChainwebVersion -> Maybe (Time Micros)
-transferActivationDate Test{} = Nothing
-transferActivationDate TimedConsensus{} = Nothing
-transferActivationDate PowConsensus{} = Nothing
-transferActivationDate TimedCPM{} = Nothing
-transferActivationDate FastTimedCPM{} = Nothing
-transferActivationDate Development = Just [timeMicrosQQ| 2019-12-14T18:55:00.0 |]
-transferActivationDate Testnet04 = Nothing
-transferActivationDate Mainnet01 = Just [timeMicrosQQ| 2019-12-17T16:00:00.0 |]
+vuln797Fix
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Bool
+vuln797Fix Mainnet01 cid h
+    | cid == unsafeChainId 0 = h >= 121452
+    | cid == unsafeChainId 1 = h >= 121452
+    | cid == unsafeChainId 2 = h >= 121452
+    | cid == unsafeChainId 3 = h >= 121451
+    | cid == unsafeChainId 4 = h >= 121451
+    | cid == unsafeChainId 5 = h >= 121452
+    | cid == unsafeChainId 6 = h >= 121452
+    | cid == unsafeChainId 7 = h >= 121451
+    | cid == unsafeChainId 8 = h >= 121452
+    | cid == unsafeChainId 9 = h >= 121451
+    | otherwise = error $ "invalid chain id " <> sshow cid
+vuln797Fix _ _ _ = True
+{-# INLINE vuln797Fix #-}
 
-userContractActivationDate :: ChainwebVersion -> Maybe (Time Micros)
-userContractActivationDate Development = Just epoch
-userContractActivationDate Mainnet01 = Just [timeMicrosQQ| 2020-01-15T16:00:00.0 |]
-userContractActivationDate _ = Nothing
-
--- | Time after which fixes for vuln797 will be validated in blocks.
+-- | Mainnet upgraded to coin v2 at time at @[timeMicrosQQ| 2019-12-17T15:00:00.0 |]@.
 --
-vuln797FixDate :: ChainwebVersion -> Time (Micros)
-vuln797FixDate Test{} = epoch
-vuln797FixDate TimedConsensus{} = epoch
-vuln797FixDate PowConsensus{} = epoch
-vuln797FixDate TimedCPM{} = epoch
-vuln797FixDate FastTimedCPM{} = epoch
-vuln797FixDate Development = epoch
-vuln797FixDate Testnet04 = epoch
-vuln797FixDate Mainnet01 = [timeMicrosQQ| 2019-12-10T21:00:00.0 |]
-{-# INLINE vuln797FixDate #-}
+-- This function provides the block heights when coin v2 became effective on the
+-- respective chains.
+--
+coinV2Upgrade
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Bool
+coinV2Upgrade Mainnet01 cid h
+    | cid == unsafeChainId 0 = h == 140808
+    | cid == unsafeChainId 1 = h == 140809
+    | cid == unsafeChainId 2 = h == 140808
+    | cid == unsafeChainId 3 = h == 140809
+    | cid == unsafeChainId 4 = h == 140808
+    | cid == unsafeChainId 5 = h == 140808
+    | cid == unsafeChainId 6 = h == 140808
+    | cid == unsafeChainId 7 = h == 140809
+    | cid == unsafeChainId 8 = h == 140808
+    | cid == unsafeChainId 9 = h == 140808
+    | otherwise = error $ "invalid chain id " <> sshow cid
+coinV2Upgrade Development cid h
+    | cid == unsafeChainId 0 = h == 3
+    | otherwise = h == 4
+coinV2Upgrade _ _ 1 = True
+coinV2Upgrade _ _ _ = False
 
--- | Upgrade coin v2 at time, or at block height 1
--- | Must be BEFORE 'txEnabledDate' in mainnet.
-upgradeCoinV2Date :: ChainwebVersion -> Maybe (Time Micros)
-upgradeCoinV2Date Test{} = Nothing
-upgradeCoinV2Date TimedConsensus{} = Nothing
-upgradeCoinV2Date PowConsensus{} = Nothing
-upgradeCoinV2Date TimedCPM{} = Nothing
-upgradeCoinV2Date FastTimedCPM{} = Nothing
-upgradeCoinV2Date Development = Just [timeMicrosQQ| 2019-12-14T18:50:00.0 |]
-upgradeCoinV2Date Testnet04 = Nothing
-upgradeCoinV2Date Mainnet01 = Just [timeMicrosQQ| 2019-12-17T15:00:00.0 |]
+-- | Preserve Pact bugs pre 1.6 chainweb version
+-- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
+-- Devnet 1 hour of blocks
+pactBackCompat_v16
+  :: ChainwebVersion
+  -> BlockHeight
+  -> Bool
+pactBackCompat_v16 Mainnet01 h = h < 328000
+pactBackCompat_v16 Development h = h < 120
+pactBackCompat_v16 _ _ = False
+
+-- | If this is true the creation time of the current header is used for pact tx
+-- creation time and ttl validation.
+--
+-- Once the block height for triggering this on mainnet is in the past, the
+-- result of this guard becomes trivial for `newBlock` applications and the
+-- dependency of `newBlock` on the creation time of the current header can be
+-- removed.
+--
+useCurrentHeaderCreationTimeForTxValidation
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Bool
+useCurrentHeaderCreationTimeForTxValidation Mainnet01 _ = True
+useCurrentHeaderCreationTimeForTxValidation Development h = h < 2000
+useCurrentHeaderCreationTimeForTxValidation _ h = h <= 1
+    -- For most chainweb versions there is a large gap between creation times of
+    -- the genesis blocks and the corresponding first blocks.
+    --
+    -- Some tests fake block heights without updating pdData appropriately. This
+    -- causes tx validation at height 1, even though the block height is larger.
+    -- By using the current header time for the block of height <= 1 we relax
+    -- the tx timing checks a bit.
+
+-- -------------------------------------------------------------------------- --
+-- Header Validation Guards
+--
+-- The guards in this section encode when changes to validation rules for data
+-- on the chain become effective.
+--
+-- Only the following types are allowed as parameters for guards
+--
+-- * BlockHeader,
+-- * ParentHeader,
+-- * BlockCreationTime, and
+-- * ParentCreationTime
+--
+-- The result is a simple 'Bool'.
+--
+-- Guards should have meaningful names and should be used in a way that all
+-- places in the code base that depend on the guard should reference the
+-- respective guard. That way all dependent code can be easily identified using
+-- ide tools, like for instance @grep@.
+--
+-- Each guard should have a description that provides background for the change
+-- and provides all information needed for maintaining the code or code that
+-- depends on it.
+--
+
+-- | Turn off slow epochs (emergency DA) for blocks from 80,000 onwward.
+--
+-- Emergency DA is considered a miss-feature.
+--
+-- It's intended purpose is to prevent chain hopping attacks, where an attacker
+-- temporarily adds a large amount of hash power, thus increasing the
+-- difficulty. When the hash power is removed, the remaining hash power may not
+-- be enough to reach the next block in reasonable time.
+--
+-- In practice, emergency DAs cause more problems than they solve. In
+-- particular, they increase the chance of deep forks. Also they make the
+-- behavior of the system unpredictable in states of emergency, when stability
+-- is usually more important than throughput.
+--
+slowEpochGuard
+    :: ChainwebVersion
+    -> BlockHeight
+        -- ^ BlockHeight of parent Header
+    -> Bool
+slowEpochGuard Mainnet01 h = h < 80000
+slowEpochGuard _ _ = False
+{-# INLINE slowEpochGuard #-}
+
+-- | Skip validation of feature flags.
+--
+-- Unused feature flag bits are supposed to be set to 0. This isn't enforced
+-- currently (chainweb-node versions <= 1.6). There is a large number of blocks
+-- in the history of mainnet before 2020-02-20, that have non-zero feature
+-- flags.
+--
+-- This guard permits the use of the last 64 bits of a block header as a nonce
+-- value for all blogs which pass this guard.
+--
+skipFeatureFlagValidationGuard
+    :: ChainwebVersion
+    -> BlockHeight
+        -- ^ height of header
+    -> Bool
+skipFeatureFlagValidationGuard Mainnet01 _ = True
+skipFeatureFlagValidationGuard Development _ = True
+skipFeatureFlagValidationGuard Testnet04 _ = True
+skipFeatureFlagValidationGuard _ _ = False
+

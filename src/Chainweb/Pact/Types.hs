@@ -65,10 +65,11 @@ module Chainweb.Pact.Types
   , psBlockHeaderDb
   , psGasModel
   , psMinerRewards
-  , psEnableUserContracts
   , psReorgLimit
   , psOnFatalError
   , psVersion
+  , psValidateHashesOnReplay
+  , psAllowReadsInLocal
 
     -- * Pact Service State
   , PactServiceState(..)
@@ -90,13 +91,11 @@ module Chainweb.Pact.Types
     -- * types
   , ModuleCache
 
-  -- * Execution config
-  , restrictiveExecutionConfig
-  , permissiveExecutionConfig
-  , justInstallsExecutionConfig
   -- * miscellaneous
   , defaultOnFatalError
   , defaultReorgLimit
+  , mkExecutionConfig
+  , defaultPactServiceConfig
   ) where
 
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
@@ -109,6 +108,7 @@ import Control.Monad.State.Strict
 
 import Data.Aeson hiding (Error)
 import Data.HashMap.Strict (HashMap)
+import qualified Data.Set as S
 import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
@@ -127,24 +127,25 @@ import Pact.Types.Gas
 import Pact.Types.Logger
 import Pact.Types.Names
 import Pact.Types.Persistence (ExecutionMode, TxLog)
-import Pact.Types.Runtime (ExecutionConfig(..), ModuleData)
+import Pact.Types.Runtime (ExecutionConfig(..), ExecutionFlag(..), ModuleData)
 import Pact.Types.SPV
 import Pact.Types.Term (PactId(..), Ref)
 
 -- internal chainweb modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
-
 
 
 data Transactions = Transactions
@@ -158,16 +159,8 @@ data PactDbStatePersist = PactDbStatePersist
     }
 makeLenses ''PactDbStatePersist
 
--- | No installs or history
-restrictiveExecutionConfig :: ExecutionConfig
-restrictiveExecutionConfig = ExecutionConfig False False
-
-permissiveExecutionConfig :: ExecutionConfig
-permissiveExecutionConfig = ExecutionConfig True True
-
--- | Only allow installs
-justInstallsExecutionConfig :: ExecutionConfig
-justInstallsExecutionConfig = ExecutionConfig True False
+mkExecutionConfig :: [ExecutionFlag] -> ExecutionConfig
+mkExecutionConfig = ExecutionConfig . S.fromList
 
 -- -------------------------------------------------------------------------- --
 -- Coinbase output utils
@@ -292,10 +285,11 @@ data PactServiceEnv cas = PactServiceEnv
     , _psBlockHeaderDb :: !BlockHeaderDb
     , _psGasModel :: !GasModel
     , _psMinerRewards :: !MinerRewards
-    , _psEnableUserContracts :: !Bool
     , _psReorgLimit :: {-# UNPACK #-} !Word64
     , _psOnFatalError :: forall a. PactException -> Text -> IO a
     , _psVersion :: ChainwebVersion
+    , _psValidateHashesOnReplay :: !Bool
+    , _psAllowReadsInLocal :: !Bool
     }
 makeLenses ''PactServiceEnv
 
@@ -309,6 +303,16 @@ instance HasChainId (PactServiceEnv c) where
 
 defaultReorgLimit :: Word64
 defaultReorgLimit = 480
+
+defaultPactServiceConfig :: PactServiceConfig
+defaultPactServiceConfig = PactServiceConfig
+      { _pactReorgLimit = fromIntegral $ defaultReorgLimit
+      , _pactRevalidate = True
+      , _pactQueueSize = 1000
+      , _pactResetDb = True
+      , _pactAllowReadsInLocal = False
+      }
+
 
 newtype ReorgLimitExceeded = ReorgLimitExceeded Text
 

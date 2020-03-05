@@ -1,7 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -14,7 +12,6 @@ import Control.Monad.IO.Class
 import Data.Aeson
 import Data.Bytes.Put
 import Data.CAS.HashMap
-import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict
@@ -34,8 +31,10 @@ import Pact.Types.ChainMeta
 
 -- chainweb imports
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.Difficulty
@@ -45,7 +44,7 @@ import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.Types
+import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -95,12 +94,12 @@ tests =
 testTTL
     :: BlockHeader
     -> IO (PayloadDb HashMapCas)
-    -> IO (BlockHeaderDb)
+    -> IO BlockHeaderDb
     -> IO PactQueue
     -> Assertion
 testTTL genesisBlock iopdb iobhdb rr = do
-    (T3 _ newblock _) <- liftIO $ mineBlock genesisBlock (Nonce 1) iopdb iobhdb rr
-    expectException $ mineBlock newblock (Nonce 2) iopdb iobhdb rr
+    (T3 _ newblock _) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iopdb iobhdb rr
+    expectException $ mineBlock (ParentHeader newblock) (Nonce 2) iopdb iobhdb rr
   where
     expectException act = do
         m <- wrap `catch` h
@@ -111,27 +110,26 @@ testTTL genesisBlock iopdb iobhdb rr = do
         h :: SomeException -> IO (Maybe String)
         h _ = return Nothing
         wrap = do
-          (T3 _ _ _) <- act
+          T3{} <- act
           return $ Just "Expected a transaction validation failure."
 
-testMemPoolAccess :: TTLTestCase -> IO (Time Integer) -> MemPoolAccess
+testMemPoolAccess :: TTLTestCase -> IO (Time Micros) -> MemPoolAccess
 testMemPoolAccess _ttlcase iot = mempty
     { mpaGetBlock = \validate bh hash _header  -> do
             t <- f bh <$> iot
             getTestBlock t validate bh hash
     }
   where
-    f :: BlockHeight -> Time Integer -> Time Integer
-    f b tt =
-      foldl' (flip add) tt (replicate (fromIntegral b) millisecond)
+    f :: BlockHeight -> Time Micros -> Time Micros
+    f b = add (scaleTimeSpan b millisecond)
     getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
-        let nonce = T.pack . show @(Time Integer) $ txOrigTime
+        let nonce = T.pack $ show txOrigTime
             (txOrigTime', badttl) = case _ttlcase of
               BadTTL b -> (toTxCreationTime txOrigTime, b)
-              BadTxTime g -> (g txOrigTime, 24 * 60 * 60)
-              BadExpirationTime g ttl -> (g txOrigTime, ttl)
+              BadTxTime g -> (g (castTime txOrigTime), 24 * 60 * 60)
+              BadExpirationTime g ttl -> (g (castTime txOrigTime), ttl)
         outtxs <-
           mkTestExecTransactions
             "sender00" "0" kp0
@@ -178,12 +176,12 @@ defModule idx = [text| ;;
 
 
 mineBlock
-    :: BlockHeader
+    :: ParentHeader
     -> Nonce
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
     -> IO PactQueue
-    -> IO (T3 BlockHeader BlockHeader PayloadWithOutputs)
+    -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
@@ -197,7 +195,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              (ParentHeader parentHeader)
+              parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 

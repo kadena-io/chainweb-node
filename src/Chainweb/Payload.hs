@@ -61,7 +61,7 @@ module Chainweb.Payload
 
 , MinerData(..)
 , CoinbaseOutput(..)
-, noCoinbase
+, noCoinbaseOutput
 
 , BlockOutputsLog
 , newBlockOutputLog
@@ -107,11 +107,6 @@ import GHC.Generics
 import GHC.Stack
 
 -- internal modules
-
-import Pact.Types.Command
-import Pact.Types.Exp
-import Pact.Types.Hash
-import Pact.Types.PactValue
 
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleLogHash
@@ -394,8 +389,6 @@ instance HasTextRepresentation MinerData where
 -- -------------------------------------------------------------------------- --
 -- Block Transactions
 
-
-
 -- | The block transactions
 --
 data BlockTransactions = BlockTransactions
@@ -488,12 +481,22 @@ coinbaseOutputFromText t = either (throwM . TextFormatException . sshow) return
 
 -- | No-op coinbase payload
 --
-noCoinbase :: CommandResult a
-noCoinbase = CommandResult
-    (RequestKey pactInitialHash) Nothing
-    (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
-    0 Nothing Nothing Nothing
-{-# NOINLINE noCoinbase #-}
+noCoinbaseOutput :: CoinbaseOutput
+noCoinbaseOutput = CoinbaseOutput $ encodeToByteString $ object
+    [ "gas" .= (0 :: Int)
+    , "result" .= object
+        [ "status" .= ("success" :: String)
+        , "data" .= ("NO_COINBASE" :: String)
+        ]
+    , "reqKey" .= ("DldRwCblQ7Loqy6wYJnaodHl30d3j3eH-qtFzfEv46g" :: String)
+        -- this is the unique hash value define in @Pact.Types.Hash.initialHash@
+    , "logs" .= Null
+    , "metaData" .= Null
+    , "continuation" .= Null
+    , "txId" .= Null
+    ]
+{-# NOINLINE noCoinbaseOutput #-}
+
 
 instance HasTextRepresentation CoinbaseOutput where
     toText = coinbaseOutputToText
@@ -724,7 +727,7 @@ newBlockPayload mi co s = blockPayload txs outs
 -- | This contains all non-redundant payload data for a block. It doesn't
 -- contain any data that can be recomputed.
 --
--- This data structure is used maintly to transfer payloads over the wire.
+-- This data structure is used mainly to transfer payloads over the wire.
 --
 data PayloadData = PayloadData
     { _payloadDataTransactions :: !(V.Vector Transaction)

@@ -111,6 +111,7 @@ import Pact.Types.Runtime
 -- internal modules
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
 import Chainweb.Transaction
 
@@ -127,7 +128,7 @@ makeLenses ''PactDbEnvPersist
 
 data EnvPersist' = forall a. EnvPersist' (PactDbEnvPersist a)
 
-data PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
+newtype PactDbState = PactDbState { _pdbsDbEnv :: EnvPersist' }
 
 makeLenses ''PactDbState
 
@@ -269,7 +270,8 @@ data Checkpointer = Checkpointer
     , _cpDiscard :: IO ()
       -- ^ discard pending block changes
     , _cpGetLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
-      -- ^ get the checkpointer's idea of the latest block
+      -- ^ get the checkpointer's idea of the latest block. The block height is
+      -- is the height of the block of the block hash.
     , _cpBeginCheckpointerBatch :: IO ()
     , _cpCommitCheckpointerBatch :: IO ()
     , _cpDiscardCheckpointerBatch :: IO ()

@@ -1,50 +1,41 @@
-{ pactRef ? "43f2bbb50c8c77a180dc3b32c928e94f2e7b2718"
-, pactSha ? "1xlzdb2pmcq8c5zhfpmqkqkdv9sfc7mi3g16npd8rqs1r1qk68v3"
-, system ? builtins.currentSystem
+{ system ? builtins.currentSystem
+, kpkgs ? import ./dep/kpkgs {}
 }:
 
 let
-pactSrc = builtins.fetchTarball {
-  url = "https://github.com/kadena-io/pact/archive/${pactRef}.tar.gz";
-  sha256 = pactSha;
-};
-pactProj = "${pactSrc}/project.nix";
-rp = (import pactProj { inherit system; }).rp;
-proj =
-  rp.project ({ pkgs, hackGet, ... }:
+proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
+
   let
-
-  gitignoreSrc = pkgs.fetchFromGitHub {
-    owner = "hercules-ci";
-    repo = "gitignore";
-    rev = "f9e996052b5af4032fe6150bba4a6fe4f7b9d698";
-    sha256 = "0jrh5ghisaqdd0vldbywags20m2cxpkbbk5jjjmwaw0gr8nhsafv";
-  };
-  inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
-
+  # Includes test suite and benchmark binaries in the output derivation.
+  # Has the side effect of causing nix-build to not run them.
+  convertCabalTestsAndBenchmarksToExecutables = p:
+    overrideCabal p (drv: {
+      preConfigure = (drv.preConfigure or "") + ''
+        sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
+      '';
+    });
   in {
-      name = "chainweb";
-      overrides = import ./overrides.nix { inherit pactSrc pkgs hackGet; };
+    name = "chainweb";
+    overrides = self: super: {
+      chainweb = enableCabalFlag (
+        justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
+    };
 
-      packages = {
-        chainweb = gitignoreSource ./.;
-        #chainweb = gitignoreFilter
-        #  [ ".git" ".gitlab-ci.yml" "CHANGELOG.md" "README.md" "future-work.md" ] ./.;
-      };
+    packages = {
+      chainweb = kpkgs.gitignoreSource ./.;
+    };
 
-      shellToolOverrides = ghc: super: {
-        dnsutils = pkgs.dnsutils;
-        stack = pkgs.stack;
-        cabal-install = pkgs.haskellPackages.cabal-install;
-        ghcid = pkgs.haskellPackages.ghcid;
-        z3 = pkgs.z3;
-      };
+    shellToolOverrides = ghc: super: {
+      dnsutils = pkgs.dnsutils;
+      stack = pkgs.stack;
+      cabal-install = pkgs.haskellPackages.cabal-install;
+      ghcid = pkgs.haskellPackages.ghcid;
+      z3 = pkgs.z3;
+    };
 
-      shells = {
-        ghc = ["chainweb"];
-      };
+    shells = {
+      ghc = ["chainweb"];
+    };
   });
 
-in
-
-{ inherit pactRef pactSrc rp proj; }
+in { inherit proj; }

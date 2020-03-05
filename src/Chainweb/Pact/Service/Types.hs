@@ -26,6 +26,7 @@ import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import GHC.Generics
+import Numeric.Natural (Natural)
 
 -- internal pact modules
 
@@ -35,14 +36,34 @@ import Pact.Types.Hash
 
 -- internal chainweb modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (InsertError(..))
 import Chainweb.Miner.Pact
 import Chainweb.Payload
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToText)
 import Chainweb.Version
+
+
+-- | Externally-injected PactService properties.
+data PactServiceConfig = PactServiceConfig
+  { _pactReorgLimit :: Natural
+    -- ^ Maximum allowed reorg depth, implemented as a rewind limit in validate. New block
+    -- hardcodes this to 8 currently.
+  , _pactRevalidate :: Bool
+    -- ^ Re-validate payload hashes during transaction replay
+  , _pactAllowReadsInLocal :: Bool
+    -- ^ Allow direct database reads in local mode
+  , _pactQueueSize :: Natural
+    -- ^ max size of pact internal queue.
+  , _pactResetDb :: Bool
+    -- ^ blow away pact dbs
+  } deriving (Eq,Show)
+
+
 
 data PactException
   = BlockValidationFailure Value
@@ -54,7 +75,7 @@ data PactException
   | PactDuplicateTableError Text
   | TransactionDecodeFailure Text
   | RewindLimitExceeded Text BlockHeight BlockHeight
-  -- The only argument Text is the duplicate table name.
+  | BlockHeaderLookupFailure Text
   deriving (Eq,Generic)
 
 instance Show PactException where
@@ -83,10 +104,10 @@ data RequestMsg = NewBlockMsg NewBlockReq
 type PactExMVar t = MVar (Either PactException t)
 
 data NewBlockReq = NewBlockReq
-    { _newBlockHeader :: BlockHeader
-    , _newMiner :: Miner
+    { _newBlockHeader :: !ParentHeader
+    , _newMiner :: !Miner
     , _newCreationTime :: !BlockCreationTime
-    , _newResultVar :: PactExMVar PayloadWithOutputs
+    , _newResultVar :: !(PactExMVar PayloadWithOutputs)
     }
 instance Show NewBlockReq where show NewBlockReq{..} = show (_newBlockHeader, _newMiner)
 
@@ -101,7 +122,7 @@ data LocalReq = LocalReq
     { _localRequest :: ChainwebTransaction
     , _localResultVar :: PactExMVar (CommandResult Hash)
     }
-instance Show LocalReq where show LocalReq{..} = show (_localRequest)
+instance Show LocalReq where show LocalReq{..} = show _localRequest
 
 data LookupPactTxsReq = LookupPactTxsReq
     { _lookupRestorePoint :: !Rewind
