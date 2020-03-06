@@ -7,7 +7,24 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Chainweb.Test.Pact.TTL (tests) where
+module Chainweb.Test.Pact.TTL
+( tests
+-- * Utils
+, Ctx(..)
+, withTestPact
+, mineMany
+, mineBlock
+, doNewBlock
+, doValidateBlock
+, runOne
+-- ** MemPoolAccess
+, modAt
+, modAtTtl
+, offset
+, offsetTtl
+, ttl
+, mems
+) where
 
 import Control.Concurrent.MVar
 import Control.Monad
@@ -20,6 +37,8 @@ import Data.Tuple.Strict
 import qualified Data.Vector as V
 
 import NeatInterpolation
+
+import Numeric.Natural
 
 import Pact.ApiReq
 import Pact.Types.ChainMeta
@@ -81,127 +100,161 @@ tests = ScheduledTest "Chainweb.Test.Pact.TTL" $
     withPayloadDb $ \pdbIO ->
     withBlockHeaderDb rocksIO genblock $ \bdbIO ->
     testGroup "timing tests"
-        [ testTxTime pdbIO bdbIO
-        , testTxTimeFail pdbIO bdbIO
-        , testTxTimeFail2 pdbIO bdbIO
-        , testTtlTooLarge pdbIO bdbIO
-        , testTtlTooSmall pdbIO bdbIO
-        , testExpired pdbIO bdbIO
-        , testExpiredTight pdbIO bdbIO
-        , testExpiredExtraTight pdbIO bdbIO
-        , testLastMinute pdbIO bdbIO
+        [ withTestPact testVer pdbIO bdbIO testTxTime
+        , withTestPact testVer pdbIO bdbIO testTxTimeFail
+        , withTestPact testVer pdbIO bdbIO testTxTimeFail2
+        , withTestPact testVer pdbIO bdbIO testTtlTooLarge
+        , withTestPact testVer pdbIO bdbIO testTtlSmall
+        , withTestPact testVer pdbIO bdbIO testExpired
+        , withTestPact testVer pdbIO bdbIO testExpiredTight
+        , withTestPact testVer pdbIO bdbIO testJustMadeItSmall
+        , withTestPact testVer pdbIO bdbIO testJustMadeItLarge
+
+        -- This tests can be removed once the transition is complete and the guard
+        -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+        -- of all chainweb versions.
+        --
+        , testGroup "mainnet transition to new timing checks"
+            [ withTestPact testVer pdbIO bdbIO testTtlTooSmall
+            , withTestPact testVer pdbIO bdbIO testTtlSmall2
+            , withTestPact testVer pdbIO bdbIO testExpiredTight2
+            , withTestPact testVer pdbIO bdbIO testExpiredExtraTight
+            , withTestPact testVer pdbIO bdbIO testExpiredExtraTight2
+            , withTestPact testVer pdbIO bdbIO testJustMadeIt2
+            , withTestPact testVer pdbIO bdbIO testJustMadeIt3
+            ]
         ]
 
 -- -------------------------------------------------------------------------- --
 -- Tests
 
-testTxTime
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testTxTime pdbIO bdbIO = pact [mempty, offset 0, offset (-1)] $ \queue ->
+testTxTime :: IO Ctx -> TestTree
+testTxTime ctxIO =
     testCase "tx time of parent time and default ttl pass validation" $ do
-        T2 hdr1 _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 0)
-        T2 hdr2 _ <- mineBlock pdbIO bdbIO queue (ParentHeader hdr1) (Nonce 1)
-        void $ mineBlock pdbIO bdbIO queue (ParentHeader hdr2) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+        T2 hdr1 _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 0) 1
+        T2 hdr2 _ <- mineBlock ctxIO (offset 0) (ParentHeader hdr1) (Nonce 1) 1
+        void $ mineBlock ctxIO (offset (-1)) (ParentHeader hdr2) (Nonce 2) 1
 
-testTxTimeFail
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testTxTimeFail pdbIO bdbIO = pact [mempty, offset 1] $ \queue ->
+testTxTimeFail :: IO Ctx -> TestTree
+testTxTimeFail ctxIO =
     testCase "tx time of parent time + 1 and default ttl fails during new block validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offset 1) (ParentHeader hdr) (Nonce 2) 1
 
-testTxTimeFail2
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testTxTimeFail2 pdbIO bdbIO = pact [mempty, offset 1000] $ \queue ->
+testTxTimeFail2 :: IO Ctx -> TestTree
+testTxTimeFail2 ctxIO =
     testCase "tx time of parent time + 1000 and default ttl fails during new block validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offset 1000) (ParentHeader hdr) (Nonce 2) 1
 
-testTtlTooLarge
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testTtlTooLarge pdbIO bdbIO = pact [mempty, ttl (100 * 24 * 60 * 60) ] $ \queue ->
+testTtlTooLarge :: IO Ctx -> TestTree
+testTtlTooLarge ctxIO =
     testCase "too large TTL fails validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (ttl (100 * 24 * 3600)) (ParentHeader hdr) (Nonce 2) 1
 
--- This code must be removed once the transition is complete and the guard
--- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
--- of all chainweb versions.
---
-testTtlTooSmall
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testTtlTooSmall pdbIO bdbIO = pact [mempty, ttl (50 * 60) ] $ \queue ->
-    testCase "too small TTL fails validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+testTtlSmall :: IO Ctx -> TestTree
+testTtlSmall ctxIO =
+    testCase "small TTL passes validation" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        void $ doNewBlock ctxIO (ttl 5) (ParentHeader hdr) (Nonce 2) 1
 
-testExpired
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testExpired pdbIO bdbIO = pact [mempty, offsetTtl (-60 * 90 * 1000000) (60 * 60)] $ \queue ->
+testExpired :: IO Ctx -> TestTree
+testExpired ctxIO =
     testCase "expired transaction fails validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 500
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-400) 300) (ParentHeader hdr) (Nonce 2) 1
 
-testExpiredTight
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testExpiredTight pdbIO bdbIO = pact [mempty, offsetTtl (-60 * 60 * 1000000) (60 * 60)] $ \queue ->
+testExpiredTight :: IO Ctx -> TestTree
+testExpiredTight ctxIO =
     testCase "tightly expired transaction fails validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 500
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-300) 300) (ParentHeader hdr) (Nonce 2) 1
+
+testJustMadeItSmall :: IO Ctx -> TestTree
+testJustMadeItSmall ctxIO =
+    testCase "testJustMadeIdSmall" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 100
+        void $ doNewBlock ctxIO (offsetTtl (-99) 100) (ParentHeader hdr) (Nonce 2) 1
+
+testJustMadeItLarge :: IO Ctx -> TestTree
+testJustMadeItLarge ctxIO =
+    testCase "testJustMadeItLage" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 500
+        void $ doNewBlock ctxIO (offsetTtl (-399) 400) (ParentHeader hdr) (Nonce 2) 1
+
+-- -------------------------------------------------------------------------- --
+-- Mainnet transition to new timing checks
+--
+-- @useCurrentHeaderCreationTimeForTxValidation@ is @True@.
+--
+-- The tests in this section may be removed once the transition is complete and
+-- the guard @useCurrentHeaderCreationTimeForTxValidation@ is false for all new
+-- blocks of all chainweb versions. Some tests actually must be removed.
+--
+
+-- | During the transition periods transactions with too small TTL are rejected.
+--
+-- This test will fail after the transition period.
+--
+testTtlTooSmall :: IO Ctx -> TestTree
+testTtlTooSmall ctxIO =
+    testCase "too small TTL fails validation" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
+        assertDoPreBlockFailure $ doNewBlock ctxIO (ttl 180) (ParentHeader hdr') (Nonce 2) 1
+
+testTtlSmall2 :: IO Ctx -> TestTree
+testTtlSmall2 ctxIO =
+    testCase "small TTL just passes validation" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
+        void $ doNewBlock ctxIO (ttl 181) (ParentHeader hdr') (Nonce 2) 1
+
+testExpiredTight2 :: IO Ctx -> TestTree
+testExpiredTight2 ctxIO =
+    testCase "tightly expired transaction fails validation" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
+        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-1000) 1000) (ParentHeader hdr') (Nonce 2) 1
 
 -- This code must be removed once the transition is complete and the guard
 -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
 -- of all chainweb versions.
 --
-testExpiredExtraTight
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testExpiredExtraTight pdbIO bdbIO = pact [mempty, offsetTtl (-60 * 30 * 1000000) (60 * 60)] $ \queue ->
-    testCase "extra tightly expired transaction fails validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+testExpiredExtraTight :: IO Ctx -> TestTree
+testExpiredExtraTight ctxIO =
+    testCase "extra tightly expired transaction passes validation on non-mainnet version" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
+        void $ doNewBlock ctxIO (offsetTtl (180 -1000) 1000) (ParentHeader hdr) (Nonce 2) 1
 
-testLastMinute
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> TestTree
-testLastMinute pdbIO bdbIO = pact [mempty, offsetTtl (-60 * 30 * 999999) (60 * 60)] $ \queue ->
-    testCase "just not expired transaction passes validation" $ do
-        T2 hdr _ <- mineBlock pdbIO bdbIO queue (ParentHeader genblock) (Nonce 1)
-        assertDoPreBlockFailure $ doNewBlock queue (ParentHeader hdr) (Nonce 2)
-  where
-    pact ms = withTestPact testVer pdbIO bdbIO (mems ms)
+-- This code must be removed once the transition is complete and the guard
+-- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+-- of all chainweb versions.
+--
+testExpiredExtraTight2 :: IO Ctx -> TestTree
+testExpiredExtraTight2 ctxIO =
+    testCase "extra tightly expired transaction fails validation (mainnet)" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
+        -- also test when @useCurrentHeaderCreationTimeForTxValidation@ is @False@.
+        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (180-1000) 1000) (ParentHeader hdr') (Nonce 2) 1
+
+testJustMadeIt2 :: IO Ctx -> TestTree
+testJustMadeIt2 ctxIO =
+    testCase "just not expired transaction passes validation (mainnet)" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
+        -- also test when @useCurrentHeaderCreationTimeForTxValidation@ is @False@.
+        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-999) 1000) (ParentHeader hdr') (Nonce 2) 1
+
+testJustMadeIt3 :: IO Ctx -> TestTree
+testJustMadeIt3 ctxIO =
+    testCase "just not expired transaction passes validation (mainnet)" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
+        -- also test when @useCurrentHeaderCreationTimeForTxValidation@ is @False@.
+        let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-999) 1000) (ParentHeader hdr') (Nonce 2) 1
 
 -- -------------------------------------------------------------------------- --
 -- Mempool Access
@@ -293,27 +346,51 @@ modAtTtl f (Seconds t) = mempty
 -- -------------------------------------------------------------------------- --
 -- Block Validation
 
-mineBlock
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> IO PactQueue
+mineMany
+    :: IO Ctx
+    -> MemPoolAccess
     -> ParentHeader
     -> Nonce
+    -> Seconds
+        -- ^ Block time
+    -> Natural
     -> IO (T2 BlockHeader PayloadWithOutputs)
-mineBlock pdbIO bdbIO pactIO parentHeader nonce = do
-    T2 hdr payload <- doNewBlock pactIO parentHeader nonce
-    doValidateBlock pdbIO bdbIO pactIO hdr payload
+mineMany ctxIO mempool parentHeader (Nonce nonce) s n = go (int n) parentHeader
+  where
+    go i h = do
+        T2 h' p <- mineBlock ctxIO mempool h (Nonce $ nonce + i) s
+        if i > 1
+            then go (i-1) $ ParentHeader h'
+            else return (T2 h' p)
+
+mineBlock
+    :: IO Ctx
+    -> MemPoolAccess
+    -> ParentHeader
+    -> Nonce
+    -> Seconds
+        -- ^ Block time
+    -> IO (T2 BlockHeader PayloadWithOutputs)
+mineBlock ctxIO mempool parentHeader nonce s = do
+    T2 hdr payload <- doNewBlock ctxIO mempool parentHeader nonce s
+    doValidateBlock ctxIO hdr payload
     return $ T2 hdr payload
 
--- | Create new block, but don't do any validation.
+-- | Create new block
 --
 doNewBlock
-    :: IO PactQueue
+    :: IO Ctx
+    -> MemPoolAccess
     -> ParentHeader
     -> Nonce
+    -> Seconds
+        -- ^ Block time
     -> IO (T2 BlockHeader PayloadWithOutputs)
-doNewBlock pact parentHeader nonce = do
-     mv <- pact >>= newBlock noMiner parentHeader
+doNewBlock ctxIO mempool parentHeader nonce t = do
+     ctx <- ctxIO
+     unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
+        error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
+     mv <- newBlock noMiner parentHeader $ _ctxQueue ctx
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
@@ -326,34 +403,31 @@ doNewBlock pact parentHeader nonce = do
      return $ T2 bh payload
    where
      creationTime = BlockCreationTime
-          . add (TimeSpan 1000000)
+          . add (secondsToTimeSpan t) -- 10 seconds
           . _bct . _blockCreationTime
           $ _parentHeader parentHeader
 
 -- | Validate Block
 --
 doValidateBlock
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> IO PactQueue
+    :: IO Ctx
     -> BlockHeader
     -> PayloadWithOutputs
     -> IO ()
-doValidateBlock pdbIO bdbIO pactIO header payload = do
-     _mv' <- pactIO >>= validateBlock header (toPayloadData payload)
-     pdb <- pdbIO
-     addNewPayload pdb payload
-     bdb <- bdbIO
-     insert bdb header
-   where
-     toPayloadData :: PayloadWithOutputs -> PayloadData
-     toPayloadData d = PayloadData
-               { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
-               , _payloadDataMiner = _payloadWithOutputsMiner d
-               , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
-               , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
-               , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
-               }
+doValidateBlock ctxIO header payload = do
+    ctx <- ctxIO
+    _mv' <- validateBlock header (toPayloadData payload) $ _ctxQueue ctx
+    addNewPayload (_ctxPdb ctx) payload
+    insert (_ctxBdb ctx) header
+  where
+    toPayloadData :: PayloadWithOutputs -> PayloadData
+    toPayloadData d = PayloadData
+        { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
+        , _payloadDataMiner = _payloadWithOutputsMiner d
+        , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
+        , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
+        , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
+        }
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
@@ -372,17 +446,40 @@ assertDoPreBlockFailure action = try @_ @PactException action >>= \case
     Left e -> throwM e
     Right{} -> assertFailure "Expected DoPreBlockFailure but the action succeeded."
 
+data Ctx = Ctx
+    { _ctxMempool :: !(MVar MemPoolAccess)
+    , _ctxQueue :: !PactQueue
+    , _ctxPdb :: !(PayloadDb HashMapCas)
+    , _ctxBdb :: !BlockHeaderDb
+    }
+
 withTestPact
     :: ChainwebVersion
     -> IO (PayloadDb HashMapCas)
     -> IO BlockHeaderDb
-    -> MemPoolAccess
-    -> (IO PactQueue -> TestTree)
+    -> (IO Ctx -> TestTree)
     -> TestTree
-withTestPact v pdbIO bdbIO mempool test = withTemporaryDir $ \dirIO ->
-    withPact v Quiet pdbIO bdbIO mempool dirIO 4000 test
+withTestPact v pdbIO bdbIO test = withTemporaryDir $ \dirIO ->
+    withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
+        withPact v Quiet pdbIO bdbIO (mempool mempoolVarIO) dirIO 4000 $ \queueIO ->
+            test (Ctx <$> mempoolVarIO <*> queueIO <*> pdbIO <*> bdbIO)
+  where
+    mempool mempoolVarIO = mempty
+        { mpaGetBlock = \val he h p ->
+            mempoolVarIO >>= tryTakeMVar >>= \case
+                Nothing -> mempty
+                Just mp -> mpaGetBlock mp val he h p
+        }
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
 assertNotLeft (Right r) = return r
+
+runOne :: (IO Ctx -> TestTree) -> IO ()
+runOne t = defaultMain $
+    withRocksResource $ \rocksIO ->
+    withPayloadDb $ \pdbIO ->
+    withBlockHeaderDb rocksIO genblock $ \bdbIO ->
+    withTestPact testVer pdbIO bdbIO $ \ctxIO ->
+    t ctxIO
 
