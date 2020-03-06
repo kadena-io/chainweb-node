@@ -231,6 +231,8 @@ jobs:
       run: |
         cat >> cabal.project <<EOF
         documentation: false
+        executable-stripping: True
+        library-stripping: True
         package chainweb
           documentation: false
           optimization: 2
@@ -286,9 +288,9 @@ jobs:
           touch tools/cwtool/CwTool.hs
           cabal v2-build --only-dependencies
     - name: Build
-      run: cabal v2-build --enable-executable-stripping --enable-library-stripping
+      run: cabal v2-build
     - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/spv client tests/ && !/getPending high water marks/ && !/remote pact tests/'
+      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/getPending high water marks/'
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
       run: eval $SYNC_TO_CACHE
