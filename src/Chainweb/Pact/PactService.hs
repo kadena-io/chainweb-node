@@ -944,7 +944,7 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
               runGas = attemptBuyGas miner pdbenv txs
           validate bhi _bha txs = do
 
-            parentTime = _blockCreationTime $ _parentHeader parentHeader
+            let parentTime = _blockCreationTime $ _parentHeader parentHeader
             results <- V.zipWith (>>)
                 <$> validateChainwebTxs cp parentTime bhi txs runDebitGas
 
@@ -956,9 +956,7 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
 
             V.forM results $ \case
                 Right _ -> return True
-                Left _e -> do
-                    -- print (sshow _e)
-                    return False
+                Left _e -> return False
 
       liftIO $! fmap Discard $!
         mpaGetBlock mpAccess validate bHeight pHash (_parentHeader parentHeader)
@@ -1408,7 +1406,7 @@ execPreInsertCheckReq txs = do
 
                 let parentTime = _blockCreationTime $ _parentHeader parentHeader
                 liftIO $ fmap Discard $ V.zipWith (>>)
-                    <$> validateChainwebTxs cp parenTime currHeight txs (runGas pdb psState psEnv)
+                    <$> validateChainwebTxs cp parentTime currHeight txs (runGas pdb psState psEnv)
 
                     -- This code can be removed once the transition is complete and the guard
                     -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
