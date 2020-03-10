@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeOperators #-}
 -- |
 -- Module: Ea
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
@@ -58,7 +58,8 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (defaultPactServiceConfig)
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
-import Chainweb.Transaction (mkPayloadWithText, ChainwebTransaction, chainwebPayloadCodec)
+import Chainweb.Transaction
+    (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithText)
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 

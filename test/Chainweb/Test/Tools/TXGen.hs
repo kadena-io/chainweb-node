@@ -1,8 +1,8 @@
-{-# language OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.Test.Tools.TxGen
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
@@ -16,8 +16,8 @@ import Control.Monad (replicateM, void)
 import Control.Monad.IO.Class
 
 import Data.List.NonEmpty (NonEmpty)
-import Data.Map.Strict (Map)
 import qualified Data.List.NonEmpty as NEL
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 

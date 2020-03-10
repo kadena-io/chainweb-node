@@ -7,7 +7,7 @@
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
@@ -48,8 +48,8 @@ import Pact.Types.Command
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
-import Chainweb.Cut.TestBlockDb
 import Chainweb.ChainId
+import Chainweb.Cut.TestBlockDb
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -60,8 +60,8 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.Version
 import Chainweb.Utils
+import Chainweb.Version
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson

@@ -7,7 +7,7 @@
 
 -- |
 -- Module: Chainweb.Payload.RestAPI
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -127,4 +127,3 @@ somePayloadApi v c = runIdentity $ do
 
 somePayloadApis :: ChainwebVersion -> [ChainId] -> SomeApi
 somePayloadApis v = mconcat . fmap (somePayloadApi v)
-

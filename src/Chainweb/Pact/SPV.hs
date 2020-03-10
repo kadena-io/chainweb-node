@@ -7,7 +7,7 @@
 
 -- |
 -- Module: Chainweb.Pact.PactService
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainers: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental

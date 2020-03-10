@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeFamilies #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental

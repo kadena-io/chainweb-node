@@ -9,7 +9,7 @@
 
 -- |
 -- Module: Chainweb.Test.SPV
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -23,7 +23,7 @@ module Chainweb.Test.SPV
 , apiTests
 ) where
 
-import Control.Lens ((^?!), view)
+import Control.Lens (view, (^?!))
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 
@@ -400,4 +400,3 @@ txApiTests envIO step = do
 
                 step "confirm that transaction output proof subject matches transaction output"
                 assertEqual "proof subject matches transaction output" out subj
-

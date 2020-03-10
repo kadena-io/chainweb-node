@@ -9,7 +9,7 @@
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
 -- Module: Chainweb.Test.Pact.Utils
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -79,7 +79,7 @@ module Chainweb.Test.Pact.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Lens (_3, view)
+import Control.Lens (view, _3)
 import Control.Monad
 import Control.Monad.Catch
 

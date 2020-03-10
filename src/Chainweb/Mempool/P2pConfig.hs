@@ -7,7 +7,7 @@
 
 -- |
 -- Module: Chainweb.Mempool.P2pConfig
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -84,4 +84,3 @@ pMempoolP2pConfig = id
     <*< mempoolP2pConfigPollInterval .:: textOption
         % long "mempool-p2p-poll-interval"
         <> help "poll interval for synchronizing mempools in seconds"
-
