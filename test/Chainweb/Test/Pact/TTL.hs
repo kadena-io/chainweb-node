@@ -202,7 +202,7 @@ testTtlTooSmall ctxIO =
     testCase "too small TTL fails validation" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
         let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        assertDoPreBlockFailure $ doNewBlock ctxIO (ttl 180) (ParentHeader hdr') (Nonce 2) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (ttl 179) (ParentHeader hdr') (Nonce 2) 1
 
 testTtlSmall2 :: IO Ctx -> TestTree
 testTtlSmall2 ctxIO =
@@ -226,7 +226,7 @@ testExpiredExtraTight :: IO Ctx -> TestTree
 testExpiredExtraTight ctxIO =
     testCase "extra tightly expired transaction passes validation on non-mainnet version" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        void $ doNewBlock ctxIO (offsetTtl (180 -1000) 1000) (ParentHeader hdr) (Nonce 2) 1
+        void $ doNewBlock ctxIO (offsetTtl (179 -1000) 1000) (ParentHeader hdr) (Nonce 2) 1
 
 -- This code must be removed once the transition is complete and the guard
 -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
@@ -236,15 +236,13 @@ testExpiredExtraTight2 :: IO Ctx -> TestTree
 testExpiredExtraTight2 ctxIO =
     testCase "extra tightly expired transaction fails validation (mainnet)" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        -- also test when @useCurrentHeaderCreationTimeForTxValidation@ is @False@.
         let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (180-1000) 1000) (ParentHeader hdr') (Nonce 2) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (179-1000) 1000) (ParentHeader hdr') (Nonce 2) 1
 
 testJustMadeIt2 :: IO Ctx -> TestTree
 testJustMadeIt2 ctxIO =
     testCase "just not expired transaction passes validation (mainnet)" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        -- also test when @useCurrentHeaderCreationTimeForTxValidation@ is @False@.
         let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
         assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-999) 1000) (ParentHeader hdr') (Nonce 2) 1
 
@@ -252,7 +250,6 @@ testJustMadeIt3 :: IO Ctx -> TestTree
 testJustMadeIt3 ctxIO =
     testCase "just not expired transaction passes validation (mainnet)" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 2000
-        -- also test when @useCurrentHeaderCreationTimeForTxValidation@ is @False@.
         let hdr' = hdr { _blockChainwebVersion = Mainnet01 }
         assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-999) 1000) (ParentHeader hdr') (Nonce 2) 1
 
