@@ -243,7 +243,7 @@ chainwebApplication v dbs mr hs
     . someServerApplication
     $ someChainwebServer v dbs mr hs
 
--- Simple cors with actualy simpleHeaders which includes content-type.
+-- Simple cors with actually simpleHeaders which includes content-type.
 chainwebCors :: Middleware
 chainwebCors = cors . const . Just $ simpleCorsResourcePolicy
     { corsRequestHeaders = simpleHeaders
