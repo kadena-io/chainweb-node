@@ -485,7 +485,7 @@ testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p t -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m t
+        { _pactNewBlock = \m p -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
             evalPactServiceM_ ctx $ execValidateBlock h d
         , _pactLocal = error
@@ -533,7 +533,7 @@ runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockT
 runCut v bdb pact genTime noncer =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime $ _parentHeader ph)
+    pout <- _webPactNewBlock pact noMiner ph
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
@@ -670,7 +670,7 @@ withBlockHeaderDb
 withBlockHeaderDb iordb b = withResource start stop
   where
     start = do
-        rdb <- iordb
+        rdb <- testRocksDb "withBlockHeaderDb" =<< iordb
         testBlockHeaderDb rdb b
     stop = closeBlockHeaderDb
 

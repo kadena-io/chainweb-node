@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeApplications #-}
@@ -12,12 +13,11 @@ import Control.Monad.Reader
 import Control.Monad.State
 
 import Data.Aeson
-import Data.Bytes.Put (runPutS)
 import Data.CAS.HashMap
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
 
@@ -40,8 +40,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
-import Chainweb.Difficulty
-import Chainweb.Miner.Core (HeaderBytes(..), TargetBytes(..), mine, usePowHash)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -52,7 +50,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils (runGet, sshow)
+import Chainweb.Utils (sshow)
 import Chainweb.Version
 
 testVer :: ChainwebVersion
@@ -72,8 +70,7 @@ tests =
             withPact testVer Warn pdb bhdb testMemPoolAccess dir 100000
                 (testCaseSteps "on-restart" . onRestart pdb bhdb)
         , after AllSucceed "on-restart" $
-          withTime $ \iot ->
-            withPact testVer Quiet pdb bhdb (dupegenMemPoolAccess iot) dir 100000
+            withPact testVer Quiet pdb bhdb dupegenMemPoolAccess dir 100000
             (testCase "reject-dupes" . testDupes genblock pdb bhdb)
         , after AllSucceed "reject-dupes" $
             let deepForkLimit = 4
@@ -102,8 +99,8 @@ onRestart pdb bhdb r step = do
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = mempty
-    { mpaGetBlock = \validate bh hash _parentHeader  -> do
-        let (BlockCreationTime t) = _blockCreationTime _parentHeader
+    { mpaGetBlock = \validate bh hash parentHeader  -> do
+        let (BlockCreationTime t) = _blockCreationTime parentHeader
         getTestBlock t validate bh hash
     }
   where
@@ -133,39 +130,26 @@ testMemPoolAccess = mempty
         tx nonce = V.singleton $ PactTransaction (code nonce) (Just $ ksData (T.pack $ show nonce))
         code nonce = defModule (T.pack $ show nonce)
 
-dupegenMemPoolAccess :: IO (Time Micros) -> MemPoolAccess
-dupegenMemPoolAccess iot = MemPoolAccess
-    { mpaGetBlock = \validate bh hash _header -> do
-            t <- f bh <$> iot
-            getTestBlock t validate bh hash _header
-    , mpaSetLastHeader = \_ -> return ()
-    , mpaProcessFork = \_ -> return ()
-    , mpaBadlistTx = \_ -> return ()
-    }
-  where
-    f :: BlockHeight -> Time Micros -> Time Micros
-    f b = add (scaleTimeSpan b millisecond)
-    getTestBlock txOrigTime validate bHeight bHash _bHeader = do
+dupegenMemPoolAccess :: MemPoolAccess
+dupegenMemPoolAccess = mempty
+    { mpaGetBlock = \validate bHeight bHash _parentHeader -> do
         akp0 <- stockKey "sender00"
         kp0 <- mkKeyPairs [akp0]
         let nonce = "0"
-        outtxs <- mkTestExecTransactions
-            "sender00" "0" kp0
-            nonce 10000 0.00000000001
-            3600 (toTxCreationTime txOrigTime) (tx nonce)
+            tx = V.singleton $ PactTransaction (defModule nonce) (Just $ ksData nonce)
+        outtxs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10000 0.00000000001 3600 0 tx
         oks <- validate bHeight bHash outtxs
         unless (V.and oks) $ fail $ mconcat
             [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
-            , show (tx nonce)
+            , show tx
             , "\n\nouttxs: "
             , "\n\noks: "
             , show oks
             ]
         return outtxs
-      where
-        ksData :: Text -> Value
-        ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-        tx nonce = V.singleton $ PactTransaction (defModule nonce) (Just $ ksData nonce)
+    }
+  where
+    ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
 firstPlayThrough
     :: BlockHeader
@@ -203,7 +187,7 @@ testDupes
 testDupes genesisBlock iopdb iobhdb rr = do
     (T3 _ newblock payload) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iopdb iobhdb rr
     expectException newblock payload $ liftIO $
-        mineBlock (ParentHeader newblock) (Nonce 2) iopdb iobhdb rr
+        mineBlock (ParentHeader newblock) (Nonce 3) iopdb iobhdb rr
   where
     expectException newblock payload act = do
         m <- wrap `catch` h
@@ -278,9 +262,7 @@ mineBlock
 mineBlock parentHeader nonce iopdb iobhdb r = do
 
      -- assemble block without nonce and timestamp
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-
-     mv <- r >>= newBlock noMiner parentHeader creationTime
+     mv <- r >>= newBlock noMiner parentHeader
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
@@ -289,33 +271,32 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               nonce
               creationTime
               parentHeader
-         hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-         tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
 
-     T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
-     newHeader <- runGet decodeBlockHeaderWithoutHash new
-
-     mv' <- r >>= validateBlock newHeader (toPayloadData payload)
-
+     mv' <- r >>= validateBlock bh (toPayloadData payload)
      void $ assertNotLeft =<< takeMVar mv'
 
      pdb <- iopdb
      addNewPayload pdb payload
 
      bhdb <- iobhdb
-     insert bhdb newHeader
+     insert bhdb bh
 
-     return $ T3 parentHeader newHeader payload
+     return $ T3 parentHeader bh payload
 
-     where
-       toPayloadData :: PayloadWithOutputs -> PayloadData
-       toPayloadData d = PayloadData
-                 { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
-                 , _payloadDataMiner = _payloadWithOutputsMiner d
-                 , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
-                 , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
-                 , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
-                 }
+   where
+     creationTime = BlockCreationTime
+          . add (TimeSpan 1000000)
+          . _bct . _blockCreationTime
+          $ _parentHeader parentHeader
+
+     toPayloadData :: PayloadWithOutputs -> PayloadData
+     toPayloadData d = PayloadData
+               { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
+               , _payloadDataMiner = _payloadWithOutputsMiner d
+               , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
+               , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
+               , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
+               }
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
