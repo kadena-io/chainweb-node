@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -580,7 +581,7 @@ data MockTx = MockTx {
 
 
 mockBlockGasLimit :: GasLimit
-mockBlockGasLimit = 100000000
+mockBlockGasLimit = 100_000_000
 
 
 -- | A codec for transactions when sending them over the wire.

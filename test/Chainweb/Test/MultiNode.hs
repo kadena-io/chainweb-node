@@ -8,6 +8,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -171,10 +172,10 @@ config v n nid = defaultChainwebConfiguration v
         }
 
     throttling = defaultThrottlingConfig
-        { _throttlingRate = 10000 -- per second
-        , _throttlingMiningRate = 10000 --  per second
-        , _throttlingPeerRate = 10000 -- per second, one for each p2p network
-        , _throttlingLocalRate = 10000  -- per 10 seconds
+        { _throttlingRate = 10_000 -- per second
+        , _throttlingMiningRate = 10_000 --  per second
+        , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
+        , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
 -- | Set the bootstrap node port of a 'ChainwebConfiguration'
@@ -273,7 +274,7 @@ runNodes loglevel write stateVar v n =
             -- into the configuration of the remaining nodes.
 
         forConcurrently_ [0 .. int n - 1] $ \i -> do
-            threadDelay (500000 * int i)
+            threadDelay (500_000 * int i)
 
             let baseConf = config v n (NodeId i)
             conf <- if
@@ -297,7 +298,7 @@ runNodesForSeconds
     -> IO (Maybe Stats)
 runNodesForSeconds loglevel v n (Seconds seconds) write = do
     stateVar <- newMVar $ emptyConsensusState v
-    void $ timeout (int seconds * 1000000)
+    void $ timeout (int seconds * 1_000_000)
         $ runNodes loglevel write stateVar v n
 
     consensusState <- readMVar stateVar
@@ -317,7 +318,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
 #if DEBUG_MULTINODE_TEST
     -- useful for debugging, requires import of Data.Text.IO.
     let logFun = T.putStrLn
-        maxLogMsgs = 100000
+        maxLogMsgs = 100_000
 #else
     let logFun = tastylog
         maxLogMsgs = 60

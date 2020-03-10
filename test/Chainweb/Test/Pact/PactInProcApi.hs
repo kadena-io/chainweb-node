@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -170,7 +171,7 @@ badlistMPA = mempty
         let setGL = modifyPayloadWithText . set (pMeta . pmGasLimit)
         -- this should exceed the account balance
         let txs = flip V.map txs0 $
-                  fmap (setGP 1000000000000000 . setGL 99999)
+                  fmap (setGP 1_000_000_000_000_000 . setGL 99999)
         return txs
 
 badlistNewBlockTest :: IO (PactQueue,TestBlockDb) -> TestTree
@@ -269,7 +270,7 @@ testMempoolChainData noncer = mempty {
           txTtl = 1000 -- seconds
       n <- readMVar =<< noncer
       ks <- testKeyPairs sender00KeyPair Nothing
-      mkTestExecTransactions "sender00" c ks n 10000 0.01 txTtl txTime txs
+      mkTestExecTransactions "sender00" c ks n 10_000 0.01 txTtl txTime txs
 
 
 _testLocal :: IO ChainwebTransaction

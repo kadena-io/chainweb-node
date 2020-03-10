@@ -101,7 +101,7 @@ txgenTest batchsize iot nio = testCaseSteps "txgen test steps" $ \step -> do
                 CoinTransfer (SenderName sn) rcvr amt -> mkTransferCaps rcvr amt $ acclookup sn
                 CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> mkTransferCaps rcvr amt (acc, guardd)
         meta' <- makeMetaWithSender sender chain
-        let meta = meta' { _pmGasLimit = 10000 }
+        let meta = meta' { _pmGasLimit = 10_000 }
         createCoinContractRequest v meta ks req
 
     makeAccounts t chain = do

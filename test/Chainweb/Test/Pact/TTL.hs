@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
@@ -297,7 +298,7 @@ modAtTtl f (Seconds t) = mempty
         --     <> "\nparentTime: " <> sshow (_blockCreationTime parentHeader)
         --     <> "\nheight: " <> sshow bh
         --     <> "\ntxTime: " <> sshow txTime
-        outtxs <- mkTestExecTransactions sender "0" kp0 nonce 10000 0.00000000001 tt txTime tx
+        outtxs <- mkTestExecTransactions sender "0" kp0 nonce 10_000 0.000_000_000_01 tt txTime tx
         unlessM (and <$> validate bh hash outtxs) $ throwM DoPreBlockFailure
         return outtxs
     }
@@ -479,4 +480,3 @@ runOne t = defaultMain $
     withBlockHeaderDb rocksIO genblock $ \bdbIO ->
     withTestPact testVer pdbIO bdbIO $ \ctxIO ->
     t ctxIO
-
