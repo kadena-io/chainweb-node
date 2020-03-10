@@ -179,10 +179,10 @@ newWork logFun choice eminer pact tpw c = do
     public p miner = case getAdjacentParents c (_parentHeader p) of
         Nothing -> pure Nothing
         Just adj -> do
-            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
             -- This is an expensive call --
             payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
-                (_pactNewBlock pact miner p creationTime)
+                (_pactNewBlock pact miner p)
+            creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
             pure . Just $ T2 (T2 payload creationTime) adj
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
@@ -205,10 +205,10 @@ chainChoice c choice = case choice of
 --
 publish :: LogFunction -> MiningState -> CutDb cas -> BlockHeader -> IO ()
 publish lf (MiningState ms) cdb bh = do
-    now <- getCurrentTimeIntegral
     c <- _cut cdb
     let !phash = _blockPayloadHash bh
         !bct = _blockCreationTime bh
+    now <- getCurrentTimeIntegral
     res <- runExceptT $ do
         -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
         -- Payload we know about, reject it.
