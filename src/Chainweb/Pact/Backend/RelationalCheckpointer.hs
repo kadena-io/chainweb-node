@@ -4,7 +4,7 @@
 
 -- |
 -- Module: Chainweb.Pact.Backend.RelationalCheckpointer
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainers: Emmanuel Denloye <emmanuel@kadena.io>
 -- Stability: experimental

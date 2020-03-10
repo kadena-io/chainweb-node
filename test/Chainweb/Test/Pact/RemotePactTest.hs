@@ -13,7 +13,7 @@
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -92,8 +92,8 @@ import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.PeerResources
-import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Cut.CutHashes
+import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger

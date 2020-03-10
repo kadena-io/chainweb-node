@@ -1,11 +1,10 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.TreeDB.Validation
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -109,4 +108,3 @@ validateAdditionsDbM
 validateAdditionsDbM db h = do
     t <- getCurrentTimeIntegral
     validateBlocksM t (lookup db) h
-

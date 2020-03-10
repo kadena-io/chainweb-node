@@ -3,7 +3,7 @@
 
 -- |
 -- Module: Data.PQueue
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -79,5 +79,3 @@ pQueueRemove (PQueue s q) = run
         case r of
             Nothing -> takeMVar s >> run
             (Just !x) -> return x
-
-

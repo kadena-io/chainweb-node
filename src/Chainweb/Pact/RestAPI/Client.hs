@@ -1,13 +1,13 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
 -- |
 -- Module: Chainweb.Pact.RestAPI.Client
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -159,4 +159,3 @@ pactPollApiClient
     (FromSing (SChainwebVersion :: Sing v))
     (FromSing (SChainId :: Sing c))
     = pactPollApiClient_ @v @c
-
