@@ -80,13 +80,13 @@ timingsCheck
     -> Bool
 timingsCheck (BlockCreationTime txValidationTime) tx =
     ttl > 0
-    && txValidationTime >= toMicrosFromSeconds 0
+    && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
-    && toMicrosFromSeconds txOriginationTime <= txValidationTime
-    && toMicrosFromSeconds (txOriginationTime + ttl) > txValidationTime
+    && timeFromSeconds txOriginationTime <= txValidationTime
+    && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
-    toMicrosFromSeconds = Time . TimeSpan . Micros . fromIntegral . (1000000 *)
+    timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
     (TxCreationTime txOriginationTime) = creationTimeOf tx
 

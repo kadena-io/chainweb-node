@@ -29,7 +29,6 @@ import Data.Vector (Vector)
 import Pact.Types.Command
 import Pact.Types.Hash
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
@@ -41,14 +40,13 @@ import Chainweb.Payload
 import Chainweb.Transaction
 
 
-newBlock :: Miner -> ParentHeader -> BlockCreationTime -> PactQueue ->
+newBlock :: Miner -> ParentHeader -> PactQueue ->
             IO (MVar (Either PactException PayloadWithOutputs))
-newBlock mi bHeader creationTime reqQ = do
+newBlock mi bHeader reqQ = do
     !resultVar <- newEmptyMVar :: IO (MVar (Either PactException PayloadWithOutputs))
     let !msg = NewBlockMsg NewBlockReq
           { _newBlockHeader = bHeader
           , _newMiner = mi
-          , _newCreationTime = creationTime
           , _newResultVar = resultVar }
     addRequest reqQ msg
     return resultVar
