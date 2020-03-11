@@ -15,7 +15,7 @@
 
 -- |
 -- Module: TxStream
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -384,4 +384,3 @@ main = runWithConfiguration pinfo mainWithConfig
         "List all transactions in chain starting with most recent block"
         pConfig
         defaultConfig
-

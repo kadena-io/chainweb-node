@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
@@ -123,7 +124,7 @@ instance Arbitrary MockTx where
   arbitrary = MockTx
       <$> chooseAny
       <*> arbitraryGasPrice
-      <*> pure (mockBlockGasLimit `div` 50000)
+      <*> pure (mockBlockGasLimit `div` 50_000)
       <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
@@ -154,7 +155,7 @@ mempoolTestCase :: TestName
 mempoolTestCase name test (MempoolWithFunc withMempool) =
     testCase name $ tout $ withMempool test
   where
-    tout m = timeout 60000000 m >>= maybe (fail "timeout") return
+    tout m = timeout 60_000_000 m >>= maybe (fail "timeout") return
 
 
 mempoolProperty
@@ -167,7 +168,7 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
   where
     go = monadicIO (gen >>= run . tout . withMempool . test >>= either fail return)
 
-    tout m = timeout 60000000 m >>= maybe (fail "timeout") return
+    tout m = timeout 60_000_000 m >>= maybe (fail "timeout") return
 
 testStartup :: InsertCheck -> MempoolBackend MockTx -> IO ()
 testStartup = const $ const $ return ()

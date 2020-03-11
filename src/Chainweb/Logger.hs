@@ -10,7 +10,7 @@
 
 -- |
 -- Module: System.Logger
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -139,4 +139,3 @@ instance L.LoggerCtx GenericLogger SomeLogMessage where
 --
 genericLogger :: LogLevel -> (T.Text -> IO ()) -> GenericLogger
 genericLogger level fun = GenericLogger [] level fun
-

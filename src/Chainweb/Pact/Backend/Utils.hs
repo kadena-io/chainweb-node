@@ -10,7 +10,7 @@
 
 -- |
 -- Module: Chainweb.Pact.ChainwebPactDb
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
@@ -19,7 +19,7 @@
 module Chainweb.Pact.Backend.Utils where
 
 import Control.Concurrent.MVar
-import Control.Exception (evaluate, AsyncException)
+import Control.Exception (AsyncException, evaluate)
 import Control.Exception.Safe (tryAny)
 import Control.Lens
 import Control.Monad

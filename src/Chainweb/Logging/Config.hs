@@ -11,7 +11,7 @@
 
 -- |
 -- Module: Chainweb.Logging.Config
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -53,8 +53,8 @@ import System.Logger.Logger
 import Chainweb.Logging.Amberdata
 import Chainweb.Utils
 
-import Utils.Logging.Config
 import Utils.Logging
+import Utils.Logging.Config
 
 -- -------------------------------------------------------------------------- --
 -- Logging System Configuration
@@ -171,4 +171,3 @@ pFilter_ prefix = id
         % prefixLong prefix "log-filter-default"
         <> help "default log filter level, which is applied to all messages that don't match any other filter rule"
         <> metavar "LOGLEVEL"
-

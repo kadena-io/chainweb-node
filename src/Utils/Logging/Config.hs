@@ -12,7 +12,7 @@
 
 -- |
 -- Module: Utils.Logging.Config
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -233,4 +233,3 @@ pBackendConfig_ prefix = id
     <$< backendConfigColor .:: pColorOption_ prefix
     <*< backendConfigFormat .:: pLogFormat_ prefix
     <*< backendConfigHandle .:: pHandleConfig_ prefix
-

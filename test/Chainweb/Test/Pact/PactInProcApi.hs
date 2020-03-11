@@ -1,13 +1,14 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
@@ -48,8 +49,8 @@ import Pact.Types.Command
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
-import Chainweb.Cut.TestBlockDb
 import Chainweb.ChainId
+import Chainweb.Cut.TestBlockDb
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -60,8 +61,8 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.Version
 import Chainweb.Utils
+import Chainweb.Version
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
@@ -170,7 +171,7 @@ badlistMPA = mempty
         let setGL = modifyPayloadWithText . set (pMeta . pmGasLimit)
         -- this should exceed the account balance
         let txs = flip V.map txs0 $
-                  fmap (setGP 1000000000000000 . setGL 99999)
+                  fmap (setGP 1_000_000_000_000_000 . setGL 99999)
         return txs
 
 badlistNewBlockTest :: IO (PactQueue,TestBlockDb) -> TestTree
@@ -269,7 +270,7 @@ testMempoolChainData noncer = mempty {
           txTtl = 1000 -- seconds
       n <- readMVar =<< noncer
       ks <- testKeyPairs sender00KeyPair Nothing
-      mkTestExecTransactions "sender00" c ks n 10000 0.01 txTtl txTime txs
+      mkTestExecTransactions "sender00" c ks n 10_000 0.01 txTtl txTime txs
 
 
 _testLocal :: IO ChainwebTransaction

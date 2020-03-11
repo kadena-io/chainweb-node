@@ -8,7 +8,7 @@
 
 -- |
 -- Module: Chainweb.SPV.RestAPI.Client
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -34,9 +34,9 @@ import Servant.Client
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.RestAPI.Orphans ()
 import Chainweb.SPV
 import Chainweb.SPV.RestAPI
-import Chainweb.RestAPI.Orphans ()
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -118,4 +118,3 @@ spvGetTransactionOutputProofClient v tcid scid h i = runIdentity $ do
     SomeChainwebVersionT (_ :: Proxy v) <- return $ someChainwebVersionVal v
     SomeChainIdT (_ :: Proxy c) <- return $ someChainIdVal tcid
     return $ spvGetTransactionOutputProofClient_ @v @c scid h i
-

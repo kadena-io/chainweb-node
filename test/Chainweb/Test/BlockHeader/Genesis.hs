@@ -1,6 +1,6 @@
 -- |
 -- Module: Chainweb.Test.BlockHeader.Genesis
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
