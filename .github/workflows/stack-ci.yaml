@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - ci/*
 
 jobs:
   build:
@@ -14,6 +15,11 @@ jobs:
       matrix:
         resolver: ['stack.yaml']
     steps:
+      - name: Install non-Haskell dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librocksdb-dev
+
       - name: Setup Stack
         uses: mstksg/setup-stack@v1
 
