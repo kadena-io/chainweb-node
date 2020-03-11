@@ -18,6 +18,7 @@ module Chainweb.BlockHeader.Genesis
     genesisBlockHeader
   , genesisBlockHeader'
   , genesisBlockHeaders
+  , genesisBlockHeadersAtHeight
     -- ** Querying
   , genesisBlockPayload
   , genesisParentBlockHash
@@ -59,7 +60,6 @@ import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
 import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
-import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Pact
@@ -181,7 +181,7 @@ genesisBlockHeader'
     -> BlockHeader
 genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
   where
-    g = _chainGraph v
+    g = genesisGraph v p
     cid = _chainId p
 
     mlog = newMerkleLog
@@ -206,3 +206,14 @@ genesisBlockHeaders v = HM.fromList
     . fmap (id &&& genesisBlockHeader v)
     . toList
     $ chainIds v
+
+    -- TODO define chainIdsAtHeight
+    -- (and use max graph for chainIds)
+
+genesisBlockHeadersAtHeight
+    :: ChainwebVersion
+    -> BlockHeight
+    -> HM.HashMap ChainId BlockHeader
+genesisBlockHeadersAtHeight v h = HM.filter
+    (\hdr -> _blockHeight hdr <= h)
+    $ genesisBlockHeaders v

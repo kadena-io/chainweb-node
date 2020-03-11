@@ -1,11 +1,12 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -45,9 +46,9 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.Bifunctor
 import Data.Foldable
 import Data.Hashable
-import Data.Reflection (give)
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -64,6 +65,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeader.Validation
+import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -166,8 +168,8 @@ instance HasChainwebVersion WebBlockHeaderStore where
     _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainGraph WebBlockHeaderStore where
-    _chainGraph = _chainGraph . _webBlockHeaderStoreCas
+instance HasChainGraph (WebBlockHeaderStore, BlockHeight) where
+    _chainGraph = _chainGraph . first _webBlockHeaderStoreCas
     {-# INLINE _chainGraph #-}
 
 -- -------------------------------------------------------------------------- --
@@ -555,12 +557,12 @@ getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas c
 instance IsCas WebBlockHeaderCas where
     type CasValueType WebBlockHeaderCas = ChainValue BlockHeader
     casLookup (WebBlockHeaderCas db) (ChainValue cid h) =
-        (Just . ChainValue cid <$> give db (lookupWebBlockHeaderDb cid h))
+        (Just . ChainValue cid <$> lookupWebBlockHeaderDb db cid h)
             `catch` \e -> case e of
                 TDB.TreeDbKeyNotFound _ -> return Nothing
                 _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
     casInsert (WebBlockHeaderCas db) (ChainValue _ h)
-        = give db (insertWebBlockHeaderDb h)
+        = insertWebBlockHeaderDb db h
     casDelete = error "not implemented"
 
     -- This is fine since the type 'WebBlockHeaderCas' is not exported. So the

@@ -5,6 +5,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -89,6 +90,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
 
+import Data.Bifunctor
 import Data.CAS.HashMap
 import Data.Foldable
 import Data.Function
@@ -99,7 +101,6 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
-import Data.Reflection hiding (int)
 import qualified Data.Text as T
 import Data.These
 import Data.Tuple.Strict
@@ -172,7 +173,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsInitialHeightLimit = Nothing
     }
   where
-    g = _chainGraph v
+    g = _chainGraph (v, maxBound @BlockHeight)
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:
@@ -227,8 +228,8 @@ data CutDb cas = CutDb
     , _cutDbStore :: !(RocksDbCas CutHashes)
     }
 
-instance HasChainGraph (CutDb cas) where
-    _chainGraph = _chainGraph . _cutDbHeaderStore
+instance HasChainGraph (CutDb cas, BlockHeight) where
+    _chainGraph = _chainGraph . first _cutDbHeaderStore
     {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion (CutDb cas) where
@@ -432,7 +433,7 @@ lookupCutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
 lookupCutHashes wbhdb hs =
     flip itraverse (_cutHashes hs) $ \cid (_, h) ->
-        give wbhdb $ lookupWebBlockHeaderDb cid h
+        lookupWebBlockHeaderDb wbhdb cid h
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.
@@ -488,7 +489,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
 
     graph = _chainGraph headerStore
 
-    threshold :: Int
+    -- TODO base this of the mean block height of the current cut height
+    threshold :: BlockHeight -> Int
     threshold = int $ 2 * diameter graph * order graph
 
     queueToStream = do

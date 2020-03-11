@@ -52,7 +52,7 @@ newtype BlockHeight = BlockHeight { _height :: Word64 }
     deriving newtype
         ( Hashable, ToJSON, FromJSON
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
-        , Num, Integral, Real, Enum
+        , Num, Integral, Real, Enum, Bounded
         )
 instance Show BlockHeight where show (BlockHeight b) = show b
 

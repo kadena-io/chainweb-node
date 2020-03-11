@@ -475,7 +475,7 @@ instance HasChainId BlockHeader where
     {-# INLINE _chainId #-}
 
 instance HasChainGraph BlockHeader where
-    _chainGraph = _chainGraph . _blockChainwebVersion
+    _chainGraph h = _chainGraph (_blockChainwebVersion h, _blockHeight h)
     {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion BlockHeader where
@@ -543,7 +543,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockChainwebVersion = cwv
             , _blockEpochStart = es
             , _blockFlags = flags
-            , _blockAdjacentHashes = blockHashRecordFromVector cwv cid adjParents
+            , _blockAdjacentHashes = blockHashRecordFromVector (cwv, height) cid adjParents
             }
       where
         ( nonce

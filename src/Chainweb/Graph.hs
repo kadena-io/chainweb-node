@@ -287,9 +287,8 @@ graphChainIds = G.vertices . _chainGraphGraph
 checkWebChainId :: MonadThrow m => HasChainGraph g => HasChainId p => g -> p -> m ()
 checkWebChainId g p = unless (isWebChain g p)
     $ throwM $ ChainNotInChainGraphException
-        (Expected (G.vertices $ _chainGraphGraph $ _chainGraph g))
+        (Expected (graphChainIds $ _chainGraph g))
         (Actual (_chainId p))
-
 
 isWebChain :: HasChainGraph g => HasChainId p => g -> p -> Bool
 isWebChain g p = G.isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)

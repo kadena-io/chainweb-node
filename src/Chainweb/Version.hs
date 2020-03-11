@@ -32,12 +32,17 @@ module Chainweb.Version
 , chainwebVersionId
 
 -- * Properties of Chainweb Version
+-- ** Gensis Height
+, genesisHeight
+-- ** Chain Graph
+, chainwebVersionGraph
+, genesisGraph
 -- ** POW
 , BlockRate(..)
 , blockRate
 , WindowWidth(..)
 , window
--- ** Date- and Version-based Transaction Disabling and Enabling
+-- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
 , pactBackCompat_v16
@@ -360,7 +365,7 @@ prettyVersions = HM.fromList . map swap $ HM.toList chainwebVersions
 --
 toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32
 toTestChainwebVersion v =
-    testVersionToCode v .|. graphToCode (view (chainGraph . chainGraphKnown) v)
+    testVersionToCode v .|. graphToCode (view (chainGraph . chainGraphKnown) (v, BlockHeight 0))
 
 -- | For the binary encoding of a `ChainGraph` within a `ChainwebVersion`.
 --
@@ -470,60 +475,102 @@ instance HasChainwebVersion ChainwebVersion where
     _chainwebVersion = id
     {-# INLINE _chainwebVersion #-}
 
+-- | ChainIds at the top of the current chainweb
+--
 chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
-chainIds = graphChainIds . _chainGraph . _chainwebVersion
+chainIds v = chainIdsAtHeight v maxBound
 {-# INLINE chainIds #-}
+
+-- | ChainIds at the given height of the current chainweb
+--
+chainIdsAtHeight :: HasChainwebVersion v => v -> BlockHeight -> HS.HashSet ChainId
+chainIdsAtHeight v h = graphChainIds $ _chainGraph (_chainwebVersion v, h)
+{-# INLINE chainIdsAtHeight #-}
 
 mkChainId
     :: MonadThrow m
     => HasChainwebVersion v
     => Integral i
     => v
+    -> BlockHeight
     -> i
     -> m ChainId
-mkChainId v i = cid
-    <$ checkWebChainId (chainwebVersionGraph $ _chainwebVersion v) cid
+mkChainId v h i = cid
+    <$ checkWebChainId (chainwebVersionGraph (_chainwebVersion v) h) cid
   where
     cid = unsafeChainId (fromIntegral i)
 {-# INLINE mkChainId #-}
 
 -- | Sometimes, in particular for testing and examples, some fixed chain id is
 -- needed, but it doesn't matter which one. This function provides some valid
--- chain ids.
+-- chain ids for the top of the current chainweb.
 --
 someChainId :: HasCallStack => HasChainwebVersion v => v -> ChainId
-someChainId = head . toList . chainIds
-    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
-    -- graph.
+someChainId v = someChainIdAtHeight v maxBound
 {-# INLINE someChainId #-}
 
--- | Uniformily get a random ChainId
+-- | Sometimes, in particular for testing and examples, some fixed chain id is
+-- needed, but it doesn't matter which one. This function provides some valid
+-- chain ids for the chainweb at the given height.
+--
+someChainIdAtHeight :: HasCallStack => HasChainwebVersion v => v -> BlockHeight -> ChainId
+someChainIdAtHeight v h = head . toList $ chainIdsAtHeight v h
+    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
+    -- graph.
+{-# INLINE someChainIdAtHeight #-}
+
+-- | Uniformily get a random ChainId at the top of the current chainweb
 --
 randomChainId :: HasChainwebVersion v => v -> IO ChainId
-randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
+randomChainId v = randomChainIdAtHeight v maxBound
+
+-- | Uniformily get a random ChainId at the given height of the chainweb
+--
+randomChainIdAtHeight :: HasChainwebVersion v => v -> BlockHeight -> IO ChainId
+randomChainIdAtHeight v h = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
   where
-    cs = chainIds v
+    cs = chainIdsAtHeight v h
 
 -- -------------------------------------------------------------------------- --
 -- Properties of Chainweb Versions
 -- -------------------------------------------------------------------------- --
 
 -- -------------------------------------------------------------------------- --
+-- Genesis Height
+
+genesisHeight :: ChainwebVersion -> ChainId -> BlockHeight
+genesisHeight Test{} _ = 0
+genesisHeight TimedConsensus{} _ = 0
+genesisHeight PowConsensus{} _ = 0
+genesisHeight TimedCPM{} _ = 0
+genesisHeight FastTimedCPM{} _ = 0
+genesisHeight Development _ = 0
+genesisHeight Testnet04 _ = 0
+genesisHeight Mainnet01 _ = 0
+
+-- -------------------------------------------------------------------------- --
 -- Graph
 
-chainwebVersionGraph :: ChainwebVersion -> ChainGraph
-chainwebVersionGraph (Test g) = g
-chainwebVersionGraph (TimedConsensus g) = g
-chainwebVersionGraph (PowConsensus g) = g
-chainwebVersionGraph (TimedCPM g) = g
-chainwebVersionGraph (FastTimedCPM g) = g
-chainwebVersionGraph Development = petersonChainGraph
-chainwebVersionGraph Testnet04 = petersonChainGraph
-chainwebVersionGraph Mainnet01 = petersonChainGraph
+chainwebVersionGraph :: ChainwebVersion -> BlockHeight -> ChainGraph
+chainwebVersionGraph (Test g) _ = g
+chainwebVersionGraph (TimedConsensus g) _ = g
+chainwebVersionGraph (PowConsensus g) _ = g
+chainwebVersionGraph (TimedCPM g) _ = g
+chainwebVersionGraph (FastTimedCPM g) _ = g
+chainwebVersionGraph Development _ = petersonChainGraph
+chainwebVersionGraph Testnet04 _ = petersonChainGraph
+chainwebVersionGraph Mainnet01 _ = petersonChainGraph
 
-instance HasChainGraph ChainwebVersion where
-    _chainGraph = chainwebVersionGraph
+instance HasChainGraph (ChainwebVersion, BlockHeight) where
+    _chainGraph = uncurry chainwebVersionGraph
     {-# INLINE _chainGraph #-}
+
+genesisGraph :: HasChainwebVersion v => HasChainId c => v -> c -> ChainGraph
+genesisGraph v c = chainwebVersionGraph v_ (genesisHeight v_ cid)
+  where
+    v_ = _chainwebVersion v
+    cid = _chainId c
+{-# INLINE genesisGraph #-}
 
 -- -------------------------------------------------------------------------- --
 -- POW Parameters

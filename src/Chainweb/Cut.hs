@@ -145,8 +145,14 @@ data Cut = Cut
 
 makeLenses ''Cut
 
+meanChainHeight :: Cut -> BlockHeight
+meanChainHeight
+    = BlockHeight . mean . fmap (_height . _blockHeight) . toList . _cutHeaders
+  where
+    mean l = int $ round $ sum (realToFrac <$> l) / realToFrac (length l)
+
 instance HasChainGraph Cut where
-    _chainGraph = _chainGraph . _chainwebVersion
+    _chainGraph c = _chainGraph (_chainwebVersion c, meanChainHeight c)
     {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion Cut where
@@ -234,19 +240,33 @@ limitCut
 limitCut wdb h c
     | h >= _cutHeight c = return c
     | otherwise = do
-        c & (cutHeaders . itraverse) go
+        hdrs <- itraverse go $ view cutHeaders c
+        return $ set cutHeaders (HM.mapMaybe id hdrs) c
   where
-    gorder :: Natural
-    gorder = order $ _chainGraph wdb
-
     ch :: BlockHeight
-    ch = h `div` int gorder
+    ch = chainHeightAtCutHeight wdb h
 
+    go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
     go cid bh = do
         !db <- getWebBlockHeaderDb wdb cid
-        fromJuste <$> seekAncestor db bh (min (int $ _blockHeight bh) (int ch))
+        seekAncestor db bh (min (int $ _blockHeight bh) (int ch))
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
+
+        -- TODO ^ this comment isn't true any more. Instead ignore chains
+        -- that don't give a result for the requested hight.
+
+-- TODO for chain expansion
+--
+chainHeightAtCutHeight :: HasChainwebVersion v => v -> BlockHeight -> BlockHeight
+chainHeightAtCutHeight = error "Chainweb.Cut.chainHeightAtCutHeight: not yet implemented"
+-- chainHeightAtCutHeight v ch = ch
+--   where
+--     gorder :: Natural
+--     gorder = order $ _chainGraph wdb
+--
+--     ch :: BlockHeight
+--     ch = h `div` int gorder
 
 limitCutHeaders
     :: HasCallStack
