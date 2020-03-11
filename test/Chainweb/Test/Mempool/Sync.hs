@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -54,8 +55,8 @@ tests = testGroup "Chainweb.Mempool.sync"
       let yss = Set.fromList ys `Set.difference` xss
       let zss = Set.fromList zs `Set.difference` (xss `Set.union` yss)
       pre (not (Set.null xss || Set.null yss || Set.null zss)
-           && length ys < 10000
-           && length zs < 10000)
+           && length ys < 10_000
+           && length zs < 10_000)
       return (xss, yss, zss)
 
 txcfg :: TransactionConfig MockTx
@@ -98,7 +99,7 @@ propSync (txs, missing, later) _ localMempool' =
 
         -- expect remote to deliver transactions during sync.
         -- Timeout to guard against waiting forever
-        m <- timeout 20000000 $ do
+        m <- timeout 20_000_000 $ do
             syncTh <- Async.async syncThread
             putMVar syncThMv syncTh
             Async.link syncTh

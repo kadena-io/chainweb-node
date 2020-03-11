@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
@@ -117,7 +118,7 @@ mempoolNoopMiner lf chainRes =
   where
     loop = do
         mapM_ runOne $ HashMap.toList chainRes
-        approximateThreadDelay 60000000 -- wake up once a minute
+        approximateThreadDelay 60_000_000 -- wake up once a minute
 
     runOne (_, cr) = Mempool.mempoolPrune cr
 

@@ -7,8 +7,8 @@ module Main (main) where
 import Test.Tasty
 
 -- chainweb imports
-import Chainweb.Test.Utils
 import Chainweb.Test.Tools.TXGen
+import Chainweb.Test.Utils
 
 import Data.CAS.RocksDB
 
@@ -20,7 +20,7 @@ main =
         $ testGroup "Chainweb Tools Tests" . schedule Sequential
         $ [toolsTestSuite rdb]
   where
-    adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
+    adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
 
 toolsTestSuite :: RocksDb -> ScheduledTest
