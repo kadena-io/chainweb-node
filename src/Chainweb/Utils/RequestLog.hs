@@ -12,7 +12,7 @@
 
 -- |
 -- Module: Chainweb.Utils.RequestLog
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -162,4 +162,3 @@ requestResponseLogger logger app req respond = do
             $ logRequestResponse reqLog res
             $ (int $ toNanoSecs $ diffTimeSpec resTime reqTime) `div` 1000
         return r
-

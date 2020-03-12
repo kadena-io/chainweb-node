@@ -3,7 +3,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 -- | Module: Main
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emamnuel@kadena.io>
 -- Stability: experimental
@@ -32,8 +32,8 @@ import Text.Printf (printf)
 -- pact
 
 import Pact.ApiReq (mkExec)
-import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.ChainId
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command (Command(..), SomeKeyPairCaps)
 
 -- chainweb

@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -12,9 +13,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Chainweb.Pact.Backend.ForkingBench
-  (bench
-  ) where
+module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -99,8 +98,8 @@ import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -612,7 +611,7 @@ makeMeta c = do
           _pmChainId = Pact.ChainId $ chainIdToText c
         , _pmSender = "sender00"
         , _pmGasLimit = 10000
-        , _pmGasPrice = 0.000000000001
+        , _pmGasPrice = 0.000_000_000_001
         , _pmTTL = 3600
         , _pmCreationTime = t
         }

@@ -1,6 +1,6 @@
 -- |
 -- Module: Data.PQueue.Test
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -122,4 +122,3 @@ data QueueCommand a = QueueInsert a | QueueRemove
 runQueueCommand :: MonadIO m => Ord a => PQueue a -> QueueCommand a -> m (Maybe a)
 runQueueCommand q (QueueInsert a) = liftIO (Nothing <$ pQueueInsert q a)
 runQueueCommand q QueueRemove = liftIO (Just <$> pQueueRemove q)
-

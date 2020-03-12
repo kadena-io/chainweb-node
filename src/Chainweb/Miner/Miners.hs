@@ -2,13 +2,14 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
 -- Module: Chainweb.Miner.Miners
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
@@ -117,7 +118,7 @@ mempoolNoopMiner lf chainRes =
   where
     loop = do
         mapM_ runOne $ HashMap.toList chainRes
-        approximateThreadDelay 60000000 -- wake up once a minute
+        approximateThreadDelay 60_000_000 -- wake up once a minute
 
     runOne (_, cr) = Mempool.mempoolPrune cr
 

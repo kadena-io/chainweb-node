@@ -14,7 +14,7 @@
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 -- | Module: TXG
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
@@ -65,15 +65,15 @@ import Text.Pretty.Simple (pPrintNoColor)
 import Pact.ApiReq
 import Pact.Types.API
 import Pact.Types.Capability
+import qualified Pact.Types.ChainId as CI
+import qualified Pact.Types.ChainMeta as CM
 import Pact.Types.Command
 import Pact.Types.Exp (Literal(..))
 import Pact.Types.Gas
+import qualified Pact.Types.Hash as H
 import Pact.Types.Info (mkInfo)
 import Pact.Types.Names
 import Pact.Types.PactValue
-import qualified Pact.Types.ChainId as CI
-import qualified Pact.Types.ChainMeta as CM
-import qualified Pact.Types.Hash as H
 
 -- CHAINWEB
 import Chainweb.ChainId
@@ -94,8 +94,8 @@ import qualified Chainweb.Logging.Config as U
 import Utils.Logging
 import qualified Utils.Logging.Config as U
 
-import Chainweb.Mempool.RestAPI
 import Chainweb.Mempool.Mempool
+import Chainweb.Mempool.RestAPI
 ---
 
 generateDelay :: MonadIO m => TXG m Int

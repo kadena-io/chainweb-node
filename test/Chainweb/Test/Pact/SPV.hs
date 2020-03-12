@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -10,7 +11,7 @@
 {-# LANGUAGE TypeFamilies #-}
 -- |
 -- Module: Chainweb.Test.CutDB.Test
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -303,7 +304,7 @@ burnGen time pidv sid tid = do
 
                 let pcid = Pact.ChainId $ chainIdToText sid
 
-                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 24 0.01 100000 (toTxCreationTime time) txs
+                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 24 0.01 100_000 (toTxCreationTime time) txs
                   `finally` writeIORef ref0 True
 
                 let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
@@ -359,7 +360,7 @@ createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100_000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
@@ -383,7 +384,7 @@ createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100_000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
@@ -404,7 +405,7 @@ createInvalidProof time _ pidv _ tid _ = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False Nothing 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False Nothing 100_000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the correct target chain, with a proof
@@ -430,5 +431,5 @@ createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
                 ks <- testKeyPairs sender00KeyPair Nothing
                 pid <- readMVar pidv
 
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100000 (toTxCreationTime time) Null
+                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100_000 (toTxCreationTime time) Null
                     `finally` writeIORef ref True

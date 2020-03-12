@@ -5,7 +5,7 @@
 
 -- |
 -- Module: Chainweb.BlockHeader.Genesis
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
@@ -39,8 +39,6 @@ import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeight
-import Chainweb.BlockWeight
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
@@ -57,6 +55,8 @@ import qualified Chainweb.BlockHeader.Genesis.Mainnet8Payload as MN8
 import qualified Chainweb.BlockHeader.Genesis.Mainnet9Payload as MN9
 import qualified Chainweb.BlockHeader.Genesis.Testnet0Payload as PN0
 import qualified Chainweb.BlockHeader.Genesis.TestnetNPayload as PNN
+import Chainweb.BlockHeight
+import Chainweb.BlockWeight
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
 import Chainweb.Graph

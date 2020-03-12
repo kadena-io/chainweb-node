@@ -5,7 +5,7 @@
 
 -- |
 -- Module: Chainweb.Payload.PayloadStore.RocksDB
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -85,4 +85,3 @@ newPayloadDb db = PayloadDb
 
 openPayloadDb :: FilePath -> IO (PayloadDb RocksDbCas)
 openPayloadDb path = newPayloadDb <$> openRocksDb path
-
