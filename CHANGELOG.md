@@ -1,5 +1,11 @@
 # `chainweb-node` Changelog
 
+## Unreleased
+
+#### Changed
+
+- Internal CPU mining now injects nonce bytes at the end.
+
 ## 1.6 (2019-02-18)
 
 This version replaces all previous versions. Any prior version will stop working
