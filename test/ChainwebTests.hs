@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -32,7 +33,6 @@ import qualified Chainweb.Test.Mempool.RestAPI
 import qualified Chainweb.Test.Mempool.Sync
 import qualified Chainweb.Test.Miner.Core
 import qualified Chainweb.Test.Misc
-import qualified Chainweb.Test.Pact.ChainData
 import qualified Chainweb.Test.Pact.Checkpointer
 import qualified Chainweb.Test.Pact.ModuleCacheOnRestart
 import qualified Chainweb.Test.Pact.NoCoinbase
@@ -42,8 +42,8 @@ import qualified Chainweb.Test.Pact.PactReplay
 import qualified Chainweb.Test.Pact.RemotePactTest
 import qualified Chainweb.Test.Pact.RewardsTest
 import qualified Chainweb.Test.Pact.SPV
-import qualified Chainweb.Test.Pact.TTL
 import qualified Chainweb.Test.Pact.TransactionTests
+import qualified Chainweb.Test.Pact.TTL
 import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
@@ -74,7 +74,7 @@ main =
             : mempoolTestSuite db h0
             : suite rdb
   where
-    adj NoTimeout = Timeout (1000000 * 60 * 10) "10m"
+    adj NoTimeout = Timeout (1_000_000 * 60 * 10) "10m"
     adj x = x
 
 mempoolTestSuite :: BlockHeaderDb -> BlockHeader -> ScheduledTest
@@ -89,7 +89,6 @@ pactTestSuite rdb = testGroupSch "Chainweb-Pact Tests"
         , Chainweb.Test.Pact.PactInProcApi.tests
         , Chainweb.Test.Pact.RemotePactTest.tests rdb
         , Chainweb.Test.Pact.PactReplay.tests
-        , Chainweb.Test.Pact.ChainData.tests
         , Chainweb.Test.Pact.ModuleCacheOnRestart.tests
         , Chainweb.Test.Pact.TTL.tests
         , Chainweb.Test.Pact.RewardsTest.tests

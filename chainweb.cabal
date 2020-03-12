@@ -10,7 +10,7 @@ license:      BSD-3-Clause
 license-file: LICENSE
 author:       Chainweb Dev Team
 maintainer:   chainweb-dev@kadena.io
-copyright:    Copyright (C) 2019 Kadena LLC
+copyright:    Copyright (C) 2018 - 2020 Kadena LLC
 category:     Blockchain, Currency, Bitcoin
 build-type:   Custom
 
@@ -446,7 +446,6 @@ test-suite chainweb-tests
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
         Chainweb.Test.P2P.Peer.BootstrapConfig
-        Chainweb.Test.Pact.ChainData
         Chainweb.Test.Pact.Checkpointer
         Chainweb.Test.Pact.ModuleCacheOnRestart
         Chainweb.Test.Pact.NoCoinbase

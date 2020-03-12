@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -9,7 +10,7 @@
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
 -- Module: Chainweb.Test.Pact.Utils
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -79,7 +80,7 @@ module Chainweb.Test.Pact.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Lens (_3, view)
+import Control.Lens (view, _3)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -279,7 +280,7 @@ goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs sender00KeyPair Nothing
-    mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 10_000 0.01 1_000_000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -485,7 +486,7 @@ testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p t -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m t
+        { _pactNewBlock = \m p -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
             evalPactServiceM_ ctx $ execValidateBlock h d
         , _pactLocal = error
@@ -533,7 +534,7 @@ runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockT
 runCut v bdb pact genTime noncer =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime $ _parentHeader ph)
+    pout <- _webPactNewBlock pact noMiner ph
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
@@ -670,7 +671,7 @@ withBlockHeaderDb
 withBlockHeaderDb iordb b = withResource start stop
   where
     start = do
-        rdb <- iordb
+        rdb <- testRocksDb "withBlockHeaderDb" =<< iordb
         testBlockHeaderDb rdb b
     stop = closeBlockHeaderDb
 

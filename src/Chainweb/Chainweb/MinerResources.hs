@@ -10,7 +10,7 @@
 
 -- |
 -- Module: Chainweb.Chainweb.MinerResources
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -177,9 +177,9 @@ withMiningCoordination logger conf cdb inner
 
     getPayload :: ParentHeader -> Miner -> IO (T2 PayloadWithOutputs BlockCreationTime)
     getPayload parent m = do
-        creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
         payload <- trace (logFunction logger) "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-            () 1 (_pactNewBlock pact m parent creationTime)
+            () 1 (_pactNewBlock pact m parent)
+        creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
         pure $ T2 payload creationTime
 
     pact :: PactExecutionService

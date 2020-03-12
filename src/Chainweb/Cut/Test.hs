@@ -15,7 +15,7 @@
 
 -- |
 -- Module: Chainweb.Cut.Test
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -90,7 +90,8 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
-import Chainweb.Time (Micros(..), Time, TimeSpan, getCurrentTimeIntegral, second)
+import Chainweb.Time
+    (Micros(..), Time, TimeSpan, getCurrentTimeIntegral, second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB

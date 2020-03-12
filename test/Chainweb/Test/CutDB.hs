@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -9,7 +10,7 @@
 
 -- |
 -- Module: Chainweb.Test.CutDB
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -55,7 +56,6 @@ import Test.Tasty
 
 -- internal modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
@@ -86,7 +86,7 @@ import Data.TaskMap
 -- Create a random Cut DB with the respective Payload Store
 
 cutFetchTimeout :: Int
-cutFetchTimeout = 3000000
+cutFetchTimeout = 3_000_000
 
 -- | Provide a computation with a CutDb and PayloadDb for the given chainweb
 -- version with a linear chainweb with @n@ blocks.
@@ -395,8 +395,7 @@ tryMineForChain
     -> ChainId
     -> IO (Either MineFailure (Cut, ChainId, PayloadWithOutputs))
 tryMineForChain miner webPact cutDb c cid = do
-    creationTime <- getCurrentTimeIntegral
-    outputs <- _webPactNewBlock webPact miner parent (BlockCreationTime creationTime)
+    outputs <- _webPactNewBlock webPact miner parent
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
     x <- testMineWithPayloadHash (Nonce 0) t payloadHash cid c
@@ -481,7 +480,7 @@ fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
               $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
-  , _pactNewBlock = \_ _ _ -> do
+  , _pactNewBlock = \_ _ -> do
         payload <- generate $ V.fromList . getNonEmpty <$> arbitrary
         return $ newPayloadWithOutputs fakeMiner coinbase payload
 

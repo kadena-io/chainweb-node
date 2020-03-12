@@ -12,7 +12,7 @@
 
 -- |
 -- Module: Chainweb.BlockCreationTime
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -41,8 +41,8 @@ import Numeric.AffineSpace
 -- internal modules
 
 import Chainweb.Crypto.MerkleLog
-import Chainweb.Time
 import Chainweb.MerkleUniverse
+import Chainweb.Time
 
 -- -------------------------------------------------------------------------- --
 -- Block Creation Time
@@ -64,4 +64,3 @@ encodeBlockCreationTime (BlockCreationTime t) = encodeTime t
 
 decodeBlockCreationTime :: MonadGet m => m BlockCreationTime
 decodeBlockCreationTime = BlockCreationTime <$> decodeTime
-
