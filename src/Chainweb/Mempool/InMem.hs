@@ -25,7 +25,7 @@ module Chainweb.Mempool.InMem
 ------------------------------------------------------------------------------
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
+import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
 import Control.Exception (bracket, evaluate, mask_, throw)
@@ -597,11 +597,7 @@ getPendingInMem cfg nonce lock since callback = do
 
 ------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
-clearInMem lock = do
-    withMVarMasked lock $ \mdata -> do
-        writeIORef (_inmemPending mdata) mempty
-        writeIORef (_inmemRecentLog mdata) emptyRecentLog
-
+clearInMem lock = newInMemMempoolData >>= void . swapMVar lock
 
 ------------------------------------------------------------------------------
 emptyRecentLog :: RecentLog
@@ -679,4 +675,3 @@ pruneInternal mdata now = do
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
     pruneBadMap = HashMap.filter (> now)
-
