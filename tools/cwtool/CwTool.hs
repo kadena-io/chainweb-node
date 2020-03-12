@@ -14,7 +14,6 @@ import qualified HeaderDump
 import qualified RunNodes
 import qualified SlowTests
 import qualified TestMiner
-import qualified TXG
 import qualified TxStream
 
 main :: IO ()
@@ -60,10 +59,6 @@ topLevelCommands =
       "chain2gexf"
       "Convert a persisted Chainweb into .gexf format for viewing"
       Chain2Gexf.main
-  , CommandSpec
-      "txg"
-      "Generate a random stream of simulated blockchain transactions"
-      TXG.main
   , CommandSpec
       "run-nodes"
       "Run a local cluster of chainweb-node binaries"
