@@ -171,6 +171,8 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
 --
 -- Recall: `Nonce` contains a `Word64`, and is thus 8 bytes long.
 --
+-- See also: https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding
+--
 injectNonce :: Nonce -> Ptr Word8 -> IO ()
 injectNonce (Nonce n) buf = pokeByteOff (castPtr buf) 278 n
 {-# INLINE injectNonce #-}
