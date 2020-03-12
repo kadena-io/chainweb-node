@@ -432,7 +432,7 @@ serviceRequests logFn memPoolAccess reqQ = do
         --
         -- A common strategy to deal with this is to run the computation (pact)
         -- on a "hidden" internal thread. Lifting `forkIO` into a state
-        -- monad is generally note thread-safe. It is fine to do here, since
+        -- monad is generally not thread-safe. It is fine to do here, since
         -- there is no concurrency. We use a thread here only to shield the
         -- computation from external exceptions.
         --
