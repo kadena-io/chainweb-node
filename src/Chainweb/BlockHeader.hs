@@ -565,7 +565,7 @@ encodeBlockHeaderWithoutHash
     => BlockHeader
     -> m ()
 encodeBlockHeaderWithoutHash b = do
-    encodeNonce (_blockNonce b)
+    encodeFeatureFlags (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
     encodeBlockHash (_blockParent b)
     encodeBlockHashRecord (_blockAdjacentHashes b)
@@ -576,7 +576,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
-    encodeFeatureFlags (_blockFlags b)
+    encodeNonce (_blockNonce b)
 
 encodeBlockHeader
     :: MonadPut m
@@ -623,7 +623,7 @@ decodeBlockHeaderWithoutHash
     :: MonadGet m
     => m BlockHeader
 decodeBlockHeaderWithoutHash = do
-    a0 <- decodeNonce
+    a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
     a2 <- decodeBlockHash -- parent hash
     a3 <- decodeBlockHashRecord
@@ -634,7 +634,7 @@ decodeBlockHeaderWithoutHash = do
     a8 <- decodeBlockHeight
     a9 <- decodeChainwebVersion
     a11 <- decodeEpochStartTime
-    a12 <- decodeFeatureFlags
+    a12 <- decodeNonce
     return
         $! fromLog
         $ newMerkleLog
@@ -657,7 +657,7 @@ decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
 decodeBlockHeader = BlockHeader
-    <$> decodeNonce
+    <*> decodeFeatureFlags
     <*> decodeBlockCreationTime
     <*> decodeBlockHash -- parent hash
     <*> decodeBlockHashRecord
@@ -668,7 +668,7 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHeight
     <*> decodeChainwebVersion
     <*> decodeEpochStartTime
-    <*> decodeFeatureFlags
+    <$> decodeNonce
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
