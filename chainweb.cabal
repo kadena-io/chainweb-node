@@ -717,7 +717,7 @@ executable cwtool
         , case-insensitive >= 1.2
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
-        , clock >= 0.8
+        , clock >= 0.7
         , configuration-tools >= 0.4.1
         , containers >= 0.5
         , cryptonite >= 0.25
