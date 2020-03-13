@@ -578,6 +578,8 @@ encodeBlockHeaderWithoutHash b = do
     encodeEpochStartTime (_blockEpochStart b)
     encodeNonce (_blockNonce b)
 
+----
+
 encodeBlockHeader
     :: MonadPut m
     => BlockHeader
