@@ -752,7 +752,7 @@ instance ToJSON (ObjectEncoded BlockHeader) where
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader
-    <$> o .: "nonce"
+    <$> o .: "featureFlags"
     <*> o .: "creationTime"
     <*> o .: "parent"
     <*> o .: "adjacents"
@@ -763,7 +763,7 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "height"
     <*> o .: "chainwebVersion"
     <*> o .: "epochStart"
-    <*> o .: "featureFlags"
+    <*> o .: "nonce"
     <*> o .: "hash"
 
 instance FromJSON (ObjectEncoded BlockHeader) where
