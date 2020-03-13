@@ -95,12 +95,12 @@ withTrace db tracer dbaction = do
   return a
 
 beginSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
-beginSavepoint name =
-  callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
+beginSavepoint _name = return ()
+  -- callDb "beginSavepoint" $ \db -> exec_ db $ "SAVEPOINT [" <> toS (asString name) <> "];"
 
 commitSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
-commitSavepoint name =
-  callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "];"
+commitSavepoint _name = return ()
+  -- callDb "commitSavepoint" $ \db -> exec_ db $ "RELEASE SAVEPOINT [" <> toS (asString name) <> "];"
 
 -- | @rollbackSavepoint n@ rolls back all database updates since the most recent
 -- savepoint with the name @n@ and restarts the transaction.
@@ -113,8 +113,8 @@ commitSavepoint name =
 -- savepoints.
 --
 rollbackSavepoint :: SavepointName -> BlockHandler SQLiteEnv ()
-rollbackSavepoint name =
-  callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
+rollbackSavepoint _name = return ()
+  -- callDb "rollbackSavepoint" $ \db -> exec_ db $ "ROLLBACK TRANSACTION TO SAVEPOINT [" <> toS (asString name) <> "];"
 
 data SavepointName = BatchSavepoint | Block | DbTransaction |  PreBlock
   deriving (Eq, Ord, Enum)
