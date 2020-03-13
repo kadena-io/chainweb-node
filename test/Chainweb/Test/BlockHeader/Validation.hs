@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -88,7 +87,7 @@ prop_validateMainnet = testCase "validate Mainnet01 BlockHeaders" $ do
     now <- getCurrentTimeIntegral
     traverse_ (f now) mainnet01Headers
   where
-    f t (ParentHeader p, h) = case validateBlockHeader t p h of
+    f t (p, h) = case validateBlockHeader t p h of
         [] -> return ()
         errs -> assertFailure $ "Validation failed for mainnet BlockHeader: " <> sshow errs
 

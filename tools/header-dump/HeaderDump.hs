@@ -498,7 +498,7 @@ validate s = do
         -> BlockHeader
         -> IO ()
     val now (_, parents, _, isInitial) c
-        | isGenesisBlockHeader c = validateBlockHeaderM now c c
+        | isGenesisBlockHeader c = validateBlockHeaderM now (ParentHeader c) c
         | otherwise =
             case L.find (\x -> _blockParent c == _blockHash x) parents of
                 Nothing
@@ -512,7 +512,7 @@ validate s = do
                         $ "missing parent header for block: " <> sshow c
                         <> "\ncurrent parents: " <> sshow parents
 
-                Just p -> validateBlockHeaderM now p c
+                Just p -> validateBlockHeaderM now (ParentHeader p) c
 
 -- -------------------------------------------------------------------------- --
 -- Tools
