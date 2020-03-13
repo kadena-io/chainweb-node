@@ -638,7 +638,7 @@ decodeBlockHeaderWithoutHash = do
     return
         $! fromLog
         $ newMerkleLog
-        $ a0
+        $ a12
         :+: a1
         :+: a2
         :+: a4
@@ -648,7 +648,7 @@ decodeBlockHeaderWithoutHash = do
         :+: a8
         :+: a9
         :+: a11
-        :+: a12
+        :+: a0
         :+: MerkleLogBody (blockHashRecordToVector a3)
 
 -- | Decode a BlockHeader and trust the result
@@ -656,20 +656,21 @@ decodeBlockHeaderWithoutHash = do
 decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
-decodeBlockHeader = BlockHeader
-    <*> decodeFeatureFlags
-    <*> decodeBlockCreationTime
-    <*> decodeBlockHash -- parent hash
-    <*> decodeBlockHashRecord
-    <*> decodeHashTarget
-    <*> decodeBlockPayloadHash
-    <*> decodeChainId
-    <*> decodeBlockWeight
-    <*> decodeBlockHeight
-    <*> decodeChainwebVersion
-    <*> decodeEpochStartTime
-    <$> decodeNonce
-    <*> decodeBlockHash
+decodeBlockHeader = do
+    ff <- decodeFeatureFlags
+    ct <- decodeBlockCreationTime
+    ph <- decodeBlockHash -- parent hash
+    hr <- decodeBlockHashRecord
+    ht <- decodeHashTarget
+    pa <- decodeBlockPayloadHash
+    ci <- decodeChainId
+    wt <- decodeBlockWeight
+    hg <- decodeBlockHeight
+    cv <- decodeChainwebVersion
+    es <- decodeEpochStartTime
+    no <- decodeNonce
+    bh <- decodeBlockHash
+    pure $ BlockHeader no ct ph hr ht pa ci wt hg cv es ff bh
 
 instance ToJSON BlockHeader where
     toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
