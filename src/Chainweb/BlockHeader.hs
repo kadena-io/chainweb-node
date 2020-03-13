@@ -373,8 +373,9 @@ instance HasChainGraph ParentHeader where
 --
 data BlockHeader :: Type where
     BlockHeader ::
-        { _blockNonce :: {-# UNPACK #-} !Nonce
-            -- ^ authoritative
+        { _blockFlags :: {-# UNPACK #-} !FeatureFlags
+            -- ^ An 8-byte bitmask reserved for the future addition of boolean
+            -- "feature flags".
 
         , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
             -- ^ the time when the block was creates as recorded by the miner
@@ -447,9 +448,8 @@ data BlockHeader :: Type where
             -- ranges of blocks. Each epoch is defined by the minimal block
             -- height of the blocks in the epoch.
 
-        , _blockFlags :: {-# UNPACK #-} !FeatureFlags
-            -- ^ An 8-byte bitmask reserved for the future addition of boolean
-            -- "feature flags".
+        , _blockNonce :: {-# UNPACK #-} !Nonce
+            -- ^ authoritative
 
         , _blockHash :: {-# UNPACK #-} !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
@@ -656,21 +656,20 @@ decodeBlockHeaderWithoutHash = do
 decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
-decodeBlockHeader = do
-    ff <- decodeFeatureFlags
-    ct <- decodeBlockCreationTime
-    ph <- decodeBlockHash -- parent hash
-    hr <- decodeBlockHashRecord
-    ht <- decodeHashTarget
-    pa <- decodeBlockPayloadHash
-    ci <- decodeChainId
-    wt <- decodeBlockWeight
-    hg <- decodeBlockHeight
-    cv <- decodeChainwebVersion
-    es <- decodeEpochStartTime
-    no <- decodeNonce
-    bh <- decodeBlockHash
-    pure $ BlockHeader no ct ph hr ht pa ci wt hg cv es ff bh
+decodeBlockHeader = BlockHeader
+    <$> decodeFeatureFlags
+    <*> decodeBlockCreationTime
+    <*> decodeBlockHash -- parent hash
+    <*> decodeBlockHashRecord
+    <*> decodeHashTarget
+    <*> decodeBlockPayloadHash
+    <*> decodeChainId
+    <*> decodeBlockWeight
+    <*> decodeBlockHeight
+    <*> decodeChainwebVersion
+    <*> decodeEpochStartTime
+    <*> decodeNonce
+    <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
     toJSON = toJSON .  encodeB64UrlNoPaddingText . runPutS . encodeBlockHeader
