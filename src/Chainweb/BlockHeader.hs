@@ -252,8 +252,8 @@ isLastInEpoch h = case effectiveWindow h of
 -- all chainweb version. Emergency DAs are enabled (and have occured) only on
 -- mainnet01 for cut heights smaller than 80,000.
 --
-slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
-slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
+slowEpoch :: ParentHeader -> BlockCreationTime -> Bool
+slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
     BlockRate s = blockRate (_blockChainwebVersion p)
@@ -268,35 +268,36 @@ slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
 -- | Compute the POW target for a new BlockHeader.
 --
 powTarget
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header
     -> BlockCreationTime
         -- ^ block creation time of new block
     -> HashTarget
         -- ^ POW target of new block
-powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
-    Nothing -> maxTarget
-    Just w
-        | slowEpochGuard ver (_blockHeight p) && slowEpoch p bct ->
-            adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
-        | isLastInEpoch p ->
-            adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
-        | otherwise -> _blockTarget p
+powTarget p@(ParentHeader ph) bct@(BlockCreationTime bt)
+    = case effectiveWindow ph of
+        Nothing -> maxTarget
+        Just w
+            | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
+                adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            | isLastInEpoch (_parentHeader p) ->
+                adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            | otherwise -> _blockTarget ph
   where
     t = EpochStartTime bt
-    ver = _blockChainwebVersion p
+    ver = _chainwebVersion p
 {-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader
 --
 epochStart
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header
     -> BlockCreationTime
         -- ^ block creation time of new block
     -> EpochStartTime
         -- ^ epoch start time of new block
-epochStart p (BlockCreationTime bt)
+epochStart (ParentHeader p) (BlockCreationTime bt)
     | isLastInEpoch p = EpochStartTime bt
     | otherwise = _blockEpochStart p
 {-# INLINE epochStart #-}
@@ -812,7 +813,7 @@ newBlockHeader
     -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
+newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
     $ nonce
     :+: t
     :+: _blockHash b
@@ -822,13 +823,13 @@ newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: epochStart b t
+    :+: epochStart p t
     :+: mkFeatureFlags
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
-    cid = _chainId b
-    v = _blockChainwebVersion b
-    target = powTarget b t
+    cid = _chainId p
+    v = _chainwebVersion p
+    target = powTarget p t
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance

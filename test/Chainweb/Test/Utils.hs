@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -344,27 +343,27 @@ trunk g h = do
 -- | Generate some new `BlockHeader` based on a parent.
 --
 header :: BlockHeader -> Gen BlockHeader
-header h = do
+header p = do
     nonce <- Nonce <$> chooseAny
     return
         . fromLog
         . newMerkleLog
         $ nonce
             :+: t'
-            :+: _blockHash h
+            :+: _blockHash p
             :+: target
-            :+: testBlockPayload h
-            :+: _chainId h
-            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
-            :+: succ (_blockHeight h)
+            :+: testBlockPayload p
+            :+: _chainId p
+            :+: BlockWeight (targetToDifficulty target) + _blockWeight p
+            :+: succ (_blockHeight p)
             :+: v
-            :+: epochStart h t'
+            :+: epochStart (ParentHeader p) t'
             :+: mkFeatureFlags
             :+: MerkleLogBody mempty
    where
-    BlockCreationTime t = _blockCreationTime h
-    target = powTarget h t'
-    v = _blockChainwebVersion h
+    BlockCreationTime t = _blockCreationTime p
+    target = powTarget (ParentHeader p) t'
+    v = _blockChainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 -- -------------------------------------------------------------------------- --

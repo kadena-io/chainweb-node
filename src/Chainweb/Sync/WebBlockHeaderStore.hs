@@ -353,7 +353,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             queryParent p = Concurrently $ void $ do
                 logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h <> ": " <> sshow p
                 ChainValue _ ph <- getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
-                validateInductiveM ph header
+                validateInductiveM (ParentHeader ph) header
 
         p <- runConcurrently
             -- query payload
