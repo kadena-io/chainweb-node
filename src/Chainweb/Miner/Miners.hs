@@ -55,7 +55,7 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Seconds(..))
+import Chainweb.Time (Seconds(..), getCurrentTimeIntegral)
 import Chainweb.Transaction
 import Chainweb.Utils (approximateThreadDelay, int, runForever, runGet)
 import Chainweb.Version
@@ -84,10 +84,11 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
+        T2 bh pl <- newWork lf Anything (Plebian m) pact tpw c
+        now <- getCurrentTimeIntegral
         let !phash = _blockPayloadHash bh
-            !bct = _blockCreationTime bh
-            ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
+            !bpar = _blockParent bh
+            !ms = MiningState $ M.singleton (T2 bpar phash) (T3 m pl now)
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
@@ -130,10 +131,11 @@ localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T3 p bh pl <- newWork lf Anything (Plebian m) pact tpw c
+        T2 bh pl <- newWork lf Anything (Plebian m) pact tpw c
+        now <- getCurrentTimeIntegral
         let !phash = _blockPayloadHash bh
-            !bct = _blockCreationTime bh
-            ms = MiningState $ M.singleton (T2 bct phash) (T3 m p pl)
+            !bpar = _blockParent bh
+            !ms = MiningState $ M.singleton (T2 bpar phash) (T3 m pl now)
         race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
             Left _ -> loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
