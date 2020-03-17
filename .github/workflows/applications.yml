@@ -62,6 +62,50 @@ jobs:
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool slow-tests
+  
+  # Verify that all Genesis headers are up to date (no missing ea run)
+  #
+  verify-genesis-headers:
+    name: verify that genesis headers are up to date
+    needs: [build]
+    runs-on: 'ubuntu-latest'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.2.ubuntu-18.04
+        path: bin
+    - name: Validate block header database
+      run: |
+        chmod 755 ./bin/cwtool
+        ./bin/cwtool ea
+        if ! git diff-index --quiet HEAD -- ; then
+          echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
+          exit 1
+        fi
+        
+  run-benchmarks:
+    name: Run benchmarks
+    needs: [build]
+    runs-on: 'ubuntu-latest'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.2.ubuntu-18.04
+        path: bin
+    - name: Run all benchmarks
+      run: |
+        chmod 755 ./bin/bench
+        bench +RTS -N
 
   # Validate Mainnet01 Chain Database With chainweb-node
   #
@@ -237,6 +281,8 @@ jobs:
           documentation: false
           optimization: 2
           ghc-options: -j
+          benchmarks: True
+          tests: True
         package pact
           documentation: false
           optimization: 2
@@ -303,6 +349,7 @@ jobs:
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
         # rm -f dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests
     - name: Publish applications
       uses: actions/upload-artifact@v1
