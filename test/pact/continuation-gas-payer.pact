@@ -22,7 +22,7 @@
     (enforce (= false (at "cont-has-proof" (read-msg))) "Not inside a cross-chain tx")
     (enforce (= 1 (at "cont-step" (read-msg))) "Inside 2nd step of continuation")
     (enforce (= {} (at "cont-user-data" (read-msg))) "Inside a continuation w/o user data")
-    (enforce (= "0zt5pzWrDKJXfSmzCr36xGCMde5ow6FB-3rAwlc4tLU"
+    (enforce (= "_sYA748a-Hsn_Qb3zsYTDu2H5JXgQcPr1dFkjMTgAm0"
                 (at "cont-pact-id" (read-msg))) "Inside a particular continuation")
     (compose-capability (ALLOW_GAS))
   )
@@ -46,7 +46,6 @@
   (defpact some-two-step-pact ()
     (step
       "Step One")
-    (step 
+    (step
       "Step Two"))
 )
-

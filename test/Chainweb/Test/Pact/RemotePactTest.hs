@@ -71,7 +71,7 @@ import System.LogLevel
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Pact.ApiReq (mkExec)
+import qualified Pact.ApiReq as Pact
 import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
@@ -230,7 +230,7 @@ localChainDataTest iot nio = do
         let nonce = "nonce" <> sshow nn
         t <- toTxCreationTime <$> iott
         kps <- testKeyPairs sender00KeyPair Nothing
-        c <- mkExec "(chain-data)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
         where
           ttl = 2 * 24 * 60 * 60
@@ -293,7 +293,7 @@ sendValidationTest iot nio =
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100_000 0.01 ttl t
-      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
+      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
@@ -336,8 +336,8 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
       ks <- liftIO $ testKeyPairs sender00KeyPair Nothing
       t <- toTxCreationTime <$> iot
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 ttl t
-      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
-      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
+      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
+      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = show
@@ -418,7 +418,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
-      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      cmd <- liftIO $ Pact.mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
       return $ SubmitBatch (pure cmd)
 
     txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
@@ -612,7 +612,7 @@ mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
     pm <- pmk . toTxCreationTime <$> iot
     let dd = fromMaybe A.Null d
-    cmd <- liftIO $ mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
+    cmd <- liftIO $ Pact.mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
 withRequestKeys
@@ -778,7 +778,7 @@ testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
     kps <- testKeyPairs sender00KeyPair Nothing
-    c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta
