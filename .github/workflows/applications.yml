@@ -70,6 +70,8 @@ jobs:
     needs: [build]
     runs-on: 'ubuntu-latest'
     steps:
+    - name: Checkout repository
+      uses: actions/checkout@v1
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
@@ -105,7 +107,7 @@ jobs:
     - name: Run all benchmarks
       run: |
         chmod 755 ./bin/bench
-        bench +RTS -N
+        ./bin/bench +RTS -N
 
   # Validate Mainnet01 Chain Database With chainweb-node
   #
