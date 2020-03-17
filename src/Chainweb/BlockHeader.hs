@@ -374,8 +374,9 @@ instance HasChainGraph ParentHeader where
 --
 data BlockHeader :: Type where
     BlockHeader ::
-        { _blockNonce :: {-# UNPACK #-} !Nonce
-            -- ^ authoritative
+        { _blockFlags :: {-# UNPACK #-} !FeatureFlags
+            -- ^ An 8-byte bitmask reserved for the future addition of boolean
+            -- "feature flags".
 
         , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
             -- ^ the time when the block was creates as recorded by the miner
@@ -448,9 +449,8 @@ data BlockHeader :: Type where
             -- ranges of blocks. Each epoch is defined by the minimal block
             -- height of the blocks in the epoch.
 
-        , _blockFlags :: {-# UNPACK #-} !FeatureFlags
-            -- ^ An 8-byte bitmask reserved for the future addition of boolean
-            -- "feature flags".
+        , _blockNonce :: {-# UNPACK #-} !Nonce
+            -- ^ authoritative
 
         , _blockHash :: {-# UNPACK #-} !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
@@ -566,7 +566,7 @@ encodeBlockHeaderWithoutHash
     => BlockHeader
     -> m ()
 encodeBlockHeaderWithoutHash b = do
-    encodeNonce (_blockNonce b)
+    encodeFeatureFlags (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
     encodeBlockHash (_blockParent b)
     encodeBlockHashRecord (_blockAdjacentHashes b)
@@ -577,7 +577,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
-    encodeFeatureFlags (_blockFlags b)
+    encodeNonce (_blockNonce b)
 
 encodeBlockHeader
     :: MonadPut m
@@ -624,7 +624,7 @@ decodeBlockHeaderWithoutHash
     :: MonadGet m
     => m BlockHeader
 decodeBlockHeaderWithoutHash = do
-    a0 <- decodeNonce
+    a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
     a2 <- decodeBlockHash -- parent hash
     a3 <- decodeBlockHashRecord
@@ -635,11 +635,11 @@ decodeBlockHeaderWithoutHash = do
     a8 <- decodeBlockHeight
     a9 <- decodeChainwebVersion
     a11 <- decodeEpochStartTime
-    a12 <- decodeFeatureFlags
+    a12 <- decodeNonce
     return
         $! fromLog
         $ newMerkleLog
-        $ a0
+        $ a12
         :+: a1
         :+: a2
         :+: a4
@@ -649,7 +649,7 @@ decodeBlockHeaderWithoutHash = do
         :+: a8
         :+: a9
         :+: a11
-        :+: a12
+        :+: a0
         :+: MerkleLogBody (blockHashRecordToVector a3)
 
 -- | Decode a BlockHeader and trust the result
@@ -658,7 +658,7 @@ decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
 decodeBlockHeader = BlockHeader
-    <$> decodeNonce
+    <$> decodeFeatureFlags
     <*> decodeBlockCreationTime
     <*> decodeBlockHash -- parent hash
     <*> decodeBlockHashRecord
@@ -669,7 +669,7 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHeight
     <*> decodeChainwebVersion
     <*> decodeEpochStartTime
-    <*> decodeFeatureFlags
+    <*> decodeNonce
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
@@ -753,7 +753,7 @@ instance ToJSON (ObjectEncoded BlockHeader) where
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader
-    <$> o .: "nonce"
+    <$> o .: "featureFlags"
     <*> o .: "creationTime"
     <*> o .: "parent"
     <*> o .: "adjacents"
@@ -764,7 +764,7 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "height"
     <*> o .: "chainwebVersion"
     <*> o .: "epochStart"
-    <*> o .: "featureFlags"
+    <*> o .: "nonce"
     <*> o .: "hash"
 
 instance FromJSON (ObjectEncoded BlockHeader) where
