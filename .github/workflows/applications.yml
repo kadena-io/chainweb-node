@@ -85,8 +85,7 @@ jobs:
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool ea
-        git diff
-        if ! git diff-index --quiet HEAD -- ; then
+        if ! git diff --exit-code; then
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
