@@ -737,7 +737,7 @@ withJsonEventSourceAppBackend port staticDir inner = do
         <|> mount "events" (loggingCors $ eventSourceAppChan c)
         -- <|> mountRoot (loggingCors $ eventSourceAppChan c)
 
--- Simple cors with actualy simpleHeaders which includes content-type.
+-- Simple cors with actually simpleHeaders which includes content-type.
 loggingCors :: Middleware
 loggingCors = cors $ const $ Just $ simpleCorsResourcePolicy
   { corsRequestHeaders = simpleHeaders

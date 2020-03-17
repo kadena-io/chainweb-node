@@ -12,7 +12,7 @@
 
 -- |
 -- Module: Chainweb.Miner.RestAPI.Server
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
@@ -64,6 +64,7 @@ import Chainweb.Miner.Pact (Miner(..), MinerId(..))
 import Chainweb.Miner.RestAPI (MiningApi)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
+import Chainweb.Time (getCurrentTimeIntegral)
 import Chainweb.Utils (EncodingException(..), runGet, suncurry3)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService
@@ -102,10 +103,12 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T3 p bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
+    T2 bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
+    now <- getCurrentTimeIntegral
     let !phash = _blockPayloadHash bh
-        !bct = _blockCreationTime bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bct phash) $ T3 (minerStatus m) p pl
+        !bpar = _blockParent bh
+    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bpar phash)
+        $ T3 (minerStatus m) pl now
     pure . suncurry3 workBytes $ transferableBytes bh
   where
     logf :: LogFunction
@@ -133,8 +136,8 @@ solvedHandler mr (HeaderBytes hbytes) = do
         Right bh -> liftIO $ do
             publish lf ms (_coordCutDb mr) bh
             let !phash = _blockPayloadHash bh
-                !bct = _blockCreationTime bh
-            atomically . modifyTVar' tms . over _Unwrapped $ M.delete (T2 bct phash)
+                !bpar = _blockParent bh
+            atomically . modifyTVar' tms . over _Unwrapped $ M.delete (T2 bpar phash)
             pure NoContent
   where
     tms :: TVar MiningState

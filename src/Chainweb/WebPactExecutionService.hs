@@ -19,7 +19,6 @@ import qualified Data.Vector as V
 
 -- internal modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (emptyPayload)
@@ -44,7 +43,7 @@ import Pact.Types.Hash
 
 data PactExecutionService = PactExecutionService
     { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
-    , _pactNewBlock :: Miner -> ParentHeader -> BlockCreationTime -> IO PayloadWithOutputs
+    , _pactNewBlock :: Miner -> ParentHeader -> IO PayloadWithOutputs
     , _pactLocal :: ChainwebTransaction -> IO (Either PactException (CommandResult Hash))
     , _pactLookup
         :: Rewind
@@ -67,7 +66,6 @@ _webPactNewBlock
     :: WebPactExecutionService
     -> Miner
     -> ParentHeader
-    -> BlockCreationTime
     -> IO PayloadWithOutputs
 _webPactNewBlock = _pactNewBlock . _webPactExecutionService
 {-# INLINE _webPactNewBlock #-}
@@ -85,7 +83,7 @@ mkWebPactExecutionService
     -> WebPactExecutionService
 mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     { _pactValidateBlock = \h pd -> withChainService (_chainId h) $ \p -> _pactValidateBlock p h pd
-    , _pactNewBlock = \m h ct -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h ct
+    , _pactNewBlock = \m h -> withChainService (_chainId h) $ \p -> _pactNewBlock p m h
     , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
     , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
@@ -107,8 +105,8 @@ mkPactExecutionService q = PactExecutionService
         case r of
           Right (!pdo) -> return pdo
           Left e -> throwM e
-    , _pactNewBlock = \m h ct -> do
-        mv <- newBlock m h ct q
+    , _pactNewBlock = \m h -> do
+        mv <- newBlock m h q
         r <- takeMVar mv
         either throwM evaluate r
     , _pactLocal = \ct -> do
@@ -127,7 +125,7 @@ mkPactExecutionService q = PactExecutionService
 emptyPactExecutionService :: PactExecutionService
 emptyPactExecutionService = PactExecutionService
     { _pactValidateBlock = \_ _ -> pure emptyPayload
-    , _pactNewBlock = \_ _ _ -> pure emptyPayload
+    , _pactNewBlock = \_ _ -> pure emptyPayload
     , _pactLocal = \_ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs

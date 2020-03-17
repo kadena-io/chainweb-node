@@ -1,5 +1,8 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -9,7 +12,7 @@
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns #-}
 -- |
 -- Module: Chainweb.Test.Pact.Utils
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -18,10 +21,13 @@
 module Chainweb.Test.Pact.Utils
 ( -- * Exceptions
   PactTestFailure(..)
-, ChainwebKeyPair
   -- * test data
+, ChainwebKeyPair
+, SimpleKeyPair
 , sender00KeyPair
+, sender00
 , sender01KeyPair
+, sender01
 , allocation00KeyPair
 , allocation01KeyPair
 , allocation02KeyPair
@@ -29,8 +35,8 @@ module Chainweb.Test.Pact.Utils
 , testPactFilesDir
 , testKeyPairs
 , adminData
+, mkKeySetData
   -- * helper functions
-, getByteString
 , mergeObjects
 , formatB16PubKey
 , goldenTestTransactions
@@ -46,6 +52,40 @@ module Chainweb.Test.Pact.Utils
 , withPayloadDb
 , withBlockHeaderDb
 , withTemporaryDir
+-- * 'PactValue' helpers
+, pInteger
+, pString
+, pDecimal
+, pBool
+-- * Capability helpers
+, mkCapability
+, mkTransferCap
+, gasCap
+-- * Command builder
+, defaultCmd
+, mkCmd
+, buildCmd
+, buildCwCmd
+, mkExec'
+, mkExec
+, mkCont
+, mkContMsg
+, mkSigner
+, mkSigner'
+, CmdBuilder
+, cbSigners
+, cbRPC
+, cbNonce
+, cbNetworkId
+, cbChainId
+, cbSender
+, cbGasLimit
+, cbGasPrice
+, cbTTL
+, cbCreationTime
+, CmdSigner
+, csSigner
+, csPrivKey
 -- * Test Pact Execution Environment
 , TestPactCtx(..)
 , PactTransaction(..)
@@ -79,7 +119,7 @@ module Chainweb.Test.Pact.Utils
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
-import Control.Lens (_3, view)
+import Control.Lens (view, _3, makeLenses)
 import Control.Monad
 import Control.Monad.Catch
 
@@ -88,6 +128,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base16 as B16
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
+import Data.Decimal
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
@@ -97,12 +138,13 @@ import Data.Text (Text)
 import Data.Text.Encoding
 import qualified Data.Text.IO as T
 import Data.Tuple.Strict
+import Data.String
 import Data.Word
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
-
+import GHC.Generics
 import Servant.Client
 
 import System.Directory
@@ -121,6 +163,7 @@ import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Crypto
+import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Logger
 import Pact.Types.Names
@@ -129,7 +172,7 @@ import Pact.Types.RPC
 import Pact.Types.Runtime (PactId)
 import Pact.Types.SPV
 import Pact.Types.SQLite
-import Pact.Types.Util (toB16Text)
+import Pact.Types.Util (toB16Text,parseB16TextOnly)
 
 -- internal modules
 
@@ -183,6 +226,8 @@ instance Exception PactTestFailure
 type ChainwebKeyPair
     = (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 
+type SimpleKeyPair = (Text,Text)
+
 testKeyPairs :: ChainwebKeyPair -> Maybe [SigCapability] -> IO [SomeKeyPairCaps]
 testKeyPairs (pub, priv, addr, scheme) clist =
     mkKeyPairs [ApiKeyPair priv (Just pub) (Just addr) (Just scheme) clist]
@@ -200,6 +245,10 @@ sender00KeyPair =
     , ED25519
     )
 
+sender00 :: SimpleKeyPair
+sender00 = ("368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca"
+           ,"251a920c403ae8c8f65f59142316af3c82b631fba46ddea92ee8c95035bd2898")
+
 sender01KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 sender01KeyPair =
     ( PubBS $ getByteString
@@ -209,6 +258,10 @@ sender01KeyPair =
     , "6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
     , ED25519
     )
+
+sender01 :: SimpleKeyPair
+sender01 = ("6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"
+           ,"2beae45b29e850e6b1882ae245b0bab7d0689ebdd0cd777d4314d24d7024b4f7")
 
 allocation00KeyPair :: (PublicKeyBS, PrivateKeyBS, Text, PPKScheme)
 allocation00KeyPair =
@@ -274,12 +327,16 @@ adminData = k <$> testKeyPairs sender00KeyPair Nothing
         [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
         ]
 
+-- | Make trivial keyset data
+mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
+mkKeySetData name keys = object [ name .= map fst keys ]
+
 -- | Shim for 'PactExec' and 'PactInProcApi' tests
 goldenTestTransactions
     :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
 goldenTestTransactions txs = do
     ks <- testKeyPairs sender00KeyPair Nothing
-    mkTestExecTransactions "sender00" "0" ks "1" 10000 0.01 1000000 0 txs
+    mkTestExecTransactions "sender00" "0" ks "1" 10_000 0.01 1_000_000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -366,6 +423,133 @@ mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl c
     case verifyCommand cmd of
       ProcSucc t -> return $ Vector.singleton $ mkPayloadWithText <$> t
       ProcFail e -> throwM $ userError e
+
+-- | Make PactValue from 'Integral'
+pInteger :: Integer -> PactValue
+pInteger = PLiteral . LInteger
+
+-- | Make PactValue from text
+pString :: Text -> PactValue
+pString = PLiteral . LString
+
+-- | Make PactValue from decimal
+pDecimal :: Decimal -> PactValue
+pDecimal = PLiteral . LDecimal
+
+-- | Make PactValue from boolean
+pBool :: Bool -> PactValue
+pBool = PLiteral . LBool
+
+-- | Cap smart constructor.
+mkCapability :: ModuleName -> Text -> [PactValue] -> SigCapability
+mkCapability mn cap args = SigCapability (QualifiedName mn cap def) args
+
+mkTransferCap :: Text -> Text -> Decimal -> SigCapability
+mkTransferCap sender receiver amount = mkCapability "coin" "TRANSFER"
+  [ pString sender, pString receiver, pDecimal amount ]
+
+gasCap :: SigCapability
+gasCap = mkCapability "coin" "GAS" []
+
+-- | Pair a 'Signer' with private key.
+data CmdSigner = CmdSigner
+  { _csSigner :: !Signer
+  , _csPrivKey :: !Text
+  } deriving (Eq,Show,Ord,Generic)
+
+-- | Make ED25519 signer.
+mkSigner :: Text -> Text -> [SigCapability] -> CmdSigner
+mkSigner pubKey privKey caps = CmdSigner
+  { _csSigner = signer
+  , _csPrivKey = privKey }
+  where
+    signer = Signer
+      { _siScheme = Nothing
+      , _siPubKey = pubKey
+      , _siAddress = Nothing
+      , _siCapList = caps }
+
+mkSigner' :: SimpleKeyPair -> [SigCapability] -> CmdSigner
+mkSigner' (pub,priv) = mkSigner pub priv
+
+-- | Chainweb-oriented command builder.
+data CmdBuilder = CmdBuilder
+  { _cbSigners :: ![CmdSigner]
+  , _cbRPC :: !(PactRPC Text)
+  , _cbNonce :: !Text
+  , _cbNetworkId :: !(Maybe ChainwebVersion)
+  , _cbChainId :: !ChainId
+  , _cbSender :: !Text
+  , _cbGasLimit :: !GasLimit
+  , _cbGasPrice :: !GasPrice
+  , _cbTTL :: !TTLSeconds
+  , _cbCreationTime :: !TxCreationTime
+  } deriving (Eq,Show,Generic)
+
+-- | Make code-only Exec PactRPC
+mkExec' :: Text -> PactRPC Text
+mkExec' ecode = mkExec ecode Null
+
+-- | Make Exec PactRPC
+mkExec :: Text -> Value -> PactRPC Text
+mkExec ecode edata = Exec $ ExecMsg ecode edata
+
+mkCont :: ContMsg -> PactRPC Text
+mkCont = Continuation
+
+mkContMsg :: PactId -> Int -> ContMsg
+mkContMsg pid step = ContMsg
+  { _cmPactId = pid
+  , _cmStep = step
+  , _cmRollback = False
+  , _cmData = Null
+  , _cmProof = Nothing }
+
+-- | Default builder.
+defaultCmd :: CmdBuilder
+defaultCmd = CmdBuilder
+  { _cbSigners = []
+  , _cbRPC = mkExec' "1"
+  , _cbNonce = "nonce"
+  , _cbNetworkId = Nothing
+  , _cbChainId = unsafeChainId 0
+  , _cbSender = "sender00"
+  , _cbGasLimit = 10_000
+  , _cbGasPrice = 0.000_1
+  , _cbTTL = 300 -- 5 minutes
+  , _cbCreationTime = 0 -- epoch
+  }
+
+-- | Default builder with nonce and RPC
+mkCmd :: Text -> PactRPC Text -> CmdBuilder
+mkCmd nonce rpc = defaultCmd
+  { _cbRPC = rpc
+  , _cbNonce = nonce
+  }
+
+buildCmd :: CmdBuilder -> IO (Command (Payload PublicMeta ParsedCode))
+buildCmd CmdBuilder{..} = do
+  akps <- mapM toApiKp _cbSigners
+  kps <- mkKeyPairs akps
+  cmd <- mkCommand kps pm _cbNonce nid _cbRPC
+  case verifyCommand cmd of
+    ProcSucc r -> return r
+    ProcFail e -> throwM $ userError $ "buildCmd failed: " ++ e
+  where
+    nid = fmap (P.NetworkId . sshow) _cbNetworkId
+    cid = fromString $ show (chainIdInt _cbChainId :: Int)
+    pm = PublicMeta cid _cbSender _cbGasLimit _cbGasPrice _cbTTL _cbCreationTime
+    dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
+    toApiKp (CmdSigner Signer{..} privKey) = do
+      sk <- dieL "private key" $ parseB16TextOnly privKey
+      pk <- dieL "public key" $ parseB16TextOnly _siPubKey
+      return $!
+        ApiKeyPair (PrivBS sk) (Just (PubBS pk)) _siAddress _siScheme (Just _siCapList)
+
+-- | 'buildCmd' variant for 'ChainwebTransaction'
+buildCwCmd :: CmdBuilder -> IO ChainwebTransaction
+buildCwCmd = fmap (fmap mkPayloadWithText) . buildCmd
+
 
 pactTestLogger :: Bool -> Loggers
 pactTestLogger showAll = initLoggers putStrLn f def
@@ -485,7 +669,7 @@ testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
     pdb <- pdbIO
     ctx <- testPactCtxSQLite v cid bhdb pdb sqlenv
     return $ PactExecutionService
-        { _pactNewBlock = \m p t -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m t
+        { _pactNewBlock = \m p -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
         , _pactValidateBlock = \h d ->
             evalPactServiceM_ ctx $ execValidateBlock h d
         , _pactLocal = error
@@ -533,7 +717,7 @@ runCut :: ChainwebVersion -> TestBlockDb -> WebPactExecutionService -> GenBlockT
 runCut v bdb pact genTime noncer =
   forM_ (chainIds v) $ \cid -> do
     ph <- ParentHeader <$> getParentTestBlockDb bdb cid
-    pout <- _webPactNewBlock pact noMiner ph (_blockCreationTime $ _parentHeader ph)
+    pout <- _webPactNewBlock pact noMiner ph
     n <- noncer cid
     addTestBlockDb bdb n genTime cid pout
     h <- getParentTestBlockDb bdb cid
@@ -670,7 +854,7 @@ withBlockHeaderDb
 withBlockHeaderDb iordb b = withResource start stop
   where
     start = do
-        rdb <- iordb
+        rdb <- testRocksDb "withBlockHeaderDb" =<< iordb
         testBlockHeaderDb rdb b
     stop = closeBlockHeaderDb
 
@@ -769,3 +953,6 @@ someBlockHeader v h = (!! (int h - 1))
     $ testBlockHeaders
     $ ParentHeader
     $ genesisBlockHeader v (unsafeChainId 0)
+
+makeLenses ''CmdBuilder
+makeLenses ''CmdSigner

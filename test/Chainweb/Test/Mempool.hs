@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
@@ -123,7 +124,7 @@ instance Arbitrary MockTx where
   arbitrary = MockTx
       <$> chooseAny
       <*> arbitraryGasPrice
-      <*> pure (mockBlockGasLimit `div` 50000)
+      <*> pure (mockBlockGasLimit `div` 50_000)
       <*> pure emptyMeta
     where
       emptyMeta = TransactionMetadata zero Time.maxTime
@@ -154,7 +155,7 @@ mempoolTestCase :: TestName
 mempoolTestCase name test (MempoolWithFunc withMempool) =
     testCase name $ tout $ withMempool test
   where
-    tout m = timeout 60000000 m >>= maybe (fail "timeout") return
+    tout m = timeout 60_000_000 m >>= maybe (fail "timeout") return
 
 
 mempoolProperty
@@ -167,7 +168,7 @@ mempoolProperty name gen test (MempoolWithFunc withMempool) = testProperty name 
   where
     go = monadicIO (gen >>= run . tout . withMempool . test >>= either fail return)
 
-    tout m = timeout 60000000 m >>= maybe (fail "timeout") return
+    tout m = timeout 60_000_000 m >>= maybe (fail "timeout") return
 
 testStartup :: InsertCheck -> MempoolBackend MockTx -> IO ()
 testStartup = const $ const $ return ()
@@ -343,20 +344,22 @@ propHighWater
     -> IO (Either String ())
 propHighWater (txs0, txs1) _ mempool = runExceptT $ do
     liftIO $ insert txs0
-    hw <- liftIO $ getPending Nothing $ const (return ())
+    pendingOps0 <- liftIO $ newIORef []
+    hw <- liftIO $ getPending Nothing $ \v -> modifyIORef' pendingOps0 (v:)
+    p0s <- V.concat <$> (liftIO $ readIORef pendingOps0)
     liftIO $ insert txs1
     pendingOps <- liftIO $ newIORef []
-    void $ liftIO $ getPending (Just hw) $ \v -> modifyIORef' pendingOps (v:)
+    hw1 <- liftIO $ getPending (Just hw) $ \v -> modifyIORef' pendingOps (v:)
     allPending <- sort . V.toList . V.concat
                   <$> liftIO (readIORef pendingOps)
-    when (txdata /= allPending) $
-        let msg = concat [ "getPendingTransactions highwater failure: "
-                         , "expected new pending list:\n    "
-                         , show txdata
-                         , "\nbut got:\n    "
-                         , show allPending
-                         , "\nhw was: ", show hw
-                         , ", txs0 size: ", show (length txs0)
+    when (txdata /= allPending && snd hw1 /= (fromIntegral $ length txs0 + length txdata)) $
+        let msg = concat [ "highwater failure"
+                         , ", initial batch was ", show (length txs0)
+                         , ", retreived ", show (length p0s)
+                         , ", with highwater ", show (snd hw)
+                         , ". Second batch was ", show (length txdata)
+                         , " retreived ", show (length allPending)
+                         , ", with highwater ", show (snd hw1)
                          ]
         in fail msg
 

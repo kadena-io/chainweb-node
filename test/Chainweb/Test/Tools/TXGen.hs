@@ -1,8 +1,8 @@
-{-# language OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module: Chainweb.Test.Tools.TxGen
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
@@ -16,8 +16,8 @@ import Control.Monad (replicateM, void)
 import Control.Monad.IO.Class
 
 import Data.List.NonEmpty (NonEmpty)
-import Data.Map.Strict (Map)
 import qualified Data.List.NonEmpty as NEL
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 
@@ -101,7 +101,7 @@ txgenTest batchsize iot nio = testCaseSteps "txgen test steps" $ \step -> do
                 CoinTransfer (SenderName sn) rcvr amt -> mkTransferCaps rcvr amt $ acclookup sn
                 CoinTransferAndCreate (SenderName acc) rcvr (Guard guardd) amt -> mkTransferCaps rcvr amt (acc, guardd)
         meta' <- makeMetaWithSender sender chain
-        let meta = meta' { _pmGasLimit = 10000 }
+        let meta = meta' { _pmGasLimit = 10_000 }
         createCoinContractRequest v meta ks req
 
     makeAccounts t chain = do

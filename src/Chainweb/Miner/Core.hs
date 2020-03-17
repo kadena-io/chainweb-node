@@ -9,7 +9,7 @@
 
 -- |
 -- Module: Chainweb.Miner.Core
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
@@ -47,7 +47,7 @@ import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Ptr (Ptr, castPtr)
-import Foreign.Storable (peekElemOff, poke)
+import Foreign.Storable (peekElemOff, pokeByteOff)
 
 import Servant.API
 
@@ -169,8 +169,12 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
 -- hashed `BlockHeader`. If that layout changes, this functions need to be
 -- updated. The assumption allows us to iterate on new nonces quickly.
 --
+-- Recall: `Nonce` contains a `Word64`, and is thus 8 bytes long.
+--
+-- See also: https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding
+--
 injectNonce :: Nonce -> Ptr Word8 -> IO ()
-injectNonce (Nonce n) buf = poke (castPtr buf) n
+injectNonce (Nonce n) buf = pokeByteOff (castPtr buf) 278 n
 {-# INLINE injectNonce #-}
 
 

@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -25,7 +26,7 @@ module Chainweb.Mempool.InMem
 ------------------------------------------------------------------------------
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
+import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
 import Control.Exception (bracket, evaluate, mask_, throw)
@@ -179,7 +180,7 @@ withInMemoryMempool_ l cfg _v f = do
             logFunctionText l Debug "got stats"
             logFunctionJson l Info stats
             logFunctionText l Debug "logged stats"
-            approximateThreadDelay 60000000 {- 1 minute -}
+            approximateThreadDelay 60_000_000 {- 1 minute -}
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
@@ -597,11 +598,7 @@ getPendingInMem cfg nonce lock since callback = do
 
 ------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
-clearInMem lock = do
-    withMVarMasked lock $ \mdata -> do
-        writeIORef (_inmemPending mdata) mempty
-        writeIORef (_inmemRecentLog mdata) emptyRecentLog
-
+clearInMem lock = newInMemMempoolData >>= void . swapMVar lock
 
 ------------------------------------------------------------------------------
 emptyRecentLog :: RecentLog
@@ -679,4 +676,3 @@ pruneInternal mdata now = do
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
     pruneBadMap = HashMap.filter (> now)
-

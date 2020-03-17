@@ -3,7 +3,7 @@
 
 -- |
 -- Module: P2P.TaskQueue.Test
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -134,4 +134,3 @@ properties =
     , ("TaskQueue.Test.test4", property $ monadicIO . run . test4)
     , ("TaskQueue.Test.test5", property $ \a b -> monadicIO . run . test5 a b)
     ]
-

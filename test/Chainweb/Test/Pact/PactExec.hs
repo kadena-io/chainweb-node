@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -20,14 +21,14 @@ module Chainweb.Test.Pact.PactExec
 ) where
 
 import Control.Lens hiding ((.=))
+import Control.Monad
 import Control.Monad.Catch
 import Data.Aeson
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.CAS.RocksDB (RocksDb)
-import Data.Decimal
-import Data.Default
 import Data.List
+import Data.String
 import Data.String.Conv (toS)
 import Data.Text (Text, pack)
 import qualified Data.Vector as V
@@ -57,16 +58,13 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Utils (sshow)
 
-import Pact.Types.Capability
 import Pact.Types.Command
-import Pact.Types.Exp
 import Pact.Types.Hash
-import Pact.Types.Names
 import Pact.Types.PactValue
 import Pact.Types.Persistence
 import Pact.Types.Pretty
-import Pact.Types.Runtime (PactId(..))
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM petersonChainGraph
@@ -187,13 +185,6 @@ testReq6 = TestRequest
     }
 
 
-pString :: Text -> PactValue
-pString = PLiteral . LString
-pDecimal :: Decimal -> PactValue
-pDecimal = PLiteral . LDecimal
-pInteger :: Integer -> PactValue
-pInteger = PLiteral . LInteger
-
 assertResultFail :: Show a => HasCallStack => String -> String -> Either String a -> Assertion
 assertResultFail msg expectErr (Left e) = assertSatisfies msg e ((isInfixOf expectErr).show)
 assertResultFail msg _ (Right a) = assertFailure $ msg ++ ", received: " ++ show a
@@ -214,74 +205,81 @@ checkPactResultFailure msg _ (PactResult (Right pv)) = assertFailure $ msg ++ ":
 checkPactResultFailure msg expectErr (PactResult (Left e))  = assertSatisfies msg e ((isInfixOf expectErr).show)
 
 testTfrNoGasFails :: TxsTest
-testTfrNoGasFails = (txs,assertResultFail "Expected missing (GAS) failure" "Keyset failure")
+testTfrNoGasFails =
+  (V.singleton <$> tx,
+   assertResultFail "Expected missing (GAS) failure" "Keyset failure")
   where
-    txs = ks >>= \ks' ->
-      mkTestExecTransactions "sender00" "0" ks' "testTfrNoGas" 10000 0.01 1000000 0 $
-      V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
-    ks = testKeyPairs sender00KeyPair $ Just
-      [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
-      ]
+    tx = buildCwCmd $ set cbSigners
+         [ mkSigner' sender00
+           [ mkTransferCap "sender00" "sender01" 1.0 ]
+         ]
+         $ mkCmd "testTfrNoGas"
+         $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
 
 testTfrGas :: TxsTest
-testTfrGas = (txs,checkResultSuccess test)
+testTfrGas = (V.singleton <$> tx,checkResultSuccess test)
   where
-    txs = ks >>= \ks' ->
-      mkTestExecTransactions "sender00" "0" ks' "testTfrGas" 10000 0.01 1000000 0 $
-      V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
-    ks = testKeyPairs sender00KeyPair $ Just
-      [ SigCapability (QualifiedName "coin" "TRANSFER" def) [pString "sender00",pString "sender01",pDecimal 1.0]
-      , SigCapability (QualifiedName "coin" "GAS" def) []
-      ]
+    tx = buildCwCmd $ set cbSigners
+         [ mkSigner' sender00
+           [ mkTransferCap "sender00" "sender01" 1.0
+           , gasCap
+           ]
+         ]
+         $ mkCmd "testTfrGas"
+         $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
     test [PactResult (Right pv)] = assertEqual "transfer succeeds" (pString "Write succeeded") pv
     test r = assertFailure $ "Expected single result, got: " ++ show r
 
 testBadSenderFails :: TxsTest
-testBadSenderFails = (txs,assertResultFail "Expected failure on bad sender"
-                             "row not found: some-unknown-sender")
+testBadSenderFails =
+  (V.singleton <$> tx,
+   assertResultFail "Expected failure on bad sender"
+   "row not found: some-unknown-sender")
   where
-    txs = ks >>= \ks' ->
-      mkTestExecTransactions "some-unknown-sender" "0" ks' "testBadSenderFails" 10000 0.01 1000000 0 $
-      V.fromList [PactTransaction "(+ 1 2)" Nothing]
-    ks = testKeyPairs sender00KeyPair Nothing
+    tx = buildCwCmd
+         $ set cbSigners [ mkSigner' sender00 [] ]
+         $ set cbSender "some-unknown-sender"
+         $ mkCmd "testBadSenderFails"
+         $ mkExec' "(+ 1 2)"
 
 testGasPayer :: TxsTest
 testGasPayer = (txs,checkResultSuccess test)
   where
-    loadCode = do
-      -- setup is all signed by sender01
-      -- load impl, operate is sender01
-      let operateKs = Just $ object
-            [ "gas-payer-operate" .= [ view _1 sender01KeyPair ] ]
-      impl <- (`PactTransaction` operateKs) <$>
-        getPactCode (File "../../pact/gas-payer/gas-payer-v1-reference.pact")
-      let
-        -- setup gas user sender00 with 100.0 balance
-        sender00ks = Just $ object
-          [ "sender00" .= [ view _1 sender00KeyPair ] ]
-        setupUser = PactTransaction
-          "(gas-payer-v1-reference.fund-user \"sender00\" (read-keyset \"sender00\") 100.0)"
-          sender00ks
-        -- transfer-create gas-payer by funding from sender01
-        fundGasAcct = PactTransaction
-          "(coin.transfer-create \"sender01\" \"gas-payer\" (gas-payer-v1-reference.create-gas-payer-guard) 100.0)"
-          Nothing
-      -- sign with sender01 and caps for transfer, gas
-      ks <- testKeyPairs sender01KeyPair $ Just
-        [ SigCapability (QualifiedName "coin" "TRANSFER" def)
-          [pString "sender01",pString "gas-payer",pDecimal 100.0]
-        , SigCapability (QualifiedName "coin" "GAS" def) []
-        , SigCapability (QualifiedName (ModuleName "gas-payer-v1-reference" (Just "user")) "FUND_USER" def) []
-        ]
-      mkTestExecTransactions "sender01" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
-        V.fromList [impl,setupUser,fundGasAcct]
+    loadCode = fmap V.fromList $ do
 
-    runPaidTx = do
-      ks <- testKeyPairs sender00KeyPair $ Just
-        [ SigCapability (QualifiedName (ModuleName "gas-payer-v1-reference" (Just "user")) "GAS_PAYER" def)
-          [pString "sender00",pInteger 10000,pDecimal 0.01] ]
-      mkTestExecTransactions "gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
-        V.fromList [PactTransaction "(+ 1 2)" Nothing]
+      impl <- loadGP
+      forM [ impl, setupUser, fundGasAcct ] $ \rpc ->
+        buildCwCmd $
+        set cbSigners [s01] $
+        set cbSender "sender01" $
+        mkCmd "testGasPayer" rpc
+
+      where
+
+        loadGP = (`mkExec` mkKeySetData "gas-payer-operate" [sender01]) <$>
+          getPactCode (File "../../pact/gas-payer/gas-payer-v1-reference.pact")
+
+        setupUser = mkExec
+          "(gas-payer-v1-reference.fund-user \"sender00\" (read-keyset \"sender00\") 100.0)" $
+          mkKeySetData "sender00" [sender00]
+
+        fundGasAcct = mkExec'
+          "(coin.transfer-create \"sender01\" \"gas-payer\" (gas-payer-v1-reference.create-gas-payer-guard) 100.0)"
+
+        s01 = mkSigner' sender01
+          [ mkTransferCap "sender01" "gas-payer" 100.0
+          , gasCap
+          , mkCapability "user.gas-payer-v1-reference" "FUND_USER" []
+          ]
+
+
+    runPaidTx = fmap V.singleton $ buildCwCmd $
+      set cbSigners
+      [mkSigner' sender00
+        [mkCapability "user.gas-payer-v1-reference" "GAS_PAYER"
+         [pString "sender00",pInteger 10_000,pDecimal 0.01]]] $
+      mkCmd "testGasPayer" $
+      mkExec' "(+ 1 2)"
 
     txs = do
       l <- loadCode
@@ -289,10 +287,14 @@ testGasPayer = (txs,checkResultSuccess test)
       return $! l <> r
 
     test [impl,setupUser,fundGasAcct,paidTx] = do
-      checkPactResultSuccess "impl" impl $ assertEqual "impl" (pString "TableCreated")
-      checkPactResultSuccess "setupUser" setupUser $ assertEqual "setupUser" (pString "Write succeeded")
-      checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct" (pString "Write succeeded")
-      checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
+      checkPactResultSuccess "impl" impl $
+        assertEqual "impl" (pString "TableCreated")
+      checkPactResultSuccess "setupUser" setupUser $
+        assertEqual "setupUser" (pString "Write succeeded")
+      checkPactResultSuccess "fundGasAcct" fundGasAcct $
+        assertEqual "fundGasAcct" (pString "Write succeeded")
+      checkPactResultSuccess "paidTx" paidTx $
+        assertEqual "paidTx" (pDecimal 3)
     test r = assertFailure $ "Expected 4 results, got: " ++ show r
 
 
@@ -305,37 +307,46 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
              , "(coin.transfer-create \"sender00\" \"cont-gas-payer\" (gas-payer-for-cont.create-gas-payer-guard) 100.0)"
              , "(simple-cont-module.some-two-step-pact)"
              , "(coin.get-balance \"cont-gas-payer\")" ]
-    setupTest = do
+
+    setupTest = fmap V.fromList $ do
       setupExprs' <- setupExprs
-      sender00ks <- testKeyPairs sender00KeyPair $ Just
-        [ SigCapability (QualifiedName "coin" "TRANSFER" def)
-          [pString "sender00",pString "cont-gas-payer",pDecimal 100.0]
-        , SigCapability (QualifiedName "coin" "GAS" def) []
-        ]
-      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer" 10000 0.01 1000000 0 $
-        V.fromList (map (`PactTransaction` Nothing) setupExprs')
+      forM setupExprs' $ \se -> buildCwCmd $
+        set cbSigners
+          [ mkSigner' sender00
+            [ mkTransferCap "sender00" "cont-gas-payer" 100.0
+            , gasCap
+            ]] $
+        mkCmd "testContinuationGasPayer" $
+        mkExec' se
 
-    runStepTwoWithGasPayer = do
-      ks <- testKeyPairs sender01KeyPair $ Just
-        [ SigCapability (QualifiedName (ModuleName "gas-payer-for-cont" (Just "user")) "GAS_PAYER" def)
-          [pString "sender01",pInteger 10000,pDecimal 0.01] ]
-      mkTestContTransaction "cont-gas-payer" "0" ks "testContinuationGasPayer" 10000 0.01
-        1 (PactId "0zt5pzWrDKJXfSmzCr36xGCMde5ow6FB-3rAwlc4tLU") False Nothing 1000000 0 Null
+    contPactId = "_sYA748a-Hsn_Qb3zsYTDu2H5JXgQcPr1dFkjMTgAm0"
 
-    balanceCheck = do
-      sender00ks <- testKeyPairs sender00KeyPair Nothing
-      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer2" 10000 0.01 1000000 0 $
-        V.fromList [PactTransaction "(coin.get-balance \"cont-gas-payer\")" Nothing]
+    runStepTwoWithGasPayer = fmap V.singleton $ buildCwCmd $
+      set cbSigners
+        [ mkSigner' sender01
+          [ mkCapability "user.gas-payer-for-cont" "GAS_PAYER"
+            [pString "sender01",pInteger 10_000,pDecimal 0.01]
+          ]] $
+      set cbSender "cont-gas-payer" $
+      mkCmd "testContinuationGasPayer" $
+      mkCont $ mkContMsg (fromString contPactId) 1
+
+    balanceCheck = fmap V.singleton $ buildCwCmd $
+      set cbSigners [mkSigner' sender00 []] $
+      mkCmd "testContinuationGasPayer2" $
+      mkExec' "(coin.get-balance \"cont-gas-payer\")"
 
     txs = do
       s <- setupTest
+      assertEqual "pact ID correct" (Just $ "\"" <> contPactId <> "\"") $
+        preview (ix 2 . cmdHash . to show) s
       r <- runStepTwoWithGasPayer
       b <- balanceCheck
       return $! s <> r <> b
 
     test [impl,fundGasAcct,contFirstStep,balCheck1,paidSecondStep,balCheck2] = do
       checkPactResultSuccess "impl" impl $ assertEqual "impl"
-        (pString "Loaded module user.simple-cont-module, hash 9zgtgl1BBs7dOhS_oa_wakfSsjELU1PO02xAUP7-ohA")
+        (pString "Loaded module user.simple-cont-module, hash pCtVh0IDPvRIdVFXxznBFTwsZcwbIcYAnfv7yzr4wRI")
       checkPactResultSuccess "fundGasAcct" fundGasAcct $ assertEqual "fundGasAcct"
         (pString "Write succeeded")
       checkPactResultSuccess "contFirstStep" contFirstStep $ assertEqual "contFirstStep"
@@ -343,7 +354,7 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
       checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
       checkPactResultSuccess "paidSecondStep" paidSecondStep $ assertEqual "paidSecondStep"
         (pString "Step Two")
-      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.95)
+      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.999_5)
     test r = assertFailure $ "Expected 6 results, got: " ++ show r
 
 testExecGasPayer :: TxsTest
@@ -354,27 +365,30 @@ testExecGasPayer = (txs,checkResultSuccess test)
       return [ implCode
              , "(coin.transfer-create \"sender00\" \"exec-gas-payer\" (gas-payer-for-exec.create-gas-payer-guard) 100.0)"
              , "(coin.get-balance \"exec-gas-payer\")" ]
-    setupTest = do
+    setupTest = fmap V.fromList $ do
       setupExprs' <- setupExprs
-      sender00ks <- testKeyPairs sender00KeyPair $ Just
-        [ SigCapability (QualifiedName "coin" "TRANSFER" def)
-          [pString "sender00",pString "exec-gas-payer",pDecimal 100.0]
-        , SigCapability (QualifiedName "coin" "GAS" def) []
-        ]
-      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer" 10000 0.01 1000000 0 $
-        V.fromList (map (`PactTransaction` Nothing) setupExprs')
+      forM setupExprs' $ \se -> buildCwCmd $
+        set cbSigners
+          [ mkSigner' sender00
+            [ mkTransferCap "sender00" "exec-gas-payer" 100.0
+            , gasCap
+            ]] $
+        mkCmd "testExecGasPayer" $
+        mkExec' se
 
-    runPaidTx = do
-      ks <- testKeyPairs sender01KeyPair $ Just
-        [ SigCapability (QualifiedName (ModuleName "gas-payer-for-exec" (Just "user")) "GAS_PAYER" def)
-          [pString "sender01",pInteger 10000,pDecimal 0.01] ]
-      mkTestExecTransactions "exec-gas-payer" "0" ks "testGasPayer" 10000 0.01 1000000 0 $
-        V.fromList [PactTransaction "( + 1  2)" Nothing]
+    runPaidTx = fmap V.singleton $ buildCwCmd $
+      set cbSigners
+      [mkSigner' sender01
+        [mkCapability "user.gas-payer-for-exec" "GAS_PAYER"
+         [pString "sender01",pInteger 10_000,pDecimal 0.01]]] $
+      set cbSender "exec-gas-payer" $
+      mkCmd "testExecGasPayer" $
+      mkExec' "(+ 1 2)"
 
-    balanceCheck = do
-      sender00ks <- testKeyPairs sender00KeyPair Nothing
-      mkTestExecTransactions "sender00" "0" sender00ks "testContinuationGasPayer2" 10000 0.01 1000000 0 $
-        V.fromList [PactTransaction "(coin.get-balance \"exec-gas-payer\")" Nothing]
+    balanceCheck = fmap V.singleton $ buildCwCmd $
+      set cbSigners [mkSigner' sender00 []] $
+      mkCmd "testExecGasPayer" $
+      mkExec' "(coin.get-balance \"exec-gas-payer\")"
 
     txs = do
       s <- setupTest
@@ -389,33 +403,41 @@ testExecGasPayer = (txs,checkResultSuccess test)
         (pString "Write succeeded")
       checkPactResultSuccess "balCheck1" balCheck1 $ assertEqual "balCheck1" (pDecimal 100)
       checkPactResultSuccess "paidTx" paidTx $ assertEqual "paidTx" (pDecimal 3)
-      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.96)
+      checkPactResultSuccess "balCheck2" balCheck2 $ assertEqual "balCheck2" (pDecimal 99.999_6)
     test r = assertFailure $ "Expected 6 results, got: " ++ show r
 
 testFailureRedeem :: TxsTest
 testFailureRedeem = (txs,checkResultSuccess test)
   where
-    txs = ks >>= \ks' ->
-      mkTestExecTransactions "sender00" "0" ks' "testFailureRedeem" 1000 0.01 1000000 0 $
-        V.fromList exps
-    ks = testKeyPairs sender00KeyPair Nothing
-    exps = map (`PactTransaction` Nothing)
+    txs = fmap V.fromList $ forM exps $ \e -> buildCwCmd $
+      set cbSigners [mkSigner' sender00 []] $
+      set cbGasPrice 0.01 $
+      set cbGasLimit 1000 $
+      mkCmd "testFailureRedeem" $
+      mkExec' e
+
+    exps = -- map (`PactTransaction` Nothing)
       ["(coin.get-balance \"sender00\")"
       ,"(coin.get-balance \"miner\")"
       ,"(enforce false \"forced error\")"
       ,"(coin.get-balance \"sender00\")"
       ,"(coin.get-balance \"miner\")"]
     test [sbal0,mbal0,ferror,sbal1,mbal1] = do
-      -- sender 00 first is 100000000 - full gas debit during tx (10)
-      checkPactResultSuccess "sender bal 0" sbal0 $ assertEqual "sender bal 0" (pDecimal 99999990)
+      -- sender 00 first is 100000000 - full gas debit during tx (1)
+      checkPactResultSuccess "sender bal 0" sbal0 $
+        assertEqual "sender bal 0" (pDecimal 99_999_990)
       -- miner first is reward + epsilon tx size gas for [0]
-      checkPactResultSuccess "miner bal 0" mbal0 $ assertEqual "miner bal 0" (pDecimal 2.344523)
+      checkPactResultSuccess "miner bal 0" mbal0 $
+        assertEqual "miner bal 0" (pDecimal 2.344523)
       -- this should reward 10 more to miner
       checkPactResultFailure "forced error" "forced error" ferror
-      -- sender 00 second is down epsilon size costs from [0,1] + 10 for error + 10 full gas debit during tx ~ 99999980
-      checkPactResultSuccess "sender bal 1" sbal1 $ assertEqual "sender bal 1" (pDecimal 99999979.92)
+      -- sender 00 second is down epsilon size costs
+      -- from [0,1] + 10 for error + 10 full gas debit during tx ~ 99999980
+      checkPactResultSuccess "sender bal 1" sbal1 $
+        assertEqual "sender bal 1" (pDecimal 99_999_979.92)
       -- miner second is up 10 from error plus epsilon from [1,2,3] ~ 12
-      checkPactResultSuccess "miner bal 1" mbal1 $ assertEqual "miner bal 1" (pDecimal 12.424523)
+      checkPactResultSuccess "miner bal 1" mbal1 $
+        assertEqual "miner bal 1" (pDecimal 12.424523)
     test r = assertFailure $ "Expected 5 results, got: " ++ show r
 
 
@@ -426,16 +448,19 @@ checkLocalSuccess test (Right cr) = test $ _crResult cr
 testAllowReadsLocalFails :: LocalTest
 testAllowReadsLocalFails = (tx,test)
   where
-    tx = fmap V.head $ mkTestExecTransactions "sender00" "0" [] "testAllowReadsLocalFails" 10000 0.01 1000000 0 $
-         V.fromList [PactTransaction "(read coin.coin-table \"sender00\")" Nothing]
-    test = checkLocalSuccess $ checkPactResultFailure "testAllowReadsLocalFails" "Enforce non-upgradeability"
+    tx = buildCwCmd $ mkCmd "testAllowReadsLocalFails" $
+         mkExec' "(read coin.coin-table \"sender00\")"
+    test = checkLocalSuccess $
+      checkPactResultFailure "testAllowReadsLocalFails" "Enforce non-upgradeability"
 
 testAllowReadsLocalSuccess :: LocalTest
 testAllowReadsLocalSuccess = (tx,test)
   where
-    tx = fmap V.head $ mkTestExecTransactions "sender00" "0" [] "testAllowReadsLocalSuccess" 10000 0.01 1000000 0 $
-         V.fromList [PactTransaction "(at 'balance (read coin.coin-table \"sender00\"))" Nothing]
-    test = checkLocalSuccess $ checkPactResultSuccessLocal "testAllowReadsLocalSuccess" $ assertEqual "sender00 bal" (pDecimal 100000000.0)
+    tx = buildCwCmd $ mkCmd "testAllowReadsLocalSuccess" $
+         mkExec' "(at 'balance (read coin.coin-table \"sender00\"))"
+    test = checkLocalSuccess $
+      checkPactResultSuccessLocal "testAllowReadsLocalSuccess" $
+      assertEqual "sender00 bal" (pDecimal 100_000_000.0)
 
 
 -- -------------------------------------------------------------------------- --
@@ -447,16 +472,24 @@ execTest
     -> ScheduledTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
-    d <- adminData
-    trans <- goldenTestTransactions . V.fromList $ fmap (k d) cmdStrs
-    results <- runPact $ execTransactions (Just parentHeader) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+    trans <- mkCmds cmdStrs
+    results <- runPact $ execTransactions (Just parentHeader) defaultMiner
+      trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) (toHashCommandResult <$> outputs))
         (toHashCommandResult $ _transactionCoinbase results)
   where
-    k d c = PactTransaction c d
     parentHeader = ParentHeader someTestVersionHeader
+    mkCmds cmdStrs =
+      fmap V.fromList $ forM (zip cmdStrs [0..]) $ \(code,n :: Int) ->
+      buildCwCmd $
+      set cbSigners [mkSigner' sender00 []] $
+      set cbGasPrice 0.01 $
+      set cbTTL 1_000_000 $
+      mkCmd ("1" <> sshow n) $
+      mkExec code $
+      mkKeySetData "test-admin-keyset" [sender00]
 
 
 
@@ -536,9 +569,10 @@ fileCompareTxLogs label respIO = goldenSch label $ do
 
 _showValidationFailure :: IO ()
 _showValidationFailure = do
-  ks <- testKeyPairs sender00KeyPair Nothing
-  txs <- mkTestExecTransactions "sender00" "0" ks "testTfrNoGas" 10000 0.01 1000000 0 $
-         V.fromList [PactTransaction "(coin.transfer \"sender00\" \"sender01\" 1.0)" Nothing]
+  txs <- fmap V.singleton $ buildCwCmd $
+    set cbSigners [mkSigner' sender00 []] $
+    mkCmd "nonce" $
+    mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
   let cr1 = CommandResult
         { _crReqKey = RequestKey pactInitialHash
         , _crTxId = Nothing
