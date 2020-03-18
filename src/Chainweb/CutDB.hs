@@ -99,7 +99,6 @@ import Data.LogMessage
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
-import Data.Reflection hiding (int)
 import qualified Data.Text as T
 import Data.These
 import Data.Tuple.Strict
@@ -432,7 +431,7 @@ lookupCutHashes
     -> IO (HM.HashMap ChainId BlockHeader)
 lookupCutHashes wbhdb hs =
     flip itraverse (_cutHashes hs) $ \cid (_, h) ->
-        give wbhdb $ lookupWebBlockHeaderDb cid h
+        lookupWebBlockHeaderDb wbhdb cid h
 
 -- | This is at the heart of 'Chainweb' POW: Deciding the current "longest" cut
 -- among the incoming candiates.

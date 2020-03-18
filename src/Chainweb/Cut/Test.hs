@@ -3,7 +3,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -138,9 +137,8 @@ testMine'
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMine' wdb n t payloadHash i c =
-  give wdb $
     forM (createNewCut n (t c (_chainId i)) payloadHash i c) $ \p@(T2 h _) ->
-        p <$ insertWebBlockHeaderDb h
+        p <$ insertWebBlockHeaderDb wdb h
 
 -- | Block time generation that offsets from previous chain block in cut.
 offsetBlockTime :: TimeSpan Micros -> GenBlockTime

@@ -34,7 +34,6 @@ import Crypto.Hash.Algorithms
 import qualified Data.ByteString as B
 import qualified Data.List.NonEmpty as N
 import Data.MerkleLog
-import Data.Reflection (Given, give, given)
 
 import GHC.Stack
 
@@ -315,7 +314,7 @@ createPayloadProof_
     -> BlockHeader
         -- ^ the target header of the proof
     -> IO (MerkleProof SHA512t_256)
-createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHeader = give headerDb $ do
+createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHeader = do
     --
     -- 1. TransactionTree
     -- 2. BlockPayload
@@ -336,7 +335,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
     --
 
     -- crossChain == ]srcHeadHeader, trgHeadHeader]
-    (srcHeadHeader, crossChain) <- crumbsToChain scid trgHeader >>= \case
+    (srcHeadHeader, crossChain) <- crumbsToChain headerDb scid trgHeader >>= \case
         Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
             { _spvExceptionMsg = "target chain not reachable. Chainweb instance is too young"
@@ -356,7 +355,7 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
             }
 
     -- chain == [srcHeader, srcHeadHeader]
-    (txHeader N.:| chain) <- crumbsOnChain srcHeadHeader txHeight >>= \case
+    (txHeader N.:| chain) <- crumbsOnChain headerDb srcHeadHeader txHeight >>= \case
         Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
             { _spvExceptionMsg = "Target of SPV proof can't be reached from the source transaction"
@@ -415,18 +414,18 @@ createPayloadProof_ getPrefix headerDb payloadDb tcid scid txHeight txIx trgHead
 -- Returns 'Nothing' if @i >= _blockHeight h@.
 --
 crumbsOnChain
-    :: Given WebBlockHeaderDb
-    => BlockHeader
+    :: WebBlockHeaderDb
+    -> BlockHeader
     -> BlockHeight
     -> IO (Maybe (N.NonEmpty BlockHeader))
-crumbsOnChain trgHeader srcHeight
+crumbsOnChain db trgHeader srcHeight
     | srcHeight > _blockHeight trgHeader = return Nothing
     | otherwise = Just <$> go trgHeader []
   where
     go cur acc
         | srcHeight == _blockHeight cur = return $! (cur N.:| acc)
         | otherwise = do
-            p <- lookupParentHeader cur
+            p <- lookupParentHeader db cur
             go p (cur : acc)
 
 -- | Create a path of bread crumbs from the source chain id to the target header
@@ -435,26 +434,25 @@ crumbsOnChain trgHeader srcHeight
 -- Returns 'Nothing' if no such path exists.
 --
 crumbsToChain
-    :: Given WebBlockHeaderDb
-    => ChainId
+    :: WebBlockHeaderDb
+    -> ChainId
     -> BlockHeader
     -> IO (Maybe (BlockHeader, [(Int, BlockHeader)]))
         -- ^ bread crumbs that lead from to source Chain to targetHeader
-crumbsToChain srcCid trgHeader
+crumbsToChain db srcCid trgHeader
     | (int (_blockHeight trgHeader) + 1) < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    graph = _chainGraph @WebBlockHeaderDb given
-    path = shortestPath (_chainId trgHeader) srcCid graph
+    path = shortestPath (_chainId trgHeader) srcCid (_chainGraph db)
 
     go
        :: BlockHeader
        -> [ChainId]
        -> [(Int, BlockHeader)]
        -> IO (BlockHeader, [(Int, BlockHeader)])
-    go !cur [] !acc = return $! (cur, acc)
+    go !cur [] !acc = return (cur, acc)
     go !cur (!h:t) !acc = do
-        adjpHdr <- lookupAdjacentParentHeader cur h
+        adjpHdr <- lookupAdjacentParentHeader db cur h
         unless (_blockHeight adjpHdr >= 0) $ throwM
             $ InternalInvariantViolation
             $ "crumbsToChain: Encountered Genesis block. Chain can't be reached for SPV proof."
@@ -474,7 +472,7 @@ minimumTrgHeader
     -> IO BlockHeader
 minimumTrgHeader headerDb tcid scid bh = do
     trgHeadHeader <- maxEntry trgChain
-    trgHeader <- seekAncestor trgChain trgHeadHeader trgHeight >>= \case
+    seekAncestor trgChain trgHeadHeader trgHeight >>= \case
         Just x -> return $! x
         Nothing -> throwM $ SpvExceptionTargetNotReachable
             { _spvExceptionMsg = "target chain not reachable. Chainweb instance is too young"
@@ -483,7 +481,6 @@ minimumTrgHeader headerDb tcid scid bh = do
             , _spvExceptionTargetChainId = tcid
             , _spvExceptionTargetHeight = int trgHeight
             }
-    return trgHeader
   where
     trgChain = headerDb ^?! ixg tcid
     trgHeight = int bh + int (length path)
