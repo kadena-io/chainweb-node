@@ -40,9 +40,3 @@ allow-newer:
 package vault
     documentation: false
 
--- Currently PR status
-source-repository-package
-    type: git
-    location: https://github.com/stepcut/ixset-typed
-    tag: 745634a16d34ff8cb3abf7d5b40fffca95ac36fc
-
