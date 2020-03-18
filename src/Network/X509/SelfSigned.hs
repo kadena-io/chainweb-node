@@ -132,8 +132,7 @@ import Data.String (fromString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.X509
-import Data.X509.Validation
-    (Fingerprint(..), ServiceID, ValidationCacheQueryCallback, getFingerprint)
+import Data.X509.Validation (Fingerprint(..), ServiceID, getFingerprint)
 
 import GHC.Generics
 import GHC.Stack
