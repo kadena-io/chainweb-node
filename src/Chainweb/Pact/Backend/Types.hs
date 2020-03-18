@@ -80,7 +80,6 @@ module Chainweb.Pact.Backend.Types
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
-import Control.Monad.Fail
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -250,7 +249,6 @@ newtype BlockHandler p a = BlockHandler
                        , MonadMask
                        , MonadIO
                        , MonadReader (BlockDbEnv p)
-                       , MonadFail
                        )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)

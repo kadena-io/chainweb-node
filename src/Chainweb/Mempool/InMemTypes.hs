@@ -36,7 +36,7 @@ import qualified Data.Vector as V
 
 import GHC.Generics
 
-import Pact.Types.Gas (GasLimit(..), GasPrice(..))
+import Pact.Types.Gas (GasPrice(..))
 
 -- internal imports
 

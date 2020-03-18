@@ -1187,7 +1187,7 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
     failOnTooLowRequestedHeight _ _ _ = return ()
 
 
-    failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
+    failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
     playFork bhdb payloadDb parentHash lastHeader = do
         parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"

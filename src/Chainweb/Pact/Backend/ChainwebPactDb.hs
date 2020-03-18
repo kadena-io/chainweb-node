@@ -57,6 +57,8 @@ import qualified Data.Vector as V
 
 import Database.SQLite3.Direct as SQ3
 
+import GHC.Stack
+
 import Prelude hiding (concat, log)
 
 import Text.Printf (printf)
@@ -647,7 +649,7 @@ createVersionedTable tablename db = do
            , tablename
            , "](txid DESC);"]
 
-handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
+handlePossibleRewind :: HasCallStack => BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
     bCurrent <- getBCurrent
     checkHistoryInvariant (bCurrent + 1)
@@ -661,7 +663,9 @@ handlePossibleRewind bRestore hsh = do
         r <- callDb "handlePossibleRewind" $ \db ->
              qry_ db "SELECT max(blockheight) AS current_block_height \
                      \FROM BlockHistory;" [RInt]
-        SInt bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r
+        bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r >>= \case
+            SInt x -> return x
+            _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
         return $! BlockHeight (fromIntegral bh)
 
     checkHistoryInvariant succOfCurrent = do
@@ -694,11 +698,14 @@ handlePossibleRewind bRestore hsh = do
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore
-        SInt txid <- callDb "getting txid" $ \db ->
+        r <- callDb "getting txid" $ \db ->
           expectSingleRowCol msg =<< qry db
               "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
               [SInt (fromIntegral bCurrent)]
               [RInt]
+        txid <- case r of
+            SInt x -> return x
+            _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
         assign bsTxId (fromIntegral txid)
         return $ fromIntegral txid
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"
