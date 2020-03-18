@@ -83,7 +83,7 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
 -- | Insert the contents of any `Foldable` into a `TreeDb` "in place".
 --
 fromFoldable :: (TreeDb db, Foldable f) => db -> f (DbEntry db) -> IO ()
-fromFoldable db = insertStream db . P.each
+fromFoldable db = mapM_ (insert db)
 
 -- | Sugar for producing a populated `TreeDb` from a `Tree`.
 --

@@ -222,7 +222,7 @@ type DbKey db = Key (DbEntry db)
 
 class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 
-    {-# MINIMAL lookup, entries, (insert | insertStream), maxEntry #-}
+    {-# MINIMAL lookup, entries, insert, maxEntry #-}
 
     type family DbEntry db :: Type
 
@@ -367,31 +367,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
     -- ---------------------------------------------------------------------- --
     -- * Insertion
 
-    -- FIXME: defining semantics in the presence of insertion failures is
-    -- tricky. I think we should replace it either
-    --
-    -- @
-    -- atomicInsertSet
-    --     :: db
-    --     -> HS.Set (DbEntry db)
-    --     -> IO ()
-    -- @
-    --
-    -- where the latter would insert all entries in a single atomic transaction.
-    --
-    insertStream
-        :: db
-        -> S.Stream (Of (DbEntry db)) IO a
-        -> IO a
-    insertStream = S.mapM_ . insert
-    {-# INLINEABLE insertStream #-}
-
-    insert
-        :: db
-        -> DbEntry db
-        -> IO ()
-    insert db = insertStream db . S.yield
-    {-# INLINEABLE insert #-}
+    insert :: db -> DbEntry db -> IO ()
 
     -- ---------------------------------------------------------------------- --
     -- Misc
@@ -414,7 +390,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 -- Utils
 
 root :: TreeDb db => db -> IO (DbEntry db)
-root db = fmap fromJuste $ entries db Nothing (Just 1) Nothing Nothing S.head_
+root db = fromJuste <$> entries db Nothing (Just 1) Nothing Nothing S.head_
 {-# INLINE root #-}
 
 -- | Filter the stream of entries for entries in a range of ranks.
