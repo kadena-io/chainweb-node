@@ -290,27 +290,6 @@ jobs:
           optimization: 2
           ghc-options: -j
         EOF
-    - name: Append cabal.project (only ghc-8.8.*)
-      if: matrix.ghc == '8.8.2'
-      run: |
-        cat >> cabal.project <<EOF
-        package chainweb
-          ghc-options: -Wwarn
-          haddock-options: --optghc=-Wwarn
-        package pact
-          ghc-options: -Wwarn
-          haddock-options: --optghc=-Wwarn
-        source-repository-package
-          type: git
-          location: http://github.com/larskuhtz/ixset-typed.git
-          tag: 335c8e31d39be873a429fc9814060bf928ad0ee9
-        allow-newer:
-          fake:*
-          pact:*
-          ixset-typed:*
-          semigroups
-          servant-swagger:swagger2
-        EOF
 
     - uses: actions/cache@v1
       name: Cache dist-newstyle
