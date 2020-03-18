@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -36,7 +35,6 @@ import Control.Monad.Catch
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.Reflection hiding (int)
 
 import qualified Streaming.Prelude as S
 
@@ -110,15 +108,6 @@ initWebBlockHeaderDb db v = WebBlockHeaderDb
   where
     conf cid = Configuration (genesisBlockHeader v cid)
 
--- initWebBlockHeaderDb
---     :: ChainwebVersion
---     -> IO WebBlockHeaderDb
--- initWebBlockHeaderDb v = WebBlockHeaderDb
---     <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap $ chainIds v)
---     <*> pure v
---   where
---     conf cid = Configuration (genesisBlockHeader v cid)
-
 -- | FIXME: this needs some consistency checks
 --
 mkWebBlockHeaderDb
@@ -138,53 +127,55 @@ getWebBlockHeaderDb db p = do
     return $! _webBlockHeaderDb db HM.! _chainId p
 
 lookupWebBlockHeaderDb
-    :: Given WebBlockHeaderDb
-    => ChainId
+    :: WebBlockHeaderDb
+    -> ChainId
     -> BlockHash
     -> IO BlockHeader
-lookupWebBlockHeaderDb c h = do
-    checkWebChainId (given @WebBlockHeaderDb) c
-    db <- getWebBlockHeaderDb given c
+lookupWebBlockHeaderDb wdb c h = do
+    checkWebChainId wdb c
+    db <- getWebBlockHeaderDb wdb c
     lookupM db h
 
 blockAdjacentParentHeaders
-    :: Given WebBlockHeaderDb
-    => BlockHeader
+    :: WebBlockHeaderDb
+    -> BlockHeader
     -> IO (HM.HashMap ChainId BlockHeader)
-blockAdjacentParentHeaders h
-    = itraverse lookupWebBlockHeaderDb
+blockAdjacentParentHeaders db h
+    = itraverse (lookupWebBlockHeaderDb db)
     $ _getBlockHashRecord
     $ _blockAdjacentHashes h
 
 lookupAdjacentParentHeader
-    :: Given WebBlockHeaderDb
-    => BlockHeader
+    :: WebBlockHeaderDb
+    -> BlockHeader
     -> ChainId
     -> IO BlockHeader
-lookupAdjacentParentHeader h cid = do
-    checkWebChainId (given @WebBlockHeaderDb) h
+lookupAdjacentParentHeader db h cid = do
+    checkWebChainId db h
     let ph = h ^?! (blockAdjacentHashes . ix cid)
-    lookupWebBlockHeaderDb cid ph
+    lookupWebBlockHeaderDb db cid ph
 
 lookupParentHeader
-    :: Given WebBlockHeaderDb
-    => BlockHeader
+    :: WebBlockHeaderDb
+    -> BlockHeader
     -> IO BlockHeader
-lookupParentHeader h = do
-    checkWebChainId (given @WebBlockHeaderDb) h
-    lookupWebBlockHeaderDb (_chainId h) (_blockParent h)
+lookupParentHeader db h = do
+    checkWebChainId db h
+    lookupWebBlockHeaderDb db (_chainId h) (_blockParent h)
 
 insertWebBlockHeaderDb
-    :: Given WebBlockHeaderDb
-    => BlockHeader
+    :: WebBlockHeaderDb
+    -> BlockHeader
     -> IO ()
-insertWebBlockHeaderDb h = do
-    db <- getWebBlockHeaderDb given h
-    checkBlockAdjacentParents h
+insertWebBlockHeaderDb wdb h = do
+    db <- getWebBlockHeaderDb wdb h
+    checkBlockAdjacentParents wdb h
     insert db h
 
 -- -------------------------------------------------------------------------- --
 -- Checks and Properties
+--
+-- TODO this should be done by BlockHeader Validation.
 
 -- | Given a 'ChainGraph' @g@, @checkBlockHeaderGraph h@ checks that the
 -- @_chainId h@ is a vertex in @g@ and that the adjacent hashes of @h@
@@ -203,7 +194,7 @@ checkBlockHeaderGraph b = void
 -- all referenced adjacent parents block headers exist in @db@.
 --
 checkBlockAdjacentParents
-    :: Given WebBlockHeaderDb
-    => BlockHeader
+    :: WebBlockHeaderDb
+    -> BlockHeader
     -> IO ()
-checkBlockAdjacentParents = void . blockAdjacentParentHeaders
+checkBlockAdjacentParents db = void . blockAdjacentParentHeaders db
