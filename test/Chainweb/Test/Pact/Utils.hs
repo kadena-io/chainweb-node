@@ -102,6 +102,8 @@ module Chainweb.Test.Pact.Utils
 , withPactTestBlockDb
 , WithPactCtxSQLite
 , defaultPactServiceConfig
+-- * Mempool utils
+, delegateMemPoolAccess
 , withDelegateMempool
 , setMempool
 -- * Block formation
@@ -835,17 +837,29 @@ toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb (\_ -> return ())
 
+
+-- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
+delegateMemPoolAccess :: IORef (String,MemPoolAccess) -> MemPoolAccess
+delegateMemPoolAccess r = MemPoolAccess
+  { mpaGetBlock = \a b c d -> call mpaGetBlock $ \f -> f a b c d
+  , mpaSetLastHeader = \a -> call mpaSetLastHeader ($ a)
+  , mpaProcessFork = \a -> call mpaProcessFork ($ a)
+  , mpaBadlistTx = \a -> call mpaBadlistTx ($ a)
+  }
+  where
+    call :: (MemPoolAccess -> f) -> (f -> IO a) -> IO a
+    call f g = readIORef r >>= \(n,m) -> putStrLn n >> g (f m)
+
 -- | use a "delegate" which you can dynamically reset/modify
 withDelegateMempool
-  :: (IO (IORef MemPoolAccess, MemPoolAccess) -> TestTree)
+  :: (IO (IORef (String,MemPoolAccess), MemPoolAccess) -> TestTree)
   -> TestTree
-withDelegateMempool = withResource start end
+withDelegateMempool = withResource start (const mempty)
   where
     start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
-    end (ref,_) = writeIORef ref mempty
 
 -- | Set test mempool
-setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setMempool :: IO (IORef (String,MemPoolAccess)) -> (String,MemPoolAccess) -> IO ()
 setMempool refIO mp = refIO >>= flip writeIORef mp
 
 withBlockHeaderDb
