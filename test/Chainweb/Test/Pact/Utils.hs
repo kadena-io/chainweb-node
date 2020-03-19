@@ -803,10 +803,10 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
             }
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
-withMVarResource value = withResource (newMVar value) (const $ return ())
+withMVarResource value = withResource (newMVar value) mempty
 
 withTime :: (IO (Time Micros) -> TestTree) -> TestTree
-withTime = withResource getCurrentTimeIntegral (const (return ()))
+withTime = withResource getCurrentTimeIntegral mempty
 
 mkKeyset :: Text -> [PublicKeyBS] -> Value
 mkKeyset p ks = object
@@ -835,7 +835,7 @@ toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
           Seconds s -> TxCreationTime $ ParsedInteger s
 
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb (\_ -> return ())
+withPayloadDb = withResource newPayloadDb mempty
 
 
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
@@ -854,7 +854,7 @@ delegateMemPoolAccess r = MemPoolAccess
 withDelegateMempool
   :: (IO (IORef MemPoolAccess, MemPoolAccess) -> TestTree)
   -> TestTree
-withDelegateMempool = withResource start (const mempty)
+withDelegateMempool = withResource start mempty
   where
     start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
 
@@ -881,7 +881,7 @@ withTestBlockDbTest
   :: ChainwebVersion -> (IO TestBlockDb -> TestTree) -> TestTree
 withTestBlockDbTest v a =
   withRocksResource $ \rdb ->
-  withResource (start rdb) (const $ return ()) a
+  withResource (start rdb) mempty a
   where
     start r = r >>= mkTestBlockDb v
 
