@@ -79,8 +79,6 @@ module Chainweb.BlockHeaderDB.RestAPI
 , branchHeadersApi
 , HeaderApi
 , headerApi
-, HeaderPutApi
-, headerPutApi
 , HeadersApi
 , headersApi
 , HashesApi
@@ -331,33 +329,12 @@ headerApi
 headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type HeaderPutApi_
-    = "header"
-    :> ReqBody '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
-    :> Verb 'PUT 204 '[JSON] NoContent
-
--- | @PUT \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
---
--- Adds a block header to the block header tree database. Returns a failure with
--- status code 400 if the block header can't be addded because of a validation
--- failure or missing dependencies.
---
-type HeaderPutApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderPutApi_
-
-headerPutApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (HeaderPutApi v c)
-headerPutApi = Proxy
-
--- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
     = HashesApi v c
     :<|> HeadersApi v c
     :<|> HeaderApi v c
-    :<|> HeaderPutApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
 

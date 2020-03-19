@@ -102,7 +102,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
@@ -256,7 +255,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
      addNewPayload pdb payload
 
-     insert bhdb newHeader
+     insertBlockHeaderDb bhdb [newHeader]
 
      return $ T3 parentHeader newHeader payload
 

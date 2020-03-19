@@ -43,7 +43,9 @@ tests rdb = testGroup "Unit Tests"
     , testGroup "Misc."
       [ testCase "height" $ correctHeight rdb
       ]
-    , treeDbInvariants (withTestBlockHeaderDb rdb) Parallel
+    , treeDbInvariants
+        (\x f -> withTestBlockHeaderDb rdb x (\db -> f db insertBlockHeaderDb))
+        Parallel
     ]
 
 insertItems :: RocksDb -> Assertion

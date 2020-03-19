@@ -273,8 +273,8 @@ genesisBlockHeaderForChain v i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
-insertN :: (TreeDb db, DbEntry db ~ BlockHeader) => Int -> BlockHeader -> db -> IO ()
-insertN n g db = traverse_ (insert db) bhs
+insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
+insertN n g db = insertBlockHeaderDb db bhs
   where
     bhs = take n $ testBlockHeaders $ ParentHeader g
 
@@ -409,7 +409,7 @@ linearBlockHeaderDbs n genDbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (insert db) . take (int n) . testBlockHeaders $ ParentHeader gbh0
+        traverse_ (insertBlockHeaderDb db . pure) . take (int n) . testBlockHeaders $ ParentHeader gbh0
 
 starBlockHeaderDbs
     :: Natural
@@ -422,7 +422,7 @@ starBlockHeaderDbs n genDbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (\i -> insert db . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
+        traverse_ (\i -> insertBlockHeaderDb db . pure . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
 
     newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
 

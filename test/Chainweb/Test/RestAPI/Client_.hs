@@ -32,7 +32,6 @@ module Chainweb.Test.RestAPI.Client_
 
 -- * BlockHeaderDB API
 , headerClient'
-, headerPutClient'
 , hashesClient'
 , headersClient'
 , branchHashesClient'
@@ -111,12 +110,6 @@ headerClient' v c = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ client_ @(HeaderApi v c)
-
-headerPutClient' :: ChainwebVersion -> ChainId -> BlockHeader -> ClientM_ NoContent
-headerPutClient' v c = runIdentity $ do
-    (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
-    (SomeSing (SChainId :: Sing c)) <- return $ toSing c
-    return $ client_ @(HeaderPutApi v c)
 
 headersClient'
     :: ChainwebVersion

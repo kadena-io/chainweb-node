@@ -280,7 +280,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
      addNewPayload pdb payload
 
      bhdb <- iobhdb
-     insert bhdb bh
+     insertBlockHeaderDb bhdb [bh]
 
      return $ T3 parentHeader bh payload
 

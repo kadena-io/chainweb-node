@@ -45,7 +45,6 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import Chainweb.Time
-import qualified Chainweb.TreeDB as TreeDB
 
 import Data.LogMessage
 
@@ -224,7 +223,7 @@ genTree
 genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
-    liftIO $ TreeDB.insert db next
+    liftIO $ insertBlockHeaderDb db [next]
     listOfOne <- preForkTrunk db mapRef next theRest
     newNode mapRef
             BlockTrans { btBlockHeader = h, btTransactions = takenNow }
@@ -256,7 +255,7 @@ preForkTrunk
     -> PropertyM IO (Forest BlockTrans)
 preForkTrunk db mapRef h avail = do
     next <- header' h
-    liftIO $ TreeDB.insert db next
+    liftIO $ insertBlockHeaderDb db [next]
     (takenNow, theRest) <- takeTrans avail
     children <- frequencyM
         [(1, fork db mapRef next theRest), (3, preForkTrunk db mapRef next theRest)]
@@ -284,9 +283,9 @@ fork
     -> PropertyM IO (Forest BlockTrans)
 fork db mapRef h avail = do
     nextLeft <- header' h
-    liftIO $ TreeDB.insert db nextLeft
+    liftIO $ insertBlockHeaderDb db [nextLeft]
     nextRight <- header' h
-    liftIO $ TreeDB.insert db nextRight
+    liftIO $ insertBlockHeaderDb db [nextRight]
     (takenNow, theRest) <- takeTrans avail
 
     (lenL, lenR) <- genForkLengths
@@ -319,7 +318,7 @@ postForkTrunk db mapRef h avail count = do
     children <-
         if count == 0 then return []
         else do
-            liftIO $ TreeDB.insert db next
+            liftIO $ insertBlockHeaderDb db [next]
             postForkTrunk db mapRef next theRest (count - 1)
     theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}

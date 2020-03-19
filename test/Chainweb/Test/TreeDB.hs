@@ -18,7 +18,7 @@ import Control.Exception (SomeException(..), try)
 import Control.Lens (each, from, over, to, (^.), (^..))
 
 import Data.Bool (bool)
-import Data.Foldable (foldlM)
+import Data.Foldable (foldlM, toList)
 import qualified Data.HashSet as HS
 import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as S
@@ -42,11 +42,14 @@ import Chainweb.Test.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils (len)
 
+type Insert db = db -> [DbEntry db] -> IO ()
+type WithTestDb db = DbEntry db -> (db -> Insert db -> IO Bool) -> IO Bool
+
 treeDbInvariants
     :: (TreeDb db, IsBlockHeader (DbEntry db), Ord (DbEntry db), Ord (DbKey db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool)
-        -- ^ Given a generic entry, should yield a database for testing, and then
-        -- safely close it after use.
+    => WithTestDb db
+        -- ^ Given a generic entry should yield a database and insert function for
+        -- testing, and then safely close it after use.
     -> RunStyle
     -> TestTree
 treeDbInvariants f rs = testGroup "TreeDb Invariants"
@@ -80,15 +83,10 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
         ]
     ]
 
--- | Insert the contents of any `Foldable` into a `TreeDb` "in place".
---
-fromFoldable :: (TreeDb db, Foldable f) => db -> f (DbEntry db) -> IO ()
-fromFoldable db = mapM_ (insert db)
-
 -- | Sugar for producing a populated `TreeDb` from a `Tree`.
 --
-withTreeDb :: TreeDb db => (DbEntry db -> (db -> IO a) -> r) -> Tree (DbEntry db) -> (db -> IO a) -> r
-withTreeDb f t g = f (rootLabel t) $ \db -> fromFoldable db t *> g db
+withTreeDb :: TreeDb db => WithTestDb db -> Tree (DbEntry db) -> (db -> Insert db -> IO Bool) -> IO Bool
+withTreeDb f t g = f (rootLabel t) $ \db insert -> insert db (toList t) *> g db insert
 
 -- | Property: There must exist an isomorphism between any `Tree BlockHeader`
 -- and a `TreeDb`.
@@ -98,8 +96,10 @@ treeIso_prop
     => IsBlockHeader (DbEntry db)
     => Ord (DbEntry db)
     => Ord (DbKey db)
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-treeIso_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+treeIso_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     t' <- toTree db
     pure $ normalizeTree t == normalizeTree t'
   where
@@ -115,10 +115,12 @@ treeIso_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 --
 reinsertion_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-reinsertion_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
-    fromFoldable db t
-    l <- entries db Nothing Nothing Nothing Nothing $ P.length_
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+reinsertion_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db insert -> do
+    insert db (toList t)
+    l <- entries db Nothing Nothing Nothing Nothing P.length_
     pure $ l == length t
   where
     t :: Tree (DbEntry db)
@@ -132,10 +134,12 @@ reinsertion_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 --
 handOfGod_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-handOfGod_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+handOfGod_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db insert -> do
     h <- maxEntry db
-    try (insert db (over (isoBH . blockNonce) succ h)) >>= \case
+    try (insert db [over (isoBH . blockNonce) succ h]) >>= \case
         Left (_ :: SomeException) -> pure True
         Right _ -> do
             h' <- maxEntry db
@@ -148,8 +152,10 @@ handOfGod_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 --
 rootParent_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-rootParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+rootParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     r <- (^. isoBH) <$> root db
     pure $ prop_block_genesis_parent r
   where
@@ -161,11 +167,11 @@ rootParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 --
 streamCount_prop
     :: forall db a. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool)
+    => WithTestDb db
     -> (db -> (Stream (Of a) IO (Natural, Eos) -> IO (Of [a] (Natural, Eos))) -> IO (Of [a] (Natural, Eos)))
     -> SparseTree
     -> Property
-streamCount_prop f g (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+streamCount_prop f g (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     (ls :> (n, _)) <- g db $ \s -> P.toList s
     pure $ len ls == n -- && n > 0
   where
@@ -174,8 +180,10 @@ streamCount_prop f g (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 
 entriesFetch_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-entriesFetch_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+entriesFetch_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     l <- entries db Nothing Nothing Nothing Nothing $ P.length_
     pure $ l == length t
   where
@@ -187,8 +195,10 @@ entriesFetch_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 --
 maxRank_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-maxRank_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+maxRank_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     r <- maxRank db
     let h = fromIntegral . maximum . (^.. each . isoBH . to _blockHeight) $ treeLeaves t
     pure $ r == h
@@ -200,8 +210,10 @@ maxRank_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
 --
 entryOrder_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db -> do
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+entryOrder_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ -> do
     hs <- entries db Nothing Nothing Nothing Nothing $ P.toList_ . P.map (^. isoBH)
     pure . isJust $ foldlM g S.empty hs
   where
@@ -233,8 +245,10 @@ branches f db g = do
 
 genParent_prop
     :: forall db. (TreeDb db, IsBlockHeader (DbEntry db))
-    => (DbEntry db -> (db -> IO Bool) -> IO Bool) -> SparseTree -> Property
-genParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db ->
+    => WithTestDb db
+    -> SparseTree
+    -> Property
+genParent_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db _ ->
     isNothing . parent <$> root db
   where
     t :: Tree (DbEntry db)

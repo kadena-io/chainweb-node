@@ -66,7 +66,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -416,7 +415,7 @@ doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
     _mv' <- validateBlock header (toPayloadData payload) $ _ctxQueue ctx
     addNewPayload (_ctxPdb ctx) payload
-    insert (_ctxBdb ctx) header
+    insertBlockHeaderDb (_ctxBdb ctx) [header]
   where
     toPayloadData :: PayloadWithOutputs -> PayloadData
     toPayloadData d = PayloadData

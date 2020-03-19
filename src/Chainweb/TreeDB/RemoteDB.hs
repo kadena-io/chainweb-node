@@ -96,11 +96,6 @@ instance TreeDb RemoteDb where
         client nxt = logServantError alog "failed to query remote branch entries"
             $ branchHeadersClient ver cid limit nxt minr maxr (BranchBounds lower upper)
 
-    insert (RemoteDb env alog ver cid) e = void $ runClientM client env
-      where
-        client = logServantError alog "failed to put tree db entry"
-            $ headerPutClient ver cid e
-
     -- We could either use the cut or create a new API
     -- maxEntry (RemoteDb env alog ver cid) e =
 

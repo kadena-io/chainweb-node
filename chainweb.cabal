@@ -212,7 +212,6 @@ library
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
-        , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
@@ -464,7 +463,6 @@ test-suite chainweb-tests
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
         Chainweb.Test.TreeDB
-        Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
 
@@ -678,11 +676,10 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
+    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
     main-is: CwTool.hs
     other-modules:
         Allocations
-        Chain2Gexf
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -692,7 +689,6 @@ executable cwtool
         Ea.Genesis
         EncodeDecodeB64Util
         GenConf
-        Gexf
         HeaderDump
         Network.X509.SelfSigned.Test
         RunNodes

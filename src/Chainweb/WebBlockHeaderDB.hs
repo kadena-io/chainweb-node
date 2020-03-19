@@ -170,7 +170,7 @@ insertWebBlockHeaderDb
 insertWebBlockHeaderDb wdb h = do
     db <- getWebBlockHeaderDb wdb h
     checkBlockAdjacentParents wdb h
-    insert db h
+    insertBlockHeaderDb db [h]
 
 -- -------------------------------------------------------------------------- --
 -- Checks and Properties
