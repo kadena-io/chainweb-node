@@ -848,7 +848,7 @@ delegateMemPoolAccess r = MemPoolAccess
   }
   where
     call :: (MemPoolAccess -> f) -> (f -> IO a) -> IO a
-    call f g = readIORef r >>= \(n,m) -> putStrLn n >> g (f m)
+    call f g = readIORef r >>= \(n,m) -> putStrLn ("read: " ++ n) >> g (f m)
 
 -- | use a "delegate" which you can dynamically reset/modify
 withDelegateMempool
@@ -860,7 +860,7 @@ withDelegateMempool = withResource start (const mempty)
 
 -- | Set test mempool
 setMempool :: IO (IORef (String,MemPoolAccess)) -> (String,MemPoolAccess) -> IO ()
-setMempool refIO mp = refIO >>= flip writeIORef mp
+setMempool refIO mp@(n,_) = refIO >>= \r -> putStrLn ("write: " ++ n) >> writeIORef r mp
 
 withBlockHeaderDb
     :: IO RocksDb
