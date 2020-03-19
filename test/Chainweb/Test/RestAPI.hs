@@ -117,14 +117,15 @@ noMempool = []
 
 simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 simpleSessionTests rdb tls version =
-    withBlockHeaderDbsServer tls version (testBlockHeaderDbs rdb version) (return noMempool)
-    $ \env -> testGroup "client session tests"
-        $ httpHeaderTests env (head $ toList $ chainIds version)
-        : (simpleClientSession env <$> toList (chainIds version))
+    withBlockHeaderDbsResource rdb version $ \dbs ->
+        withBlockHeaderDbsServer tls version dbs (return noMempool)
+        $ \env -> testGroup "client session tests"
+            $ httpHeaderTests env (head $ toList $ chainIds version)
+            : (simpleClientSession env <$> toList (chainIds version))
 
 httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
 httpHeaderTests envIO cid =
-    testGroup ("http header tests for chain " <> sshow cid) $
+    testGroup ("http header tests for chain " <> sshow cid)
         [ go "headerClient" $ \v h -> headerClient' v cid (key h)
         , go "headerPutClient" $ \v h -> headerPutClient' v cid (head $ testBlockHeaders $ ParentHeader h)
         , go "headersClient" $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
@@ -137,7 +138,7 @@ httpHeaderTests envIO cid =
       where
         go label run = testCase label $ do
             BlockHeaderDbsTestClientEnv env _ version <- liftIO envIO
-            res <- flip runClientM_ env $ modifyResponse checkHeader $ do
+            res <- flip runClientM_ env $ modifyResponse checkHeader $
                 run version (genesisBlockHeader version cid)
             assertBool ("test failed: " <> sshow res) (isRight res)
             return ()
@@ -310,7 +311,7 @@ simpleClientSession envIO cid =
             void $ liftIO $ step $ "headerPutClient: " <> T.unpack (encodeToText (_blockHash h))
             void $ headerPutClient version cid h
 
-        let lower = last $ newHeaders
+        let lower = last newHeaders
         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do
             void $ liftIO $ step "branchHashesClient: get one block headers with lower and upper bound"
             hs5 <- branchHashesClient version cid Nothing Nothing Nothing Nothing
