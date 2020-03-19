@@ -90,7 +90,6 @@ import Data.DList (DList)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
-import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
