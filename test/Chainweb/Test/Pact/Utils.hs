@@ -34,12 +34,10 @@ module Chainweb.Test.Pact.Utils
 , allocation02KeyPair'
 , testPactFilesDir
 , testKeyPairs
-, adminData
 , mkKeySetData
   -- * helper functions
 , mergeObjects
 , formatB16PubKey
-, goldenTestTransactions
 , mkTestExecTransactions
 , mkTestContTransaction
 , mkCoinSig
@@ -104,6 +102,8 @@ module Chainweb.Test.Pact.Utils
 , withPactTestBlockDb
 , WithPactCtxSQLite
 , defaultPactServiceConfig
+, withDelegateMempool
+, setMempool
 -- * Block formation
 , runCut
 , Noncer
@@ -116,6 +116,7 @@ module Chainweb.Test.Pact.Utils
 , someBlockHeader
 ) where
 
+import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
@@ -132,6 +133,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
+import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Text (Text)
@@ -320,23 +322,10 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap (Object o) = (:) o
     unwrap _ = id
 
-adminData :: IO (Maybe Value)
-adminData = k <$> testKeyPairs sender00KeyPair Nothing
-  where
-    k ks = Just $ object
-        [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
-        ]
-
 -- | Make trivial keyset data
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
--- | Shim for 'PactExec' and 'PactInProcApi' tests
-goldenTestTransactions
-    :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
-goldenTestTransactions txs = do
-    ks <- testKeyPairs sender00KeyPair Nothing
-    mkTestExecTransactions "sender00" "0" ks "1" 10_000 0.01 1_000_000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -846,6 +835,19 @@ toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb (\_ -> return ())
 
+-- | use a "delegate" which you can dynamically reset/modify
+withDelegateMempool
+  :: (IO (IORef MemPoolAccess, MemPoolAccess) -> TestTree)
+  -> TestTree
+withDelegateMempool = withResource start end
+  where
+    start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
+    end (ref,_) = writeIORef ref mempty
+
+-- | Set test mempool
+setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setMempool refIO mp = refIO >>= flip writeIORef mp
+
 withBlockHeaderDb
     :: IO RocksDb
     -> BlockHeader
@@ -874,11 +876,11 @@ withPactTestBlockDb
     :: ChainwebVersion
     -> ChainId
     -> LogLevel
-    -> MemPoolAccess
+    -> (IO MemPoolAccess)
     -> PactServiceConfig
     -> (IO (PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
-withPactTestBlockDb version cid logLevel mempool pactConfig f =
+withPactTestBlockDb version cid logLevel mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
   withTestBlockDbTest version $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
@@ -887,6 +889,7 @@ withPactTestBlockDb version cid logLevel mempool pactConfig f =
         reqQ <- atomically $ newTBQueue 2000
         dir <- iodir
         bdb <- bdbio
+        mempool <- mempoolIO
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False

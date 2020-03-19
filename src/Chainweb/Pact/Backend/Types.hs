@@ -73,6 +73,7 @@ module Chainweb.Pact.Backend.Types
 
       -- * mempool
     , MemPoolAccess(..)
+    , delegateMemPoolAccess
 
     , PactServiceException(..)
     ) where
@@ -90,6 +91,7 @@ import Data.DList (DList)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashSet (HashSet)
+import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
@@ -105,7 +107,7 @@ import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
-import Pact.Types.Runtime
+import Pact.Types.Runtime (PactDb,TxId,TableName,TxLog,ExecutionMode)
 
 -- internal modules
 import Chainweb.BlockHash
@@ -311,6 +313,18 @@ instance Semigroup MemPoolAccess where
 
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty) (const mempty)
+
+-- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
+delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
+delegateMemPoolAccess r = MemPoolAccess
+  { mpaGetBlock = \a b c d -> call mpaGetBlock $ \f -> f a b c d
+  , mpaSetLastHeader = \a -> call mpaSetLastHeader ($ a)
+  , mpaProcessFork = \a -> call mpaProcessFork ($ a)
+  , mpaBadlistTx = \a -> call mpaBadlistTx ($ a)
+  }
+  where
+    call :: (MemPoolAccess -> f) -> (f -> IO a) -> IO a
+    call f g = readIORef r >>= g . f
 
 data PactServiceException = PactServiceIllegalRewind
     { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)
