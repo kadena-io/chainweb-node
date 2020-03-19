@@ -36,7 +36,7 @@ jobs:
             ${{ runner.os }}-stack-
 
       - name: Build
-        run: "stack build --fast --no-terminal --system-ghc"
+        run: "stack test --fast --no-terminal --system-ghc"
 
       - name: Check cache size
         run: "du -sh ~/.stack"
