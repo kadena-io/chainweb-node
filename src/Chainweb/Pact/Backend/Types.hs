@@ -105,7 +105,7 @@ import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
-import Pact.Types.Runtime
+import Pact.Types.Runtime (PactDb,TxId,TableName,TxLog,ExecutionMode)
 
 -- internal modules
 import Chainweb.BlockHash
@@ -311,6 +311,7 @@ instance Semigroup MemPoolAccess where
 
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty) (const mempty)
+
 
 data PactServiceException = PactServiceIllegalRewind
     { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)

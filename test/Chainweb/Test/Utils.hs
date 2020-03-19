@@ -77,6 +77,8 @@ module Chainweb.Test.Utils
 , assertGe
 , assertLe
 , assertSatisfies
+, assertInfix
+, expectFailureContaining
 
 -- * Golden Tests
 , golden
@@ -112,7 +114,7 @@ import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Coerce (coerce)
 import Data.Foldable
-import Data.List (sortOn)
+import Data.List (sortOn,isInfixOf)
 import qualified Data.Text as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
@@ -742,6 +744,17 @@ assertSatisfies msg value predf
   | result = assertEqual msg True result
   | otherwise = assertFailure $ msg ++ ": " ++ show value
   where result = predf value
+
+-- | Assert that string rep of value contains contents.
+assertInfix :: Show a => String -> String -> a -> Assertion
+assertInfix msg contents value = assertSatisfies
+  (msg ++ ": should contain '" ++ contents ++ "'")
+  (show value) (isInfixOf contents)
+
+expectFailureContaining :: Show a => String -> String -> Either a r -> Assertion
+expectFailureContaining msg _ Right {} = assertFailure $ msg ++ ": expected failure"
+expectFailureContaining msg contents (Left e) = assertInfix msg contents e
+
 
 -- -------------------------------------------------------------------------- --
 -- Golden Testing
