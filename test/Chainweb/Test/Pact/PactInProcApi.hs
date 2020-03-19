@@ -72,20 +72,21 @@ genesisHeader :: BlockHeader
 genesisHeader = genesisBlockHeader testVersion cid
 
 tests :: ScheduledTest
-tests = ScheduledTest testName $ withDelegateMempool $ go
+tests = ScheduledTest testName $ go
   where
     testName = "Chainweb.Test.Pact.PactInProcApi"
-    go dm = testGroup testName
-         [ test Warn $ goldenNewBlock "new-block-0" mpRef goldenMemPool
-         , test Warn $ goldenNewBlock "empty-block-tests" mpRef mempty
-         , test Warn $ newBlockAndValidate mpRef
-         , test Warn $ newBlockRewindValidate mpRef
-         , test Quiet $ badlistNewBlockTest mpRef
+    go = testGroup testName
+         [ test Warn $ goldenNewBlock "new-block-0" goldenMemPool
+         , test Warn $ goldenNewBlock "empty-block-tests" mempty
+         , test Warn $ newBlockAndValidate
+         , test Warn $ newBlockRewindValidate
+         , test Quiet $ badlistNewBlockTest
          ]
       where
-        mpRef = fst <$> dm
-        test logLevel =
-          withPactTestBlockDb testVersion cid logLevel (snd <$> dm) defaultPactServiceConfig
+        test logLevel f =
+          withDelegateMempool $ \dm ->
+          withPactTestBlockDb testVersion cid logLevel (snd <$> dm) defaultPactServiceConfig $
+          f (fst <$> dm)
 
 
 
@@ -175,8 +176,8 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
       }
 
 
-goldenNewBlock :: String -> IO (IORef (String,MemPoolAccess)) -> MemPoolAccess -> IO (PactQueue,TestBlockDb) -> TestTree
-goldenNewBlock label mpRefIO mp reqIO = golden label $ do
+goldenNewBlock :: String -> MemPoolAccess -> IO (IORef (String,MemPoolAccess)) -> IO (PactQueue,TestBlockDb) -> TestTree
+goldenNewBlock label mp mpRefIO reqIO = golden label $ do
     (reqQ,_) <- reqIO
     setMempool mpRefIO (label,mp)
     respVar <- newBlock noMiner (ParentHeader genesisHeader) reqQ
