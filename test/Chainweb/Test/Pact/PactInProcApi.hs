@@ -114,16 +114,16 @@ runBlock q bdb timeOffset msg = do
        validateBlock nextH (payloadWithOutputsToPayloadData nb) q
 
 
-newBlockAndValidate :: IO (IORef (String,MemPoolAccess)) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (q,bdb) <- reqIO
-  setMempool refIO ("newBlockAndValidate",goldenMemPool)
+  setMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
 
-newBlockRewindValidate :: IO (IORef (String,MemPoolAccess)) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
   (q,bdb) <- reqIO
-  setMempool mpRefIO ("newBlockRewindValidate",chainDataMemPool)
+  setMempool mpRefIO chainDataMemPool
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
   -- cut 1a
@@ -152,7 +152,7 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
 
 
 
-badlistNewBlockTest :: IO (IORef (String,MemPoolAccess)) -> IO (PactQueue,TestBlockDb) -> TestTree
+badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
   (reqQ,_) <- reqIO
   badHashRef <- newIORef $ fromUntypedHash pactInitialHash
@@ -163,7 +163,7 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
     $ set cbGasPrice 1_000_000_000_000_000
     $ mkCmd "badListMPA"
     $ mkExec' "(+ 1 2)"
-  setMempool mpRefIO $ ("badlistNewBlockTest",badlistMPA badTx badHashRef)
+  setMempool mpRefIO (badlistMPA badTx badHashRef)
   newBlock noMiner (ParentHeader genesisHeader) reqQ
     >>= readMVar
     >>= expectFailureContaining "badlistNewBlockTest:newBlock" "Insufficient funds"
@@ -176,10 +176,10 @@ badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
       }
 
 
-goldenNewBlock :: String -> MemPoolAccess -> IO (IORef (String,MemPoolAccess)) -> IO (PactQueue,TestBlockDb) -> TestTree
+goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 goldenNewBlock label mp mpRefIO reqIO = golden label $ do
     (reqQ,_) <- reqIO
-    setMempool mpRefIO (label,mp)
+    setMempool mpRefIO mp
     respVar <- newBlock noMiner (ParentHeader genesisHeader) reqQ
     goldenBytes =<< takeMVar respVar
   where

@@ -839,7 +839,7 @@ withPayloadDb = withResource newPayloadDb (\_ -> return ())
 
 
 -- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
-delegateMemPoolAccess :: IORef (String,MemPoolAccess) -> MemPoolAccess
+delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
 delegateMemPoolAccess r = MemPoolAccess
   { mpaGetBlock = \a b c d -> call mpaGetBlock $ \f -> f a b c d
   , mpaSetLastHeader = \a -> call mpaSetLastHeader ($ a)
@@ -848,19 +848,19 @@ delegateMemPoolAccess r = MemPoolAccess
   }
   where
     call :: (MemPoolAccess -> f) -> (f -> IO a) -> IO a
-    call f g = readIORef r >>= \(n,m) -> putStrLn ("read: " ++ n) >> g (f m)
+    call f g = readIORef r >>= g . f
 
 -- | use a "delegate" which you can dynamically reset/modify
 withDelegateMempool
-  :: (IO (IORef (String,MemPoolAccess), MemPoolAccess) -> TestTree)
+  :: (IO (IORef MemPoolAccess, MemPoolAccess) -> TestTree)
   -> TestTree
 withDelegateMempool = withResource start (const mempty)
   where
     start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
 
 -- | Set test mempool
-setMempool :: IO (IORef (String,MemPoolAccess)) -> (String,MemPoolAccess) -> IO ()
-setMempool refIO mp@(n,_) = refIO >>= \r -> putStrLn ("write: " ++ n) >> writeIORef r mp
+setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setMempool refIO mp = refIO >>= flip writeIORef mp
 
 withBlockHeaderDb
     :: IO RocksDb
