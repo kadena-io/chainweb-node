@@ -27,3 +27,16 @@ constraints:
       base-unicode-symbols < 0.2.4,
       megaparsec < 8,
       neat-interpolation < 0.4
+
+-- GHC-8.8
+
+package pact
+    ghc-options: -Wwarn
+    haddock-options: --optghc=-Wwarn
+
+allow-newer:
+    *:sbv
+
+package vault
+    documentation: false
+
