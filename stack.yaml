@@ -1,46 +1,44 @@
-resolver: lts-14.27
+resolver: lts-15.4
 
 #ghc-options: {"$locals": -ddump-to-file -ddump-hi}
-
-extra-deps:
-  # --- Missing from Stackage --- #
-  - QuickCheck-GenT-0.2.0
-  - bloomfilter-2.0.1.0
-  - digraph-0.1.0.2
-  - fake-0.1.1.2
-  - loglevel-0.1.0.0
-  - merkle-log-0.1.0.0
-  - paths-0.2.0.0
-  - streaming-events-1.0.0
-  - strict-tuple-0.1.3
-  - yet-another-logger-0.3.1
-  - random-strings-0.1.1.0
-  - streaming-concurrency-0.3.1.3
-  - streaming-with-0.2.2.1
-
-  # --- Transitive Pact Dependencies --- #
-  - ed25519-donna-0.1.1
-  - sbv-8.2
-  - trifecta-2.1
-  - github: kadena-io/thyme
-    commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
-
-  # --- Forced Upgrades --- #
-  - generic-lens-1.2.0.1  # For generic newtype unwrapping
-  - lens-aeson-1.1
-  - tls-1.5.4
-  - tls-session-manager-0.0.4
-  - warp-3.3.9
-  - warp-tls-3.2.11
-
-  # --- Custom Pins --- #
-  - github: kadena-io/pact
-    commit: b59a305b65a8bca5afb82b9c347cca1b71c40211
-  - github: kadena-io/chainweb-storage
-    commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
 
 build:
   test-arguments:
     additional-args: ["--hide-successes", "--color", "never"]
 
-# cache bump
+extra-deps:
+  # --- Missing from Stackage --- #
+  - QuickCheck-GenT-0.2.2
+  - base-unicode-symbols-0.2.3
+  - bloomfilter-2.0.1.0
+  - configuration-tools-0.4.2
+  - digraph-0.1.0.2
+  - fake-0.1.1.3
+  - ixset-typed-0.5
+  - loglevel-0.1.0.0
+  - merkle-log-0.1.0.0
+  - paths-0.2.0.0
+  - streaming-concurrency-0.3.1.3
+  - streaming-with-0.2.2.1
+  - strict-tuple-0.1.3
+  - token-bucket-0.1.0.1
+  - wai-middleware-throttle-0.3.0.1
+  - yet-another-logger-0.3.1
+
+  # --- Forced Downgrades --- #
+  - network-3.1.0.1
+
+  # --- Transitive Pact Dependencies --- #
+  - direct-sqlite-2.3.26
+  - ed25519-donna-0.1.1
+  - megaparsec-7.0.5
+  - prettyprinter-1.6.0
+  - sbv-8.6
+  - github: kadena-io/thyme
+    commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+
+  # --- Custom Pins --- #
+  - github: kadena-io/pact
+    commit: 2f364c1b52501e8fc38da87dc428169a2a8e899d
+  - github: kadena-io/chainweb-storage
+    commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a

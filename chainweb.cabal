@@ -351,7 +351,7 @@ library
         , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
-        , mwc-probability >= 2.0 && <2.2
+        , mwc-probability >= 2.0
         , neat-interpolation >= 0.3.2
         , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
