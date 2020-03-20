@@ -82,11 +82,12 @@ timingsCheck (BlockCreationTime txValidationTime) tx =
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
-    && timeFromSeconds txOriginationTime <= txValidationTime
+    && timeFromSeconds txOriginationTime <= lenientTxValidationTime
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
     (TxCreationTime txOriginationTime) = creationTimeOf tx
-
+    lenientTxValidationTime = add s30 txValidationTime
+    s30 = scaleTimeSpan (30 :: Int) second

@@ -1404,9 +1404,9 @@ execPreInsertCheckReq txs = do
                 psState <- get
                 parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "execPreInsertCheckReq"
 
-                let parentTime = _blockCreationTime $ _parentHeader parentHeader
+                now <- liftIO $ getCurrentTimeIntegral
                 liftIO $ fmap Discard $ V.zipWith (>>)
-                    <$> validateChainwebTxs cp parentTime currHeight txs (runGas pdb psState psEnv)
+                    <$> validateChainwebTxs cp (BlockCreationTime now) currHeight txs (runGas pdb psState psEnv)
 
                     -- This code can be removed once the transition is complete and the guard
                     -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
