@@ -710,13 +710,10 @@ slowEpochGuard _ _ = False
 
 -- | Skip validation of feature flags.
 --
--- Unused feature flag bits are supposed to be set to 0. This isn't enforced
--- currently (chainweb-node versions <= 1.6). There is a large number of blocks
--- in the history of mainnet before 2020-02-20, that have non-zero feature
--- flags.
---
--- This guard permits the use of the last 64 bits of a block header as a nonce
--- value for all blogs which pass this guard.
+-- Unused feature flag bits are supposed to be set to 0. As of Chainweb 1.7, the
+-- Feature Flag bytes and Nonce bytes have switched places in `BlockHeader`. For
+-- live chains, enforcing the following condition must be ignored for the
+-- historical blocks for which both the Nonce and Flags could be anything.
 --
 skipFeatureFlagValidationGuard
     :: ChainwebVersion
@@ -724,7 +721,6 @@ skipFeatureFlagValidationGuard
         -- ^ height of header
     -> Bool
 skipFeatureFlagValidationGuard Mainnet01 _ = True
-skipFeatureFlagValidationGuard Development _ = True
+skipFeatureFlagValidationGuard Development h = h < 10000
 skipFeatureFlagValidationGuard Testnet04 _ = True
 skipFeatureFlagValidationGuard _ _ = False
-
