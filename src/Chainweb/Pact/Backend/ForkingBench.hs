@@ -67,7 +67,6 @@ import Text.Printf
 -- pact imports
 
 import Pact.ApiReq
-import Pact.Parse
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.ChainMeta
@@ -97,6 +96,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
@@ -400,9 +400,6 @@ testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
 
-toTxCreationTime :: Time Micros -> TxCreationTime
-toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l

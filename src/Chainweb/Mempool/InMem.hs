@@ -234,7 +234,7 @@ addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
     let (ParsedInteger mt) = maxTTL
-    let !endTime = add (secondsToTimeSpan $ Seconds mt) now
+    let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
     let !bad' = HashMap.insert tx endTime bad
     writeIORef (_inmemPending mdata) pnd'
     writeIORef (_inmemBadMap mdata) bad'

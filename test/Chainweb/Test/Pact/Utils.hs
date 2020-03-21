@@ -161,7 +161,6 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
-import Pact.Parse
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
@@ -831,8 +830,7 @@ decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
-toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
+toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb mempty

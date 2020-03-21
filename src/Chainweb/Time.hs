@@ -312,11 +312,11 @@ day = TimeSpan $ mega * 24 * 3600
 -- -------------------------------------------------------------------------- --
 -- Seconds
 
-newtype Seconds = Seconds Integer
+newtype Seconds = Seconds Int64
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (FromJSON, ToJSON)
-    deriving newtype (Num, Enum, Real)
+    deriving newtype (Num, Enum, Real, Integral)
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
 secondsToTimeSpan (Seconds s) = scaleTimeSpan s second

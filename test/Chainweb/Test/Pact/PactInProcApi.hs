@@ -157,23 +157,20 @@ mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
 
   (q,bdb) <- reqIO
 
-  -- using real time for this test
-  now :: Time Micros <- getCurrentTimeIntegral
-  let s30 = scaleTimeSpan (30 :: Int) second
+  let start@(Time startSpan) :: Time Micros = Time (TimeSpan (Micros 100_000_000))
+      s30 = scaleTimeSpan (30 :: Int) second
       s15 = scaleTimeSpan (15 :: Int) second
-      (Time s30Before) = add (invert s30) now
-      s15Before = add (invert s15) now
-  -- b1 block time is now - 30s
-  void $ runBlock q bdb s30Before "mempoolCreationTimeTest-1"
+  -- b1 block time is start
+  void $ runBlock q bdb startSpan "mempoolCreationTimeTest-1"
 
 
-  -- do pre-insert check with transaction at now - 15s
-  tx <- makeTx "tx-now" s15Before
+  -- do pre-insert check with transaction at start + 15s
+  tx <- makeTx "tx-now" (add s15 start)
   void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
     pactPreInsertCheck (V.singleton tx) q
 
   setMempool mpRefIO $ mp tx
-  -- b2 will be made at now
+  -- b2 will be made at start + 30s
   void $ runBlock q bdb s30 "mempoolCreationTimeTest-2"
 
   where
