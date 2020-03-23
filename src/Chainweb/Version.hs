@@ -41,7 +41,7 @@ module Chainweb.Version
 , vuln797Fix
 , coinV2Upgrade
 , pactBackCompat_v16
-, useCurrentHeaderCreationTimeForTxValidation
+, useLegacyCreationTimeForTxValidation
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , skipFeatureFlagValidationGuard
@@ -645,13 +645,13 @@ pactBackCompat_v16 _ _ = False
 -- dependency of `newBlock` on the creation time of the current header can be
 -- removed.
 --
-useCurrentHeaderCreationTimeForTxValidation
+useLegacyCreationTimeForTxValidation
     :: ChainwebVersion
     -> BlockHeight
     -> Bool
-useCurrentHeaderCreationTimeForTxValidation Mainnet01 _ = True
-useCurrentHeaderCreationTimeForTxValidation Development h = h < 2000
-useCurrentHeaderCreationTimeForTxValidation _ h = h <= 1
+useLegacyCreationTimeForTxValidation Mainnet01 _ = True
+useLegacyCreationTimeForTxValidation Development h = h < 2000
+useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
     -- the genesis blocks and the corresponding first blocks.
     --
@@ -727,4 +727,3 @@ skipFeatureFlagValidationGuard Mainnet01 _ = True
 skipFeatureFlagValidationGuard Development _ = True
 skipFeatureFlagValidationGuard Testnet04 _ = True
 skipFeatureFlagValidationGuard _ _ = False
-
