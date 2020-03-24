@@ -452,17 +452,16 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
     Left () -> error "Kill switch thread terminated unexpectedly"
     Right a -> return a
   where
-    timer = do
-        runForever lf "KillSwitch" $ do
-            now <- getCurrentTime
-            when (now >= t) $ do
-                lf Error killMessage
-                throw $ KillSwitch killMessage
+    timer = runForever lf "KillSwitch" $ do
+        now <- getCurrentTime
+        when (now >= t) $ do
+            lf Error killMessage
+            throw $ KillSwitch killMessage
 
-            let w = diffUTCTime t now
-            let micros = round $ w * 1000000
-            lf Warn warning
-            threadDelay $ min (10 * 60 * 1000000) micros
+        let w = diffUTCTime t now
+        let micros = round $ w * 1000000
+        lf Warn warning
+        threadDelay $ min (10 * 60 * 1000000) micros
 
     warning :: T.Text
     warning = T.concat
@@ -492,7 +491,9 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 1.5
+-- KILLSWITCH for version 1.6
+--
+-- TODO: update KillSwitchDate for version 1.7
 --
 killSwitchDate :: Maybe String
 killSwitchDate = Just "2020-04-02T00:00:00Z"
