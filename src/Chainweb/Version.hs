@@ -44,6 +44,7 @@ module Chainweb.Version
 , useLegacyCreationTimeForTxValidation
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
+, oldTargetGuard
 , skipFeatureFlagValidationGuard
 
 -- * Typelevel ChainwebVersion
@@ -707,6 +708,20 @@ slowEpochGuard
 slowEpochGuard Mainnet01 h = h < 80000
 slowEpochGuard _ _ = False
 {-# INLINE slowEpochGuard #-}
+
+-- | Use the current block time for computing epoch start date and
+-- target.
+--
+-- When this guard is switched off, there will be a single epoch of just 119
+-- blocks. The target computation won't compensate for that, since the effects
+-- are marginal.
+--
+oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
+oldTargetGuard Mainnet01 _ = True
+oldTargetGuard Testnet04 _ = True
+oldTargetGuard Development h = h < 2000
+oldTargetGuard _ _ = False
+{-# INLINE oldTargetGuard #-}
 
 -- | Skip validation of feature flags.
 --

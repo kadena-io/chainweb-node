@@ -272,19 +272,24 @@ powTarget
         -- ^ parent header
     -> BlockCreationTime
         -- ^ block creation time of new block
+        --
+        -- This parameter is used only when @oldTargetGuard@ is @True@.
+        --
     -> HashTarget
         -- ^ POW target of new block
-powTarget p@(ParentHeader ph) bct@(BlockCreationTime bt)
+powTarget p@(ParentHeader ph) bct
     = case effectiveWindow ph of
         Nothing -> maxTarget
         Just w
             | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
                 adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
-            | isLastInEpoch (_parentHeader p) ->
+            | isLastInEpoch ph ->
                 adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
             | otherwise -> _blockTarget ph
   where
-    t = EpochStartTime bt
+    t = EpochStartTime $ if oldTargetGuard ver (_blockHeight ph)
+        then _bct bct
+        else _bct (_blockCreationTime ph)
     ver = _chainwebVersion p
 {-# INLINE powTarget #-}
 
@@ -295,11 +300,17 @@ epochStart
         -- ^ parent header
     -> BlockCreationTime
         -- ^ block creation time of new block
+        --
+        -- This parameter is used only when @oldTargetGuard@ is @True@.
+        --
     -> EpochStartTime
         -- ^ epoch start time of new block
 epochStart (ParentHeader p) (BlockCreationTime bt)
-    | isLastInEpoch p = EpochStartTime bt
+    | isLastInEpoch p && oldTargetGuard ver (_blockHeight p) = EpochStartTime bt
+    | isLastInEpoch p = EpochStartTime (_bct $ _blockCreationTime p)
     | otherwise = _blockEpochStart p
+  where
+    ver = _chainwebVersion p
 {-# INLINE epochStart #-}
 
 -- -----------------------------------------------------------------------------
