@@ -53,6 +53,7 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Version
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
@@ -61,6 +62,9 @@ tests = testGroupSch "Checkpointer"
     , testRelational
     , testCase "PactDb Regression" testRegress
     , testCase "readRow unitTest" readRowUnitTest]
+
+testVer :: ChainwebVersion
+testVer = FastTimedCPM peterson
 
 testInMemory :: TestTree
 testInMemory = checkpointerTest "In-memory Checkpointer" InMem
@@ -155,7 +159,7 @@ runSQLite runTest = runTest . make
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
       let loggers = pactTestLogger False
-      initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer")
+      initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") testVer
 
 runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
 runTwice step action = do
@@ -440,7 +444,7 @@ testRegress =
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _) = (txid, blockVersion)
+    toTup (BlockState txid _ blockVersion _ _ _) = (txid, blockVersion)
 
 
 simpleBlockEnvInit ::

@@ -103,17 +103,20 @@ getPendingData = do
     -- lookup in pending transactions first
     return $ ptx ++ [pb]
 
+forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
+forModuleNameFix a = use bsModuleNameFix >>= a
+
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
     -> k
     -> BlockHandler SQLiteEnv (Maybe v)
-doReadRow d k =
+doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
         KeySets -> lookupWithKey (convKeySetName k)
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName k)
+        Modules -> lookupWithKey (convModuleName mnFix k)
         Namespaces -> lookupWithKey (convNamespaceName k)
         (UserTables _) -> lookupWithKey (convRowKey k)
         Pacts -> lookupWithKey (convPactId k)
@@ -181,16 +184,16 @@ writeSys
 writeSys d k v = gets _bsTxId >>= go
   where
     go txid = do
-        recordPendingUpdate keyStr tableName txid v
+        forModuleNameFix $ \mnFix ->
+          recordPendingUpdate (getKeyString mnFix k) tableName txid v
         recordTxLog (toTableName tableName) d k v
 
-    keyStr = getKeyString k
     toTableName (Utf8 str) = TableName $ toS str
     tableName = domainTableName d
 
-    getKeyString = case d of
+    getKeyString mnFix = case d of
         KeySets -> convKeySetName
-        Modules -> convModuleName
+        Modules -> convModuleName mnFix
         Namespaces -> convNamespaceName
         Pacts -> convPactId
         UserTables _ -> error "impossible"
