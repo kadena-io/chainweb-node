@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -25,6 +24,7 @@ module Chainweb.Test.Utils
 -- * Intialize Test BlockHeader DB
 , testBlockHeaderDb
 , withTestBlockHeaderDb
+, withBlockHeaderDbsResource
 
 -- * BlockHeaderDb Generation
 , toyBlockHeaderDb
@@ -77,6 +77,8 @@ module Chainweb.Test.Utils
 , assertGe
 , assertLe
 , assertSatisfies
+, assertInfix
+, expectFailureContaining
 
 -- * Golden Tests
 , golden
@@ -112,7 +114,7 @@ import Data.Bytes.Put
 import qualified Data.ByteString as B
 import Data.Coerce (coerce)
 import Data.Foldable
-import Data.List (sortOn)
+import Data.List (sortOn,isInfixOf)
 import qualified Data.Text as T
 import Data.Tree
 import qualified Data.Tree.Lens as LT
@@ -147,7 +149,7 @@ import Text.Printf (printf)
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
-import Chainweb.Logger (Logger)
+import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
@@ -169,7 +171,6 @@ import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
-import Chainweb.Logger (GenericLogger)
 
 import Data.CAS.RocksDB
 
@@ -194,6 +195,14 @@ withTestBlockHeaderDb
     -> (BlockHeaderDb -> IO a)
     -> IO a
 withTestBlockHeaderDb rdb h = bracket (testBlockHeaderDb rdb h) closeBlockHeaderDb
+
+withBlockHeaderDbsResource
+    :: RocksDb
+    -> ChainwebVersion
+    -> (IO [(ChainId, BlockHeaderDb)] -> TestTree)
+    -> TestTree
+withBlockHeaderDbsResource rdb v
+    = withResource (testBlockHeaderDbs rdb v) (const $ return ())
 
 testRocksDb
     :: B.ByteString
@@ -344,27 +353,27 @@ trunk g h = do
 -- | Generate some new `BlockHeader` based on a parent.
 --
 header :: BlockHeader -> Gen BlockHeader
-header h = do
+header p = do
     nonce <- Nonce <$> chooseAny
     return
         . fromLog
         . newMerkleLog
         $ nonce
             :+: t'
-            :+: _blockHash h
+            :+: _blockHash p
             :+: target
-            :+: testBlockPayload h
-            :+: _chainId h
-            :+: BlockWeight (targetToDifficulty target) + _blockWeight h
-            :+: succ (_blockHeight h)
+            :+: testBlockPayload p
+            :+: _chainId p
+            :+: BlockWeight (targetToDifficulty target) + _blockWeight p
+            :+: succ (_blockHeight p)
             :+: v
-            :+: epochStart h t'
+            :+: epochStart (ParentHeader p) t'
             :+: mkFeatureFlags
             :+: MerkleLogBody mempty
    where
-    BlockCreationTime t = _blockCreationTime h
-    target = powTarget h t'
-    v = _blockChainwebVersion h
+    BlockCreationTime t = _blockCreationTime p
+    target = powTarget (ParentHeader p) t'
+    v = _blockChainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
 -- -------------------------------------------------------------------------- --
@@ -381,7 +390,7 @@ testBlockHeaderDbs rdb v = mapM toEntry $ toList $ chainIds v
   where
     toEntry c = do
         d <- testBlockHeaderDb rdb (genesisBlockHeader v c)
-        return $! (c, d)
+        return (c, d)
 
 petersonGenesisBlockHeaderDbs
     :: RocksDb -> IO [(ChainId, BlockHeaderDb)]
@@ -569,8 +578,8 @@ clientEnvWithChainwebTestServer
     -> IO (ChainwebServerDbs t GenericLogger cas)
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
-clientEnvWithChainwebTestServer tls v dbsIO f =
-    withChainwebTestServer tls v mkApp mkEnv f
+clientEnvWithChainwebTestServer tls v dbsIO =
+    withChainwebTestServer tls v mkApp mkEnv
   where
     miningRes :: Maybe (MiningCoordination GenericLogger cas)
     miningRes = Nothing
@@ -735,6 +744,17 @@ assertSatisfies msg value predf
   | result = assertEqual msg True result
   | otherwise = assertFailure $ msg ++ ": " ++ show value
   where result = predf value
+
+-- | Assert that string rep of value contains contents.
+assertInfix :: Show a => String -> String -> a -> Assertion
+assertInfix msg contents value = assertSatisfies
+  (msg ++ ": should contain '" ++ contents ++ "'")
+  (show value) (isInfixOf contents)
+
+expectFailureContaining :: Show a => String -> String -> Either a r -> Assertion
+expectFailureContaining msg _ Right {} = assertFailure $ msg ++ ": expected failure"
+expectFailureContaining msg contents (Left e) = assertInfix msg contents e
+
 
 -- -------------------------------------------------------------------------- --
 -- Golden Testing

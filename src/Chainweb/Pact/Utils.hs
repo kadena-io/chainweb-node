@@ -18,6 +18,8 @@ module Chainweb.Pact.Utils
     , maxTTL
     , timingsCheck
     , fromPactChainId
+    , lenientTimeSlop
+    , toTxCreationTime
     ) where
 
 import Data.Aeson
@@ -73,20 +75,39 @@ maxTTL = ParsedInteger $ 2 * 24 * 60 * 60
 timingsCheck
     :: BlockCreationTime
         -- ^ reference time for tx validation.
-        --  If @useCurrentHeaderCreationTimeForTxValidation blockHeight@
+        --  If @useLegacyCreationTimeForTxValidation blockHeight@
         --  this is the the creation time of the current block. Otherwise it
         --  is the creation time of the parent block header.
+    -> Bool
+        -- ^ use lenient creation time validation. See 'lenientTimeSlop' for details.
     -> Command (Payload PublicMeta ParsedCode)
     -> Bool
-timingsCheck (BlockCreationTime txValidationTime) tx =
+timingsCheck (BlockCreationTime txValidationTime) lenientCreationTime tx =
     ttl > 0
     && txValidationTime >= timeFromSeconds 0
     && txOriginationTime >= 0
-    && timeFromSeconds txOriginationTime <= txValidationTime
+    && timeFromSeconds txOriginationTime <= lenientTxValidationTime
     && timeFromSeconds (txOriginationTime + ttl) > txValidationTime
     && ttl <= maxTTL
   where
     (TTLSeconds ttl) = timeToLiveOf tx
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
     (TxCreationTime txOriginationTime) = creationTimeOf tx
+    lenientTxValidationTime
+      | lenientCreationTime = add (scaleTimeSpan lenientTimeSlop second) txValidationTime
+      | otherwise = txValidationTime
 
+-- | Validation "slop" to allow for a more lenient creation time check after
+-- @useLegacyCreationTimeForTxValidation@ is no longer true.
+-- Without this, transactions showing up in the interim between
+-- parent block issuance and new block creation can get rejected; the tradeoff reduces
+-- the accuracy of the tx creation time vs "blockchain time", but is better than e.g.
+-- incurring artificial latency to wait for a parent block that is acceptable for a tx.
+-- 95 seconds represents the 99th percentile of block arrival times.
+lenientTimeSlop :: Seconds
+lenientTimeSlop = 95
+
+
+toTxCreationTime :: Time Micros -> TxCreationTime
+toTxCreationTime (Time timespan) =
+  TxCreationTime $ ParsedInteger $ fromIntegral $ timeSpanToSeconds timespan

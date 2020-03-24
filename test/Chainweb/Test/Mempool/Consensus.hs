@@ -342,12 +342,12 @@ header' h = do
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
-            :+: epochStart h t'
+            :+: epochStart (ParentHeader h) t'
             :+: mkFeatureFlags
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
-    target = powTarget h t'
+    target = powTarget (ParentHeader h) t'
     v = _blockChainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 

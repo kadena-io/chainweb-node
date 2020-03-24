@@ -252,8 +252,8 @@ isLastInEpoch h = case effectiveWindow h of
 -- all chainweb version. Emergency DAs are enabled (and have occured) only on
 -- mainnet01 for cut heights smaller than 80,000.
 --
-slowEpoch :: BlockHeader -> BlockCreationTime -> Bool
-slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
+slowEpoch :: ParentHeader -> BlockCreationTime -> Bool
+slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
   where
     EpochStartTime es = _blockEpochStart p
     BlockRate s = blockRate (_blockChainwebVersion p)
@@ -268,35 +268,36 @@ slowEpoch p (BlockCreationTime ct) = actual > (expected * 5)
 -- | Compute the POW target for a new BlockHeader.
 --
 powTarget
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header
     -> BlockCreationTime
         -- ^ block creation time of new block
     -> HashTarget
         -- ^ POW target of new block
-powTarget p bct@(BlockCreationTime bt) = case effectiveWindow p of
-    Nothing -> maxTarget
-    Just w
-        | slowEpochGuard ver (_blockHeight p) && slowEpoch p bct ->
-            adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
-        | isLastInEpoch p ->
-            adjust ver w (t .-. _blockEpochStart p) (_blockTarget p)
-        | otherwise -> _blockTarget p
+powTarget p@(ParentHeader ph) bct@(BlockCreationTime bt)
+    = case effectiveWindow ph of
+        Nothing -> maxTarget
+        Just w
+            | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
+                adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            | isLastInEpoch (_parentHeader p) ->
+                adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            | otherwise -> _blockTarget ph
   where
     t = EpochStartTime bt
-    ver = _blockChainwebVersion p
+    ver = _chainwebVersion p
 {-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader
 --
 epochStart
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header
     -> BlockCreationTime
         -- ^ block creation time of new block
     -> EpochStartTime
         -- ^ epoch start time of new block
-epochStart p (BlockCreationTime bt)
+epochStart (ParentHeader p) (BlockCreationTime bt)
     | isLastInEpoch p = EpochStartTime bt
     | otherwise = _blockEpochStart p
 {-# INLINE epochStart #-}
@@ -373,8 +374,9 @@ instance HasChainGraph ParentHeader where
 --
 data BlockHeader :: Type where
     BlockHeader ::
-        { _blockNonce :: {-# UNPACK #-} !Nonce
-            -- ^ authoritative
+        { _blockFlags :: {-# UNPACK #-} !FeatureFlags
+            -- ^ An 8-byte bitmask reserved for the future addition of boolean
+            -- "feature flags".
 
         , _blockCreationTime :: {-# UNPACK #-} !BlockCreationTime
             -- ^ the time when the block was creates as recorded by the miner
@@ -447,9 +449,8 @@ data BlockHeader :: Type where
             -- ranges of blocks. Each epoch is defined by the minimal block
             -- height of the blocks in the epoch.
 
-        , _blockFlags :: {-# UNPACK #-} !FeatureFlags
-            -- ^ An 8-byte bitmask reserved for the future addition of boolean
-            -- "feature flags".
+        , _blockNonce :: {-# UNPACK #-} !Nonce
+            -- ^ authoritative
 
         , _blockHash :: {-# UNPACK #-} !BlockHash
             -- ^ the hash of the block. It includes all of the above block properties.
@@ -565,7 +566,7 @@ encodeBlockHeaderWithoutHash
     => BlockHeader
     -> m ()
 encodeBlockHeaderWithoutHash b = do
-    encodeNonce (_blockNonce b)
+    encodeFeatureFlags (_blockFlags b)
     encodeBlockCreationTime (_blockCreationTime b)
     encodeBlockHash (_blockParent b)
     encodeBlockHashRecord (_blockAdjacentHashes b)
@@ -576,7 +577,7 @@ encodeBlockHeaderWithoutHash b = do
     encodeBlockHeight (_blockHeight b)
     encodeChainwebVersion (_blockChainwebVersion b)
     encodeEpochStartTime (_blockEpochStart b)
-    encodeFeatureFlags (_blockFlags b)
+    encodeNonce (_blockNonce b)
 
 encodeBlockHeader
     :: MonadPut m
@@ -623,7 +624,7 @@ decodeBlockHeaderWithoutHash
     :: MonadGet m
     => m BlockHeader
 decodeBlockHeaderWithoutHash = do
-    a0 <- decodeNonce
+    a0 <- decodeFeatureFlags
     a1 <- decodeBlockCreationTime
     a2 <- decodeBlockHash -- parent hash
     a3 <- decodeBlockHashRecord
@@ -634,11 +635,11 @@ decodeBlockHeaderWithoutHash = do
     a8 <- decodeBlockHeight
     a9 <- decodeChainwebVersion
     a11 <- decodeEpochStartTime
-    a12 <- decodeFeatureFlags
+    a12 <- decodeNonce
     return
         $! fromLog
         $ newMerkleLog
-        $ a0
+        $ a12
         :+: a1
         :+: a2
         :+: a4
@@ -648,7 +649,7 @@ decodeBlockHeaderWithoutHash = do
         :+: a8
         :+: a9
         :+: a11
-        :+: a12
+        :+: a0
         :+: MerkleLogBody (blockHashRecordToVector a3)
 
 -- | Decode a BlockHeader and trust the result
@@ -657,7 +658,7 @@ decodeBlockHeader
     :: MonadGet m
     => m BlockHeader
 decodeBlockHeader = BlockHeader
-    <$> decodeNonce
+    <$> decodeFeatureFlags
     <*> decodeBlockCreationTime
     <*> decodeBlockHash -- parent hash
     <*> decodeBlockHashRecord
@@ -668,7 +669,7 @@ decodeBlockHeader = BlockHeader
     <*> decodeBlockHeight
     <*> decodeChainwebVersion
     <*> decodeEpochStartTime
-    <*> decodeFeatureFlags
+    <*> decodeNonce
     <*> decodeBlockHash
 
 instance ToJSON BlockHeader where
@@ -752,7 +753,7 @@ instance ToJSON (ObjectEncoded BlockHeader) where
 
 parseBlockHeaderObject :: Object -> Parser BlockHeader
 parseBlockHeaderObject o = BlockHeader
-    <$> o .: "nonce"
+    <$> o .: "featureFlags"
     <*> o .: "creationTime"
     <*> o .: "parent"
     <*> o .: "adjacents"
@@ -763,7 +764,7 @@ parseBlockHeaderObject o = BlockHeader
     <*> o .: "height"
     <*> o .: "chainwebVersion"
     <*> o .: "epochStart"
-    <*> o .: "featureFlags"
+    <*> o .: "nonce"
     <*> o .: "hash"
 
 instance FromJSON (ObjectEncoded BlockHeader) where
@@ -812,7 +813,7 @@ newBlockHeader
     -> ParentHeader
         -- ^ parent block header
     -> BlockHeader
-newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
+newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
     $ nonce
     :+: t
     :+: _blockHash b
@@ -822,13 +823,13 @@ newBlockHeader adj pay nonce t (ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: epochStart b t
+    :+: epochStart p t
     :+: mkFeatureFlags
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
-    cid = _chainId b
-    v = _blockChainwebVersion b
-    target = powTarget b t
+    cid = _chainId p
+    v = _chainwebVersion p
+    target = powTarget p t
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance

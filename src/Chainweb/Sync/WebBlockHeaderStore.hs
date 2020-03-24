@@ -47,7 +47,6 @@ import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Hashable
-import Data.Reflection (give)
 import qualified Data.Text as T
 
 import GHC.Generics
@@ -353,7 +352,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             queryParent p = Concurrently $ void $ do
                 logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h <> ": " <> sshow p
                 ChainValue _ ph <- getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
-                validateInductiveM ph header
+                validateInductiveM (ParentHeader ph) header
 
         p <- runConcurrently
             -- query payload
@@ -555,12 +554,12 @@ getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas c
 instance IsCas WebBlockHeaderCas where
     type CasValueType WebBlockHeaderCas = ChainValue BlockHeader
     casLookup (WebBlockHeaderCas db) (ChainValue cid h) =
-        (Just . ChainValue cid <$> give db (lookupWebBlockHeaderDb cid h))
+        (Just . ChainValue cid <$> lookupWebBlockHeaderDb db cid h)
             `catch` \e -> case e of
                 TDB.TreeDbKeyNotFound _ -> return Nothing
                 _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
     casInsert (WebBlockHeaderCas db) (ChainValue _ h)
-        = give db (insertWebBlockHeaderDb h)
+        = insertWebBlockHeaderDb db h
     casDelete = error "not implemented"
 
     -- This is fine since the type 'WebBlockHeaderCas' is not exported. So the

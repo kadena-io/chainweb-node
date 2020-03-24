@@ -101,7 +101,6 @@ module Chainweb.Pact.Types
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
-import Control.Monad.Fail
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -227,7 +226,6 @@ newtype TransactionM db a = TransactionM
       , MonadState TransactionState
       , MonadThrow, MonadCatch, MonadMask
       , MonadIO
-      , MonadFail
       )
 
 -- | Run a 'TransactionM' computation given some initial
@@ -375,7 +373,6 @@ newtype PactServiceM cas a = PactServiceM
     , MonadState PactServiceState
     , MonadThrow, MonadCatch, MonadMask
     , MonadIO
-    , MonadFail
     )
 
 -- | Run a 'PactServiceM' computation given some initial

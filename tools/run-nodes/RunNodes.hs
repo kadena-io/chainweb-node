@@ -11,7 +11,6 @@ module RunNodes ( main, runNodesOpts ) where
 import BasePrelude hiding (option, (%))
 import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Version
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Error.Util (note)
 import qualified Data.Text as T

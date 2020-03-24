@@ -9,7 +9,7 @@
 
 Kadena is a fast, secure, and scalable blockchain using the Chainweb consensus
 protocol. Chainweb is a braided, parallelized Proof Of Work consensus mechanism
-that improves throughput and scalability while maintaining the security and
+that improves throughput and scalability in executing transactions on the blockchain while maintaining the security and
 integrity found in Bitcoin.
 
 Read our [whitepapers](https://www.kadena.io/whitepapers):

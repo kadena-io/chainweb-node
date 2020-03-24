@@ -55,7 +55,6 @@ import Control.Monad
 import Control.Monad.Catch
 
 import Data.Foldable
-import Data.Function
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
 
@@ -77,7 +76,7 @@ import Chainweb.Version
 -- | A data type that describes a failure of validating a block header.
 --
 data ValidationFailure = ValidationFailure
-    { _validateFailureParent :: !(Maybe BlockHeader)
+    { _validateFailureParent :: !(Maybe ParentHeader)
     , _validateFailureHeader :: !BlockHeader
     , _validationFailureFailures :: ![ValidationFailureType]
     }
@@ -223,7 +222,7 @@ validateBlockHeaderM
     :: MonadThrow m
     => Time Micros
         -- ^ The current clock time
-    -> BlockHeader
+    -> ParentHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ The block header to be checked
@@ -253,7 +252,7 @@ validateIntrinsicM t e = unless (null failures)
 --
 validateInductiveM
     :: MonadThrow m
-    => BlockHeader
+    => ParentHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ The block header to be checked
@@ -274,7 +273,7 @@ validateInductiveM p e = unless (null failures)
 isValidBlockHeader
     :: Time Micros
         -- ^ The current clock time
-    -> BlockHeader
+    -> ParentHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ The block header to be checked
@@ -293,7 +292,7 @@ isValidBlockHeader t p b = null $ validateBlockHeader t p b
 validateBlockHeader
     :: Time Micros
         -- ^ The current clock time
-    -> BlockHeader
+    -> ParentHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ The block header to be checked
@@ -323,7 +322,7 @@ validateIntrinsic t b = concat
 -- | Validate properties of a block with respect to a given parent.
 --
 validateInductive
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent block header. The genesis header is considered its own parent.
     -> BlockHeader
         -- ^ Block header under scrutiny
@@ -349,14 +348,16 @@ validateBlockParentExists
     :: Monad m
     => (BlockHash -> m (Maybe BlockHeader))
     -> BlockHeader
-    -> m (Either ValidationFailureType BlockHeader)
+    -> m (Either ValidationFailureType ParentHeader)
 validateBlockParentExists lookupParent h
-    | isGenesisBlockHeader h = return $ Right h
+    | isGenesisBlockHeader h = return $ Right $ ParentHeader h
     | otherwise = lookupParent (_blockParent h) >>= \case
-        (Just !p) -> return $ Right p
+        (Just !p) -> return $ Right $ ParentHeader p
         Nothing -> return $ Left MissingParent
 
 -- | Validate a set of blocks that may depend on each other.
+--
+-- This doesn't include checks for
 --
 -- * MissingPayload
 -- * IncorrectPayloadHash
@@ -415,7 +416,7 @@ prop_block_featureFlags b
 -- Inductive BlockHeader Properties
 
 prop_block_target
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header of the checked block header
     -> BlockHeader
         -- ^ the block header that is checked
@@ -423,7 +424,7 @@ prop_block_target
 prop_block_target p b = _blockTarget b == powTarget p (_blockCreationTime b)
 
 prop_block_epoch
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header of the checked block header
     -> BlockHeader
         -- ^ the block header that is checked
@@ -431,47 +432,49 @@ prop_block_epoch
 prop_block_epoch p b = _blockEpochStart b == epochStart p (_blockCreationTime b)
 
 prop_block_height
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header of the checked block header
     -> BlockHeader
         -- ^ the block header that is checked
     -> Bool
-prop_block_height p b
+prop_block_height (ParentHeader p) b
     | isGenesisBlockHeader b = _blockHeight b == _blockHeight p
     | otherwise = _blockHeight b == _blockHeight p + 1
 
 prop_block_chainwebVersion
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header of the checked block header
     -> BlockHeader
         -- ^ the block header that is checked
     -> Bool
-prop_block_chainwebVersion = (==) `on` _blockChainwebVersion
+prop_block_chainwebVersion (ParentHeader p) b =
+    _blockChainwebVersion p == _blockChainwebVersion b
 
 prop_block_creationTime
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header of the checked block header
     -> BlockHeader
         -- ^ the block header that is checked
     -> Bool
-prop_block_creationTime p b
+prop_block_creationTime (ParentHeader p) b
     | isGenesisBlockHeader b = _blockCreationTime b == _blockCreationTime p
     | otherwise = _blockCreationTime b > _blockCreationTime p
 
 prop_block_weight
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header of the checked block header
     -> BlockHeader
         -- ^ the block header that is checked
     -> Bool
-prop_block_weight p b
+prop_block_weight (ParentHeader p) b
     | isGenesisBlockHeader b = _blockWeight b == _blockWeight p
     | otherwise = _blockWeight b == int (targetToDifficulty (_blockTarget b)) + _blockWeight p
 
 prop_block_chainId
-    :: BlockHeader
+    :: ParentHeader
         -- ^ parent header of the checked block header
     -> BlockHeader
         -- ^ the block header that is checked
     -> Bool
-prop_block_chainId = (==) `on` _blockChainId
+prop_block_chainId (ParentHeader p) b
+    = _blockChainId p == _blockChainId b

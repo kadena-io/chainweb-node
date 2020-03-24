@@ -80,7 +80,6 @@ module Chainweb.Pact.Backend.Types
 import Control.Exception
 import Control.Exception.Safe hiding (bracket)
 import Control.Lens
-import Control.Monad.Fail
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 
@@ -106,7 +105,7 @@ import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
-import Pact.Types.Runtime
+import Pact.Types.Runtime (PactDb,TxId,TableName,TxLog,ExecutionMode)
 
 -- internal modules
 import Chainweb.BlockHash
@@ -250,7 +249,6 @@ newtype BlockHandler p a = BlockHandler
                        , MonadMask
                        , MonadIO
                        , MonadReader (BlockDbEnv p)
-                       , MonadFail
                        )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
@@ -313,6 +311,7 @@ instance Semigroup MemPoolAccess where
 
 instance Monoid MemPoolAccess where
   mempty = MemPoolAccess (\_ _ _ -> mempty) (const mempty) (const mempty) (const mempty)
+
 
 data PactServiceException = PactServiceIllegalRewind
     { _attemptedRewindTo :: Maybe (BlockHeight, BlockHash)

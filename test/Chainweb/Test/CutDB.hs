@@ -39,7 +39,6 @@ import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Function
-import Data.Reflection
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
@@ -416,7 +415,7 @@ tryMineForChain miner webPact cutDb c cid = do
         let pd = payloadWithOutputsToPayloadData outputs
         void $ _pactValidateBlock pact h pd
         addNewPayload payloadDb outputs
-        give webDb (insertWebBlockHeaderDb h)
+        insertWebBlockHeaderDb webDb h
 
 -- | picks a random block header from a web chain. The result header is
 -- guaranteed to not be a genesis header.
