@@ -650,7 +650,7 @@ useLegacyCreationTimeForTxValidation
     -> BlockHeight
     -> Bool
 useLegacyCreationTimeForTxValidation Mainnet01 _ = True
-useLegacyCreationTimeForTxValidation Development h = h < 2000
+useLegacyCreationTimeForTxValidation Development h = h < 150
 useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
     -- the genesis blocks and the corresponding first blocks.
