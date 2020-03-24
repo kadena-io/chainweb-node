@@ -719,7 +719,7 @@ slowEpochGuard _ _ = False
 oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
 oldTargetGuard Mainnet01 _ = True
 oldTargetGuard Testnet04 _ = True
-oldTargetGuard Development h = h < 2000
+oldTargetGuard Development h = h < 360
 oldTargetGuard _ _ = False
 {-# INLINE oldTargetGuard #-}
 
