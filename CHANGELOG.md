@@ -12,9 +12,42 @@ before that date.
 
 This version will stop working on **TODO**.
 
-- Internal CPU mining now injects nonce bytes at the end.
+Breaking validation changes:
 
-* TODO
+* Compute epoch time based on parent header. This change won't affect any
+  any users of Chainweb. It will become active at block height *TODO*. (#977)
+
+* Validate transaction creation time and expiration with respect to creation
+  of the parent block header. This change brings the checks for transaction
+  validity in line with the time used during Pact validation. (#935, #942)
+
+  There is a 90 second leniency applied for transactions to become valid. (#973)
+
+  This change will become effective at chain block height *TODO*. In the time
+  before the change becomes active users may experience that new nodes reject
+  their transactions. This can be mitigated by using a negative offset for the
+  creation of about 2 minutes.
+
+Miscellaneous changes:
+
+* A new flag and configuration option was added that enables direct database
+  reads of smart contract tables in local queries. (#938)
+
+* Fixed a rare bug that could affect nodes during history rewinds. (#940)
+
+* Internal CPU mining use the last eight bytes of the mining jobs bytes as nonce
+  (#957)
+
+* Beside several stability and performance improvements this release
+  also greatly improves test coverage and the quality of the code base to
+  support long term maintainability of the Chainweb codebase.
+
+Deprecations:
+
+* The use of the first eight bytes of the mining jobs bytes as nonce is considered
+  deprecated. Those bytes should be set to 0x0. Only the last eight bytes must
+  be used as nonce.  Miners and pools should start upgrading to the new
+  behavior. The new behavior will be enforced in a future version.
 
 ## 1.6 (2019-02-18)
 
