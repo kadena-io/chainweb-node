@@ -47,7 +47,7 @@ module Chainweb.Version
 , slowEpochGuard
 , oldTargetGuard
 , skipFeatureFlagValidationGuard
-, checkModuleNameFix
+, enableModuleNameFix
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -745,16 +745,14 @@ skipFeatureFlagValidationGuard Development _ = True
 skipFeatureFlagValidationGuard Testnet04 _ = True
 skipFeatureFlagValidationGuard _ _ = False
 
-
--- | Enable module name fix.
-checkModuleNameFix
+-- | Checks height after which module name fix in effect.
+enableModuleNameFix
     :: ChainwebVersion
     -> BlockHeight
-    -> (Bool,Bool)
-      -- ^ (inEffect,enactFix), i.e. (did fork happen, do fork now)
-checkModuleNameFix v bh = case v of
+    -> Bool
+enableModuleNameFix v bh = case v of
   Mainnet01 -> forHeight 500_000 -- TODO
   Development -> forHeight 200
   _ -> forHeight 1
   where
-    forHeight h = (bh >= h, bh == h)
+    forHeight h = bh > h

@@ -107,7 +107,7 @@ doRestore v dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
   where
     -- Module name fix follows the restore call to checkpointer.
     -- TODO ensure logic isn't off-by-one for various restore scenarios.
-    setModuleNameFix = bsModuleNameFix .= (fst $ checkModuleNameFix v bh)
+    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
 doRestore _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
