@@ -651,7 +651,7 @@ useLegacyCreationTimeForTxValidation
     -> BlockHeight
     -> Bool
 useLegacyCreationTimeForTxValidation Mainnet01 h = h < 450000 -- ~ 2020-04-03
-useLegacyCreationTimeForTxValidation Testnet04 h = h < 265644 -- 2020-03-25
+useLegacyCreationTimeForTxValidation Testnet04 h = h < 288282 -- 2020-04-02
 useLegacyCreationTimeForTxValidation Development h = h < 150
 useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
@@ -719,7 +719,7 @@ slowEpochGuard _ _ = False
 --
 oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
 oldTargetGuard Mainnet01 h = h < 452880 -- ~ 2020-04-04
-oldTargetGuard Testnet04 h = h < 268524 -- ~ 2020-03-26
+oldTargetGuard Testnet04 h = h < 291162 -- ~ 2020-04-03
 oldTargetGuard Development h = h < 360
 oldTargetGuard _ _ = False
 {-# INLINE oldTargetGuard #-}
