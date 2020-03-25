@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -34,6 +35,7 @@ import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
 import Pact.Types.SPV (noSPVSupport)
+import Pact.Types.SQLite
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -57,9 +59,10 @@ import Chainweb.Version
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
-    [testInMemory
+    [ testInMemory
     , testKeyset
     , testRelational
+    , testModuleName
     , testCase "PactDb Regression" testRegress
     , testCase "readRow unitTest" readRowUnitTest]
 
@@ -107,6 +110,37 @@ defModule idx = [text| ;;
 tIntList :: [Int] -> Term n
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
 
+testModuleName :: TestTree
+testModuleName = withResource initializeSQLite freeSQLiteResource $
+  runSQLite' (testCase "testModuleName" . go)
+  where
+    go res = do
+
+      (CheckpointEnv {..}, SQLiteEnv {..}) <- res
+
+      -- init genesis
+      let hash00 = nullBlockHash
+      void $ _cpRestore _cpeCheckpointer Nothing
+      _cpSave _cpeCheckpointer hash00
+
+      -- block 1: write module records
+      hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
+      (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (1, hash00))
+
+      (_,_,mod') <- loadModule
+      -- write qualified
+      _writeRow pactdb Insert Modules "nsname.qualmod" mod' mvar
+      -- write unqualified
+      _writeRow pactdb Insert Modules "baremod" mod' mvar
+      _cpSave _cpeCheckpointer hash01
+
+      r1 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
+      assertEqual "correct namespaced module name" [[SText "nsname.qualmod"]] r1
+
+      r2 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%bare%'" [RText]
+      assertEqual "correct bare module name" [[SText "baremod"]] r2
+
+
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
 
@@ -152,14 +186,17 @@ data InitData = OnDisk | InMem
 testRelational :: TestTree
 testRelational = checkpointerTest "Relational Checkpointer" OnDisk
 
-runSQLite :: (IO CheckpointEnv -> TestTree) -> IO (IO (), SQLiteEnv) -> TestTree
-runSQLite runTest = runTest . make
+runSQLite :: (IO (CheckpointEnv) -> TestTree) -> IO (IO (), SQLiteEnv) -> TestTree
+runSQLite f = runSQLite' (f . fmap fst)
+
+runSQLite' :: (IO (CheckpointEnv,SQLiteEnv) -> TestTree) -> IO (IO (), SQLiteEnv) -> TestTree
+runSQLite' runTest = runTest . make
   where
-    make :: IO (IO (), SQLiteEnv) -> IO CheckpointEnv
+    make :: IO (IO (), SQLiteEnv) -> IO (CheckpointEnv,SQLiteEnv)
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
       let loggers = pactTestLogger False
-      initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") testVer
+      (,sqlenv) <$> initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") testVer
 
 runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
 runTwice step action = do
