@@ -25,6 +25,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 
 import Data.Aeson (object, (.=))
+import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
 import qualified Data.Text as T
@@ -221,12 +222,17 @@ goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (Pac
 goldenNewBlock label mp mpRefIO reqIO = golden label $ do
     (reqQ,_) <- reqIO
     setMempool mpRefIO mp
-    respVar <- newBlock noMiner (ParentHeader genesisHeader) reqQ
-    goldenBytes =<< takeMVar respVar
+    resp <- forSuccess ("goldenNewBlock:" ++ label) $
+      newBlock noMiner (ParentHeader genesisHeader) reqQ
+    -- ensure all golden txs succeed
+    forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
+      cr :: CommandResult Hash <- decodeStrictOrThrow out
+      print $ encodeToByteString cr
+      assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
+    goldenBytes resp
   where
-    goldenBytes :: Y.ToJSON a => Exception e => Either e a -> IO BL.ByteString
-    goldenBytes (Left e) = assertFailure $ label ++ ": " ++ show e
-    goldenBytes (Right a) = return $ BL.fromStrict $ Y.encode $ object
+    goldenBytes :: PayloadWithOutputs -> IO BL.ByteString
+    goldenBytes a = return $ BL.fromStrict $ Y.encode $ object
       [ "test-group" .= ("new-block" :: T.Text)
       , "results" .= a
       ]
@@ -240,9 +246,9 @@ goldenMemPool = mempty
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         let txs =
               [ (T.pack moduleStr)
-              , "(create-table test1.accounts)"
-              , "(test1.create-global-accounts)"
-              , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
+              , "(create-table free.test1.accounts)"
+              , "(free.test1.create-global-accounts)"
+              , "(free.test1.transfer \"Acct1\" \"Acct2\" 1.00)"
               , "(at 'prev-block-hash (chain-data))"
               , "(at 'block-time (chain-data))"
               , "(at 'block-height (chain-data))"

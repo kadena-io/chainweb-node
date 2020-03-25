@@ -755,4 +755,4 @@ enableModuleNameFix v bh = case v of
   Development -> forHeight 200
   _ -> forHeight 1
   where
-    forHeight h = bh > h
+    forHeight h = bh >= h

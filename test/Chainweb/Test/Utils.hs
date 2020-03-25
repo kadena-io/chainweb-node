@@ -97,6 +97,7 @@ module Chainweb.Test.Utils
 , runRocks
 , runSchedRocks
 , withArgs
+, matchTest
 ) where
 
 import Control.Concurrent
@@ -816,3 +817,8 @@ runRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> defaultMain (test rdb
 
 runSchedRocks :: (RocksDb -> ScheduledTest) -> IO ()
 runSchedRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> runSched (test rdb)
+
+-- | Convenience to use "-p" with value to match a test run
+-- > matchTest "myTest" $ runSched tests
+matchTest :: String -> IO a -> IO a
+matchTest pat = withArgs ["-p",pat]
