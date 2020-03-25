@@ -38,6 +38,8 @@ Miscellaneous changes:
 * Internal CPU mining use the last eight bytes of the mining jobs bytes as nonce
   (#957)
 
+* Add missing `cut` API to the swagger documentation of the Chainweb API (#980)
+
 * Beside several stability and performance improvements this release
   also greatly improves test coverage and the quality of the code base to
   support long term maintainability of the Chainweb codebase.
