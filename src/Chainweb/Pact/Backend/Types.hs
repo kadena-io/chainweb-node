@@ -215,15 +215,12 @@ data BlockState = BlockState
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
     , _bsModuleNameFix :: Bool
-      -- ^ Whether to apply the fix for qualified module name storage.
     }
     deriving Show
 
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
--- | Note this initializes to the buggy module name behavior, but given
--- that's the genesis state, seems correct.
 initBlockState :: BlockState
 initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing False
 
