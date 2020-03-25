@@ -227,7 +227,6 @@ goldenNewBlock label mp mpRefIO reqIO = golden label $ do
     -- ensure all golden txs succeed
     forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
       cr :: CommandResult Hash <- decodeStrictOrThrow out
-      print $ encodeToByteString cr
       assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
     goldenBytes resp
   where

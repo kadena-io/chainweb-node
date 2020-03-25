@@ -106,7 +106,6 @@ doRestore v dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
-    -- TODO ensure logic isn't off-by-one for various restore scenarios.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
 doRestore _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
