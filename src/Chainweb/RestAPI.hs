@@ -91,6 +91,7 @@ import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
@@ -151,6 +152,7 @@ someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
     <> someHealthCheckApi
     <> someNodeInfoApi
+    <> someCutApi v
     <> someBlockHeaderDbApis v chains
     <> somePayloadApis v chains
     <> someP2pApis v cs
