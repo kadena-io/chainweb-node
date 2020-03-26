@@ -663,6 +663,20 @@ useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- By using the current header time for the block of height <= 1 we relax
     -- the tx timing checks a bit.
 
+
+-- | Checks height after which module name fix in effect.
+enableModuleNameFix
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Bool
+enableModuleNameFix v bh = case v of
+  Mainnet01 -> forHeight 500_000 -- TODO
+  Development -> forHeight 200
+  _ -> forHeight 1
+  where
+    forHeight h = bh >= h
+
+
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
 --
@@ -744,15 +758,3 @@ skipFeatureFlagValidationGuard Mainnet01 _ = True
 skipFeatureFlagValidationGuard Development _ = True
 skipFeatureFlagValidationGuard Testnet04 _ = True
 skipFeatureFlagValidationGuard _ _ = False
-
--- | Checks height after which module name fix in effect.
-enableModuleNameFix
-    :: ChainwebVersion
-    -> BlockHeight
-    -> Bool
-enableModuleNameFix v bh = case v of
-  Mainnet01 -> forHeight 500_000 -- TODO
-  Development -> forHeight 200
-  _ -> forHeight 1
-  where
-    forHeight h = bh >= h

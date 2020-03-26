@@ -26,7 +26,7 @@ module Chainweb.Test.Utils
 , withTestBlockHeaderDb
 , withBlockHeaderDbsResource
 
--- * BlockHeaderDb Generation
+-- * Data Generation
 , toyBlockHeaderDb
 , toyChainId
 , toyGenesis
@@ -40,6 +40,7 @@ module Chainweb.Test.Utils
 , SparseTree(..)
 , Growth(..)
 , tree
+, getArbitrary
 
 -- * Test BlockHeaderDbs Configurations
 , singleton
@@ -137,7 +138,8 @@ import System.IO.Temp
 import System.Random (randomIO)
 
 import Test.QuickCheck
-import Test.QuickCheck.Gen (chooseAny)
+import Test.QuickCheck.Gen
+import Test.QuickCheck.Random
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
@@ -376,6 +378,11 @@ header p = do
     target = powTarget (ParentHeader p) t'
     v = _blockChainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+
+-- | get arbitrary value for seed.
+-- > getArbitrary @BlockHash 0
+getArbitrary :: Arbitrary a => Int -> a
+getArbitrary seed = unGen arbitrary (mkQCGen 0) seed
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations

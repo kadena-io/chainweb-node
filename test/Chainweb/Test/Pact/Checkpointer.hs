@@ -119,12 +119,12 @@ testModuleName = withResource initializeSQLite freeSQLiteResource $
       (CheckpointEnv {..}, SQLiteEnv {..}) <- res
 
       -- init genesis
-      let hash00 = nullBlockHash
+      let hash00 = getArbitrary 0
       void $ _cpRestore _cpeCheckpointer Nothing
       _cpSave _cpeCheckpointer hash00
 
       -- block 1: write module records
-      hash01 <- BlockHash <$> liftIO (merkleLogHash "0000000000000000000000000000001a")
+      hash01 <- getArbitrary 1
       (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (1, hash00))
 
       (_,_,mod') <- loadModule
