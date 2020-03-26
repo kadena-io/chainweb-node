@@ -652,7 +652,7 @@ useLegacyCreationTimeForTxValidation
     :: ChainwebVersion
     -> BlockHeight
     -> Bool
-useLegacyCreationTimeForTxValidation Mainnet01 h = h < 450000 -- ~ 2020-04-03
+useLegacyCreationTimeForTxValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
 useLegacyCreationTimeForTxValidation Testnet04 h = h < 288282 -- 2020-04-02
 useLegacyCreationTimeForTxValidation Development h = h < 150
 useLegacyCreationTimeForTxValidation _ h = h <= 1
@@ -671,7 +671,7 @@ enableModuleNameFix
     -> BlockHeight
     -> Bool
 enableModuleNameFix v bh = case v of
-  Mainnet01 -> forHeight 500_000 -- TODO
+  Mainnet01 -> forHeight 448501 -- ~ 2020-04-02T12:00:00Z
   Development -> forHeight 200
   _ -> forHeight 1
   where
@@ -734,7 +734,7 @@ slowEpochGuard _ _ = False
 -- are marginal.
 --
 oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
-oldTargetGuard Mainnet01 h = h < 452880 -- ~ 2020-04-04
+oldTargetGuard Mainnet01 h = h < 452820 -- ~ 2020-04-04T00:00:00Z
 oldTargetGuard Testnet04 h = h < 291162 -- ~ 2020-04-03
 oldTargetGuard Development h = h < 360
 oldTargetGuard _ _ = False

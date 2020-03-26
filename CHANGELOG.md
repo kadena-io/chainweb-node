@@ -4,18 +4,19 @@
 
 #### Changed
 
-## 1.7 (2019-03-??) TODO
+## 1.7 (2019-03-26)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2020-04-02T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
-This version will stop working on **TODO**.
+This version will stop working on **2020-05-30T00:00:00Z**.
 
 Breaking validation changes:
 
 * Compute epoch time based on parent header. This change won't affect any
-  any users of Chainweb. It will become active at block height *TODO*. (#977)
+  any users of Chainweb. The change will become effective at block height
+  452820. (#977)
 
 * Validate transaction creation time and expiration with respect to creation
   of the parent block header. This change brings the checks for transaction
@@ -23,7 +24,7 @@ Breaking validation changes:
 
   There is a 90 second leniency applied for transactions to become valid. (#973)
 
-  This change will become effective at chain block height *TODO*. In the time
+  This change will become effective at chain block height 449940. In the time
   before the change becomes active users may experience that new nodes reject
   their transactions. This can be mitigated by using a negative offset for the
   creation of about 2 minutes.
