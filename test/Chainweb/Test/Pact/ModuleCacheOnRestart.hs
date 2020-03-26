@@ -136,7 +136,7 @@ initPactService''
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
 initPactService'' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
-    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
+    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger testVer
     let !rs = readRewards ver
         !gasModel = tableGasModel defaultGasConfig
         !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))

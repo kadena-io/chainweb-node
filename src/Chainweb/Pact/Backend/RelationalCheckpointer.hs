@@ -50,23 +50,26 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Version
 
 
 initRelationalCheckpointer
     :: BlockState
     -> SQLiteEnv
     -> Logger
+    -> ChainwebVersion
     -> IO CheckpointEnv
-initRelationalCheckpointer bstate sqlenv loggr =
-    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr
+initRelationalCheckpointer bstate sqlenv loggr v =
+    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v
 
 -- for testing
 initRelationalCheckpointer'
     :: BlockState
     -> SQLiteEnv
     -> Logger
+    -> ChainwebVersion
     -> IO (PactDbEnv', CheckpointEnv)
-initRelationalCheckpointer' bstate sqlenv loggr = do
+initRelationalCheckpointer' bstate sqlenv loggr v = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db $ initSchema
@@ -76,7 +79,7 @@ initRelationalCheckpointer' bstate sqlenv loggr = do
         { _cpeCheckpointer =
             Checkpointer
             {
-                _cpRestore = doRestore db
+                _cpRestore = doRestore v db
               , _cpSave = doSave db
               , _cpDiscard = doDiscard db
               , _cpGetLatestBlock = doGetLatest db
@@ -94,13 +97,17 @@ initRelationalCheckpointer' bstate sqlenv loggr = do
 type Db = MVar (BlockEnv SQLiteEnv)
 
 
-doRestore :: Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore :: ChainwebVersion -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore v dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+    setModuleNameFix
     clearPendingTxState
     void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
-doRestore dbenv Nothing = runBlockEnv dbenv $ do
+  where
+    -- Module name fix follows the restore call to checkpointer.
+    setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
+doRestore _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do

@@ -59,6 +59,7 @@ module Chainweb.Pact.Backend.Types
     , bsTxId
     , bsPendingBlock
     , bsPendingTx
+    , bsModuleNameFix
     , BlockEnv(..)
     , benvBlockState
     , benvDb
@@ -213,6 +214,7 @@ data BlockState = BlockState
     , _bsBlockHeight :: !BlockHeight
     , _bsPendingBlock :: !SQLitePendingData
     , _bsPendingTx :: !(Maybe SQLitePendingData)
+    , _bsModuleNameFix :: Bool
     }
     deriving Show
 
@@ -220,7 +222,7 @@ emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
 initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing
+initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing False
 
 makeLenses ''BlockState
 

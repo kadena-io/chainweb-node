@@ -170,8 +170,13 @@ domainTableName = Utf8 . toS . asString
 convKeySetName :: KeySetName -> Utf8
 convKeySetName (KeySetName name) = Utf8 $ toS name
 
-convModuleName :: ModuleName -> Utf8
-convModuleName (ModuleName name _) = Utf8 $ toS name
+convModuleName
+  :: Bool
+     -- ^ whether to apply module name fix
+  -> ModuleName
+  -> Utf8
+convModuleName False (ModuleName name _) = Utf8 $ toS name
+convModuleName True mn = Utf8 $ toS $ asString mn
 
 convNamespaceName :: NamespaceName -> Utf8
 convNamespaceName (NamespaceName name) = Utf8 $ toS name
