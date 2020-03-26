@@ -138,8 +138,8 @@ import System.IO.Temp
 import System.Random (randomIO)
 
 import Test.QuickCheck
-import Test.QuickCheck.Gen
-import Test.QuickCheck.Random
+import Test.QuickCheck.Gen (chooseAny, unGen)
+import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
