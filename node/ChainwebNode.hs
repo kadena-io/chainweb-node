@@ -459,9 +459,9 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
             throw $ KillSwitch killMessage
 
         let w = diffUTCTime t now
-        let micros = round $ w * 1000000
+        let micros = round $ w * 1_000_000
         lf Warn warning
-        threadDelay $ min (10 * 60 * 1000000) micros
+        threadDelay $ min (10 * 60 * 1_000_000) micros
 
     warning :: T.Text
     warning = T.concat

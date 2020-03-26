@@ -1,9 +1,5 @@
 # `chainweb-node` Changelog
 
-## Unreleased
-
-#### Changed
-
 ## 1.7 (2019-03-26)
 
 This version replaces all previous versions. Any prior version will stop working
@@ -31,8 +27,9 @@ Breaking validation changes:
 
 Miscellaneous changes:
 
-* A new flag and configuration option was added that enables direct database
-  reads of smart contract tables in local queries. (#938)
+* A new flag `--allowReadsInLocal` and configuration option was added that
+  enables direct database reads of smart contract tables in local queries.
+  (#938)
 
 * Fixed a rare bug that could affect nodes during history rewinds. (#940)
 
