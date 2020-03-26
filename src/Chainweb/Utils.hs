@@ -1294,6 +1294,11 @@ estimateBlockHeight rate dateStr curHeight = do
 
 -- | Parse UTC Time in the format "%y-%m-%dT%H:%M:%SZ"
 --
-parseUtcTime :: MonadFail m => String -> m UTCTime
-parseUtcTime = parseTimeM False defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%SZ"))
+parseUtcTime :: MonadThrow m => String -> m UTCTime
+parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
+    Nothing -> throwM $ InternalInvariantViolation
+        $ "parseUtcTime: failed to parse utc date " <> sshow d
+    Just x -> return x
+  where
+    fmt = iso8601DateFormat (Just "%H:%M:%SZ")
 
