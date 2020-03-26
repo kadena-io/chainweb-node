@@ -327,7 +327,6 @@ mergeObjects = Object . HM.unions . foldr unwrap []
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
-
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
 -- (with data) to execute.
@@ -616,7 +615,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid bhdb pdb sqlenv = do
-    cpe <- initRelationalCheckpointer initBlockState sqlenv logger
+    cpe <- initRelationalCheckpointer initBlockState sqlenv logger v
     let rs = readRewards v
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
@@ -777,7 +776,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
+        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger v
         let rs = readRewards v
             t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
             gm = fromMaybe (constGasModel 0) gasModel
