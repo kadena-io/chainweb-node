@@ -124,7 +124,7 @@ testModuleName = withResource initializeSQLite freeSQLiteResource $
       _cpSave _cpeCheckpointer hash00
 
       -- block 1: write module records
-      hash01 <- getArbitrary 1
+      let hash01 = getArbitrary 1
       (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (1, hash00))
 
       (_,_,mod') <- loadModule
