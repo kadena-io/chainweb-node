@@ -8,8 +8,6 @@ before that date.
 
 This version will stop working on **2020-04-30T00:00:00Z**.
 
-Breaking validation changes:
-
 * Compute epoch time based on parent header. This change won't affect any
   any users of Chainweb. The change will become effective at block height
   452820. (#977)
@@ -24,8 +22,6 @@ Breaking validation changes:
   before the change becomes active users may experience that new nodes reject
   their transactions. This can be mitigated by using a negative offset for the
   creation of about 2 minutes.
-
-Miscellaneous changes:
 
 * A new flag `--allowReadsInLocal` and configuration option was added that
   enables direct database reads of smart contract tables in local queries.
@@ -42,12 +38,10 @@ Miscellaneous changes:
   also greatly improves test coverage and the quality of the code base to
   support long term maintainability of the Chainweb codebase.
 
-Deprecations:
-
-* The use of the first eight bytes of the mining jobs bytes as nonce is considered
-  deprecated. Those bytes should be set to 0x0. Only the last eight bytes must
-  be used as nonce.  Miners and pools should start upgrading to the new
-  behavior. The new behavior will be enforced in a future version.
+The use of the first eight bytes of the mining jobs bytes as nonce is now
+considered deprecated. Those bytes should be set to 0x0. Only the last eight
+bytes must be used as nonce.  Miners and pools should start upgrading to the new
+behavior. The new behavior will be enforced in a future version.
 
 ## 1.6 (2019-02-18)
 
