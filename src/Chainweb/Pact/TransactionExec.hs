@@ -47,6 +47,7 @@ module Chainweb.Pact.TransactionExec
 
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -493,7 +494,9 @@ applyExec interp em senderSigs hsh nsp = do
     logs <- use txLogs
     rk <- view txRequestKey
     -- applyExec enforces non-empty expression set so `last` ok
-    return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+    -- forcing it here for lazy errors. TODO NFData the Pacts
+    lastResult <- return $!! last _erOutput
+    return $! CommandResult rk _erTxId (PactResult (Right lastResult))
       _erGas (Just logs) _erExec Nothing
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to
