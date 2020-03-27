@@ -654,7 +654,7 @@ useLegacyCreationTimeForTxValidation
     -> Bool
 useLegacyCreationTimeForTxValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
 useLegacyCreationTimeForTxValidation Testnet04 h = h < 286231 -- 2020-04-02T02:00:00Z
-useLegacyCreationTimeForTxValidation Development h = h < 150
+useLegacyCreationTimeForTxValidation Development h = h < 135
 useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
     -- the genesis blocks and the corresponding first blocks.
@@ -673,7 +673,7 @@ enableModuleNameFix
 enableModuleNameFix v bh = case v of
   Mainnet01 -> forHeight 448501 -- ~ 2020-04-02T12:00:00Z
   Testnet04 -> forHeight 286110 -- ~ 2020-04-02T01:00:00Z
-  Development -> forHeight 200
+  Development -> forHeight 130
   _ -> forHeight 1
   where
     forHeight h = bh >= h
@@ -737,7 +737,7 @@ slowEpochGuard _ _ = False
 oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
 oldTargetGuard Mainnet01 h = h < 452820 -- ~ 2020-04-04T00:00:00Z
 oldTargetGuard Testnet04 h = h < 286352 -- ~ 2020-04-02T03:00:00Z
-oldTargetGuard Development h = h < 360
+oldTargetGuard Development h = h < 140
 oldTargetGuard _ _ = False
 {-# INLINE oldTargetGuard #-}
 
