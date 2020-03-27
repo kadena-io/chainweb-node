@@ -38,6 +38,9 @@ behavior. The new behavior will be enforced in a future version.
 
 * Add missing `cut` API to the swagger documentation of the Chainweb API (#980)
 
+* Fixes a bug that caused Chainweb nodes to crash during startup due to running
+  out of RAM. (#982)
+
 * Beside several stability and performance improvements this release
   also greatly improves test coverage and the quality of the code base to
   support long term maintainability of the Chainweb codebase.
