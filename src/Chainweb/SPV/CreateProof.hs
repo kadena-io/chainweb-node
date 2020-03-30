@@ -152,7 +152,7 @@ transactionProofPrefix i db payload = do
 
     -- 2. Payload proof
     let !proof = tree N.:| [headerTree_ @BlockTransactionsHash payload]
-    return $! (subj, proof)
+    return (subj, proof)
   where
     cas = _transactionDbBlockTransactions $ _transactionDb db
 
@@ -190,6 +190,7 @@ createTransactionOutputProof cutDb tcid scid bh i =
 
 
 -- | Version without CutDb dependency
+--
 createTransactionOutputProof_
     :: HasCallStack
     => PayloadCas cas
@@ -254,7 +255,7 @@ outputProofPrefix i db payload = do
 
     -- 2. Payload proof
     let !proof = tree N.:| [headerTree_ @BlockOutputsHash payload]
-    return $! (subj, proof)
+    return (subj, proof)
   where
     cas = _payloadCacheBlockOutputs $ _payloadCache db
 
