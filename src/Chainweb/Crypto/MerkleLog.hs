@@ -564,15 +564,16 @@ bodySize = V.length . body
 
 -- | Compute the Merkle root hash for an instance of 'HasMerkleLog'.
 --
--- @merkleLogHash b@ computes the merkle tree, which is linear in the size of
--- the @b@. For large logs the hash or the full 'MerkleTree' should e cached.
+-- This computes the merkle log and forces the merkle tree, which is linear in
+-- the size of the @b@. For large logs the hash or the full 'MerkleTree' should
+-- be cached.
 --
 computeMerkleLogRoot
     :: forall u b
     . HasMerkleLog u b
     => b
     -> MerkleRoot (HashAlg u)
-computeMerkleLogRoot b = _merkleLogRoot @u (toLog @u b)
+computeMerkleLogRoot = merkleRoot . _merkleLogTree . toLog @u
 {-# INLINE computeMerkleLogRoot #-}
 
 -- -------------------------------------------------------------------------- --
