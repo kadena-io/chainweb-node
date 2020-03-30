@@ -508,9 +508,9 @@ chainBranchEntries db k l mir mar@(Just (MaxRank (Max m))) lower upper f = do
     defaultBranchEntries db k l mir mar lower upper' f
   where
     start b@(UpperBound u) = lookup db u >>= \case
-        Nothing -> return $ b
+        Nothing -> return b
         Just e -> seekAncestor db e m >>= \case
-            Nothing -> return $ b
+            Nothing -> return b
             Just x -> return $ UpperBound $! key x
 {-# INLINEABLE chainBranchEntries #-}
 

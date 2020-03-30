@@ -124,7 +124,7 @@ parseProof label mkProof = withObject label $ \o -> mkProof
 -- | Witness that a transaction is included in the head of a chain in a
 -- chainweb.
 --
-data TransactionProof a = TransactionProof ChainId (MerkleProof a)
+data TransactionProof a = TransactionProof !ChainId !(MerkleProof a)
     deriving (Show, Eq)
 
 instance ToJSON (TransactionProof SHA512t_256) where
@@ -144,7 +144,7 @@ proofChainId = to (\(TransactionProof cid _) -> cid)
 -- | Witness that a transaction output is included in the head of a chain in a
 -- chainweb.
 --
-data TransactionOutputProof a = TransactionOutputProof ChainId (MerkleProof a)
+data TransactionOutputProof a = TransactionOutputProof !ChainId !(MerkleProof a)
     deriving (Show, Eq)
 
 instance ToJSON (TransactionOutputProof SHA512t_256) where
