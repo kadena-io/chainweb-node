@@ -238,7 +238,7 @@ listenHandler
     -> ListenerRequest
     -> Handler ListenResponse
 listenHandler logger cutR cid chain (ListenerRequest key) = do
-    liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text $ key
+    liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text key
     liftIO (handleTimeout runListen)
   where
     logg = logFunctionJson (setComponent "listen-handler" logger)
@@ -281,7 +281,7 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
             mgr <- Ev.getSystemTimerManager
             !tkey <- Ev.registerTimeout mgr defaultTimeout $
                      atomically $ writeTVar tv True
-            return $! (tv, tkey)
+            return (tv, tkey)
         cleanup (_, tkey) = do
             mgr <- Ev.getSystemTimerManager
             Ev.unregisterTimeout mgr tkey
@@ -431,7 +431,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
 
     fromTx (!tx, !out) = do
         !tx' <- MaybeT (return (toPactTx tx))
-        return $! (tx', out)
+        return (tx', out)
 
     checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
     checkBadList rkeys = do
