@@ -89,7 +89,7 @@ jobs:
           echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
           exit 1
         fi
-        
+
   run-benchmarks:
     name: Run benchmarks
     needs: [build]

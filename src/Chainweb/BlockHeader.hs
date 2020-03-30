@@ -511,7 +511,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
 
     -- /IMPORTANT/ a types must occur at most once in this list
     type MerkleLogHeader BlockHeader =
-        '[ Nonce
+        '[ FeatureFlags
         , BlockCreationTime
         , BlockHash
         , HashTarget
@@ -521,7 +521,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
         , BlockHeight
         , ChainwebVersion
         , EpochStartTime
-        , FeatureFlags
+        , Nonce
         ]
     type MerkleLogBody BlockHeader = BlockHash
 
@@ -529,7 +529,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
       where
         BlockHash (MerkleLogHash root) = _blockHash bh
         entries
-            = _blockNonce bh
+            = _blockFlags bh
             :+: _blockCreationTime bh
             :+: _blockParent bh
             :+: _blockTarget bh
@@ -539,11 +539,11 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: _blockHeight bh
             :+: _blockChainwebVersion bh
             :+: _blockEpochStart bh
-            :+: _blockFlags bh
+            :+: _blockNonce bh
             :+: MerkleLogBody (blockHashRecordToVector $ _blockAdjacentHashes bh)
 
     fromLog l = BlockHeader
-            { _blockNonce = nonce
+            { _blockFlags = flags
             , _blockCreationTime = time
             , _blockHash = BlockHash (MerkleLogHash $ _merkleLogRoot l)
             , _blockParent = parentHash
@@ -554,11 +554,11 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockHeight = height
             , _blockChainwebVersion = cwv
             , _blockEpochStart = es
-            , _blockFlags = flags
+            , _blockNonce = nonce
             , _blockAdjacentHashes = blockHashRecordFromVector cwv cid adjParents
             }
       where
-        ( nonce
+        ( flags
             :+: time
             :+: parentHash
             :+: target
@@ -568,7 +568,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: height
             :+: cwv
             :+: es
-            :+: flags
+            :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
 
@@ -650,7 +650,7 @@ decodeBlockHeaderWithoutHash = do
     return
         $! fromLog
         $ newMerkleLog
-        $ a12
+        $ a0
         :+: a1
         :+: a2
         :+: a4
@@ -660,7 +660,7 @@ decodeBlockHeaderWithoutHash = do
         :+: a8
         :+: a9
         :+: a11
-        :+: a0
+        :+: a12
         :+: MerkleLogBody (blockHashRecordToVector a3)
 
 -- | Decode a BlockHeader and trust the result
@@ -825,7 +825,7 @@ newBlockHeader
         -- ^ parent block header
     -> BlockHeader
 newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
-    $ nonce
+    $ mkFeatureFlags
     :+: t
     :+: _blockHash b
     :+: target
@@ -835,7 +835,7 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockHeight b + 1
     :+: v
     :+: epochStart p t
-    :+: mkFeatureFlags
+    :+: nonce
     :+: MerkleLogBody (blockHashRecordToVector adj)
   where
     cid = _chainId p

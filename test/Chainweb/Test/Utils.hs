@@ -361,7 +361,7 @@ header p = do
     return
         . fromLog
         . newMerkleLog
-        $ nonce
+        $ mkFeatureFlags
             :+: t'
             :+: _blockHash p
             :+: target
@@ -371,7 +371,7 @@ header p = do
             :+: succ (_blockHeight p)
             :+: v
             :+: epochStart (ParentHeader p) t'
-            :+: mkFeatureFlags
+            :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime p
