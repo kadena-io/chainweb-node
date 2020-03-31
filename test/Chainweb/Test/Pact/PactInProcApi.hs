@@ -172,7 +172,8 @@ moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
   setMempool mpRefIO (moduleNameMempool "user" "test2")
   void $ runBlock q bdb second "moduleNameFork-1"
 
-
+  -- TODO this test doesn't actually validate, I turn on Debug and make sure it
+  -- goes well.
 
 moduleNameMempool :: T.Text -> T.Text -> MemPoolAccess
 moduleNameMempool ns mn = mempty
