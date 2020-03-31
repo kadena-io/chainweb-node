@@ -152,7 +152,8 @@ applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
 
     executionConfigNoHistory = mkExecutionConfig
       $ FlagDisableHistoryInTransactionalMode
-      : [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+      : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+          ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ] )
 
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -163,6 +164,7 @@ applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
+    isModuleNameFix = enableModuleNameFix v (fromIntegral $ _pdBlockHeight pd)
     isPactBackCompatV16 = pactBackCompat_v16 v (BlockHeight $ _pdBlockHeight pd)
 
     redeemAllGas r = do

@@ -83,6 +83,7 @@ tests = ScheduledTest testName $ go
          , test Warn $ newBlockRewindValidate
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
+         , test Warn $ moduleNameFork
          ]
       where
         test logLevel f =
@@ -151,6 +152,45 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
             $ mkExec' "(chain-data)"
       }
+
+moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
+
+  (q,bdb) <- reqIO
+
+  -- install in free in block 1
+  setMempool mpRefIO (moduleNameMempool "free" "test")
+  void $ runBlock q bdb second "moduleNameFork-1"
+
+  -- install in user in block 2
+  setMempool mpRefIO (moduleNameMempool "user" "test")
+  void $ runBlock q bdb second "moduleNameFork-1"
+
+  -- do something else post-fork
+  setMempool mpRefIO (moduleNameMempool "free" "test2")
+  void $ runBlock q bdb second "moduleNameFork-1"
+  setMempool mpRefIO (moduleNameMempool "user" "test2")
+  void $ runBlock q bdb second "moduleNameFork-1"
+
+  -- TODO this test doesn't actually validate, I turn on Debug and make sure it
+  -- goes well.
+
+moduleNameMempool :: T.Text -> T.Text -> MemPoolAccess
+moduleNameMempool ns mn = mempty
+    { mpaGetBlock = getTestBlock
+    }
+  where
+    getTestBlock _ _ _ bh = do
+        let txs =
+              [ "(namespace '" <> ns <> ") (module " <> mn <> " G (defcap G () (enforce false 'cannotupgrade)))"
+              , ns <> "." <> mn <> ".G"
+              ]
+        fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
+          buildCwCmd $
+          set cbSigners [mkSigner' sender00 []] $
+          set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
+          mkCmd ("1" <> sshow n) $
+          mkExec' code
 
 
 mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
