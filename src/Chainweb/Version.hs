@@ -673,7 +673,7 @@ enableModuleNameFix
 enableModuleNameFix v bh = case v of
   Mainnet01 -> forHeight 448501 -- ~ 2020-04-02T12:00:00Z
   Testnet04 -> forHeight 286110 -- ~ 2020-04-02T01:00:00Z
-  Development -> forHeight 200
+  Development -> forHeight 60
   _ -> forHeight 1
   where
     forHeight h = bh >= h
