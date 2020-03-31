@@ -1,5 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeApplications #-}
+
 module Chainweb.Test.Pact.RewardsTest
 ( tests
 ) where

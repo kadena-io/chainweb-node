@@ -2,7 +2,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -11,7 +10,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI.Client
@@ -446,4 +444,3 @@ hashesClient v c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ hashesClient_ @v @c limit start minr maxr
-
