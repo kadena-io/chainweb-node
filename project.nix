@@ -19,6 +19,12 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
     overrides = self: super: {
       chainweb = enableCabalFlag (
         justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
+      pact = dontCheck (self.callCabal2nix "pact" (pkgs.fetchFromGitHub {
+        owner = "kadena-io";
+        repo = "pact";
+        rev = "2626b758a8f38b3274d4f2d23fb7c40b0028b9f5";
+        sha256 = "06kp4x1ifkwg98n4m4mq3xpif8x7dkwa7rqxzjyvq8idivqh1di5";
+      }) {});
     };
 
     packages = {
