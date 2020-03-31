@@ -35,7 +35,7 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: a8836793539156b5b22680419746452d99f0fc8f
+    commit: 2626b758a8f38b3274d4f2d23fb7c40b0028b9f5
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
 

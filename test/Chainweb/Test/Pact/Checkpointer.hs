@@ -123,16 +123,20 @@ testModuleName = withResource initializeSQLite freeSQLiteResource $
       void $ _cpRestore _cpeCheckpointer Nothing
       _cpSave _cpeCheckpointer hash00
 
-      -- block 1: write module records
       let hash01 = getArbitrary 1
-      (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (1, hash00))
+          hash02 = getArbitrary 2
+      void $ _cpRestore _cpeCheckpointer (Just (1, hash00))
+      _cpSave _cpeCheckpointer hash01
+      (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (2, hash01))
 
+
+      -- block 2: write module records
       (_,_,mod') <- loadModule
       -- write qualified
       _writeRow pactdb Insert Modules "nsname.qualmod" mod' mvar
       -- write unqualified
       _writeRow pactdb Insert Modules "baremod" mod' mvar
-      _cpSave _cpeCheckpointer hash01
+      _cpSave _cpeCheckpointer hash02
 
       r1 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
       assertEqual "correct namespaced module name" [[SText "nsname.qualmod"]] r1
