@@ -73,7 +73,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db $ initSchema
-    return $!
+    return
       (PactDbEnv' (PactDbEnv chainwebPactDb db),
        CheckpointEnv
         { _cpeCheckpointer =
@@ -182,14 +182,14 @@ doGetLatest dbenv =
         r <- qry_ db qtext [RInt, RBlob] >>= mapM go
         case r of
           [] -> return Nothing
-          (!o:_) -> return $! Just o
+          (!o:_) -> return (Just o)
   where
     qtext = "SELECT blockheight, hash FROM BlockHistory \
             \ ORDER BY blockheight DESC LIMIT 1"
 
     go [SInt hgt, SBlob blob] =
         let hash = either error id $ Data.Serialize.decode blob
-        in return $! (fromIntegral hgt, hash)
+        in return (fromIntegral hgt, hash)
     go _ = fail "impossible"
 
 doBeginBatch :: Db -> IO ()
@@ -247,7 +247,7 @@ doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
          qry db qtext [ SBlob hash ] [RInt, RBlob] >>= mapM go
     case r of
         [] -> return Nothing
-        (!o:_) -> return $! Just o
+        (!o:_) -> return (Just o)
   where
     qtext = "SELECT blockheight, hash FROM \
             \TransactionIndex INNER JOIN BlockHistory \

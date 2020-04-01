@@ -385,7 +385,7 @@ withAmberDataBlocksBackend mgr conf inner = do
             isTimeout = Nothing <$ (readTVar timer >>= check)
             fill = tryReadTBQueue queue >>= maybe retry (return . Just)
 
-        go 0 !batch _ = return $! (0, batch)
+        go 0 !batch _ = return (0, batch)
         go !remaining !batch !timer = getNextAction timer >>= \case
             Nothing -> return (remaining, batch)
             Just x -> go (remaining - 1) (batch <> indexWithComma x) timer
