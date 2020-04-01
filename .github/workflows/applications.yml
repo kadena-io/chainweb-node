@@ -217,8 +217,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.6.5', '8.8.2']
-        cabal: ['3.0']
+        ghc: ['8.6.5', '8.8.3', '8.10.1']
+        cabal: ['3.2']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
     env:
@@ -290,6 +290,33 @@ jobs:
           optimization: 2
           ghc-options: -j
         EOF
+    - name: Append cabal.project for GHC-8.10
+      if: contains(matrix.ghc, '8.10')
+      run : |
+        cat >> cabal.project <<EOF
+        package chainweb
+          ghc-options: -Wwarn
+        allow-newer:
+          *:base
+          *:template-haskell
+          *:lens
+          *:haskeline
+          *:Cabal
+          *:ghc-prim
+          thyme:*
+        source-repository-package
+          type: git
+          location: https://github.com/mvv/data-dword
+          tag: 989cb9386954fad23412adbfcfcb644cb7a9c939
+        source-repository-package
+          type: git
+          location: https://github.com/well-typed/optics
+          tag: 95760a121023b6314a1b1a92939fc97613ec5645
+          subdir: optics-core
+        source-repository-package
+          type: git
+          location: https://github.com/alephcloud/hs-configuration-tools
+          tag: 2facb2c9ce092ceb6a3a8c805bfc239ad8f79fe0
 
     - uses: actions/cache@v1
       name: Cache dist-newstyle
