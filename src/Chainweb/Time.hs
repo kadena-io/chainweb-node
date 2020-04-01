@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -131,8 +132,8 @@ import Numeric.Cast
 -- | The internal unit is microseconds.
 --
 newtype TimeSpan a = TimeSpan a
-    deriving (Show, Eq, Ord, Generic, Data)
-    deriving anyclass (Hashable, NFData, Lift)
+    deriving (Show, Eq, Ord, Generic, Data, Lift)
+    deriving anyclass (Hashable, NFData)
     deriving newtype
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , AdditiveGroup, FractionalVectorSpace
@@ -182,8 +183,8 @@ addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 -- | Time is measured as microseconds relative to UNIX Epoche
 --
 newtype Time a = Time (TimeSpan a)
-    deriving (Show, Eq, Ord, Generic, Data)
-    deriving anyclass (Hashable, NFData, Lift)
+    deriving (Show, Eq, Ord, Generic, Data, Lift)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Enum, Bounded, ToJSON, FromJSON)
 
 instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
@@ -348,7 +349,7 @@ instance HasTextRepresentation Seconds where
 -- | Will last for around ~300,000 years after the Linux epoch.
 --
 newtype Micros = Micros Int64
-    deriving (Show, Eq, Ord, Enum, Bounded, Generic, Data)
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic, Data, Lift)
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
     deriving newtype (Arbitrary, ToJSON, FromJSON)
