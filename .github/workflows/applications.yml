@@ -272,7 +272,6 @@ jobs:
         brew install z3
         brew install sqlite
         brew install rocksdb
-        brew install awscli
     - name: Append cabal.project
       run: |
         cat >> cabal.project <<EOF
