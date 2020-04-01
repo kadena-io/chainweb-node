@@ -1,0 +1,10 @@
+# HLint configuration file
+# https://github.com/ndmitchell/hlint
+##########################
+
+- ignore: {name: "Redundant multi-way if"}
+- ignore: {name: "Redundant do"}
+- ignore: {name: "Reduce duplication"}
+- ignore: {name: "Eta reduce"}
+- ignore: {name: "Parse error"}
+- ignore: {name: "Use camelCase"}
