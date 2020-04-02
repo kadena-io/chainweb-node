@@ -56,7 +56,7 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Validate block header database
       run: |
@@ -79,7 +79,7 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Validate block header database
       run: |
@@ -102,7 +102,7 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Run all benchmarks
       run: |
@@ -132,7 +132,7 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Validate ${{ matrix.chainwebVersion }} block header database
       run: |
@@ -162,7 +162,7 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Create configuration file for validating the chainweb history
       run: |
@@ -375,6 +375,6 @@ jobs:
       if: contains(github.ref, 'master')
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
-        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
+        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
         aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$LATEST_BINFILE --acl public-read
