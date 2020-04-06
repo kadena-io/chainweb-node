@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -61,8 +60,7 @@ import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
-import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStorePact)
-import Chainweb.Sync.WebBlockHeaderStore (PactExecutionService, _pactNewBlock)
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
 import Chainweb.Utils (fromJuste, ixg, runForever, thd)
 import Chainweb.Version
