@@ -21,7 +21,7 @@ For additional information, press, and development inquires, please refer to the
 
 ## Table of Contents
 
-- [Wiki](#chainweb-wiki)
+- [Kadena Docs Site](#docs)
 - [Installing Chainweb](#installing-chainweb)
   - [Instructions for Linux Users](#linux-users)
   - [Instructions for Mac Users](#mac-users)
@@ -31,14 +31,9 @@ For additional information, press, and development inquires, please refer to the
   - [Component Structure Details](#component-structure)
   - [Architecture Overview](#architecture-overview)
 
-## Wiki
+## Docs
 
-The Chainweb wiki serves as a source of information that receives regular
-updates. You can find the chainweb Wiki
-[here](https://github.com/kadena-io/chainweb-node/wiki/), including a list of
-frequently asked questions regarding network information, how to explore blocks,
-diagnosing error messages, and more
-[here](https://github.com/kadena-io/chainweb-node/wiki/Chainweb-FAQ).
+The Kadena Docs site, which can be found [here](https://kadena-io.github.io/kadena-docs/) serves as a source of information about Kadena. You can find information about how to interact with the public chain, including how to get keys, view network activity, explore blocks, etc. here [here](https://kadena-io.github.io/kadena-docs/Public-Chain-Docs/).
 
 If you have additions or comments, please submit a pull request or raise an issue.
 
