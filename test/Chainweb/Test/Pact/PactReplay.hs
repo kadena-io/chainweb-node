@@ -161,7 +161,7 @@ firstPlayThrough
 firstPlayThrough genesisBlock iopdb iobhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
     mainlineblocks <- mineLine genesisBlock nonceCounter 7
-    let T3 _ startline1 _ = mainlineblocks !! 0
+    let T3 _ startline1 _ = head mainlineblocks
     let T3 _ startline2 _ = mainlineblocks !! 1
     void $ mineLine startline1 nonceCounter 4
     void $ mineLine startline2 nonceCounter 4

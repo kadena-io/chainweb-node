@@ -324,7 +324,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
     -- Count log messages and only print the first 60 messages
     var <- newMVar (0 :: Int)
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-            if c < maxLogMsgs then logFun msg else return ()
+            when (c < maxLogMsgs) (logFun msg)
 
     runNodesForSeconds loglevel v n seconds countedLog >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
