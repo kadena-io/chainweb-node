@@ -386,14 +386,14 @@ isLocalIp ip =
     isMatchedTo ip $ makeAddrRange (toIPv4 [127,0,0,0]) 8
 
 isPrivateIp :: IPv4 -> Bool
-isPrivateIp ip = any id
+isPrivateIp ip = or
     [ isMatchedTo ip $ makeAddrRange (toIPv4 [10,0,0,0]) 8
     , isMatchedTo ip $ makeAddrRange (toIPv4 [172,16,0,0]) 12
     , isMatchedTo ip $ makeAddrRange (toIPv4 [192,168,0,0]) 16
     ]
 
 isReservedIp :: IPv4 -> Bool
-isReservedIp ip = isLocalIp ip || isPrivateIp ip || any id
+isReservedIp ip = isLocalIp ip || isPrivateIp ip || or
     [ isMatchedTo ip $ makeAddrRange (toIPv4 [0,0,0,0]) 8
     , isMatchedTo ip $ makeAddrRange (toIPv4 [100,64,0,0]) 10
     , isMatchedTo ip $ makeAddrRange (toIPv4 [169,254,0,0]) 16

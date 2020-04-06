@@ -118,14 +118,12 @@ verifySPV bdb bh typ proof = go typ proof
               Nothing -> internalError "unable to decode spv transaction output"
               Just cr -> return cr
 
-            r <- case _crResult q of
+            case _crResult q of
               PactResult Left{} ->
                 return (Left "invalid command result in tx output proof")
               PactResult (Right v) -> case fromPactValue v of
                 TObject !j _ -> return (Right j)
                 _ -> return $ Left "spv-verified tx output has invalid type"
-
-            return r
 
       t -> return . Left $! "unsupported SPV types: " <> t
 
@@ -164,11 +162,9 @@ verifyCont bdb bh (ContProof cp) = do
             Nothing -> internalError "unable to decode spv transaction output"
             Just cr -> return cr
 
-          r <- case _crContinuation q of
+          case _crContinuation q of
             Nothing -> return (Left "no pact exec found in command result")
             Just pe -> return (Right pe)
-
-          return r
   where
     cid = CW._chainId bdb
 

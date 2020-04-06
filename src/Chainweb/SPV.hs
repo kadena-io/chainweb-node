@@ -101,14 +101,14 @@ parseProof label mkProof = withObject label $ \o -> mkProof
     parseSubject = withObject "ProofSubject" $ \o -> MerkleProofSubject
         <$> ((o .: "tree" >>= parseTreeNode) <|> (o .: "input" >>= parseInputNode))
 
-    parseTreeNode = withText "TreeNode" $ \t -> TreeNode
-        <$> parseBinary decodeMerkleRoot t
+    parseTreeNode = withText "TreeNode"
+        $ fmap TreeNode . parseBinary decodeMerkleRoot
 
-    parseInputNode = withText "InputNode" $ \t -> InputNode
-        <$> parseBinary return t
+    parseInputNode = withText "InputNode"
+        $ fmap InputNode . parseBinary pure
 
-    parseObject = withText "ProofObject" $ \t ->
-        parseBinary decodeMerkleProofObject t
+    parseObject = withText "ProofObject"
+        $ parseBinary decodeMerkleProofObject
 
     assertJSON e a = unless (e == a)
         $ fail $ "expected " <> sshow e <> ", got " <> sshow a

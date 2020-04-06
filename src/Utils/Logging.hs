@@ -382,9 +382,9 @@ configureHandler
     -> EnableConfig c
     -> (Backend b -> IO a)
     -> IO a
-configureHandler logger config inner = case _enableConfigEnabled config of
-    False -> inner (const $ return ())
-    True -> logger (_enableConfigConfig config) inner
+configureHandler logger config inner
+    | _enableConfigEnabled config = logger (_enableConfigConfig config) inner
+    | otherwise = inner (const $ return ())
 
 -- -------------------------------------------------------------------------- --
 -- JSON Encoding for Log Messages
