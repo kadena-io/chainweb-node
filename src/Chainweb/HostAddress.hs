@@ -222,7 +222,7 @@ ipV6Parser = p0
     h16 = Just <$> do
         h <- hexadecimal @Integer
         guard $ h < int (maxBound @Word16)
-        return $! (int h)
+        return (int h)
         <?> "h16"
 
     l0 = []

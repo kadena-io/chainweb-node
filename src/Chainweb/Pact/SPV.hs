@@ -120,9 +120,9 @@ verifySPV bdb bh typ proof = go typ proof
 
             r <- case _crResult q of
               PactResult Left{} ->
-                return $! Left "invalid command result in tx output proof"
+                return (Left "invalid command result in tx output proof")
               PactResult (Right v) -> case fromPactValue v of
-                TObject !j _ -> return $! Right j
+                TObject !j _ -> return (Right j)
                 _ -> return $ Left "spv-verified tx output has invalid type"
 
             return r
@@ -165,8 +165,8 @@ verifyCont bdb bh (ContProof cp) = do
             Just cr -> return cr
 
           r <- case _crContinuation q of
-            Nothing -> return $! Left "no pact exec found in command result"
-            Just pe -> return $! Right pe
+            Nothing -> return (Left "no pact exec found in command result")
+            Just pe -> return (Right pe)
 
           return r
   where

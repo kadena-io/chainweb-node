@@ -72,10 +72,10 @@ pQueueRemove (PQueue s q) = run
   where
     run = do
         r <- modifyMVarMasked q $ \h -> case H.uncons h of
-            Nothing -> return $! (h, Nothing)
+            Nothing -> return (h, Nothing)
             Just (!a, !b) -> do
                 when (H.null b) $ void $ tryTakeMVar s
-                return $! (b, Just a)
+                return (b, Just a)
         case r of
             Nothing -> takeMVar s >> run
             (Just !x) -> return x

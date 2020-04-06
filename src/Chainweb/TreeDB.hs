@@ -595,7 +595,7 @@ limitStream
     -> S.Stream (Of a) m (Natural, Eos)
 limitStream Nothing s = do
     limit' <- s & S.copy & S.length_
-    return $! (int limit', Eos True)
+    return (int limit', Eos True)
 limitStream (Just limit) s = do
     (limit' :> tailStream) <- s
         & S.splitAt (int limit)
@@ -605,7 +605,7 @@ limitStream (Just limit) s = do
     -- the underlying stream is known to be infinite.
     --
     !eos <- lift (atEos tailStream)
-    return $! (int limit', eos)
+    return (int limit', eos)
 
 seekStream
     :: Monad m
@@ -727,7 +727,7 @@ lookupParentStreamM g db = S.mapMaybeM $ \e -> case parent e of
             $ InternalInvariantViolation "Chainweb.TreeDB.lookupParentStreamM: Called getParentEntry on genesis block. Most likely this means that the genesis headers haven't been generated correctly. If you are using a development or testing chainweb version consider resetting the databases."
     Just p -> lookup db p >>= \case
         Nothing -> throwM $ TreeDbParentMissing @db e
-        (Just !x) -> return $! Just x
+        (Just !x) -> return (Just x)
 
 -- | Interpret a given `BlockHeaderDb` as a native Haskell `Tree`. Should be
 -- used only for debugging purposes.
@@ -812,7 +812,7 @@ collectForkBlocks db lastHeader newHeader = do
     let !common = head oldL
     let !old = V.fromList $ tail oldL
     let !new = V.fromList $ tail newL
-    return $! (common, old, new)
+    return (common, old, new)
   where
     go !stream (!oldBlocks, !newBlocks) = do
         nxt <- S.next stream

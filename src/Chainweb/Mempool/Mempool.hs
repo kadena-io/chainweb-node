@@ -457,7 +457,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     subsequentSync !remoteHw = do
         deb "Get new pending hashes from remote"
         (numMissingFromLocal, missingChunks, _, remoteHw') <-
-            fetchSince $! Just remoteHw
+            fetchSince (Just remoteHw)
         deb $ T.concat
             [ "sync: "
             , sshow numMissingFromLocal
