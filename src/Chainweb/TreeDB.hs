@@ -643,7 +643,7 @@ prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
 
 prop_seekLimitStream_id :: [Int] -> Property
 prop_seekLimitStream_id l = actual === expected
-    & cover 1 (length l == 0) "len l == 0"
+    & cover 1 (null l) "len l == 0"
   where
     actual = runIdentity $ S.toList $ seekLimitStream id Nothing Nothing (S.each l)
     expected = l :> (len l, Eos True)

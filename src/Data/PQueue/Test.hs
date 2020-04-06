@@ -108,7 +108,7 @@ prop_insert_remove_concurrent :: [Int] -> Property
 prop_insert_remove_concurrent l = monadicIO $ do
     q <- run newEmptyPQueue
     commands <- pick $ shuffle
-        $ (QueueInsert <$> l) ++ (const QueueRemove <$> l)
+        $ (QueueInsert <$> l) ++ (QueueRemove <$ l)
     l' <- run $ catMaybes
         <$> mapConcurrently (runQueueCommand q) commands
     assert $ L.sort l == L.sort l'
