@@ -68,7 +68,6 @@ import Data.Bytes.Put
 import Data.Foldable
 import Data.Hashable (Hashable(..))
 import qualified Data.HashMap.Strict as HM
-import Data.List (sort)
 import qualified Data.List as L
 import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
@@ -198,7 +197,7 @@ instance Each BlockHashRecord BlockHashRecord BlockHash BlockHash where
 encodeBlockHashRecord :: MonadPut m => BlockHashRecord -> m ()
 encodeBlockHashRecord (BlockHashRecord r) = do
     putWord16le (int $ length r)
-    traverse_ (bimapM_ encodeChainId encodeBlockHash) $ sort $ HM.toList r
+    traverse_ (bimapM_ encodeChainId encodeBlockHash) $ L.sort $ HM.toList r
 
 decodeBlockHashWithChainId
     :: MonadGet m
@@ -236,11 +235,11 @@ decodeBlockHashRecordChecked ps = do
     return $! BlockHashRecord $! HM.fromList hashes
 
 blockHashRecordToVector :: BlockHashRecord -> V.Vector BlockHash
-blockHashRecordToVector = V.fromList . fmap snd . sort . HM.toList . _getBlockHashRecord
+blockHashRecordToVector = V.fromList . fmap snd . L.sort . HM.toList . _getBlockHashRecord
 
 blockHashRecordChainIdx :: BlockHashRecord -> ChainId -> Maybe Int
 blockHashRecordChainIdx r cid
-    = L.findIndex (== cid) . sort . HM.keys $ _getBlockHashRecord r
+    = L.elemIndex cid . L.sort . HM.keys $ _getBlockHashRecord r
 
 blockHashRecordFromVector
     :: HasChainGraph g
@@ -251,5 +250,5 @@ blockHashRecordFromVector
     -> BlockHashRecord
 blockHashRecordFromVector g cid = BlockHashRecord
     . HM.fromList
-    . zip (sort $ toList $ adjacentChainIds (_chainGraph g) cid)
+    . zip (L.sort $ toList $ adjacentChainIds (_chainGraph g) cid)
     . toList

@@ -37,7 +37,6 @@ import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Lens (view)
 import Control.Lens.TH
-import Control.Monad
 import Control.Monad.Error.Class (throwError)
 
 import Data.Bool
@@ -45,6 +44,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import Data.CAS
 import qualified Data.Foldable as HM
+import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -273,11 +273,9 @@ amberdataBlockMonitor cid logger db = do
     case cid of
       Nothing -> logFunctionText logger Info "Sending blocks from ALL chains"
       Just cid' -> logFunctionText logger Info ("Sending blocks from chain " <> toText cid')
-    void
-        $ S.mapM_ logBlocks
+    S.mapM_ logBlocks
         $ blockStream db
-        & S.filter (\x -> cid == Just (_chainId x)
-                          || cid == Nothing)
+        & S.filter (\x -> cid == Just (_chainId x) || isNothing cid)
   where
     logBlocks :: BlockHeader -> IO ()
     logBlocks bheader = do

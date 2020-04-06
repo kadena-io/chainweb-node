@@ -414,7 +414,7 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 -- Utils
 
 root :: TreeDb db => db -> IO (DbEntry db)
-root db = fmap fromJuste $ entries db Nothing (Just 1) Nothing Nothing S.head_
+root db = fromJuste <$> entries db Nothing (Just 1) Nothing Nothing S.head_
 {-# INLINE root #-}
 
 -- | Filter the stream of entries for entries in a range of ranks.
@@ -636,14 +636,14 @@ prop_seekLimitStream_limit :: [Int] -> Natural -> Property
 prop_seekLimitStream_limit l i = i <= len l ==> actual === expected
     & cover 1 (i == len l) "limit == length of stream"
     & cover 1 (i == 0) "limit == 0"
-    & cover 1 (length l == 0) "length of stream == 0"
+    & cover 1 (null l) "length of stream == 0"
   where
     actual = runIdentity . S.toList $ seekLimitStream id Nothing (Just (Limit i)) (S.each l)
     expected = take (int i) l :> (i, Eos (i >= len l))
 
 prop_seekLimitStream_id :: [Int] -> Property
 prop_seekLimitStream_id l = actual === expected
-    & cover 1 (length l == 0) "len l == 0"
+    & cover 1 (null l) "len l == 0"
   where
     actual = runIdentity $ S.toList $ seekLimitStream id Nothing Nothing (S.each l)
     expected = l :> (len l, Eos True)

@@ -23,7 +23,7 @@ module Chainweb.Test.Mempool
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Exception (bracket)
-import Control.Monad (void, when)
+import Control.Monad (unless, void, when)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.Bifunctor (bimap)
@@ -142,7 +142,7 @@ type BatchCheck =
 --
 type InsertCheck = MVar BatchCheck
 
-data MempoolWithFunc =
+newtype MempoolWithFunc =
     MempoolWithFunc (forall a
                      . ((InsertCheck -> MempoolBackend MockTx -> IO a)
                        -> IO a))
@@ -245,10 +245,8 @@ propAddToBadList tx _ mempool = runExceptT $ do
     hash = txHasher txcfg
     insert v = mempoolInsert mempool CheckedInsert $ V.fromList v
     lookup = mempoolLookup mempool . V.fromList . map hash
-    getBlock =
-        liftIO $
-        fmap V.toList $
-        mempoolGetBlock mempool noopMempoolPreBlockCheck 1 nullBlockHash
+    getBlock = liftIO
+      $ V.toList <$> mempoolGetBlock mempool noopMempoolPreBlockCheck 1 nullBlockHash
 
 -- TODO Does this need to be updated?
 propPreInsert
@@ -293,7 +291,7 @@ propTrivial txs _ mempool = runExceptT $ do
     liftIO $ insert txs
     liftIO (lookup txs) >>= V.mapM_ lookupIsPending
     block <- liftIO getBlock
-    when (not $ isSorted block) $
+    unless (isSorted block) $
         fail ("getBlock didn't return a sorted block: " ++ show block)
 
   where

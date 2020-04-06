@@ -174,7 +174,7 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
 -- See also: https://github.com/kadena-io/chainweb-node/wiki/Block-Header-Binary-Encoding
 --
 injectNonce :: Nonce -> Ptr Word8 -> IO ()
-injectNonce (Nonce n) buf = pokeByteOff (castPtr buf) 278 n
+injectNonce (Nonce n) buf = pokeByteOff buf 278 n
 {-# INLINE injectNonce #-}
 
 
@@ -246,10 +246,7 @@ callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
             (outbytes, errbytes) <- liftIO ((,) <$> Async.wait stdoutThread
                                                 <*> Async.wait stderrThread)
             if (code /= ExitSuccess)
-              then let msg = concat [
-                         "Got error from miner. Stderr was: ",
-                         B.unpack errbytes
-                         ]
+              then let msg = "Got error from miner. Stderr was: " ++ B.unpack errbytes
                    in throwE msg
               else do
                 let parts = B.splitWith isSpace outbytes

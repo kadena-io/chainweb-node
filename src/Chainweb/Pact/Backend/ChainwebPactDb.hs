@@ -40,7 +40,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import qualified Data.DList as DL
-import Data.Foldable (concat, toList)
+import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -98,7 +98,7 @@ chainwebPactDb = PactDb
 getPendingData :: BlockHandler SQLiteEnv [SQLitePendingData]
 getPendingData = do
     pb <- use bsPendingBlock
-    ptx <- maybe [] (:[]) <$> use bsPendingTx
+    ptx <- maybeToList <$> use bsPendingTx
     -- lookup in pending transactions first
     return $ ptx ++ [pb]
 
@@ -458,7 +458,7 @@ doCommit = use bsMode >>= \mm -> case mm of
               resetTemp
               return blockLogs
           else doRollback >> return mempty
-        return $! concat $ fmap (reverse . DL.toList) txrs
+        return $! concatMap (reverse . DL.toList) txrs
   where
     merge Nothing a = a
     merge (Just a) b = SQLitePendingData
@@ -519,11 +519,9 @@ doGetTxLog d txid = do
     takeHead (a:_) = [a]
 
     readFromPending = do
-        ptx <- maybe [] (:[]) <$> use bsPendingTx
+        ptx <- maybeToList <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let deltas = concat $
-                map (takeHead . DL.toList) $
-                concatMap HashMap.elems $ _pendingWrites <$> (ptx ++ [pb])
+        let deltas = (ptx ++ [pb]) >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 

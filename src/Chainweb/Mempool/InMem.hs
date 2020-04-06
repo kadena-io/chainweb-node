@@ -247,7 +247,7 @@ checkBadListInMem
     -> IO (Vector Bool)
 checkBadListInMem lock hashes = withMVarMasked lock $ \mdata -> do
     !bad <- readIORef $ _inmemBadMap mdata
-    return $! V.map (flip HashMap.member bad) hashes
+    return $! V.map (`HashMap.member` bad) hashes
 
 
 maxNumPending :: Int

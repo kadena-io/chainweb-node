@@ -201,8 +201,7 @@ extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
     Left _ -> return Nothing
     Right c -> return (Just c)
   where
-    gen = void
-        $ S.foldM_ checkCut (return 0) return
+    gen = S.foldM_ checkCut (return 0) return
         $ S.map (view (_1 . cutHeight))
         $ extendTestCutDb cdb pact i
 

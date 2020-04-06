@@ -84,7 +84,7 @@ module Chainweb.Mempool.Mempool
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Lens
-import Control.Monad (replicateM, when)
+import Control.Monad (replicateM, unless)
 
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
@@ -394,7 +394,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
 
         -- If there are too many missing hashes we stop collecting
         --
-        when (not tooMany) $ do
+        unless tooMany $ do
 
             -- Collect remote hashes that are missing from the local pool
             res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
@@ -485,7 +485,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
         ref <- newIORef 0
         ourHw <- mempoolGetPendingTransactions localMempool Nothing $ \chunk -> do
             let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
-            when (not $ V.null chunk') $ do
+            unless (V.null chunk') $ do
                 sendChunk chunk'
                 modifyIORef' ref (+ V.length chunk')
         numPushed <- readIORef ref
@@ -495,7 +495,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        when (not $ V.null v) $ mempoolInsert remoteMempool CheckedInsert v
+        unless (V.null v) $ mempoolInsert remoteMempool CheckedInsert v
 
 
 syncMempools

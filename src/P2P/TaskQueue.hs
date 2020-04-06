@@ -71,7 +71,7 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
-data TaskException = TaskFailed [SomeException]
+newtype TaskException = TaskFailed [SomeException]
     deriving Show
 
 instance Exception TaskException
