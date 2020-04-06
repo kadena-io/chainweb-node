@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -21,4 +20,3 @@ import Test.QuickCheck
 instance Arbitrary Word256 where
     arbitrary = arbitrarySizedBoundedIntegral
     shrink = shrinkIntegral
-
