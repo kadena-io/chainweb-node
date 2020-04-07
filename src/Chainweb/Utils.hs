@@ -1006,7 +1006,7 @@ timeoutStream msecs = go
   where
     go s = lift (timeout msecs (S.next s)) >>= \case
         Nothing -> return Nothing
-        Just (Left r) -> return $! Just r
+        Just (Left r) -> return (Just r)
         Just (Right (a, s')) -> S.yield a >> go s'
 
 -- | Drop successive equal items from a stream.
@@ -1301,4 +1301,3 @@ parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
     Just x -> return x
   where
     fmt = iso8601DateFormat (Just "%H:%M:%SZ")
-

@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
+
 -- |
 -- Module: Chainweb.Pact.InMemoryCheckpointer
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -90,7 +90,7 @@ doRestore _ lock (Just (height, hash)) =
                                   , _dbenv = mdbenv
                                   , _playedTxs = played
                                   }
-              return $! (store', PactDbEnv' (PactDbEnv pactdb mdbenv))
+              return (store', PactDbEnv' (PactDbEnv pactdb mdbenv))
             Nothing -> internalError $
               "InMemoryCheckpointer: Restore not found: height=" <> pack (show (pred height))
               <> ", hash=" <> pack (show hash)
@@ -99,7 +99,7 @@ doRestore genesis lock Nothing =
     modifyMVarMasked lock $ \_ -> do
       gen <- newMVar genesis
       played <- newMVar mempty
-      return $! (Store mempty Nothing gen played,
+      return (Store mempty Nothing gen played,
                  PactDbEnv' (PactDbEnv pactdb gen))
 
 doSave :: MVar Store -> BlockHash -> IO ()

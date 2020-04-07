@@ -37,6 +37,7 @@ import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
+import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
@@ -394,7 +395,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
         -- server to shut down the connection without returning a result to the user.
     let results1 = V.zip requestKeysV results0
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
-    let present = V.map (\(a, b) -> (a, fromJuste b)) present0
+    let present = V.map (second fromJuste) present0
     lookedUp <- (catMaybes . V.toList) <$> mapM lookup present
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
     let outputs = lookedUp ++ badlisted

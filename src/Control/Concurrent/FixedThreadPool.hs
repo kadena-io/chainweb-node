@@ -101,7 +101,7 @@ doneGroup (Group sema gerr done) mberr = mask_ $ do
   where
     handleErr = writeIORef gerr mberr
     dec !k = let !k' = k - 1
-             in return $! (k', k' == 0)
+             in return (k', k' == 0)
 
 
 waitGroup :: Group -> IO (Maybe SomeException)
@@ -168,7 +168,7 @@ mapAction tp userFunc xs = do
   where
     zipMV x = do
         mv <- newEmptyMVar
-        return $! (x, mv)
+        return (x, mv)
     toAction (x, mv) = try (userFunc x) >>= putMVar mv
 
 

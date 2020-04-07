@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -53,4 +52,3 @@ someHealthCheckServer = SomeServer (Proxy @HealthCheckApi) handler
 
 setHealth :: HealthStatus -> IO ()
 setHealth !h = void $ swapMVar globalHealthStatus h
-

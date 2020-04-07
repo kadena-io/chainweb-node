@@ -68,8 +68,7 @@ blocks2gexfDoc = gexf "chainweb-simulation" "chain" . blocks2graph
 -- P2P Graph
 
 readP2pSessions :: FilePath -> IO [P2pSessionInfo]
-readP2pSessions file = fmap (either error id)
-    . fmap eitherDecode
+readP2pSessions file = fmap (either error id . eitherDecode)
     . BL8.lines
     <$> BL8.readFile file
 

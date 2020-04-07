@@ -9,7 +9,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -907,9 +906,7 @@ minerReward
 minerReward (MinerRewards rs q) bh =
     case V.find (bh <=) q of
       Nothing -> err
-      Just h -> case HM.lookup h rs of
-        Nothing -> err
-        Just v -> return v
+      Just h -> maybe err pure (HM.lookup h rs)
   where
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}

@@ -716,7 +716,7 @@ sending
 sending sid cenv batch =
     recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
       debug
-        $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
+        $ "sending requestkeys " <> show (_cmdHash <$> toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
       -- Send and return naively

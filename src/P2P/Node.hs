@@ -586,7 +586,7 @@ newSession conf node = do
                     $ _p2pNodeClientSession node (loggFun node) env newPeerInfo
                 incrementActiveSessionCount peerDb newPeerInfo
                 !info <- atomically $ addSession node newPeerInfo newSes now
-                return $! (info, newSes)
+                return (info, newSes)
             logg node Debug $ "Started peer session " <> showSessionId newPeerInfo newSes
             loggFun node Info $ JsonLog info
   where
@@ -610,7 +610,7 @@ awaitSessions node = do
             Right (Just True) -> P2pSessionResultSuccess <$ countSuccess node
             Right (Just False) -> P2pSessionResultFailure <$ countFailure node
             Left e -> P2pSessionException (sshow e) <$ countException node
-        return $! (p, i, a, result)
+        return (p, i, a, result)
 
     -- update peer db entry
     --

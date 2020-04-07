@@ -281,7 +281,7 @@ instance X509Key EC.KeyPair where
 
     signIO sk bytes = do
         sig <- encodeEcSignatureDer <$> EC.sign (EC.toPrivateKey sk) SHA512 bytes
-        return $! (convert sig, sigAlg @EC.KeyPair)
+        return (convert sig, sigAlg @EC.KeyPair)
 
 -- | Ed25519
 --
@@ -295,7 +295,7 @@ instance X509Key Ed25519.SecretKey where
     sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed25519
     pemKeyHeader = "PRIVATE KEY"
 
-    signIO sk bytes = return $! (convert sig, sigAlg @Ed25519.SecretKey)
+    signIO sk bytes = return (convert sig, sigAlg @Ed25519.SecretKey)
       where
         sig = Ed25519.sign sk (publicKey sk) bytes
 
@@ -311,7 +311,7 @@ instance X509Key Ed448.SecretKey where
     sigAlg = SignatureALG_IntrinsicHash PubKeyALG_Ed448
     pemKeyHeader = "PRIVATE KEY"
 
-    signIO sk bytes = return $! (convert sig, sigAlg @Ed448.SecretKey)
+    signIO sk bytes = return (convert sig, sigAlg @Ed448.SecretKey)
       where
         sig = Ed448.sign sk (publicKey sk) bytes
 
@@ -330,7 +330,7 @@ instance X509Key RSA.PrivateKey where
         sig <- RSA.signSafer (Just SHA512) sk bytes >>= \case
             Left e -> error $ "Network.X509.SelfSigned: X509Key instance for RSA.PrivateKey: signIO: " <>  show e
             Right x -> return $! x
-        return $! (convert sig, sigAlg @RSA.PrivateKey)
+        return (convert sig, sigAlg @RSA.PrivateKey)
 
     sigAlg = SignatureALG HashSHA512 PubKeyALG_RSA
 
@@ -617,7 +617,7 @@ generateSelfSignedCertificate days dn altNames = do
     let !fp = fingerprint sc
     let !cpem = encodeCertPem sc
     let !kpem = encodeKeyPem sk
-    return $! (fp, cpem, kpem)
+    return (fp, cpem, kpem)
 
 -- -------------------------------------------------------------------------- --
 -- Generate Self Signed Certificate for Localhost

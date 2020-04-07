@@ -124,7 +124,7 @@ prop_noOldCrap db genBlock = monadicIO $ do
     -- tests filtering, in theory on age
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
-    pre (length fiOldForkTrans > 0)
+    pre (not $ null fiOldForkTrans)
     let badtx = head $ toList fiOldForkTrans
     let badFilter = (/= badtx)
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
