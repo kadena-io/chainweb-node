@@ -232,7 +232,7 @@ jobs:
       SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
 
       # Aritfacts
-      ARTIFACT_BUCKET: kadena-cabal-cache
+      ARTIFACT_BUCKET: kadena-cabal-cache/chainweb
 
     steps:
     # Setup
