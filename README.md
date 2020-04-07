@@ -25,7 +25,8 @@ For additional information, press, and development inquires, please refer to the
 - [Installing Chainweb](#installing-chainweb)
   - [Instructions for Linux Users](#linux-users)
   - [Instructions for Mac Users](#mac-users)
-- [Configuring and Running a Chainweb Node](#configuring-and-running-a-chainweb-node)
+- [Bootstrap Nodes](#bootstrap-nodes)  
+- [Configuring, running, and monitoring the health of a Chainweb Node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
 - [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
 - [Chainweb Design](#chainweb-design)
   - [Component Structure Details](#component-structure)
@@ -35,7 +36,7 @@ For additional information, press, and development inquires, please refer to the
 
 The Kadena Docs site, which can be found [here](https://kadena-io.github.io/kadena-docs/) serves as a source of information about Kadena. You can find information about how to interact with the public chain, including how to get keys, view network activity, explore blocks, etc. [here](https://kadena-io.github.io/kadena-docs/Public-Chain-Docs/).
 
-If you have additions or comments, please submit a pull request or raise an issue.
+If you have additions or comments, please submit a pull request or raise an issue - the GitHub project can be found [here](https://github.com/kadena-io/kadena-docs)
 
 
 ## Installing Chainweb
@@ -167,7 +168,35 @@ To install a runnable binary to `~/.cabal/bin/`:
 cabal new-install
 ```
 
-## Configuring and Running a Chainweb Node
+## Bootstrap Nodes
+
+### Testnet Nodes
+
+- us1.testnet.chainweb.com
+- us2.testnet.chainweb.com
+- eu1.testnet.chainweb.com
+- eu2.testnet.chainweb.com
+- ap1.testnet.chainweb.com
+- ap2.testnet.chainweb.com
+
+### Mainnet Nodes
+
+All bootstrap nodes are running on port 443.
+
+- us-e1.chainweb.com
+- us-e2.chainweb.com
+- us-e3.chainweb.com
+- us-w1.chainweb.com
+- us-w2.chainweb.com
+- us-w3.chainweb.com
+- jp1.chainweb.com
+- jp2.chainweb.com
+- jp3.chainweb.com
+- fr1.chainweb.com
+- fr2.chainweb.com
+- fr3.chainweb.com
+
+## Configuring, running, and monitoring the health of a Chainweb Node
 
 **This section assumes you've installed the `chainweb-node` binary** somewhere
 sensible, or otherwise have a simple way to refer to it.
@@ -189,6 +218,47 @@ Then, to run your node:
 
 ```bash
 chainweb-node --config-file=minimal-config.yaml
+```
+
+### Monitoring the health of a Chainweb Node
+
+
+The following outlines how you can check that your `chainweb-node` is healthy
+
+`chainweb-node` should be running from the public IP address and a port that is open to the other chainweb nodes. 
+
+If you're behind a NAT, it is **VERY IMPORTANT** that your network allows external nodes to connect to the node you are running. If you provide us with your ip address and port number in our [Discord mining channel](https://discord.io/kadena), we can verify whether your node is reachable to the rest of the network.
+
+When running the chainweb-node binary, you can indicate your hostname and port number directly on the config-file, or you can set it via command line flags like such:
+```
+$ chainweb-node --config-file <path-to-config-file> --hostname <public-ip> --port <port> --log-level <desired-log-level>
+```
+
+Once you're node is running, go through the following checks to verify that you have a healthy node:
+* run the command in your terminal:  
+```
+$ curl -sk "https://<public-ip>:<port>/chainweb/0.0/mainnet01/cut"
+```
+* navigate to this website on your browser: [https://yourPublicIp:port/chainweb/0.0/mainnet01/cut](https://yourPublicIp:port/chainweb/0.0/mainnet01/cut)
+* check logs for whether services are started
+* check if the node is receiving cuts
+* look for errors in the logs
+* look for warnings in the logs
+
+Usually, when a node is receiving and publishing cuts (i.e. block heights at every chain), it's working correctly. 
+
+The `/cut` endpoint will return the latest cut that your node has. It's possible that your node is falling behind, so make sure to compare its cut height with the cut heights of the bootstrap nodes. It's also possible that you are mining to a node that is catching up to the rest of the network. Before you start mining to a node, you SHOULD verify that this node has the most up-to-date cut. 
+
+You can get the cut height of any node by running the following:
+```
+$ https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | python -m json.tool | jq '.height'
+```
+
+### Miscellaneous
+To find your public ip:
+```
+$ dig +short myip.opendns.com @resolver1.opendns.com
+$ dig TXT +short o-o.myaddr.l.google.com @ns1.google.com
 ```
 
 ## Mine for a Chainweb Network
