@@ -1,4 +1,4 @@
-resolver: lts-15.4
+resolver: lts-15.7
 
 #ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
@@ -9,9 +9,8 @@ build:
 extra-deps:
   # --- Missing from Stackage --- #
   - QuickCheck-GenT-0.2.2
-  - base-unicode-symbols-0.2.3
   - bloomfilter-2.0.1.0
-  - configuration-tools-0.4.2
+  - configuration-tools-0.5.0
   - digraph-0.1.0.2
   - fake-0.1.1.3
   - ixset-typed-0.5
@@ -23,7 +22,7 @@ extra-deps:
   - strict-tuple-0.1.3
   - token-bucket-0.1.0.1
   - wai-middleware-throttle-0.3.0.1
-  - yet-another-logger-0.3.1
+  - yet-another-logger-0.4.0
 
   # --- Forced Downgrades --- #
   - network-3.1.0.1
@@ -31,7 +30,6 @@ extra-deps:
   # --- Transitive Pact Dependencies --- #
   - direct-sqlite-2.3.26
   - ed25519-donna-0.1.1
-  - megaparsec-7.0.5
   - prettyprinter-1.6.0
   - sbv-8.6
   - github: kadena-io/thyme
@@ -39,6 +37,6 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 2f364c1b52501e8fc38da87dc428169a2a8e899d
+    commit: 8ae08fda34b2e2f11c49f108659ade68451beeb6
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a

@@ -5,7 +5,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -373,6 +372,7 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
   where
     logg = logfun @T.Text
     wbhdb = _webBlockHeaderStoreCas headerStore
+    v = _chainwebVersion headerStore
 
     processor :: PQueue (Down CutHashes) -> TVar Cut -> IO ()
     processor queue cutVar = runForever logfun "CutDB" $
@@ -407,15 +407,13 @@ startCutDb config logfun headerStore payloadStore cutHashesStore = mask_ $ do
                     tableIterPrev it
                     go it
                 Left e -> throwM e
-                Right hm -> do
-                    hm' <- case _cutDbParamsInitialHeightLimit config of
+                Right hm -> unsafeMkCut v
+                    <$> case _cutDbParamsInitialHeightLimit config of
                         Nothing -> return hm
                         Just h -> limitCutHeaders wbhdb h hm
-                    logg Debug $ "joining intial cut from cut db configuration with cut that was loaded from the database " <> sshow hm'
-                    joinIntoHeavier_
-                        (_webBlockHeaderStoreCas headerStore)
-                        hm'
-                        (_cutMap $ _cutDbParamsInitialCut config)
+                            -- FIXME: this requires that the pact db is deleted because it
+                            -- interfers with rewind limit. As a fix temporarily disable
+                            -- rewind limit during initialization.
 
 -- | Stop the cut validation pipeline.
 --
@@ -659,7 +657,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
                 & S.fold_ (\x (cid, h) -> HM.insert cid h x) mempty id
                 & S.fold (\x (cid, h) -> HM.insert cid h x) mempty id
             if null missing
-                then return $! Right headers
+                then return (Right headers)
                 else return $! Left $! T2 hsid missing
 
     origin = _cutOrigin hs
@@ -669,7 +667,7 @@ cutHashesToBlockHeaderMap conf logfun headerStore payloadStore hs =
         (Right <$> mapM (getBlockHeader headerStore payloadStore hdrs plds cid priority origin) cv)
             `catch` \case
                 (TreeDbKeyNotFound{} :: TreeDbException BlockHeaderDb) ->
-                    return $! Left cv
+                    return (Left cv)
                 e -> throwM e
 
 -- -------------------------------------------------------------------------- --

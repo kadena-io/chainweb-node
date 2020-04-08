@@ -161,7 +161,6 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
-import Pact.Parse
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
@@ -327,7 +326,6 @@ mergeObjects = Object . HM.unions . foldr unwrap []
 -- | Make trivial keyset data
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
-
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -617,7 +615,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid bhdb pdb sqlenv = do
-    cpe <- initRelationalCheckpointer initBlockState sqlenv logger
+    cpe <- initRelationalCheckpointer initBlockState sqlenv logger v
     let rs = readRewards v
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
@@ -683,8 +681,7 @@ testWebPactExecutionService
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
 testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
-    = fmap mkWebPactExecutionService
-    $ fmap HM.fromList
+    = fmap (mkWebPactExecutionService . HM.fromList)
     $ traverse mkPact
     $ zip sqlenvs
     $ toList
@@ -778,7 +775,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
+        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger v
         let rs = readRewards v
             t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
             gm = fromMaybe (constGasModel 0) gasModel
@@ -831,8 +828,7 @@ decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
-toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
+toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb mempty

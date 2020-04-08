@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -25,6 +23,7 @@ import Control.Lens hiding ((.=))
 import Control.Monad
 
 import Data.Aeson (object, (.=))
+import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
 import qualified Data.Text as T
@@ -81,6 +80,8 @@ tests = ScheduledTest testName $ go
          , test Warn $ newBlockAndValidate
          , test Warn $ newBlockRewindValidate
          , test Quiet $ badlistNewBlockTest
+         , test Warn $ mempoolCreationTimeTest
+         , test Warn $ moduleNameFork
          ]
       where
         test logLevel f =
@@ -150,6 +151,85 @@ newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
             $ mkExec' "(chain-data)"
       }
 
+moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
+
+  (q,bdb) <- reqIO
+
+  -- install in free in block 1
+  setMempool mpRefIO (moduleNameMempool "free" "test")
+  void $ runBlock q bdb second "moduleNameFork-1"
+
+  -- install in user in block 2
+  setMempool mpRefIO (moduleNameMempool "user" "test")
+  void $ runBlock q bdb second "moduleNameFork-1"
+
+  -- do something else post-fork
+  setMempool mpRefIO (moduleNameMempool "free" "test2")
+  void $ runBlock q bdb second "moduleNameFork-1"
+  setMempool mpRefIO (moduleNameMempool "user" "test2")
+  void $ runBlock q bdb second "moduleNameFork-1"
+
+  -- TODO this test doesn't actually validate, I turn on Debug and make sure it
+  -- goes well.
+
+moduleNameMempool :: T.Text -> T.Text -> MemPoolAccess
+moduleNameMempool ns mn = mempty
+    { mpaGetBlock = getTestBlock
+    }
+  where
+    getTestBlock _ _ _ bh = do
+        let txs =
+              [ "(namespace '" <> ns <> ") (module " <> mn <> " G (defcap G () (enforce false 'cannotupgrade)))"
+              , ns <> "." <> mn <> ".G"
+              ]
+        fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
+          buildCwCmd $
+          set cbSigners [mkSigner' sender00 []] $
+          set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
+          mkCmd ("1" <> sshow n) $
+          mkExec' code
+
+
+mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
+
+  (q,bdb) <- reqIO
+
+  let start@(Time startSpan) :: Time Micros = Time (TimeSpan (Micros 100_000_000))
+      s30 = scaleTimeSpan (30 :: Int) second
+      s15 = scaleTimeSpan (15 :: Int) second
+  -- b1 block time is start
+  void $ runBlock q bdb startSpan "mempoolCreationTimeTest-1"
+
+
+  -- do pre-insert check with transaction at start + 15s
+  tx <- makeTx "tx-now" (add s15 start)
+  void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
+    pactPreInsertCheck (V.singleton tx) q
+
+  setMempool mpRefIO $ mp tx
+  -- b2 will be made at start + 30s
+  void $ runBlock q bdb s30 "mempoolCreationTimeTest-2"
+
+  where
+
+    makeTx nonce t = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId cid
+        $ set cbCreationTime (toTxCreationTime $ t)
+        $ set cbTTL 300
+        $ mkCmd (sshow t <> nonce)
+        $ mkExec' "1"
+    mp tx = mempty {
+      mpaGetBlock = \valid _ _ bh -> getBlock bh tx valid
+      }
+
+    getBlock bh tx valid = do
+      let txs = V.singleton tx
+      oks <- valid (_blockHeight bh) (_blockHash bh) txs
+      unless (V.and oks) $ throwIO $ userError "Insert failed"
+      return txs
 
 
 badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
@@ -180,12 +260,16 @@ goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (Pac
 goldenNewBlock label mp mpRefIO reqIO = golden label $ do
     (reqQ,_) <- reqIO
     setMempool mpRefIO mp
-    respVar <- newBlock noMiner (ParentHeader genesisHeader) reqQ
-    goldenBytes =<< takeMVar respVar
+    resp <- forSuccess ("goldenNewBlock:" ++ label) $
+      newBlock noMiner (ParentHeader genesisHeader) reqQ
+    -- ensure all golden txs succeed
+    forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
+      cr :: CommandResult Hash <- decodeStrictOrThrow out
+      assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
+    goldenBytes resp
   where
-    goldenBytes :: Y.ToJSON a => Exception e => Either e a -> IO BL.ByteString
-    goldenBytes (Left e) = assertFailure $ label ++ ": " ++ show e
-    goldenBytes (Right a) = return $ BL.fromStrict $ Y.encode $ object
+    goldenBytes :: PayloadWithOutputs -> IO BL.ByteString
+    goldenBytes a = return $ BL.fromStrict $ Y.encode $ object
       [ "test-group" .= ("new-block" :: T.Text)
       , "results" .= a
       ]
@@ -199,9 +283,9 @@ goldenMemPool = mempty
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         let txs =
               [ (T.pack moduleStr)
-              , "(create-table test1.accounts)"
-              , "(test1.create-global-accounts)"
-              , "(test1.transfer \"Acct1\" \"Acct2\" 1.00)"
+              , "(create-table free.test1.accounts)"
+              , "(free.test1.create-global-accounts)"
+              , "(free.test1.transfer \"Acct1\" \"Acct2\" 1.00)"
               , "(at 'prev-block-hash (chain-data))"
               , "(at 'block-time (chain-data))"
               , "(at 'block-height (chain-data))"

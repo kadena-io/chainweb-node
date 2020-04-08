@@ -26,7 +26,7 @@ module Chainweb.Test.Utils
 , withTestBlockHeaderDb
 , withBlockHeaderDbsResource
 
--- * BlockHeaderDb Generation
+-- * Data Generation
 , toyBlockHeaderDb
 , toyChainId
 , toyGenesis
@@ -40,6 +40,7 @@ module Chainweb.Test.Utils
 , SparseTree(..)
 , Growth(..)
 , tree
+, getArbitrary
 
 -- * Test BlockHeaderDbs Configurations
 , singleton
@@ -97,6 +98,7 @@ module Chainweb.Test.Utils
 , runRocks
 , runSchedRocks
 , withArgs
+, matchTest
 ) where
 
 import Control.Concurrent
@@ -136,7 +138,8 @@ import System.IO.Temp
 import System.Random (randomIO)
 
 import Test.QuickCheck
-import Test.QuickCheck.Gen (chooseAny)
+import Test.QuickCheck.Gen (chooseAny, unGen)
+import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
@@ -358,7 +361,7 @@ header p = do
     return
         . fromLog
         . newMerkleLog
-        $ nonce
+        $ mkFeatureFlags
             :+: t'
             :+: _blockHash p
             :+: target
@@ -368,13 +371,18 @@ header p = do
             :+: succ (_blockHeight p)
             :+: v
             :+: epochStart (ParentHeader p) t'
-            :+: mkFeatureFlags
+            :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime p
     target = powTarget (ParentHeader p) t'
     v = _blockChainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+
+-- | get arbitrary value for seed.
+-- > getArbitrary @BlockHash 0
+getArbitrary :: Arbitrary a => Int -> a
+getArbitrary seed = unGen arbitrary (mkQCGen 0) seed
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
@@ -816,3 +824,8 @@ runRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> defaultMain (test rdb
 
 runSchedRocks :: (RocksDb -> ScheduledTest) -> IO ()
 runSchedRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> runSched (test rdb)
+
+-- | Convenience to use "-p" with value to match a test run
+-- > matchTest "myTest" $ runSched tests
+matchTest :: String -> IO a -> IO a
+matchTest pat = withArgs ["-p",pat]
