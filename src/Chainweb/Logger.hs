@@ -105,6 +105,7 @@ l2l' L.Debug = Debug
 data GenericLogger = GenericLogger
     { _glScope :: ![(T.Text, T.Text)]
     , _glLevel :: !LogLevel
+    , _glPolicy :: !L.LogPolicy
     , _glFun :: !(T.Text -> IO ())
     }
 
@@ -127,7 +128,7 @@ instance L.LoggerCtx GenericLogger SomeLogMessage where
 
     setLoggerLevel = glLevel . iso l2l l2l'
     setLoggerScope = glScope
-    setLoggerPolicy _ = pure
+    setLoggerPolicy = glPolicy
 
     {-# INLINABLE loggerFunIO #-}
     {-# INLINE setLoggerLevel #-}
@@ -138,4 +139,4 @@ instance L.LoggerCtx GenericLogger SomeLogMessage where
 -- logging framework should be used.
 --
 genericLogger :: LogLevel -> (T.Text -> IO ()) -> GenericLogger
-genericLogger level fun = GenericLogger [] level fun
+genericLogger level fun = GenericLogger [] level L.LogPolicyBlock fun
