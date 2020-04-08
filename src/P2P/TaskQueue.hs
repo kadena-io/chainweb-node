@@ -71,7 +71,7 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
-data TaskException = TaskFailed [SomeException]
+newtype TaskException = TaskFailed [SomeException]
     deriving Show
 
 instance Exception TaskException
@@ -167,7 +167,7 @@ session_ limit q logFun env = mask $ \restore -> do
                 logg task Debug "run task"
                 flip catchAllSynchronous (retry task) $ restore $ do
                     r <- _taskAction task logFun env
-                    putResult (_taskResult task) $! Right r
+                    putResult (_taskResult task) (Right r)
             Just Left{} -> do
                 logg task Debug "task already failed"
                 return False

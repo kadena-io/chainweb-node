@@ -40,7 +40,6 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -471,7 +470,7 @@ formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
 safeCapitalize :: String -> String
-safeCapitalize = fromMaybe [] . fmap (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
+safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of

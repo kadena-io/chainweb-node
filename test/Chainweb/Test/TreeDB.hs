@@ -62,9 +62,9 @@ treeDbInvariants f rs = testGroup "TreeDb Invariants"
                     , testPropertySch "streaming entries"
                           $ streamCount_prop f (\db -> entries db Nothing Nothing Nothing Nothing)
                     , testPropertySch "streaming branchKeys"
-                          $ streamCount_prop f (\db -> branches branchKeys db)
+                          $ streamCount_prop f (branches branchKeys)
                     , testPropertySch "streaming branchEntries"
-                          $ streamCount_prop f (\db -> branches branchEntries db)
+                          $ streamCount_prop f (branches branchEntries)
                     ]
               , testGroupSch "Miscellaneous" $ schedule rs
                     [ testPropertySch "Parent lookup of genesis fails" $ genParent_prop f

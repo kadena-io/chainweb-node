@@ -221,7 +221,7 @@ checkpointerTest name initdata =
 
     expectException act = do
         result <- (act >> return (Just msg)) `catch` h
-        maybe (return ()) (flip assertBool False) result
+        maybe (return ()) (`assertBool` False) result
       where
         msg = "The table duplication somehow went through. Investigate this error."
 

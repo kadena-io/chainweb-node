@@ -110,7 +110,7 @@ pactMemPoolAccess mpc logger = MemPoolAccess
     { mpaGetBlock = pactMemPoolGetBlock mpc logger
     , mpaSetLastHeader = pactMempoolSetLastHeader mpc logger
     , mpaProcessFork = pactProcessFork mpc logger
-    , mpaBadlistTx = \tx -> mempoolAddToBadList (mpcMempool mpc) (fromPactHash tx)
+    , mpaBadlistTx = mempoolAddToBadList (mpcMempool mpc) . fromPactHash
     }
   where
     fromPactHash (Pact.TypedHash h) = TransactionHash (SB.toShort h)

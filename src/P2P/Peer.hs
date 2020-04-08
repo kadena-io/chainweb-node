@@ -399,9 +399,9 @@ getPeerCertificate conf = do
     case (maybeChain, maybeKey) of
         (Nothing, _) -> do
             (!fp, !c, !k) <- generateSelfSignedCertificate @DefCertType 365 dn Nothing
-            return $! (fp, X509CertChainPem c [], k)
+            return (fp, X509CertChainPem c [], k)
         (Just !c@(X509CertChainPem !a _), (Just !k)) ->
-            return $! (unsafeFingerprintPem a, c, k)
+            return (unsafeFingerprintPem a, c, k)
         _ -> throwM $ ConfigurationException "missing certificate key in peer config"
   where
     dn = name . B8.unpack . hostnameBytes . _hostAddressHost . _peerConfigAddr $ conf

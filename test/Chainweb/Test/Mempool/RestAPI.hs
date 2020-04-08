@@ -61,7 +61,7 @@ newTestServer = mask_ $ do
     env <- takeMVar envMv
     let remoteMp0 = MClient.toMempool version chain txcfg env
     -- allow remoteMp to call the local mempool's getBlock (for testing)
-    let remoteMp = remoteMp0 { mempoolGetBlock = \a b c -> mempoolGetBlock inmem a b c }
+    let remoteMp = remoteMp0 { mempoolGetBlock = mempoolGetBlock inmem }
     return $! TestServer remoteMp inmem checkMv tid
   where
     checkMvFunc mv xs = do
