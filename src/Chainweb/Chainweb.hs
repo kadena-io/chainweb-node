@@ -118,7 +118,7 @@ module Chainweb.Chainweb
 , defaultCutConfig
 ) where
 
-import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
+import Configuration.Utils hiding (Error, Lens', disabled)
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async

@@ -167,7 +167,7 @@ pFilter_ prefix = id
             return $ LogFilter [((a,b),l)] Debug
         _ -> Left $ "expecting KEY:VALUE:LOGLEVEL, but got " <> s
 
-    pFilterDefault = LogFilter [] <$> option (eitherReader readLogLevel)
+    pFilterDefault = LogFilter [] <$> option (eitherReader $ readLogLevel . T.pack)
         % prefixLong prefix "log-filter-default"
         <> help "default log filter level, which is applied to all messages that don't match any other filter rule"
         <> metavar "LOGLEVEL"
