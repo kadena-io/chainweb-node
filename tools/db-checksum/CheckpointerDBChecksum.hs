@@ -12,7 +12,7 @@
 
 module CheckpointerDBChecksum where
 
-import Configuration.Utils hiding (Error, Lens', action, encode, (<.>))
+import Configuration.Utils hiding (Error, Lens', action, encode)
 
 import Control.Exception.Safe (tryAny)
 import Control.Monad.Reader

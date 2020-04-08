@@ -33,7 +33,7 @@ module Chainweb.Chainweb.PeerResources
 , withConnectionManger
 ) where
 
-import Configuration.Utils hiding (Error, Lens', (<.>))
+import Configuration.Utils hiding (Error, Lens')
 
 import Control.Concurrent.Async
 import Control.Lens hiding ((.=), (<.>))

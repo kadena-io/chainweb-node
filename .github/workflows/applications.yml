@@ -232,7 +232,8 @@ jobs:
       SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
 
       # Aritfacts
-      ARTIFACT_BUCKET: kadena-cabal-cache/chainweb
+      ARTIFACT_BUCKET: kadena-cabal-cache
+      ARTIFACT_FOLDER: chainweb
 
     steps:
     # Setup
@@ -312,11 +313,6 @@ jobs:
           location: https://github.com/well-typed/optics
           tag: 95760a121023b6314a1b1a92939fc97613ec5645
           subdir: optics-core
-        source-repository-package
-          type: git
-          location: https://github.com/alephcloud/hs-configuration-tools
-          tag: 2facb2c9ce092ceb6a3a8c805bfc239ad8f79fe0
-
     - uses: actions/cache@v1
       name: Cache dist-newstyle
       with:
@@ -369,12 +365,12 @@ jobs:
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
-        aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$BINFILE --acl public-read
+        aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Link latest-build application in S3
       if: contains(github.ref, 'master')
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
-        aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$LATEST_BINFILE --acl public-read
+        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$LATEST_BINFILE
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$LATEST_BINFILE --acl public-read
