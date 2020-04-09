@@ -172,7 +172,6 @@ insertWebBlockHeaderDb wdb h = do
     db <- getWebBlockHeaderDb wdb h
     checkBlockAdjacentParents wdb h
     insertBlockHeaderDb db [h]
-{-# WARNING insertWebBlockHeaderDb "Implement BlockHeader validation" #-}
 
 -- -------------------------------------------------------------------------- --
 -- Checks and Properties
