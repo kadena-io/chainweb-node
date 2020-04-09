@@ -2,7 +2,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -41,7 +40,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import qualified Data.DList as DL
-import Data.Foldable (concat, toList)
+import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -99,21 +98,24 @@ chainwebPactDb = PactDb
 getPendingData :: BlockHandler SQLiteEnv [SQLitePendingData]
 getPendingData = do
     pb <- use bsPendingBlock
-    ptx <- maybe [] (:[]) <$> use bsPendingTx
+    ptx <- maybeToList <$> use bsPendingTx
     -- lookup in pending transactions first
     return $ ptx ++ [pb]
+
+forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
+forModuleNameFix a = use bsModuleNameFix >>= a
 
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
     -> k
     -> BlockHandler SQLiteEnv (Maybe v)
-doReadRow d k =
+doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
         KeySets -> lookupWithKey (convKeySetName k)
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName k)
+        Modules -> lookupWithKey (convModuleName mnFix k)
         Namespaces -> lookupWithKey (convNamespaceName k)
         (UserTables _) -> lookupWithKey (convRowKey k)
         Pacts -> lookupWithKey (convPactId k)
@@ -181,16 +183,16 @@ writeSys
 writeSys d k v = gets _bsTxId >>= go
   where
     go txid = do
-        recordPendingUpdate keyStr tableName txid v
+        forModuleNameFix $ \mnFix ->
+          recordPendingUpdate (getKeyString mnFix k) tableName txid v
         recordTxLog (toTableName tableName) d k v
 
-    keyStr = getKeyString k
     toTableName (Utf8 str) = TableName $ toS str
     tableName = domainTableName d
 
-    getKeyString = case d of
+    getKeyString mnFix = case d of
         KeySets -> convKeySetName
-        Modules -> convModuleName
+        Modules -> convModuleName mnFix
         Namespaces -> convNamespaceName
         Pacts -> convPactId
         UserTables _ -> error "impossible"
@@ -456,7 +458,7 @@ doCommit = use bsMode >>= \mm -> case mm of
               resetTemp
               return blockLogs
           else doRollback >> return mempty
-        return $! concat $ fmap (reverse . DL.toList) txrs
+        return $! concatMap (reverse . DL.toList) txrs
   where
     merge Nothing a = a
     merge (Just a) b = SQLitePendingData
@@ -517,11 +519,9 @@ doGetTxLog d txid = do
     takeHead (a:_) = [a]
 
     readFromPending = do
-        ptx <- maybe [] (:[]) <$> use bsPendingTx
+        ptx <- maybeToList <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let deltas = concat $
-                map (takeHead . DL.toList) $
-                concatMap HashMap.elems $ _pendingWrites <$> (ptx ++ [pb])
+        let deltas = (ptx ++ [pb]) >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 

@@ -17,7 +17,7 @@ module Chainweb.WebBlockHeaderDB
 , mkWebBlockHeaderDb
 , initWebBlockHeaderDb
 , getWebBlockHeaderDb
--- , webBlockHeaderDb
+, webBlockHeaderDb
 , webEntries
 , lookupWebBlockHeaderDb
 , lookupAdjacentParentHeader

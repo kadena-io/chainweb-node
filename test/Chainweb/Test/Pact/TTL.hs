@@ -2,46 +2,23 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Pact.TTL
-( tests
--- * Utils
-, Ctx(..)
-, withTestPact
-, mineMany
-, mineBlock
-, doNewBlock
-, doValidateBlock
-, runOne
--- ** MemPoolAccess
-, modAt
-, modAtTtl
-, offset
-, offsetTtl
-, ttl
-, mems
-) where
+( tests ) where
 
 import Control.Concurrent.MVar
+import Control.Lens (set)
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.Aeson
 import Data.CAS.HashMap
-import Data.Text (Text)
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
-import NeatInterpolation
-
-import Numeric.Natural
-
-import Pact.ApiReq
 import Pact.Types.ChainMeta
 
 import System.LogLevel
@@ -56,11 +33,13 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Service.Types
+import Chainweb.Pact.Utils (lenientTimeSlop)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
@@ -101,7 +80,8 @@ tests = ScheduledTest "Chainweb.Test.Pact.TTL" $
     withBlockHeaderDb rocksIO genblock $ \bdbIO ->
     testGroup "timing tests"
         [ withTestPact testVer pdbIO bdbIO testTxTime
-        , withTestPact testVer pdbIO bdbIO testTxTimeFail
+        , withTestPact testVer pdbIO bdbIO testTxTimeLenient
+        , withTestPact testVer pdbIO bdbIO testTxTimeFail1
         , withTestPact testVer pdbIO bdbIO testTxTimeFail2
         , withTestPact testVer pdbIO bdbIO testTtlTooLarge
         , withTestPact testVer pdbIO bdbIO testTtlSmall
@@ -111,7 +91,7 @@ tests = ScheduledTest "Chainweb.Test.Pact.TTL" $
         , withTestPact testVer pdbIO bdbIO testJustMadeItLarge
 
         -- This tests can be removed once the transition is complete and the guard
-        -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+        -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
         -- of all chainweb versions.
         --
         , testGroup "mainnet transition to new timing checks"
@@ -128,6 +108,8 @@ tests = ScheduledTest "Chainweb.Test.Pact.TTL" $
 -- -------------------------------------------------------------------------- --
 -- Tests
 
+
+
 testTxTime :: IO Ctx -> TestTree
 testTxTime ctxIO =
     testCase "tx time of parent time and default ttl pass validation" $ do
@@ -135,11 +117,17 @@ testTxTime ctxIO =
         T2 hdr2 _ <- mineBlock ctxIO (offset 0) (ParentHeader hdr1) (Nonce 1) 1
         void $ mineBlock ctxIO (offset (-1)) (ParentHeader hdr2) (Nonce 2) 1
 
-testTxTimeFail :: IO Ctx -> TestTree
-testTxTimeFail ctxIO =
-    testCase "tx time of parent time + 1 and default ttl fails during new block validation" $ do
+testTxTimeLenient :: IO Ctx -> TestTree
+testTxTimeLenient ctxIO =
+    testCase "testTxTimeLenient: tx time of parent time + slop and default ttl succeeds during new block validation" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
-        assertDoPreBlockFailure $ doNewBlock ctxIO (offset 1) (ParentHeader hdr) (Nonce 2) 1
+        void $ doNewBlock ctxIO (offset lenientTimeSlop) (ParentHeader hdr) (Nonce 2) 1
+
+testTxTimeFail1 :: IO Ctx -> TestTree
+testTxTimeFail1 ctxIO =
+    testCase "testTxTimeFail1: tx time of parent time + slop + 1 and default ttl fails during new block validation" $ do
+        T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
+        assertDoPreBlockFailure $ doNewBlock ctxIO (offset (succ lenientTimeSlop)) (ParentHeader hdr) (Nonce 2) 1
 
 testTxTimeFail2 :: IO Ctx -> TestTree
 testTxTimeFail2 ctxIO =
@@ -155,7 +143,7 @@ testTtlTooLarge ctxIO =
 
 testTtlSmall :: IO Ctx -> TestTree
 testTtlSmall ctxIO =
-    testCase "small TTL passes validation" $ do
+    testCase "testTtlSmall: small TTL passes validation" $ do
         T2 hdr _ <- mineBlock ctxIO mempty (ParentHeader genblock) (Nonce 1) 1
         void $ doNewBlock ctxIO (ttl 5) (ParentHeader hdr) (Nonce 2) 1
 
@@ -186,10 +174,10 @@ testJustMadeItLarge ctxIO =
 -- -------------------------------------------------------------------------- --
 -- Mainnet transition to new timing checks
 --
--- @useCurrentHeaderCreationTimeForTxValidation@ is @True@.
+-- @useLegacyCreationTimeForTxValidation@ is @True@.
 --
 -- The tests in this section may be removed once the transition is complete and
--- the guard @useCurrentHeaderCreationTimeForTxValidation@ is false for all new
+-- the guard @useLegacyCreationTimeForTxValidation@ is false for all new
 -- blocks of all chainweb versions. Some tests actually must be removed.
 --
 
@@ -219,7 +207,7 @@ testExpiredTight2 ctxIO =
         assertDoPreBlockFailure $ doNewBlock ctxIO (offsetTtl (-1000) 1000) (ParentHeader hdr') (Nonce 2) 1
 
 -- This code must be removed once the transition is complete and the guard
--- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+-- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
 -- of all chainweb versions.
 --
 testExpiredExtraTight :: IO Ctx -> TestTree
@@ -229,7 +217,7 @@ testExpiredExtraTight ctxIO =
         void $ doNewBlock ctxIO (offsetTtl (179 -1000) 1000) (ParentHeader hdr) (Nonce 2) 1
 
 -- This code must be removed once the transition is complete and the guard
--- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+-- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
 -- of all chainweb versions.
 --
 testExpiredExtraTight2 :: IO Ctx -> TestTree
@@ -256,109 +244,43 @@ testJustMadeIt3 ctxIO =
 -- -------------------------------------------------------------------------- --
 -- Mempool Access
 
--- | Provide mempool access for the respective block height. Default is mempty.
--- The list starts with block height 1.
---
-mems :: [MemPoolAccess] -> MemPoolAccess
-mems l = mempty
-    { mpaGetBlock = \v bh -> case drop (int bh - 1) l of
-        [] -> mpaGetBlock mempty v bh
-        (h:_) -> mpaGetBlock h v bh
-    }
-
 -- Mempool access implementations that provide transactions with different
 -- values for creation time and TTL.
 
+-- | Use parent block time for tx creation time, change ttl.
 ttl :: Seconds -> MemPoolAccess
 ttl = modAtTtl id
 
+-- | Offset tx creation time relative to parent block time, use default ttl.
 offset :: Seconds -> MemPoolAccess
 offset = modAt . add . secondsToTimeSpan
 
+-- | Offset tx creation time relative to parent block time, AND set ttl.
 offsetTtl :: Seconds -> Seconds -> MemPoolAccess
-offsetTtl = modAtTtl . add . secondsToTimeSpan
+offsetTtl off ttl' = modAtTtl (add (secondsToTimeSpan off)) ttl'
 
--- at :: Time Micros -> MemPoolAccess
--- at =  modAt . const
-
+-- | Set tx creation time relative to parent block time, use default ttl.
 modAt :: (Time Micros -> Time Micros) -> MemPoolAccess
 modAt f = modAtTtl f defTtl
 
 modAtTtl :: (Time Micros -> Time Micros) -> Seconds -> MemPoolAccess
 modAtTtl f (Seconds t) = mempty
     { mpaGetBlock = \validate bh hash parentHeader -> do
-        akp0 <- stockKey sender
-        kp0 <- mkKeyPairs [akp0]
-        let nonce = sshow bh
-            txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime parentHeader
-            tx = V.singleton $ PactTransaction (defModule nonce) (Just $ ksData nonce)
+        let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime parentHeader
             tt = TTLSeconds (int t)
-        -- putStrLn $ "\nmpaGetBlock:"
-        --     <> "\nparentTime: " <> sshow (_blockCreationTime parentHeader)
-        --     <> "\nheight: " <> sshow bh
-        --     <> "\ntxTime: " <> sshow txTime
-        outtxs <- mkTestExecTransactions sender "0" kp0 nonce 10_000 0.000_000_000_01 tt txTime tx
+        outtxs <- fmap V.singleton $ buildCwCmd
+          $ set cbCreationTime txTime
+          $ set cbTTL tt
+          $ set cbSigners [mkSigner' sender00 []]
+          $ mkCmd (sshow bh)
+          $ mkExec' "1"
+
         unlessM (and <$> validate bh hash outtxs) $ throwM DoPreBlockFailure
         return outtxs
     }
-  where
-    sender = "sender00"
-    ksData idx = object
-        [ ("k" <> idx) .= object
-            [ "keys" .= ([] :: [Text])
-            , "pred" .= String ">="
-            ]
-        ]
-
-    defModule :: Text -> Text
-    defModule idx = [text| ;;
-        (define-keyset 'k$idx (read-keyset 'k$idx))
-
-        (module m$idx 'k$idx
-
-        (defschema sch col:integer)
-
-        (deftable tbl:{sch})
-
-        (defun insertTbl (a i)
-            (insert tbl a { 'col: i }))
-
-        (defun updateTbl (a i)
-            (update tbl a { 'col: i}))
-
-        (defun readTbl ()
-            (sort (map (at 'col)
-            (select tbl (constantly true)))))
-
-        (defpact dopact (n)
-            (step { 'name: n, 'value: 1 })
-            (step { 'name: n, 'value: 2 }))
-
-        )
-        (create-table tbl)
-        (readTbl)
-        (insertTbl "a" 1)
-    |]
 
 -- -------------------------------------------------------------------------- --
 -- Block Validation
-
-mineMany
-    :: IO Ctx
-    -> MemPoolAccess
-    -> ParentHeader
-    -> Nonce
-    -> Seconds
-        -- ^ Block time
-    -> Natural
-    -> IO (T2 BlockHeader PayloadWithOutputs)
-mineMany ctxIO mempool parentHeader (Nonce nonce) s n = go (int n) parentHeader
-  where
-    go i h = do
-        T2 h' p <- mineBlock ctxIO mempool h (Nonce $ nonce + i) s
-        if i > 1
-            then go (i-1) $ ParentHeader h'
-            else return (T2 h' p)
 
 mineBlock
     :: IO Ctx
@@ -413,18 +335,9 @@ doValidateBlock
     -> IO ()
 doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
-    _mv' <- validateBlock header (toPayloadData payload) $ _ctxQueue ctx
+    _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _ctxQueue ctx
     addNewPayload (_ctxPdb ctx) payload
     insertBlockHeaderDb (_ctxBdb ctx) [header]
-  where
-    toPayloadData :: PayloadWithOutputs -> PayloadData
-    toPayloadData d = PayloadData
-        { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
-        , _payloadDataMiner = _payloadWithOutputsMiner d
-        , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
-        , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
-        , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
-        }
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
@@ -471,11 +384,3 @@ withTestPact v pdbIO bdbIO test = withTemporaryDir $ \dirIO ->
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
 assertNotLeft (Right r) = return r
-
-runOne :: (IO Ctx -> TestTree) -> IO ()
-runOne t = defaultMain $
-    withRocksResource $ \rocksIO ->
-    withPayloadDb $ \pdbIO ->
-    withBlockHeaderDb rocksIO genblock $ \bdbIO ->
-    withTestPact testVer pdbIO bdbIO $ \ctxIO ->
-    t ctxIO

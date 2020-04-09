@@ -1,10 +1,49 @@
 # `chainweb-node` Changelog
 
-## Unreleased
+## 1.7 (2019-03-26)
 
-#### Changed
+This version replaces all previous versions. Any prior version will stop working
+on **2020-04-02T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
 
-- Internal CPU mining now injects nonce bytes at the end.
+This version will stop working on **2020-04-30T00:00:00Z**.
+
+The use of the first eight bytes of the mining jobs bytes as nonce is now
+considered deprecated. Those bytes should be set to 0x0. Only the last eight
+bytes must be used as nonce.  Miners and pools should start upgrading to the new
+behavior. The new behavior will be enforced in a future version.
+
+* Compute epoch time based on parent header. This change won't affect any
+  any users of Chainweb. The change will become effective at block height
+  452820. (#977)
+
+* Validate transaction creation time and expiration with respect to creation
+  of the parent block header. This change brings the checks for transaction
+  validity in line with the time used during Pact validation. (#935, #942)
+
+  There is a 90 second leniency applied for transactions to become valid. This
+  change will become effective at chain block height 449940. In the time before
+  the change becomes active users may experience that new nodes reject their
+  transactions. This can be mitigated by using a negative offset for the
+  creation of about 2 minutes. (#973)
+
+* A new flag `--allowReadsInLocal` and configuration option was added that
+  enables direct database reads of smart contract tables in local queries.
+  (#938)
+
+* Fixed a rare bug that could affect nodes during history rewinds. (#940)
+
+* Internal CPU mining use the last eight bytes of the mining jobs bytes as nonce
+  (#957)
+
+* Add missing `cut` API to the swagger documentation of the Chainweb API (#980)
+
+* Fixes a bug that caused Chainweb nodes to crash during startup due to running
+  out of RAM. (#982)
+
+* Beside several stability and performance improvements this release
+  also greatly improves test coverage and the quality of the code base to
+  support long term maintainability of the Chainweb codebase.
 
 ## 1.6 (2019-02-18)
 

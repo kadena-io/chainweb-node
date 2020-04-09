@@ -37,6 +37,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
@@ -123,7 +124,7 @@ prop_noOldCrap db genBlock = monadicIO $ do
     -- tests filtering, in theory on age
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
-    pre (length fiOldForkTrans > 0)
+    pre (not $ null fiOldForkTrans)
     let badtx = head $ toList fiOldForkTrans
     let badFilter = (/= badtx)
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
@@ -332,7 +333,7 @@ header' h = do
     return
         . fromLog
         . newMerkleLog
-        $ nonce
+        $ mkFeatureFlags
             :+: t'
             :+: _blockHash h
             :+: target
@@ -342,7 +343,7 @@ header' h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart (ParentHeader h) t'
-            :+: mkFeatureFlags
+            :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h

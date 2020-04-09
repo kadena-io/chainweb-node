@@ -43,6 +43,7 @@ import Text.Read (readEither)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)

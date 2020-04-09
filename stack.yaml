@@ -13,7 +13,8 @@ extra-deps:
   - paths-0.2.0.0
   - streaming-events-1.0.0
   - strict-tuple-0.1.3
-  - yet-another-logger-0.3.1
+  - yet-another-logger-0.4.0
+  - configuration-tools-0.5.0
   - random-strings-0.1.1.0
   - streaming-concurrency-0.3.1.3
   - streaming-with-0.2.2.1
@@ -35,10 +36,12 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: b59a305b65a8bca5afb82b9c347cca1b71c40211
+    commit: f628486a99cdd22e635b98a2d8c631d303c3d4da
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
 
 build:
   test-arguments:
     additional-args: ["--hide-successes", "--color", "never"]
+
+# cache bump

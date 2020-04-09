@@ -37,6 +37,7 @@ import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson as Aeson
+import Data.Bifunctor (second)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import qualified Data.ByteString.Short as SB
@@ -238,7 +239,7 @@ listenHandler
     -> ListenerRequest
     -> Handler ListenResponse
 listenHandler logger cutR cid chain (ListenerRequest key) = do
-    liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text $ key
+    liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text key
     liftIO (handleTimeout runListen)
   where
     logg = logFunctionJson (setComponent "listen-handler" logger)
@@ -281,7 +282,7 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
             mgr <- Ev.getSystemTimerManager
             !tkey <- Ev.registerTimeout mgr defaultTimeout $
                      atomically $ writeTVar tv True
-            return $! (tv, tkey)
+            return (tv, tkey)
         cleanup (_, tkey) = do
             mgr <- Ev.getSystemTimerManager
             Ev.unregisterTimeout mgr tkey
@@ -394,7 +395,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
         -- server to shut down the connection without returning a result to the user.
     let results1 = V.zip requestKeysV results0
     let (present0, missing) = V.unstablePartition (isJust . snd) results1
-    let present = V.map (\(a, b) -> (a, fromJuste b)) present0
+    let present = V.map (second fromJuste) present0
     lookedUp <- (catMaybes . V.toList) <$> mapM lookup present
     badlisted <- V.toList <$> checkBadList (V.map fst missing)
     let outputs = lookedUp ++ badlisted
@@ -431,7 +432,7 @@ internalPoll cutR cid chain cut requestKeys0 = do
 
     fromTx (!tx, !out) = do
         !tx' <- MaybeT (return (toPactTx tx))
-        return $! (tx', out)
+        return (tx', out)
 
     checkBadList :: Vector RequestKey -> IO (Vector (RequestKey, CommandResult Hash))
     checkBadList rkeys = do

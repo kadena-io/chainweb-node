@@ -43,6 +43,7 @@ module Chainweb.Cut
 , forkDepth
 , limitCut
 , limitCutHeaders
+, unsafeMkCut
 
 -- * Exceptions
 , CutException(..)
@@ -210,6 +211,12 @@ cutAdjs
 cutAdjs c cid = HM.intersection
     (_cutHeaders c)
     (HS.toMap (adjacentChainIds (_chainGraph c) cid))
+
+unsafeMkCut :: ChainwebVersion -> HM.HashMap ChainId BlockHeader -> Cut
+unsafeMkCut v hdrs = Cut
+    { _cutHeaders = hdrs
+    , _cutChainwebVersion = v
+    }
 
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height
@@ -434,7 +441,7 @@ join_ wdb prioFun a b = do
         db <- getWebBlockHeaderDb wdb cid
         (q' :> h) <- S.fold g q id $ branchDiff_ db x y
         let !h' = q' `seq` h `seq` HM.insert cid h m
-        return $! (h', q')
+        return (h', q')
 
     g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
     g q x = foldl' maybeInsert q $ zip (biList x) (biList (prioFun x))

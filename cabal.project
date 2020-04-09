@@ -11,7 +11,7 @@ debug-info: True
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: b59a305b65a8bca5afb82b9c347cca1b71c40211
+    tag: f628486a99cdd22e635b98a2d8c631d303c3d4da
 
 source-repository-package
     type: git
@@ -24,19 +24,7 @@ source-repository-package
     tag: 17a5fb130926582eff081eeb1b94cb6c7097c67a
 
 constraints:
-      base-unicode-symbols < 0.2.4,
-      megaparsec < 8,
-      neat-interpolation < 0.4
-
--- GHC-8.8
-
-package pact
-    ghc-options: -Wwarn
-    haddock-options: --optghc=-Wwarn
-
-allow-newer:
-    *:sbv
+      megaparsec < 8
 
 package vault
     documentation: false
-

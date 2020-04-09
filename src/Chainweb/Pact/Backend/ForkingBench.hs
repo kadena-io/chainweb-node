@@ -40,7 +40,6 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -67,7 +66,6 @@ import Text.Printf
 -- pact imports
 
 import Pact.ApiReq
-import Pact.Parse
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.ChainMeta
@@ -86,6 +84,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
@@ -97,6 +96,7 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
@@ -399,9 +399,6 @@ testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
 
-toTxCreationTime :: Time Micros -> TxCreationTime
-toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
@@ -473,7 +470,7 @@ formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
 safeCapitalize :: String -> String
-safeCapitalize = fromMaybe [] . fmap (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
+safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of

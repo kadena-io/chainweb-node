@@ -1,9 +1,3 @@
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-
 -- |
 -- Module: Chainweb.BlockHeaderDB
 -- Copyright: Copyright © 2018 Kadena LLC.

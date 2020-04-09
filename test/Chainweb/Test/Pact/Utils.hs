@@ -34,12 +34,10 @@ module Chainweb.Test.Pact.Utils
 , allocation02KeyPair'
 , testPactFilesDir
 , testKeyPairs
-, adminData
 , mkKeySetData
   -- * helper functions
 , mergeObjects
 , formatB16PubKey
-, goldenTestTransactions
 , mkTestExecTransactions
 , mkTestContTransaction
 , mkCoinSig
@@ -104,6 +102,10 @@ module Chainweb.Test.Pact.Utils
 , withPactTestBlockDb
 , WithPactCtxSQLite
 , defaultPactServiceConfig
+-- * Mempool utils
+, delegateMemPoolAccess
+, withDelegateMempool
+, setMempool
 -- * Block formation
 , runCut
 , Noncer
@@ -116,6 +118,7 @@ module Chainweb.Test.Pact.Utils
 , someBlockHeader
 ) where
 
+import Control.Arrow ((&&&))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
@@ -132,6 +135,7 @@ import Data.Decimal
 import Data.Default (def)
 import Data.FileEmbed
 import Data.Foldable
+import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Text (Text)
@@ -157,7 +161,6 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
-import Pact.Parse
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
@@ -180,6 +183,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut.Test
@@ -320,23 +324,9 @@ mergeObjects = Object . HM.unions . foldr unwrap []
     unwrap (Object o) = (:) o
     unwrap _ = id
 
-adminData :: IO (Maybe Value)
-adminData = k <$> testKeyPairs sender00KeyPair Nothing
-  where
-    k ks = Just $ object
-        [ "test-admin-keyset" .= fmap (formatB16PubKey . fst) ks
-        ]
-
 -- | Make trivial keyset data
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
-
--- | Shim for 'PactExec' and 'PactInProcApi' tests
-goldenTestTransactions
-    :: Vector PactTransaction -> IO (Vector ChainwebTransaction)
-goldenTestTransactions txs = do
-    ks <- testKeyPairs sender00KeyPair Nothing
-    mkTestExecTransactions "sender00" "0" ks "1" 10_000 0.01 1_000_000 0 txs
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -626,7 +616,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid bhdb pdb sqlenv = do
-    cpe <- initRelationalCheckpointer initBlockState sqlenv logger
+    cpe <- initRelationalCheckpointer initBlockState sqlenv logger v
     let rs = readRewards v
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
@@ -692,8 +682,7 @@ testWebPactExecutionService
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
 testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
-    = fmap mkWebPactExecutionService
-    $ fmap HM.fromList
+    = fmap (mkWebPactExecutionService . HM.fromList)
     $ traverse mkPact
     $ zip sqlenvs
     $ toList
@@ -787,7 +776,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
+        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger v
         let rs = readRewards v
             t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
             gm = fromMaybe (constGasModel 0) gasModel
@@ -812,10 +801,10 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
             }
 
 withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
-withMVarResource value = withResource (newMVar value) (const $ return ())
+withMVarResource value = withResource (newMVar value) mempty
 
 withTime :: (IO (Time Micros) -> TestTree) -> TestTree
-withTime = withResource getCurrentTimeIntegral (const (return ()))
+withTime = withResource getCurrentTimeIntegral mempty
 
 mkKeyset :: Text -> [PublicKeyBS] -> Value
 mkKeyset p ks = object
@@ -840,11 +829,35 @@ decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
-toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
+toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
-withPayloadDb = withResource newPayloadDb (\_ -> return ())
+withPayloadDb = withResource newPayloadDb mempty
+
+
+-- | 'MemPoolAccess' that delegates all calls to the contents of provided `IORef`.
+delegateMemPoolAccess :: IORef MemPoolAccess -> MemPoolAccess
+delegateMemPoolAccess r = MemPoolAccess
+  { mpaGetBlock = \a b c d -> call mpaGetBlock $ \f -> f a b c d
+  , mpaSetLastHeader = \a -> call mpaSetLastHeader ($ a)
+  , mpaProcessFork = \a -> call mpaProcessFork ($ a)
+  , mpaBadlistTx = \a -> call mpaBadlistTx ($ a)
+  }
+  where
+    call :: (MemPoolAccess -> f) -> (f -> IO a) -> IO a
+    call f g = readIORef r >>= g . f
+
+-- | use a "delegate" which you can dynamically reset/modify
+withDelegateMempool
+  :: (IO (IORef MemPoolAccess, MemPoolAccess) -> TestTree)
+  -> TestTree
+withDelegateMempool = withResource start mempty
+  where
+    start = (id &&& delegateMemPoolAccess) <$> newIORef mempty
+
+-- | Set test mempool
+setMempool :: IO (IORef MemPoolAccess) -> MemPoolAccess -> IO ()
+setMempool refIO mp = refIO >>= flip writeIORef mp
 
 withBlockHeaderDb
     :: IO RocksDb
@@ -865,7 +878,7 @@ withTestBlockDbTest
   :: ChainwebVersion -> (IO TestBlockDb -> TestTree) -> TestTree
 withTestBlockDbTest v a =
   withRocksResource $ \rdb ->
-  withResource (start rdb) (const $ return ()) a
+  withResource (start rdb) mempty a
   where
     start r = r >>= mkTestBlockDb v
 
@@ -874,11 +887,11 @@ withPactTestBlockDb
     :: ChainwebVersion
     -> ChainId
     -> LogLevel
-    -> MemPoolAccess
+    -> (IO MemPoolAccess)
     -> PactServiceConfig
     -> (IO (PactQueue,TestBlockDb) -> TestTree)
     -> TestTree
-withPactTestBlockDb version cid logLevel mempool pactConfig f =
+withPactTestBlockDb version cid logLevel mempoolIO pactConfig f =
   withTemporaryDir $ \iodir ->
   withTestBlockDbTest version $ \bdbio ->
   withResource (startPact bdbio iodir) stopPact $ f . fmap (view _3)
@@ -887,6 +900,7 @@ withPactTestBlockDb version cid logLevel mempool pactConfig f =
         reqQ <- atomically $ newTBQueue 2000
         dir <- iodir
         bdb <- bdbio
+        mempool <- mempoolIO
         bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) cid
         let pdb = _bdbPayloadDb bdb
         sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False

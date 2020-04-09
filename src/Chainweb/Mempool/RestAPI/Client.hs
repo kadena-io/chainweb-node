@@ -1,5 +1,4 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -58,10 +57,10 @@ toMempool version chain txcfg env =
     , mempoolMember = member
     , mempoolLookup = lookup
     , mempoolInsert = insert
-    , mempoolInsertCheck = \_ -> unsupported
-    , mempoolMarkValidated = \_ -> unsupported
-    , mempoolAddToBadList = \_ -> unsupported
-    , mempoolCheckBadList = \_ -> unsupported
+    , mempoolInsertCheck = const unsupported
+    , mempoolMarkValidated = const unsupported
+    , mempoolAddToBadList = const unsupported
+    , mempoolCheckBadList = const unsupported
     , mempoolGetBlock = \_ _ _ -> unsupported
     , mempoolGetPendingTransactions = getPending
     , mempoolPrune = unsupported
