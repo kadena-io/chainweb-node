@@ -257,8 +257,7 @@ $ curl -sk https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | jq '.height
 ### Miscellaneous
 To find your public ip:
 ```
-$ dig +short myip.opendns.com @resolver1.opendns.com
-$ dig TXT +short o-o.myaddr.l.google.com @ns1.google.com
+$ curl 'https://api.ipify.org?format=text'
 ```
 
 ## Mine for a Chainweb Network
