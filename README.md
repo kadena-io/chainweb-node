@@ -251,7 +251,7 @@ The `/cut` endpoint will return the latest cut that your node has. It's possible
 
 You can get the cut height of any node by running the following:
 ```
-$ https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | python -m json.tool | jq '.height'
+$ curl -sk https://<bootstrap-node-url>/chainweb/0.0/mainnet01/cut | jq '.height'
 ```
 
 ### Miscellaneous
