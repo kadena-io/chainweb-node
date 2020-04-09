@@ -229,7 +229,7 @@ The following outlines how you can check that your `chainweb-node` is healthy
 
 If you're behind a NAT, it is **VERY IMPORTANT** that your network allows external nodes to connect to the node you are running. If you provide us with your ip address and port number in our [Discord mining channel](https://discord.io/kadena), we can verify whether your node is reachable to the rest of the network.
 
-When running the chainweb-node binary, you can indicate your hostname and port number directly on the config-file, or you can set it via command line flags like such:
+When running the chainweb-node binary, you can indicate your hostname and port number directly in the config-file, or you can set it via command line flags like such:
 ```
 $ chainweb-node --config-file <path-to-config-file> --hostname <public-ip> --port <port> --log-level <desired-log-level>
 ```
