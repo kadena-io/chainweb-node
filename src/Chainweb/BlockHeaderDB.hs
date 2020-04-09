@@ -23,7 +23,7 @@ module Chainweb.BlockHeaderDB
 , withBlockHeaderDb
 
 -- * insertion
-, insertBlockHeaderDb
+-- , insertBlockHeaderDb
 
 -- * internal
 , seekTreeDb

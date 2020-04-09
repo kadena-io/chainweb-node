@@ -17,7 +17,7 @@ module Chainweb.WebBlockHeaderDB
 , mkWebBlockHeaderDb
 , initWebBlockHeaderDb
 , getWebBlockHeaderDb
-, webBlockHeaderDb
+-- , webBlockHeaderDb
 , webEntries
 , lookupWebBlockHeaderDb
 , lookupAdjacentParentHeader
@@ -44,6 +44,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.TreeDB
@@ -171,6 +172,7 @@ insertWebBlockHeaderDb wdb h = do
     db <- getWebBlockHeaderDb wdb h
     checkBlockAdjacentParents wdb h
     insertBlockHeaderDb db [h]
+{-# WARNING insertWebBlockHeaderDb "Implement BlockHeader validation" #-}
 
 -- -------------------------------------------------------------------------- --
 -- Checks and Properties
