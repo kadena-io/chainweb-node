@@ -54,7 +54,7 @@ import System.Random
 import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
-import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPayloadStore, _cut)
+import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPactService, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
@@ -121,7 +121,7 @@ workHandler' mr mcid m = do
     cdb = _coordCutDb mr
 
     pact :: PactExecutionService
-    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+    pact = _webPactExecutionService $ view cutDbPactService cdb
 
 solvedHandler
     :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> Handler NoContent

@@ -215,7 +215,7 @@ pactLoggers logger = P.Loggers $ P.mkLogger (error "ignored") fun def
 
 initPactService
     :: Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ChainwebVersion
     -> ChainId
     -> logger
@@ -233,7 +233,7 @@ initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config
 
 initPactService'
     :: Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ChainwebVersion
     -> ChainId
     -> logger
@@ -269,7 +269,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
 
 initialPayloadState
     :: Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => logger
     -> ChainwebVersion
     -> ChainId
@@ -289,7 +289,7 @@ initialPayloadState logger v@Mainnet01 cid =
     initializeCoinContract logger v cid $ genesisBlockPayload v cid
 
 initializeCoinContract
-    :: forall cas logger. (PayloadCas cas, Logger logger)
+    :: forall cas logger. (PayloadCasLookup cas, Logger logger)
     => logger
     -> ChainwebVersion
     -> ChainId
@@ -343,7 +343,7 @@ isGenesisParent (ParentHeader p)
 
 -- | Loop forever, serving Pact execution requests and reponses from the queues
 serviceRequests
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => LogFunction
     -> MemPoolAccess
     -> PactQueue
@@ -567,7 +567,7 @@ validateHashes bHeader pData miner transactions =
 -- Postcondition: beginSavepoint Block
 --
 restoreCheckpointer
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Maybe (BlockHeight,BlockHash)
         -- ^ The block height @height@ to which to restore and the parent header
         -- @parentHeader@.
@@ -598,7 +598,7 @@ data WithCheckpointerResult a
 -- If the inner action throws an exception the checkpointer state is discarded.
 --
 withCheckpointer
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Maybe (BlockHeight, BlockHash)
         -- The current block height and the parent hash
     -> String
@@ -620,7 +620,7 @@ withCheckpointer target caller act = mask $ \restore -> do
 -- provided target.
 --
 withCheckpointerRewind
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Maybe (BlockHeight, BlockHash)
         -- The current block height and the parent hash
     -> String
@@ -915,7 +915,7 @@ minerReward (MinerRewards rs q) bh =
 -- block-to-be
 --
 execNewBlock
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => MemPoolAccess
     -> ParentHeader
     -> Miner
@@ -1021,7 +1021,7 @@ withDiscardedBatch act = bracket start end (const act)
 -- | only for use in generating genesis blocks in tools
 --
 execNewGenesisBlock
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Miner
     -> Vector ChainwebTransaction
     -> PactServiceM cas PayloadWithOutputs
@@ -1035,7 +1035,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
         return $! Discard (toPayloadWithOutputs miner results)
 
 execLocal
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebTransaction
     -> PactServiceM cas (P.CommandResult P.Hash)
 execLocal cmd = withDiscardedBatch $ do
@@ -1091,7 +1091,7 @@ setBlockData (ParentHeader bh) = do
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
 playOneBlock
-    :: (PayloadCas cas)
+    :: (PayloadCasLookup cas)
     => BlockHeader
         -- ^ this is the current header. We may consider changing this to the parent
         -- header to avoid confusion with new block and prevent using data from this
@@ -1166,7 +1166,7 @@ playOneBlock currHeader plData pdbenv = do
 -- If @mb@ is 'Nothing', it rewinds to the genesis block.
 --
 rewindTo
-    :: forall cas . PayloadCas cas
+    :: forall cas . PayloadCasLookup cas
     => Maybe BlockHeight
         -- ^ if set, limit rewinds to this delta
     -> Maybe (BlockHeight, ParentHash)
@@ -1204,7 +1204,7 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
         -- play fork blocks
         V.mapM_ (fastForward payloadDb) newBlocks
 
-    fastForward :: forall c . PayloadCas c
+    fastForward :: forall c . PayloadCasLookup c
                 => PayloadDb c -> BlockHeader -> PactServiceM c ()
     fastForward payloadDb block = do
         let h = _blockHeight block
@@ -1221,7 +1221,7 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
 -- validated.
 --
 execValidateBlock
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => BlockHeader
     -> PayloadData
     -> PactServiceM cas PayloadWithOutputs
@@ -1396,7 +1396,7 @@ debugResult msg result =
     limit = 5000
 
 execPreInsertCheckReq
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Vector ChainwebTransaction
     -> PactServiceM cas (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = do
@@ -1426,7 +1426,7 @@ execPreInsertCheckReq txs = do
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
 
 execLookupPactTxs
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Rewind
     -> Vector P.PactHash
     -> PactServiceM cas (Vector (Maybe (T2 BlockHeight BlockHash)))

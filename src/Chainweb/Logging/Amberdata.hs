@@ -74,7 +74,6 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
@@ -267,7 +266,7 @@ instance FromJSON (AmberdataConfig -> AmberdataConfig) where
 -- -------------------------------------------------------------------------- --
 -- Monitor
 
-amberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
+amberdataBlockMonitor :: (PayloadCasLookup cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
 amberdataBlockMonitor cid logger db = do
     logFunctionText logger Info "Initialized Amberdata Block Monitor"
     case cid of
@@ -312,7 +311,7 @@ amberdataBlockMonitor cid logger db = do
         bcid = _blockChainId bheader
         totalChains = length $ chainIds bheader
 
-    payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+    payloadCas = view cutDbPayloadCas db
 
     getBlockPayload :: BlockHeader -> IO PayloadWithOutputs
     getBlockPayload bheader = (casLookupM payloadCas . _blockPayloadHash) bheader

@@ -110,7 +110,7 @@ instance HasChainId (ChainResources logger) where
 --
 withChainResources
     :: Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ChainwebVersion
     -> ChainId
     -> RocksDb
