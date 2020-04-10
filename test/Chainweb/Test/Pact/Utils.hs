@@ -681,8 +681,7 @@ testWebPactExecutionService
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
 testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
-    = fmap mkWebPactExecutionService
-    $ fmap HM.fromList
+    = fmap (mkWebPactExecutionService . HM.fromList)
     $ traverse mkPact
     $ zip sqlenvs
     $ toList

@@ -33,7 +33,7 @@ module Chainweb.Chainweb.PeerResources
 , withConnectionManger
 ) where
 
-import Configuration.Utils hiding (Error, Lens', (<.>))
+import Configuration.Utils hiding (Error, Lens')
 
 import Control.Concurrent.Async
 import Control.Lens hiding ((.=), (<.>))
@@ -136,7 +136,7 @@ allocateSocket conf = do
         (_peerConfigPort $ _p2pConfigPeer conf)
         (_peerConfigInterface $ _p2pConfigPeer conf)
     let !conf' = set (p2pConfigPeer . peerConfigPort) p conf
-    return $! (conf', sock)
+    return (conf', sock)
 
 deallocateSocket :: (P2pConfiguration, Socket) -> IO ()
 deallocateSocket (_, sock) = close sock

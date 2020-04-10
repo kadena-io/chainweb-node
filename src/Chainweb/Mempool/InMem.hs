@@ -247,7 +247,7 @@ checkBadListInMem
     -> IO (Vector Bool)
 checkBadListInMem lock hashes = withMVarMasked lock $ \mdata -> do
     !bad <- readIORef $ _inmemBadMap mdata
-    return $! V.map (flip HashMap.member bad) hashes
+    return $! V.map (`HashMap.member` bad) hashes
 
 
 maxNumPending :: Int
@@ -554,7 +554,7 @@ getPendingInMem :: InMemConfig t
 getPendingInMem cfg nonce lock since callback = do
     (psq, !rlog) <- readLock
     maybe (sendAll psq) (sendSome psq rlog) since
-    return $! (nonce, _rlNext rlog)
+    return (nonce, _rlNext rlog)
 
   where
     sendAll psq = do
@@ -578,7 +578,7 @@ getPendingInMem cfg nonce lock since callback = do
     readLock = withMVar lock $ \mdata -> do
         !psq <- readIORef $ _inmemPending mdata
         rlog <- readIORef $ _inmemRecentLog mdata
-        return $! (psq, rlog)
+        return (psq, rlog)
 
     initState = (id, 0)    -- difference list
     maxNumRecent = _inmemMaxRecentItems cfg
@@ -589,7 +589,7 @@ getPendingInMem cfg nonce lock since callback = do
         if sz' >= chunkSize
           then do sendChunk dl' sz'
                   return initState
-          else return $! (dl', sz')
+          else return (dl', sz')
 
     chunkSize = 1024 :: Int
 

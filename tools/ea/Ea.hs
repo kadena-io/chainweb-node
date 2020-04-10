@@ -1,12 +1,10 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+
 -- |
 -- Module: Ea
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -141,7 +139,8 @@ genPayloadModule v tag txFiles =
 
 startModule :: Text -> [Text]
 startModule tag =
-    [ "{-# LANGUAGE QuasiQuotes #-}"
+    [ "{-# LANGUAGE OverloadedStrings #-}"
+    , "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
     , ""

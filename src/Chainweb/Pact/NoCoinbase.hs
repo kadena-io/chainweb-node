@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -30,4 +29,3 @@ noCoinbase = CommandResult
     (PactResult (Right (PLiteral (LString "NO_COINBASE"))))
     0 Nothing Nothing Nothing
 {-# NOINLINE noCoinbase #-}
-
