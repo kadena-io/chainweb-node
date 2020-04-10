@@ -36,16 +36,20 @@ import Data.CAS
 --
 data HashMapCas v = IsCasValue v => HashMapCas !(TVar (HM.HashMap (CasKeyType v) v))
 
-instance (Show (CasKeyType v), Hashable (CasKeyType v), IsCasValue v) => IsCas (HashMapCas v) where
+instance (Show (CasKeyType v), Hashable (CasKeyType v), IsCasValue v) => HasCasLookup (HashMapCas v) where
     type CasValueType (HashMapCas v) = v
     casLookup (HashMapCas var) k = HM.lookup k <$!> readTVarIO var
+    {-# INLINE casLookup #-}
+
+instance (Show (CasKeyType v), Hashable (CasKeyType v), IsCasValue v) => IsCas (HashMapCas v) where
     casInsert cas@(HashMapCas var) a = casLookup cas (casKey a) >>= \case
         Just _ -> return ()
         Nothing -> atomically $ modifyTVar' var $ HM.insert (casKey a) a
     casDelete cas@(HashMapCas var) k = casLookup cas k >>= \case
         Nothing -> return ()
         Just _ -> atomically $ modifyTVar' var $ HM.delete k
-
+    {-# INLINE casInsert #-}
+    {-# INLINE casDelete #-}
 
 -- | Create new empty CAS
 --
