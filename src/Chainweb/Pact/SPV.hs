@@ -184,7 +184,7 @@ extractProof o = toPactValue (TObject o def) >>= k
 --
 getTxIdx
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => BlockHeaderDb
     -> PayloadDb cas
     -> BlockHeight

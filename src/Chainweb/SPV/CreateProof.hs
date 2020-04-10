@@ -71,7 +71,7 @@ import Data.CAS
 --
 createTransactionProof
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => CutDb cas
         -- ^ Block Header Database
     -> ChainId
@@ -93,7 +93,7 @@ createTransactionProof cutDb tcid scid bh i =
 -- | Version without CutDb dependency
 createTransactionProof_
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => WebBlockHeaderDb
     -> PayloadDb cas
     -> ChainId
@@ -119,7 +119,7 @@ createTransactionProof_ headerDb payloadDb tcid scid bh i = do
 --
 createTransactionProof'
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => CutDb cas
         -- ^ Block Header Database
     -> ChainId
@@ -136,7 +136,7 @@ createTransactionProof' cutDb tcid scid bh i = TransactionProof tcid
     <$> createPayloadProof transactionProofPrefix cutDb tcid scid bh i
 
 transactionProofPrefix
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Int
     -> PayloadDb cas
     -> BlockPayload
@@ -169,7 +169,7 @@ transactionProofPrefix i db payload = do
 --
 createTransactionOutputProof
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => CutDb cas
         -- ^ Block Header Database
     -> ChainId
@@ -193,7 +193,7 @@ createTransactionOutputProof cutDb tcid scid bh i =
 --
 createTransactionOutputProof_
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => WebBlockHeaderDb
     -> PayloadDb cas
         -- ^ Block Header Database
@@ -220,7 +220,7 @@ createTransactionOutputProof_ headerDb payloadDb tcid scid bh i = do
 --
 createTransactionOutputProof'
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => CutDb cas
         -- ^ Block Header Database
     -> ChainId
@@ -238,7 +238,7 @@ createTransactionOutputProof' cutDb tcid scid bh i
         <$> createPayloadProof outputProofPrefix cutDb tcid scid bh i
 
 outputProofPrefix
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Int
         -- ^ transaction index
     -> PayloadDb cas
@@ -272,7 +272,7 @@ type PayloadProofPrefix =
 --
 createPayloadProof
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => (Int -> PayloadDb cas -> BlockPayload -> IO PayloadProofPrefix)
     -> CutDb cas
         -- ^ Block Header Database
@@ -299,7 +299,7 @@ createPayloadProof getPrefix cutDb tcid scid txHeight txIx = do
 --
 createPayloadProof_
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => (Int -> PayloadDb cas -> BlockPayload -> IO PayloadProofPrefix)
     -> WebBlockHeaderDb
     -> PayloadDb cas

@@ -517,7 +517,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => WithPactCtxSQLite cas
     -> String
     -> LocalTest
