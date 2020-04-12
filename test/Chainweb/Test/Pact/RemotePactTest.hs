@@ -13,7 +13,7 @@
 
 -- |
 -- Module: Chainweb.Test.RemotePactTest
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>, Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -71,7 +71,7 @@ import System.LogLevel
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Pact.ApiReq (mkExec)
+import qualified Pact.ApiReq as Pact
 import Pact.Types.API
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
@@ -92,8 +92,8 @@ import Chainweb.ChainId
 import Chainweb.Chainweb
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.PeerResources
-import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Cut.CutHashes
+import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
@@ -230,7 +230,7 @@ localChainDataTest iot nio = do
         let nonce = "nonce" <> sshow nn
         t <- toTxCreationTime <$> iott
         kps <- testKeyPairs sender00KeyPair Nothing
-        c <- mkExec "(chain-data)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+        c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
         where
           ttl = 2 * 24 * 60 * 60
@@ -259,7 +259,7 @@ sendValidationTest iot nio =
         step "check sending poisoned TTL batch"
         cenv <- fmap _getClientEnv nio
         mv <- newMVar 0
-        SubmitBatch batch1 <- testBatch' iot 10000 mv gp
+        SubmitBatch batch1 <- testBatch' iot 10_000 mv gp
         SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp
         let batch = SubmitBatch $ batch1 <> batch2
         expectSendFailure "Transaction time is invalid or TTL is expired" $
@@ -268,13 +268,13 @@ sendValidationTest iot nio =
 
         step "check sending mismatched chain id"
         cid0 <- mkChainId v (0 :: Int)
-        batch3 <- testBatch'' "40" iot 20000 mv gp
+        batch3 <- testBatch'' "40" iot 20_000 mv gp
         expectSendFailure "Transaction metadata (chain id, chainweb version) conflicts with this endpoint" $
           flip runClientM cenv $
             pactSendApiClient v cid0 batch3
 
         step "check insufficient gas"
-        batch4 <- testBatch' iot 10000 mv 10000000000
+        batch4 <- testBatch' iot 10_000 mv 10_000_000_000
         expectSendFailure
           "(enforce (<= amount balance) \\\"...: Failure: Tx Failed: Insufficient funds\"" $
           flip runClientM cenv $
@@ -292,8 +292,8 @@ sendValidationTest iot nio =
       ks <- testKeyPairs senderKeyPair capList
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
-          pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100000 0.01 ttl t
-      let cmd (n :: Int) = liftIO $ mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
+          pm = Pact.PublicMeta (Pact.ChainId "0") senderName 100_000 0.01 ttl t
+      let cmd (n :: Int) = liftIO $ Pact.mkExec code A.Null pm ks (Just "fastTimedCPM-peterson") (Just $ sshow n)
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
@@ -335,9 +335,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     mkTxBatch = do
       ks <- liftIO $ testKeyPairs sender00KeyPair Nothing
       t <- toTxCreationTime <$> iot
-      let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100000 0.01 ttl t
-      cmd1 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
-      cmd2 <- liftIO $ mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
+      let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 ttl t
+      cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
+      cmd2 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "2")
       return $ SubmitBatch (pure cmd1 <> pure cmd2)
 
     txcode = show
@@ -418,7 +418,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
-      cmd <- liftIO $ mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
+      cmd <- liftIO $ Pact.mkExec code cdata pm ks (Just "fastTimedCPM-peterson") (Just "0")
       return $ SubmitBatch (pure cmd)
 
     txcode0 = T.unpack $ T.concat ["[", T.replicate 10 " 1", "]"]
@@ -454,7 +454,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
   where
     n0 = Just "transfer-clist0"
     ttl = 2 * 24 * 60 * 60
-    pm t = Pact.PublicMeta (Pact.ChainId "0") t 100000 0.01 ttl
+    pm t = Pact.PublicMeta (Pact.ChainId "0") t 100_000 0.01 ttl
 
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     result0 = Just (Right (PLiteral (LString "Write succeeded")))
@@ -567,12 +567,12 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation00")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099995.84) -- balance = (1k + 1mm) - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.84) -- balance = (1k + 1mm) - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation00"))
         ]
 
     ttl = 2 * 24 * 60 * 60
-    pm t = Pact.PublicMeta (Pact.ChainId "0") t 100000 0.01 ttl
+    pm t = Pact.PublicMeta (Pact.ChainId "0") t 100_000 0.01 ttl
 
     tx0 = PactTransaction "(coin.release-allocation \"allocation00\")" Nothing
     tx1 = PactTransaction "(coin.details \"allocation00\")" Nothing
@@ -592,7 +592,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       $ ObjectMap
       $ M.fromList
         [ (FieldKey "account", PLiteral $ LString "allocation02")
-        , (FieldKey "balance", PLiteral $ LDecimal 1099995.13) -- 1k + 1mm - gas
+        , (FieldKey "balance", PLiteral $ LDecimal 1_099_995.13) -- 1k + 1mm - gas
         , (FieldKey "guard", PGuard $ GKeySetRef (KeySetName "allocation02"))
         ]
 
@@ -612,7 +612,7 @@ mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
     ks <- testKeyPairs kps clist
     pm <- pmk . toTxCreationTime <$> iot
     let dd = fromMaybe A.Null d
-    cmd <- liftIO $ mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
+    cmd <- liftIO $ Pact.mkExec (T.unpack c) dd pm ks (Just "fastTimedCPM-peterson") nonce
     return $ SubmitBatch (cmd NEL.:| [])
 
 withRequestKeys
@@ -643,7 +643,7 @@ awaitCutHeight
     -> BlockHeight
     -> IO CutHashes
 awaitCutHeight cenv i = do
-    result <- retrying (exponentialBackoff 20000 <> limitRetries 9) checkRetry
+    result <- retrying (exponentialBackoff 20_000 <> limitRetries 9) checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
         Left e -> throwM e
@@ -667,7 +667,7 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local sid cenv cmd =
-    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting local cmd for " <> (take 18 $ show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -690,7 +690,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -714,9 +714,9 @@ sending
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
       debug
-        $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
+        $ "sending requestkeys " <> show (_cmdHash <$> toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
       -- Send and return naively
@@ -743,7 +743,7 @@ polling
     -> PollingExpectation
     -> IO PollResponses
 polling sid cenv rks pollingExpectation =
-    recovering (exponentialBackoff 20000 <> limitRetries 11) [h] $ \s -> do
+    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -778,7 +778,7 @@ testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
     kps <- testKeyPairs sender00KeyPair Nothing
-    c <- mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
+    c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
     pm :: Pact.TxCreationTime -> Pact.PublicMeta

@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -25,7 +26,7 @@ module Chainweb.Mempool.InMem
 ------------------------------------------------------------------------------
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async
-import Control.Concurrent.MVar (MVar, newMVar, withMVar, withMVarMasked)
+import Control.Concurrent.MVar
 import Control.DeepSeq
 import Control.Error.Util (hush)
 import Control.Exception (bracket, evaluate, mask_, throw)
@@ -179,7 +180,7 @@ withInMemoryMempool_ l cfg _v f = do
             logFunctionText l Debug "got stats"
             logFunctionJson l Info stats
             logFunctionText l Debug "logged stats"
-            approximateThreadDelay 60000000 {- 1 minute -}
+            approximateThreadDelay 60_000_000 {- 1 minute -}
 
 ------------------------------------------------------------------------------
 memberInMem :: MVar (InMemoryMempoolData t)
@@ -233,7 +234,7 @@ addToBadListInMem lock tx = withMVarMasked lock $ \mdata -> do
     -- we don't have the expiry time here, so just use maxTTL
     now <- getCurrentTimeIntegral
     let (ParsedInteger mt) = maxTTL
-    let !endTime = add (secondsToTimeSpan $ Seconds mt) now
+    let !endTime = add (secondsToTimeSpan $ fromIntegral mt) now
     let !bad' = HashMap.insert tx endTime bad
     writeIORef (_inmemPending mdata) pnd'
     writeIORef (_inmemBadMap mdata) bad'
@@ -246,7 +247,7 @@ checkBadListInMem
     -> IO (Vector Bool)
 checkBadListInMem lock hashes = withMVarMasked lock $ \mdata -> do
     !bad <- readIORef $ _inmemBadMap mdata
-    return $! V.map (flip HashMap.member bad) hashes
+    return $! V.map (`HashMap.member` bad) hashes
 
 
 maxNumPending :: Int
@@ -553,7 +554,7 @@ getPendingInMem :: InMemConfig t
 getPendingInMem cfg nonce lock since callback = do
     (psq, !rlog) <- readLock
     maybe (sendAll psq) (sendSome psq rlog) since
-    return $! (nonce, _rlNext rlog)
+    return (nonce, _rlNext rlog)
 
   where
     sendAll psq = do
@@ -577,7 +578,7 @@ getPendingInMem cfg nonce lock since callback = do
     readLock = withMVar lock $ \mdata -> do
         !psq <- readIORef $ _inmemPending mdata
         rlog <- readIORef $ _inmemRecentLog mdata
-        return $! (psq, rlog)
+        return (psq, rlog)
 
     initState = (id, 0)    -- difference list
     maxNumRecent = _inmemMaxRecentItems cfg
@@ -588,7 +589,7 @@ getPendingInMem cfg nonce lock since callback = do
         if sz' >= chunkSize
           then do sendChunk dl' sz'
                   return initState
-          else return $! (dl', sz')
+          else return (dl', sz')
 
     chunkSize = 1024 :: Int
 
@@ -597,11 +598,7 @@ getPendingInMem cfg nonce lock since callback = do
 
 ------------------------------------------------------------------------------
 clearInMem :: MVar (InMemoryMempoolData t) -> IO ()
-clearInMem lock = do
-    withMVarMasked lock $ \mdata -> do
-        writeIORef (_inmemPending mdata) mempty
-        writeIORef (_inmemRecentLog mdata) emptyRecentLog
-
+clearInMem lock = newInMemMempoolData >>= void . swapMVar lock
 
 ------------------------------------------------------------------------------
 emptyRecentLog :: RecentLog
@@ -679,4 +676,3 @@ pruneInternal mdata now = do
     -- keep transactions that expire in the future.
     flt pe = _inmemPeExpires pe > now
     pruneBadMap = HashMap.filter (> now)
-

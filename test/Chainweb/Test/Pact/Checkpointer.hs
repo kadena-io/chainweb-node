@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -34,6 +35,7 @@ import Pact.Types.PactValue
 import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
 import Pact.Types.SPV (noSPVSupport)
+import Pact.Types.SQLite
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -53,14 +55,19 @@ import Chainweb.Pact.TransactionExec
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
+import Chainweb.Version
 
 tests :: ScheduledTest
 tests = testGroupSch "Checkpointer"
-    [testInMemory
+    [ testInMemory
     , testKeyset
     , testRelational
+    , testModuleName
     , testCase "PactDb Regression" testRegress
     , testCase "readRow unitTest" readRowUnitTest]
+
+testVer :: ChainwebVersion
+testVer = FastTimedCPM peterson
 
 testInMemory :: TestTree
 testInMemory = checkpointerTest "In-memory Checkpointer" InMem
@@ -102,6 +109,41 @@ defModule idx = [text| ;;
 
 tIntList :: [Int] -> Term n
 tIntList = toTList (TyPrim TyInteger) def . map toTerm
+
+testModuleName :: TestTree
+testModuleName = withResource initializeSQLite freeSQLiteResource $
+  runSQLite' (testCase "testModuleName" . go)
+  where
+    go res = do
+
+      (CheckpointEnv {..}, SQLiteEnv {..}) <- res
+
+      -- init genesis
+      let hash00 = getArbitrary 0
+      void $ _cpRestore _cpeCheckpointer Nothing
+      _cpSave _cpeCheckpointer hash00
+
+      let hash01 = getArbitrary 1
+          hash02 = getArbitrary 2
+      void $ _cpRestore _cpeCheckpointer (Just (1, hash00))
+      _cpSave _cpeCheckpointer hash01
+      (PactDbEnv' (PactDbEnv pactdb mvar)) <- _cpRestore _cpeCheckpointer (Just (2, hash01))
+
+
+      -- block 2: write module records
+      (_,_,mod') <- loadModule
+      -- write qualified
+      _writeRow pactdb Insert Modules "nsname.qualmod" mod' mvar
+      -- write unqualified
+      _writeRow pactdb Insert Modules "baremod" mod' mvar
+      _cpSave _cpeCheckpointer hash02
+
+      r1 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%qual%'" [RText]
+      assertEqual "correct namespaced module name" [[SText "nsname.qualmod"]] r1
+
+      r2 <- qry_ _sConn "SELECT rowkey FROM [SYS:Modules] WHERE rowkey LIKE '%bare%'" [RText]
+      assertEqual "correct bare module name" [[SText "baremod"]] r2
+
 
 testKeyset :: TestTree
 testKeyset = withResource initializeSQLite freeSQLiteResource (runSQLite keysetTest)
@@ -148,14 +190,17 @@ data InitData = OnDisk | InMem
 testRelational :: TestTree
 testRelational = checkpointerTest "Relational Checkpointer" OnDisk
 
-runSQLite :: (IO CheckpointEnv -> TestTree) -> IO (IO (), SQLiteEnv) -> TestTree
-runSQLite runTest = runTest . make
+runSQLite :: (IO (CheckpointEnv) -> TestTree) -> IO (IO (), SQLiteEnv) -> TestTree
+runSQLite f = runSQLite' (f . fmap fst)
+
+runSQLite' :: (IO (CheckpointEnv,SQLiteEnv) -> TestTree) -> IO (IO (), SQLiteEnv) -> TestTree
+runSQLite' runTest = runTest . make
   where
-    make :: IO (IO (), SQLiteEnv) -> IO CheckpointEnv
+    make :: IO (IO (), SQLiteEnv) -> IO (CheckpointEnv,SQLiteEnv)
     make iosqlenv = do
       (_,sqlenv) <- iosqlenv
       let loggers = pactTestLogger False
-      initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer")
+      (,sqlenv) <$> initRelationalCheckpointer initBlockState sqlenv (newLogger loggers "RelationalCheckpointer") testVer
 
 runTwice :: MonadIO m => (String -> IO ()) -> m () -> m ()
 runTwice step action = do
@@ -176,7 +221,7 @@ checkpointerTest name initdata =
 
     expectException act = do
         result <- (act >> return (Just msg)) `catch` h
-        maybe (return ()) (flip assertBool False) result
+        maybe (return ()) (`assertBool` False) result
       where
         msg = "The table duplication somehow went through. Investigate this error."
 
@@ -440,7 +485,7 @@ testRegress =
         >>= assertEquals "The final block state is" finalBlockState
   where
     finalBlockState = (2, 0)
-    toTup (BlockState txid _ blockVersion _ _) = (txid, blockVersion)
+    toTup (BlockState txid _ blockVersion _ _ _) = (txid, blockVersion)
 
 
 simpleBlockEnvInit ::

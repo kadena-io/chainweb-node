@@ -4,7 +4,7 @@
 
 -- |
 -- Module: Data.TaskMap
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -48,7 +48,7 @@ insert :: Eq k => Hashable k => TaskMap k v -> k -> IO v -> IO (Async v)
 insert tm@(TaskMap var) k t = modifyMVarMasked var $ \m -> do
     !a <- asyncWithUnmask $ \umask -> umask t `finally` delete tm k
     m' <- evaluate $ HM.insert k a m
-    return $! (m', a)
+    return (m', a)
 
 delete :: Eq k => Hashable k => TaskMap k v -> k -> IO ()
 delete (TaskMap var) k = modifyMVar_ var $ evaluate . HM.delete k
@@ -84,6 +84,6 @@ memo tm@(TaskMap var) k task = do
         Nothing -> do
             !a <- asyncWithUnmask $ \umask -> umask (task k) `finally` delete tm k
             m' <- evaluate $ HM.insert k a m
-            return $! (m', a)
-        (Just !a) -> return $! (m, a)
+            return (m', a)
+        (Just !a) -> return (m, a)
     wait a

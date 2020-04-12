@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -12,9 +13,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Chainweb.Pact.Backend.ForkingBench
-  (bench
-  ) where
+module Chainweb.Pact.Backend.ForkingBench ( bench ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
@@ -41,7 +40,6 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -68,7 +66,6 @@ import Text.Printf
 -- pact imports
 
 import Pact.ApiReq
-import Pact.Parse
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.ChainMeta
@@ -98,9 +95,10 @@ import Chainweb.Pact.PactService
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
 import Chainweb.Pact.Types
+import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload
-import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Payload.PayloadStore
+import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.TreeDB
@@ -145,9 +143,11 @@ bench = C.bgroup "PactService" $
         name = "block-new" ++ (if validate then "-valid" else "") ++
                "[" ++ show txCount ++ "]"
 
-testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> Time Int -> MemPoolAccess
-testMemPoolAccess txsPerBlock accounts t = mempty
-    { mpaGetBlock = \validate bh hash _header -> getTestBlock accounts t validate bh hash }
+testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> MemPoolAccess
+testMemPoolAccess txsPerBlock accounts = mempty
+    { mpaGetBlock = \validate bh hash header ->
+        getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+    }
   where
 
     setTime time pb = pb { _pmCreationTime = toTxCreationTime time }
@@ -236,8 +236,8 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
      payload <- assertNotLeft =<< takeMVar mv
 
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-     let bh = newBlockHeader
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
+         bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
               nonce
@@ -275,7 +275,7 @@ noMineBlock validate parentHeader nonce r = do
 
      payload <- assertNotLeft =<< takeMVar mv
 
-     creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
      let bh = newBlockHeader
               (BlockHashRecord mempty)
               (_payloadWithOutputsPayloadHash payload)
@@ -324,13 +324,12 @@ withResources trunkLength logLevel f = C.envWithCleanup create destroy unwrap
         payloadDb <- createPayloadDb
         blockHeaderDb <- testBlockHeaderDb (snd rocksDbAndDir) genesisBlock
         tempDir <- fst <$> newTempDir
-        time <- getCurrentTimeIntegral
         coinAccounts <- newMVar mempty
         nonceCounter <- newIORef 1
         txPerBlock <- newIORef 10
         sqlEnv <- startSqliteDb testVer cid logger (Just tempDir) Nothing False
         pactService <-
-          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts time) sqlEnv
+          startPact testVer logger blockHeaderDb payloadDb (testMemPoolAccess txPerBlock coinAccounts) sqlEnv
         mainTrunkBlocks <-
           playLine payloadDb blockHeaderDb trunkLength genesisBlock (snd pactService) nonceCounter
         return $ NoopNFData $ Resources {..}
@@ -400,9 +399,6 @@ testRocksDb l = rocksDbNamespace (const prefix)
   where
     prefix = (<>) l . sshow <$> (randomIO @Word64)
 
-toTxCreationTime :: Time Int -> TxCreationTime
-toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
@@ -474,7 +470,7 @@ formatB16PubKey :: SomeKeyPair -> Text
 formatB16PubKey = toB16Text . formatPublicKey
 
 safeCapitalize :: String -> String
-safeCapitalize = fromMaybe [] . fmap (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
+safeCapitalize = maybe [] (uncurry (:) . bimap toUpper (Prelude.map toLower)) . Data.List.uncons
 
 validateCommand :: Command Text -> Either String ChainwebTransaction
 validateCommand cmdText = case verifyCommand cmdBS of
@@ -612,7 +608,7 @@ makeMeta c = do
           _pmChainId = Pact.ChainId $ chainIdToText c
         , _pmSender = "sender00"
         , _pmGasLimit = 10000
-        , _pmGasPrice = 0.000000000001
+        , _pmGasPrice = 0.000_000_000_001
         , _pmTTL = 3600
         , _pmCreationTime = t
         }

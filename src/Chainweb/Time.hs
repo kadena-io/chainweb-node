@@ -1,6 +1,8 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -81,8 +83,13 @@ module Chainweb.Time
 -- * Math, constants
 , add
 , diff
+, invert
 , kilo
 , mega
+
+-- * Formats
+, parseTimeMicros
+, formatTimeMicros
 ) where
 
 import Control.DeepSeq
@@ -101,6 +108,7 @@ import Data.Ratio
 import qualified Data.Text as T
 import Data.Time
 import Data.Time.Clock.POSIX
+import Data.Time.Clock.System
 import Data.Word
 
 import GHC.Generics
@@ -124,8 +132,8 @@ import Numeric.Cast
 -- | The internal unit is microseconds.
 --
 newtype TimeSpan a = TimeSpan a
-    deriving (Show, Eq, Ord, Generic, Data)
-    deriving anyclass (Hashable, NFData, Lift)
+    deriving (Show, Eq, Ord, Generic, Data, Lift)
+    deriving anyclass (Hashable, NFData)
     deriving newtype
         ( AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
         , AdditiveGroup, FractionalVectorSpace
@@ -175,8 +183,8 @@ addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 -- | Time is measured as microseconds relative to UNIX Epoche
 --
 newtype Time a = Time (TimeSpan a)
-    deriving (Show, Eq, Ord, Generic, Data)
-    deriving anyclass (Hashable, NFData, Lift)
+    deriving (Show, Eq, Ord, Generic, Data, Lift)
+    deriving anyclass (Hashable, NFData)
     deriving newtype (Enum, Bounded, ToJSON, FromJSON)
 
 instance AdditiveGroup (TimeSpan a) => LeftTorsor (Time a) where
@@ -192,19 +200,38 @@ epoch = Time (TimeSpan 0)
 
 timeMicrosQQ :: QuasiQuoter
 timeMicrosQQ = QuasiQuoter
-    { quoteExp   = posixExp utcIso8601
+    { quoteExp   = posixExp
     , quotePat   = const $ error "No quotePat defined for timeMicrosQQ"
     , quoteType  = const $ error "No quoteType defined for timeMicrosQQ"
     , quoteDec   = const $ error "No quoteDec defined for timeMicrosQQ"
     }
   where
-    utcIso8601 = "%Y-%m-%dT%H:%M:%S%Q"
-    posixExp :: String -> String -> ExpQ
-    posixExp format input =
-        let u = parseTimeOrError True defaultTimeLocale format input :: UTCTime
-            p = utcTimeToPOSIXSeconds u
-            t = Time $ TimeSpan $ round $ p * 1000000 :: Time Micros
-        in t `seq` [| t |]
+    posixExp :: String -> ExpQ
+    posixExp input = case parseTimeMicros input of
+      Nothing -> error $ "Invalid time string: " ++ show input
+      Just t -> t `seq` [| t |]
+
+-- | Format for 'timeMicrosQQ'
+utcIso8601 :: String
+utcIso8601 = "%Y-%m-%dT%H:%M:%S%Q"
+
+-- | Parse 'utcIso8601' format as 'Time'
+parseTimeMicros :: String -> Maybe (Time Micros)
+parseTimeMicros input = case parseTimeM True defaultTimeLocale utcIso8601 input of
+  Nothing -> Nothing
+  Just u ->
+    let p = utcTimeToPOSIXSeconds u
+        t = Time $ TimeSpan $ round $ p * 1000000 :: Time Micros
+    in Just t
+
+-- | Format 'Time' in 'utcIso8601'
+formatTimeMicros :: Integral a => Time a -> String
+formatTimeMicros tm = formatISO $ timeToUTCTime tm
+  where
+    epochUTCTime = UTCTime systemEpochDay 0
+    formatISO = formatTime defaultTimeLocale utcIso8601
+    timeToNominalDiffTime (Time (TimeSpan m)) = fromInteger (fromIntegral m `div` 1_000_000)
+    timeToUTCTime t = addUTCTime (timeToNominalDiffTime t) epochUTCTime
 
 -- | Adhering to `Time`, this is the current number of microseconds since the
 -- epoch.
@@ -286,11 +313,11 @@ day = TimeSpan $ mega * 24 * 3600
 -- -------------------------------------------------------------------------- --
 -- Seconds
 
-newtype Seconds = Seconds Integer
+newtype Seconds = Seconds Int64
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (Hashable, NFData)
     deriving newtype (FromJSON, ToJSON)
-    deriving newtype (Num, Enum, Real)
+    deriving newtype (Num, Enum, Real, Integral)
 
 secondsToTimeSpan :: Num a => Seconds -> TimeSpan a
 secondsToTimeSpan (Seconds s) = scaleTimeSpan s second
@@ -322,7 +349,7 @@ instance HasTextRepresentation Seconds where
 -- | Will last for around ~300,000 years after the Linux epoch.
 --
 newtype Micros = Micros Int64
-    deriving (Show, Eq, Ord, Enum, Bounded, Generic, Data)
+    deriving (Show, Eq, Ord, Enum, Bounded, Generic, Data, Lift)
     deriving anyclass (Hashable, NFData)
     deriving newtype (Num, Integral, Real, AdditiveGroup, AdditiveMonoid, AdditiveSemigroup)
     deriving newtype (Arbitrary, ToJSON, FromJSON)

@@ -18,7 +18,7 @@
 
 -- |
 -- Module: Chainweb.Sync.WebBlockHeaderStore
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -63,8 +63,8 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeader.Validation
+import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Payload
@@ -355,7 +355,7 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             queryParent p = Concurrently $ void $ do
                 logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h <> ": " <> sshow p
                 ChainValue _ ph <- getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
-                validateInductiveM ph header
+                validateInductiveM (ParentHeader ph) header
 
         p <- runConcurrently
             -- query payload

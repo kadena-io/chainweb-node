@@ -1,13 +1,12 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.PactInProcApi
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainer: Mark Nichols <mark@kadena.io>
 -- Stability: experimental
@@ -18,19 +17,18 @@ module Chainweb.Test.Pact.PactInProcApi
 ( tests
 ) where
 
-import Control.Concurrent.MVar.Strict
+import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 
 import Data.Aeson (object, (.=))
+import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
-import Data.List (isInfixOf)
+import Data.IORef
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
-
-import GHC.Generics
 
 import System.IO.Extra
 import System.LogLevel
@@ -41,15 +39,15 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Pact.Parse
-import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
 import Pact.Types.Command
+import Pact.Types.Hash
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
-import Chainweb.Cut.TestBlockDb
 import Chainweb.ChainId
+import Chainweb.Cut.TestBlockDb
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -60,8 +58,8 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.Version
 import Chainweb.Utils
+import Chainweb.Version
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
@@ -73,30 +71,25 @@ genesisHeader :: BlockHeader
 genesisHeader = genesisBlockHeader testVersion cid
 
 tests :: ScheduledTest
-tests = ScheduledTest label $
-    withResource (newMVar "1") (const $ return()) $ \noncer ->
-    testGroup label
-    [ withPactTestBlockDb testVersion cid Warn testMemPoolAccess conf
-          (newBlockTest "new-block-0")
-    , withPactTestBlockDb testVersion cid Warn testMemPoolAccess conf
-          newBlockAndValidate
-    , withPactTestBlockDb testVersion cid Warn (testMempoolChainData noncer) conf
-          (newBlockRewindValidate noncer)
-    , withPactTestBlockDb testVersion cid Warn testEmptyMemPool conf
-          (newBlockTest "empty-block-tests")
-    , withPactTestBlockDb testVersion cid Quiet badlistMPA  conf
-          badlistNewBlockTest
-    ]
+tests = ScheduledTest testName $ go
   where
-    label = "Chainweb.Test.Pact.PactInProcApi"
-    conf = defaultPactServiceConfig
+    testName = "Chainweb.Test.Pact.PactInProcApi"
+    go = testGroup testName
+         [ test Warn $ goldenNewBlock "new-block-0" goldenMemPool
+         , test Warn $ goldenNewBlock "empty-block-tests" mempty
+         , test Warn $ newBlockAndValidate
+         , test Warn $ newBlockRewindValidate
+         , test Quiet $ badlistNewBlockTest
+         , test Warn $ mempoolCreationTimeTest
+         , test Warn $ moduleNameFork
+         ]
+      where
+        test logLevel f =
+          withDelegateMempool $ \dm ->
+          withPactTestBlockDb testVersion cid logLevel (snd <$> dm) defaultPactServiceConfig $
+          f (fst <$> dm)
 
 
-newBlockTest :: String -> IO (PactQueue,TestBlockDb) -> TestTree
-newBlockTest label reqIO = golden label $ do
-    (reqQ,_) <- reqIO
-    respVar <- newBlock noMiner (ParentHeader genesisHeader) reqQ
-    goldenBytes "new-block" =<< takeMVar respVar
 
 forSuccess :: String -> IO (MVar (Either PactException a)) -> IO a
 forSuccess msg mvio = (`catch` handler) $ do
@@ -122,15 +115,16 @@ runBlock q bdb timeOffset msg = do
        validateBlock nextH (payloadWithOutputsToPayloadData nb) q
 
 
-newBlockAndValidate :: IO (PactQueue,TestBlockDb) -> TestTree
-newBlockAndValidate reqIO = testCase "newBlockAndValidate" $ do
+newBlockAndValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (q,bdb) <- reqIO
+  setMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
 
-newBlockRewindValidate :: IO (MVar T.Text) -> IO (PactQueue,TestBlockDb) -> TestTree
-newBlockRewindValidate noncer reqIO = testCase "newBlockRewindValidate" $ do
+newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
   (q,bdb) <- reqIO
-  nonce <- noncer
+  setMempool mpRefIO chainDataMemPool
   cut0 <- readMVar $ _bdbCut bdb -- genesis cut
 
   -- cut 1a
@@ -139,105 +133,174 @@ newBlockRewindValidate noncer reqIO = testCase "newBlockRewindValidate" $ do
 
   -- rewind, cut 1b
   void $ swapMVar (_bdbCut bdb) cut0
-  void $ swapMVar nonce "1'"
   runBlock q bdb second "newBlockRewindValidate-1b"
 
   -- rewind to cut 1a to trigger replay with chain data bug
   void $ swapMVar (_bdbCut bdb) cut1a
-  void $ swapMVar nonce "2"
   runBlock q bdb (secondsToTimeSpan 2) "newBlockRewindValidate-2"
 
+  where
 
+    chainDataMemPool = mempty {
+      mpaGetBlock = \_ _ _ bh -> do
+          fmap V.singleton $ buildCwCmd
+            $ set cbSigners [mkSigner' sender00 []]
+            $ set cbChainId (_blockChainId bh)
+            $ set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh)
+            $ mkCmd (sshow bh) -- nonce is block height, sufficiently unique
+            $ mkExec' "(chain-data)"
+      }
 
+moduleNameFork :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+moduleNameFork mpRefIO reqIO = testCase "moduleNameFork" $ do
 
+  (q,bdb) <- reqIO
 
+  -- install in free in block 1
+  setMempool mpRefIO (moduleNameMempool "free" "test")
+  void $ runBlock q bdb second "moduleNameFork-1"
 
-data GotTxBadList = GotTxBadList
-  deriving (Show, Generic)
-instance Exception GotTxBadList
+  -- install in user in block 2
+  setMempool mpRefIO (moduleNameMempool "user" "test")
+  void $ runBlock q bdb second "moduleNameFork-1"
 
-badlistMPA :: MemPoolAccess
-badlistMPA = mempty
-    { mpaGetBlock = \_ _ _ _ -> getBadBlock
-    , mpaBadlistTx = \_ -> throwIO GotTxBadList
+  -- do something else post-fork
+  setMempool mpRefIO (moduleNameMempool "free" "test2")
+  void $ runBlock q bdb second "moduleNameFork-1"
+  setMempool mpRefIO (moduleNameMempool "user" "test2")
+  void $ runBlock q bdb second "moduleNameFork-1"
+
+  -- TODO this test doesn't actually validate, I turn on Debug and make sure it
+  -- goes well.
+
+moduleNameMempool :: T.Text -> T.Text -> MemPoolAccess
+moduleNameMempool ns mn = mempty
+    { mpaGetBlock = getTestBlock
     }
   where
-    getBadBlock = do
-        d <- adminData
-        let inputs = V.fromList [ PactTransaction "(+ 1 2)" d ]
-        txs0 <- goldenTestTransactions inputs
-        let setGP = modifyPayloadWithText . set (pMeta . pmGasPrice)
-        let setGL = modifyPayloadWithText . set (pMeta . pmGasLimit)
-        -- this should exceed the account balance
-        let txs = flip V.map txs0 $
-                  fmap (setGP 1000000000000000 . setGL 99999)
-        return txs
+    getTestBlock _ _ _ bh = do
+        let txs =
+              [ "(namespace '" <> ns <> ") (module " <> mn <> " G (defcap G () (enforce false 'cannotupgrade)))"
+              , ns <> "." <> mn <> ".G"
+              ]
+        fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
+          buildCwCmd $
+          set cbSigners [mkSigner' sender00 []] $
+          set cbCreationTime (toTxCreationTime $ _bct $ _blockCreationTime bh) $
+          mkCmd ("1" <> sshow n) $
+          mkExec' code
 
-badlistNewBlockTest :: IO (PactQueue,TestBlockDb) -> TestTree
-badlistNewBlockTest reqIO = testCase "badlist-new-block-test" $ do
+
+mempoolCreationTimeTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+mempoolCreationTimeTest mpRefIO reqIO = testCase "mempoolCreationTimeTest" $ do
+
+  (q,bdb) <- reqIO
+
+  let start@(Time startSpan) :: Time Micros = Time (TimeSpan (Micros 100_000_000))
+      s30 = scaleTimeSpan (30 :: Int) second
+      s15 = scaleTimeSpan (15 :: Int) second
+  -- b1 block time is start
+  void $ runBlock q bdb startSpan "mempoolCreationTimeTest-1"
+
+
+  -- do pre-insert check with transaction at start + 15s
+  tx <- makeTx "tx-now" (add s15 start)
+  void $ forSuccess "mempoolCreationTimeTest: pre-insert tx" $
+    pactPreInsertCheck (V.singleton tx) q
+
+  setMempool mpRefIO $ mp tx
+  -- b2 will be made at start + 30s
+  void $ runBlock q bdb s30 "mempoolCreationTimeTest-2"
+
+  where
+
+    makeTx nonce t = buildCwCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbChainId cid
+        $ set cbCreationTime (toTxCreationTime $ t)
+        $ set cbTTL 300
+        $ mkCmd (sshow t <> nonce)
+        $ mkExec' "1"
+    mp tx = mempty {
+      mpaGetBlock = \valid _ _ bh -> getBlock bh tx valid
+      }
+
+    getBlock bh tx valid = do
+      let txs = V.singleton tx
+      oks <- valid (_blockHeight bh) (_blockHash bh) txs
+      unless (V.and oks) $ throwIO $ userError "Insert failed"
+      return txs
+
+
+badlistNewBlockTest :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+badlistNewBlockTest mpRefIO reqIO = testCase "badlist-new-block-test" $ do
+  (reqQ,_) <- reqIO
+  badHashRef <- newIORef $ fromUntypedHash pactInitialHash
+  badTx <- buildCwCmd
+    $ set cbSigners [mkSigner' sender00 []]
+    -- this should exceed the account balance
+    $ set cbGasLimit 99999
+    $ set cbGasPrice 1_000_000_000_000_000
+    $ mkCmd "badListMPA"
+    $ mkExec' "(+ 1 2)"
+  setMempool mpRefIO (badlistMPA badTx badHashRef)
+  newBlock noMiner (ParentHeader genesisHeader) reqQ
+    >>= readMVar
+    >>= expectFailureContaining "badlistNewBlockTest:newBlock" "Insufficient funds"
+  badHash <- readIORef badHashRef
+  assertEqual "Badlist should have badtx hash" (_cmdHash badTx) badHash
+  where
+    badlistMPA badTx badHashRef = mempty
+      { mpaGetBlock = \_ _ _ _ -> return $ V.singleton badTx
+      , mpaBadlistTx = writeIORef badHashRef
+      }
+
+
+goldenNewBlock :: String -> MemPoolAccess -> IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+goldenNewBlock label mp mpRefIO reqIO = golden label $ do
     (reqQ,_) <- reqIO
-    expectBadlistException $ do
-        m <- newBlock noMiner (ParentHeader genesisHeader) reqQ
-        takeMVar m >>= either throwIO (const (return ()))
+    setMempool mpRefIO mp
+    resp <- forSuccess ("goldenNewBlock:" ++ label) $
+      newBlock noMiner (ParentHeader genesisHeader) reqQ
+    -- ensure all golden txs succeed
+    forM_ (_payloadWithOutputsTransactions resp) $ \(txIn,TransactionOutput out) -> do
+      cr :: CommandResult Hash <- decodeStrictOrThrow out
+      assertSatisfies ("golden tx succeeds, input: " ++ show txIn) (_crResult cr) (isRight . (\(PactResult r) -> r))
+    goldenBytes resp
   where
-    -- verify that the pact service attempts to badlist the bad tx at mempool
-    expectBadlistException m = do
-        let wrap = m >> fail "expected exception"
-        let onEx (e :: PactException) =
-                if "GotTxBadList" `isInfixOf` show e
-                  then return ()
-                  else throwIO e
-        wrap `catch` onEx
+    goldenBytes :: PayloadWithOutputs -> IO BL.ByteString
+    goldenBytes a = return $ BL.fromStrict $ Y.encode $ object
+      [ "test-group" .= ("new-block" :: T.Text)
+      , "results" .= a
+      ]
 
-_localTest :: IO PactQueue -> ScheduledTest
-_localTest reqIO = goldenSch "local" $ do
-    reqQ <- reqIO
-    locVar0c <- _testLocal >>= \t -> local t reqQ
-    goldenBytes "local" =<< takeMVar locVar0c
-
-goldenBytes :: Y.ToJSON a => Exception e => String -> Either e a -> IO BL.ByteString
-goldenBytes label (Left e) = assertFailure $ label ++ ": " ++ show e
-goldenBytes label (Right a) = return $ BL.fromStrict $ Y.encode $ object
-    [ "test-group" .= label
-    , "results" .= a
-    ]
-
--- moved here, should NEVER be in production code:
--- you can't modify a payload without recomputing hash/signatures
-modifyPayloadWithText
-    :: (Payload PublicMeta ParsedCode -> Payload PublicMeta ParsedCode)
-    -> PayloadWithText
-    -> PayloadWithText
-modifyPayloadWithText f pwt = mkPayloadWithText newPayload
-  where
-    oldPayload = payloadObj pwt
-    newPayload = f oldPayload
-
-testMemPoolAccess :: MemPoolAccess
-testMemPoolAccess = mempty
+goldenMemPool :: MemPoolAccess
+goldenMemPool = mempty
     { mpaGetBlock = getTestBlock
     }
   where
     getTestBlock validate bHeight bHash parentHeader = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
-        d <- adminData
-        let txs = V.fromList
-              [ PactTransaction (T.pack moduleStr) d
-              , PactTransaction "(create-table test1.accounts)" d
-              , PactTransaction "(test1.create-global-accounts)" d
-              , PactTransaction "(test1.transfer \"Acct1\" \"Acct2\" 1.00)" d
-              , PactTransaction "(at 'prev-block-hash (chain-data))" d
-              , PactTransaction "(at 'block-time (chain-data))" d
-              , PactTransaction "(at 'block-height (chain-data))" d
-              , PactTransaction "(at 'gas-limit (chain-data))" d
-              , PactTransaction "(at 'gas-price (chain-data))" d
-              , PactTransaction "(at 'chain-id (chain-data))" d
-              , PactTransaction "(at 'sender (chain-data))" d
+        let txs =
+              [ (T.pack moduleStr)
+              , "(create-table free.test1.accounts)"
+              , "(free.test1.create-global-accounts)"
+              , "(free.test1.transfer \"Acct1\" \"Acct2\" 1.00)"
+              , "(at 'prev-block-hash (chain-data))"
+              , "(at 'block-time (chain-data))"
+              , "(at 'block-height (chain-data))"
+              , "(at 'gas-limit (chain-data))"
+              , "(at 'gas-price (chain-data))"
+              , "(at 'chain-id (chain-data))"
+              , "(at 'sender (chain-data))"
               ]
+        outtxs' <- mkTxs txs
+        -- the following is done post-hash which is lame but in
+        -- the goldens. TODO boldly overwrite goldens at some point of
+        -- great stability
         let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
             g = modifyPayloadWithText . set (pMeta . pmTTL)
             t = toTxCreationTime $ _bct $ _blockCreationTime parentHeader
-        outtxs' <- goldenTestTransactions txs
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60
                 in fmap (g ttl . f t) tx
@@ -250,42 +313,16 @@ testMemPoolAccess = mempty
             , "\n\noks: "
             , show oks ]
         return outtxs
-
-
-testEmptyMemPool :: MemPoolAccess
-testEmptyMemPool = mempty
-    { mpaGetBlock = \_ _ _ _ -> goldenTestTransactions V.empty
-    }
-
-testMempoolChainData :: IO (MVar T.Text) -> MemPoolAccess
-testMempoolChainData noncer = mempty {
-  mpaGetBlock = \_ _ _ bh -> ts bh
-  }
-  where
-    ts bh = do
-      let txs = V.fromList [ PactTransaction "(chain-data)" Nothing ]
-          c = P.ChainId $ sshow (chainIdInt (_blockChainId bh) :: Integer)
-          txTime = toTxCreationTime $ _bct $ _blockCreationTime bh
-          txTtl = 1000 -- seconds
-      n <- readMVar =<< noncer
-      ks <- testKeyPairs sender00KeyPair Nothing
-      mkTestExecTransactions "sender00" c ks n 10000 0.01 txTtl txTime txs
-
-
-_testLocal :: IO ChainwebTransaction
-_testLocal = do
-    d <- adminData
-    fmap (head . V.toList)
-      $ goldenTestTransactions
-      $ V.fromList [ PactTransaction "(test1.read-account \"Acct1\")" d ]
-{-
-cmdBlocks :: Vector (Vector String)
-cmdBlocks =  V.fromList
-    [ V.fromList
-          [ "(test1.transfer \"Acct1\" \"Acct2\" 5.00)"
-          , "(test1.transfer \"Acct1\" \"Acct2\" 6.00)" ]
-    , V.fromList
-          [ "(test1.transfer \"Acct1\" \"Acct2\" 10.00)"
-          , "(test1.transfer \"Acct1\" \"Acct2\" 11.00)" ]
-    ]
--}
+    mkTxs txs =
+        fmap V.fromList $ forM (zip txs [0..]) $ \(code,n :: Int) ->
+          buildCwCmd $
+          set cbSigners [mkSigner' sender00 []] $
+          set cbGasPrice 0.01 $
+          set cbTTL 1_000_000 $ -- match old goldens
+          mkCmd ("1" <> sshow n) $
+          mkExec code $
+          mkKeySetData "test-admin-keyset" [sender00]
+    modifyPayloadWithText f pwt = mkPayloadWithText newPayload
+      where
+        oldPayload = payloadObj pwt
+        newPayload = f oldPayload

@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -276,7 +277,7 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
                 logFunctionText l Info $ "got stats"
                 logFunctionJson logger Info stats
                 logFunctionText l Info $ "logged stats"
-                approximateThreadDelay 60000000 {- 1 minute -}
+                approximateThreadDelay 60_000_000 {- 1 minute -}
 
 data QueueStats = QueueStats
     { _queueStatsCutQueueSize :: !Natural
@@ -304,7 +305,7 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
             logFunctionText l Info $ "got stats"
             logFunctionJson logger Info stats
             logFunctionText l Info $ "logged stats"
-            approximateThreadDelay 60000000 {- 1 minute -}
+            approximateThreadDelay 60_000_000 {- 1 minute -}
 
 
 
@@ -451,17 +452,16 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
     Left () -> error "Kill switch thread terminated unexpectedly"
     Right a -> return a
   where
-    timer = do
-        runForever lf "KillSwitch" $ do
-            now <- getCurrentTime
-            when (now >= t) $ do
-                lf Error killMessage
-                throw $ KillSwitch killMessage
+    timer = runForever lf "KillSwitch" $ do
+        now <- getCurrentTime
+        when (now >= t) $ do
+            lf Error killMessage
+            throw $ KillSwitch killMessage
 
-            let w = diffUTCTime t now
-            let micros = round $ w * 1000000
-            lf Warn warning
-            threadDelay $ min (10 * 60 * 1000000) micros
+        let w = diffUTCTime t now
+        let micros = round $ w * 1_000_000
+        lf Warn warning
+        threadDelay $ min (10 * 60 * 1_000_000) micros
 
     warning :: T.Text
     warning = T.concat
@@ -491,10 +491,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 1.5
+-- KILLSWITCH for version 1.7
 --
 killSwitchDate :: Maybe String
-killSwitchDate = Just "2020-04-02T00:00:00Z"
+killSwitchDate = Just "2020-04-30T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate

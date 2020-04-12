@@ -9,7 +9,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
@@ -245,7 +244,7 @@ initPactService'
     -> PactServiceM cas a
     -> IO a
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
+    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger ver
     let !rs = readRewards ver
         !gasModel = officialGasModel
         !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
@@ -432,7 +431,7 @@ serviceRequests logFn memPoolAccess reqQ = do
         --
         -- A common strategy to deal with this is to run the computation (pact)
         -- on a "hidden" internal thread. Lifting `forkIO` into a state
-        -- monad is generally note thread-safe. It is fine to do here, since
+        -- monad is generally not thread-safe. It is fine to do here, since
         -- there is no concurrency. We use a thread here only to shield the
         -- computation from external exceptions.
         --
@@ -714,14 +713,16 @@ validateChainwebTxs
         -- This time is the creation time of the parent header for calls from
         -- newBlock. It is the creation time of the current header
         -- for block validation if
-        -- @useCurrentHeaderCreationTimeForTxValidation blockHeight@ true.
+        -- @useLegacyCreationTimeForTxValidation blockHeight@ true.
         --
+    -> Bool
+        -- ^ lenientCreationTime flag, see 'lenientTimeSlop' for details.
     -> BlockHeight
         -- ^ Current block height
     -> Vector ChainwebTransaction
     -> RunGas
     -> IO ValidateTxs
-validateChainwebTxs cp txValidationTime bh txs doBuyGas
+validateChainwebTxs cp txValidationTime lenientCreationTime bh txs doBuyGas
   | bh == 0 = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
@@ -742,7 +743,7 @@ validateChainwebTxs cp txValidationTime bh txs doBuyGas
 
     checkTimes :: ChainwebTransaction -> IO (Either InsertError ChainwebTransaction)
     checkTimes t
-        | timingsCheck txValidationTime $ fmap payloadObj t = return $ Right t
+        | timingsCheck txValidationTime lenientCreationTime $ fmap payloadObj t = return $ Right t
         | otherwise = return $ Left InsertErrorInvalidTime
 
     initTxList :: ValidateTxs
@@ -772,7 +773,7 @@ validateChainwebTxs cp txValidationTime bh txs doBuyGas
 -- This function covers the TTL compat for the (2.) and (3.) case.
 --
 -- This code can be removed once the transition is complete and the guard
--- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+-- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
 -- of all chainweb versions.
 --
 validateLegacyTTL
@@ -816,8 +817,15 @@ validateLegacyTTL parentHeader txs
     -- little less than 3 minutes.
     --
     compatPeriod
-        | useCurrentHeaderCreationTimeForTxValidation v bh =  60 * 3
+        | useLegacyCreationTimeNewBlockOrInsert parentHeader = 60 * 3
         | otherwise = 0
+
+-- | Guard for new block or insert checks vs. parent block height + 1,
+-- whereas validate checks "current block height".
+useLegacyCreationTimeNewBlockOrInsert :: ParentHeader -> Bool
+useLegacyCreationTimeNewBlockOrInsert parentHeader =
+  useLegacyCreationTimeForTxValidation v bh
+  where
     v = _chainwebVersion parentHeader
     bh = succ $ _blockHeight $ _parentHeader parentHeader
 
@@ -898,9 +906,7 @@ minerReward
 minerReward (MinerRewards rs q) bh =
     case V.find (bh <=) q of
       Nothing -> err
-      Just h -> case HM.lookup h rs of
-        Nothing -> err
-        Just v -> return v
+      Just h -> maybe err pure (HM.lookup h rs)
   where
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
@@ -945,11 +951,12 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
           validate bhi _bha txs = do
 
             let parentTime = _blockCreationTime $ _parentHeader parentHeader
+                lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
             results <- V.zipWith (>>)
-                <$> validateChainwebTxs cp parentTime bhi txs runDebitGas
+                <$> validateChainwebTxs cp parentTime lenientCreationTime bhi txs runDebitGas
 
                 -- This code can be removed once the transition is complete and the guard
-                -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+                -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
                 -- of all chainweb versions.
                 --
                 <*> pure (validateLegacyTTL parentHeader txs)
@@ -1103,19 +1110,19 @@ playOneBlock currHeader plData pdbenv = do
     -- The legacy behavior is to use the creation time of the /current/ header.
     -- The new default behavior is to use the creation time of the /parent/ header.
     --
-    txValidationTime <- if
-        useCurrentHeaderCreationTimeForTxValidation v h || isGenesisBlockHeader currHeader
+    (txValidationTime,lenientCreationTime) <- if
+        useLegacyCreationTimeForTxValidation v h || isGenesisBlockHeader currHeader
       then
-        return $ _blockCreationTime currHeader
+        return (_blockCreationTime currHeader, False)
       else do
         -- FIXME don't do this twice. Instead store the parent header in the context
         -- (and don't use the current header at all)
         parentHeader <- ParentHeader <$!> lookupBlockHeader  (_blockParent currHeader) "playOneBlock"
-        return $! _blockCreationTime $ _parentHeader parentHeader
+        return (_blockCreationTime $ _parentHeader parentHeader, True)
 
     -- prop_tx_ttl_validate
     valids <- V.zip trans <$> liftIO
-      (validateChainwebTxs cp txValidationTime (_blockHeight currHeader) trans skipDebitGas)
+      (validateChainwebTxs cp txValidationTime lenientCreationTime (_blockHeight currHeader) trans skipDebitGas)
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -1187,7 +1194,7 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
     failOnTooLowRequestedHeight _ _ _ = return ()
 
 
-    failNonGenesisOnEmptyDb = fail "impossible: playing non-genesis block to empty DB"
+    failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
     playFork bhdb payloadDb parentHash lastHeader = do
         parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"
@@ -1405,11 +1412,12 @@ execPreInsertCheckReq txs = do
                 parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "execPreInsertCheckReq"
 
                 let parentTime = _blockCreationTime $ _parentHeader parentHeader
+                    lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
                 liftIO $ fmap Discard $ V.zipWith (>>)
-                    <$> validateChainwebTxs cp parentTime currHeight txs (runGas pdb psState psEnv)
+                    <$> validateChainwebTxs cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
 
                     -- This code can be removed once the transition is complete and the guard
-                    -- @useCurrentHeaderCreationTimeForTxValidation@ is false for all new blocks
+                    -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
                     -- of all chainweb versions.
                     --
                     <*> pure (validateLegacyTTL parentHeader txs)

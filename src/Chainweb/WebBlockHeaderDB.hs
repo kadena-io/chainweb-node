@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -111,15 +110,6 @@ initWebBlockHeaderDb db v = WebBlockHeaderDb
   where
     conf cid = Configuration (genesisBlockHeader v cid)
 
--- initWebBlockHeaderDb
---     :: ChainwebVersion
---     -> IO WebBlockHeaderDb
--- initWebBlockHeaderDb v = WebBlockHeaderDb
---     <$> itraverse (\cid _ -> initBlockHeaderDb (conf cid)) (HS.toMap $ chainIds v)
---     <*> pure v
---   where
---     conf cid = Configuration (genesisBlockHeader v cid)
-
 -- | FIXME: this needs some consistency checks
 --
 mkWebBlockHeaderDb
@@ -143,10 +133,10 @@ lookupWebBlockHeaderDb
     -> ChainId
     -> BlockHash
     -> IO BlockHeader
-lookupWebBlockHeaderDb db c h = do
-    checkWebChainId (db, maxBound @BlockHeight) c
-    bdb <- getWebBlockHeaderDb db c
-    lookupM bdb h
+lookupWebBlockHeaderDb wdb c h = do
+    checkWebChainId (wdb, maxBound @BlockHeight) c
+    db <- getWebBlockHeaderDb wdb c
+    lookupM db h
 
 blockAdjacentParentHeaders
     :: WebBlockHeaderDb
@@ -179,13 +169,15 @@ insertWebBlockHeaderDb
     :: WebBlockHeaderDb
     -> BlockHeader
     -> IO ()
-insertWebBlockHeaderDb db h = do
-    bdb <- getWebBlockHeaderDb db h
-    checkBlockAdjacentParents db h
-    insert bdb h
+insertWebBlockHeaderDb wdb h = do
+    db <- getWebBlockHeaderDb wdb h
+    checkBlockAdjacentParents wdb h
+    insert db h
 
 -- -------------------------------------------------------------------------- --
 -- Checks and Properties
+--
+-- TODO this should be done by BlockHeader Validation.
 
 -- | Given a 'ChainGraph' @g@, @checkBlockHeaderGraph h@ checks that the
 -- @_chainId h@ is a vertex in @g@ and that the adjacent hashes of @h@
@@ -208,4 +200,3 @@ checkBlockAdjacentParents
     -> BlockHeader
     -> IO ()
 checkBlockAdjacentParents db = void . blockAdjacentParentHeaders db
-

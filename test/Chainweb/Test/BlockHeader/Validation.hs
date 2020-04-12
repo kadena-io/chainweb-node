@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -20,6 +19,7 @@ import Control.Lens
 import Data.Aeson
 import Data.Bitraversable
 import Data.Foldable
+import Data.List (sort)
 
 import Test.QuickCheck
 import Test.Tasty
@@ -32,7 +32,7 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.Graph
-import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHeader -})
+import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
@@ -43,6 +43,8 @@ import Chainweb.Version
 tests :: TestTree
 tests = testGroup "Chainweb.Test.Blockheader.Validation"
     [ prop_validateMainnet
+    , prop_validateTestnet04
+    , prop_fail_validateTestnet04
     , prop_featureFlag (Test petersonChainGraph) 10
     ]
 
@@ -88,9 +90,18 @@ prop_validateMainnet = testCase "validate Mainnet01 BlockHeaders" $ do
     now <- getCurrentTimeIntegral
     traverse_ (f now) mainnet01Headers
   where
-    f t (ParentHeader p, h) = case validateBlockHeader t p h of
+    f t (p, h) = case validateBlockHeader t p h of
         [] -> return ()
         errs -> assertFailure $ "Validation failed for mainnet BlockHeader: " <> sshow errs
+
+prop_validateTestnet04 :: TestTree
+prop_validateTestnet04 = testCase "validate Testnet04 BlockHeaders" $ do
+    now <- getCurrentTimeIntegral
+    traverse_ (f now) testnet04Headers
+  where
+    f t (p, h) = case validateBlockHeader t p h of
+        [] -> return ()
+        errs -> assertFailure $ "Validation failed for testnet04 BlockHeader: " <> sshow errs
 
 -- -------------------------------------------------------------------------- --
 -- Rules are applied
@@ -102,6 +113,22 @@ prop_validateMainnet = testCase "validate Mainnet01 BlockHeaders" $ do
 -- partiular rule. In paritcular the hashes (including proof of work hashes)
 -- would have to be valid.
 --
+
+prop_fail_validateTestnet04 :: TestTree
+prop_fail_validateTestnet04 = testCase "validate invalid Testnet04 BlockHeaders" $ do
+    now <- getCurrentTimeIntegral
+    traverse_ (f now) testnet04InvalidHeaders
+  where
+    f t (p, h, expectedErrs) = case validateBlockHeader t p h of
+        [] -> assertFailure $ "Validation succeeded unexpectedly for testnet04 BlockHeader"
+        errs
+            | sort errs /= sort expectedErrs -> assertFailure
+                $ "Validation failed with unexpected errors for testnet04 BlockHeader"
+                <> ", expected: " <> sshow expectedErrs
+                <> ", actual: " <> sshow errs
+                <> ", parent: " <> sshow (_blockHash $ _parentHeader p)
+                <> ", header: " <> sshow (_blockHash h)
+        _ -> return () -- FIXME be more specific
 
 -- -------------------------------------------------------------------------- --
 -- Tests for Rule Guards:
@@ -144,3 +171,86 @@ mainnet01Headers = gens <> some
         )
 
     wrap x = "\"" <> x <> "\""
+
+testnet04Headers :: [(ParentHeader, BlockHeader)]
+testnet04Headers = gens <> some
+  where
+    v = Testnet04
+    f = bitraverse (fmap ParentHeader . decode . wrap) (decode . wrap)
+
+    -- Some BlockHeader from the existing testnet04 history
+    --
+    some = fromJuste $ traverse f
+        [
+        ]
+
+    -- All genesis headers
+    gens = flip fmap (toList $ chainIds v) $ \cid ->
+        ( ParentHeader $ genesisBlockHeader v cid
+        , genesisBlockHeader v cid
+        )
+
+    wrap x = "\"" <> x <> "\""
+
+testnet04InvalidHeaders :: [(ParentHeader, BlockHeader, [ValidationFailureType])]
+testnet04InvalidHeaders = some
+  where
+    f (p, h, e) = (,,)
+        <$> (fmap ParentHeader . decode . wrap) p
+        <*> (decode . wrap) h
+        <*> pure e
+
+    wrap x = "\"" <> x <> "\""
+
+    some = fromJuste $ traverse f
+        [
+            ( "UV8kAAAAAADFZ2HwFKIFAJ8hgfl2LV_uh846M6v-KHp6ZI3zNOpeObct-K0miL3cAwACAAAAPtJw9_WRladZJhKDhIEx1WgjkofJISyqBnMNNvDfV84DAAAAWWbE_Gg8T20vfB1m5mLM0NllvjvgMRWL8xhCocLZY8YFAAAA7Xlzumy_WTzT1ROEHzzgWeO8n0s2Gf9zUUZCTFhy3qcdkFWkKuxR9s23eB6QAmTYoypdZ7yQb1br40-e6wAAAL6LzuBDgWv0dp05UPLapBb2H4Y7BjA_tIiHRTAiEvLsAAAAABvmlwZDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFkMEAAAAAAAHAAAA8vSPcRSiBQAAAAAAAAAAALIlKMBoOzx3whNCrI2jyEJycC7wNqkYGZ90ZpAItzON"
+            , "ajsXAAAAAAC-IonwFKIFALIlKMBoOzx3whNCrI2jyEJycC7wNqkYGZ90ZpAItzONAwACAAAAyGznxkEiOfo6OHftd86_8aA8B55QaQSiD7f5insUMB4DAAAAPKSjwRZc6V_SJW1AbBwZcnkZ1WbRdKrtN4BnJ0q1RpkFAAAAJv6AJtHEaBuFZpIpdePX7s2uN8n7QhFvNPkX70uZduMdkFWkKuxR9s23eB6QAmTYoypdZ7yQb1br40-e6wAAAAFCpo3PF6aH1bHhB27DlDGt8aiyip06XzMWRcgUEHi2AAAAACMLrgdDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF0MEAAAAAAAHAAAA8vSPcRSiBQAAAAAAAAAAALl0CaPBMj5a0QhuIKtJD6zYj1BxWuoKg-X8ASzosri7"
+            , [IncorrectHash, IncorrectPow, InvalidFeatureFlags]
+            )
+        ,
+            ( "y4tiAAAAAAAHezeiFaIFACW5ko6NcfOLAWkPn_OvkFM96koE5tW3fWQwkCyT4afUAwACAAAAMakQZiB62qyknHkdlP0DLzjSpd1653qL8nB7rWJxHVwDAAAAm2G92tcXE2OzcjBFKspFjvArlZbl569wSOJzkUUF43sFAAAAvFp87JmhlHTDew_3ZdjnnC66wk3QyjMCU97aZu4NJlrks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAHr2DqwHXi_8tQqe7DnKDwT402x49iKC60WmjSmNKfA1AAAAAL9h5XhDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAe0MEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCt"
+            , "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfEMEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyoa"
+            , [IncorrectHash, InvalidFeatureFlags]
+            )
+        ,
+            ( "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfEMEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyol"
+            , "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfEMEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyol"
+            , [IncorrectHeight, CreatedBeforeParent, IncorrectWeight, InvalidFeatureFlags]
+            )
+        ,
+            ( "y4tiAAAAAAAHezeiFaIFACW5ko6NcfOLAWkPn_OvkFM96koE5tW3fWQwkCyT4afUAwACAAAAMakQZiB62qyknHkdlP0DLzjSpd1653qL8nB7rWJxHVwDAAAAm2G92tcXE2OzcjBFKspFjvArlZbl569wSOJzkUUF43sFAAAAvFp87JmhlHTDew_3ZdjnnC66wk3QyjMCU97aZu4NJlrks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAHr2DqwHXi_8tQqe7DnKDwT402x49iKC60WmjSmNKfA1AAAAAL9h5XhDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAe0MEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCt"
+            , "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfEMEAAAAAAAHAAAAmgYAOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyol"
+            , [IncorrectHash, IncorrectPow, IncorrectEpoch, InvalidFeatureFlags]
+            )
+        ,
+            ( "y4tiAAAAAAAHezeiFaIFACW5ko6NcfOLAWkPn_OvkFM96koE5tW3fWQwkCyT4afUAwACAAAAMakQZiB62qyknHkdlP0DLzjSpd1653qL8nB7rWJxHVwDAAAAm2G92tcXE2OzcjBFKspFjvArlZbl569wSOJzkUUF43sFAAAAvFp87JmhlHTDew_3ZdjnnC66wk3QyjMCU97aZu4NJlrks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAHr2DqwHXi_8tQqe7DnKDwT402x49iKC60WmjSmNKfA1AAAAAL9h5XhDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAe0MEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCt"
+            , "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAXAAAAAAAAAAAAAAAAAAAAAAAAAfEMEAAAAAAAHAAAAmgYAOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyol"
+            , [IncorrectHash, IncorrectPow, IncorrectEpoch, IncorrectWeight, InvalidFeatureFlags]
+            )
+        ,
+            ( "y4tiAAAAAAAHezeiFaIFACW5ko6NcfOLAWkPn_OvkFM96koE5tW3fWQwkCyT4afUAwACAAAAMakQZiB62qyknHkdlP0DLzjSpd1653qL8nB7rWJxHVwDAAAAm2G92tcXE2OzcjBFKspFjvArlZbl569wSOJzkUUF43sFAAAAvFp87JmhlHTDew_3ZdjnnC66wk3QyjMCU97aZu4NJlrks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAHr2DqwHXi_8tQqe7DnKDwT402x49iKC60WmjSmNKfA1AAAAAL9h5XhDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAe0MEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCt"
+            , "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAXAAAAAAAAAAAAAAAAAAAAAAAAAfIMEAAAAAAAHAAAAmgYAOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyol"
+            , [IncorrectHash, IncorrectPow, IncorrectHeight, IncorrectEpoch, IncorrectWeight, InvalidFeatureFlags]
+            )
+        ,
+            ( "y4tiAAAAAAAHezeiFaIFACW5ko6NcfOLAWkPn_OvkFM96koE5tW3fWQwkCyT4afUAwACAAAAMakQZiB62qyknHkdlP0DLzjSpd1653qL8nB7rWJxHVwDAAAAm2G92tcXE2OzcjBFKspFjvArlZbl569wSOJzkUUF43sFAAAAvFp87JmhlHTDew_3ZdjnnC66wk3QyjMCU97aZu4NJlrks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAHr2DqwHXi_8tQqe7DnKDwT402x49iKC60WmjSmNKfA1AAAAAL9h5XhDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAe0MEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCt"
+            , "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51ZNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAXAAAAAAAAAAAAAAAAAAAAAAAAAfIMEAAAAAAAHAAAAmgYAOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyol"
+            , [IncorrectHash, IncorrectPow, IncorrectHeight, IncorrectTarget, IncorrectEpoch, IncorrectWeight, InvalidFeatureFlags]
+            )
+        ,
+            ( "MPvsAAAAAACKKxE6z6EFAGI7Fu8Y-KmbbIZBxgzKLKa-pX44pSmoDbwTstXtIJ-RAwADAAAA09LAEcELZfLO09B7VfVABLW56BWRD886vi1IAinGEsIHAAAACMGUL-wlgOWFtvBHXAZmVd6U4pItNZG9BiWBuw0QABoJAAAA8Q4oypLEvyHwvs5NEKcPjQHxAgzfIZubmd1UbVVX0nJMpF18Jv-bDRwIIBtaimVVekk-s8dh3hHJ0x7J0gAAAD_5drSYsNay16suHvfzcBbNhNtefBfMewcYZn6ulH9ZCAAAANuI0dfWBQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJxwEAAAAAAAHAAAATHNnts6hBQAAAAAAAAAAAHp38ZzIgDr0I1S8ipHT8-BnBebBGHmonuziGlltoNOu"
+            , "AAAAAAAAAAB0MCA7z6EFAHp38ZzIgDr0I1S8ipHT8-BnBebBGHmonuziGlltoNOuAwADAAAAZZ58qvVe7bwjKHrHq1dBcVW3t2ZRvYyf10M-3lGuN_oHAAAAKj6YRU8nAhm0BuR7oVLRCFMpNVHkCMOeptIFw7A9kSkJAAAAU2vZiW03yoYkRWxH5jPhUC0vA499Epn9NaFYnjBOqOJMpF18Jv-bDRwIIBtaimVVekk-s8dh3hHJ0x7J0gAAAGp1lopFxzV-I-hHeHYpH6dReXZF3Iov3ZKr9qnspvmoCAAAAJhyCNnWBQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKBwEAAAAAAAHAAAATHNnts6hBQAAF5EAAAAAAHSiqpk_KbwY5lZofgsTCuUFE2EBAiHPaHBcEb56QXTB"
+            , [IncorrectHash]
+            )
+        ,
+            ( "UV8kAAAAAADFZ2HwFKIFAJ8hgfl2LV_uh846M6v-KHp6ZI3zNOpeObct-K0miL3cAwACAAAAPtJw9_WRladZJhKDhIEx1WgjkofJISyqBnMNNvDfV84DAAAAWWbE_Gg8T20vfB1m5mLM0NllvjvgMRWL8xhCocLZY8YFAAAA7Xlzumy_WTzT1ROEHzzgWeO8n0s2Gf9zUUZCTFhy3qcdkFWkKuxR9s23eB6QAmTYoypdZ7yQb1br40-e6wAAAL6LzuBDgWv0dp05UPLapBb2H4Y7BjA_tIiHRTAiEvLsAAAAABvmlwZDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFkMEAAAAAAAHAAAA8vSPcRSiBQAAAAAAAAAAALIlKMBoOzx3whNCrI2jyEJycC7wNqkYGZ90ZpAItzON"
+            , "tjsXAAAAAAC-IonwFKIFALIlKMBoOzx3whNCrI2jyEJycC7wNqkYGZ90ZpAItzONAwACAAAAyGznxkEiOfo6OHftd86_8aA8B55QaQSiD7f5insUMB4DAAAAPKSjwRZc6V_SJW1AbBwZcnkZ1WbRdKrtN4BnJ0q1RpkFAAAAJv6AJtHEaBuFZpIpdePX7s2uN8n7QhFvNPkX70uZduMdkFWkKuxR9s23eB6QAmTYoypdZ7yQb1br40-e6wAAAAFCpo3PF6aH1bHhB27DlDGt8aiyip06XzMWRcgUEHi2AAAAACMLrgdDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF0MEAAAAAAAHAAAA8vSPcRSiBQAAAAAAAAAAALl0CaPBMj5a0QhuIKtJD6zYj1BxWuoKg-X8ASzosri7"
+            , [InvalidFeatureFlags]
+            )
+        ,
+            ( "y4tiAAAAAAAHezeiFaIFACW5ko6NcfOLAWkPn_OvkFM96koE5tW3fWQwkCyT4afUAwACAAAAMakQZiB62qyknHkdlP0DLzjSpd1653qL8nB7rWJxHVwDAAAAm2G92tcXE2OzcjBFKspFjvArlZbl569wSOJzkUUF43sFAAAAvFp87JmhlHTDew_3ZdjnnC66wk3QyjMCU97aZu4NJlrks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAHr2DqwHXi_8tQqe7DnKDwT402x49iKC60WmjSmNKfA1AAAAAL9h5XhDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAe0MEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCt"
+            , "l0PGAAAAAABmKWCkFaIFAFsrsuyzBE9_xH67B7uDI9kiraA0zLkkzH3mgLTKrQCtAwACAAAAfYN1Qs9Ua_QGfgpBcgeBZ0J6xhQ4XXlqv_gfYA-hOc0DAAAAsGNf8lbXT-HgPD-cFNdXSkD-ODvcY6ihMwvPbRjvj4cFAAAAzmducVsWbMyG6lvO8nQKcJnVh8cgrOS-gnbOMP9WxKvks51YNN7Lha7sjUawYooNyn282AybfunTUycy3AAAAGWxPTtpx32AN0mr4Ee3fQErWyEwQytnF9-OP4O280R8AAAAAPgBD3pDBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfEMEAAAAAAAHAAAAmgYYOhWiBQAAAAAAAAAAAHYVlldEu5EIBSMHw-7F7xi8KYMv5SjvTjo1f1X-Gyol"
+            , [InvalidFeatureFlags]
+            )
+        ]

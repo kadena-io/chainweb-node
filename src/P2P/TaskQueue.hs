@@ -13,7 +13,7 @@
 
 -- |
 -- Module: P2P.TaskQueue
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -71,7 +71,7 @@ import P2P.Peer
 -- -------------------------------------------------------------------------- --
 -- Exceptions
 
-data TaskException = TaskFailed [SomeException]
+newtype TaskException = TaskFailed [SomeException]
     deriving Show
 
 instance Exception TaskException
@@ -167,7 +167,7 @@ session_ limit q logFun env = mask $ \restore -> do
                 logg task Debug "run task"
                 flip catchAllSynchronous (retry task) $ restore $ do
                     r <- _taskAction task logFun env
-                    putResult (_taskResult task) $! Right r
+                    putResult (_taskResult task) (Right r)
             Just Left{} -> do
                 logg task Debug "task already failed"
                 return False
@@ -207,4 +207,3 @@ session_ limit q logFun env = mask $ \restore -> do
         True -> return True
         False -> isRight <$> awaitIVar var
             -- note that the var won't change it's value once it is filled
-

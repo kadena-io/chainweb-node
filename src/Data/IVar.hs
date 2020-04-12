@@ -5,7 +5,7 @@
 
 -- |
 -- Module: Data.IVar
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -132,4 +132,3 @@ newtype RIVar a = RIVar (IVar a)
 rIVar :: IVar a -> RIVar a
 rIVar = RIVar
 {-# INLINE rIVar #-}
-

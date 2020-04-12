@@ -3,7 +3,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -15,7 +14,7 @@
 
 -- |
 -- Module: Chainweb.Cut.Test
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -90,7 +89,8 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
-import Chainweb.Time (Micros(..), Time, TimeSpan, getCurrentTimeIntegral, second)
+import Chainweb.Time
+    (Micros(..), Time, TimeSpan, getCurrentTimeIntegral, second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -137,9 +137,8 @@ testMine'
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMine' wdb n t payloadHash i c =
-  give wdb $
     forM (createNewCut n (t c (_chainId i)) payloadHash i c) $ \p@(T2 h _) ->
-        p <$ insertWebBlockHeaderDb h
+        p <$ insertWebBlockHeaderDb wdb h
 
 -- | Block time generation that offsets from previous chain block in cut.
 offsetBlockTime :: TimeSpan Micros -> GenBlockTime

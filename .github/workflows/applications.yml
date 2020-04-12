@@ -56,12 +56,58 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Validate block header database
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool slow-tests
+  
+  # Verify that all Genesis headers are up to date (no missing ea run)
+  #
+  verify-genesis-headers:
+    name: verify that genesis headers are up to date
+    needs: [build]
+    runs-on: 'ubuntu-latest'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v1
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.3.ubuntu-18.04
+        path: bin
+    - name: Validate block header database
+      run: |
+        chmod 755 ./bin/cwtool
+        ./bin/cwtool ea
+        if ! git diff --exit-code; then
+          echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
+          exit 1
+        fi
+
+  run-benchmarks:
+    name: Run benchmarks
+    needs: [build]
+    runs-on: 'ubuntu-latest'
+    steps:
+    - name: Install non-Haskell dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y librocksdb-dev
+    - name: Download chainweb application artifact
+      uses: actions/download-artifact@v1
+      with:
+        name: chainweb-applications.8.8.3.ubuntu-18.04
+        path: bin
+    - name: Run all benchmarks
+      run: |
+        chmod 755 ./bin/bench
+        ./bin/bench +RTS -N
 
   # Validate Mainnet01 Chain Database With chainweb-node
   #
@@ -86,7 +132,7 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Validate ${{ matrix.chainwebVersion }} block header database
       run: |
@@ -116,7 +162,7 @@ jobs:
     - name: Download chainweb application artifact
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.2.ubuntu-18.04
+        name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
     - name: Create configuration file for validating the chainweb history
       run: |
@@ -171,7 +217,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.6.5', '8.8.2']
+        ghc: ['8.6.5', '8.8.3', '8.10.1']
         cabal: ['3.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
@@ -187,6 +233,7 @@ jobs:
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
+      ARTIFACT_FOLDER: chainweb
 
     steps:
     # Setup
@@ -197,7 +244,7 @@ jobs:
       run: |
         [[ "${{ matrix.os }}" =~ ubuntu ]] && OS="linux" || OS="osx"
         mkdir -p "./tmp/bin"
-        curl -Ls "https://github.com/haskell-works/cabal-cache/releases/download/v1.0.1.1/cabal-cache_x86_64_${OS}.tar.gz" | tar -xzC "./tmp/bin/"
+        curl -Ls "https://github.com/haskell-works/cabal-cache/releases/download/v1.0.1.5/cabal-cache_x86_64_${OS}.tar.gz" | tar -xzC "./tmp/bin/"
     - name: Install Haskell (macOS)
       if: contains(matrix.os, 'macOS')
       run: |
@@ -226,42 +273,46 @@ jobs:
         brew install z3
         brew install sqlite
         brew install rocksdb
-        brew install awscli
     - name: Append cabal.project
       run: |
         cat >> cabal.project <<EOF
         documentation: false
+        executable-stripping: True
+        library-stripping: True
         package chainweb
           documentation: false
           optimization: 2
           ghc-options: -j
+          benchmarks: True
+          tests: True
         package pact
           documentation: false
           optimization: 2
           ghc-options: -j
         EOF
-    - name: Append cabal.project (only ghc-8.8.*)
-      if: matrix.ghc == '8.8.2'
-      run: |
+    - name: Append cabal.project for GHC-8.10
+      if: contains(matrix.ghc, '8.10')
+      run : |
         cat >> cabal.project <<EOF
         package chainweb
           ghc-options: -Wwarn
-          haddock-options: --optghc=-Wwarn
-        package pact
-          ghc-options: -Wwarn
-          haddock-options: --optghc=-Wwarn
+        allow-newer:
+          *:base
+          *:template-haskell
+          *:lens
+          *:haskeline
+          *:Cabal
+          *:ghc-prim
+          thyme:*
         source-repository-package
           type: git
-          location: http://github.com/larskuhtz/ixset-typed.git
-          tag: 335c8e31d39be873a429fc9814060bf928ad0ee9
-        allow-newer:
-          fake:*
-          pact:*
-          ixset-typed:*
-          semigroups
-          servant-swagger:swagger2
-        EOF
-
+          location: https://github.com/mvv/data-dword
+          tag: 989cb9386954fad23412adbfcfcb644cb7a9c939
+        source-repository-package
+          type: git
+          location: https://github.com/well-typed/optics
+          tag: 95760a121023b6314a1b1a92939fc97613ec5645
+          subdir: optics-core
     - uses: actions/cache@v1
       name: Cache dist-newstyle
       with:
@@ -286,9 +337,9 @@ jobs:
           touch tools/cwtool/CwTool.hs
           cabal v2-build --only-dependencies
     - name: Build
-      run: cabal v2-build --enable-executable-stripping --enable-library-stripping
+      run: cabal v2-build
     - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes --pattern='!/spv client tests/ && !/getPending high water marks/ && !/remote pact tests/'
+      run: cabal v2-run chainweb-tests -- --hide-successes
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
       run: eval $SYNC_TO_CACHE
@@ -301,6 +352,7 @@ jobs:
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
         # rm -f dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests
     - name: Publish applications
       uses: actions/upload-artifact@v1
@@ -313,12 +365,12 @@ jobs:
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
-        aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$BINFILE --acl public-read
+        aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Link latest-build application in S3
       if: contains(github.ref, 'master')
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
-        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.tar.gz"
-        aws s3 cp s3://$ARTIFACT_BUCKET/$BINFILE s3://$ARTIFACT_BUCKET/$LATEST_BINFILE
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$LATEST_BINFILE --acl public-read
+        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
+        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$LATEST_BINFILE
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$LATEST_BINFILE --acl public-read

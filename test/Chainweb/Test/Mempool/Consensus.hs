@@ -124,7 +124,7 @@ prop_noOldCrap db genBlock = monadicIO $ do
     -- tests filtering, in theory on age
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
-    pre (length fiOldForkTrans > 0)
+    pre (not $ null fiOldForkTrans)
     let badtx = head $ toList fiOldForkTrans
     let badFilter = (/= badtx)
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
@@ -333,7 +333,7 @@ header' h = do
     return
         . fromLog
         . newMerkleLog
-        $ nonce
+        $ mkFeatureFlags
             :+: t'
             :+: _blockHash h
             :+: target
@@ -342,12 +342,12 @@ header' h = do
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
-            :+: epochStart h t'
-            :+: mkFeatureFlags
+            :+: epochStart (ParentHeader h) t'
+            :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
-    target = powTarget h t'
+    target = powTarget (ParentHeader h) t'
     v = _blockChainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 

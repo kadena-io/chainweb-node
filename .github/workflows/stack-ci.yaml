@@ -1,0 +1,42 @@
+name: Stack Build
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - ci/*
+
+jobs:
+  build:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librocksdb-dev
+
+      - name: Setup GHC
+        uses: actions/setup-haskell@v1
+        with:
+          ghc-version: "8.6.5"
+
+      - name: Setup Stack
+        uses: mstksg/setup-stack@v1
+
+      - name: Clone project
+        uses: actions/checkout@v2
+
+      - name: Cache dependencies
+        uses: actions/cache@v1
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-stack-${{ hashFiles('stack.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-stack-
+
+      - name: Build
+        run: "stack test --fast --no-terminal --system-ghc"
+
+      - name: Check cache size
+        run: "du -sh ~/.stack"

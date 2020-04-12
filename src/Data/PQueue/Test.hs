@@ -1,6 +1,6 @@
 -- |
 -- Module: Data.PQueue.Test
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -108,7 +108,7 @@ prop_insert_remove_concurrent :: [Int] -> Property
 prop_insert_remove_concurrent l = monadicIO $ do
     q <- run newEmptyPQueue
     commands <- pick $ shuffle
-        $ (QueueInsert <$> l) ++ (const QueueRemove <$> l)
+        $ (QueueInsert <$> l) ++ (QueueRemove <$ l)
     l' <- run $ catMaybes
         <$> mapConcurrently (runQueueCommand q) commands
     assert $ L.sort l == L.sort l'
@@ -122,4 +122,3 @@ data QueueCommand a = QueueInsert a | QueueRemove
 runQueueCommand :: MonadIO m => Ord a => PQueue a -> QueueCommand a -> m (Maybe a)
 runQueueCommand q (QueueInsert a) = liftIO (Nothing <$ pQueueInsert q a)
 runQueueCommand q QueueRemove = liftIO (Just <$> pQueueRemove q)
-

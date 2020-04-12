@@ -1,10 +1,9 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.SPV.VerifyProof
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -171,4 +170,3 @@ verifyTransactionOutputProofAt_ bdb proof@(TransactionOutputProof _cid p) ctx = 
     proofSubject p
   where
     h = runTransactionOutputProof proof
-

@@ -1,15 +1,15 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Test.CutDB
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -38,7 +38,6 @@ import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Function
-import Data.Reflection
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
@@ -85,7 +84,7 @@ import Data.TaskMap
 -- Create a random Cut DB with the respective Payload Store
 
 cutFetchTimeout :: Int
-cutFetchTimeout = 3000000
+cutFetchTimeout = 3_000_000
 
 -- | Provide a computation with a CutDb and PayloadDb for the given chainweb
 -- version with a linear chainweb with @n@ blocks.
@@ -202,8 +201,7 @@ extendAwait cdb pact i p = race gen (awaitCut cdb p) >>= \case
     Left _ -> return Nothing
     Right c -> return (Just c)
   where
-    gen = void
-        $ S.foldM_ checkCut (return 0) return
+    gen = S.foldM_ checkCut (return 0) return
         $ S.map (view (_1 . cutHeight))
         $ extendTestCutDb cdb pact i
 
@@ -415,7 +413,7 @@ tryMineForChain miner webPact cutDb c cid = do
         let pd = payloadWithOutputsToPayloadData outputs
         void $ _pactValidateBlock pact h pd
         addNewPayload payloadDb outputs
-        give webDb (insertWebBlockHeaderDb h)
+        insertWebBlockHeaderDb webDb h
 
 -- | picks a random block header from a web chain. The result header is
 -- guaranteed to not be a genesis header.

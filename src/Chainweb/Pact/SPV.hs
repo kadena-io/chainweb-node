@@ -2,12 +2,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 
 -- |
 -- Module: Chainweb.Pact.PactService
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: See LICENSE file
 -- Maintainers: Emily Pillmore <emily@kadena.io>
 -- Stability: experimental
@@ -119,14 +118,12 @@ verifySPV bdb bh typ proof = go typ proof
               Nothing -> internalError "unable to decode spv transaction output"
               Just cr -> return cr
 
-            r <- case _crResult q of
+            case _crResult q of
               PactResult Left{} ->
-                return $! Left "invalid command result in tx output proof"
+                return (Left "invalid command result in tx output proof")
               PactResult (Right v) -> case fromPactValue v of
-                TObject !j _ -> return $! Right j
+                TObject !j _ -> return (Right j)
                 _ -> return $ Left "spv-verified tx output has invalid type"
-
-            return r
 
       t -> return . Left $! "unsupported SPV types: " <> t
 
@@ -165,11 +162,9 @@ verifyCont bdb bh (ContProof cp) = do
             Nothing -> internalError "unable to decode spv transaction output"
             Just cr -> return cr
 
-          r <- case _crContinuation q of
-            Nothing -> return $! Left "no pact exec found in command result"
-            Just pe -> return $! Right pe
-
-          return r
+          case _crContinuation q of
+            Nothing -> return (Left "no pact exec found in command result")
+            Just pe -> return (Right pe)
   where
     cid = CW._chainId bdb
 
@@ -197,12 +192,13 @@ getTxIdx
     -> IO (Either Text Int)
 getTxIdx bdb pdb bh th = do
     -- get BlockPayloadHash
-    ph <- fmap (fmap _blockPayloadHash)
-        $ entries bdb Nothing (Just 1) (Just $ int bh) Nothing S.head_
-        >>= pure . note "unable to find payload associated with transaction hash"
+    m <- maxEntry bdb
+    ph <- seekAncestor bdb m (int bh) >>= \case
+        Just x -> return $ Right $! _blockPayloadHash x
+        Nothing -> return $ Left "unable to find payload associated with transaction hash"
 
     case ph of
-      (Left !s) -> return $! Left s
+      (Left !s) -> return $ Left s
       (Right !a) -> do
         -- get payload
         payload <- _payloadWithOutputsTransactions <$> casLookupM pdb a

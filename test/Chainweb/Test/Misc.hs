@@ -1,6 +1,8 @@
+{-# LANGUAGE NumericUnderscores #-}
+
 -- |
 -- Module: Chainweb.Test.Misc
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Colin Woodbury <colin@kadena.io>
 -- Stability: experimental
@@ -32,6 +34,6 @@ tests = testGroup "Misc. Unit Tests"
 terminateOrder :: Assertion
 terminateOrder = do
     r <- withScheduler Par' $ \sch -> do
-        scheduleWork sch (threadDelay 5000000 >> pure 1)
+        scheduleWork sch (threadDelay 5_000_000 >> pure 1)
         scheduleWork sch (terminateWith sch 10)
     head r @?= (10 :: Int)

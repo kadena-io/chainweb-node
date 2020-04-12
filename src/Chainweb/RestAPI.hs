@@ -91,6 +91,7 @@ import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
@@ -151,6 +152,7 @@ someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
     <> someHealthCheckApi
     <> someNodeInfoApi
+    <> someCutApi v
     <> someBlockHeaderDbApis v chains
     <> somePayloadApis v chains
     <> someP2pApis v cs
@@ -243,7 +245,7 @@ chainwebApplication v dbs mr hs
     . someServerApplication
     $ someChainwebServer v dbs mr hs
 
--- Simple cors with actualy simpleHeaders which includes content-type.
+-- Simple cors with actually simpleHeaders which includes content-type.
 chainwebCors :: Middleware
 chainwebCors = cors . const . Just $ simpleCorsResourcePolicy
     { corsRequestHeaders = simpleHeaders

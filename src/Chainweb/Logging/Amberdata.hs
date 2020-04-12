@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -12,7 +13,7 @@
 
 -- |
 -- Module: Chainweb.Logging.Amberdata
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -36,7 +37,6 @@ import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Lens (view)
 import Control.Lens.TH
-import Control.Monad
 import Control.Monad.Error.Class (throwError)
 
 import Data.Bool
@@ -44,6 +44,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import Data.CAS
 import qualified Data.Foldable as HM
+import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -272,11 +273,9 @@ amberdataBlockMonitor cid logger db = do
     case cid of
       Nothing -> logFunctionText logger Info "Sending blocks from ALL chains"
       Just cid' -> logFunctionText logger Info ("Sending blocks from chain " <> toText cid')
-    void
-        $ S.mapM_ logBlocks
+    S.mapM_ logBlocks
         $ blockStream db
-        & S.filter (\x -> cid == Just (_chainId x)
-                          || cid == Nothing)
+        & S.filter (\x -> cid == Just (_chainId x) || isNothing cid)
   where
     logBlocks :: BlockHeader -> IO ()
     logBlocks bheader = do
@@ -384,7 +383,7 @@ withAmberDataBlocksBackend mgr conf inner = do
             isTimeout = Nothing <$ (readTVar timer >>= check)
             fill = tryReadTBQueue queue >>= maybe retry (return . Just)
 
-        go 0 !batch _ = return $! (0, batch)
+        go 0 !batch _ = return (0, batch)
         go !remaining !batch !timer = getNextAction timer >>= \case
             Nothing -> return (remaining, batch)
             Just x -> go (remaining - 1) (batch <> indexWithComma x) timer

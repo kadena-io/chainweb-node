@@ -2,14 +2,13 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.ChainwebPactDb
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Emmanuel Denloye-Ito <emmanuel@kadena.io>
 -- Stability: experimental
@@ -41,7 +40,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import qualified Data.DList as DL
-import Data.Foldable (concat, toList)
+import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -56,6 +55,8 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
 import Database.SQLite3.Direct as SQ3
+
+import GHC.Stack
 
 import Prelude hiding (concat, log)
 
@@ -97,21 +98,24 @@ chainwebPactDb = PactDb
 getPendingData :: BlockHandler SQLiteEnv [SQLitePendingData]
 getPendingData = do
     pb <- use bsPendingBlock
-    ptx <- maybe [] (:[]) <$> use bsPendingTx
+    ptx <- maybeToList <$> use bsPendingTx
     -- lookup in pending transactions first
     return $ ptx ++ [pb]
+
+forModuleNameFix :: (Bool -> BlockHandler e a) -> BlockHandler e a
+forModuleNameFix a = use bsModuleNameFix >>= a
 
 doReadRow
     :: (IsString k, FromJSON v)
     => Domain k v
     -> k
     -> BlockHandler SQLiteEnv (Maybe v)
-doReadRow d k =
+doReadRow d k = forModuleNameFix $ \mnFix ->
     case d of
         KeySets -> lookupWithKey (convKeySetName k)
         -- TODO: This is incomplete (the modules case), due to namespace
         -- resolution concerns
-        Modules -> lookupWithKey (convModuleName k)
+        Modules -> lookupWithKey (convModuleName mnFix k)
         Namespaces -> lookupWithKey (convNamespaceName k)
         (UserTables _) -> lookupWithKey (convRowKey k)
         Pacts -> lookupWithKey (convPactId k)
@@ -179,16 +183,16 @@ writeSys
 writeSys d k v = gets _bsTxId >>= go
   where
     go txid = do
-        recordPendingUpdate keyStr tableName txid v
+        forModuleNameFix $ \mnFix ->
+          recordPendingUpdate (getKeyString mnFix k) tableName txid v
         recordTxLog (toTableName tableName) d k v
 
-    keyStr = getKeyString k
     toTableName (Utf8 str) = TableName $ toS str
     tableName = domainTableName d
 
-    getKeyString = case d of
+    getKeyString mnFix = case d of
         KeySets -> convKeySetName
-        Modules -> convModuleName
+        Modules -> convModuleName mnFix
         Namespaces -> convNamespaceName
         Pacts -> convPactId
         UserTables _ -> error "impossible"
@@ -454,7 +458,7 @@ doCommit = use bsMode >>= \mm -> case mm of
               resetTemp
               return blockLogs
           else doRollback >> return mempty
-        return $! concat $ fmap (reverse . DL.toList) txrs
+        return $! concatMap (reverse . DL.toList) txrs
   where
     merge Nothing a = a
     merge (Just a) b = SQLitePendingData
@@ -515,11 +519,9 @@ doGetTxLog d txid = do
     takeHead (a:_) = [a]
 
     readFromPending = do
-        ptx <- maybe [] (:[]) <$> use bsPendingTx
+        ptx <- maybeToList <$> use bsPendingTx
         pb <- use bsPendingBlock
-        let deltas = concat $
-                map (takeHead . DL.toList) $
-                concatMap HashMap.elems $ _pendingWrites <$> (ptx ++ [pb])
+        let deltas = (ptx ++ [pb]) >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
         let ourDeltas = filter predicate deltas
         mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
@@ -647,7 +649,7 @@ createVersionedTable tablename db = do
            , tablename
            , "](txid DESC);"]
 
-handlePossibleRewind :: BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
+handlePossibleRewind :: HasCallStack => BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
 handlePossibleRewind bRestore hsh = do
     bCurrent <- getBCurrent
     checkHistoryInvariant (bCurrent + 1)
@@ -661,7 +663,9 @@ handlePossibleRewind bRestore hsh = do
         r <- callDb "handlePossibleRewind" $ \db ->
              qry_ db "SELECT max(blockheight) AS current_block_height \
                      \FROM BlockHistory;" [RInt]
-        SInt bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r
+        bh <- liftIO $ expectSingleRowCol "handlePossibleRewind: (block):" r >>= \case
+            SInt x -> return x
+            _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
         return $! BlockHeight (fromIntegral bh)
 
     checkHistoryInvariant succOfCurrent = do
@@ -694,11 +698,14 @@ handlePossibleRewind bRestore hsh = do
 
     newChildBlock bCurrent = do
         assign bsBlockHeight bRestore
-        SInt txid <- callDb "getting txid" $ \db ->
+        r <- callDb "getting txid" $ \db ->
           expectSingleRowCol msg =<< qry db
               "SELECT endingtxid FROM BlockHistory WHERE blockheight = ?;"
               [SInt (fromIntegral bCurrent)]
               [RInt]
+        txid <- case r of
+            SInt x -> return x
+            _ -> error "Chainweb.Pact.ChainwebPactDb.handlePossibleRewind.newChildBlock: failed to match SInt"
         assign bsTxId (fromIntegral txid)
         return $ fromIntegral txid
       where msg = "handlePossibleRewind: newChildBlock: error finding txid"

@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeApplications #-}
@@ -64,13 +65,13 @@ tests =
     withBlockHeaderDb rocksIO genblock $ \bhdb ->
     withTemporaryDir $ \dir ->
     testGroup label
-        [ withPact testVer Warn pdb bhdb testMemPoolAccess dir 100000
+        [ withPact testVer Warn pdb bhdb testMemPoolAccess dir 100_000
             (testCase "initial-playthrough" . firstPlayThrough genblock pdb bhdb)
         , after AllSucceed "initial-playthrough" $
-            withPact testVer Warn pdb bhdb testMemPoolAccess dir 100000
+            withPact testVer Warn pdb bhdb testMemPoolAccess dir 100_000
                 (testCaseSteps "on-restart" . onRestart pdb bhdb)
         , after AllSucceed "on-restart" $
-            withPact testVer Quiet pdb bhdb dupegenMemPoolAccess dir 100000
+            withPact testVer Quiet pdb bhdb dupegenMemPoolAccess dir 100_000
             (testCase "reject-dupes" . testDupes genblock pdb bhdb)
         , after AllSucceed "reject-dupes" $
             let deepForkLimit = 4
@@ -112,7 +113,7 @@ testMemPoolAccess = mempty
         outtxs <-
           mkTestExecTransactions
             "sender00" "0" kp0
-            nonce 10000 0.00000000001
+            nonce 10_000 0.000_000_000_01
             3600 (toTxCreationTime txOrigTime) (tx bh)
         oks <- validate bHeight hash outtxs
         unless (V.and oks) $ fail $ mconcat
@@ -137,7 +138,7 @@ dupegenMemPoolAccess = mempty
         kp0 <- mkKeyPairs [akp0]
         let nonce = "0"
             tx = V.singleton $ PactTransaction (defModule nonce) (Just $ ksData nonce)
-        outtxs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10000 0.00000000001 3600 0 tx
+        outtxs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10_000 0.000_000_000_01 3600 0 tx
         oks <- validate bHeight bHash outtxs
         unless (V.and oks) $ fail $ mconcat
             [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
@@ -160,7 +161,7 @@ firstPlayThrough
 firstPlayThrough genesisBlock iopdb iobhdb rr = do
     nonceCounter <- newIORef (1 :: Word64)
     mainlineblocks <- mineLine genesisBlock nonceCounter 7
-    let T3 _ startline1 _ = mainlineblocks !! 0
+    let T3 _ startline1 _ = head mainlineblocks
     let T3 _ startline2 _ = mainlineblocks !! 1
     void $ mineLine startline1 nonceCounter 4
     void $ mineLine startline2 nonceCounter 4
@@ -285,7 +286,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
 
    where
      creationTime = BlockCreationTime
-          . add (TimeSpan 1000000)
+          . add (TimeSpan 1_000_000)
           . _bct . _blockCreationTime
           $ _parentHeader parentHeader
 

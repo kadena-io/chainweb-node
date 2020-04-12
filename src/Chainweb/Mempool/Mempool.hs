@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -83,7 +84,7 @@ module Chainweb.Mempool.Mempool
 import Control.DeepSeq (NFData)
 import Control.Exception
 import Control.Lens
-import Control.Monad (replicateM, when)
+import Control.Monad (replicateM, unless)
 
 import Crypto.Hash (hash)
 import Crypto.Hash.Algorithms (SHA512t_256)
@@ -393,7 +394,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
 
         -- If there are too many missing hashes we stop collecting
         --
-        when (not tooMany) $ do
+        unless tooMany $ do
 
             -- Collect remote hashes that are missing from the local pool
             res <- (`V.zip` hashes) <$> mempoolMember localMempool hashes
@@ -456,7 +457,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     subsequentSync !remoteHw = do
         deb "Get new pending hashes from remote"
         (numMissingFromLocal, missingChunks, _, remoteHw') <-
-            fetchSince $! Just remoteHw
+            fetchSince (Just remoteHw)
         deb $ T.concat
             [ "sync: "
             , sshow numMissingFromLocal
@@ -484,7 +485,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
         ref <- newIORef 0
         ourHw <- mempoolGetPendingTransactions localMempool Nothing $ \chunk -> do
             let chunk' = V.filter (not . flip HashSet.member remoteHashes) chunk
-            when (not $ V.null chunk') $ do
+            unless (V.null chunk') $ do
                 sendChunk chunk'
                 modifyIORef' ref (+ V.length chunk')
         numPushed <- readIORef ref
@@ -494,7 +495,7 @@ syncMempools' log0 us localMempool remoteMempool = sync
     --
     sendChunk chunk = do
         v <- (V.map fromPending . V.filter isPending) <$> mempoolLookup localMempool chunk
-        when (not $ V.null v) $ mempoolInsert remoteMempool CheckedInsert v
+        unless (V.null v) $ mempoolInsert remoteMempool CheckedInsert v
 
 
 syncMempools
@@ -580,7 +581,7 @@ data MockTx = MockTx {
 
 
 mockBlockGasLimit :: GasLimit
-mockBlockGasLimit = 100000000
+mockBlockGasLimit = 100_000_000
 
 
 -- | A codec for transactions when sending them over the wire.

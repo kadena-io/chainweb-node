@@ -1,12 +1,11 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.NodeVersion
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -134,4 +133,3 @@ cutReq ver addr = HTTP.defaultRequest
     , HTTP.checkResponse = HTTP.throwErrorStatusCodes
     , HTTP.requestHeaders = [chainwebNodeVersionHeader]
     }
-

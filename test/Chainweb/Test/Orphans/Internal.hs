@@ -123,7 +123,7 @@ instance Arbitrary BlockHeader where
     arbitrary = fromLog . newMerkleLog <$> entries
       where
         entries
-            = liftA2 (:+:) (Nonce <$> chooseAny)
+            = liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
@@ -133,7 +133,7 @@ instance Arbitrary BlockHeader where
             $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)
             $ liftA2 (:+:) arbitrary
             $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
+            $ liftA2 (:+:) (Nonce <$> chooseAny)
             $ fmap MerkleLogBody arbitrary
 
 -- -------------------------------------------------------------------------- --

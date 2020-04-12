@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -10,7 +9,7 @@
 
 -- |
 -- Module: Chainweb.Chainweb.MinerResources
--- Copyright: Copyright © 2019 Kadena LLC.
+-- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
@@ -49,7 +48,6 @@ import qualified System.Random.MWC as MWC
 
 -- internal modules
 
-import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
@@ -62,8 +60,7 @@ import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
 import Chainweb.Payload (PayloadWithOutputs(..))
 import Chainweb.Payload.PayloadStore
-import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStorePact)
-import Chainweb.Sync.WebBlockHeaderStore (PactExecutionService, _pactNewBlock)
+import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
 import Chainweb.Utils (fromJuste, ixg, runForever, thd)
 import Chainweb.Version
@@ -87,8 +84,7 @@ data MiningCoordination logger cas = MiningCoordination
     , _coord403s :: !(IORef Int)
     , _coordConf :: !CoordinationConfig
     , _coordUpdateStreamCount :: !(IORef Int)
-    , _coordPrimedWork :: !(TVar PrimedWork)
-    }
+    , _coordPrimedWork :: !(TVar PrimedWork) }
 
 withMiningCoordination
     :: Logger logger
@@ -154,7 +150,7 @@ withMiningCoordination logger conf cdb inner
     updateCache
         :: ChainId
         -> PrimedWork
-        -> T2 Miner (T2 PayloadWithOutputs BlockCreationTime)
+        -> T2 Miner PayloadWithOutputs
         -> PrimedWork
     updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
         PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
@@ -171,16 +167,14 @@ withMiningCoordination logger conf cdb inner
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (Maybe (T2 PayloadWithOutputs BlockCreationTime)))
+      -> IO (HM.HashMap ChainId (Maybe PayloadWithOutputs))
     fromCut m cut =
         HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) . Just <$> getPayload bh m) cut
 
-    getPayload :: ParentHeader -> Miner -> IO (T2 PayloadWithOutputs BlockCreationTime)
-    getPayload parent m = do
-        payload <- trace (logFunction logger) "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-            () 1 (_pactNewBlock pact m parent)
-        creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-        pure $ T2 payload creationTime
+    getPayload :: ParentHeader -> Miner -> IO PayloadWithOutputs
+    getPayload parent m = trace (logFunction logger)
+        "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
+        () 1 (_pactNewBlock pact m parent)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
@@ -216,14 +210,14 @@ withMiningCoordination logger conf cdb inner
     -- sufficient to mine a block this constant must be changed in order to
     -- recover.
     --
-    f :: Time Micros -> T3 a PrevTime b -> Bool
-    f ago (T3 _ (PrevTime p) _) = p > BlockCreationTime ago
+    f :: Time Micros -> T3 a b (Time Micros) -> Bool
+    f ago (T3 _ _ added) = added > ago
 
     avgTxs :: MiningState -> Int
     avgTxs (MiningState ms) = summed `div` max 1 (M.size ms)
       where
         summed :: Int
-        summed = M.foldl' (\acc (T3 _ _ ps) -> acc + g ps) 0 ms
+        summed = M.foldl' (\acc (T3 _ ps _) -> acc + g ps) 0 ms
 
         g :: PayloadWithOutputs -> Int
         g = V.length . _payloadWithOutputsTransactions

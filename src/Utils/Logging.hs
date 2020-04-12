@@ -382,9 +382,9 @@ configureHandler
     -> EnableConfig c
     -> (Backend b -> IO a)
     -> IO a
-configureHandler logger config inner = case _enableConfigEnabled config of
-    False -> inner (const $ return ())
-    True -> logger (_enableConfigConfig config) inner
+configureHandler logger config inner
+    | _enableConfigEnabled config = logger (_enableConfigConfig config) inner
+    | otherwise = inner (const $ return ())
 
 -- -------------------------------------------------------------------------- --
 -- JSON Encoding for Log Messages
@@ -635,7 +635,7 @@ withElasticsearchBackend mgr esServer ixName pkgScopes inner = do
             isTimeout = Nothing <$ (readTVar timer >>= check)
             fill = tryReadTBQueue queue >>= maybe retry (return . Just)
 
-        go _ 0 !batch _ = return $! (0, batch)
+        go _ 0 !batch _ = return (0, batch)
         go i !remaining !batch !timer = getNextAction timer >>= \case
             Nothing -> return (remaining, batch)
             Just x -> go i (remaining - 1) (batch <> indexAction i x) timer
@@ -737,7 +737,7 @@ withJsonEventSourceAppBackend port staticDir inner = do
         <|> mount "events" (loggingCors $ eventSourceAppChan c)
         -- <|> mountRoot (loggingCors $ eventSourceAppChan c)
 
--- Simple cors with actualy simpleHeaders which includes content-type.
+-- Simple cors with actually simpleHeaders which includes content-type.
 loggingCors :: Middleware
 loggingCors = cors $ const $ Just $ simpleCorsResourcePolicy
   { corsRequestHeaders = simpleHeaders
