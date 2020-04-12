@@ -72,7 +72,6 @@ import qualified Data.CaseInsensitive as CI
 import Data.Foldable
 import Data.Functor.Of
 import qualified Data.HashSet as HS
-import qualified Data.List as L
 import Data.LogMessage
 import Data.Maybe
 import Data.Semigroup hiding (option)
@@ -285,6 +284,8 @@ validateConfig :: ConfigValidation Config []
 validateConfig o = do
     checkIfValidChain (_configChainId o)
     mapM_ (validateDirectory "database") (_configDatabasePath o)
+    when (_configValidate o && isJust (_configChainId o))
+        $ throwError $ "validation (--validate) can only be used if no particular chain is selected"
   where
     chains = chainIds $ _configChainwebVersion o
 
@@ -510,20 +511,8 @@ validate s = do
         -> IO ()
     val now (_, parents, _, isInitial) c
         | isGenesisBlockHeader c = void $ validateBlockHeaderM now (lookupHdr parents) c
-        | otherwise =
-            case L.find (\x -> _blockParent c == _blockHash x) parents of
-                Nothing
-
-                    -- at the initial block height it's expected that parents are missing
-                    | isInitial -> validateIntrinsicM now c
-
-                    -- later on a missing parent is an violation of the block header db
-                    -- invariant.
-                    | otherwise -> error
-                        $ "missing parent header for block: " <> sshow c
-                        <> "\ncurrent parents: " <> sshow parents
-
-                Just _ -> void $ validateBlockHeaderM now (lookupHdr parents) c
+        | isInitial = validateIntrinsicM now c
+        | otherwise = void $ validateBlockHeaderM now (lookupHdr parents) c
 
 -- -------------------------------------------------------------------------- --
 -- Tools
