@@ -78,8 +78,6 @@ import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
-import Data.Singletons
-
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
 
@@ -301,7 +299,7 @@ someBlockHeaderDbServers v = mconcat
 -- BlockHeader Event Stream
 
 someHeaderStreamServer :: PayloadCas cas => ChainwebVersion -> CutDb cas -> SomeServer
-someHeaderStreamServer (FromSing (SChainwebVersion :: Sing v)) cdb =
+someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
     SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
 
 headerStreamServer

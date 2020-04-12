@@ -28,8 +28,6 @@ import Chainweb.RestAPI.NetworkID
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Data.Singletons
-
 import P2P.Node.RestAPI
 import P2P.Peer
 
@@ -42,11 +40,11 @@ peerGetClient
     -> Maybe Limit
     -> Maybe (NextItem Int)
     -> ClientM (Page (NextItem Int) PeerInfo)
-peerGetClient (FromSing (SChainwebVersion :: Sing v)) = f
+peerGetClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
   where
-    f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
-    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
-    f (FromSing (SCutNetwork :: Sing n)) = client $ peerGetApi @v @n
+    f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
+    f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = client $ peerGetApi @v @n
+    f (FromSingNetworkId (SCutNetwork :: Sing n)) = client $ peerGetApi @v @n
 
 -- -------------------------------------------------------------------------- --
 -- PUT Peer Client
@@ -56,8 +54,8 @@ peerPutClient
     -> NetworkId
     -> PeerInfo
     -> ClientM NoContent
-peerPutClient (FromSing (SChainwebVersion :: Sing v)) = f
+peerPutClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
   where
-    f (FromSing (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
-    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
-    f (FromSing (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n
+    f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
+    f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = client $ peerPutApi @v @n
+    f (FromSingNetworkId (SCutNetwork :: Sing n)) = client $ peerPutApi @v @n
