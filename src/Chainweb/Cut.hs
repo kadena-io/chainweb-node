@@ -150,7 +150,7 @@ meanChainHeight :: Cut -> BlockHeight
 meanChainHeight
     = BlockHeight . mean . fmap (_height . _blockHeight) . toList . _cutHeaders
   where
-    mean l = int $ round $ sum (realToFrac <$> l) / realToFrac (length l)
+    mean l = round $ sum @_ @Double (realToFrac <$> l) / realToFrac (length l)
 
 instance HasChainGraph Cut where
     _chainGraph c = _chainGraph (_chainwebVersion c, meanChainHeight c)
