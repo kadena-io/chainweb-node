@@ -69,6 +69,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.CaseInsensitive as CI
+import Data.Foldable
 import Data.Functor.Of
 import qualified Data.HashSet as HS
 import qualified Data.List as L
@@ -95,10 +96,12 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.ChainValue
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Payload
@@ -452,6 +455,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
         | _configPretty config = T.decodeUtf8 . BL.toStrict . encodePretty
         | otherwise = encodeToText
 
+-- | TODO include braiding validation
 validate :: S.Stream (Of BlockHeader) IO () -> S.Stream (Of BlockHeader) IO ()
 validate s = do
     now <- liftIO getCurrentTimeIntegral
@@ -492,13 +496,20 @@ validate s = do
             <> "\nheight: " <> sshow h
             <> "\nparents: " <> sshow parents
 
+    lookupHdr
+        :: Applicative m
+        => [BlockHeader]
+        -> ChainValue BlockHash
+        -> m (Maybe BlockHeader)
+    lookupHdr hdrs h = pure $ find ((== _chainValueValue h) . _blockHash) hdrs
+
     val
         :: Time Micros
         -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
         -> BlockHeader
         -> IO ()
     val now (_, parents, _, isInitial) c
-        | isGenesisBlockHeader c = validateBlockHeaderM now (ParentHeader c) c
+        | isGenesisBlockHeader c = void $ validateBlockHeaderM now (lookupHdr parents) c
         | otherwise =
             case L.find (\x -> _blockParent c == _blockHash x) parents of
                 Nothing
@@ -512,7 +523,7 @@ validate s = do
                         $ "missing parent header for block: " <> sshow c
                         <> "\ncurrent parents: " <> sshow parents
 
-                Just p -> validateBlockHeaderM now (ParentHeader p) c
+                Just _ -> void $ validateBlockHeaderM now (lookupHdr parents) c
 
 -- -------------------------------------------------------------------------- --
 -- Tools
