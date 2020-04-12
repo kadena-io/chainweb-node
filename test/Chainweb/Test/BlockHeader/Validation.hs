@@ -1,5 +1,8 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |
 -- Module: Chainweb.Test.BlockHeader.Validation
@@ -14,12 +17,18 @@ module Chainweb.Test.BlockHeader.Validation
 ( tests
 ) where
 
-import Control.Lens
+import Control.Lens hiding ((.=))
+import Control.Monad.Catch
 
 import Data.Aeson
-import Data.Bitraversable
+import Data.Bits
+import qualified Data.ByteString as B
+import Data.DoubleWord
 import Data.Foldable
 import Data.List (sort)
+import Data.Serialize.Get (Get)
+import Data.Serialize.Put (Put)
+import qualified Data.Text as T
 
 import Test.QuickCheck
 import Test.Tasty
@@ -27,15 +36,20 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
+import Chainweb.BlockCreationTime
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
-import Chainweb.Graph
+import Chainweb.Difficulty
+import Chainweb.Graph hiding (AdjacentChainMismatch)
 import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Test.Utils.TestHeader
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+
+import Data.Word.Encoding
 
 -- -------------------------------------------------------------------------- --
 -- Properties
@@ -44,7 +58,7 @@ tests :: TestTree
 tests = testGroup "Chainweb.Test.Blockheader.Validation"
     [ prop_validateMainnet
     , prop_validateTestnet04
-    , prop_fail_validateTestnet04
+    , prop_fail_validate
     , prop_featureFlag (Test petersonChainGraph) 10
     ]
 
@@ -86,22 +100,19 @@ prop_featureFlag v h = testCase ("Invalid feature flags fail validation for " <>
 -- * New minded blocks
 
 prop_validateMainnet :: TestTree
-prop_validateMainnet = testCase "validate Mainnet01 BlockHeaders" $ do
-    now <- getCurrentTimeIntegral
-    traverse_ (f now) mainnet01Headers
-  where
-    f t (p, h) = case validateBlockHeader t p h of
-        [] -> return ()
-        errs -> assertFailure $ "Validation failed for mainnet BlockHeader: " <> sshow errs
+prop_validateMainnet = prop_validateHeaders "validate Mainnet01 BlockHeaders" mainnet01Headers
 
 prop_validateTestnet04 :: TestTree
-prop_validateTestnet04 = testCase "validate Testnet04 BlockHeaders" $ do
+prop_validateTestnet04 = prop_validateHeaders "validate Testnet04 BlockHeaders" testnet04Headers
+
+prop_validateHeaders :: String -> [TestHeader] -> TestTree
+prop_validateHeaders msg hdrs = testCase msg $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) testnet04Headers
+    traverse_ (f now) hdrs
   where
-    f t (p, h) = case validateBlockHeader t p h of
-        [] -> return ()
-        errs -> assertFailure $ "Validation failed for testnet04 BlockHeader: " <> sshow errs
+    f now h = case validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h) of
+        Right _ -> return ()
+        Left errs -> assertFailure $ "Validation failed for mainnet BlockHeader: " <> sshow errs
 
 -- -------------------------------------------------------------------------- --
 -- Rules are applied
@@ -114,21 +125,21 @@ prop_validateTestnet04 = testCase "validate Testnet04 BlockHeaders" $ do
 -- would have to be valid.
 --
 
-prop_fail_validateTestnet04 :: TestTree
-prop_fail_validateTestnet04 = testCase "validate invalid Testnet04 BlockHeaders" $ do
+prop_fail_validate :: TestTree
+prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) testnet04InvalidHeaders
+    traverse_ (f now) validationFailures
   where
-    f t (p, h, expectedErrs) = case validateBlockHeader t p h of
-        [] -> assertFailure $ "Validation succeeded unexpectedly for testnet04 BlockHeader"
-        errs
-            | sort errs /= sort expectedErrs -> assertFailure
-                $ "Validation failed with unexpected errors for testnet04 BlockHeader"
-                <> ", expected: " <> sshow expectedErrs
-                <> ", actual: " <> sshow errs
-                <> ", parent: " <> sshow (_blockHash $ _parentHeader p)
-                <> ", header: " <> sshow (_blockHash h)
-        _ -> return () -- FIXME be more specific
+    f now (h, expectedErrs)
+        = try (validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)) >>= \case
+            Right _ -> assertFailure $ "Validation succeeded unexpectedly for validationFailures BlockHeader"
+            Left ValidationFailure{ _validationFailureFailures = errs }
+                | sort errs /= sort expectedErrs -> assertFailure
+                    $ "Validation failed with unexpected errors for BlockHeader"
+                    <> ", expected: " <> sshow expectedErrs
+                    <> ", actual: " <> sshow errs
+                    <> ", header: " <> sshow (_blockHash $ _testHeaderHdr h)
+            _ -> return () -- FIXME be more specific
 
 -- -------------------------------------------------------------------------- --
 -- Tests for Rule Guards:
@@ -141,59 +152,121 @@ prop_fail_validateTestnet04 = testCase "validate invalid Testnet04 BlockHeaders"
 -- effective)
 
 -- -------------------------------------------------------------------------- --
+-- Invalid Headers
+
+validationFailures :: [(TestHeader, [ValidationFailureType])]
+validationFailures =
+    [ ( hdr & testHeaderHdr . blockCreationTime .~ BlockCreationTime (Time maxBound)
+      , [IncorrectHash, IncorrectPow, BlockInTheFuture]
+      )
+    , ( hdr & testHeaderHdr . blockCreationTime %~ add second
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr & testHeaderHdr . blockHash .~ nullBlockHash
+      , [IncorrectHash]
+      )
+    , ( hdr & testHeaderHdr . blockHash %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
+      , [IncorrectHash]
+      )
+    , ( hdr & testHeaderHdr . blockTarget %~ messWords encodeHashTarget decodeHashTarget (flip complementBit 0)
+      , [IncorrectHash, IncorrectPow, IncorrectTarget]
+      )
+    , ( hdr & testHeaderHdr . blockParent %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
+      , [MissingParent]
+      )
+    , ( hdr & testHeaderHdr . blockPayloadHash %~ messWords encodeBlockPayloadHash decodeBlockPayloadHash (flip complementBit 0)
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr & testHeaderHdr . blockEpochStart %~ add second
+      , [IncorrectHash, IncorrectPow, IncorrectEpoch]
+      )
+    , ( hdr & testHeaderHdr . blockChainId .~ unsafeChainId 1
+      , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
+      )
+    , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
+      , [IncorrectHash, IncorrectPow, VersionMismatch]
+      )
+    , ( hdr & testHeaderHdr . blockWeight .~ 10
+      , [IncorrectHash, IncorrectPow, IncorrectWeight]
+      )
+    , ( hdr & testHeaderHdr . blockWeight %~ (+ 1)
+      , [IncorrectHash, IncorrectPow, IncorrectWeight]
+      )
+    , ( hdr & testHeaderHdr . blockHeight .~ 10
+      , [IncorrectHash, IncorrectPow, IncorrectHeight]
+      )
+    , ( hdr & testHeaderHdr . blockHeight %~ (+ 1)
+      , [IncorrectHash, IncorrectPow, IncorrectHeight]
+      )
+    , ( hdr & testHeaderHdr . blockNonce .~ Nonce 0
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr & testHeaderHdr . blockNonce %~ Nonce . (+1) . encodeNonceToWord64
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGet decodeFeatureFlags badFlags)
+      , [IncorrectHash, IncorrectPow]
+      )
+    , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
+      , [IncorrectHash, IncorrectPow]
+      )
+    ]
+  where
+    -- From mainnet
+    hdr = testHeader
+        [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
+        , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
+        , "adjacents" .=
+            [ t "ACcMAPA_ii9z0Ez7v54FAEHCgNqctC-bdWdbvN92fd1eTeIaCr_-_mXowv0Ckws0AwADAAAAxnGpa89fzxURJdpCA92MZmlDtgG9AZFVPCsCwNyDly8HAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTYJAAAAzmf29gDZjNcpxkw3EP9JgnU3-ARNJ14NisscofzzARCjTKbuwLbdyjay0MQ3l7xPGULH_yLMDPh4LQIAAAAAADbjm8GoWvx_3YNJ47vz54_LXV95MTKI4drB2fk5AdPlCAAAADS2qD13VlhnAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA0wwnzb-eBQAAAAnWry0AAO_VcNpKm1Qx5vVg85LBcMWXJseTiSTVvoHu41Wtx4h2"
+            , t "AAARACjupkPfZFz8v54FAIxbIHQdq4grSLNI-NL6Lxhn3BSGZij58RFxHpHFdvHlAwABAAAAfdHDK_Q8xoD-W0nBPPBPMOgs1VukuCImYwCNnaBUwOMFAAAA4eefM0SUltzJ0Qszo3N0R9B4w_ap2_M2e6nlKEqJmkoHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbiMNKcS7VzGITdCwrGSYWrFNQvGP7KAzjbLQIAAAAAABlK0LefdM1J4t_Qeg6xAVNNDKEOhiEmNKe6SK9N6TAZBgAAALFBPU7YDgRoAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA2eJ0y7-eBQAAAORH5OUAAGvj8zv81JpNcizsrdpA94iOnHoSqkPynSvA-qmfl-l-"
+            , t "AABPAIw5kEeHUtD7v54FAH2hiBHu2vsBk_DnRF8_Ub5cyVZCYJhD5s5ONm840DotAwAAAAAAPYZZ2yg5iXsMOyKqKKUhrGaboexUhUVK8e-fhn3FzNkEAAAAu_A9WCeRoLM17g_jc0A2UnhvCQFe5LCtTnaze9LqajQHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbP1aVtUvTRaiRyg9hCVSPXuIpf3IjuwHaBKgIAAAAAABQWMBli4UbscIslyPPH2ItcNaY2_Fm7yFucQM86oqojAgAAAFy5ttLGN19tAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAddFMzL-eBQAAALuSPmYAAMu0EgB6CHhY9CV4nXv3KPjmhM82Fm3mYQH6YVyPPiEd"
+            ]
+        ]
+
+    badFlags = B.pack [0,0,0,0,0,0,0,1]
+
+    messByteString :: (a -> Put) -> Get a -> (B.ByteString -> B.ByteString) -> a -> a
+    messByteString enc dec f x = fromJuste $ runGet dec $ f $ runPut $ enc x
+
+    messWords :: (a -> Put) -> Get a -> (Word256 -> Word256) -> a -> a
+    messWords enc dec f x = messByteString enc dec g x
+      where
+        g bytes = runPut (encodeWordLe $ f $ fromJuste $ runGet decodeWordLe bytes)
+
+-- -------------------------------------------------------------------------- --
 -- A representative collection of Mainnet01 Headers pairs
 
 -- | A representative collection of BlockHeader from the existing mainnet01
 -- history
 --
-mainnet01Headers :: [(ParentHeader, BlockHeader)]
-mainnet01Headers = gens <> some
-  where
-    v = Mainnet01
-    f = bitraverse (fmap ParentHeader . decode . wrap) (decode . wrap)
-
-    -- Some BlockHeader from the existing mainnet01 history
-    some = fromJuste $ traverse f
-        [
-            ( "H3rGh41BFgB2dYQvypgFACg92VqS0_k716NKvao4RfW8a0Nyj1KUuoGqFV_3OXDCAwACAAAAeEynJU7e0IPfQXm53PPHDkjPq5J3ycf2SqJVxFcIXrcDAAAAyY-kayiK41qNuDkMN3p3mwE57QHm1Tcj8nd-lP2YyDwFAAAAQ4a9wEuRhggN59f0mgzljWW7tjfCQtqD68fZbmYuz-LEgt46tQRDXU98wWRlQl0BSVHI5X01nzE6NgcAAAAAAJt2iGmFIGBIqsZvGLpp2ajVU915fQ_Hxu2hZo9fEFEKAAAAAKkNF7J27u0RAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoIYBAAAAAAAFAAAAF5am6cmYBQAAAAAAAAAAAFu19jecoQhbBKnxAbWQLr2tMlBv82LIqL1tzsjD4HeJ"
-            , "NZX2DMUA7v_au3swypgFAFu19jecoQhbBKnxAbWQLr2tMlBv82LIqL1tzsjD4HeJAwACAAAA1mtN-xxumd3H1HB3IHu-Baz4hPzhGIKJhXNZbXZ9zWsDAAAAuwkSBAu4bGfFnQgcr6bNbIbHsjtAbI3YZ2Whf9ek3PMFAAAAleDFg-L56CcqBd1Waek0nXQfuufTKQoJNosU4S8ol13Egt46tQRDXU98wWRlQl0BSVHI5X01nzE6NgcAAAAAAFG_dy06qOtH93eteXZnNrf7zXOZSefhxpAH1IZceu00AAAAAAzWH_71Ee4RAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoYYBAAAAAAAFAAAAF5am6cmYBQAAAAAAAAAAAPEQhg0G_mOQpv_381FvmUpHVqtekGgmczG5Thtqoigx"
-            )
-        ,
-            ( "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
-            , "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
-            )
+mainnet01Headers :: [TestHeader]
+mainnet01Headers = genesisTestHeaders Mainnet01 <>
+    [ testHeader
+        [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
+        , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
+        , "adjacents" .=
+            [ t "ACcMAPA_ii9z0Ez7v54FAEHCgNqctC-bdWdbvN92fd1eTeIaCr_-_mXowv0Ckws0AwADAAAAxnGpa89fzxURJdpCA92MZmlDtgG9AZFVPCsCwNyDly8HAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTYJAAAAzmf29gDZjNcpxkw3EP9JgnU3-ARNJ14NisscofzzARCjTKbuwLbdyjay0MQ3l7xPGULH_yLMDPh4LQIAAAAAADbjm8GoWvx_3YNJ47vz54_LXV95MTKI4drB2fk5AdPlCAAAADS2qD13VlhnAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA0wwnzb-eBQAAAAnWry0AAO_VcNpKm1Qx5vVg85LBcMWXJseTiSTVvoHu41Wtx4h2"
+            , t "AAARACjupkPfZFz8v54FAIxbIHQdq4grSLNI-NL6Lxhn3BSGZij58RFxHpHFdvHlAwABAAAAfdHDK_Q8xoD-W0nBPPBPMOgs1VukuCImYwCNnaBUwOMFAAAA4eefM0SUltzJ0Qszo3N0R9B4w_ap2_M2e6nlKEqJmkoHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbiMNKcS7VzGITdCwrGSYWrFNQvGP7KAzjbLQIAAAAAABlK0LefdM1J4t_Qeg6xAVNNDKEOhiEmNKe6SK9N6TAZBgAAALFBPU7YDgRoAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA2eJ0y7-eBQAAAORH5OUAAGvj8zv81JpNcizsrdpA94iOnHoSqkPynSvA-qmfl-l-"
+            , t "AABPAIw5kEeHUtD7v54FAH2hiBHu2vsBk_DnRF8_Ub5cyVZCYJhD5s5ONm840DotAwAAAAAAPYZZ2yg5iXsMOyKqKKUhrGaboexUhUVK8e-fhn3FzNkEAAAAu_A9WCeRoLM17g_jc0A2UnhvCQFe5LCtTnaze9LqajQHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbP1aVtUvTRaiRyg9hCVSPXuIpf3IjuwHaBKgIAAAAAABQWMBli4UbscIslyPPH2ItcNaY2_Fm7yFucQM86oqojAgAAAFy5ttLGN19tAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAddFMzL-eBQAAALuSPmYAAMu0EgB6CHhY9CV4nXv3KPjmhM82Fm3mYQH6YVyPPiEd"
+            ]
         ]
-
-    -- All genesis headers
-    gens = flip fmap (toList $ chainIds v) $ \cid ->
-        ( ParentHeader $ genesisBlockHeader v cid
-        , genesisBlockHeader v cid
-        )
-
-    wrap x = "\"" <> x <> "\""
-
-testnet04Headers :: [(ParentHeader, BlockHeader)]
-testnet04Headers = gens <> some
-  where
-    v = Testnet04
-    f = bitraverse (fmap ParentHeader . decode . wrap) (decode . wrap)
-
-    -- Some BlockHeader from the existing testnet04 history
-    --
-    some = fromJuste $ traverse f
-        [
+    , testHeader
+        [ "parent" .= t "AAAAAAAAAABEtTTKCqMFAEjmr_NPBprFiWD_WhyvMzQCiHGxnE1sYKeKGTOPjvD5AwACAAAAMrWEo-w-oixyUqELYmgOvRU7Z7FTjPzNLJCYXu26OuIDAAAA4c_RjHJ0N4gH6uN3TLpowhFIUGFRUe1celP6BwyFBwAFAAAAF2p4lSHRyyPrQ8GF1akfJM9EfzYSSsx5NI5IHtavNXEYhLsC8eqcLrj_VXvO_p1n4hz5QVR4ul3FpwAAAAAAAPDGI9fJxK4qRkWzcPv64tL1wNu0j76Vws5_oXrHsrPxAAAAAGJcPGAFgqQkBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAx9MnbwqjBQAAybvnn0-KAPLMEAsBh7vLnOh9053meOcuahQ_ezuUWynN1sMwSWqQ"
+        , "header" .= t "AAAAAAAAAACnKMTLCqMFAPLMEAsBh7vLnOh9053meOcuahQ_ezuUWynN1sMwSWqQAwACAAAA_5afAofRZMA5Lz_ZG1Y0l6PJFTWueyU_4GbGWGtt_aoDAAAAs4MViuWgDm1nCgvyE5kzgG-_eZhCJupijIoh2z9cy0MFAAAA760lZUnDPEzHB6SKPbfOhFjpNNYDCuUXfxjvO3W4AckYhLsC8eqcLrj_VXvO_p1n4hz5QVR4ul3FpwAAAAAAAEQxBl7xgdFiynPSwT5ZNOcH8fiWKTdX9j09CUDn2irbAAAAAGHDHxemCKYkBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZEEHAAAAAAAFAAAAx9MnbwqjBQAdLDW8JkF8ALVfqYGwKAkKf4NHKGRn1autmwMCCgXM-ZHa2zwgRk3R"
+        , "adjacents" .=
+            [ t "AAAAAAAAAADjy2TKCqMFABdqeJUh0csj60PBhdWpHyTPRH82EkrMeTSOSB7WrzVxAwAAAAAASOav808GmsWJYP9aHK8zNAKIcbGcTWxgp4oZM4-O8PkGAAAAR8k4YCs8tUNx_xN-6pBWwK6ZsQM4aVqNdChpN59IDoQJAAAAHq0_GIZUoec-dF3DHYqzMyJmaOdGdnaw4FtuQuO2LOvjgZy5BaDXFN80S7hBeqGZ2cWTwRs5c-2BtgAAAAAAAMYc1v2Uw5BO6zQXlJ5l5oGsLo-rGkpweUWRftVgIkeHBQAAAP8ehKwH-DP2AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAuHnmcQqjBQAAfJOEnJ3EAO-tJWVJwzxMxwekij23zoRY6TTWAwrlF38Y7zt1uAHJ"
+            , t "AAAAAAAAAABpbsjKCqMFADK1hKPsPqIsclKhC2JoDr0VO2exU4z8zSyQmF7tujriAwAAAAAASOav808GmsWJYP9aHK8zNAKIcbGcTWxgp4oZM4-O8PkEAAAA9wHcfWI2MNTrJuoPxllY3pm7BVa4Zgr8Ojdufj4oLw4HAAAAe1EOiqoneVZjUWfvqItXpXBais2UiUeoqcvc32prVo4q7OJWUH7TcdN9wcJMzNuUmuZtySQqALShowAAAAAAACNm7rsELSjBjDerkGAB1JSp3Ink0NG0t7Wqupyi3cqBAgAAAHjeCa0pNJQ0BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAf6OvbgqjBQAGddYi31ibAP-WnwKH0WTAOS8_2RtWNJejyRU1rnslP-Bmxlhrbf2q"
+            , t "AAAAAAAAAABF8PnKCqMFAOHP0YxydDeIB-rjd0y6aMIRSFBhUVHtXHpT-gcMhQcAAwAAAAAASOav808GmsWJYP9aHK8zNAKIcbGcTWxgp4oZM4-O8PkBAAAA5fRcXeTuKnS5Q4DuydXASBIX29tMsytHjEP21Vf2Ah0IAAAAJvJibit6A2QiqrOZmRe9zJRjW7PtmLJ51hDMUh1UyX4MFPyyFPku-007fa_t4ax7z5uSCQnTRLz1pAAAAAAAAHkJOGZlsei0ZFfkYdc0bBM7I39OmrLZlJTegBfLHNSYAwAAAH1mw3DMvaAaBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAhQs5cAqjBQAAKCAqaKcvALODFYrloA5tZwoL8hOZM4Bvv3mYQibqYoyKIds_XMtD"
+            ]
         ]
+    ]
 
-    -- All genesis headers
-    gens = flip fmap (toList $ chainIds v) $ \cid ->
-        ( ParentHeader $ genesisBlockHeader v cid
-        , genesisBlockHeader v cid
-        )
+testnet04Headers :: [TestHeader]
+testnet04Headers = genesisTestHeaders Testnet04
 
-    wrap x = "\"" <> x <> "\""
-
-testnet04InvalidHeaders :: [(ParentHeader, BlockHeader, [ValidationFailureType])]
-testnet04InvalidHeaders = some
+-- TODO replace these by "interesting headers" form mainnet (e.g. fork block heights)
+_testnet04InvalidHeaders :: [(ParentHeader, BlockHeader, [ValidationFailureType])]
+_testnet04InvalidHeaders = some
   where
     f (p, h, e) = (,,)
         <$> (fmap ParentHeader . decode . wrap) p
@@ -254,3 +327,10 @@ testnet04InvalidHeaders = some
             , [InvalidFeatureFlags]
             )
         ]
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+t :: T.Text -> T.Text
+t = id
+

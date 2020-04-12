@@ -18,7 +18,10 @@
 module Chainweb.BlockHeader.Validation
 (
 -- * Validated BockHeaders
-  ValidatedHeaders
+  ValidatedHeader
+, _validatedHeader
+, ValidatedHeaders
+, _validatedHeaders
 
 -- * Input Data Types for Validation Functions
 -- $params
@@ -47,6 +50,12 @@ module Chainweb.BlockHeader.Validation
 -- * Top-level Validaton Functions
 , validateBlockHeaderM
 , validateBlockHeadersM
+
+-- * Partial validation functions
+--
+-- | For failing fast during cut validation
+, validateIntrinsicM
+, validateInductiveChainM
 
 -- * Validation of Input Parameters
 , validateBlockParentExists
@@ -97,6 +106,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockTarget, genesisParentBlockHash, genesisBlockHeader)
 import Chainweb.ChainId
+import Chainweb.ChainValue
 import Chainweb.Difficulty
 import Chainweb.Time
 import Chainweb.Utils
@@ -108,9 +118,24 @@ import Chainweb.Version
 -- NOTE: the constructor of this type is intentionally NOT exported. Value of
 -- this type must be only created via functions from this module.
 --
-newtype ValdiatedHeader = ValidatedHeader BlockHeader
+newtype ValidatedHeader = ValidatedHeader BlockHeader
     deriving (Show, Eq, Ord, Generic)
 
+instance HasChainId ValidatedHeader where
+    _chainId = _chainId . _validatedHeader
+    {-# INLINE _chainId #-}
+
+instance HasChainwebVersion ValidatedHeader where
+    _chainwebVersion = _chainwebVersion . _validatedHeader
+    {-# INLINE _chainwebVersion #-}
+
+instance HasChainGraph ValidatedHeader where
+    _chainGraph = _chainGraph . _validatedHeader
+    {-# INLINE _chainGraph #-}
+
+_validatedHeader :: ValidatedHeader -> BlockHeader
+_validatedHeader (ValidatedHeader h) = h
+{-# INLINE _validatedHeader #-}
 
 -- | Values of this type witness that a set of BlockHeaders has been validated for
 -- the properties defined in this module.
@@ -407,10 +432,10 @@ validateBlockHeaderM
     :: MonadThrow m
     => Time Micros
         -- ^ The current clock time
-    -> (BlockHash -> m (Maybe BlockHeader))
+    -> (ChainValue BlockHash -> m (Maybe BlockHeader))
         -- ^ Context of Validated BlockHeaders
     -> BlockHeader
-    -> m ValidatedHeaders
+    -> m ValidatedHeader
 validateBlockHeaderM t lookupHeader h =
     validateAllParentsExist lookupHeader h >>= \case
         Left e -> throwM $ ValidationFailure
@@ -422,7 +447,7 @@ validateBlockHeaderM t lookupHeader h =
         Right ws -> do
             let failures = validateBlockHeader t ws
             unless (null failures) $ throwM $ webStepFailure ws failures
-            return $ ValidatedHeaders $ HM.singleton (_blockHash h) h
+            return $ ValidatedHeader h
 
 -- | Validate a set of blocks that may depend on each other.
 --
@@ -435,7 +460,7 @@ validateBlockHeadersM
     :: MonadThrow m
     => Time Micros
         -- ^ The current clock time
-    -> (BlockHash -> m (Maybe BlockHeader))
+    -> (ChainValue BlockHash -> m (Maybe BlockHeader))
         -- ^ Context of Validated BlockHeaders
     -> HM.HashMap BlockHash BlockHeader
     -> m ValidatedHeaders
@@ -443,13 +468,15 @@ validateBlockHeadersM t lookupHeader as = do
     traverse_ (validateBlockHeaderM t lookupHeader') as
     return $ ValidatedHeaders as
   where
-    lookupHeader' h = case HM.lookup h as of
+    lookupHeader' h = case HM.lookup (_chainValueValue h) as of
         Just p -> return (Just p)
         Nothing -> lookupHeader h
 
-#if 0
 -- -------------------------------------------------------------------------- --
 -- Partial Top-Level Validation Functions
+--
+-- These functions don't return ValidatedHeaders, so the result doesn't qualify
+-- the validated header to be inserted in the the chain database.
 
 -- | Only validate intrinsic properties of the block header, throwing an
 -- exception detailing the failures if any.
@@ -475,17 +502,23 @@ validateIntrinsicM t e = unless (null failures)
 -- This doesn't return 'ValidatedHeaders' because no complete validation is
 -- performed
 --
-validateInductiveM
+validateInductiveChainM
     :: MonadThrow m
     => (BlockHash -> m (Maybe BlockHeader))
         -- ^ Context of Validated BlockHeaders
     -> BlockHeader
     -> m ()
-validateInductiveM p = unless (null failures)
-    $ throwM (webStepFailure p failures)
-  where
-    failures = validateInductive p
-#endif
+validateInductiveChainM lookupHeader h =
+    validateBlockParentExists lookupHeader h >>= \case
+        Left e -> throwM $ ValidationFailure
+            { _validateFailureParent = Nothing
+            , _validateFailureAdjecents = Nothing
+            , _validateFailureHeader = h
+            , _validationFailureFailures = [e]
+            }
+        Right cs -> do
+            let failures = validateInductiveChainStep cs
+            unless (null failures) $ throwM $ chainStepFailure cs failures
 
 -- -------------------------------------------------------------------------- --
 -- Validation of Input Parameters
@@ -512,18 +545,19 @@ validateBlockParentExists lookupParent h
 --
 validateAllParentsExist
     :: Monad m
-    => (BlockHash -> m (Maybe BlockHeader))
+    => (ChainValue BlockHash -> m (Maybe BlockHeader))
     -> BlockHeader
     -> m (Either ValidationFailureType WebStep)
 validateAllParentsExist lookupParent h = runExceptT $ WebStep
     <$> itraverse f (view (blockAdjacentHashes . getBlockHashRecord) h)
-    <*> ExceptT (validateBlockParentExists lookupParent h)
+    <*> ExceptT (validateBlockParentExists lookupOnChain h)
   where
+    lookupOnChain = lookupParent . ChainValue (_chainId h)
     v = _chainwebVersion h
     f c ph
         | genesisParentBlockHash v c == ph = return
             $ ParentHeader $ genesisBlockHeader v c
-        | otherwise = lift (lookupParent ph) >>= \case
+        | otherwise = lift (lookupParent $ ChainValue c ph) >>= \case
             (Just !p) -> return $ ParentHeader p
             Nothing -> throwError MissingAdjacentParent
 
@@ -607,8 +641,6 @@ validateInductiveChainStep s = concat
     , [ VersionMismatch | not (prop_block_chainwebVersion s) ]
     , [ IncorrectWeight | not (prop_block_weight s) ]
     , [ ChainMismatch | not (prop_block_chainId s) ]
-    -- TODO:
-    -- target of block matches the calculate target for the branch
     ]
 
 validateInductiveWebStep
@@ -703,6 +735,16 @@ prop_block_adjacent_chainId :: WebStep -> Bool
 prop_block_adjacent_chainId (WebStep as (ChainStep (ParentHeader p) b))
     = _blockChainId p == _blockChainId b
 
+-- | TODO: we don't current check this here. It is enforced in the cut merge
+-- algorithm , namely in 'monotonicCutExtension'. The property that is checked
+-- in the cut validation is stronger than the braiding property that we could
+-- check here (which is the property that is described in the chainweb paper).
+-- So, I check here would add some redundancy, but it's not clear of how much
+-- actual value that would be.
+--
+-- If we want to enforce it here, too, we would have to look back 2 steps in
+-- history.
+--
 prop_block_braiding :: WebStep -> Bool
-prop_block_braiding (WebStep as (ChainStep p b)) = error "TODO"
+prop_block_braiding (WebStep as (ChainStep p b)) = True
 

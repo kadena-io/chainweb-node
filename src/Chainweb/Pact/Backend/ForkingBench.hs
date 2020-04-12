@@ -255,7 +255,8 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
      addNewPayload pdb payload
 
-     insertBlockHeaderDb bhdb [newHeader]
+     -- NOTE: this doesn't validate the block header, which is fine in this test case
+     unsafeInsertBlockHeaderDb bhdb newHeader
 
      return $ T3 parentHeader newHeader payload
 
