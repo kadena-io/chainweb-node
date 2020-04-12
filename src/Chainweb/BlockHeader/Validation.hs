@@ -723,16 +723,16 @@ prop_block_chainId (ChainStep (ParentHeader p) b)
 -- Mutli chain inductive properties
 
 prop_block_epoch :: WebStep -> Bool
-prop_block_epoch (WebStep as (ChainStep p b))
+prop_block_epoch (WebStep _as (ChainStep p b))
     = _blockEpochStart b == epochStart p (_blockCreationTime b)
 
 prop_block_creationTime :: WebStep -> Bool
-prop_block_creationTime (WebStep as (ChainStep (ParentHeader p) b))
+prop_block_creationTime (WebStep _as (ChainStep (ParentHeader p) b))
     | isGenesisBlockHeader b = _blockCreationTime b == _blockCreationTime p
     | otherwise = _blockCreationTime b > _blockCreationTime p
 
 prop_block_adjacent_chainId :: WebStep -> Bool
-prop_block_adjacent_chainId (WebStep as (ChainStep (ParentHeader p) b))
+prop_block_adjacent_chainId (WebStep _as (ChainStep (ParentHeader p) b))
     = _blockChainId p == _blockChainId b
 
 -- | TODO: we don't current check this here. It is enforced in the cut merge
@@ -746,5 +746,5 @@ prop_block_adjacent_chainId (WebStep as (ChainStep (ParentHeader p) b))
 -- history.
 --
 prop_block_braiding :: WebStep -> Bool
-prop_block_braiding (WebStep as (ChainStep p b)) = True
+prop_block_braiding _ = True
 
