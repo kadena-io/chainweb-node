@@ -70,7 +70,6 @@ import Chainweb.Version
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
-import Data.Singletons
 
 ---
 
@@ -208,5 +207,5 @@ miningServer
 miningServer mr = workHandler mr :<|> solvedHandler mr :<|> updatesHandler mr
 
 someMiningServer :: Logger l => ChainwebVersion -> MiningCoordination l cas -> SomeServer
-someMiningServer (FromSing (SChainwebVersion :: Sing vT)) mr =
+someMiningServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) mr =
     SomeServer (Proxy @(MiningApi vT)) $ miningServer mr

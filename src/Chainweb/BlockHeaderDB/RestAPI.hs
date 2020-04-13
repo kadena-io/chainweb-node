@@ -112,8 +112,6 @@ import Chainweb.TreeDB
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
 
-import Data.Singletons
-
 -- -------------------------------------------------------------------------- --
 -- API types
 
@@ -407,4 +405,4 @@ headerStreamApi :: forall (v :: ChainwebVersionT). Proxy (HeaderStreamApi v)
 headerStreamApi = Proxy
 
 someHeaderStreamApi :: ChainwebVersion -> SomeApi
-someHeaderStreamApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v
+someHeaderStreamApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v

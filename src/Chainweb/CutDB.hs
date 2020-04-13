@@ -145,7 +145,6 @@ import Chainweb.WebPactExecutionService
 import Data.CAS
 import Data.CAS.RocksDB
 import Data.PQueue
-import Data.Singletons
 
 import qualified Data.TaskMap as TM
 import P2P.TaskQueue
@@ -735,7 +734,7 @@ newtype CutDbT cas (v :: ChainwebVersionT) = CutDbT (CutDb cas)
 data SomeCutDb cas = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDbT cas v)
 
 someCutDbVal :: ChainwebVersion -> CutDb cas -> SomeCutDb cas
-someCutDbVal (FromSing (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @_ @v db
+someCutDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @_ @v db
 
 -- -------------------------------------------------------------------------- --
 -- Queue Stats

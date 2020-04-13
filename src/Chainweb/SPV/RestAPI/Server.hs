@@ -148,7 +148,7 @@ someSpvServers
     => ChainwebVersion
     -> CutDb cas
     -> SomeServer
-someSpvServers v db = mconcat $ flip fmap cids $ \(FromSing (SChainId :: Sing c)) ->
+someSpvServers v db = mconcat $ flip fmap cids $ \(FromSingChainId (SChainId :: Sing c)) ->
     someSpvServer @_ @c (someCutDbVal v db)
   where
     cids = toList $ chainIds db

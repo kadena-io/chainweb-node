@@ -105,6 +105,11 @@ data SomeSing k where
 
 -- | A pattern for converting betwen a singleton and it's demoted value.
 --
+-- For version 8.10 GHC isn't able to match the COMPLETE pragma. Since orphan
+-- COMPLETE pragmas aren't supported it's not possible to specialize the pargma
+-- for individual types. Instead we are providing specialized patterns along
+-- with the types for which singletons are defined.
+--
 pattern FromSing :: SingKind k => forall (a :: k) . Sing a -> Demote k
 pattern FromSing sng <- ((\demotedVal -> withSomeSing demotedVal SomeSing) -> SomeSing sng)
   where FromSing sng = fromSing sng

@@ -213,7 +213,9 @@ headerPutClientJson
     -> ChainId
     -> DbEntry BlockHeaderDb
     -> ClientM NoContent
-headerPutClientJson (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing c))
+headerPutClientJson
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = headerPutClientContentType_ @v @c @JSON
 
 headerPutClientJsonPretty
@@ -221,7 +223,9 @@ headerPutClientJsonPretty
     -> ChainId
     -> DbEntry BlockHeaderDb
     -> ClientM NoContent
-headerPutClientJsonPretty (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing c))
+headerPutClientJsonPretty
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = headerPutClientContentType_ @v @c @JsonBlockHeaderObject
 
 headerPutClientBinary
@@ -229,7 +233,9 @@ headerPutClientBinary
     -> ChainId
     -> DbEntry BlockHeaderDb
     -> ClientM NoContent
-headerPutClientBinary (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing c))
+headerPutClientBinary
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = headerPutClientContentType_ @v @c @OctetStream
 
 -- -------------------------------------------------------------------------- --

@@ -16,7 +16,7 @@ import Control.Monad.Trans.Except
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
-import Data.List
+import qualified Data.List as L
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -104,7 +104,7 @@ propLookupFail (ps0, fs0) db = runExceptT $ do
 
   where
     checkLookupFailed = maybe (return ()) (const $ fail "expected lookup to fail")
-    ps = sort ps0
+    ps = L.sort ps0
     psSet = Set.fromList ps
     fs = filter (not . flip Set.member psSet) fs0
     hash = payloadHash $ casDbConfig db

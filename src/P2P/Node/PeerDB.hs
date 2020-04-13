@@ -487,11 +487,11 @@ data SomePeerDb = forall v n
     => SomePeerDb (PeerDbT v n)
 
 somePeerDbVal :: ChainwebVersion -> NetworkId -> PeerDb -> SomePeerDb
-somePeerDbVal (FromSing (SChainwebVersion :: Sing v)) n db = f n
+somePeerDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) n db = f n
   where
-    f (FromSing (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
-    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
-    f (FromSing (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
+    f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
+    f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
+    f (FromSingNetworkId (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
 
 -- -------------------------------------------------------------------------- --
 -- Properties
