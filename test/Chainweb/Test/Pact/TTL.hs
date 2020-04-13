@@ -33,6 +33,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -44,7 +45,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -337,7 +337,7 @@ doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
     _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _ctxQueue ctx
     addNewPayload (_ctxPdb ctx) payload
-    insert (_ctxBdb ctx) header
+    insertBlockHeaderDb (_ctxBdb ctx) [header]
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils
