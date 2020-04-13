@@ -38,7 +38,7 @@ extra-deps:
   - github: kadena-io/pact
     commit: f628486a99cdd22e635b98a2d8c631d303c3d4da
   - github: kadena-io/chainweb-storage
-    commit: da306943f1df061384d1106f1f5f0ccffd5f3744
+    commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
 
 build:
   test-arguments:
