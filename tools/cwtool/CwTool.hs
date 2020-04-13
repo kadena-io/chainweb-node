@@ -5,7 +5,6 @@ import System.Environment
 import System.Exit
 import Text.Printf
 
-import qualified Chain2Gexf
 import qualified CheckpointerDBChecksum
 import qualified Ea
 import qualified EncodeDecodeB64Util
@@ -55,10 +54,6 @@ topLevelCommands =
       "ea"
       "Generate Chainweb genesis blocks and their payloads"
       Ea.main
-  , CommandSpec
-      "chain2gexf"
-      "Convert a persisted Chainweb into .gexf format for viewing"
-      Chain2Gexf.main
   , CommandSpec
       "run-nodes"
       "Run a local cluster of chainweb-node binaries"
