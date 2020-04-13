@@ -19,9 +19,14 @@ import Data.CAS
 --
 data ForgetfulCas a = ForgetfulCas
 
-instance IsCasValue a => IsCas (ForgetfulCas a) where
+instance IsCasValue a => HasCasLookup (ForgetfulCas a) where
     type CasValueType (ForgetfulCas a) = a
     casLookup _ _ = return Nothing
+    {-# INLINE casLookup #-}
+
+instance IsCasValue a => IsCas (ForgetfulCas a) where
     casInsert _ _ = return ()
     casDelete _ _ = return ()
+    {-# INLINE casInsert #-}
+    {-# INLINE casDelete #-}
 

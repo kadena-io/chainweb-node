@@ -568,12 +568,17 @@ tableMinEntry = flip withTableIter $ \i -> tableIterFirst i *> tableIterEntry i
 -- CAS
 
 -- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
+-- instance of 'HasCasLookup'.
+--
+instance (IsCasValue v, CasKeyType v ~ k) => HasCasLookup (RocksDbTable k v) where
+    type CasValueType (RocksDbTable k v) = v
+    casLookup = tableLookup
+    {-# INLINE casLookup #-}
+
+-- | For a 'IsCasValue' @v@ with 'CasKeyType v ~ k@,  a 'RocksDbTable k v' is an
 -- instance of 'IsCas'.
 --
 instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
-    type CasValueType (RocksDbTable k v) = v
-
-    casLookup = tableLookup
     casInsert db a = tableInsert db (casKey a) a
     casDelete = tableDelete
 
@@ -583,7 +588,6 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
 
     casDeleteBatch db vs = updateBatch (RocksDbDelete db <$> V.toList vs)
 
-    {-# INLINE casLookup #-}
     {-# INLINE casInsert #-}
     {-# INLINE casDelete #-}
     {-# INLINE casInsertBatch #-}
@@ -596,16 +600,17 @@ instance (IsCasValue v, CasKeyType v ~ k) => IsCas (RocksDbTable k v) where
 --
 newtype RocksDbCas v = RocksDbCas { _getRocksDbCas :: RocksDbTable (CasKeyType v) v }
 
-instance IsCasValue v => IsCas (RocksDbCas v) where
+instance IsCasValue v => HasCasLookup (RocksDbCas v) where
     type CasValueType (RocksDbCas v) = v
-
     casLookup (RocksDbCas x) = casLookup x
+    {-# INLINE casLookup #-}
+
+instance IsCasValue v => IsCas (RocksDbCas v) where
     casInsert (RocksDbCas x) = casInsert x
     casDelete (RocksDbCas x) = casDelete x
     casInsertBatch (RocksDbCas x) = casInsertBatch x
     casDeleteBatch (RocksDbCas x) = casDeleteBatch x
 
-    {-# INLINE casLookup #-}
     {-# INLINE casInsert #-}
     {-# INLINE casDelete #-}
     {-# INLINE casInsertBatch #-}
