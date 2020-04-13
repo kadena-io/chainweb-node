@@ -448,7 +448,7 @@ withChainServer
     .  Show t
     => ToJSON t
     => FromJSON t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => ChainwebServerDbs t logger cas
     -> (ClientEnv -> IO a)
@@ -581,7 +581,7 @@ clientEnvWithChainwebTestServer
     .  Show t
     => ToJSON t
     => FromJSON t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
     -> IO (ChainwebServerDbs t GenericLogger cas)
@@ -614,7 +614,7 @@ clientEnvWithChainwebTestServer tls v dbsIO =
 
 withPeerDbsServer
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ToJSON t
     => FromJSON t
     => Bool
@@ -630,7 +630,7 @@ withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
 
 withPayloadServer
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ToJSON t
     => FromJSON t
     => Bool
@@ -650,7 +650,7 @@ withPayloadServer tls v cutDbIO payloadDbsIO =
 
 withBlockHeaderDbsServer
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ToJSON t
     => FromJSON t
     => Bool

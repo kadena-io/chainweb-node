@@ -57,7 +57,7 @@ import Data.CAS
 --
 payloadHandler
     :: forall cas
-    . PayloadCas cas
+    . PayloadCasLookup cas
     => PayloadDb cas
     -> BlockPayloadHash
     -> Handler PayloadData
@@ -81,7 +81,7 @@ payloadHandler db k = run >>= \case
 --
 outputsHandler
     :: forall cas
-    . PayloadCas cas
+    . PayloadCasLookup cas
     => PayloadDb cas
     -> BlockPayloadHash
     -> Handler PayloadWithOutputs
@@ -100,7 +100,7 @@ err404Msg msg = err404 { errBody = encode msg }
 
 payloadServer
     :: forall cas v (c :: ChainIdT)
-    . PayloadCas cas
+    . PayloadCasLookup cas
     => PayloadDb_ cas v c
     -> Server (PayloadApi v c)
 payloadServer (PayloadDb_ db)
@@ -112,7 +112,7 @@ payloadServer (PayloadDb_ db)
 
 payloadApp
     :: forall cas v c
-    . PayloadCas cas
+    . PayloadCasLookup cas
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => PayloadDb_ cas v c
@@ -130,12 +130,12 @@ payloadApiLayout _ = T.putStrLn $ layout (Proxy @(PayloadApi v c))
 -- -------------------------------------------------------------------------- --
 -- Multichain Server
 
-somePayloadServer :: PayloadCas cas => SomePayloadDb cas -> SomeServer
+somePayloadServer :: PayloadCasLookup cas => SomePayloadDb cas -> SomeServer
 somePayloadServer (SomePayloadDb (db :: PayloadDb_ cas v c))
     = SomeServer (Proxy @(PayloadApi v c)) (payloadServer db)
 
 somePayloadServers
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> [(ChainId, PayloadDb cas)]
     -> SomeServer

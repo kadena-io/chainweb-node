@@ -63,14 +63,13 @@ import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
-import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadStore)
+import Chainweb.CutDB (CutDb, blockDiffStream, cutDbPayloadCas)
 import Chainweb.Difficulty (showTargetHex)
 import Chainweb.Payload (PayloadWithOutputs(..))
-import Chainweb.Payload.PayloadStore (PayloadCas, PayloadDb)
+import Chainweb.Payload.PayloadStore (PayloadCasLookup, PayloadDb)
 import Chainweb.PowHash (powHashBytes)
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
-import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStoreCas)
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
@@ -277,18 +276,18 @@ someBlockHeaderDbServers v = mconcat
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
 
-someHeaderStreamServer :: PayloadCas cas => ChainwebVersion -> CutDb cas -> SomeServer
+someHeaderStreamServer :: PayloadCasLookup cas => ChainwebVersion -> CutDb cas -> SomeServer
 someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
     SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
 
 headerStreamServer
     :: forall cas (v :: ChainwebVersionT)
-    .  PayloadCas cas
+    .  PayloadCasLookup cas
     => CutDb cas
     -> Server (HeaderStreamApi v)
 headerStreamServer cdb = headerStreamHandler cdb
 
-headerStreamHandler :: forall cas. PayloadCas cas => CutDb cas -> Tagged Handler Application
+headerStreamHandler :: forall cas. PayloadCasLookup cas => CutDb cas -> Tagged Handler Application
 headerStreamHandler db = Tagged $ \req respond -> do
     streamRef <- newIORef $ SP.map f $ SP.mapM g $ SP.concat $ blockDiffStream db
     eventSourceAppIO (run streamRef) req respond
@@ -299,7 +298,7 @@ headerStreamHandler db = Tagged $ \req respond -> do
         Just (cur, !s') -> cur <$ writeIORef var s'
 
     cas :: PayloadDb cas
-    cas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+    cas = view cutDbPayloadCas db
 
     g :: BlockHeader -> IO HeaderUpdate
     g bh = do
