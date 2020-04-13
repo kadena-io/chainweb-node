@@ -94,18 +94,20 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
     pact :: PactExecutionService
     pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
 
-    t :: Double
-    t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
-
-    graphOrder :: Natural
-    graphOrder = order $ _chainGraph v
-
     meanBlockTime :: Double
     meanBlockTime = case blockRate v of
         BlockRate (Seconds n) -> int n
 
     work :: BlockHeader -> IO BlockHeader
     work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
+      where
+        t :: Double
+        t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
+
+        graphOrder :: Natural
+        graphOrder = order $ chainwebVersionGraph v (_blockHeight bh)
+
+
 
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block

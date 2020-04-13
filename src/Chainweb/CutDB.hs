@@ -485,11 +485,12 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
-    graph = _chainGraph headerStore
 
     -- TODO base this of the mean block height of the current cut height
-    threshold :: BlockHeight -> Int
-    threshold = int $ 2 * diameter graph * order graph
+    threshold :: Cut -> Int
+    threshold c = int $ 2 * diameter graph * order graph
+      where
+        graph = chainwebVersionGraph_ headerStore (meanChainHeight c)
 
     queueToStream = do
         Down a <- liftIO (pQueueRemove queue)
@@ -510,8 +511,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     -- ahead
     --
     isVeryOld x = do
-        !h <- _cutHeight <$> readTVarIO cutVar
-        let r = int (_cutHashesHeight x) <= (int h - threshold)
+        cur <- readTVarIO cutVar
+        let r = int (_cutHashesHeight x) <= (int (_cutHeight cur) - threshold cur)
         when r $ loggc Debug x "skip very old cut"
         return r
 

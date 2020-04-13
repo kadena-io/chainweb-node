@@ -277,7 +277,7 @@ arbitraryWebChainCut initialCut = do
         let pay = hashPayload v cid "TEST PAYLOAD"
         liftIO $ hush <$> testMine n t pay cid c
 
-    v = Test (_chainGraph @WebBlockHeaderDb given)
+    v = Test (_chainGraph (given @WebBlockHeaderDb, BlockHeight 0))
 
 arbitraryWebChainCut_
     :: HasCallStack
@@ -306,13 +306,14 @@ arbitraryWebChainCut_ initialCut = do
         let pay = hashPayload v cid "TEST PAYLOAD"
         liftIO $ testMine n t pay cid c
 
-    v = Test $ _chainGraph @WebBlockHeaderDb given
+    v = Test (_chainGraph (given @WebBlockHeaderDb, BlockHeight 0))
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Fork
 
 testGenCut :: Given WebBlockHeaderDb => Cut
-testGenCut = genesisCut $ Test $ _chainGraph @WebBlockHeaderDb given
+testGenCut = genesisCut
+    $ Test (_chainGraph (given @WebBlockHeaderDb, BlockHeight 0))
 
 data TestFork = TestFork
     { _testForkBase :: !Cut
@@ -546,12 +547,14 @@ prop_meetGenesisCut = liftIO $ (==) c <$> meet given c c
 -- Misc Properties
 
 prop_arbitraryForkBraiding :: RocksDb -> ChainwebVersion -> T.Property
-prop_arbitraryForkBraiding db v = ioTest db v $ give (_chainGraph v) $ do
+prop_arbitraryForkBraiding db v = ioTest db v $ give graph $ do
     TestFork b cl cr <- arbitraryFork
     T.assert (prop_cutBraiding b)
     T.assert (prop_cutBraiding cl)
     T.assert (prop_cutBraiding cr)
     return True
+  where
+    graph = _chainGraph (v, BlockHeight 0)
 
 prop_joinBase :: RocksDb -> ChainwebVersion -> T.Property
 prop_joinBase db v = ioTest db v $ do

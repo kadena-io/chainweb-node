@@ -204,7 +204,7 @@ localTest iot nio = do
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
-    sid <- mkChainId v (0 :: Int)
+    sid <- mkChainId v maxBound (0 :: Int)
     res <- local sid cenv cmd
     let (PactResult e) = _crResult res
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
@@ -216,7 +216,7 @@ localChainDataTest iot nio = do
     mv <- newMVar (0 :: Int)
     SubmitBatch batch <- localTestBatch iot mv
     let cmd = head $ toList batch
-    sid <- mkChainId v (0 :: Int)
+    sid <- mkChainId v maxBound (0 :: Int)
     res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
     checkCommandResult res
   where
@@ -249,7 +249,7 @@ pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
     cenv <- fmap _getClientEnv nio
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
-    sid <- liftIO $ mkChainId v (0 :: Int)
+    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
     void $ polling sid cenv rks ExpectPactError
 
 
@@ -267,7 +267,7 @@ sendValidationTest iot nio =
             pactSendApiClient v cid batch
 
         step "check sending mismatched chain id"
-        cid0 <- mkChainId v (0 :: Int)
+        cid0 <- mkChainId v maxBound (0 :: Int)
         batch3 <- testBatch'' "40" iot 20_000 mv gp
         expectSendFailure "Transaction metadata (chain id, chainweb version) conflicts with this endpoint" $
           flip runClientM cenv $
@@ -313,7 +313,7 @@ spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
-    sid <- mkChainId v (1 :: Int)
+    sid <- mkChainId v maxBound (1 :: Int)
     r <- flip runClientM cenv $ do
 
       void $ liftIO $ step "sendApiClient: submit batch"
@@ -363,7 +363,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
-    sid <- mkChainId v (0 :: Int)
+    sid <- mkChainId v maxBound (0 :: Int)
 
     let runSend batch expectation = flip runClientM cenv $ do
           void $ liftIO $ step "sendApiClient: submit transaction"
@@ -431,7 +431,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     let testCaseStep = void . liftIO . step
 
     cenv <- fmap _getClientEnv nio
-    sid <- liftIO $ mkChainId v (0 :: Int)
+    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     r <- flip runClientM cenv $ do
       batch <- liftIO
@@ -478,7 +478,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     let testCaseStep = void . liftIO . step
 
     cenv <- fmap _getClientEnv nio
-    sid <- liftIO $ mkChainId v (0 :: Int)
+    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     step "positive allocation test: allocation00 release"
     p <- flip runClientM cenv $ do

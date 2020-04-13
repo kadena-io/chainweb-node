@@ -44,6 +44,10 @@ module Chainweb.Cut
 , limitCut
 , limitCutHeaders
 , unsafeMkCut
+, chainHeights
+, meanChainHeight
+, maxChainHeight
+, minChainHeight
 
 -- * Exceptions
 , CutException(..)
@@ -146,12 +150,6 @@ data Cut = Cut
 
 makeLenses ''Cut
 
-meanChainHeight :: Cut -> BlockHeight
-meanChainHeight
-    = BlockHeight . mean . fmap (_height . _blockHeight) . toList . _cutHeaders
-  where
-    mean l = round $ sum @_ @Double (realToFrac <$> l) / realToFrac (length l)
-
 instance HasChainGraph Cut where
     _chainGraph c = _chainGraph (_chainwebVersion c, meanChainHeight c)
     {-# INLINE _chainGraph #-}
@@ -223,6 +221,27 @@ unsafeMkCut v hdrs = Cut
     { _cutHeaders = hdrs
     , _cutChainwebVersion = v
     }
+
+-- -------------------------------------------------------------------------- --
+-- Chain Heights
+
+chainHeights :: Cut -> [BlockHeight]
+chainHeights = fmap (_blockHeight) . toList . _cutHeaders
+{-# INLINE chainHeights #-}
+
+meanChainHeight :: Cut -> BlockHeight
+meanChainHeight = mean . chainHeights
+  where
+    mean l = round $ sum @_ @Double (realToFrac <$> l) / realToFrac (length l)
+{-# INLINE meanChainHeight #-}
+
+maxChainHeight :: Cut -> BlockHeight
+maxChainHeight = maximum . chainHeights
+{-# INLINE maxChainHeight #-}
+
+minChainHeight :: Cut -> BlockHeight
+minChainHeight = minimum . chainHeights
+{-# INLINE minChainHeight #-}
 
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height

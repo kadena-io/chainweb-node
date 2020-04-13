@@ -54,6 +54,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
@@ -444,7 +445,8 @@ crumbsToChain db srcCid trgHeader
     | (int (_blockHeight trgHeader) + 1) < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    path = shortestPath (_chainId trgHeader) srcCid (_chainGraph db)
+    graph = chainwebVersionGraph_ db (_blockHeight trgHeader)
+    path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
        :: BlockHeader
@@ -486,5 +488,5 @@ minimumTrgHeader headerDb tcid scid bh = do
     trgChain = headerDb ^?! ixg tcid
     trgHeight = int bh + int (length path)
 
-    graph = _chainGraph @WebBlockHeaderDb headerDb
+    graph = chainwebVersionGraph_ headerDb bh
     path = shortestPath tcid scid graph

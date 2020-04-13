@@ -82,6 +82,7 @@ module Chainweb.Version
 , ChainGraph
 , HasChainGraph(..)
 , adjacentChainIds
+, chainwebVersionGraph_
 
 -- ** Graph Properties
 , order
@@ -478,13 +479,13 @@ instance HasChainwebVersion ChainwebVersion where
     _chainwebVersion = id
     {-# INLINE _chainwebVersion #-}
 
--- | ChainIds at the top of the current chainweb
+-- | All known chainIds. This includes chains that are not yet "active".
 --
 chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
 chainIds v = chainIdsAtHeight v maxBound
 {-# INLINE chainIds #-}
 
--- | ChainIds at the given height of the current chainweb
+-- | ChainIds for which blocks exist at the given height of the current chainweb
 --
 chainIdsAtHeight :: HasChainwebVersion v => v -> BlockHeight -> HS.HashSet ChainId
 chainIdsAtHeight v h = graphChainIds $ _chainGraph (_chainwebVersion v, h)
@@ -574,6 +575,14 @@ genesisGraph v c = chainwebVersionGraph v_ (genesisHeight v_ cid)
     v_ = _chainwebVersion v
     cid = _chainId c
 {-# INLINE genesisGraph #-}
+
+chainwebVersionGraph_
+    :: HasChainwebVersion v
+    => v
+    -> BlockHeight
+    -> ChainGraph
+chainwebVersionGraph_ = chainwebVersionGraph . _chainwebVersion
+{-# INLINE chainwebVersionGraph_ #-}
 
 -- -------------------------------------------------------------------------- --
 -- POW Parameters

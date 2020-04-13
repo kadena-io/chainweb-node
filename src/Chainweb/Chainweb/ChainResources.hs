@@ -51,6 +51,7 @@ import System.LogLevel
 -- internal modules
 
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB.PruneForks
 import Chainweb.ChainId
 import Chainweb.Chainweb.PeerResources
@@ -97,10 +98,6 @@ makeLenses ''ChainResources
 instance HasChainwebVersion (ChainResources logger) where
     _chainwebVersion = _chainwebVersion . _chainResBlockHeaderDb
     {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph (ChainResources logger) where
-    _chainGraph = _chainGraph . _chainwebVersion
-    {-# INLINE _chainGraph #-}
 
 instance HasChainId (ChainResources logger) where
     _chainId = _chainId . _chainResBlockHeaderDb
@@ -169,7 +166,7 @@ withChainResources
                 }
   where
     logg = logFunctionText (setComponent "pact-tx-replay" logger)
-    diam = diameter (_chainGraph v)
+    diam = diameter (_chainGraph (v, maxBound @BlockHeight))
     pes requestQ = case v of
         Test{} -> emptyPactExecutionService
         TimedConsensus{} -> emptyPactExecutionService

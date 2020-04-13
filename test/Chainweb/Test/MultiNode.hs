@@ -374,10 +374,6 @@ instance HasChainwebVersion ConsensusState where
     _chainwebVersion = _stateChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainGraph ConsensusState where
-    _chainGraph = _chainGraph . _chainwebVersion
-    {-# INLINE _chainGraph #-}
-
 emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v
 
@@ -418,7 +414,11 @@ consensusStateSummary s
         }
   where
     cutHeights = _cutHeight <$> _stateCutMap s
-    hashCount = HS.size (_stateBlockHashes s) - int (order $ _chainGraph s)
+    graph = chainwebVersionGraph_ s
+        $ maximum . concatMap chainHeights
+        $ toList
+        $ _stateCutMap s
+    hashCount = HS.size (_stateBlockHashes s) - int (order graph)
 
     avg :: Foldable f => Real a => f a -> Double
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
@@ -434,8 +434,10 @@ consensusStateSummary s
 expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
 expectedBlockCount v (Seconds seconds) = round ebc
   where
+    chainCount = order $ chainwebVersionGraph v maxBound
+
     ebc :: Double
-    ebc = int seconds * int (order $ _chainGraph v) / int br
+    ebc = int seconds * int chainCount / int br
 
     br :: Natural
     br = case blockRate v of
@@ -450,8 +452,10 @@ lowerStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 0.3 -- temporarily, was 0.5
     }
   where
+    chainCount = order $ chainwebVersionGraph v maxBound
+
     ebc :: Double
-    ebc = int seconds * int (order $ _chainGraph v) / int br
+    ebc = int seconds * int chainCount / int br
 
     br :: Natural
     br = case blockRate v of
@@ -466,8 +470,10 @@ upperStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 1.2
     }
   where
+    chainCount = order $ chainwebVersionGraph v maxBound
+
     ebc :: Double
-    ebc = int seconds * int (order $ _chainGraph v) / int br
+    ebc = int seconds * int chainCount / int br
 
     br :: Natural
     br = case blockRate v of

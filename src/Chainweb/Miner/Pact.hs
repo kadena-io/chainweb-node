@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -63,6 +64,7 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph (HasChainGraph(..), order)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
+import Chainweb.Version (ChainwebVersion, chainwebVersionGraph)
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), mkKeySet)
@@ -167,7 +169,7 @@ minerRewardHeights = lens _minerRewardHeights (\t b -> t { _minerRewardHeights =
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
 --
-readRewards :: HasChainGraph v => v -> MinerRewards
+readRewards :: ChainwebVersion -> MinerRewards
 readRewards v =
     case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
       Left e -> error
@@ -180,9 +182,11 @@ readRewards v =
     formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
     formatRow (!a,!b) =
       let
-        !n = v ^. chainGraph . to (int . order)
+        -- n h = (v,h) ^. chainGraph . to (int . order)
+        !n = int $! order $! chainwebVersionGraph v h
         !m = fromRational $ toRational b
-      in (BlockHeight $ int a, ParsedDecimal $ roundTo 8 (m / n))
+        !h = BlockHeight $ int a
+      in (h, ParsedDecimal $! roundTo 8 (m / n))
 
 -- | Read in the reward csv via TH for deployment purposes.
 --

@@ -174,7 +174,6 @@ import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMemTypes as Mempool
@@ -330,10 +329,6 @@ instance HasChainwebVersion ChainwebConfiguration where
     _chainwebVersion = _configChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainGraph ChainwebConfiguration where
-    _chainGraph = _chainGraph . _chainwebVersion
-    {-# INLINE _chainGraph #-}
-
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
@@ -463,10 +458,6 @@ chainwebSocket = chainwebPeer . peerResSocket
 instance HasChainwebVersion (Chainweb logger cas) where
     _chainwebVersion = _chainwebVersion . _chainwebCutResources
     {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph (Chainweb logger cas) where
-    _chainGraph = _chainGraph . _chainwebVersion
-    {-# INLINE _chainGraph #-}
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --

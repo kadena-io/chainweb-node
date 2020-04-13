@@ -274,7 +274,7 @@ genesisBlockHeaderForChain
     -> i
     -> m BlockHeader
 genesisBlockHeaderForChain v i
-    = genesisBlockHeader (_chainwebVersion v) <$> mkChainId v i
+    = genesisBlockHeader (_chainwebVersion v) <$> mkChainId v maxBound i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --

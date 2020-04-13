@@ -356,7 +356,7 @@ putExisting = simpleTest "put existing block header" isRight $ \h0 ->
 putOnWrongChain :: IO TestClientEnv_ -> TestTree
 putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
     $ \h0 -> do
-        cid <- mkChainId v (1 :: Int)
+        cid <- mkChainId v (_blockHeight h0) (1 :: Int)
         headerPutClient (_chainwebVersion h0) (_chainId h0)
             . head
             . testBlockHeadersWithNonce (Nonce 2)
