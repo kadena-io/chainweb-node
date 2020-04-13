@@ -41,8 +41,6 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Version
 
-import Data.Singletons
-
 -- -------------------------------------------------------------------------- --
 -- @GET /chainweb/<ApiVersion>/<ChainwebVersion>/cut@
 
@@ -87,4 +85,4 @@ cutApi = Proxy
 -- Some Cut Api
 
 someCutApi :: ChainwebVersion -> SomeApi
-someCutApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ cutApi @v
+someCutApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ cutApi @v
