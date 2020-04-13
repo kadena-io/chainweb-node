@@ -1124,7 +1124,7 @@ concurrentWith
     => (forall c . a -> (b -> IO c) -> IO c)
         -- concurrent resource allocation brackets. Given a value of type @a@,
         -- allocates a resource of type @b@, it provides the inner function with
-        -- that value, and retursn the result of the inner computation.
+        -- that value, and returns the result of the inner computation.
     -> (t b -> IO d)
         -- inner computation
     -> t a

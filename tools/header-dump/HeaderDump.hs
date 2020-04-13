@@ -360,7 +360,7 @@ withBlockHeaders
     :: Logger l
     => l
     -> Config
-    -> (forall cas . PayloadCas cas => PayloadDb cas -> S.Stream (Of BlockHeader) IO () -> IO a)
+    -> (forall cas . PayloadCasLookup cas => PayloadDb cas -> S.Stream (Of BlockHeader) IO () -> IO a)
     -> IO a
 withBlockHeaders logger config inner = do
     rocksDbDir <- getRocksDbDir
@@ -534,7 +534,7 @@ miner l = S.mapM
 
 payloadsCid
     :: MonadIO m
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => PayloadDb cas
     -> Traversal a b BlockHeader (ChainData PayloadWithOutputs)
     -> S.Stream (Of a) m r
@@ -670,6 +670,7 @@ withChainDbsConcurrent rdb v cids doValidation start end f = go cids mempty
 
 newtype RemotePayloadDb
 
+instance HasCasLookup RemotePayloadDb
 instance IsCas RemotePayloadDb
 
 netPayload :: Config -> Manager -> BlockPayloadHash -> IO PayloadData

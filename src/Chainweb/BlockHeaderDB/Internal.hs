@@ -172,7 +172,7 @@ data BlockHeaderDb = BlockHeaderDb
     { _chainDbId :: !ChainId
     , _chainDbChainwebVersion :: !ChainwebVersion
     , _chainDbCas :: !(RocksDbTable RankedBlockHash RankedBlockHeader)
-        -- ^ Ranked block hashes provide fast access and iterating  by block
+        -- ^ Ranked block hashes provide fast access and iterating by block
         -- height. Blocks of similar height are stored and cached closely
         -- together. This table is an instance of 'IsCas'.
 
@@ -188,6 +188,11 @@ instance HasChainId BlockHeaderDb where
 instance HasChainwebVersion BlockHeaderDb where
     _chainwebVersion = _chainDbChainwebVersion
     {-# INLINE _chainwebVersion #-}
+
+instance HasCasLookup BlockHeaderDb where
+    type CasValueType BlockHeaderDb = BlockHeader
+    casLookup = lookup
+    {-# INLINE casLookup #-}
 
 -- -------------------------------------------------------------------------- --
 -- Insert
