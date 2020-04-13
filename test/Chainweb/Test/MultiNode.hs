@@ -48,7 +48,7 @@ import Data.Aeson
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.List
+import qualified Data.List as L
 import Data.Streaming.Network (HostPreference)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -424,7 +424,7 @@ consensusStateSummary s
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
 
     median :: Foldable f => Ord a => f a -> a
-    median f = (!! ((length f + 1) `div` 2)) $ sort (toList f)
+    median f = (!! ((length f + 1) `div` 2)) $ L.sort (toList f)
 
     minHeight = minimum $ HM.elems cutHeights
     maxHeight = maximum $ HM.elems cutHeights
