@@ -112,13 +112,13 @@ newtype PactServerData_ (v :: ChainwebVersionT) (c :: ChainIdT) logger cas
 data SomePactServerData = forall v c logger cas
     . (KnownChainwebVersionSymbol v,
        KnownChainIdSymbol c,
-       PayloadCas cas,
+       PayloadCasLookup cas,
        Logger logger)
     => SomePactServerData (PactServerData_ v c logger cas)
 
 
 somePactServerData
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
     -> ChainId
@@ -136,7 +136,7 @@ pactServer
     :: forall v c cas logger
      . KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => PactServerData logger cas
     -> Server (PactServiceApi v c)
@@ -162,7 +162,7 @@ somePactServer (SomePactServerData (db :: PactServerData_ v c logger cas))
 
 
 somePactServers
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
     -> [(ChainId, PactServerData logger cas)]
@@ -213,7 +213,7 @@ sendHandler logger mempool (SubmitBatch cmds) = Handler $ do
                           ]
 
 pollHandler
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Logger logger
     => logger
     -> CutResources logger cas
@@ -230,7 +230,7 @@ pollHandler logger cutR cid chain (Poll request) = liftIO $ do
     logg = logFunctionJson (setComponent "poll-handler" logger)
 
 listenHandler
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Logger logger
     => logger
     -> CutResources logger cas
@@ -314,7 +314,7 @@ localHandler logger _ _ cr cmd = do
 spvHandler
     :: forall cas l
     . ( Logger l
-      , PayloadCas cas
+      , PayloadCasLookup cas
       )
     => l
     -> CutResources l cas
@@ -380,7 +380,7 @@ spvHandler l cutR cid chainR (SpvRequest rk (Pact.ChainId ptid)) = do
 ------------------------------------------------------------------------------
 
 internalPoll
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => CutResources logger cas
     -> ChainId
     -> ChainResources logger

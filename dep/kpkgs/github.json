@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "kpkgs",
-  "branch": "colin/pact-and-others",
+  "branch": "master",
   "private": false,
-  "rev": "ab3394d256965f9f8463fbd8bf86a9277936f586",
-  "sha256": "1zw8fl44zbrphch8b199hycxzflla5ir2zx52wpg56544zl5gsqq"
+  "rev": "57f1d4fc86937522685af62828f79382cb1e7853",
+  "sha256": "1aldqiihrbbjmg3ciclc9s1vsqwgb118bgmiskbn0z3kzm6mhr71"
 }

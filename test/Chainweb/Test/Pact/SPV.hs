@@ -228,7 +228,7 @@ roundtrip sid0 tid0 burn create step = do
     return (co1,co2)
 
 
-_debugCut :: PayloadCas cas => String -> Cut -> PayloadDb cas -> IO ()
+_debugCut :: PayloadCasLookup cas => String -> Cut -> PayloadDb cas -> IO ()
 _debugCut msg c pdb = do
   putStrLn $ "CUT: =============== " ++ msg
   outs <- cutToPayloadOutputs c pdb
@@ -240,7 +240,7 @@ _debugCut msg c pdb = do
 type CutOutputs = HM.HashMap Chainweb.ChainId (Vector (Command Text, CommandResult Hash))
 
 cutToPayloadOutputs
-  :: PayloadCas cas
+  :: PayloadCasLookup cas
   => Cut
   -> PayloadDb cas
   -> IO CutOutputs

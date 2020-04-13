@@ -52,7 +52,7 @@ import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
 import Chainweb.Cut (Cut, _cutMap)
-import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPayloadStore, _cut)
+import Chainweb.CutDB (CutDb, awaitNewCutByChainId, cutDbPactService, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
@@ -177,7 +177,7 @@ withMiningCoordination logger conf cdb inner
         () 1 (_pactNewBlock pact m parent)
 
     pact :: PactExecutionService
-    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+    pact = _webPactExecutionService $ view cutDbPactService cdb
 
     -- | THREAD: Periodically clear out the cached payloads kept for Mining
     -- Coordination.
@@ -249,7 +249,7 @@ withMinerResources logger conf chainRes cutDb inner =
 runMiner
     :: forall logger cas
     .  Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ChainwebVersion
     -> MinerResources logger cas
     -> IO ()
