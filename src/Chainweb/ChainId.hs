@@ -6,9 +6,11 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.ChainId
@@ -43,6 +45,7 @@ module Chainweb.ChainId
 -- * Singletons
 , Sing(SChainId)
 , type SChainId
+, pattern FromSingChainId
 
 -- * Testing
 , unsafeChainId
@@ -232,6 +235,14 @@ instance SingKind ChainIdT where
     fromSing (SChainId :: Sing n) = unsafeFromText $ chainIdSymbolVal (Proxy @n)
     toSing n = case someChainIdVal n of
         SomeChainIdT p -> SomeSing (singByProxy p)
+
+    {-# INLINE fromSing #-}
+    {-# INLINE toSing #-}
+
+pattern FromSingChainId :: Sing (n :: ChainIdT) -> ChainId
+pattern FromSingChainId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing sng)
+  where FromSingChainId sng = fromSing sng
+{-# COMPLETE FromSingChainId #-}
 
 -- -------------------------------------------------------------------------- --
 -- Misc

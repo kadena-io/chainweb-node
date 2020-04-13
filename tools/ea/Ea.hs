@@ -139,7 +139,8 @@ genPayloadModule v tag txFiles =
 
 startModule :: Text -> [Text]
 startModule tag =
-    [ "{-# LANGUAGE QuasiQuotes #-}"
+    [ "{-# LANGUAGE OverloadedStrings #-}"
+    , "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
     , ""

@@ -32,7 +32,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Server
 import Control.Applicative
 import Control.Lens hiding (children, (.=))
 import Control.Monad
-import qualified Control.Monad.Catch as E (Handler(..), catches)
 import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class
 
@@ -61,7 +60,6 @@ import qualified Streaming.Prelude as SP
 -- internal modules
 
 import Chainweb.BlockHeader (BlockHeader(..), ObjectEncoded(..), _blockPow)
-import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.ChainId
@@ -74,11 +72,8 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.Sync.WebBlockHeaderStore (_webBlockPayloadStoreCas)
 import Chainweb.TreeDB
-import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
-
-import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- Handler Tools
@@ -238,23 +233,6 @@ headerHandler db k = liftIO (lookup db k) >>= \case
         ]
     Just e -> pure e
 
--- | Add a new 'BlockHeader' to the database
---
--- Cf. "Chainweb.BlockHeaderDB.RestAPI" for more details
---
-headerPutHandler
-    :: forall db
-    . TreeDb db
-    => db
-    -> DbEntry db
-    -> Handler NoContent
-headerPutHandler db e = (NoContent <$ liftIO (insert db e)) `E.catches`
-    [ E.Handler $ \(err :: TreeDbException db) ->
-        throwError $ err400 { errBody = sshow err }
-    , E.Handler $ \(err :: ValidationFailure) ->
-        throwError $ err400 { errBody = sshow err }
-    ]
-
 -- -------------------------------------------------------------------------- --
 -- BlockHeaderDB API Server
 
@@ -263,7 +241,6 @@ blockHeaderDbServer (BlockHeaderDb_ db)
     = hashesHandler db
     :<|> headersHandler db
     :<|> headerHandler db
-    :<|> headerPutHandler db
     :<|> branchHashesHandler db
     :<|> branchHeadersHandler db
 
@@ -301,7 +278,7 @@ someBlockHeaderDbServers v = mconcat
 -- BlockHeader Event Stream
 
 someHeaderStreamServer :: PayloadCas cas => ChainwebVersion -> CutDb cas -> SomeServer
-someHeaderStreamServer (FromSing (SChainwebVersion :: Sing v)) cdb =
+someHeaderStreamServer (FromSingChainwebVersion (SChainwebVersion :: Sing v)) cdb =
     SomeServer (Proxy @(HeaderStreamApi v)) $ headerStreamServer cdb
 
 headerStreamServer

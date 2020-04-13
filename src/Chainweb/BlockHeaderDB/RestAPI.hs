@@ -79,8 +79,6 @@ module Chainweb.BlockHeaderDB.RestAPI
 , branchHeadersApi
 , HeaderApi
 , headerApi
-, HeaderPutApi
-, headerPutApi
 , HeadersApi
 , headersApi
 , HashesApi
@@ -111,8 +109,6 @@ import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
-
-import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- API types
@@ -331,33 +327,12 @@ headerApi
 headerApi = Proxy
 
 -- -------------------------------------------------------------------------- --
-type HeaderPutApi_
-    = "header"
-    :> ReqBody '[JSON, JsonBlockHeaderObject, OctetStream] BlockHeader
-    :> Verb 'PUT 204 '[JSON] NoContent
-
--- | @PUT \/chainweb\/\<ApiVersion\>\/\<InstanceId\>\/chain\/\<ChainId\>\/header@
---
--- Adds a block header to the block header tree database. Returns a failure with
--- status code 400 if the block header can't be addded because of a validation
--- failure or missing dependencies.
---
-type HeaderPutApi (v :: ChainwebVersionT) (c :: ChainIdT)
-    = 'ChainwebEndpoint v :> ChainEndpoint c :> HeaderPutApi_
-
-headerPutApi
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . Proxy (HeaderPutApi v c)
-headerPutApi = Proxy
-
--- -------------------------------------------------------------------------- --
 -- | BlockHeaderDb Api
 --
 type BlockHeaderDbApi v c
     = HashesApi v c
     :<|> HeadersApi v c
     :<|> HeaderApi v c
-    :<|> HeaderPutApi v c
     :<|> BranchHashesApi v c
     :<|> BranchHeadersApi v c
 
@@ -407,4 +382,4 @@ headerStreamApi :: forall (v :: ChainwebVersionT). Proxy (HeaderStreamApi v)
 headerStreamApi = Proxy
 
 someHeaderStreamApi :: ChainwebVersion -> SomeApi
-someHeaderStreamApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v
+someHeaderStreamApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ headerStreamApi @v
