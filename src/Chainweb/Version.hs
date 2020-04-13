@@ -14,6 +14,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -65,6 +66,7 @@ module Chainweb.Version
 -- * Singletons
 , Sing(SChainwebVersion)
 , SChainwebVersion
+, pattern FromSingChainwebVersion
 
 -- * HasChainwebVersion
 , HasChainwebVersion(..)
@@ -460,6 +462,14 @@ instance SingKind ChainwebVersionT where
 
     toSing n = case someChainwebVersionVal n of
         SomeChainwebVersionT p -> SomeSing (singByProxy p)
+
+    {-# INLINE fromSing #-}
+    {-# INLINE toSing #-}
+
+pattern FromSingChainwebVersion :: Sing (n :: ChainwebVersionT) -> ChainwebVersion
+pattern FromSingChainwebVersion sng <- ((\v -> withSomeSing v SomeSing) -> SomeSing sng)
+  where FromSingChainwebVersion sng = fromSing sng
+{-# COMPLETE FromSingChainwebVersion #-}
 
 -- -------------------------------------------------------------------------- --
 -- HasChainwebVersion Class

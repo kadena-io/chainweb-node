@@ -32,8 +32,6 @@ import Chainweb.Miner.Pact (Miner)
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc, SomeApi(..))
 import Chainweb.Version
 
-import Data.Singletons
-
 -- -----------------------------------------------------------------------------
 -- Mining API
 
@@ -62,4 +60,4 @@ miningApi :: forall (v :: ChainwebVersionT). Proxy (MiningApi v)
 miningApi = Proxy
 
 someMiningApi :: ChainwebVersion -> SomeApi
-someMiningApi (FromSing (SChainwebVersion :: Sing v)) = SomeApi $ miningApi @v
+someMiningApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = SomeApi $ miningApi @v

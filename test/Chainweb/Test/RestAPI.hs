@@ -43,6 +43,7 @@ import Text.Read (readEither)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
@@ -99,7 +100,6 @@ tests rdb = testGroup "REST API tests"
 tests_ :: RocksDb -> Bool -> [TestTree]
 tests_ rdb tls =
     [ simpleSessionTests rdb tls version
-    , putTests rdb tls version
     , pagingTests rdb tls version
     ]
   where
@@ -127,7 +127,6 @@ httpHeaderTests :: IO TestClientEnv_ -> ChainId -> TestTree
 httpHeaderTests envIO cid =
     testGroup ("http header tests for chain " <> sshow cid)
         [ go "headerClient" $ \v h -> headerClient' v cid (key h)
-        , go "headerPutClient" $ \v h -> headerPutClient' v cid (head $ testBlockHeaders $ ParentHeader h)
         , go "headersClient" $ \v _ -> headersClient' v cid Nothing Nothing Nothing Nothing
         , go "hashesClient" $ \v _ -> hashesClient' v cid Nothing Nothing Nothing Nothing
         , go "branchHashesClient" $ \v _ -> branchHashesClient' v cid Nothing Nothing Nothing
@@ -159,14 +158,18 @@ httpHeaderTests envIO cid =
 simpleClientSession :: IO TestClientEnv_ -> ChainId -> TestTree
 simpleClientSession envIO cid =
     testCaseSteps ("simple session for chain " <> sshow cid) $ \step -> do
-        BlockHeaderDbsTestClientEnv env _ version <- envIO
-        res <- runClientM (session version step) env
+        BlockHeaderDbsTestClientEnv env dbs version <- envIO
+        res <- runClientM (session version dbs step) env
         assertBool ("test failed: " <> sshow res) (isRight res)
   where
 
-    session version step = do
+    session version dbs step = do
 
         let gbh0 = genesisBlockHeader version cid
+
+        db <- case Prelude.lookup cid dbs of
+            Just x -> return x
+            Nothing ->  error "Chainweb.Test.RestAPI.simpleClientSession: missing block header db in test"
 
         void $ liftIO $ step "headerClient: get genesis block header"
         gen0 <- headerClient version cid (key gbh0)
@@ -195,11 +198,9 @@ simpleClientSession envIO cid =
             (Expected gbh0)
             (Actual gen1)
 
-        void $ liftIO $ step "headerPutClient: put 3 new blocks"
+        void $ liftIO $ step "put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
-        forM_ newHeaders $ \h -> do
-            void $ liftIO $ step $ "headerPutClient: " <> T.unpack (encodeToText (_blockHash h))
-            void $ headerPutClient version cid h
+        liftIO $ insertBlockHeaderDb db newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
         bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
@@ -307,9 +308,7 @@ simpleClientSession envIO cid =
 
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
         let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
-        forM_ newHeaders2 $ \h -> do
-            void $ liftIO $ step $ "headerPutClient: " <> T.unpack (encodeToText (_blockHash h))
-            void $ headerPutClient version cid h
+        liftIO $ insertBlockHeaderDb db newHeaders2
 
         let lower = last newHeaders
         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do
@@ -319,74 +318,6 @@ simpleClientSession envIO cid =
             assertExpectation "branchHashesClient returned wrong number of entries"
                 (Expected i)
                 (Actual $ _pageLimit hs5)
-
--- -------------------------------------------------------------------------- --
--- Test Client Session
-
-simpleTest
-    :: Show a
-    => String
-        -- ^ Test description
-    -> (Either ClientError a -> Bool)
-        -- ^ Success predicate
-    -> (BlockHeader -> ClientM a)
-        -- ^ Test HTTP client session
-    -> IO TestClientEnv_
-        -- ^ Test environment
-    -> TestTree
-simpleTest msg p session envIO = testCase msg $ do
-    BlockHeaderDbsTestClientEnv env [(_, db)] _ <- envIO
-    gbh <- head <$> headers db
-    res <- runClientM (session gbh) env
-    assertBool ("test failed with unexpected result: " <> sshow res) (p res)
-
--- -------------------------------------------------------------------------- --
--- Put Tests
-
-putNewBlockHeader :: IO TestClientEnv_ -> TestTree
-putNewBlockHeader = simpleTest "put new block header" isRight $ \h0 ->
-    headerPutClient (_chainwebVersion h0) (_chainId h0)
-        . head
-        $ testBlockHeadersWithNonce (Nonce 1) (ParentHeader h0)
-
-putExisting :: IO TestClientEnv_ -> TestTree
-putExisting = simpleTest "put existing block header" isRight $ \h0 ->
-    headerPutClient (_chainwebVersion h0) (_chainId h0) h0
-
-putOnWrongChain :: IO TestClientEnv_ -> TestTree
-putOnWrongChain = simpleTest "put on wrong chain fails" (isErrorCode 400)
-    $ \h0 -> do
-        cid <- mkChainId v (_blockHeight h0) (1 :: Int)
-        headerPutClient (_chainwebVersion h0) (_chainId h0)
-            . head
-            . testBlockHeadersWithNonce (Nonce 2)
-            . ParentHeader
-            $ genesisBlockHeader v cid
-  where
-    v = Test petersonChainGraph
-
-putMissingParent :: IO TestClientEnv_ -> TestTree
-putMissingParent = simpleTest "put missing parent" (isErrorCode 400) $ \h0 ->
-    headerPutClient (_chainwebVersion h0) (_chainId h0)
-        . (!! 2)
-        $ testBlockHeadersWithNonce (Nonce 3) (ParentHeader h0)
-
-put5NewBlockHeaders :: IO TestClientEnv_ -> TestTree
-put5NewBlockHeaders = simpleTest "put 5 new block header" isRight $ \h0 ->
-    mapM_ (headerPutClient (_chainwebVersion h0) (_chainId h0))
-        . take 5
-        $ testBlockHeadersWithNonce (Nonce 4) (ParentHeader h0)
-
-putTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
-putTests rdb tls version =
-    withBlockHeaderDbsServer tls version (testBlockHeaderDbs rdb version) (return noMempool)
-        $ \env -> testGroup "put tests"
-            [ putNewBlockHeader env
-            , putExisting env
-            , putOnWrongChain env
-            , putMissingParent env
-            , put5NewBlockHeaders env
-            ]
 
 -- -------------------------------------------------------------------------- --
 -- Paging Tests

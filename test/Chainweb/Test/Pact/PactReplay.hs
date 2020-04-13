@@ -40,6 +40,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
@@ -280,7 +281,7 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
      addNewPayload pdb payload
 
      bhdb <- iobhdb
-     insert bhdb bh
+     insertBlockHeaderDb bhdb [bh]
 
      return $ T3 parentHeader bh payload
 

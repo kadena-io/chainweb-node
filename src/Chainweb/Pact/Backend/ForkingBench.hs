@@ -84,6 +84,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
@@ -101,7 +102,6 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
@@ -255,7 +255,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
      addNewPayload pdb payload
 
-     insert bhdb newHeader
+     insertBlockHeaderDb bhdb [newHeader]
 
      return $ T3 parentHeader newHeader payload
 

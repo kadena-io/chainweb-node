@@ -23,6 +23,7 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.Test.TreeDB (RunStyle(..), treeDbInvariants)
 import Chainweb.Test.Utils (insertN, toyBlockHeaderDb, withToyDB, toyChainId, withTestBlockHeaderDb)
 import Chainweb.TreeDB
@@ -43,7 +44,9 @@ tests rdb = testGroup "Unit Tests"
     , testGroup "Misc."
       [ testCase "height" $ correctHeight rdb
       ]
-    , treeDbInvariants (withTestBlockHeaderDb rdb) Parallel
+    , treeDbInvariants
+        (\x f -> withTestBlockHeaderDb rdb x (\db -> f db insertBlockHeaderDb))
+        Parallel
     ]
 
 insertItems :: RocksDb -> Assertion

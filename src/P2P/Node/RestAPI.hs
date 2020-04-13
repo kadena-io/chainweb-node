@@ -45,8 +45,6 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
-import Data.Singletons
-
 import P2P.Peer
 
 import Chainweb.RestAPI.Orphans ()
@@ -99,11 +97,11 @@ p2pApi = Proxy
 -- Mulit Chain API
 
 someP2pApi :: ChainwebVersion -> NetworkId -> SomeApi
-someP2pApi (FromSing (SChainwebVersion :: Sing v)) = f
+someP2pApi (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = f
   where
-    f (FromSing (SChainNetwork SChainId :: Sing n)) = SomeApi $ p2pApi @v @n
-    f (FromSing (SMempoolNetwork SChainId :: Sing n)) = SomeApi $ p2pApi @v @n
-    f (FromSing (SCutNetwork :: Sing n)) = SomeApi $ p2pApi @v @n
+    f (FromSingNetworkId (SChainNetwork SChainId :: Sing n)) = SomeApi $ p2pApi @v @n
+    f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = SomeApi $ p2pApi @v @n
+    f (FromSingNetworkId (SCutNetwork :: Sing n)) = SomeApi $ p2pApi @v @n
 
 someP2pApis :: ChainwebVersion -> [NetworkId] -> SomeApi
 someP2pApis v = mconcat . fmap (someP2pApi v)
