@@ -6,13 +6,17 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 -- Module: Chainweb.CutDB
@@ -44,11 +48,9 @@ module Chainweb.CutDB
 -- * CutDb
 , CutDb
 , cutDbWebBlockHeaderDb
-, cutDbWebBlockHeaderStore
 , cutDbBlockHeaderDb
 , cutDbPayloadCas
-, cutDbPayloadStore
-, cutDbStore
+, cutDbPactService
 , cut
 , _cut
 , _cutStm
@@ -76,11 +78,16 @@ module Chainweb.CutDB
 , CutDbT(..)
 , SomeCutDb(..)
 , someCutDbVal
+
+-- * Queue Statistics
+, QueueStats(..)
+, getQueueStats
 ) where
 
 import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM.TVar
+import Control.DeepSeq
 import Control.Exception
 import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
@@ -90,6 +97,7 @@ import Control.Monad.Morph
 import Control.Monad.STM
 
 import Data.Bifunctor
+import Data.Aeson (ToJSON)
 import Data.CAS.HashMap
 import Data.Foldable
 import Data.Function
@@ -133,11 +141,13 @@ import Chainweb.TreeDB
 import Chainweb.Utils hiding (Codec, check)
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
+import Chainweb.WebPactExecutionService
 
 import Data.CAS
 import Data.CAS.RocksDB
 import Data.PQueue
 
+import qualified Data.TaskMap as TM
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
@@ -233,17 +243,18 @@ instance HasChainGraph (CutDb cas, BlockHeight) where
 instance HasChainwebVersion (CutDb cas) where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
     {-# INLINE _chainwebVersion #-}
+
 cutDbPayloadCas :: Getter (CutDb cas) (PayloadDb cas)
 cutDbPayloadCas = to $ _webBlockPayloadStoreCas . _cutDbPayloadStore
 {-# INLINE cutDbPayloadCas #-}
 
+cutDbPactService :: Getter (CutDb cas) WebPactExecutionService
+cutDbPactService = to $ _webBlockPayloadStorePact . _cutDbPayloadStore
+{-# INLINE cutDbPactService #-}
+
 cutDbPayloadStore :: Getter (CutDb cas) (WebBlockPayloadStore cas)
 cutDbPayloadStore = to _cutDbPayloadStore
 {-# INLINE cutDbPayloadStore #-}
-
-cutDbStore :: Getter (CutDb cas) (RocksDbCas CutHashes)
-cutDbStore = to _cutDbStore
-{-# INLINE cutDbStore #-}
 
 -- We export the 'WebBlockHeaderDb' read-only
 --
@@ -329,7 +340,7 @@ withCutDb
     -> WebBlockHeaderStore
     -> WebBlockPayloadStore cas
     -> RocksDbCas CutHashes
-    -> (CutDb cas -> IO a)
+    -> (forall cas' . PayloadCasLookup cas' => CutDb cas' -> IO a)
     -> IO a
 withCutDb config logfun headerStore payloadStore cutHashesStore
     = bracket
@@ -340,9 +351,10 @@ withCutDb config logfun headerStore payloadStore cutHashesStore
 -- to the configured initial cut loading fails) and starts the cut validation
 -- pipeline.
 --
--- TODO: Instead of falling back to the configured initial cut, which usually is
--- the genesis cut, we could instead try to walk back in history until we find a
--- cut that succeed to load.
+-- If possible use 'withCutDb' instead of this function. This function exposes
+-- the type of the the payload store via the 'cas' parameter. 'withCutDb'
+-- provides a 'CutDB' that abstracts over the cas type and only exposes a
+-- read-only version of the payload store.
 --
 startCutDb
     :: PayloadCas cas
@@ -726,3 +738,25 @@ data SomeCutDb cas = forall v . KnownChainwebVersionSymbol v => SomeCutDb (CutDb
 
 someCutDbVal :: ChainwebVersion -> CutDb cas -> SomeCutDb cas
 someCutDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) db = SomeCutDb $ CutDbT @_ @v db
+
+-- -------------------------------------------------------------------------- --
+-- Queue Stats
+
+data QueueStats = QueueStats
+    { _queueStatsCutQueueSize :: !Natural
+    , _queueStatsBlockHeaderQueueSize :: !Natural
+    , _queueStatsBlockHeaderTaskMapSize :: !Natural
+    , _queueStatsPayloadQueueSize :: !Natural
+    , _queueStatsPayloadTaskMapSize :: !Natural
+    }
+    deriving (Show, Eq, Ord, Generic)
+    deriving anyclass (NFData, ToJSON)
+
+getQueueStats :: CutDb cas -> IO QueueStats
+getQueueStats db = QueueStats
+    <$> cutDbQueueSize db
+    <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore db)
+    <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
+    <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
+    <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
+

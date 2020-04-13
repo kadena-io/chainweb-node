@@ -207,7 +207,7 @@ chainValue v = ChainValue (_chainId v) v
 -- garbage.
 --
 getBlockPayload
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => PayloadDataCas candidateCas
     => WebBlockPayloadStore cas
     -> candidateCas PayloadData
@@ -553,16 +553,20 @@ getBlockHeader headerStore payloadStore candidateHeaderCas candidatePayloadCas c
         (ChainValue cid h)
 {-# INLINE getBlockHeader #-}
 
-
-instance IsCas WebBlockHeaderCas where
+instance HasCasLookup WebBlockHeaderCas where
     type CasValueType WebBlockHeaderCas = ChainValue BlockHeader
     casLookup (WebBlockHeaderCas db) (ChainValue cid h) =
         (Just . ChainValue cid <$> lookupWebBlockHeaderDb db cid h)
             `catch` \e -> case e of
                 TDB.TreeDbKeyNotFound _ -> return Nothing
                 _ -> throwM @_ @(TDB.TreeDbException BlockHeaderDb) e
+    {-# INLINE casLookup #-}
+
+instance IsCas WebBlockHeaderCas where
     casInsert (WebBlockHeaderCas db) (ChainValue _ h)
         = insertWebBlockHeaderDb db h
+    {-# INLINE casInsert #-}
+
     casDelete = error "not implemented"
 
     -- This is fine since the type 'WebBlockHeaderCas' is not exported. So the

@@ -574,7 +574,7 @@ destroyTestPactCtx :: TestPactCtx cas -> IO ()
 destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
 testPactCtx
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> Version.ChainId
     -> BlockHeaderDb
@@ -607,7 +607,7 @@ testPactCtx v cid bhdb pdb = do
         }
 
 testPactCtxSQLite
-  :: PayloadCas cas
+  :: PayloadCasLookup cas
   => ChainwebVersion
   -> Version.ChainId
   -> BlockHeaderDb
@@ -644,7 +644,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
 -- | A test PactExecutionService for a single chain
 --
 testPactExecutionService
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> Version.ChainId
     -> IO BlockHeaderDb
@@ -672,7 +672,7 @@ testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
 -- | A test PactExecutionService for a chainweb
 --
 testWebPactExecutionService
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> IO WebBlockHeaderDb
     -> IO (PayloadDb cas)
@@ -715,7 +715,7 @@ runCut v bdb pact genTime noncer =
 -- It's up to the user to ensure that tests are scheduled in the right order.
 --
 withPactCtx
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
@@ -750,7 +750,7 @@ type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO
 
 
 withPactCtxSQLite
-  :: PayloadCas cas
+  :: PayloadCasLookup cas
   => ChainwebVersion
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)

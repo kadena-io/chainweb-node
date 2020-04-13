@@ -94,7 +94,7 @@ withCutResources
     -> PayloadDb cas
     -> HTTP.Manager
     -> WebPactExecutionService
-    -> (CutResources logger cas -> IO a)
+    -> (forall cas' . PayloadCasLookup cas' => CutResources logger cas' -> IO a)
     -> IO a
 withCutResources cutDbParams peer logger rdb webchain payloadDb mgr pact f = do
 

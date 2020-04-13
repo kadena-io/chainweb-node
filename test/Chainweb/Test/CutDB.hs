@@ -38,6 +38,7 @@ import Control.Monad.Catch
 
 import Data.Foldable
 import Data.Function
+import qualified Data.HashMap.Strict as HM
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
@@ -111,7 +112,7 @@ withTestCutDb
         -- create blocks with a well-defined set of test transactions.
         --
     -> LogFunction
-    -> (CutDb RocksDbCas -> IO a)
+    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
     -> IO a
 withTestCutDb rdb v n pactIO logfun f = do
@@ -139,7 +140,7 @@ withTestCutDb rdb v n pactIO logfun f = do
 -- "InMemoryCheckpointer: Restore not found"@.
 --
 extendTestCutDb
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => CutDb cas
     -> WebPactExecutionService
     -> Natural
@@ -154,7 +155,7 @@ extendTestCutDb cutDb pact n = S.scanM
 -- transactions of the payloads of all blocks in the 'CutDb'.
 --
 syncPact
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => CutDb cas
     -> WebPactExecutionService
     -> IO ()
@@ -191,7 +192,7 @@ awaitCut cdb k = atomically $ do
 -- check for a cut height that is larger or equal than the expected height.
 --
 extendAwait
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => CutDb cas
     -> WebPactExecutionService
     -> Natural
@@ -240,7 +241,7 @@ withTestCutDbWithoutPact
         -- ^ number of blocks in the chainweb in addition to the genesis blocks
     -> LogFunction
         -- ^ a logg function (use @\_ _ -> return ()@ turn of logging)
-    -> (CutDb RocksDbCas -> IO a)
+    -> (forall cas . PayloadCasLookup cas => CutDb cas -> IO a)
     -> IO a
 withTestCutDbWithoutPact rdb v n =
     withTestCutDb rdb v n (const $ const $ return fakePact)
@@ -252,11 +253,11 @@ withTestPayloadResource
     -> ChainwebVersion
     -> Int
     -> LogFunction
-    -> (IO (CutDb RocksDbCas, PayloadDb RocksDbCas) -> TestTree)
+    -> (forall cas . PayloadCasLookup cas => IO (CutDb cas) -> TestTree)
     -> TestTree
 withTestPayloadResource rdb v n logfun inner
     = withResource start stopTestPayload $ \envIO -> do
-        inner (envIO >>= \(_,_,a,b) -> return (a,b))
+        inner (envIO >>= \(_,_,a) -> return a)
   where
     start = startTestPayload rdb v logfun n
 
@@ -268,7 +269,7 @@ startTestPayload
     -> ChainwebVersion
     -> LogFunction
     -> Int
-    -> IO (Async (), Async(), CutDb RocksDbCas, PayloadDb RocksDbCas)
+    -> IO (Async (), Async(), CutDb RocksDbCas)
 startTestPayload rdb v logfun n = do
     rocksDb <- testRocksDb "startTestPayload" rdb
     let payloadDb = newPayloadDb rocksDb
@@ -280,11 +281,11 @@ startTestPayload rdb v logfun n = do
     (hserver, hstore) <- startLocalWebBlockHeaderStore mgr webDb
     cutDb <- startCutDb (defaultCutDbParams v cutFetchTimeout) logfun hstore pstore cutHashesDb
     foldM_ (\c _ -> view _1 <$> mine defaultMiner fakePact cutDb c) (genesisCut v) [0..n]
-    return (pserver, hserver, cutDb, payloadDb)
+    return (pserver, hserver, cutDb)
 
 
-stopTestPayload :: (Async (), Async (), CutDb cas, PayloadDb cas) -> IO ()
-stopTestPayload (pserver, hserver, cutDb, _) = do
+stopTestPayload :: (Async (), Async (), CutDb cas) -> IO ()
+stopTestPayload (pserver, hserver, cutDb) = do
     stopCutDb cutDb
     cancel hserver
     cancel pserver
@@ -331,7 +332,7 @@ startLocalPayloadStore mgr payloadDb = do
 --
 mine
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Miner
         -- ^ The miner. For testing you may use 'defaultMiner'.
     -> WebPactExecutionService
@@ -353,7 +354,7 @@ mine miner pact cutDb c = do
 
     tryMineForChain miner pact cutDb c cid >>= \case
         Left _ -> throwM $ InternalInvariantViolation
-            "Failed to create new cut. This is a bug in Test.Chainweb.CutDB or one of it's users"
+            "Failed to create new cut. This is a bug in Chainweb.Test.CutDB or one of it's users"
         Right x -> do
             void $ awaitCut cutDb $ ((<=) `on` _cutHeight) (view _1 x)
             return x
@@ -380,7 +381,7 @@ getRandomUnblockedChain c = do
 tryMineForChain
     :: forall cas
     . HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Miner
         -- ^ The miner. For testing you may use 'defaultMiner'.
         -- miner.
@@ -398,22 +399,14 @@ tryMineForChain miner webPact cutDb c cid = do
     x <- testMineWithPayloadHash (Nonce 0) t payloadHash cid c
     case x of
         Right (T2 h c') -> do
-            validate h outputs
             addCutHashes cutDb (cutToCutHashes Nothing c')
+                { _cutHashesHeaders = HM.singleton (_blockHash h) h
+                , _cutHashesPayloads = HM.singleton (_blockPayloadHash h) (payloadWithOutputsToPayloadData outputs)
+                }
             return $ Right (c', cid, outputs)
         Left e -> return $ Left e
   where
     parent = ParentHeader $ c ^?! ixg cid -- parent to mine on
-
-    payloadDb = view cutDbPayloadCas cutDb
-    webDb = view cutDbWebBlockHeaderDb cutDb
-    pact = _webPactExecutionService webPact
-
-    validate h outputs = do
-        let pd = payloadWithOutputsToPayloadData outputs
-        void $ _pactValidateBlock pact h pd
-        addNewPayload payloadDb outputs
-        insertWebBlockHeaderDb webDb h
 
 -- | picks a random block header from a web chain. The result header is
 -- guaranteed to not be a genesis header.
@@ -439,7 +432,7 @@ randomBlockHeader cutDb = do
 --
 randomTransaction
     :: HasCallStack
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => CutDb cas
     -> IO (BlockHeader, Int, Transaction, TransactionOutput)
 randomTransaction cutDb = do
@@ -476,10 +469,13 @@ fakePact :: WebPactExecutionService
 fakePact = WebPactExecutionService $ PactExecutionService
   { _pactValidateBlock =
       \_ d -> return
-              $ payloadWithOutputs d coinbase $ getFakeOutput <$> _payloadDataTransactions d
+              $ payloadWithOutputs d coinbase
+              $ getFakeOutput <$> _payloadDataTransactions d
   , _pactNewBlock = \_ _ -> do
-        payload <- generate $ V.fromList . getNonEmpty <$> arbitrary
-        return $ newPayloadWithOutputs fakeMiner coinbase payload
+        payloadDat <- generate $ V.fromList . getNonEmpty <$> arbitrary
+        return
+            $ newPayloadWithOutputs fakeMiner coinbase
+            $ (\x -> (x, getFakeOutput x)) <$> payloadDat
 
   , _pactLocal = \_t -> error "Unimplemented"
   , _pactLookup = error "Unimplemented"

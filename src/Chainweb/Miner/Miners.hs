@@ -92,7 +92,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
         work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
-    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+    pact = _webPactExecutionService $ view cutDbPactService cdb
 
     meanBlockTime :: Double
     meanBlockTime = case blockRate v of
@@ -143,7 +143,7 @@ localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
             Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
 
     pact :: PactExecutionService
-    pact = _webPactExecutionService . _webBlockPayloadStorePact $ view cutDbPayloadStore cdb
+    pact = _webPactExecutionService $ view cutDbPactService cdb
 
     work :: BlockHeader -> IO BlockHeader
     work bh = do

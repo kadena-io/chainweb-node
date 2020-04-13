@@ -468,7 +468,7 @@ withChainweb
     -> RocksDb
     -> Maybe FilePath
     -> Bool
-    -> (Chainweb logger RocksDbCas -> IO a)
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainweb c logger rocksDb dbDir resetDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
@@ -564,7 +564,7 @@ withChainwebInternal
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
-    -> (Chainweb logger RocksDbCas -> IO a)
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     initializePayloadDb v payloadDb
@@ -656,7 +656,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebHeaderStream = HeaderStream $ _configHeaderStream conf
                             , _chainwebLogger = logger
                             , _chainwebPeer = peer
-                            , _chainwebPayloadDb = payloadDb
+                            , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
                             , _chainwebManager = mgr
                             , _chainwebPactData = pactData
                             , _chainwebThrottler = throttler
@@ -767,7 +767,7 @@ mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceilin
 runChainweb
     :: forall logger cas
     . Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Chainweb logger cas
     -> IO ()
 runChainweb cw = do

@@ -21,6 +21,7 @@ extra-deps:
 
   # --- Transitive Pact Dependencies --- #
   - ed25519-donna-0.1.1
+  - megaparsec-8.0.0
   - sbv-8.2
   - trifecta-2.1
   - github: kadena-io/thyme
@@ -36,9 +37,9 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: f628486a99cdd22e635b98a2d8c631d303c3d4da
+    commit: 3479b2f7f9d5cb19043baace614ea3539c429ed0
   - github: kadena-io/chainweb-storage
-    commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
+    commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
 
 build:
   test-arguments:

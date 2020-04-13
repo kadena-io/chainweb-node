@@ -56,7 +56,7 @@ import Data.LogMessage
 
 -- | Initialization for Pact (in process) Api
 withPactService
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
     -> ChainId
@@ -78,7 +78,7 @@ withPactService ver cid logger mpc bhdb pdb dbDir nodeid config action =
 -- | Alternate Initialization for Pact (in process) Api, only used directly in
 --   tests to provide memPool with test transactions
 withPactService'
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
     -> ChainId
