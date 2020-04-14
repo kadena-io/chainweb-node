@@ -306,12 +306,8 @@ jobs:
           thyme:*
         source-repository-package
           type: git
-          location: https://github.com/mvv/data-dword
-          tag: 989cb9386954fad23412adbfcfcb644cb7a9c939
-        source-repository-package
-          type: git
           location: https://github.com/well-typed/optics
-          tag: 95760a121023b6314a1b1a92939fc97613ec5645
+          tag: bf630a5371e0af0897be0d704f0d68d2f18fe5f5
           subdir: optics-core
     - uses: actions/cache@v1
       name: Cache dist-newstyle
@@ -326,7 +322,9 @@ jobs:
     - name: Update package database
       run: cabal v2-update
     - name: Configure build
-      run: 'grep -q "ghc-${{ matrix.ghc }}" dist-newstyle/cache/plan.json || cabal v2-configure'
+      run: |
+        cabal v2-build --dry-run
+        cabal v2-freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       run: eval $SYNC_FROM_CACHE
@@ -353,7 +351,11 @@ jobs:
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
-        # rm -f dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-tests
+        cp README.md artifacts/applications
+        cp CHANGELOG.md artifacts/applications
+        cp chainweb.cabal artifacts/applications
+        cp cabal.project artifacts/applications
+        cp cabal.project.freeze artifacts/applications
     - name: Publish applications
       uses: actions/upload-artifact@v1
       with:

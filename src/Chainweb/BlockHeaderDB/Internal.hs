@@ -39,6 +39,7 @@ module Chainweb.BlockHeaderDB.Internal
 , insertBlockHeaderDb
 , unsafeInsertBlockHeaderDb
 
+-- * Misc
 , seekTreeDb
 ) where
 

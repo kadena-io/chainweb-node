@@ -27,22 +27,20 @@ import Chainweb.CutDB.RestAPI
 import Chainweb.TreeDB (MaxRank(..))
 import Chainweb.Version
 
-import Data.Singletons
-
 -- -------------------------------------------------------------------------- --
 -- GET Cut Client
 
 cutGetClient
     :: ChainwebVersion
     -> ClientM CutHashes
-cutGetClient (FromSing (SChainwebVersion :: Sing v))
+cutGetClient (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     = client (cutGetApi @v) Nothing
 
 cutGetClientLimit
     :: ChainwebVersion
     -> MaxRank
     -> ClientM CutHashes
-cutGetClientLimit (FromSing (SChainwebVersion :: Sing v))
+cutGetClientLimit (FromSingChainwebVersion (SChainwebVersion :: Sing v))
     = client (cutGetApi @v) . Just
 
 -- -------------------------------------------------------------------------- --
@@ -52,4 +50,4 @@ cutPutClient
     :: ChainwebVersion
     -> CutHashes
     -> ClientM NoContent
-cutPutClient (FromSing (SChainwebVersion :: Sing v)) = client $ cutPutApi @v
+cutPutClient (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = client $ cutPutApi @v

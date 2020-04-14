@@ -16,9 +16,6 @@ module Chainweb.BlockHeaderDB
 , closeBlockHeaderDb
 , withBlockHeaderDb
 
--- * insertion
--- , insertBlockHeaderDb
-
 -- * internal
 , seekTreeDb
 ) where
