@@ -53,8 +53,6 @@ import Chainweb.Pact.Service.Types
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
 
-import Data.Singletons
-
 -- internal pact modules
 
 import Pact.Server.API as API
@@ -142,8 +140,8 @@ pactServiceApi = Proxy
 
 somePactServiceApi :: ChainwebVersion -> ChainId -> SomeApi
 somePactServiceApi
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = SomeApi $ pactServiceApi @v @c
 
 somePactServiceApis :: ChainwebVersion -> [ChainId] -> SomeApi
