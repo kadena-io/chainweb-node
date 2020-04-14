@@ -34,11 +34,10 @@ module Chainweb.Version
 , chainwebVersionId
 
 -- * Properties of Chainweb Version
--- ** Gensis Height
-, genesisHeight
 -- ** Chain Graph
-, chainwebVersionGraph
+, chainwebGraphs
 , genesisGraph
+, genesisHeight
 -- ** POW
 , BlockRate(..)
 , blockRate
@@ -84,7 +83,10 @@ module Chainweb.Version
 , ChainGraph
 , HasChainGraph(..)
 , adjacentChainIds
-, chainwebVersionGraph_
+, chainGraphAt
+, chainGraphAt_
+, chainGraphsAt
+, chainIdsAtHeight
 
 -- ** Graph Properties
 , order
@@ -113,6 +115,7 @@ import Data.Foldable
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import qualified Data.List.NonEmpty as NE
 import Data.Proxy
 import qualified Data.Text as T
 import Data.Tuple (swap)
@@ -510,7 +513,7 @@ mkChainId
     -> i
     -> m ChainId
 mkChainId v h i = cid
-    <$ checkWebChainId (chainwebVersionGraph (_chainwebVersion v) h) cid
+    <$ checkWebChainId (chainGraphAt (_chainwebVersion v) h) cid
   where
     cid = unsafeChainId (fromIntegral i)
 {-# INLINE mkChainId #-}
@@ -550,49 +553,102 @@ randomChainIdAtHeight v h = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
 -- -------------------------------------------------------------------------- --
 
 -- -------------------------------------------------------------------------- --
--- Genesis Height
-
-genesisHeight :: ChainwebVersion -> ChainId -> BlockHeight
-genesisHeight Test{} _ = 0
-genesisHeight TimedConsensus{} _ = 0
-genesisHeight PowConsensus{} _ = 0
-genesisHeight TimedCPM{} _ = 0
-genesisHeight FastTimedCPM{} _ = 0
-genesisHeight Development _ = 0
-genesisHeight Testnet04 _ = 0
-genesisHeight Mainnet01 _ = 0
-
--- -------------------------------------------------------------------------- --
 -- Graph
 
-chainwebVersionGraph :: ChainwebVersion -> BlockHeight -> ChainGraph
-chainwebVersionGraph (Test g) _ = g
-chainwebVersionGraph (TimedConsensus g) _ = g
-chainwebVersionGraph (PowConsensus g) _ = g
-chainwebVersionGraph (TimedCPM g) _ = g
-chainwebVersionGraph (FastTimedCPM g) _ = g
-chainwebVersionGraph Development _ = petersonChainGraph
-chainwebVersionGraph Testnet04 _ = petersonChainGraph
-chainwebVersionGraph Mainnet01 _ = petersonChainGraph
+-- | Graphs of chainweb version
+--
+-- Invariants:
+--
+-- * Entries are sorted by 'BlockHeight' in decreasing order.
+-- * The last entry is for 'BlockHeight' 0.
+-- * The graphs decrease in order.
+--
+chainwebGraphs :: ChainwebVersion -> NE.NonEmpty (BlockHeight, ChainGraph)
+chainwebGraphs (Test g) = pure (0, g)
+chainwebGraphs (TimedConsensus g) = pure (0, g)
+chainwebGraphs (PowConsensus g) = pure (0, g)
+chainwebGraphs (TimedCPM g) = pure (0, g)
+chainwebGraphs (FastTimedCPM g) = pure (0, g)
+chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
+chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
+chainwebGraphs Development = (2000, twentyChainGraph) NE.:|
+    [ (0, petersonChainGraph)
+    ]
+{-# INLINE chainwebGraphs #-}
 
-instance HasChainGraph (ChainwebVersion, BlockHeight) where
-    _chainGraph = uncurry chainwebVersionGraph
-    {-# INLINE _chainGraph #-}
+-- | Return the Graph History at a given block height in descending
+-- order.
+--
+chainGraphsAt
+    :: HasCallStack
+    => ChainwebVersion
+    -> BlockHeight
+    -> NE.NonEmpty (BlockHeight, ChainGraph)
+chainGraphsAt v h = NE.fromList
+    $ NE.dropWhile ((> h) . fst)
+    $ chainwebGraphs v
+{-# INLINE chainGraphsAt #-}
 
-genesisGraph :: HasChainwebVersion v => HasChainId c => v -> c -> ChainGraph
-genesisGraph v c = chainwebVersionGraph v_ (genesisHeight v_ cid)
-  where
-    v_ = _chainwebVersion v
-    cid = _chainId c
-{-# INLINE genesisGraph #-}
+-- | The 'ChainGraph' for the given 'BlockHeight'
+--
+chainGraphAt :: HasCallStack => ChainwebVersion -> BlockHeight -> ChainGraph
+chainGraphAt v = snd . NE.head . chainGraphsAt v
+{-# INLINE chainGraphAt #-}
 
-chainwebVersionGraph_
-    :: HasChainwebVersion v
+-- | The 'ChainGraph' for the given 'BlockHeight'
+--
+chainGraphAt_
+    :: HasCallStack
+    => HasChainwebVersion v
     => v
     -> BlockHeight
     -> ChainGraph
-chainwebVersionGraph_ = chainwebVersionGraph . _chainwebVersion
-{-# INLINE chainwebVersionGraph_ #-}
+chainGraphAt_ = chainGraphAt . _chainwebVersion
+{-# INLINE chainGraphAt_ #-}
+
+-- | The genesis graph for a given Chain
+--
+-- Invariant:
+--
+-- * The given ChainId exists in the first graph fo the graph history.
+--   (We generally assume that this invariant holds throughout the code base.
+--   It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisGraph
+    :: HasCallStack
+    => HasChainwebVersion v
+    => HasChainId c
+    => v
+    -> c
+    -> ChainGraph
+genesisGraph v = chainGraphAt v_ . genesisHeight v_ . _chainId
+  where
+    v_ = _chainwebVersion v
+{-# INLINE genesisGraph #-}
+
+instance HasChainGraph (ChainwebVersion, BlockHeight) where
+    _chainGraph = uncurry chainGraphAt
+    {-# INLINE _chainGraph #-}
+
+-- -------------------------------------------------------------------------- --
+-- Genesis Height
+
+-- | Returns the height of the genesis block for a chain.
+--
+-- The implementation is somewhat expensive. With the current number of chains
+-- this isn't an issue. Otherwise the result should be hardcoded or memoized.
+--
+-- Invariant:
+--
+-- * The given ChainId exists in the first graph fo the graph history.
+--   (We generally assume that this invariant holds throughout the code base.
+--   It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
+genesisHeight v c = fst
+    $ head
+    $ NE.dropWhile (not . flip isWebChain c . snd)
+    $ NE.reverse (chainwebGraphs v)
 
 -- -------------------------------------------------------------------------- --
 -- POW Parameters

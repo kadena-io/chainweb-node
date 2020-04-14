@@ -445,7 +445,7 @@ crumbsToChain db srcCid trgHeader
     | (int (_blockHeight trgHeader) + 1) < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    graph = chainwebVersionGraph_ db (_blockHeight trgHeader)
+    graph = chainGraphAt_ db (_blockHeight trgHeader)
     path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
@@ -488,5 +488,5 @@ minimumTrgHeader headerDb tcid scid bh = do
     trgChain = headerDb ^?! ixg tcid
     trgHeight = int bh + int (length path)
 
-    graph = chainwebVersionGraph_ headerDb bh
+    graph = chainGraphAt_ headerDb bh
     path = shortestPath tcid scid graph

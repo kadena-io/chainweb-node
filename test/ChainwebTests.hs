@@ -52,6 +52,7 @@ import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
     (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
     withToyDB)
+import qualified Chainweb.Test.Version (tests)
 import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
@@ -115,6 +116,7 @@ suite rdb =
         , Chainweb.Test.Misc.tests
         , Chainweb.Test.BlockHeader.Genesis.tests
         , Chainweb.Test.BlockHeader.Validation.tests
+        , Chainweb.Test.Version.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties

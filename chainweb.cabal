@@ -465,6 +465,7 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
+        Chainweb.Test.Version
 
     build-depends:
         -- internal

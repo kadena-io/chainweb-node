@@ -64,7 +64,7 @@ import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Graph (order)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, chainwebVersionGraph)
+import Chainweb.Version (ChainwebVersion, chainGraphAt)
 
 import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), mkKeySet)
@@ -182,8 +182,7 @@ readRewards v =
     formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
     formatRow (!a,!b) =
       let
-        -- n h = (v,h) ^. chainGraph . to (int . order)
-        !n = int $! order $! chainwebVersionGraph v h
+        !n = int $! order $! chainGraphAt v h
         !m = fromRational $ toRational b
         !h = BlockHeight $ int a
       in (h, ParsedDecimal $! roundTo 8 (m / n))

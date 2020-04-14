@@ -235,7 +235,7 @@ spvTest rdb v step = do
     --
     distance cutDb h trgChain = length
         $ shortestPath (_chainId h) trgChain
-        $ chainwebVersionGraph_ cutDb (_blockHeight h)
+        $ chainGraphAt_ cutDb (_blockHeight h)
 
     -- Check whether target chain is reachable from the source block
     --

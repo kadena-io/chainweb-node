@@ -289,6 +289,8 @@ checkWebChainId g p = unless (isWebChain g p)
         (Expected (graphChainIds $ _chainGraph g))
         (Actual (_chainId p))
 
+-- | Returns whether the given chain is a vertext in the chain graph
+--
 isWebChain :: HasChainGraph g => HasChainId p => g -> p -> Bool
 isWebChain g p = G.isVertex (_chainId p) (_chainGraphGraph $ _chainGraph g)
 {-# INLINE isWebChain #-}

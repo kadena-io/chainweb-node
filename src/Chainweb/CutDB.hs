@@ -501,7 +501,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     threshold :: Cut -> Int
     threshold c = int $ 2 * diameter graph * order graph
       where
-        graph = chainwebVersionGraph_ headerStore (meanChainHeight c)
+        graph = chainGraphAt_ headerStore (meanChainHeight c)
 
     queueToStream = do
         Down a <- liftIO (pQueueRemove queue)

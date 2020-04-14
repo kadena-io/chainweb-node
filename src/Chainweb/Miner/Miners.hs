@@ -105,7 +105,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
         t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
 
         graphOrder :: Natural
-        graphOrder = order $ chainwebVersionGraph v (_blockHeight bh)
+        graphOrder = order $ chainGraphAt v (_blockHeight bh)
 
 
 

@@ -414,7 +414,7 @@ consensusStateSummary s
         }
   where
     cutHeights = _cutHeight <$> _stateCutMap s
-    graph = chainwebVersionGraph_ s
+    graph = chainGraphAt_ s
         $ maximum . concatMap chainHeights
         $ toList
         $ _stateCutMap s
@@ -434,7 +434,7 @@ consensusStateSummary s
 expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
 expectedBlockCount v (Seconds seconds) = round ebc
   where
-    chainCount = order $ chainwebVersionGraph v maxBound
+    chainCount = order $ chainGraphAt v maxBound
 
     ebc :: Double
     ebc = int seconds * int chainCount / int br
@@ -452,7 +452,7 @@ lowerStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 0.3 -- temporarily, was 0.5
     }
   where
-    chainCount = order $ chainwebVersionGraph v maxBound
+    chainCount = order $ chainGraphAt v maxBound
 
     ebc :: Double
     ebc = int seconds * int chainCount / int br
@@ -470,7 +470,7 @@ upperStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 1.2
     }
   where
-    chainCount = order $ chainwebVersionGraph v maxBound
+    chainCount = order $ chainGraphAt v maxBound
 
     ebc :: Double
     ebc = int seconds * int chainCount / int br
