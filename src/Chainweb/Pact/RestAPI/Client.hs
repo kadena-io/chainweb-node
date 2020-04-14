@@ -42,8 +42,6 @@ import Chainweb.Pact.RestAPI
 import Chainweb.Pact.Service.Types
 import Chainweb.Version
 
-import Data.Singletons
-
 -- -------------------------------------------------------------------------- --
 -- Pact Spv Transaction Output Proof Client
 
@@ -71,8 +69,8 @@ pactSpvApiClient
         -- tx request.
     -> ClientM TransactionOutputProofB64
 pactSpvApiClient
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = pactSpvApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
@@ -92,8 +90,8 @@ pactLocalApiClient
     -> Command T.Text
     -> ClientM (CommandResult Hash)
 pactLocalApiClient
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = pactLocalApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
@@ -113,8 +111,8 @@ pactListenApiClient
     -> ListenerRequest
     -> ClientM ListenResponse
 pactListenApiClient
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = pactListenApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
@@ -134,8 +132,8 @@ pactSendApiClient
     -> SubmitBatch
     -> ClientM RequestKeys
 pactSendApiClient
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = pactSendApiClient_ @v @c
 
 -- -------------------------------------------------------------------------- --
@@ -155,6 +153,6 @@ pactPollApiClient
     -> Poll
     -> ClientM PollResponses
 pactPollApiClient
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = pactPollApiClient_ @v @c

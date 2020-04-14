@@ -47,3 +47,4 @@ cache/
 standalonedbs/
 TAGS
 *.hie
+.DS_Store
