@@ -80,7 +80,7 @@ instance Exception MempoolException
 
 ------------------------------------------------------------------------------
 mkMempoolConsensus
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => MempoolBackend ChainwebTransaction
     -> BlockHeaderDb
     -> Maybe (PayloadDb cas)
@@ -97,7 +97,7 @@ mkMempoolConsensus mempool blockHeaderDb payloadStore = do
 
 ------------------------------------------------------------------------------
 processFork
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => BlockHeaderDb
     -> Maybe (PayloadDb cas)
     -> IORef (Maybe BlockHeader)
@@ -163,7 +163,7 @@ processFork' logFun db newHeader lastHeaderM plLookup flt =
 
 ------------------------------------------------------------------------------
 payloadLookup
-    :: forall cas . PayloadCas cas
+    :: forall cas . PayloadCasLookup cas
     => Maybe (PayloadDb cas)
     -> BlockHeader
     -> IO (HashSet (HashableTrans PayloadWithText))

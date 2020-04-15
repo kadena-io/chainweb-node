@@ -1,12 +1,10 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+
 -- |
 -- Module: Ea
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
@@ -56,6 +54,7 @@ import Chainweb.Logger (genericLogger)
 import Chainweb.Miner.Pact (noMiner)
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types (defaultPactServiceConfig)
+import Chainweb.Pact.Utils (toTxCreationTime)
 import Chainweb.Payload.PayloadStore.InMemory
 import Chainweb.Time
 import Chainweb.Transaction
@@ -64,7 +63,6 @@ import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), someChainId)
 
 import Pact.ApiReq (mkApiReq)
-import Pact.Parse
 import Pact.Types.ChainMeta
 import Pact.Types.Command hiding (Payload)
 
@@ -141,7 +139,8 @@ genPayloadModule v tag txFiles =
 
 startModule :: Text -> [Text]
 startModule tag =
-    [ "{-# LANGUAGE QuasiQuotes #-}"
+    [ "{-# LANGUAGE OverloadedStrings #-}"
+    , "{-# LANGUAGE QuasiQuotes #-}"
     , ""
     , "-- This module is auto-generated. DO NOT EDIT IT MANUALLY."
     , ""
@@ -183,9 +182,6 @@ mkChainwebTxs txFiles = do
   where
     setTxTime = set (cmdPayload . pMeta . pmCreationTime)
     setTTL = set (cmdPayload . pMeta . pmTTL)
-    toTxCreationTime :: Time Integer -> TxCreationTime
-    toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-      Seconds s -> TxCreationTime $ ParsedInteger s
 
 encodeJSON :: ToJSON a => a -> ByteString
 encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })

@@ -4,7 +4,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -34,6 +33,7 @@ import Data.CAS
 import Data.Foldable
 import Data.Functor.Of
 import qualified Data.List as L
+import Data.LogMessage
 import Data.Reflection hiding (int)
 import qualified Data.Vector.Unboxed as V
 
@@ -128,7 +128,7 @@ targetChain c srcBlock = do
 --
 spvTest :: RocksDb -> ChainwebVersion -> Step -> IO ()
 spvTest rdb v step = do
-    withTestCutDbWithoutPact rdb v 100 (\_ _ -> return ()) $ \cutDb -> do
+    withTestCutDbWithoutPact rdb v 100 logg $ \cutDb -> do
         curCut <- _cutMap <$> _cut cutDb
 
         -- for each blockheader h in cut
@@ -153,6 +153,9 @@ spvTest rdb v step = do
             ("proof size is not constant in the block height: r-value " <> sshow r2 <> " is < 0.8")
             (r2 > 0.8)
   where
+    logg :: LogFunction
+    -- logg _ msg = step $ T.unpack $ logText msg
+    logg _ _ = return ()
 
     -- Stream of all transactions in a block. Each returned item is
     -- - block header
@@ -161,7 +164,7 @@ spvTest rdb v step = do
     -- - tx
     --
     getPayloads
-        :: PayloadCas cas
+        :: PayloadCasLookup cas
         => CutDb cas
         -> BlockHeader
         -> S.Stream (Of (BlockHeader, Int, Int, TransactionOutput)) IO ()
@@ -186,7 +189,7 @@ spvTest rdb v step = do
     -- - size of tx
     --
     go
-        :: PayloadCas cas
+        :: PayloadCasLookup cas
         => CutDb cas
         -> (BlockHeader, Int, Int, TransactionOutput, ChainId)
         -> IO (Maybe [Double])
@@ -338,21 +341,23 @@ spvTransactionOutputRoundtripTest rdb v step = do
 -- -------------------------------------------------------------------------- --
 -- REST API
 
-type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
+type TestClientEnv_ cas = TestClientEnv MockTx cas
 
 apiTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
-apiTests rdb tls v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbsIO ->
+apiTests rdb tls v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
     testGroup "SPV API tests"
-        [ withPayloadServer tls v (fst <$> dbsIO) (payloadDbs . snd <$> dbsIO) $ \env ->
+        [ withPayloadServer tls v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withPayloadServer tls v (fst <$> dbsIO) (payloadDbs . snd <$> dbsIO) $ \env ->
+        , withPayloadServer tls v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where
     cids = toList $ chainIds v
+
+    payloadDbs :: PayloadCasLookup cas' => PayloadDb cas' -> [(ChainId, PayloadDb cas')]
     payloadDbs db = (, db) <$> cids
 
-txApiTests :: IO TestClientEnv_ -> Step -> IO ()
+txApiTests :: PayloadCasLookup cas => IO (TestClientEnv_ cas) -> Step -> IO ()
 txApiTests envIO step = do
     PayloadTestClientEnv env cutDb payloadDbs v <- envIO
     give (snd . head $ payloadDbs) $ do

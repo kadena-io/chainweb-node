@@ -37,6 +37,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
@@ -45,7 +46,6 @@ import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
 import Chainweb.Time
-import qualified Chainweb.TreeDB as TreeDB
 
 import Data.LogMessage
 
@@ -124,7 +124,7 @@ prop_noOldCrap db genBlock = monadicIO $ do
     -- tests filtering, in theory on age
     mapRef <- liftIO $ newIORef (HM.empty :: HashMap BlockHeader (HashSet TransactionHash))
     ForkInfo{..} <- genFork db mapRef genBlock
-    pre (length fiOldForkTrans > 0)
+    pre (not $ null fiOldForkTrans)
     let badtx = head $ toList fiOldForkTrans
     let badFilter = (/= badtx)
     (reIntroTransV, _) <- run $ processFork' (alogFunction aNoLog) fiBlockHeaderDb
@@ -224,7 +224,7 @@ genTree
 genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
-    liftIO $ TreeDB.insert db next
+    liftIO $ insertBlockHeaderDb db [next]
     listOfOne <- preForkTrunk db mapRef next theRest
     newNode mapRef
             BlockTrans { btBlockHeader = h, btTransactions = takenNow }
@@ -256,7 +256,7 @@ preForkTrunk
     -> PropertyM IO (Forest BlockTrans)
 preForkTrunk db mapRef h avail = do
     next <- header' h
-    liftIO $ TreeDB.insert db next
+    liftIO $ insertBlockHeaderDb db [next]
     (takenNow, theRest) <- takeTrans avail
     children <- frequencyM
         [(1, fork db mapRef next theRest), (3, preForkTrunk db mapRef next theRest)]
@@ -284,9 +284,9 @@ fork
     -> PropertyM IO (Forest BlockTrans)
 fork db mapRef h avail = do
     nextLeft <- header' h
-    liftIO $ TreeDB.insert db nextLeft
+    liftIO $ insertBlockHeaderDb db [nextLeft]
     nextRight <- header' h
-    liftIO $ TreeDB.insert db nextRight
+    liftIO $ insertBlockHeaderDb db [nextRight]
     (takenNow, theRest) <- takeTrans avail
 
     (lenL, lenR) <- genForkLengths
@@ -319,7 +319,7 @@ postForkTrunk db mapRef h avail count = do
     children <-
         if count == 0 then return []
         else do
-            liftIO $ TreeDB.insert db next
+            liftIO $ insertBlockHeaderDb db [next]
             postForkTrunk db mapRef next theRest (count - 1)
     theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}
@@ -333,7 +333,7 @@ header' h = do
     return
         . fromLog
         . newMerkleLog
-        $ nonce
+        $ mkFeatureFlags
             :+: t'
             :+: _blockHash h
             :+: target
@@ -343,7 +343,7 @@ header' h = do
             :+: succ (_blockHeight h)
             :+: v
             :+: epochStart (ParentHeader h) t'
-            :+: mkFeatureFlags
+            :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h

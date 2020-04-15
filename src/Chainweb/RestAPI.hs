@@ -91,6 +91,7 @@ import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
+import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
@@ -151,6 +152,7 @@ someChainwebApi :: ChainwebVersion -> [NetworkId] -> SomeApi
 someChainwebApi v cs = someSwaggerApi
     <> someHealthCheckApi
     <> someNodeInfoApi
+    <> someCutApi v
     <> someBlockHeaderDbApis v chains
     <> somePayloadApis v chains
     <> someP2pApis v cs
@@ -204,7 +206,7 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 
 someChainwebServer
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
@@ -229,7 +231,7 @@ someChainwebServer v dbs mr (HeaderStream hs) =
 
 chainwebApplication
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
     -> ChainwebServerDbs t logger cas
@@ -264,7 +266,7 @@ chainwebNodeVersion app req resp = app req $ \res ->
 
 serveChainwebOnPort
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => Port
     -> ChainwebVersion
@@ -276,7 +278,7 @@ serveChainwebOnPort p v dbs mr hs = run (int p) $ chainwebApplication v dbs mr h
 
 serveChainweb
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => Settings
     -> ChainwebVersion
@@ -288,7 +290,7 @@ serveChainweb s v dbs mr hs = runSettings s $ chainwebApplication v dbs mr hs
 
 serveChainwebSocket
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => Settings
     -> Socket
@@ -302,7 +304,7 @@ serveChainwebSocket s sock v dbs mr hs =
 
 serveChainwebSocketTls
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => Settings
     -> X509CertChainPem

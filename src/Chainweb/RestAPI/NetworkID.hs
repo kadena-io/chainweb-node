@@ -6,10 +6,12 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.RestAPI.NetworkID
@@ -36,6 +38,7 @@ module Chainweb.RestAPI.NetworkID
 -- * Singletons
 , Sing(SChainNetwork, SMempoolNetwork, SCutNetwork)
 , type SNetwork
+, pattern FromSingNetworkId
 ) where
 
 import Configuration.Utils
@@ -193,7 +196,14 @@ instance SingKind NetworkIdT where
     fromSing (SMempoolNetwork c) = MempoolNetwork (fromSing c)
     fromSing SCutNetwork = CutNetwork
 
-    toSing (ChainNetwork (FromSing c)) = withSingI c $ SomeSing (SChainNetwork c)
-    toSing (MempoolNetwork (FromSing c)) = withSingI c $ SomeSing (SMempoolNetwork c)
+    toSing (ChainNetwork (FromSingChainId c)) = withSingI c $ SomeSing (SChainNetwork c)
+    toSing (MempoolNetwork (FromSingChainId c)) = withSingI c $ SomeSing (SMempoolNetwork c)
     toSing CutNetwork = SomeSing SCutNetwork
 
+    {-# INLINE fromSing #-}
+    {-# INLINE toSing #-}
+
+pattern FromSingNetworkId :: Sing (n :: NetworkIdT) -> NetworkId
+pattern FromSingNetworkId sng <- ((\cid -> withSomeSing cid SomeSing) -> SomeSing sng)
+  where FromSingNetworkId sng = fromSing sng
+{-# COMPLETE FromSingNetworkId #-}

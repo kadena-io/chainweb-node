@@ -48,7 +48,6 @@ import qualified Chainweb.Test.RestAPI
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
-import qualified Chainweb.Test.TreeDB.Persistence
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
     (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
@@ -101,7 +100,6 @@ suite rdb =
         [ testGroup "BlockHeaderDb"
             [ Chainweb.Test.BlockHeaderDB.tests rdb
             , Chainweb.Test.TreeDB.RemoteDB.tests
-            , Chainweb.Test.TreeDB.Persistence.tests rdb
             , testProperties "Chainweb.TreeDB" Chainweb.TreeDB.properties
             ]
         , Chainweb.Test.Pact.TransactionTests.tests

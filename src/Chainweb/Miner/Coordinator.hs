@@ -5,11 +5,9 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -41,7 +39,7 @@ import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistEither, (!?), (??))
 import Control.Lens (iforM, set, to, (^.), (^?!))
-import Control.Monad (unless)
+import Control.Monad (join, unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
 
@@ -64,7 +62,7 @@ import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation (prop_block_pow)
 import Chainweb.BlockHeight
-import Chainweb.Cut
+import Chainweb.Cut hiding (join)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
 import Chainweb.Logging.Miner
@@ -173,7 +171,7 @@ newWork logFun choice eminer pact tpw c = do
         -> PrimedWork
         -> Maybe (T2 PayloadWithOutputs BlockHashRecord)
     primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = T2
-        <$> (HM.lookup mid pw >>= HM.lookup cid >>= id)
+        <$> join (HM.lookup mid pw >>= HM.lookup cid)
         <*> getAdjacentParents c p
 
     public :: ParentHeader -> Miner -> IO (Maybe (T2 PayloadWithOutputs BlockHashRecord))

@@ -4,7 +4,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -12,8 +11,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.MultiNode
@@ -51,7 +48,7 @@ import Data.Aeson
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.List
+import qualified Data.List as L
 import Data.Streaming.Network (HostPreference)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -327,7 +324,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
     -- Count log messages and only print the first 60 messages
     var <- newMVar (0 :: Int)
     let countedLog msg = modifyMVar_ var $ \c -> force (succ c) <$
-            if c < maxLogMsgs then logFun msg else return ()
+            when (c < maxLogMsgs) (logFun msg)
 
     runNodesForSeconds loglevel v n seconds countedLog >>= \case
         Nothing -> assertFailure "chainweb didn't make any progress"
@@ -427,7 +424,7 @@ consensusStateSummary s
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
 
     median :: Foldable f => Ord a => f a -> a
-    median f = (!! ((length f + 1) `div` 2)) $ sort (toList f)
+    median f = (!! ((length f + 1) `div` 2)) $ L.sort (toList f)
 
     minHeight = minimum $ HM.elems cutHeights
     maxHeight = maximum $ HM.elems cutHeights

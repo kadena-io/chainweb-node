@@ -16,7 +16,7 @@ import Control.Monad.Trans.Except
 import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.ByteString.Char8 (ByteString)
-import Data.List
+import qualified Data.List as L
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import Data.Word (Word64)
@@ -52,12 +52,11 @@ encodeMockPayload (MockPayload a b c d) =
     runPutS (mapM_ putWord64le [a, b, c, d])
 
 decodeMockPayload :: ByteString -> Either String MockPayload
-decodeMockPayload s = flip runGetS s $ do
-    a <- getWord64le
-    b <- getWord64le
-    c <- getWord64le
-    d <- getWord64le
-    return $ MockPayload a b c d
+decodeMockPayload s = flip runGetS s $ MockPayload
+    <$> getWord64le
+    <*> getWord64le
+    <*> getWord64le
+    <*> getWord64le
 
 mockPayloadCodec :: Codec MockPayload
 mockPayloadCodec = Codec encodeMockPayload decodeMockPayload
@@ -65,7 +64,7 @@ mockPayloadCodec = Codec encodeMockPayload decodeMockPayload
 mockPayloadConfig :: PayloadConfig MockPayload
 mockPayloadConfig = PayloadConfig mockPayloadCodec hashMockPayload
 
-data CasDbWithFunc = CasDbWithFunc (forall a . (DB MockPayload -> IO a) -> IO a)
+newtype CasDbWithFunc = CasDbWithFunc (forall a . (DB MockPayload -> IO a) -> IO a)
 
 casDbTests :: CasDbWithFunc -> [TestTree]
 casDbTests withDB = map ($ withDB) [
@@ -105,7 +104,7 @@ propLookupFail (ps0, fs0) db = runExceptT $ do
 
   where
     checkLookupFailed = maybe (return ()) (const $ fail "expected lookup to fail")
-    ps = sort ps0
+    ps = L.sort ps0
     psSet = Set.fromList ps
     fs = filter (not . flip Set.member psSet) fs0
     hash = payloadHash $ casDbConfig db

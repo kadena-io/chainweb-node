@@ -109,6 +109,9 @@ import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.PackageIndex
 import Distribution.Simple.Setup
 import Distribution.Text
+#if MIN_VERSION_Cabal(3,2,0)
+import Distribution.Utils.ShortText
+#endif
 import qualified Distribution.Compat.Graph as Graph
 -- import Distribution.Types.LocalBuildInfo
 import Distribution.Types.UnqualComponentName
@@ -156,6 +159,14 @@ mkPkgInfoModules hooks = hooks
 
 prettyLicense :: I.InstalledPackageInfo -> String
 prettyLicense = either prettyShow prettyShow . I.license
+
+#if MIN_VERSION_Cabal(3,2,0)
+ft :: ShortText -> String
+ft = fromShortText
+#else
+ft :: String -> String
+ft = id
+#endif
 
 mkPkgInfoModulesPostConf
     :: (Args -> ConfigFlags -> PackageDescription -> LocalBuildInfo -> IO ())
@@ -357,10 +368,10 @@ pkgInfoModule moduleName cName pkgDesc bInfo = do
             , "    copyright = " <> (pack . show . copyright) pkgDesc
             , ""
             , "    author :: IsString a => a"
-            , "    author = \"" <> (pack . author) pkgDesc <> "\""
+            , "    author = \"" <> (pack . ft . author) pkgDesc <> "\""
             , ""
             , "    homepage :: IsString a => a"
-            , "    homepage = \"" <> (pack . homepage) pkgDesc <> "\""
+            , "    homepage = \"" <> (pack . ft . homepage) pkgDesc <> "\""
             , ""
             , "    package :: IsString a => a"
             , "    package = \"" <> (pack . display . package) pkgDesc <> "\""
@@ -429,4 +440,4 @@ pkgIdWithLicense a = (display . packageId) a
     ++ (if cr /= "" then ", " ++ cr else "")
     ++ "]"
   where
-    cr = (unwords . words . I.copyright) a
+    cr = (unwords . words . ft . I.copyright) a

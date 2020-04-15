@@ -1,8 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -56,7 +53,7 @@ import Data.Singletons
 -- SPV Transaction Proof Handler
 
 spvGetTransactionProofHandler
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => CutDb cas
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which
@@ -79,7 +76,7 @@ spvGetTransactionProofHandler db tcid scid bh i =
 -- SPV Transaction Output Proof Handler
 
 spvGetTransactionOutputProofHandler
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => CutDb cas
     -> ChainId
         -- ^ the target chain of the proof. This is the chain for which inclusion
@@ -104,7 +101,7 @@ spvGetTransactionOutputProofHandler db tcid scid bh i =
 
 spvServer
     :: forall cas v (c :: ChainIdT)
-    . PayloadCas cas
+    . PayloadCasLookup cas
     => KnownChainIdSymbol c
     => CutDbT cas v
     -> Server (SpvApi v c)
@@ -119,7 +116,7 @@ spvServer (CutDbT db)
 
 spvApp
     :: forall cas v c
-    . PayloadCas cas
+    . PayloadCasLookup cas
     => KnownChainwebVersionSymbol v
     => KnownChainIdSymbol c
     => CutDbT cas v
@@ -136,7 +133,7 @@ spvApiLayout _ = T.putStrLn $ layout (Proxy @(SpvApi v c))
 
 someSpvServer
     :: forall cas c
-    . PayloadCas cas
+    . PayloadCasLookup cas
     => KnownChainIdSymbol c
     => SomeCutDb cas
     -> SomeServer
@@ -147,11 +144,11 @@ someSpvServer (SomeCutDb (db :: CutDbT cas v))
 -- Multichain Server
 
 someSpvServers
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> CutDb cas
     -> SomeServer
-someSpvServers v db = mconcat $ flip fmap cids $ \(FromSing (SChainId :: Sing c)) ->
+someSpvServers v db = mconcat $ flip fmap cids $ \(FromSingChainId (SChainId :: Sing c)) ->
     someSpvServer @_ @c (someCutDbVal v db)
   where
     cids = toList $ chainIds db

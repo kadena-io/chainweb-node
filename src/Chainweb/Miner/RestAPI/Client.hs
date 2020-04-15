@@ -27,8 +27,6 @@ import Chainweb.Miner.Pact (Miner)
 import Chainweb.Miner.RestAPI (miningApi)
 import Chainweb.Version
 
-import Data.Singletons
-
 -- -----------------------------------------------------------------------------
 -- Mining Results
 
@@ -45,4 +43,4 @@ clients
     -> (Maybe ChainId -> Miner -> ClientM WorkBytes)
     :<|> (HeaderBytes -> ClientM NoContent)
     :<|> (ChainBytes -> Method -> ClientM Response)
-clients (FromSing (SChainwebVersion :: Sing v)) = client (miningApi @v)
+clients (FromSingChainwebVersion (SChainwebVersion :: Sing v)) = client (miningApi @v)

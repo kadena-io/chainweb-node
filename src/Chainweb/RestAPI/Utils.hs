@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -74,6 +75,11 @@ module Chainweb.RestAPI.Utils
 
 -- * Misc Utils
 , bindPortTcp
+-- ** Content Types for Clients
+, SupportedReqBodyContentType
+, SetReqBodyContentType
+, SupportedRespBodyContentType
+, SetRespBodyContentType
 
 ) where
 
@@ -414,6 +420,53 @@ instance Monoid SomeServer where
 
 someServerApplication :: SomeServer -> Application
 someServerApplication (SomeServer a server) = serve a server
+
+-- -------------------------------------------------------------------------- --
+-- Content Types For Clients
+
+-- Response Body Content Type
+
+type family SetRespBodyContentType ct api where
+    SetRespBodyContentType ct (Verb a b _ c) = Verb a b '[ct] c
+    SetRespBodyContentType ct (a :> b) = a :> SetRespBodyContentType ct b
+
+type SupportedRespBodyContentType ct api t = (SupportedRespBodyCT_ ct api api ~ 'True, MimeUnrender ct t)
+
+type family SupportedRespBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
+    SupportedRespBodyCT_ ct api (Verb _ _ '[] _) = RespBodyContentTypeNotSupportedMsg ct api
+    SupportedRespBodyCT_ ct api (Verb _ _ (ct ': _) _) = 'True
+    SupportedRespBodyCT_ ct api (Verb a b (_ ': t) c) = SupportedRespBodyCT_ ct api (Verb a b t c)
+    SupportedRespBodyCT_ ct api (a :> b) = SupportedRespBodyCT_ ct api b
+
+type family RespBodyContentTypeNotSupportedMsg ct api where
+    RespBodyContentTypeNotSupportedMsg ct api = TypeError
+        ( 'Text "The response content type "
+        ':<>: 'ShowType ct
+        ':<>: 'Text " is not supported by the servant API "
+        ':$$: 'ShowType api
+        )
+
+-- Request Body Content Type
+
+type family SetReqBodyContentType (ct :: Type) (api :: k) :: k1 where
+    SetReqBodyContentType ct (ReqBody _ t :> a) = ReqBody '[ct] t :> a
+    SetReqBodyContentType ct (a :> b) = a :> SetReqBodyContentType ct b
+
+type SupportedReqBodyContentType ct api t = (SupportedReqBodyCT_ ct api api ~ 'True, MimeRender ct t)
+
+type family SupportedReqBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
+    SupportedReqBodyCT_ ct api (ReqBody '[] _ :> _) = ReqBodyContentTypeNotSupportedMsg ct api
+    SupportedReqBodyCT_ ct api (ReqBody (ct ': _) _ :> _) = 'True
+    SupportedReqBodyCT_ ct api (ReqBody (_ ': x) t :> a) = SupportedReqBodyCT_ ct api (ReqBody x t :> a)
+    SupportedReqBodyCT_ ct api (a :> b) = SupportedReqBodyCT_ ct api b
+
+type family ReqBodyContentTypeNotSupportedMsg ct api where
+    ReqBodyContentTypeNotSupportedMsg ct api = TypeError
+        ( 'Text "The request content type "
+        ':<>: 'ShowType ct
+        ':<>: 'Text " is not supported by the servant API "
+        ':$$: 'ShowType api
+        )
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils

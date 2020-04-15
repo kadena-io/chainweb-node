@@ -47,6 +47,7 @@ module Chainweb.Pact.TransactionExec
 
 ) where
 
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad.Catch
 import Control.Monad.Reader
@@ -151,7 +152,8 @@ applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
 
     executionConfigNoHistory = mkExecutionConfig
       $ FlagDisableHistoryInTransactionalMode
-      : [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+      : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
+          ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ] )
 
     cenv = TransactionEnv Transactional pdbenv logger pd spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
@@ -162,6 +164,7 @@ applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
+    isModuleNameFix = enableModuleNameFix v (fromIntegral $ _pdBlockHeight pd)
     isPactBackCompatV16 = pactBackCompat_v16 v (BlockHeight $ _pdBlockHeight pd)
 
     redeemAllGas r = do
@@ -493,7 +496,9 @@ applyExec interp em senderSigs hsh nsp = do
     logs <- use txLogs
     rk <- view txRequestKey
     -- applyExec enforces non-empty expression set so `last` ok
-    return $! CommandResult rk _erTxId (PactResult (Right (last _erOutput)))
+    -- forcing it here for lazy errors. TODO NFData the Pacts
+    lastResult <- return $!! last _erOutput
+    return $! CommandResult rk _erTxId (PactResult (Right lastResult))
       _erGas (Just logs) _erExec Nothing
 
 -- | Variation on 'applyExec' that returns 'EvalResult' as opposed to

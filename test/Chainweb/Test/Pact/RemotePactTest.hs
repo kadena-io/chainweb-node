@@ -46,7 +46,7 @@ import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
-import Data.List
+import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -306,7 +306,7 @@ expectSendFailure expectErr act = do
                            <> show out
     (Left e) -> test $ show e
   where
-    test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (isInfixOf expectErr)
+    test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
 
 
 spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
@@ -716,7 +716,7 @@ sending
 sending sid cenv batch =
     recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
       debug
-        $ "sending requestkeys " <> show (fmap _cmdHash $ toList ss)
+        $ "sending requestkeys " <> show (_cmdHash <$> toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
       -- Send and return naively

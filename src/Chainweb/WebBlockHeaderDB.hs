@@ -44,6 +44,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.TreeDB
@@ -170,7 +171,7 @@ insertWebBlockHeaderDb
 insertWebBlockHeaderDb wdb h = do
     db <- getWebBlockHeaderDb wdb h
     checkBlockAdjacentParents wdb h
-    insert db h
+    insertBlockHeaderDb db [h]
 
 -- -------------------------------------------------------------------------- --
 -- Checks and Properties

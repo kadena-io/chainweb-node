@@ -2,7 +2,6 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -11,7 +10,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.BlockHeaderDB.RestAPI.Client
@@ -27,13 +25,6 @@ module Chainweb.BlockHeaderDB.RestAPI.Client
 , headerClientJson
 , headerClientJsonPretty
 , headerClientJsonBinary
-
-, headerPutClient_
-, headerPutClient
-, headerPutClientContentType_
-, headerPutClientJson
-, headerPutClientJsonPretty
-, headerPutClientBinary
 
 , hashesClient_
 , hashesClient
@@ -59,8 +50,6 @@ import Data.Kind
 import Data.Proxy
 import Data.Singletons
 
-import GHC.TypeLits
-
 import Servant.API
 import Servant.Client
 
@@ -71,56 +60,10 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.RestAPI.Orphans ()
+import Chainweb.RestAPI.Utils
 import Chainweb.TreeDB
 import Chainweb.Utils.Paging
 import Chainweb.Version
-
--- -------------------------------------------------------------------------- --
--- Utils
-
--- Response Body Content Type
-
-type family SetRespBodyContentType ct api where
-    SetRespBodyContentType ct (Verb a b _ c) = Verb a b '[ct] c
-    SetRespBodyContentType ct (a :> b) = a :> SetRespBodyContentType ct b
-
-type SupportedRespBodyContentType ct api t = (SupportedRespBodyCT_ ct api api ~ 'True, MimeUnrender ct t)
-
-type family SupportedRespBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
-    SupportedRespBodyCT_ ct api (Verb _ _ '[] _) = RespBodyContentTypeNotSupportedMsg ct api
-    SupportedRespBodyCT_ ct api (Verb _ _ (ct ': _) _) = 'True
-    SupportedRespBodyCT_ ct api (Verb a b (_ ': t) c) = SupportedRespBodyCT_ ct api (Verb a b t c)
-    SupportedRespBodyCT_ ct api (a :> b) = SupportedRespBodyCT_ ct api b
-
-type family RespBodyContentTypeNotSupportedMsg ct api where
-    RespBodyContentTypeNotSupportedMsg ct api = TypeError
-        ( 'Text "The response content type "
-        ':<>: 'ShowType ct
-        ':<>: 'Text " is not supported by the servant API "
-        ':$$: 'ShowType api
-        )
-
--- Request Body Content Type
-
-type family SetReqBodyContentType (ct :: Type) (api :: k) :: k1 where
-    SetReqBodyContentType ct (ReqBody _ t :> a) = ReqBody '[ct] t :> a
-    SetReqBodyContentType ct (a :> b) = a :> SetReqBodyContentType ct b
-
-type SupportedReqBodyContentType ct api t = (SupportedReqBodyCT_ ct api api ~ 'True, MimeRender ct t)
-
-type family SupportedReqBodyCT_ (ct :: Type) (api :: k) (arg :: k1) :: Bool where
-    SupportedReqBodyCT_ ct api (ReqBody '[] _ :> _) = ReqBodyContentTypeNotSupportedMsg ct api
-    SupportedReqBodyCT_ ct api (ReqBody (ct ': _) _ :> _) = 'True
-    SupportedReqBodyCT_ ct api (ReqBody (_ ': x) t :> a) = SupportedReqBodyCT_ ct api (ReqBody x t :> a)
-    SupportedReqBodyCT_ ct api (a :> b) = SupportedReqBodyCT_ ct api b
-
-type family ReqBodyContentTypeNotSupportedMsg ct api where
-    ReqBodyContentTypeNotSupportedMsg ct api = TypeError
-        ( 'Text "The request content type "
-        ':<>: 'ShowType ct
-        ':<>: 'Text " is not supported by the servant API "
-        ':$$: 'ShowType api
-        )
 
 -- -------------------------------------------------------------------------- --
 -- GET Header Client
@@ -180,59 +123,6 @@ headerClientJsonBinary v c k = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ headerClientContentType_ @v @c @OctetStream k
-
--- -------------------------------------------------------------------------- --
--- Header Put Client
-
-headerPutClient_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => DbEntry BlockHeaderDb
-    -> ClientM NoContent
-headerPutClient_ = headerPutClientContentType_ @v @c @JSON
-
-headerPutClient
-    :: ChainwebVersion
-    -> ChainId
-    -> DbEntry BlockHeaderDb
-    -> ClientM NoContent
-headerPutClient = headerPutClientJson
-
-headerPutClientContentType_
-    :: forall (v :: ChainwebVersionT) (c :: ChainIdT) (ct :: Type)
-    . KnownChainwebVersionSymbol v
-    => KnownChainIdSymbol c
-    => Accept ct
-    => SupportedReqBodyContentType ct (HeaderPutApi v c) BlockHeader
-    => DbEntry BlockHeaderDb
-    -> ClientM NoContent
-headerPutClientContentType_ = client
-    $ Proxy @(SetReqBodyContentType ct (HeaderPutApi v c))
-
-headerPutClientJson
-    :: ChainwebVersion
-    -> ChainId
-    -> DbEntry BlockHeaderDb
-    -> ClientM NoContent
-headerPutClientJson (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing c))
-    = headerPutClientContentType_ @v @c @JSON
-
-headerPutClientJsonPretty
-    :: ChainwebVersion
-    -> ChainId
-    -> DbEntry BlockHeaderDb
-    -> ClientM NoContent
-headerPutClientJsonPretty (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing c))
-    = headerPutClientContentType_ @v @c @JsonBlockHeaderObject
-
-headerPutClientBinary
-    :: ChainwebVersion
-    -> ChainId
-    -> DbEntry BlockHeaderDb
-    -> ClientM NoContent
-headerPutClientBinary (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing c))
-    = headerPutClientContentType_ @v @c @OctetStream
 
 -- -------------------------------------------------------------------------- --
 -- Headers Client
@@ -446,4 +336,3 @@ hashesClient v c limit start minr maxr = runIdentity $ do
     (SomeSing (SChainwebVersion :: Sing v)) <- return $ toSing v
     (SomeSing (SChainId :: Sing c)) <- return $ toSing c
     return $ hashesClient_ @v @c limit start minr maxr
-

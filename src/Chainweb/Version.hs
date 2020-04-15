@@ -8,11 +8,13 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- |
 -- Module: Chainweb.Version
@@ -41,10 +43,12 @@ module Chainweb.Version
 , vuln797Fix
 , coinV2Upgrade
 , pactBackCompat_v16
-, useCurrentHeaderCreationTimeForTxValidation
+, useLegacyCreationTimeForTxValidation
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
+, oldTargetGuard
 , skipFeatureFlagValidationGuard
+, enableModuleNameFix
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -57,6 +61,7 @@ module Chainweb.Version
 -- * Singletons
 , Sing(SChainwebVersion)
 , SChainwebVersion
+, pattern FromSingChainwebVersion
 
 -- * HasChainwebVersion
 , HasChainwebVersion(..)
@@ -452,6 +457,14 @@ instance SingKind ChainwebVersionT where
     toSing n = case someChainwebVersionVal n of
         SomeChainwebVersionT p -> SomeSing (singByProxy p)
 
+    {-# INLINE fromSing #-}
+    {-# INLINE toSing #-}
+
+pattern FromSingChainwebVersion :: Sing (n :: ChainwebVersionT) -> ChainwebVersion
+pattern FromSingChainwebVersion sng <- ((\v -> withSomeSing v SomeSing) -> SomeSing sng)
+  where FromSingChainwebVersion sng = fromSing sng
+{-# COMPLETE FromSingChainwebVersion #-}
+
 -- -------------------------------------------------------------------------- --
 -- HasChainwebVersion Class
 
@@ -645,13 +658,13 @@ pactBackCompat_v16 _ _ = False
 -- dependency of `newBlock` on the creation time of the current header can be
 -- removed.
 --
-useCurrentHeaderCreationTimeForTxValidation
+useLegacyCreationTimeForTxValidation
     :: ChainwebVersion
     -> BlockHeight
     -> Bool
-useCurrentHeaderCreationTimeForTxValidation Mainnet01 _ = True
-useCurrentHeaderCreationTimeForTxValidation Development h = h < 2000
-useCurrentHeaderCreationTimeForTxValidation _ h = h <= 1
+useLegacyCreationTimeForTxValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
+useLegacyCreationTimeForTxValidation Development h = h < 150
+useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
     -- the genesis blocks and the corresponding first blocks.
     --
@@ -659,6 +672,20 @@ useCurrentHeaderCreationTimeForTxValidation _ h = h <= 1
     -- causes tx validation at height 1, even though the block height is larger.
     -- By using the current header time for the block of height <= 1 we relax
     -- the tx timing checks a bit.
+
+
+-- | Checks height after which module name fix in effect.
+enableModuleNameFix
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Bool
+enableModuleNameFix v bh = case v of
+  Mainnet01 -> forHeight 448501 -- ~ 2020-04-02T12:00:00Z
+  Development -> forHeight 100
+  _ -> forHeight 2
+  where
+    forHeight h = bh >= h
+
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
@@ -708,6 +735,19 @@ slowEpochGuard Mainnet01 h = h < 80000
 slowEpochGuard _ _ = False
 {-# INLINE slowEpochGuard #-}
 
+-- | Use the current block time for computing epoch start date and
+-- target.
+--
+-- When this guard is switched off, there will be a single epoch of just 119
+-- blocks. The target computation won't compensate for that, since the effects
+-- are marginal.
+--
+oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
+oldTargetGuard Mainnet01 h = h < 452820 -- ~ 2020-04-04T00:00:00Z
+oldTargetGuard Development h = h < 360
+oldTargetGuard _ _ = False
+{-# INLINE oldTargetGuard #-}
+
 -- | Skip validation of feature flags.
 --
 -- Unused feature flag bits are supposed to be set to 0. As of Chainweb 1.7, the
@@ -721,6 +761,6 @@ skipFeatureFlagValidationGuard
         -- ^ height of header
     -> Bool
 skipFeatureFlagValidationGuard Mainnet01 _ = True
-skipFeatureFlagValidationGuard Development h = h < 10000
-skipFeatureFlagValidationGuard Testnet04 _ = True
+skipFeatureFlagValidationGuard Development _ = True
+skipFeatureFlagValidationGuard Testnet04 _ = False
 skipFeatureFlagValidationGuard _ _ = False

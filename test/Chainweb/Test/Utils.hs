@@ -26,7 +26,7 @@ module Chainweb.Test.Utils
 , withTestBlockHeaderDb
 , withBlockHeaderDbsResource
 
--- * BlockHeaderDb Generation
+-- * Data Generation
 , toyBlockHeaderDb
 , toyChainId
 , toyGenesis
@@ -40,6 +40,7 @@ module Chainweb.Test.Utils
 , SparseTree(..)
 , Growth(..)
 , tree
+, getArbitrary
 
 -- * Test BlockHeaderDbs Configurations
 , singleton
@@ -97,6 +98,7 @@ module Chainweb.Test.Utils
 , runRocks
 , runSchedRocks
 , withArgs
+, matchTest
 ) where
 
 import Control.Concurrent
@@ -136,7 +138,8 @@ import System.IO.Temp
 import System.Random (randomIO)
 
 import Test.QuickCheck
-import Test.QuickCheck.Gen (chooseAny)
+import Test.QuickCheck.Gen (chooseAny, unGen)
+import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
@@ -153,6 +156,7 @@ import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
+import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -275,8 +279,8 @@ genesisBlockHeaderForChain v i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
-insertN :: (TreeDb db, DbEntry db ~ BlockHeader) => Int -> BlockHeader -> db -> IO ()
-insertN n g db = traverse_ (insert db) bhs
+insertN :: Int -> BlockHeader -> BlockHeaderDb -> IO ()
+insertN n g db = insertBlockHeaderDb db bhs
   where
     bhs = take n $ testBlockHeaders $ ParentHeader g
 
@@ -358,7 +362,7 @@ header p = do
     return
         . fromLog
         . newMerkleLog
-        $ nonce
+        $ mkFeatureFlags
             :+: t'
             :+: _blockHash p
             :+: target
@@ -368,13 +372,18 @@ header p = do
             :+: succ (_blockHeight p)
             :+: v
             :+: epochStart (ParentHeader p) t'
-            :+: mkFeatureFlags
+            :+: nonce
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime p
     target = powTarget (ParentHeader p) t'
     v = _blockChainwebVersion p
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
+
+-- | get arbitrary value for seed.
+-- > getArbitrary @BlockHash 0
+getArbitrary :: Arbitrary a => Int -> a
+getArbitrary seed = unGen arbitrary (mkQCGen 0) seed
 
 -- -------------------------------------------------------------------------- --
 -- Test Chain Database Configurations
@@ -411,7 +420,7 @@ linearBlockHeaderDbs n genDbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (insert db) . take (int n) . testBlockHeaders $ ParentHeader gbh0
+        traverse_ (insertBlockHeaderDb db . pure) . take (int n) . testBlockHeaders $ ParentHeader gbh0
 
 starBlockHeaderDbs
     :: Natural
@@ -424,7 +433,7 @@ starBlockHeaderDbs n genDbs = do
   where
     populateDb (_, db) = do
         gbh0 <- root db
-        traverse_ (\i -> insert db . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
+        traverse_ (\i -> insertBlockHeaderDb db . pure . newEntry i $ ParentHeader gbh0) [0 .. (int n-1)]
 
     newEntry i h = head $ testBlockHeadersWithNonce (Nonce i) h
 
@@ -439,7 +448,7 @@ withChainServer
     .  Show t
     => ToJSON t
     => FromJSON t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Logger logger
     => ChainwebServerDbs t logger cas
     -> (ClientEnv -> IO a)
@@ -572,7 +581,7 @@ clientEnvWithChainwebTestServer
     .  Show t
     => ToJSON t
     => FromJSON t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
     -> IO (ChainwebServerDbs t GenericLogger cas)
@@ -605,7 +614,7 @@ clientEnvWithChainwebTestServer tls v dbsIO =
 
 withPeerDbsServer
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ToJSON t
     => FromJSON t
     => Bool
@@ -621,7 +630,7 @@ withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
 
 withPayloadServer
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ToJSON t
     => FromJSON t
     => Bool
@@ -641,7 +650,7 @@ withPayloadServer tls v cutDbIO payloadDbsIO =
 
 withBlockHeaderDbsServer
     :: Show t
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ToJSON t
     => FromJSON t
     => Bool
@@ -816,3 +825,8 @@ runRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> defaultMain (test rdb
 
 runSchedRocks :: (RocksDb -> ScheduledTest) -> IO ()
 runSchedRocks test = withTempRocksDb "chainweb-tests" $ \rdb -> runSched (test rdb)
+
+-- | Convenience to use "-p" with value to match a test run
+-- > matchTest "myTest" $ runSched tests
+matchTest :: String -> IO a -> IO a
+matchTest pat = withArgs ["-p",pat]

@@ -27,7 +27,7 @@ import Data.Aeson
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.CAS.RocksDB (RocksDb)
-import Data.List
+import qualified Data.List as L
 import Data.String
 import Data.String.Conv (toS)
 import Data.Text (Text, pack)
@@ -186,7 +186,7 @@ testReq6 = TestRequest
 
 
 assertResultFail :: Show a => HasCallStack => String -> String -> Either String a -> Assertion
-assertResultFail msg expectErr (Left e) = assertSatisfies msg e ((isInfixOf expectErr).show)
+assertResultFail msg expectErr (Left e) = assertSatisfies msg e ((L.isInfixOf expectErr).show)
 assertResultFail msg _ (Right a) = assertFailure $ msg ++ ", received: " ++ show a
 
 checkResultSuccess :: HasCallStack => ([PactResult] -> Assertion) -> Either String (TestResponse String) -> Assertion
@@ -202,7 +202,7 @@ checkPactResultSuccessLocal msg test r = checkPactResultSuccess msg r test
 
 checkPactResultFailure :: HasCallStack => String -> String -> PactResult -> Assertion
 checkPactResultFailure msg _ (PactResult (Right pv)) = assertFailure $ msg ++ ": expected tx failure, got " ++ show pv
-checkPactResultFailure msg expectErr (PactResult (Left e))  = assertSatisfies msg e ((isInfixOf expectErr).show)
+checkPactResultFailure msg expectErr (PactResult (Left e))  = assertSatisfies msg e ((L.isInfixOf expectErr).show)
 
 testTfrNoGasFails :: TxsTest
 testTfrNoGasFails =
@@ -517,7 +517,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
 execLocalTest
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => WithPactCtxSQLite cas
     -> String
     -> LocalTest

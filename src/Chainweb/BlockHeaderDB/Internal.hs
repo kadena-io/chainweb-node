@@ -35,6 +35,9 @@ module Chainweb.BlockHeaderDB.Internal
 , closeBlockHeaderDb
 , withBlockHeaderDb
 
+-- * Insertion
+, insertBlockHeaderDb
+
 , seekTreeDb
 ) where
 
@@ -43,7 +46,6 @@ import Control.DeepSeq
 import Control.Lens hiding (children)
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 
 import Data.Aeson
@@ -143,8 +145,6 @@ newtype BlockRank = BlockRank { _getBlockRank :: BlockHeight }
 -- -------------------------------------------------------------------------- --
 -- Internal
 
-type E = BlockHeader
-
 encodeRankedBlockHeader :: MonadPut m => RankedBlockHeader -> m ()
 encodeRankedBlockHeader = encodeBlockHeader . _getRankedBlockHeader
 {-# INLINE encodeRankedBlockHeader #-}
@@ -172,7 +172,7 @@ data BlockHeaderDb = BlockHeaderDb
     { _chainDbId :: !ChainId
     , _chainDbChainwebVersion :: !ChainwebVersion
     , _chainDbCas :: !(RocksDbTable RankedBlockHash RankedBlockHeader)
-        -- ^ Ranked block hashes provide fast access and iterating  by block
+        -- ^ Ranked block hashes provide fast access and iterating by block
         -- height. Blocks of similar height are stored and cached closely
         -- together. This table is an instance of 'IsCas'.
 
@@ -188,6 +188,11 @@ instance HasChainId BlockHeaderDb where
 instance HasChainwebVersion BlockHeaderDb where
     _chainwebVersion = _chainDbChainwebVersion
     {-# INLINE _chainwebVersion #-}
+
+instance HasCasLookup BlockHeaderDb where
+    type CasValueType BlockHeaderDb = BlockHeader
+    casLookup = lookup
+    {-# INLINE casLookup #-}
 
 -- -------------------------------------------------------------------------- --
 -- Insert
@@ -315,9 +320,6 @@ instance TreeDb BlockHeaderDb where
             & limitStream l
     {-# INLINEABLE keys #-}
 
-    insert db e = liftIO $ insertBlockHeaderDb db [e]
-    {-# INLINEABLE insert #-}
-
     maxEntry db = withTableIter (_chainDbCas db) $ \it -> do
         tableIterLast it
         tableIterValue it >>= \case
@@ -397,7 +399,7 @@ seekTreeDb db k mir = do
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
-insertBlockHeaderDb :: BlockHeaderDb -> [E] -> IO ()
+insertBlockHeaderDb :: BlockHeaderDb -> [BlockHeader] -> IO ()
 insertBlockHeaderDb db es = do
 
     -- Validate set of additions
@@ -407,3 +409,4 @@ insertBlockHeaderDb db es = do
     mapM_ (dbAddChecked db) rankedAdditions
   where
     rankedAdditions = L.sortOn rank es
+

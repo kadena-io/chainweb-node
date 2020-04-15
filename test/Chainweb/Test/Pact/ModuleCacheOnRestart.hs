@@ -1,11 +1,9 @@
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections       #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
@@ -80,7 +78,7 @@ data R a
   | Check (IO a) -- used to pass a value from a previously run test to another test
 
 withPact'
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> LogLevel
     -> IO (PayloadDb cas)
@@ -125,7 +123,7 @@ withPact' version logLevel iopdb iobhdb iodir deepForkLimit r act toTestTree =
 -- of the function needs both the final state and the value.
 initPactService''
     :: Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => ChainwebVersion
     -> ChainId
     -> logger
@@ -136,7 +134,7 @@ initPactService''
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
 initPactService'' ver cid chainwebLogger bhDb pdb sqlenv reorgLimit act = do
-    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger
+    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger testVer
     let !rs = readRewards ver
         !gasModel = tableGasModel defaultGasConfig
         !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))

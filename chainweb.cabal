@@ -1,7 +1,7 @@
 cabal-version: 2.2
 
 name:         chainweb
-version:      1.6
+version:      1.7
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -212,7 +212,6 @@ library
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
-        , Chainweb.TreeDB.Persist
         , Chainweb.TreeDB.RemoteDB
         , Chainweb.TreeDB.Validation
         , Chainweb.Utils
@@ -316,7 +315,7 @@ library
         , cereal >= 0.5
         , chainweb-storage >= 0.1
         , clock >= 0.7
-        , configuration-tools >= 0.4.1
+        , configuration-tools >= 0.5
         , connection >=0.2
         , containers >= 0.5
         , criterion
@@ -351,7 +350,7 @@ library
         , monad-control >= 1.0
         , mtl >= 2.2
         , mwc-random >= 0.13
-        , mwc-probability >= 2.0 && <2.2
+        , mwc-probability >= 2.0 && <2.3
         , neat-interpolation >= 0.3.2
         , network >= 2.6 && < 3.1.1
         , optparse-applicative >= 0.14
@@ -407,7 +406,7 @@ library
         , x509-system >=1.6
         , x509-validation >=1.6
         , yaml >= 0.11
-        , yet-another-logger >= 0.3.1
+        , yet-another-logger >= 0.4
 
         -- this should eventually go into pact
         , prettyprinter < 1.6.1
@@ -464,7 +463,6 @@ test-suite chainweb-tests
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
         Chainweb.Test.TreeDB
-        Chainweb.Test.TreeDB.Persistence
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
 
@@ -656,7 +654,7 @@ executable chainweb-node
         , async >= 2.2
         , base >= 4.12 && < 5
         , chainweb-storage >= 0.1
-        , configuration-tools >= 0.4.1
+        , configuration-tools >= 0.5
         , deepseq >= 1.4
         , directory >= 1.3
         , http-client >= 0.5
@@ -669,7 +667,7 @@ executable chainweb-node
         , text >= 1.2
         , time >= 1.8
         , unordered-containers >= 0.2
-        , yet-another-logger >= 0.3.1
+        , yet-another-logger >= 0.4
 
 executable cwtool
     import: warning-flags, debugging-flags
@@ -678,11 +676,10 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/chain2gexf tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
+    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
     main-is: CwTool.hs
     other-modules:
         Allocations
-        Chain2Gexf
         Chainweb.Test.MultiNode
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
@@ -692,7 +689,6 @@ executable cwtool
         Ea.Genesis
         EncodeDecodeB64Util
         GenConf
-        Gexf
         HeaderDump
         Network.X509.SelfSigned.Test
         RunNodes
@@ -718,7 +714,7 @@ executable cwtool
         , cassava >= 0.5.1
         , chainweb-storage >= 0.1
         , clock >= 0.7
-        , configuration-tools >= 0.4.1
+        , configuration-tools >= 0.5
         , containers >= 0.5
         , cryptonite >= 0.25
         , deepseq >= 1.4
@@ -767,7 +763,7 @@ executable cwtool
         , warp-tls >= 3.2.9
         , xmlgen >= 0.6
         , yaml >= 0.8
-        , yet-another-logger >= 0.3.1
+        , yet-another-logger >= 0.4
 
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1

@@ -63,7 +63,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'BlockHeightTag = 0x0003
     type MerkleTagVal ChainwebHashTag 'BlockWeightTag = 0x0004
     type MerkleTagVal ChainwebHashTag 'BlockPayloadHashTag = 0x0005
-    type MerkleTagVal ChainwebHashTag 'BlockNonceTag = 0x0006
+    type MerkleTagVal ChainwebHashTag 'FeatureFlagsTag = 0x0006
     type MerkleTagVal ChainwebHashTag 'BlockCreationTimeTag = 0x0007
     type MerkleTagVal ChainwebHashTag 'ChainwebVersionTag = 0x0008
     type MerkleTagVal ChainwebHashTag 'PowHashTag = 0x0009
@@ -76,7 +76,7 @@ instance MerkleUniverse ChainwebHashTag where
     type MerkleTagVal ChainwebHashTag 'MinerDataTag = 0x0017
     type MerkleTagVal ChainwebHashTag 'CoinbaseOutputTag = 0x0018
     type MerkleTagVal ChainwebHashTag 'EpochStartTimeTag = 0x0019
-    type MerkleTagVal ChainwebHashTag 'FeatureFlagsTag = 0x0020
+    type MerkleTagVal ChainwebHashTag 'BlockNonceTag = 0x00020
 
 instance IsMerkleLogEntry ChainwebHashTag Void where
     type Tag Void = 'VoidTag

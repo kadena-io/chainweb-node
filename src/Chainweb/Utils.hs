@@ -192,6 +192,11 @@ module Chainweb.Utils
 , showIpv4
 , showIpv6
 , sockAddrJson
+
+-- * Debugging Tools
+, estimateBlockHeight
+, parseUtcTime
+
 ) where
 
 import Configuration.Utils hiding (Error, Lens)
@@ -237,6 +242,7 @@ import Data.Proxy
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import Data.String (IsString(..))
+import Data.Time
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
@@ -1000,7 +1006,7 @@ timeoutStream msecs = go
   where
     go s = lift (timeout msecs (S.next s)) >>= \case
         Nothing -> return Nothing
-        Just (Left r) -> return $! Just r
+        Just (Left r) -> return (Just r)
         Just (Right (a, s')) -> S.yield a >> go s'
 
 -- | Drop successive equal items from a stream.
@@ -1118,7 +1124,7 @@ concurrentWith
     => (forall c . a -> (b -> IO c) -> IO c)
         -- concurrent resource allocation brackets. Given a value of type @a@,
         -- allocates a resource of type @b@, it provides the inner function with
-        -- that value, and retursn the result of the inner computation.
+        -- that value, and returns the result of the inner computation.
     -> (t b -> IO d)
         -- inner computation
     -> t a
@@ -1267,3 +1273,31 @@ instance NFData SockAddr where
     rnf (SockAddrUnix a) = a `seq` ()
     rnf (SockAddrCan a) = a `seq` ()
 #endif
+
+-- -------------------------------------------------------------------------- --
+-- Debugging Tools
+
+-- | Given the current block height and the block rate, returns the estimate
+-- block height for the given date.
+--
+estimateBlockHeight
+    :: Double
+        -- ^ Block rate as blocks per minute
+    -> String
+        -- ^ UTC date string
+    -> Natural
+        -- ^ Current Chain Height
+    -> IO Natural
+estimateBlockHeight rate dateStr curHeight = do
+    dt <- diffUTCTime <$> parseUtcTime dateStr <*> getCurrentTime
+    return $! curHeight + round (rate * realToFrac dt / 60)
+
+-- | Parse UTC Time in the format "%y-%m-%dT%H:%M:%SZ"
+--
+parseUtcTime :: MonadThrow m => String -> m UTCTime
+parseUtcTime d = case parseTimeM False defaultTimeLocale fmt d of
+    Nothing -> throwM $ InternalInvariantViolation
+        $ "parseUtcTime: failed to parse utc date " <> sshow d
+    Just x -> return x
+  where
+    fmt = iso8601DateFormat (Just "%H:%M:%SZ")

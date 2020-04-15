@@ -161,7 +161,6 @@ import Test.Tasty
 
 import Pact.ApiReq (ApiKeyPair(..), mkKeyPairs)
 import Pact.Gas
-import Pact.Parse
 import Pact.Types.Capability
 import qualified Pact.Types.ChainId as P
 import Pact.Types.ChainMeta
@@ -327,7 +326,6 @@ mergeObjects = Object . HM.unions . foldr unwrap []
 -- | Make trivial keyset data
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
-
 
 -- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
 -- signer keys, nonce, gas rate, gas limit, and the transactions
@@ -576,7 +574,7 @@ destroyTestPactCtx :: TestPactCtx cas -> IO ()
 destroyTestPactCtx = void . takeMVar . _testPactCtxState
 
 testPactCtx
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> Version.ChainId
     -> BlockHeaderDb
@@ -609,7 +607,7 @@ testPactCtx v cid bhdb pdb = do
         }
 
 testPactCtxSQLite
-  :: PayloadCas cas
+  :: PayloadCasLookup cas
   => ChainwebVersion
   -> Version.ChainId
   -> BlockHeaderDb
@@ -617,7 +615,7 @@ testPactCtxSQLite
   -> SQLiteEnv
   -> IO (TestPactCtx cas)
 testPactCtxSQLite v cid bhdb pdb sqlenv = do
-    cpe <- initRelationalCheckpointer initBlockState sqlenv logger
+    cpe <- initRelationalCheckpointer initBlockState sqlenv logger v
     let rs = readRewards v
         t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
     ctx <- TestPactCtx
@@ -646,7 +644,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv = do
 -- | A test PactExecutionService for a single chain
 --
 testPactExecutionService
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> Version.ChainId
     -> IO BlockHeaderDb
@@ -674,7 +672,7 @@ testPactExecutionService v cid bhdbIO pdbIO mempoolAccess sqlenv = do
 -- | A test PactExecutionService for a chainweb
 --
 testWebPactExecutionService
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> IO WebBlockHeaderDb
     -> IO (PayloadDb cas)
@@ -683,8 +681,7 @@ testWebPactExecutionService
     -> [SQLiteEnv]
     -> IO WebPactExecutionService
 testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
-    = fmap mkWebPactExecutionService
-    $ fmap HM.fromList
+    = fmap (mkWebPactExecutionService . HM.fromList)
     $ traverse mkPact
     $ zip sqlenvs
     $ toList
@@ -718,7 +715,7 @@ runCut v bdb pact genTime noncer =
 -- It's up to the user to ensure that tests are scheduled in the right order.
 --
 withPactCtx
-    :: PayloadCas cas
+    :: PayloadCasLookup cas
     => ChainwebVersion
     -> IO BlockHeaderDb
     -> IO (PayloadDb cas)
@@ -753,7 +750,7 @@ type WithPactCtxSQLite cas = forall a . (PactDbEnv' -> PactServiceM cas a) -> IO
 
 
 withPactCtxSQLite
-  :: PayloadCas cas
+  :: PayloadCasLookup cas
   => ChainwebVersion
   -> IO BlockHeaderDb
   -> IO (PayloadDb cas)
@@ -778,7 +775,7 @@ withPactCtxSQLite v bhdbIO pdbIO gasModel config f =
         bhdb <- bhdbIO
         pdb <- pdbIO
         (_,s) <- ios
-        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger
+        (dbSt, cpe) <- initRelationalCheckpointer' initBlockState s logger v
         let rs = readRewards v
             t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
             gm = fromMaybe (constGasModel 0) gasModel
@@ -831,8 +828,7 @@ decodeKey :: ByteString -> ByteString
 decodeKey = fst . B16.decode
 
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
-toTxCreationTime (Time timespan) = case timeSpanToSeconds timespan of
-          Seconds s -> TxCreationTime $ ParsedInteger s
+toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
 withPayloadDb :: (IO (PayloadDb HashMapCas) -> TestTree) -> TestTree
 withPayloadDb = withResource newPayloadDb mempty

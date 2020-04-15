@@ -2,9 +2,17 @@ code: |-
   (define-keyset "allocation00" (read-keyset "allocation00"))
   (define-keyset "allocation01" (read-keyset "allocation01"))
   (define-keyset "allocation02" (read-keyset "allocation02"))
+  (define-keyset "allocation-test01" (read-keyset "allocation-test01"))
+  (define-keyset "allocation-test02" (read-keyset "allocation-test02"))
 data:
+  # From keys.yaml
   allocation00: ["d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"]
   allocation01: ["b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"]
   allocation02: ["e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"]
+
+  # Chainweaver test keys generated with the following recovery phrase:
+  # scale able scale able scale able scale able scale able scale able
+  allocation-test01: ["7011c379140ff899f7e613ac0a9784a7c0a515d30fe0ab2b0c07e5aa17635e3e"]
+  allocation-test02: ["06544e22bfef230d6d22f9486ac6cb76bf258ebfbf0137ee58f65743e1a5b8c4"]
 nonce: devnet-keysets
 keyPairs: []

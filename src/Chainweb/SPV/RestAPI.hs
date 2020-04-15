@@ -1,7 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
@@ -50,8 +48,6 @@ import Chainweb.RestAPI.Orphans ()
 import Chainweb.RestAPI.Utils
 import Chainweb.SPV
 import Chainweb.Version
-
-import Data.Singletons
 
 -- -------------------------------------------------------------------------- --
 -- GET Transaction Proof
@@ -103,8 +99,8 @@ spvApi = Proxy
 
 someSpvApi :: ChainwebVersion -> ChainId -> SomeApi
 someSpvApi
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = SomeApi $ spvApi @v @c
 
 someSpvApis :: ChainwebVersion -> [ChainId] -> SomeApi

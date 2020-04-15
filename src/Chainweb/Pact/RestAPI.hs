@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
@@ -53,8 +52,6 @@ import Chainweb.ChainId
 import Chainweb.Pact.Service.Types
 import Chainweb.RestAPI.Utils
 import Chainweb.Version
-
-import Data.Singletons
 
 -- internal pact modules
 
@@ -143,8 +140,8 @@ pactServiceApi = Proxy
 
 somePactServiceApi :: ChainwebVersion -> ChainId -> SomeApi
 somePactServiceApi
-    (FromSing (SChainwebVersion :: Sing v))
-    (FromSing (SChainId :: Sing c))
+    (FromSingChainwebVersion (SChainwebVersion :: Sing v))
+    (FromSingChainId (SChainId :: Sing c))
     = SomeApi $ pactServiceApi @v @c
 
 somePactServiceApis :: ChainwebVersion -> [ChainId] -> SomeApi

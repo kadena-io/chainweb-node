@@ -37,7 +37,6 @@ import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Lens (view)
 import Control.Lens.TH
-import Control.Monad
 import Control.Monad.Error.Class (throwError)
 
 import Data.Bool
@@ -45,6 +44,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import Data.CAS
 import qualified Data.Foldable as HM
+import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
@@ -74,7 +74,6 @@ import Chainweb.HostAddress
 import Chainweb.Logger
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
@@ -267,17 +266,15 @@ instance FromJSON (AmberdataConfig -> AmberdataConfig) where
 -- -------------------------------------------------------------------------- --
 -- Monitor
 
-amberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
+amberdataBlockMonitor :: (PayloadCasLookup cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
 amberdataBlockMonitor cid logger db = do
     logFunctionText logger Info "Initialized Amberdata Block Monitor"
     case cid of
       Nothing -> logFunctionText logger Info "Sending blocks from ALL chains"
       Just cid' -> logFunctionText logger Info ("Sending blocks from chain " <> toText cid')
-    void
-        $ S.mapM_ logBlocks
+    S.mapM_ logBlocks
         $ blockStream db
-        & S.filter (\x -> cid == Just (_chainId x)
-                          || cid == Nothing)
+        & S.filter (\x -> cid == Just (_chainId x) || isNothing cid)
   where
     logBlocks :: BlockHeader -> IO ()
     logBlocks bheader = do
@@ -314,7 +311,7 @@ amberdataBlockMonitor cid logger db = do
         bcid = _blockChainId bheader
         totalChains = length $ chainIds bheader
 
-    payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+    payloadCas = view cutDbPayloadCas db
 
     getBlockPayload :: BlockHeader -> IO PayloadWithOutputs
     getBlockPayload bheader = (casLookupM payloadCas . _blockPayloadHash) bheader
@@ -385,7 +382,7 @@ withAmberDataBlocksBackend mgr conf inner = do
             isTimeout = Nothing <$ (readTVar timer >>= check)
             fill = tryReadTBQueue queue >>= maybe retry (return . Just)
 
-        go 0 !batch _ = return $! (0, batch)
+        go 0 !batch _ = return (0, batch)
         go !remaining !batch !timer = getNextAction timer >>= \case
             Nothing -> return (remaining, batch)
             Just x -> go (remaining - 1) (batch <> indexWithComma x) timer

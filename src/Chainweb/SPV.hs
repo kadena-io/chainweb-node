@@ -1,9 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -103,14 +101,14 @@ parseProof label mkProof = withObject label $ \o -> mkProof
     parseSubject = withObject "ProofSubject" $ \o -> MerkleProofSubject
         <$> ((o .: "tree" >>= parseTreeNode) <|> (o .: "input" >>= parseInputNode))
 
-    parseTreeNode = withText "TreeNode" $ \t -> TreeNode
-        <$> parseBinary decodeMerkleRoot t
+    parseTreeNode = withText "TreeNode"
+        $ fmap TreeNode . parseBinary decodeMerkleRoot
 
-    parseInputNode = withText "InputNode" $ \t -> InputNode
-        <$> parseBinary return t
+    parseInputNode = withText "InputNode"
+        $ fmap InputNode . parseBinary pure
 
-    parseObject = withText "ProofObject" $ \t ->
-        parseBinary decodeMerkleProofObject t
+    parseObject = withText "ProofObject"
+        $ parseBinary decodeMerkleProofObject
 
     assertJSON e a = unless (e == a)
         $ fail $ "expected " <> sshow e <> ", got " <> sshow a
@@ -124,7 +122,7 @@ parseProof label mkProof = withObject label $ \o -> mkProof
 -- | Witness that a transaction is included in the head of a chain in a
 -- chainweb.
 --
-data TransactionProof a = TransactionProof ChainId (MerkleProof a)
+data TransactionProof a = TransactionProof !ChainId !(MerkleProof a)
     deriving (Show, Eq)
 
 instance ToJSON (TransactionProof SHA512t_256) where
@@ -144,7 +142,7 @@ proofChainId = to (\(TransactionProof cid _) -> cid)
 -- | Witness that a transaction output is included in the head of a chain in a
 -- chainweb.
 --
-data TransactionOutputProof a = TransactionOutputProof ChainId (MerkleProof a)
+data TransactionOutputProof a = TransactionOutputProof !ChainId !(MerkleProof a)
     deriving (Show, Eq)
 
 instance ToJSON (TransactionOutputProof SHA512t_256) where

@@ -228,7 +228,7 @@ roundtrip sid0 tid0 burn create step = do
     return (co1,co2)
 
 
-_debugCut :: PayloadCas cas => String -> Cut -> PayloadDb cas -> IO ()
+_debugCut :: PayloadCasLookup cas => String -> Cut -> PayloadDb cas -> IO ()
 _debugCut msg c pdb = do
   putStrLn $ "CUT: =============== " ++ msg
   outs <- cutToPayloadOutputs c pdb
@@ -240,7 +240,7 @@ _debugCut msg c pdb = do
 type CutOutputs = HM.HashMap Chainweb.ChainId (Vector (Command Text, CommandResult Hash))
 
 cutToPayloadOutputs
-  :: PayloadCas cas
+  :: PayloadCasLookup cas
   => Cut
   -> PayloadDb cas
   -> IO CutOutputs
@@ -351,8 +351,7 @@ createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
-                q <- fmap toJSON
-                    $ createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText tid)
                     proof = Just . ContProof . B64U.encode . toStrict . Aeson.encode . toJSON $ q
@@ -375,8 +374,7 @@ createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
         | otherwise = readIORef ref >>= \case
             True -> return mempty
             False -> do
-                q <- fmap toJSON
-                    $ createTransactionOutputProof_ wdb pdb tid sid bhe 0
+                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText sid)
                     proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
@@ -422,8 +420,7 @@ createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             True -> return mempty
             False -> do
                 tid' <- chainIdFromText "2"
-                q <- fmap toJSON
-                    $ createTransactionOutputProof_ wdb pdb tid' sid bhe 0
+                q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid' sid bhe 0
 
                 let pcid = Pact.ChainId (chainIdToText sid)
                     proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q

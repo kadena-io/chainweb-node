@@ -118,7 +118,7 @@ module Chainweb.Chainweb
 , defaultCutConfig
 ) where
 
-import Configuration.Utils hiding (Error, Lens', disabled, (<.>))
+import Configuration.Utils hiding (Error, Lens', disabled)
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
@@ -129,6 +129,7 @@ import Control.Monad
 import Control.Monad.Catch (throwM)
 
 import Data.Align (alignWith)
+import Data.Bifunctor (second)
 import Data.CAS (casLookupM)
 import Data.Foldable
 import Data.Function (on)
@@ -476,7 +477,7 @@ withChainweb
     -> RocksDb
     -> Maybe FilePath
     -> Bool
-    -> (Chainweb logger RocksDbCas -> IO a)
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainweb c logger rocksDb dbDir resetDb inner =
     withPeerResources v (view configP2p conf) logger $ \logger' peer ->
@@ -572,7 +573,7 @@ withChainwebInternal
     -> Maybe FilePath
     -> Maybe NodeId
     -> Bool
-    -> (Chainweb logger RocksDbCas -> IO a)
+    -> (forall cas' . PayloadCasLookup cas' => Chainweb logger cas' -> IO a)
     -> IO a
 withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
     initializePayloadDb v payloadDb
@@ -664,7 +665,7 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebHeaderStream = HeaderStream $ _configHeaderStream conf
                             , _chainwebLogger = logger
                             , _chainwebPeer = peer
-                            , _chainwebPayloadDb = payloadDb
+                            , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
                             , _chainwebManager = mgr
                             , _chainwebPactData = pactData
                             , _chainwebThrottler = throttler
@@ -775,7 +776,7 @@ mkThrottler e rate c = initThrottler (defaultThrottleSettings $ TimeSpec (ceilin
 runChainweb
     :: forall logger cas
     . Logger logger
-    => PayloadCas cas
+    => PayloadCasLookup cas
     => Chainweb logger cas
     -> IO ()
 runChainweb cw = do
@@ -813,7 +814,7 @@ runChainweb cw = do
 
     -- collect server resources
     proj :: forall a . (ChainResources logger -> a) -> [(ChainId, a)]
-    proj f = flip map chains $ \(k, ch) -> (k, f ch)
+    proj f = map (second f) chains
 
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb

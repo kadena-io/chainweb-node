@@ -66,8 +66,6 @@ import GHC.Stats
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as HTTPS
 
-import Numeric.Natural
-
 import qualified Streaming.Prelude as S
 
 import System.Directory
@@ -93,14 +91,11 @@ import Chainweb.Miner.Coordinator (MiningStats)
 import Chainweb.Pact.RestAPI.Server (PactCmdLog(..))
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
-import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Utils
 import Chainweb.Utils.RequestLog
 import Chainweb.Version
 
 import Data.LogMessage
-import Data.PQueue
-import qualified Data.TaskMap as TM
 
 import P2P.Node
 
@@ -222,7 +217,7 @@ instance ToJSON BlockUpdate where
     {-# INLINE toEncoding #-}
     {-# INLINE toJSON #-}
 
-runBlockUpdateMonitor :: PayloadCas cas => Logger logger => logger -> CutDb cas -> IO ()
+runBlockUpdateMonitor :: PayloadCasLookup cas => Logger logger => logger -> CutDb cas -> IO ()
 runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-monitor") logger $ \l ->
     runMonitorLoop "ChainwebNode.runBlockUpdateMonitor" l $ do
         logFunctionText l Info $ "Initialized tx counter"
@@ -230,7 +225,7 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
             & S.mapM toUpdate
             & S.mapM_ (logFunctionJson l Info)
   where
-    payloadCas = _webBlockPayloadStoreCas $ view cutDbPayloadStore db
+    payloadCas = view cutDbPayloadCas db
 
     txCount :: BlockHeader -> IO Int
     txCount bh = do
@@ -247,7 +242,7 @@ runBlockUpdateMonitor logger db = L.withLoggerLabel ("component", "block-update-
         <*> pure True -- _blockUpdateOrphaned
         <*> ((0 -) <$> txCount bh) -- _blockUpdateTxCount
 
-runAmberdataBlockMonitor :: (PayloadCas cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
+runAmberdataBlockMonitor :: (PayloadCasLookup cas, Logger logger) => Maybe ChainId -> logger -> CutDb cas -> IO ()
 runAmberdataBlockMonitor cid logger db
     = L.withLoggerLabel ("component", "amberdata-block-monitor") logger $ \l ->
         runMonitorLoop "Chainweb.Logging.amberdataBlockMonitor" l (amberdataBlockMonitor cid l db)
@@ -273,21 +268,10 @@ runRtsMonitor logger = L.withLoggerLabel ("component", "rts-monitor") logger go
         True -> do
             logFunctionText l Info $ "Initialized RTS Monitor"
             runMonitorLoop "Chainweb.Node.runRtsMonitor" l $ do
+                logFunctionText l Debug $ "logging RTS stats"
                 stats <- getRTSStats
-                logFunctionText l Info $ "got stats"
                 logFunctionJson logger Info stats
-                logFunctionText l Info $ "logged stats"
                 approximateThreadDelay 60_000_000 {- 1 minute -}
-
-data QueueStats = QueueStats
-    { _queueStatsCutQueueSize :: !Natural
-    , _queueStatsBlockHeaderQueueSize :: !Natural
-    , _queueStatsBlockHeaderTaskMapSize :: !Natural
-    , _queueStatsPayloadQueueSize :: !Natural
-    , _queueStatsPayloadTaskMapSize :: !Natural
-    }
-    deriving (Show, Eq, Ord, Generic)
-    deriving anyclass (NFData, ToJSON)
 
 runQueueMonitor :: Logger logger => logger -> CutDb cas -> IO ()
 runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") logger go
@@ -295,19 +279,10 @@ runQueueMonitor logger cutDb = L.withLoggerLabel ("component", "queue-monitor") 
     go l = do
         logFunctionText l Info $ "Initialized Queue Monitor"
         runMonitorLoop "ChainwebNode.runQueueMonitor" l $ do
-            stats <- QueueStats
-                <$> cutDbQueueSize cutDb
-                <*> pQueueSize (_webBlockHeaderStoreQueue $ view cutDbWebBlockHeaderStore cutDb)
-                <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore cutDb))
-                <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore cutDb)
-                <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore cutDb))
-
-            logFunctionText l Info $ "got stats"
+            logFunctionText l Debug $ "logging cut queue stats"
+            stats <- getQueueStats cutDb
             logFunctionJson logger Info stats
-            logFunctionText l Info $ "logged stats"
             approximateThreadDelay 60_000_000 {- 1 minute -}
-
-
 
 -- -------------------------------------------------------------------------- --
 -- Run Node
@@ -452,17 +427,16 @@ withKillSwitch lf (Just t) inner = race timer inner >>= \case
     Left () -> error "Kill switch thread terminated unexpectedly"
     Right a -> return a
   where
-    timer = do
-        runForever lf "KillSwitch" $ do
-            now <- getCurrentTime
-            when (now >= t) $ do
-                lf Error killMessage
-                throw $ KillSwitch killMessage
+    timer = runForever lf "KillSwitch" $ do
+        now <- getCurrentTime
+        when (now >= t) $ do
+            lf Error killMessage
+            throw $ KillSwitch killMessage
 
-            let w = diffUTCTime t now
-            let micros = round $ w * 1000000
-            lf Warn warning
-            threadDelay $ min (10 * 60 * 1000000) micros
+        let w = diffUTCTime t now
+        let micros = round $ w * 1_000_000
+        lf Warn warning
+        threadDelay $ min (10 * 60 * 1_000_000) micros
 
     warning :: T.Text
     warning = T.concat
@@ -492,10 +466,10 @@ pkgInfoScopes =
 -- -------------------------------------------------------------------------- --
 -- main
 
--- KILLSWITCH for version 1.5
+-- KILLSWITCH for version 1.7
 --
 killSwitchDate :: Maybe String
-killSwitchDate = Just "2020-04-02T00:00:00Z"
+killSwitchDate = Just "2020-04-30T00:00:00Z"
 
 mainInfo :: ProgramInfo ChainwebNodeConfiguration
 mainInfo = programInfoValidate

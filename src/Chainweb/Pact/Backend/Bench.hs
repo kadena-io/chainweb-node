@@ -37,11 +37,16 @@ import qualified Pact.Types.SQLite as PSQL
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
+import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Utils.Bench
+import Chainweb.Version
+
+v :: ChainwebVersion
+v = FastTimedCPM petersonChainGraph
 
 bench :: C.Benchmark
 bench = C.bgroup "pact-backend" $
@@ -104,7 +109,7 @@ cpWithBench torun =
         !sqliteEnv <- openSQLiteConnection f chainwebPragmas
         let nolog = newLogger neverLog ""
         !cenv <-
-          initRelationalCheckpointer initBlockState sqliteEnv nolog
+          initRelationalCheckpointer initBlockState sqliteEnv nolog v
         return $ NoopNFData (sqliteEnv, cenv, deleter)
 
     teardown (NoopNFData (sqliteEnv, _cenv, deleter)) = do
