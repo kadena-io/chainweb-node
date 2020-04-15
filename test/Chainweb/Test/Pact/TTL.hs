@@ -33,7 +33,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
-import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
+import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
@@ -337,7 +337,8 @@ doValidateBlock ctxIO header payload = do
     ctx <- ctxIO
     _mv' <- validateBlock header (payloadWithOutputsToPayloadData payload) $ _ctxQueue ctx
     addNewPayload (_ctxPdb ctx) payload
-    insertBlockHeaderDb (_ctxBdb ctx) [header]
+    unsafeInsertBlockHeaderDb (_ctxBdb ctx) header
+    -- FIXME FIXME FIXME: do at least some checks?
 
 -- -------------------------------------------------------------------------- --
 -- Misc Utils

@@ -13,6 +13,7 @@ module Chainweb.Test.BlockHeaderDB
 ( tests
 ) where
 
+import Data.Foldable
 import Data.Semigroup (Min(..))
 
 import qualified Streaming.Prelude as S
@@ -45,7 +46,7 @@ tests rdb = testGroup "Unit Tests"
       [ testCase "height" $ correctHeight rdb
       ]
     , treeDbInvariants
-        (\x f -> withTestBlockHeaderDb rdb x (\db -> f db insertBlockHeaderDb))
+        (\x f -> withTestBlockHeaderDb rdb x (\db -> f db (traverse_ . unsafeInsertBlockHeaderDb)))
         Parallel
     ]
 
