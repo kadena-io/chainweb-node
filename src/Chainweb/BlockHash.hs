@@ -73,7 +73,7 @@ import Data.Serialize (Serialize(..))
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
-import GHC.Generics
+import GHC.Generics hiding (to)
 
 import Numeric.Natural
 

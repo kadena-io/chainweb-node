@@ -41,7 +41,6 @@ module Chainweb.Sync.WebBlockHeaderStore
 ) where
 
 import Control.Concurrent.Async
-import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -67,6 +66,7 @@ import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.ChainValue
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.RestAPI.Client
@@ -88,30 +88,6 @@ import P2P.Peer
 import P2P.TaskQueue
 
 import Utils.Logging.Trace
-
--- -------------------------------------------------------------------------- --
--- Tag Values With a ChainId
-
-data ChainValue a = ChainValue !ChainId !a
-    deriving (Show, Eq, Ord, Generic)
-    deriving (Functor, Foldable, Traversable)
-    deriving anyclass (NFData, Hashable)
-
-instance TraversableWithIndex ChainId ChainValue where
-  itraverse f (ChainValue cid v) = ChainValue cid <$> f cid v
-  {-# INLINE itraverse #-}
-
-instance FoldableWithIndex ChainId ChainValue
-instance FunctorWithIndex ChainId ChainValue
-
-instance IsCasValue a => IsCasValue (ChainValue a) where
-    type CasKeyType (ChainValue a) = ChainValue (CasKeyType a)
-    casKey (ChainValue cid a) = ChainValue cid (casKey a)
-    {-# INLINE casKey #-}
-
-instance HasChainId (ChainValue a) where
-    _chainId (ChainValue cid _) = cid
-    {-# INLINE _chainId #-}
 
 -- -------------------------------------------------------------------------- --
 -- Append Only CAS for WebBlockHeaderDb
@@ -195,10 +171,6 @@ memoInsert cas m k a = casLookup cas k >>= \case
         casInsert cas v
         return v
     (Just !x) -> return x
-
-chainValue :: HasChainId v => v -> ChainValue v
-chainValue v = ChainValue (_chainId v) v
-{-# INLINE chainValue #-}
 
 -- | Query a payload either from the local store, or the origin, or P2P network.
 --
@@ -354,8 +326,9 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
             --
             queryParent p = Concurrently $ void $ do
                 logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h <> ": " <> sshow p
-                ChainValue _ ph <- getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
-                validateInductiveM (ParentHeader ph) header
+                void $ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
+                chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
+                validateInductiveChainM (casLookup chainDb) header
 
         p <- runConcurrently
             -- query payload
@@ -573,3 +546,4 @@ instance IsCas WebBlockHeaderCas where
     -- instance is available only locally.
     --
     -- The instance requires that memoCache doesn't delete from the cas.
+

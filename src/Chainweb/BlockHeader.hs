@@ -347,7 +347,7 @@ newtype ParentCreationTime = ParentCreationTime
 
 newtype ParentHeader = ParentHeader
     { _parentHeader :: BlockHeader }
-    deriving (Show, Generic)
+    deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
 

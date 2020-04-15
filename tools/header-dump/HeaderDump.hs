@@ -69,9 +69,9 @@ import qualified Data.ByteString.Lazy as BL
 import Data.CAS
 import Data.CAS.RocksDB
 import qualified Data.CaseInsensitive as CI
+import Data.Foldable
 import Data.Functor.Of
 import qualified Data.HashSet as HS
-import qualified Data.List as L
 import Data.LogMessage
 import Data.Maybe
 import Data.Semigroup hiding (option)
@@ -95,10 +95,12 @@ import System.LogLevel
 
 -- internal modules
 
+import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.BlockHeaderDB
+import Chainweb.ChainValue
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Payload
@@ -282,6 +284,8 @@ validateConfig :: ConfigValidation Config []
 validateConfig o = do
     checkIfValidChain (_configChainId o)
     mapM_ (validateDirectory "database") (_configDatabasePath o)
+    when (_configValidate o && isJust (_configChainId o))
+        $ throwError $ "validation (--validate) can only be used if no particular chain is selected"
   where
     chains = chainIds $ _configChainwebVersion o
 
@@ -452,6 +456,7 @@ run config logger = withBlockHeaders logger config $ \pdb x -> x
         | _configPretty config = T.decodeUtf8 . BL.toStrict . encodePretty
         | otherwise = encodeToText
 
+-- | TODO include braiding validation
 validate :: S.Stream (Of BlockHeader) IO () -> S.Stream (Of BlockHeader) IO ()
 validate s = do
     now <- liftIO getCurrentTimeIntegral
@@ -492,27 +497,22 @@ validate s = do
             <> "\nheight: " <> sshow h
             <> "\nparents: " <> sshow parents
 
+    lookupHdr
+        :: Applicative m
+        => [BlockHeader]
+        -> ChainValue BlockHash
+        -> m (Maybe BlockHeader)
+    lookupHdr hdrs h = pure $ find ((== _chainValueValue h) . _blockHash) hdrs
+
     val
         :: Time Micros
         -> (BlockHeight, [BlockHeader], [BlockHeader], Bool)
         -> BlockHeader
         -> IO ()
     val now (_, parents, _, isInitial) c
-        | isGenesisBlockHeader c = validateBlockHeaderM now (ParentHeader c) c
-        | otherwise =
-            case L.find (\x -> _blockParent c == _blockHash x) parents of
-                Nothing
-
-                    -- at the initial block height it's expected that parents are missing
-                    | isInitial -> validateIntrinsicM now c
-
-                    -- later on a missing parent is an violation of the block header db
-                    -- invariant.
-                    | otherwise -> error
-                        $ "missing parent header for block: " <> sshow c
-                        <> "\ncurrent parents: " <> sshow parents
-
-                Just p -> validateBlockHeaderM now (ParentHeader p) c
+        | isGenesisBlockHeader c = void $ validateBlockHeaderM now (lookupHdr parents) c
+        | isInitial = validateIntrinsicM now c
+        | otherwise = void $ validateBlockHeaderM now (lookupHdr parents) c
 
 -- -------------------------------------------------------------------------- --
 -- Tools

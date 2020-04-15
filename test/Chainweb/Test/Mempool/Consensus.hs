@@ -37,7 +37,7 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
+import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog hiding (header)
@@ -224,7 +224,7 @@ genTree
 genTree db mapRef h allTxs = do
     (takenNow, theRest) <- takeTrans allTxs
     next <- header' h
-    liftIO $ insertBlockHeaderDb db [next]
+    liftIO $ unsafeInsertBlockHeaderDb db next
     listOfOne <- preForkTrunk db mapRef next theRest
     newNode mapRef
             BlockTrans { btBlockHeader = h, btTransactions = takenNow }
@@ -256,7 +256,7 @@ preForkTrunk
     -> PropertyM IO (Forest BlockTrans)
 preForkTrunk db mapRef h avail = do
     next <- header' h
-    liftIO $ insertBlockHeaderDb db [next]
+    liftIO $ unsafeInsertBlockHeaderDb db next
     (takenNow, theRest) <- takeTrans avail
     children <- frequencyM
         [(1, fork db mapRef next theRest), (3, preForkTrunk db mapRef next theRest)]
@@ -284,9 +284,9 @@ fork
     -> PropertyM IO (Forest BlockTrans)
 fork db mapRef h avail = do
     nextLeft <- header' h
-    liftIO $ insertBlockHeaderDb db [nextLeft]
+    liftIO $ unsafeInsertBlockHeaderDb db nextLeft
     nextRight <- header' h
-    liftIO $ insertBlockHeaderDb db [nextRight]
+    liftIO $ unsafeInsertBlockHeaderDb db nextRight
     (takenNow, theRest) <- takeTrans avail
 
     (lenL, lenR) <- genForkLengths
@@ -319,7 +319,7 @@ postForkTrunk db mapRef h avail count = do
     children <-
         if count == 0 then return []
         else do
-            liftIO $ insertBlockHeaderDb db [next]
+            liftIO $ unsafeInsertBlockHeaderDb db next
             postForkTrunk db mapRef next theRest (count - 1)
     theNewNode <- newNode mapRef
                           BlockTrans {btBlockHeader = h, btTransactions = takenNow}

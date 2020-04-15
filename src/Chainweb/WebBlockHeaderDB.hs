@@ -25,18 +25,27 @@ module Chainweb.WebBlockHeaderDB
 , lookupAdjacentParentHeader
 , lookupParentHeader
 , insertWebBlockHeaderDb
+, insertWebBlockHeaderDbValidated
+, insertWebBlockHeaderDbMany
+, insertWebBlockHeaderDbManyValidated
 , blockAdjacentParentHeaders
 , checkBlockHeaderGraph
 , checkBlockAdjacentParents
 ) where
 
+import Chainweb.Time
+
+import Control.Arrow
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
 
+import Data.CAS
+import Data.Foldable
 import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import qualified Data.List as L
 
 import qualified Streaming.Prelude as S
 
@@ -46,9 +55,11 @@ import Chainweb.BlockHeight
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.ChainId
+import Chainweb.ChainValue
 import Chainweb.Graph
 import Chainweb.TreeDB
 import Chainweb.Utils
@@ -101,6 +112,13 @@ type instance IxValue WebBlockHeaderDb = BlockHeaderDb
 instance IxedGet WebBlockHeaderDb where
     ixg i = webBlockHeaderDb . ix i
     {-# INLINE ixg #-}
+
+instance HasCasLookup WebBlockHeaderDb where
+    type CasValueType WebBlockHeaderDb = ChainValue BlockHeader
+    casLookup db k = case preview (ixg (_chainId k)) db of
+        Nothing -> return Nothing
+        Just cdb -> sequence <$> traverse (casLookup cdb) k
+    {-# INLINE casLookup #-}
 
 initWebBlockHeaderDb
     :: RocksDb
@@ -167,14 +185,52 @@ lookupParentHeader db h = do
     checkWebChainId (db, _blockHeight h) h
     lookupWebBlockHeaderDb db (_chainId h) (_blockParent h)
 
+-- -------------------------------------------------------------------------- --
+-- Insertion
+
+-- TODO create monotonic IsCas that doesn't support deletion
+
+insertWebBlockHeaderDbValidated
+    :: WebBlockHeaderDb
+    -> ValidatedHeader
+    -> IO ()
+insertWebBlockHeaderDbValidated wdb h = do
+    db <- getWebBlockHeaderDb wdb h
+    insertBlockHeaderDb db h
+
 insertWebBlockHeaderDb
     :: WebBlockHeaderDb
     -> BlockHeader
     -> IO ()
 insertWebBlockHeaderDb wdb h = do
-    db <- getWebBlockHeaderDb wdb h
-    checkBlockAdjacentParents wdb h
-    insertBlockHeaderDb db [h]
+    t <- getCurrentTimeIntegral
+    valHdr <- validateBlockHeaderM t (chainLookup wdb) h
+    insertWebBlockHeaderDbValidated wdb valHdr
+
+insertWebBlockHeaderDbManyValidated
+    :: WebBlockHeaderDb
+    -> ValidatedHeaders
+    -> IO ()
+insertWebBlockHeaderDbManyValidated wdb hdrs = do
+    mapM_ insertOnChain
+        $ L.sortOn rank
+        $ toList
+        $ _validatedHeaders hdrs
+  where
+    insertOnChain h = do
+        db <- getWebBlockHeaderDb wdb h
+        unsafeInsertBlockHeaderDb db h
+
+insertWebBlockHeaderDbMany
+    :: Foldable f
+    => WebBlockHeaderDb
+    -> f BlockHeader
+    -> IO ()
+insertWebBlockHeaderDbMany db es = do
+    t <- getCurrentTimeIntegral
+    valHdrs <- validateBlockHeadersM t (chainLookup db)
+        $ HM.fromList $ (key &&& id) <$!> toList es
+    insertWebBlockHeaderDbManyValidated db valHdrs
 
 -- -------------------------------------------------------------------------- --
 -- Checks and Properties
@@ -193,6 +249,7 @@ checkBlockHeaderGraph
     -> m ()
 checkBlockHeaderGraph b = void
     $ checkAdjacentChainIds b b $ Expected $ _blockAdjacentChainIds b
+{-# INLINE checkBlockHeaderGraph #-}
 
 -- | Given a 'WebBlockHeaderDb' @db@, @checkBlockAdjacentParents h@ checks that
 -- all referenced adjacent parents block headers exist in @db@.
@@ -202,3 +259,5 @@ checkBlockAdjacentParents
     -> BlockHeader
     -> IO ()
 checkBlockAdjacentParents db = void . blockAdjacentParentHeaders db
+{-# INLINE checkBlockAdjacentParents #-}
+
