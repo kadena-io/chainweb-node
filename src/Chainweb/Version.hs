@@ -760,7 +760,7 @@ skipFeatureFlagValidationGuard
     -> BlockHeight
         -- ^ height of header
     -> Bool
-skipFeatureFlagValidationGuard Mainnet01 _ = True
+skipFeatureFlagValidationGuard Mainnet01 _ = False
 skipFeatureFlagValidationGuard Development _ = True
 skipFeatureFlagValidationGuard Testnet04 _ = False
 skipFeatureFlagValidationGuard _ _ = False
