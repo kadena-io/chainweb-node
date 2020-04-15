@@ -43,7 +43,7 @@ import Text.Read (readEither)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
-import Chainweb.BlockHeaderDB.Internal (insertBlockHeaderDb)
+import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Graph
 import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
@@ -200,7 +200,7 @@ simpleClientSession envIO cid =
 
         void $ liftIO $ step "put 3 new blocks"
         let newHeaders = take 3 $ testBlockHeaders (ParentHeader gbh0)
-        liftIO $ insertBlockHeaderDb db newHeaders
+        liftIO $ traverse_ (unsafeInsertBlockHeaderDb db) newHeaders
 
         void $ liftIO $ step "headersClient: get all 4 block headers"
         bhs2 <- headersClient version cid Nothing Nothing Nothing Nothing
@@ -308,7 +308,7 @@ simpleClientSession envIO cid =
 
         void $ liftIO $ step "headerPutClient: put 3 new blocks on a new fork"
         let newHeaders2 = take 3 $ testBlockHeadersWithNonce (Nonce 17) (ParentHeader gbh0)
-        liftIO $ insertBlockHeaderDb db newHeaders2
+        liftIO $ traverse_ (unsafeInsertBlockHeaderDb db) newHeaders2
 
         let lower = last newHeaders
         forM_ ([1..] `zip` newHeaders2) $ \(i, h) -> do

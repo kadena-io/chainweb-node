@@ -37,7 +37,9 @@ module Chainweb.BlockHeaderDB.Internal
 
 -- * Insertion
 , insertBlockHeaderDb
+, unsafeInsertBlockHeaderDb
 
+-- * Misc
 , seekTreeDb
 ) where
 
@@ -53,8 +55,6 @@ import Data.Bytes.Get
 import Data.Bytes.Put
 import Data.Function
 import Data.Hashable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as L
 import Data.Maybe
 import qualified Data.Text.Encoding as T
 
@@ -69,10 +69,10 @@ import qualified Streaming.Prelude as S
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
+import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.TreeDB
-import Chainweb.TreeDB.Validation
 import Chainweb.Utils hiding (Codec)
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -399,14 +399,11 @@ seekTreeDb db k mir = do
 -- -------------------------------------------------------------------------- --
 -- Insertions
 
-insertBlockHeaderDb :: BlockHeaderDb -> [BlockHeader] -> IO ()
-insertBlockHeaderDb db es = do
+insertBlockHeaderDb :: BlockHeaderDb -> ValidatedHeader -> IO ()
+insertBlockHeaderDb db = dbAddChecked db . _validatedHeader
+{-# INLINE insertBlockHeaderDb #-}
 
-    -- Validate set of additions
-    validateAdditionsDbM db $ HM.fromList $ (key &&& id) <$!> es
-
-    -- add set of additions to database
-    mapM_ (dbAddChecked db) rankedAdditions
-  where
-    rankedAdditions = L.sortOn rank es
+unsafeInsertBlockHeaderDb :: BlockHeaderDb -> BlockHeader -> IO ()
+unsafeInsertBlockHeaderDb db = dbAddChecked db
+{-# INLINE unsafeInsertBlockHeaderDb #-}
 
