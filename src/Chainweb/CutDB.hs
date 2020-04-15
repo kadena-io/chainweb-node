@@ -25,8 +25,6 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
 module Chainweb.CutDB
 (
 -- * CutConfig
@@ -496,8 +494,6 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
-
-    -- TODO base this of the mean block height of the current cut height
     threshold :: Cut -> Int
     threshold c = int $ 2 * diameter graph * order graph
       where

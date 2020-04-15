@@ -97,6 +97,7 @@ import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
@@ -270,7 +271,7 @@ limitCut wdb h c
         return $ set cutHeaders (HM.mapMaybe id hdrs) c
   where
     ch :: BlockHeight
-    ch = chainHeightAtCutHeight wdb h
+    ch = chainHeightAtCutHeight (_chainwebVersion wdb) h
 
     go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
     go cid bh = do
@@ -279,20 +280,24 @@ limitCut wdb h c
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
 
-        -- TODO ^ this comment isn't true any more. Instead ignore chains
-        -- that don't give a result for the requested hight.
+chainHeightAtCutHeight :: ChainwebVersion -> BlockHeight -> BlockHeight
+chainHeightAtCutHeight v ch = bh + (ch - a) * int (order g)
+  where
+    ((a, g), (bh, _)) = NE.head
+        $ NE.zip (chainGraphsAtCutHeight v ch) (chainwebGraphs v)
 
--- TODO for chain expansion
---
-chainHeightAtCutHeight :: HasChainwebVersion v => v -> BlockHeight -> BlockHeight
-chainHeightAtCutHeight = error "Chainweb.Cut.chainHeightAtCutHeight: not yet implemented"
--- chainHeightAtCutHeight v ch = ch
---   where
---     gorder :: Natural
---     gorder = order $ _chainGraph wdb
---
---     ch :: BlockHeight
---     ch = h `div` int gorder
+chainGraphsByCutHeight :: ChainwebVersion -> NE.NonEmpty (BlockHeight, ChainGraph)
+chainGraphsByCutHeight = NE.scanr1 (\(h',g') (!h,!g) -> (h + h' * int (order g), g')) . chainwebGraphs
+{-# INLINE chainGraphsByCutHeight #-}
+
+chainGraphsAtCutHeight
+    :: ChainwebVersion
+    -> BlockHeight
+    -> NE.NonEmpty (BlockHeight, ChainGraph)
+chainGraphsAtCutHeight v h = NE.fromList
+    $ NE.dropWhile ((> h) . fst)
+    $ chainGraphsByCutHeight v
+{-# INLINE chainGraphsAtCutHeight #-}
 
 limitCutHeaders
     :: HasCallStack

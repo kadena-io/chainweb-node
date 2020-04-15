@@ -105,15 +105,15 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
 --
-genesisTime :: ChainwebVersion -> BlockCreationTime
-genesisTime Test{} = BlockCreationTime epoch
-genesisTime TimedConsensus{} = BlockCreationTime epoch
-genesisTime PowConsensus{} = BlockCreationTime epoch
-genesisTime TimedCPM{} = BlockCreationTime epoch
-genesisTime FastTimedCPM{} = BlockCreationTime epoch
-genesisTime Development = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-genesisTime Testnet04 = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-genesisTime Mainnet01 = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
+genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
+genesisTime Test{} _ = BlockCreationTime epoch
+genesisTime TimedConsensus{} _ = BlockCreationTime epoch
+genesisTime PowConsensus{} _ = BlockCreationTime epoch
+genesisTime TimedCPM{} _ = BlockCreationTime epoch
+genesisTime FastTimedCPM{} _ = BlockCreationTime epoch
+genesisTime Testnet04 _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+genesisTime Mainnet01 _ = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
+genesisTime Development _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -192,7 +192,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
-        :+: BlockHeight 0
+        :+: genesisHeight v cid
         :+: v
         :+: EpochStartTime t
         :+: n
