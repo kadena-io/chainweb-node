@@ -233,7 +233,7 @@ jobs:
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
-      ARTIFACT_FOLDER: chainweb
+      ARTIFACT_FOLDER: chainweb-node
 
     steps:
     # Setup
