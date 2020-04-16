@@ -166,9 +166,8 @@ genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
 -- We assume that there is always only a single 'ChainwebVersion' in
 -- scope and identify chains only by their internal 'ChainId'.
 --
---
 genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
-genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v) (Nonce 0)
+genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v (_chainId p)) (Nonce 0)
 
 -- | Like `genesisBlockHeader`, but with slightly more control.
 --
