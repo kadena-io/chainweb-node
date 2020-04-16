@@ -233,7 +233,7 @@ jobs:
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
-      ARTIFACT_FOLDER: chainweb
+      ARTIFACT_FOLDER: chainweb-node
 
     steps:
     # Setup
@@ -296,19 +296,9 @@ jobs:
         cat >> cabal.project <<EOF
         package chainweb
           ghc-options: -Wwarn
-        allow-newer:
-          *:base
-          *:template-haskell
-          *:lens
-          *:haskeline
-          *:Cabal
-          *:ghc-prim
-          thyme:*
-        source-repository-package
-          type: git
-          location: https://github.com/well-typed/optics
-          tag: bf630a5371e0af0897be0d704f0d68d2f18fe5f5
-          subdir: optics-core
+        package cassava
+          flags: -bytestring--lt-0_10_4
+        allow-newer: *
     - uses: actions/cache@v1
       name: Cache dist-newstyle
       with:
