@@ -205,7 +205,8 @@ validationFailures =
       , [IncorrectHash, IncorrectPow]
       )
     , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGet decodeFeatureFlags badFlags)
-      , [IncorrectHash, IncorrectPow]
+            & testHeaderHdr . blockHeight .~ 550000
+      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags, IncorrectHeight]
       )
     , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
       , [IncorrectHash, IncorrectPow]
