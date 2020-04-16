@@ -760,7 +760,7 @@ skipFeatureFlagValidationGuard
     -> BlockHeight
         -- ^ height of header
     -> Bool
-skipFeatureFlagValidationGuard Mainnet01 _ = False
+skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:xxZ
 skipFeatureFlagValidationGuard Development _ = True
 skipFeatureFlagValidationGuard Testnet04 _ = False
 skipFeatureFlagValidationGuard _ _ = False

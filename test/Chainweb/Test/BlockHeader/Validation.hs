@@ -157,58 +157,58 @@ prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
 validationFailures :: [(TestHeader, [ValidationFailureType])]
 validationFailures =
     [ ( hdr & testHeaderHdr . blockCreationTime .~ BlockCreationTime (Time maxBound)
-      , [IncorrectHash, IncorrectPow, BlockInTheFuture, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, BlockInTheFuture]
       )
     , ( hdr & testHeaderHdr . blockCreationTime %~ add second
-      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow]
       )
     , ( hdr & testHeaderHdr . blockHash .~ nullBlockHash
-      , [IncorrectHash, InvalidFeatureFlags]
+      , [IncorrectHash]
       )
     , ( hdr & testHeaderHdr . blockHash %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
-      , [IncorrectHash, InvalidFeatureFlags]
+      , [IncorrectHash]
       )
     , ( hdr & testHeaderHdr . blockTarget %~ messWords encodeHashTarget decodeHashTarget (flip complementBit 0)
-      , [IncorrectHash, IncorrectPow, IncorrectTarget, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, IncorrectTarget]
       )
     , ( hdr & testHeaderHdr . blockParent %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
       , [MissingParent]
       )
     , ( hdr & testHeaderHdr . blockPayloadHash %~ messWords encodeBlockPayloadHash decodeBlockPayloadHash (flip complementBit 0)
-      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow]
       )
     , ( hdr & testHeaderHdr . blockEpochStart %~ add second
-      , [IncorrectHash, IncorrectPow, IncorrectEpoch, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, IncorrectEpoch]
       )
     , ( hdr & testHeaderHdr . blockChainId .~ unsafeChainId 1
-      , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
       , [IncorrectHash, IncorrectPow, VersionMismatch]
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
-      , [IncorrectHash, IncorrectPow, IncorrectWeight, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, IncorrectWeight]
       )
     , ( hdr & testHeaderHdr . blockWeight %~ (+ 1)
-      , [IncorrectHash, IncorrectPow, IncorrectWeight, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, IncorrectWeight]
       )
     , ( hdr & testHeaderHdr . blockHeight .~ 10
-      , [IncorrectHash, IncorrectPow, IncorrectHeight, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, IncorrectHeight]
       )
     , ( hdr & testHeaderHdr . blockHeight %~ (+ 1)
-      , [IncorrectHash, IncorrectPow, IncorrectHeight, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, IncorrectHeight]
       )
     , ( hdr & testHeaderHdr . blockNonce .~ Nonce 0
-      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow]
       )
     , ( hdr & testHeaderHdr . blockNonce %~ Nonce . (+1) . encodeNonceToWord64
-      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow]
       )
     , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGet decodeFeatureFlags badFlags)
-      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow]
       )
     , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
-      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow]
       )
     ]
   where
@@ -242,6 +242,15 @@ validationFailures =
 mainnet01Headers :: [TestHeader]
 mainnet01Headers = genesisTestHeaders Mainnet01 <>
     [ testHeader
+        [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
+        , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
+        , "adjacents" .=
+            [ t "ACcMAPA_ii9z0Ez7v54FAEHCgNqctC-bdWdbvN92fd1eTeIaCr_-_mXowv0Ckws0AwADAAAAxnGpa89fzxURJdpCA92MZmlDtgG9AZFVPCsCwNyDly8HAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTYJAAAAzmf29gDZjNcpxkw3EP9JgnU3-ARNJ14NisscofzzARCjTKbuwLbdyjay0MQ3l7xPGULH_yLMDPh4LQIAAAAAADbjm8GoWvx_3YNJ47vz54_LXV95MTKI4drB2fk5AdPlCAAAADS2qD13VlhnAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA0wwnzb-eBQAAAAnWry0AAO_VcNpKm1Qx5vVg85LBcMWXJseTiSTVvoHu41Wtx4h2"
+            , t "AAARACjupkPfZFz8v54FAIxbIHQdq4grSLNI-NL6Lxhn3BSGZij58RFxHpHFdvHlAwABAAAAfdHDK_Q8xoD-W0nBPPBPMOgs1VukuCImYwCNnaBUwOMFAAAA4eefM0SUltzJ0Qszo3N0R9B4w_ap2_M2e6nlKEqJmkoHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbiMNKcS7VzGITdCwrGSYWrFNQvGP7KAzjbLQIAAAAAABlK0LefdM1J4t_Qeg6xAVNNDKEOhiEmNKe6SK9N6TAZBgAAALFBPU7YDgRoAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA2eJ0y7-eBQAAAORH5OUAAGvj8zv81JpNcizsrdpA94iOnHoSqkPynSvA-qmfl-l-"
+            , t "AABPAIw5kEeHUtD7v54FAH2hiBHu2vsBk_DnRF8_Ub5cyVZCYJhD5s5ONm840DotAwAAAAAAPYZZ2yg5iXsMOyKqKKUhrGaboexUhUVK8e-fhn3FzNkEAAAAu_A9WCeRoLM17g_jc0A2UnhvCQFe5LCtTnaze9LqajQHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbP1aVtUvTRaiRyg9hCVSPXuIpf3IjuwHaBKgIAAAAAABQWMBli4UbscIslyPPH2ItcNaY2_Fm7yFucQM86oqojAgAAAFy5ttLGN19tAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAddFMzL-eBQAAALuSPmYAAMu0EgB6CHhY9CV4nXv3KPjmhM82Fm3mYQH6YVyPPiEd"
+            ]
+        ]
+    , testHeader
         [ "parent" .= t "AAAAAAAAAABEtTTKCqMFAEjmr_NPBprFiWD_WhyvMzQCiHGxnE1sYKeKGTOPjvD5AwACAAAAMrWEo-w-oixyUqELYmgOvRU7Z7FTjPzNLJCYXu26OuIDAAAA4c_RjHJ0N4gH6uN3TLpowhFIUGFRUe1celP6BwyFBwAFAAAAF2p4lSHRyyPrQ8GF1akfJM9EfzYSSsx5NI5IHtavNXEYhLsC8eqcLrj_VXvO_p1n4hz5QVR4ul3FpwAAAAAAAPDGI9fJxK4qRkWzcPv64tL1wNu0j76Vws5_oXrHsrPxAAAAAGJcPGAFgqQkBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY0EHAAAAAAAFAAAAx9MnbwqjBQAAybvnn0-KAPLMEAsBh7vLnOh9053meOcuahQ_ezuUWynN1sMwSWqQ"
         , "header" .= t "AAAAAAAAAACnKMTLCqMFAPLMEAsBh7vLnOh9053meOcuahQ_ezuUWynN1sMwSWqQAwACAAAA_5afAofRZMA5Lz_ZG1Y0l6PJFTWueyU_4GbGWGtt_aoDAAAAs4MViuWgDm1nCgvyE5kzgG-_eZhCJupijIoh2z9cy0MFAAAA760lZUnDPEzHB6SKPbfOhFjpNNYDCuUXfxjvO3W4AckYhLsC8eqcLrj_VXvO_p1n4hz5QVR4ul3FpwAAAAAAAEQxBl7xgdFiynPSwT5ZNOcH8fiWKTdX9j09CUDn2irbAAAAAGHDHxemCKYkBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZEEHAAAAAAAFAAAAx9MnbwqjBQAdLDW8JkF8ALVfqYGwKAkKf4NHKGRn1autmwMCCgXM-ZHa2zwgRk3R"
         , "adjacents" .=
