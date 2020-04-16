@@ -130,13 +130,11 @@ testHeaderChainLookup h x = pure $! testHeaderLookup h $ _chainValueValue x
 
 genesisTestHeaders
     :: HasChainwebVersion v
-    => HasChainGraph v
     => v -> [TestHeader]
 genesisTestHeaders v = genesisTestHeader v <$> toList (chainIds v)
 
 genesisTestHeader
     :: HasChainwebVersion v
-    => HasChainGraph v
     => HasChainId c
     => v
     -> c
@@ -145,7 +143,7 @@ genesisTestHeader v cid = TestHeader
     { _testHeaderHdr = gen
     , _testHeaderParent = ParentHeader gen
     , _testHeaderAdjs = ParentHeader . genesisBlockHeader (_chainwebVersion v)
-        <$> toList (adjacentChainIds (_chainGraph v) cid)
+        <$> toList (adjacentChainIds (_chainGraph gen) cid)
     }
   where
     gen = genesisBlockHeader (_chainwebVersion v) (_chainId cid)
