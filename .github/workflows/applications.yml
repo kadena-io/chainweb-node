@@ -227,6 +227,9 @@ jobs:
           ghc: '8.6.5'
         - os: 'macOS-latest'
           ghc: '8.6.5'
+        include:
+        - os: 'windows-latest'
+          storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
@@ -234,8 +237,8 @@ jobs:
       # Cabal Cache
       CABAL_CACHE: ./tmp/bin/cabal-cache
       CABAL_CACHE_BUCKET: kadena-cabal-cache
-      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
-      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
+      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 ${{ matrix.storepath }}
+      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 ${{ matrix.storepath }}
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
@@ -245,12 +248,18 @@ jobs:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v1
-    - name: Install cabal-cache
+    - name: Install cabal-cache (ubuntu and macOS)
       if: matrix.cabalcache == 'true'
       run: |
         [[ "${{ matrix.os }}" =~ ubuntu ]] && OS="linux" || OS="osx"
         mkdir -p "./tmp/bin"
         curl -Ls "https://github.com/haskell-works/cabal-cache/releases/download/v1.0.1.5/cabal-cache_x86_64_${OS}.tar.gz" | tar -xzC "./tmp/bin/"
+    - name: Install cabal-cache (windows)
+      if: matrix.cabalcache == 'true' && contains(matrix.os, 'windows')
+      shell: bash
+      run: |
+        mkdir -p "./tmp/bin"
+        curl -Ls "https://kadena-cabal-cache.s3.amazonaws.com/cabal-cache/cabal-cache_x86_64_windows.tar.gz" | tar -f - -xzC "./tmp/bin/"
     - name: Install Haskell (macOS)
       if: contains(matrix.os, 'macOS')
       run: |
@@ -262,6 +271,11 @@ jobs:
           sudo add-apt-repository ppa:hvr/ghc
           sudo apt-get update
           sudo apt-get install ghc-${{ matrix.ghc }}
+    - name: Install Haskell dependencies (windows)
+      if: contains(matrix.os, 'windows')
+      run: |
+        choco install -r -y cabal --version ${{ matrix.cabalinstall }}
+        choco install -r -y ghc --version ${{ matrix.ghc }}
     - name: Set GHC and Cabal version
       uses: actions/setup-haskell@v1
       with:
@@ -281,8 +295,6 @@ jobs:
     - name: Install non-Haskell dependencies (windows)
       if: contains(matrix.os, 'windows')
       run: |
-        choco install -r -y cabal --version ${{ matrix.cabalinstall }}
-        choco install -r -y ghc --version ${{ matrix.ghc }}
         pacman -S mingw64-w64-x86_64-rocksdb
     - name: Create cabal.project.local
       run: |
