@@ -298,7 +298,7 @@ jobs:
         pacman -S mingw64-w64-x86_64-rocksdb
     - name: Create cabal.project.local
       run: |
-        cat > cabal.project <<EOF
+        cat > cabal.project.local <<EOF
         documentation: false
         executable-stripping: True
         library-stripping: True
@@ -314,7 +314,7 @@ jobs:
     - name: Append cabal.project.local for GHC-8.10
       if: contains(matrix.ghc, '8.10')
       run : |
-        cat >> cabal.project <<EOF
+        cat >> cabal.project.local <<EOF
         package chainweb
           ghc-options: -Wwarn
         package cassava
