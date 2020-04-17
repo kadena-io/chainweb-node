@@ -1,5 +1,18 @@
 # `chainweb-node` Changelog
 
+## Unreleased
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-04-30T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+*   Starting with block height 530500 the first eight bytes of each block must be
+    set to zero. (#974)
+
+*   The option to persist the peer database is removed (TODO). The functionality
+    was rarely used and can be simulated by using the peer REST API endpoints
+    along with the know peers configuration option.
+
 ## 1.7 (2019-03-26)
 
 This version replaces all previous versions. Any prior version will stop working

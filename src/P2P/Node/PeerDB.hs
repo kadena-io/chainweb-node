@@ -31,6 +31,7 @@ module P2P.Node.PeerDB
 , AddedTime(..)
 , ActiveSessionCount(..)
 , HostAddressIdx
+, hostAddressIdx
 
 -- * Peer Entry
 , PeerEntry(..)
@@ -68,18 +69,10 @@ module P2P.Node.PeerDB
 , incrementActiveSessionCount
 , decrementActiveSessionCount
 
--- * Persistence
-, storePeerDb
-, loadPeerDb
-, loadIntoPeerDb
-
 -- * Some PeerDb
 , PeerDbT(..)
 , SomePeerDb(..)
 , somePeerDbVal
-
--- * properties
-, properties
 
 ) where
 
@@ -92,7 +85,6 @@ import Control.Monad.STM
 
 import Data.Aeson
 import Data.Bits
-import qualified Data.ByteString.Lazy as BL
 import Data.Foldable (foldl')
 import qualified Data.Foldable as F
 import Data.Hashable
@@ -106,12 +98,8 @@ import Numeric.Natural
 
 import Prelude hiding (null)
 
-import System.IO.SafeWrite
-import System.IO.Temp
 import System.IO.Unsafe
 import System.Random
-
-import Test.QuickCheck (Arbitrary(..), Property, ioProperty, property, (===))
 
 -- internal modules
 
@@ -130,19 +118,19 @@ import P2P.Peer
 
 newtype LastSuccess = LastSuccess { _getLastSuccess :: Maybe UTCTime }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Arbitrary, NFData)
+    deriving newtype (ToJSON, FromJSON, NFData)
 
 newtype SuccessiveFailures = SuccessiveFailures{ _getSuccessiveFailures :: Natural }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary, NFData)
+    deriving newtype (ToJSON, FromJSON, Num, Enum, NFData)
 
 newtype AddedTime = AddedTime { _getAddedTime :: UTCTime }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Arbitrary, NFData)
+    deriving newtype (ToJSON, FromJSON, NFData)
 
 newtype ActiveSessionCount = ActiveSessionCount { _getActiveSessionCount :: Natural }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Num, Enum, Arbitrary, NFData)
+    deriving newtype (ToJSON, FromJSON, Num, Enum, NFData)
 
 data PeerEntry = PeerEntry
     { _peerEntryInfo :: !PeerInfo
@@ -187,11 +175,6 @@ newPeerEntry nid i = newPeerEntry_ False nid i
 newPeerEntry_ :: Bool -> NetworkId -> PeerInfo -> PeerEntry
 newPeerEntry_ sticky nid i = PeerEntry i 0 (LastSuccess Nothing) (S.singleton nid) 0 sticky
 
-instance Arbitrary PeerEntry where
-    arbitrary = PeerEntry
-        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary
-
 -- -------------------------------------------------------------------------- --
 -- Peer Entry Set
 
@@ -201,7 +184,7 @@ pdNonce = unsafePerformIO randomIO
 
 newtype HostAddressIdx = HostAddressIdx Int
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (ToJSON, FromJSON, Arbitrary, NFData)
+    deriving newtype (ToJSON, FromJSON, NFData)
 
 hostAddressIdx :: HostAddress -> HostAddressIdx
 hostAddressIdx = HostAddressIdx . xor pdNonce . hash
@@ -230,14 +213,6 @@ instance Indexable PeerEntryIxs PeerEntry where
         (ixFun $ \e -> [_peerEntryActiveSessionCount e])
 
 type PeerSet = IxSet PeerEntryIxs PeerEntry
-
-toPeerSet :: PeerSet -> S.Set PeerEntry
-toPeerSet = toSet
-
--- | Create new 'PeerSet' from a list of 'PeerEntry's
---
-fromPeerSet :: S.Set PeerEntry -> PeerSet
-fromPeerSet = fromSet
 
 -- | Add a 'PeerInfo' to an existing 'PeerSet'.
 --
@@ -450,31 +425,6 @@ updateLastSuccess db i = do
     updatePeerDb db (_peerAddr i) $ set peerEntryLastSuccess now
 
 -- -------------------------------------------------------------------------- --
--- Persistence
-
--- | Atomically store the database to a file.
---
--- TODO: Currently, this is somewhat inefficient, in particular at shutdown. It
--- would be better to stream a transaction log to the temporary file and
--- consolidate in the background only when there is enough time.
---
-storePeerDb :: FilePath -> PeerDb -> IO ()
-storePeerDb f db = withOutputFile f $ \h ->
-    peerDbSnapshot db >>= \sn -> BL.hPutStr h (encode $ toPeerSet sn)
-
-loadPeerDb :: FilePath -> IO PeerDb
-loadPeerDb f = PeerDb False
-    <$> newMVar ()
-    <*> (newTVarIO . fromPeerSet =<< decodeFileStrictOrThrow' f)
-
--- | New entries overwrite existing entries
---
-loadIntoPeerDb :: FilePath -> PeerDb -> IO ()
-loadIntoPeerDb f db = do
-    peers <- decodeFileStrictOrThrow' f
-    peerDbInsertSet peers db
-
--- -------------------------------------------------------------------------- --
 -- Some PeerDb
 
 -- | 'PeerDb' with type level 'ChainwebVersion' and 'NetworkIdT' indexes
@@ -493,21 +443,3 @@ somePeerDbVal (FromSingChainwebVersion (SChainwebVersion :: Sing v)) n db = f n
     f (FromSingNetworkId (SMempoolNetwork SChainId :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
     f (FromSingNetworkId (SCutNetwork :: Sing n)) = SomePeerDb $ PeerDbT @v @n db
 
--- -------------------------------------------------------------------------- --
--- Properties
-
-prop_peerDbLoadStore :: [PeerEntry] -> Property
-prop_peerDbLoadStore peers = ioProperty
-    $ withSystemTempDirectory "peerDbTest" $ \dirName -> do
-        let filePath = dirName <> "/peerDb.json"
-        db <- fromPeerEntryList peers
-        db' <- storePeerDb filePath db >> loadPeerDb filePath
-        db'' <- storePeerDb filePath db' >> loadPeerDb filePath
-        (===)
-            <$> peerDbSnapshot db
-            <*> peerDbSnapshot db''
-
-properties :: [(String, Property)]
-properties =
-    [ ("peerDbLoadStore", property prop_peerDbLoadStore)
-    ]
