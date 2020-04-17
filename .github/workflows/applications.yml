@@ -277,12 +277,10 @@ jobs:
         brew install rocksdb
     - name: Setup MSYS2 (windows)
       if: contains(matrix.os, 'windows')
-      uses: numworks/setup-msys2@v1
+      uses: numworks/setup-msys2@master
     - name: Install non-Haskell dependencies (windows)
       if: contains(matrix.os, 'windows')
-      shell: bash
-      run: |
-        msys2do pacman -S mingw64-w64-x86_64-rocksdb
+      run: msys2do pacman -S mingw64-w64-x86_64-rocksdb
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
