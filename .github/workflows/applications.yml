@@ -259,7 +259,7 @@ jobs:
       run: |
         mkdir -p "./tmp/bin"
         curl -Ls "https://kadena-cabal-cache.s3.amazonaws.com/cabal-cache/cabal-cache_x86_64_windows.tar.gz" | tar -f - -xzC "./tmp/bin/"
-    - name: Set GHC and Cabal version
+    - name: Install GHC and cabal
       uses: actions/setup-haskell@c4e863e92fcd479e2fcec8fe81921baa76000fca
       with:
          ghc-version: ${{ matrix.ghc }}
@@ -282,6 +282,7 @@ jobs:
         C:\tools\msys64\usr\bin\bash -lc "pacman -Suy"
         C:\tools\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-rocksdb"
     - name: Create cabal.project.local
+      shell: bash
       run: |
         cat > cabal.project.local <<EOF
         documentation: false
@@ -298,6 +299,7 @@ jobs:
         EOF
     - name: Append cabal.project.local for GHC-8.10
       if: contains(matrix.ghc, '8.10')
+      shell: bash
       run : |
         cat >> cabal.project.local <<EOF
         package chainweb
@@ -316,6 +318,7 @@ jobs:
 
     # Build
     - name: Update package database
+      shell: bash
       run: cabal v2-update
     - name: Configure build
       run: |
@@ -323,6 +326,7 @@ jobs:
         cabal v2-freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
+      shell: bash
       run: eval $SYNC_FROM_CACHE
     - name: Install build dependencies
       run: |
@@ -331,15 +335,19 @@ jobs:
           touch tools/cwtool/CwTool.hs
           cabal v2-build --only-dependencies
     - name: Build
+      shell: bash
       run: cabal v2-build
     - name: Run Tests
+      shell: bash
       run: cabal v2-run chainweb-tests -- --hide-successes
     - name: Sync cabal cache
       if: always() && (matrix.cabalcache == 'true')
+      shell: bash
       run: eval $SYNC_TO_CACHE
 
     # Publish Artifacts
     - name: Prepare artifacts
+      shell: bash
       run: |
         mkdir -p artifacts/applications
         mkdir -p artifacts/docs
@@ -360,6 +368,7 @@ jobs:
 
     # Publish to S3
     - name: Publish applications to S3
+      shell: bash
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
@@ -367,6 +376,7 @@ jobs:
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Link latest-build application in S3
       if: contains(github.ref, 'master')
+      shell: bash
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
