@@ -62,7 +62,7 @@ jobs:
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool slow-tests
-  
+
   # Verify that all Genesis headers are up to date (no missing ea run)
   #
   verify-genesis-headers:
@@ -218,9 +218,15 @@ jobs:
       fail-fast: false
       matrix:
         ghc: ['8.6.5', '8.8.3', '8.10.1']
-        cabal: ['3.0']
-        os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
+        cabal: ['3.2']
+        cabalinstall: ['3.2.0.0']
+        os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest', 'windows-latest']
         cabalcache: ['true']
+        exclude:
+        - os: 'windows-latest'
+          ghc: '8.6.5'
+        - os: 'macOS-latest'
+          ghc: '8.6.5'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
@@ -248,8 +254,8 @@ jobs:
     - name: Install Haskell (macOS)
       if: contains(matrix.os, 'macOS')
       run: |
-        curl -sL https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --paths.d --ghc-alias=${{ matrix.ghc }} --cabal-alias=3.0.0.0 install ghc-${{ matrix.ghc }} cabal-install-3.0.0.0
-        ln -s /opt/cabal/3.0.0.0 /opt/cabal/3.0
+          curl -sL https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --paths.d --ghc-alias=${{ matrix.ghc }} --cabal-alias=${{ matrix.cabalinstall }} install ghc-${{ matrix.ghc }} cabal-install-${{ matrix.cabalinstall }}
+        ln -s /opt/cabal/${{ matrix.cabalinstall }}/opt/cabal/${{ matrix.cabal }}
     - name: Install Haskell (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: |
@@ -265,32 +271,35 @@ jobs:
       if: contains(matrix.os, 'ubuntu')
       run: |
           sudo apt-get update
-          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3
+          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
       run: |
         brew update
-        brew install z3
         brew install sqlite
         brew install rocksdb
-    - name: Append cabal.project
+    - name: Install non-Haskell dependencies (windows)
+      if: contains(matrix.os, 'windows')
       run: |
-        cat >> cabal.project <<EOF
+        choco install -r -y cabal --version ${{ matrix.cabalinstall }}
+        choco install -r -y ghc --version ${{ matrix.ghc }}
+        pacman -S mingw64-w64-x86_64-rocksdb
+    - name: Create cabal.project.local
+      run: |
+        cat > cabal.project <<EOF
         documentation: false
         executable-stripping: True
         library-stripping: True
         package chainweb
           documentation: false
           optimization: 2
-          ghc-options: -j
           benchmarks: True
           tests: True
         package pact
           documentation: false
           optimization: 2
-          ghc-options: -j
         EOF
-    - name: Append cabal.project for GHC-8.10
+    - name: Append cabal.project.local for GHC-8.10
       if: contains(matrix.ghc, '8.10')
       run : |
         cat >> cabal.project <<EOF
