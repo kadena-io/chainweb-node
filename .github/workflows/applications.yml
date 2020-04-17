@@ -35,7 +35,7 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
       run: |
-        aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/" db/ --delete --exclude=LOCK
+        aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/" db/rocksdb/ --delete --exclude=LOCK
     - name: Store chain database as artifact
       uses: actions/upload-artifact@v1
       with:
@@ -277,7 +277,9 @@ jobs:
         brew install rocksdb
     - name: Setup MSYS2 (windows)
       if: contains(matrix.os, 'windows')
-      uses: numworks/setup-msys2@master
+      uses: numworks/setup-msys2@v1
+      with:
+        update: true
     - name: Install non-Haskell dependencies (windows)
       if: contains(matrix.os, 'windows')
       run: msys2do pacman -S mingw64-w64-x86_64-rocksdb
