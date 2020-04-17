@@ -275,10 +275,13 @@ jobs:
         brew update
         brew install sqlite
         brew install rocksdb
+    - name: Setup MSYS2 (windows)
+      uses: numworks/setup-msys2@v1
     - name: Install non-Haskell dependencies (windows)
       if: contains(matrix.os, 'windows')
+      shell: bash
       run: |
-        pacman -S mingw64-w64-x86_64-rocksdb
+        msys2do pacman -S mingw64-w64-x86_64-rocksdb
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
