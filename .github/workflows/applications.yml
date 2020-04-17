@@ -276,6 +276,7 @@ jobs:
         brew install sqlite
         brew install rocksdb
     - name: Setup MSYS2 (windows)
+      if: contains(matrix.os, 'windows')
       uses: numworks/setup-msys2@v1
     - name: Install non-Haskell dependencies (windows)
       if: contains(matrix.os, 'windows')
