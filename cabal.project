@@ -25,3 +25,11 @@ source-repository-package
 
 package vault
     documentation: false
+
+-- for windows builds with rocks db installed via
+-- pacman -S mingw-w64-x86_64-rocksdb
+--
+package rocksdb-haskell
+    extra-include-dirs: C:\\msys64\\mingw64\\include
+    extra-lib-dirs: C:\\msys64\\mingw64\\lib
+
