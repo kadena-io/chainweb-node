@@ -278,7 +278,7 @@ jobs:
     - name: Install non-Haskell dependencies (windows)
       if: contains(matrix.os, 'windows')
       run: |
-        choco install -r -y msys2
+        choco install -r -y --no-progress msys2
         C:\tools\msys64\usr\bin\bash -lc "pacman -Suy"
         C:\tools\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-rocksdb"
     - name: Create cabal.project.local
