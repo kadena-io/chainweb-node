@@ -59,7 +59,6 @@ import Data.CAS.RocksDB
 import qualified Data.PQueue.Test (properties)
 import qualified Data.Word.Encoding (properties)
 
-import qualified P2P.Node.PeerDB (properties)
 import qualified P2P.TaskQueue.Test (properties)
 
 main :: IO ()
@@ -118,7 +117,6 @@ suite rdb =
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties
-        , testProperties "P2P.Node.PeerDB" P2P.Node.PeerDB.properties
         , testProperties "P2P.TaskQueue.Test" P2P.TaskQueue.Test.properties
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties

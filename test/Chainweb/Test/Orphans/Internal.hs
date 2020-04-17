@@ -1,4 +1,7 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -39,6 +42,9 @@ import Chainweb.Payload
 import Chainweb.PowHash
 import Chainweb.Utils
 import Chainweb.Version
+
+import P2P.Node.Configuration
+import P2P.Node.PeerDB
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -89,6 +95,29 @@ instance Arbitrary HashTarget where
 
 instance Arbitrary HashDifficulty where
     arbitrary = HashDifficulty <$> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- P2P
+
+instance Arbitrary P2pConfiguration where
+    arbitrary = P2pConfiguration
+        <$> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
+
+instance Arbitrary PeerEntry where
+    arbitrary = PeerEntry
+        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
+
+instance Arbitrary HostAddressIdx where
+    arbitrary = hostAddressIdx <$> arbitrary
+    {-# INLINE arbitrary #-}
+
+deriving newtype instance Arbitrary LastSuccess
+deriving newtype instance Arbitrary SuccessiveFailures
+deriving newtype instance Arbitrary AddedTime
+deriving newtype instance Arbitrary ActiveSessionCount
 
 -- -------------------------------------------------------------------------- --
 -- Block Header
