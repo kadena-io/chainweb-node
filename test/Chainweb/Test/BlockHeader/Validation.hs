@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -18,7 +19,8 @@ module Chainweb.Test.BlockHeader.Validation
 ( tests
 ) where
 
-import Control.Lens hiding ((.=))
+import Control.Exception (throw)
+import Control.Lens hiding ((.=), elements)
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -27,6 +29,7 @@ import qualified Data.ByteString as B
 import Data.DoubleWord
 import Data.Foldable
 import Data.List (sort)
+import qualified Data.List as L
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import qualified Data.Text as T
@@ -34,6 +37,7 @@ import qualified Data.Text as T
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 -- internal modules
 
@@ -47,7 +51,7 @@ import Chainweb.Graph hiding (AdjacentChainMismatch)
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils.TestHeader
 import Chainweb.Time
-import Chainweb.Utils
+import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
 import Data.Word.Encoding
@@ -61,6 +65,10 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     , prop_validateTestnet04
     , prop_fail_validate
     , prop_featureFlag (Test petersonChainGraph) 10
+    , testProperty "validate arbitrary test header" prop_validateArbitrary
+    , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
+    , testProperty "validate arbitrary test header for testnet" $ prop_validateArbitrary Testnet04
+    , testProperty "validate arbitrary test header for devnet" $ prop_validateArbitrary Development
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -107,13 +115,15 @@ prop_validateTestnet04 :: TestTree
 prop_validateTestnet04 = prop_validateHeaders "validate Testnet04 BlockHeaders" testnet04Headers
 
 prop_validateHeaders :: String -> [TestHeader] -> TestTree
-prop_validateHeaders msg hdrs = testCase msg $ do
+prop_validateHeaders msg hdrs = testGroup msg $ do
+    [ prop_validateHeader ("header " <> show i) h | h <- hdrs | i <- [0..] ]
+
+prop_validateHeader :: String -> TestHeader -> TestTree
+prop_validateHeader msg h = testCase msg $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) hdrs
-  where
-    f now h = case validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h) of
+    case validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h) of
         Right _ -> return ()
-        Left errs -> assertFailure $ "Validation failed for mainnet BlockHeader: " <> sshow errs
+        Left errs -> assertFailure $ "Validation failed for BlockHeader: " <> sshow errs
 
 -- -------------------------------------------------------------------------- --
 -- Rules are applied
@@ -140,7 +150,7 @@ prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
                     <> ", expected: " <> sshow expectedErrs
                     <> ", actual: " <> sshow errs
                     <> ", header: " <> sshow (_blockHash $ _testHeaderHdr h)
-            _ -> return () -- FIXME be more specific
+                | otherwise -> return ()
 
 -- -------------------------------------------------------------------------- --
 -- Tests for Rule Guards:
@@ -151,6 +161,25 @@ prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
 -- Triggers: rule is applied, consistent, and soud after guard triggered
 -- (Equivalent to checking applied, consistent, sound + showing that trigger is
 -- effective)
+
+-- -------------------------------------------------------------------------- --
+-- Validation of Arbitrary Test Headers
+
+prop_validateArbitrary :: ChainwebVersion -> Property
+prop_validateArbitrary v =
+    forAll (elements $ toList $ chainIds v) $ \cid ->
+        forAll (arbitraryTestHeader v cid) validateTestHeader
+
+validateTestHeader :: TestHeader -> Property
+validateTestHeader h = case try val of
+    Right (Left ValidationFailure{ _validationFailureFailures = errs }) -> verify errs
+    Right _ -> property True
+    Left err -> throw err
+  where
+    now = add second $ _bct $ _blockCreationTime $ _testHeaderHdr h
+    val = validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)
+    verify :: [ValidationFailureType] -> Property
+    verify es = L.delete IncorrectPow es === []
 
 -- -------------------------------------------------------------------------- --
 -- Invalid Headers

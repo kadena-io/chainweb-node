@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -24,6 +25,8 @@ module Chainweb.Test.Utils.TestHeader
 , genesisTestHeaders
 , queryTestHeader
 , queryTestHeaderByHeight
+, arbitraryTestHeader
+, arbitraryTestHeaderHeight
 ) where
 
 import Chainweb.BlockHash
@@ -34,16 +37,23 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.CAS
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
+
+import Debug.Trace
 
 import GHC.Generics
 import GHC.Stack
 
+import Test.QuickCheck hiding (Success)
+
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
+import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Utils.ApiQueries
 import Chainweb.Version
 
@@ -111,6 +121,44 @@ testHeader v = case fromJSON (object v) of
     Success a -> a
     e -> error (show e)
 {-# INLINE testHeader #-}
+
+-- -------------------------------------------------------------------------- --
+-- arbitrary TestHeader
+
+-- | Create an arbitrary test header.
+--
+-- Parents are not valid headers but only serve validation of the test header.
+--
+-- This construction will satisfy all block header valdiation properties except
+-- for POW.
+--
+arbitraryTestHeader :: ChainwebVersion -> ChainId -> Gen TestHeader
+arbitraryTestHeader v cid = do
+    h <- chooseEnum (genesisHeight v cid, maxBound `div` 2)
+    arbitraryTestHeaderHeight v cid h
+{-# INLINE arbitraryTestHeader #-}
+
+arbitraryTestHeaderHeight
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Gen TestHeader
+arbitraryTestHeaderHeight v cid h = do
+    parent <- ParentHeader <$> arbitraryBlockHeaderVersionHeightChain v h cid
+    trace "a" $ return ()
+    as <- fmap HM.fromList
+        $ traverse (\c -> (c,) <$> arbitraryBlockHeaderVersionHeightChain v h c)
+        $ toList
+        $ adjacentChainIds (chainGraphAt v h) cid
+    nonce <- arbitrary
+    payloadHash <- arbitrary
+    t <- BlockCreationTime <$> chooseEnum (_bct $ _blockCreationTime (_parentHeader parent), maxBound)
+    let adjHashes = BlockHashRecord (_blockHash <$> as)
+    return $ TestHeader
+        { _testHeaderHdr = newBlockHeader adjHashes payloadHash nonce t parent
+        , _testHeaderParent = parent
+        , _testHeaderAdjs = toList $ ParentHeader <$> as
+        }
 
 -- -------------------------------------------------------------------------- --
 -- HasCasLookup for ChainValue

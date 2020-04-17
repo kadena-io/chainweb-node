@@ -1,4 +1,6 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -13,15 +15,21 @@
 -- Orphan instances for types that are defined in the chainweb package
 --
 module Chainweb.Test.Orphans.Internal
-(
+( arbitraryBytes
+, arbitraryBytesSized
+, arbitraryBlockHeaderVersion
+, arbitraryBlockHeaderVersionHeight
+, arbitraryBlockHeaderVersionHeightChain
+, arbitraryBlockHashRecordVersionHeightChain
 ) where
 
 import Control.Applicative
 
 import qualified Data.ByteString as B
+import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 
 import Test.QuickCheck
-import Test.QuickCheck.Gen (chooseAny)
 
 -- internal modules
 
@@ -37,6 +45,7 @@ import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.Payload
 import Chainweb.PowHash
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -104,14 +113,12 @@ instance Arbitrary BlockWeight where
 
 instance Arbitrary BlockHashRecord where
     arbitrary = pure $ BlockHashRecord mempty
-    -- arbitrary = BlockHashRecord . HM.fromList . fmap (\x -> (_chainId x, x))
-    --     <$> arbitrary
 
 instance Arbitrary Nonce where
     arbitrary = Nonce <$> arbitrary
 
 instance Arbitrary BlockCreationTime where
-    arbitrary = BlockCreationTime <$> arbitrary
+    arbitrary = BlockCreationTime . Time . TimeSpan . getPositive <$> arbitrary
 
 instance Arbitrary EpochStartTime where
     arbitrary = EpochStartTime <$> arbitrary
@@ -120,21 +127,63 @@ instance Arbitrary FeatureFlags where
     arbitrary = return mkFeatureFlags
 
 instance Arbitrary BlockHeader where
-    arbitrary = fromLog . newMerkleLog <$> entries
-      where
-        entries
-            = liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (pure (unsafeChainId 0))
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (Nonce <$> chooseAny)
-            $ fmap MerkleLogBody arbitrary
+    arbitrary = arbitrary >>= arbitraryBlockHeaderVersion
+    {-# INLINE arbitrary #-}
+
+arbitraryBlockHashRecordVersionHeightChain
+    :: ChainwebVersion
+    -> BlockHeight
+    -> ChainId
+    -> Gen BlockHashRecord
+arbitraryBlockHashRecordVersionHeightChain v h cid
+    | isWebChain graph cid = BlockHashRecord
+        . HM.fromList
+        . zip (toList $ adjacentChainIds graph cid)
+        <$> arbitrary
+    | otherwise = discard
+  where
+    graph = chainGraphAt v h
+
+arbitraryBlockHeaderVersion :: ChainwebVersion -> Gen BlockHeader
+arbitraryBlockHeaderVersion v = do
+    h <- arbitrary
+    arbitraryBlockHeaderVersionHeight v h
+{-# INLINE arbitraryBlockHeaderVersion #-}
+
+arbitraryBlockHeaderVersionHeight
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Gen BlockHeader
+arbitraryBlockHeaderVersionHeight v h = do
+    cid <- elements $ toList $ chainIdsAtHeight v h
+    arbitraryBlockHeaderVersionHeightChain v h cid
+{-# INLINE arbitraryBlockHeaderVersionHeight #-}
+
+arbitraryBlockHeaderVersionHeightChain
+    :: ChainwebVersion
+    -> BlockHeight
+    -> ChainId
+    -> Gen BlockHeader
+arbitraryBlockHeaderVersionHeightChain v h cid
+    | isWebChain (chainGraphAt v h) cid = do
+        t <- chooseEnum (toEnum 0, maxBound)
+        fromLog . newMerkleLog <$> entries t
+    | otherwise = discard
+  where
+    entries t
+        = liftA2 (:+:) arbitrary -- feature flags
+        $ liftA2 (:+:) (pure $ BlockCreationTime t) -- time
+        $ liftA2 (:+:) arbitrary -- parent hash
+        $ liftA2 (:+:) arbitrary -- target
+        $ liftA2 (:+:) arbitrary -- payload hash
+        $ liftA2 (:+:) (pure cid) -- chain id
+        $ liftA2 (:+:) arbitrary -- weight
+        $ liftA2 (:+:) (pure h) -- height
+        $ liftA2 (:+:) (pure v) -- version
+        $ liftA2 (:+:) (EpochStartTime <$> chooseEnum (toEnum 0, t)) -- epoch start
+        $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
+        $ fmap (MerkleLogBody . blockHashRecordToVector)
+            (arbitraryBlockHashRecordVersionHeightChain v h cid) -- adjacents
 
 -- -------------------------------------------------------------------------- --
 -- Payload

@@ -710,7 +710,8 @@ computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
 {-# INLINE computeBlockHash #-}
 
 isGenesisBlockHeader :: BlockHeader -> Bool
-isGenesisBlockHeader b = _blockHeight b == BlockHeight 0
+isGenesisBlockHeader b
+    = _blockHeight b == genesisHeight (_blockChainwebVersion b) (_blockChainId b)
 {-# INLINE isGenesisBlockHeader #-}
 
 -- | The Proof-Of-Work hash includes all data in the block except for the

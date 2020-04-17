@@ -187,12 +187,16 @@ validChainGraph g
     && (G.order g <= 1 || G.symSize g >= 1)
 {-# INLINE validChainGraph #-}
 
+-- | Returns an empty set of the chain id is not in the graph
+--
 adjacentChainIds
     :: HasChainId p
     => ChainGraph
     -> p
     -> HS.HashSet ChainId
-adjacentChainIds (ChainGraph g _ _ _) cid = G.adjacents (_chainId cid) g
+adjacentChainIds graph@(ChainGraph g _ _ _) cid
+    | isWebChain graph cid = G.adjacents (_chainId cid) g
+    | otherwise = mempty
 {-# INLINE adjacentChainIds #-}
 
 -- -------------------------------------------------------------------------- --
