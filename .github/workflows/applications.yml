@@ -239,8 +239,8 @@ jobs:
       # Cabal Cache
       CABAL_CACHE: ./tmp/bin/cabal-cache
       CABAL_CACHE_BUCKET: kadena-cabal-cache
-      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 ${{ matrix.storepath }}
-      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 ${{ matrix.storepath }}
+      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 "${{ matrix.storepath }}/ghc-${{ matrix.ghc }}"
+      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 "${{ matrix.storepath }}/ghc-${{ matrix.ghc }}"
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
@@ -298,16 +298,17 @@ jobs:
       shell: bash
       run: |
         cat > cabal.project.local <<EOF
-        documentation: false
+        documentation: False
+        debug-info: False
         executable-stripping: True
         library-stripping: True
         package chainweb
-          documentation: false
+          documentation: False
           optimization: 2
           benchmarks: True
           tests: True
         package pact
-          documentation: false
+          documentation: False
           optimization: 2
         EOF
     - name: Append cabal.project.local for GHC-8.10
@@ -326,8 +327,15 @@ jobs:
       run : |
         cat >> cabal.project.local <<EOF
         package rocksdb-haskell
+          static: True
           extra-include-dirs: C:\mingw64\include
           extra-lib-dirs: C:\mingw64\lib
+          extra-libraries: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
+        package chainweb
+          static: True
+          executable-static: True
+          extra-lib-dirs: C:\mingw64\lib
+          extra-libraries: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
         EOF
     - uses: actions/cache@v1
       name: Cache dist-newstyle
