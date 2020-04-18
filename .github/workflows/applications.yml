@@ -226,6 +226,9 @@ jobs:
           ghc: '8.6.5'
         - os: 'macOS-latest'
           ghc: '8.6.5'
+        - os: 'windows-latest'
+          ghc: '8.8.3'
+          # windows builds with ghc-8.8.3 seem to run out of memory on github runners
         include:
         - os: 'windows-latest'
           storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store'
@@ -323,8 +326,8 @@ jobs:
       run : |
         cat >> cabal.project.local <<EOF
         package rocksdb-haskell
-          extra-include-dirs: ./mingw64/include
-          extra-lib-dirs: ./mingw64/lib
+          extra-include-dirs: mingw64\\include
+          extra-lib-dirs: mingw64\\lib
         EOF
     - uses: actions/cache@v1
       name: Cache dist-newstyle
