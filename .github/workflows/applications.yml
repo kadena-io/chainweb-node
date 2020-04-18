@@ -364,6 +364,7 @@ jobs:
       shell: bash
       run: eval $SYNC_FROM_CACHE
     - name: Install build dependencies
+      shell: bash
       run: |
           touch node/ChainwebNode.hs
           touch test/ChainwebTests.hs
