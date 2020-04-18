@@ -231,7 +231,7 @@ jobs:
           # windows builds with ghc-8.8.3 seem to run out of memory on github runners
         include:
         - os: 'windows-latest'
-          storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store/${{ ghc }}'
+          storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store/*'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
