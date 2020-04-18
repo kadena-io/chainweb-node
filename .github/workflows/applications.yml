@@ -231,7 +231,7 @@ jobs:
           # windows builds with ghc-8.8.3 seem to run out of memory on github runners
         include:
         - os: 'windows-latest'
-          storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store'
+          storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store/${{ matrix.ghc }}'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
@@ -239,8 +239,8 @@ jobs:
       # Cabal Cache
       CABAL_CACHE: ./tmp/bin/cabal-cache
       CABAL_CACHE_BUCKET: kadena-cabal-cache
-      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 "${{ matrix.storepath }}/ghc-${{ matrix.ghc }}"
-      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 "${{ matrix.storepath }}/ghc-${{ matrix.ghc }}"
+      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 "${{ matrix.storepath }}"
+      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1 "${{ matrix.storepath }}"
 
       # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
@@ -321,6 +321,7 @@ jobs:
         package cassava
           flags: -bytestring--lt-0_10_4
         allow-newer: *
+        EOF
     - name: Append cabal.project.local for Windows
       if: contains(matrix.os, 'windows')
       shell: bash
@@ -331,11 +332,15 @@ jobs:
           extra-include-dirs: C:\mingw64\include
           extra-lib-dirs: C:\mingw64\lib
           extra-libraries: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
+          ghc-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
+          ld-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
         package chainweb
           static: True
           executable-static: True
           extra-lib-dirs: C:\mingw64\lib
           extra-libraries: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
+          ghc-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
+          ld-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
         EOF
     - uses: actions/cache@v1
       name: Cache dist-newstyle
