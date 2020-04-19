@@ -353,7 +353,9 @@ jobs:
       shell: bash
       run: cabal v2-update
     - name: Configure build
+      shell: bash
       run: |
+        pwd
         cabal v2-build --dry-run
         cabal v2-freeze
     - name: Sync from cabal cache
@@ -362,11 +364,7 @@ jobs:
       run: eval $SYNC_FROM_CACHE
     - name: Install build dependencies
       shell: bash
-      run: |
-          touch node/ChainwebNode.hs
-          touch test/ChainwebTests.hs
-          touch tools/cwtool/CwTool.hs
-          cabal v2-build --only-dependencies
+      run: cabal v2-build --only-dependencies
     - name: Build
       shell: bash
       run: cabal v2-build
