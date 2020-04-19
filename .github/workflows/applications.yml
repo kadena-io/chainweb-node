@@ -356,6 +356,7 @@ jobs:
       shell: bash
       run: |
         pwd
+        ls
         cabal v2-build --dry-run
         cabal v2-freeze
     - name: Sync from cabal cache
