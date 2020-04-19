@@ -282,19 +282,19 @@ jobs:
       if: contains(matrix.os, 'windows')
       shell: bash
       run: |
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-libwinpthread-git-8.0.0.5680.0df6b89f-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-mpfr-4.0.2-2-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-mpc-1.1.0-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-gmp-6.2.0-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-gcc-libs-9.3.0-2-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-zstd-1.4.4-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-zlib-1.2.11-7-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-snappy-1.1.8-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-lz4-1.9.2-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-intel-tbb-1~2020.2-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-bzip2-1.0.8-1-any.pkg.tar.xz' | tar -xJC .
-        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-rocksdb-6.7.3-1-any.pkg.tar.xz' | tar -xJC .
-        rm -rf ./mingw64/lib/*.dll ./mingw64/lib/*.dll.a
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-libwinpthread-git-8.0.0.5680.0df6b89f-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-mpfr-4.0.2-2-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-mpc-1.1.0-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-gmp-6.2.0-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-gcc-libs-9.3.0-2-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-zstd-1.4.4-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-zlib-1.2.11-7-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-snappy-1.1.8-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-lz4-1.9.2-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-intel-tbb-1~2020.2-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-bzip2-1.0.8-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-rocksdb-6.7.3-1-any.pkg.tar.xz' | tar -xJC /c/
+        rm -rf /c/mingw64/lib/*.dll /c/mingw64/lib/*.dll.a
     - name: Create cabal.project.local
       shell: bash
       run: |
@@ -331,8 +331,8 @@ jobs:
         package rocksdb-haskell
           static: True
           executable-static: True
-          extra-include-dirs: mingw64\\include
-          extra-lib-dirs: mingw46\\lib
+          extra-include-dirs: C:/mingw64/include
+          extra-lib-dirs: C:/mingw64/lib
           ghc-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
           ld-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
         package chainweb
