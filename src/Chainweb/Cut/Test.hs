@@ -89,8 +89,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
-import Chainweb.Time
-    (Micros(..), Time, TimeSpan, getCurrentTimeIntegral, second)
+import Chainweb.Time (Micros(..), Time, TimeSpan, second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
@@ -273,9 +272,8 @@ arbitraryWebChainCut initialCut = do
 
     mine c cid = do
         n <- T.pick $ Nonce <$> T.arbitrary
-        t <- liftIO  getCurrentTimeIntegral
         let pay = hashPayload v cid "TEST PAYLOAD"
-        liftIO $ hush <$> testMine n t pay cid c
+        liftIO $ hush <$> testMine' given n (offsetBlockTime second) pay cid c
 
     v = Test (_chainGraph @WebBlockHeaderDb given)
 
@@ -302,9 +300,8 @@ arbitraryWebChainCut_ initialCut = do
 
     mine c cid = do
         n <- Nonce <$> TT.liftGen T.arbitrary
-        t <- liftIO getCurrentTimeIntegral
         let pay = hashPayload v cid "TEST PAYLOAD"
-        liftIO $ testMine n t pay cid c
+        liftIO $ testMine' given n (offsetBlockTime second) pay cid c
 
     v = Test $ _chainGraph @WebBlockHeaderDb given
 
