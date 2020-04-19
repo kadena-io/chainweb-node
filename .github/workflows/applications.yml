@@ -357,7 +357,7 @@ jobs:
       run: |
         pwd
         ls
-        cabal v2-build --dry-run
+        cabal v2-build all --dry-run
         cabal v2-freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
@@ -365,10 +365,10 @@ jobs:
       run: eval $SYNC_FROM_CACHE
     - name: Install build dependencies
       shell: bash
-      run: cabal v2-build --only-dependencies
+      run: cabal v2-build all --only-dependencies
     - name: Build
       shell: bash
-      run: cabal v2-build
+      run: cabal v2-build all
     - name: Run Tests
       shell: bash
       run: cabal v2-run chainweb-tests -- --hide-successes
