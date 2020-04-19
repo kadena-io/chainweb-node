@@ -331,8 +331,8 @@ jobs:
         package rocksdb-haskell
           static: True
           executable-static: True
-          extra-include-dirs: ./mingw64/include
-          extra-lib-dirs: ./mingw46/lib
+          extra-include-dirs: mingw64\\include
+          extra-lib-dirs: mingw46\\lib
           ghc-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
           ld-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
         package chainweb
