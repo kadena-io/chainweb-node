@@ -7,8 +7,44 @@ on:
     - ci/*
     - github-ci
     - release-candidate/*
+    tags:
+    - '[0-9].[0-9]+'
+  release:
+    types:
+    - created
 
 jobs:
+
+  # Create Test Matrix that is used by other jobs
+  # 
+  # master:
+  #
+  #
+  create-matrix:
+    name: Create test matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+    - id: set-matrix
+      run: |
+        jq -c '"::set-output name=matrix::" + (. | tostring)' <<EOF
+        {
+          "ghc": ["8.6.5", "8.8.3", "8.10.1"],
+          "cabal": ["3.2.0.0"],
+          "os": ["ubuntu-16.04", "ubuntu-18.04", "macOS-latest", "windows-latest"],
+          "cabalcache": ["true"],
+          "exclude": [
+            { "os": "windows-latest", "ghc": "8.6.5" },
+            { "os": "macOS-latest", "ghc": "8.6.5" },
+            { "os": "windows-latest", "ghc": "8.8.3" }
+          ],
+          "include": [
+            { "os": "windows-latest", "storepath": "--store-path=${HOME}/AppData/Roaming/cabal/store/ghc-8.10.1" }
+          ]
+        }
+        EOF
+
 
   # Synchronize Mainnet01 Chain Database
   #
@@ -348,8 +384,6 @@ jobs:
     - name: Configure build
       shell: bash
       run: |
-        pwd
-        ls
         cabal v2-build all --dry-run
         cabal v2-freeze
     - name: Sync from cabal cache
@@ -359,7 +393,10 @@ jobs:
     - name: Install build dependencies
       shell: bash
       run: cabal v2-build chainweb --only-dependencies
-    - name: Build
+    - name: Build chainweb library
+      shell: bash
+      run: cabal v2-build lib:chainweb
+    - name: Build chainweb applications
       shell: bash
       run: cabal v2-build all
     - name: Run Tests
@@ -400,7 +437,7 @@ jobs:
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Link latest-build application in S3
-      if: contains(github.ref, 'master')
+      if: contains(github.ref, 'master') || contains(github.event_name, 'release') || startsWith(github.ref, '1.')
       shell: bash
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
