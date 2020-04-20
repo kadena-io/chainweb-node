@@ -21,21 +21,12 @@ jobs:
         chainwebVersion: ['mainnet01', 'development']
 
     steps:
-    # Caches are limited to 5GB per repository. Currently the size of the db is 3.5GB
-    # - name: Sync chain database from cache
-    #   id: cache-chain-db
-    #   uses: actions/cache@v1
-    #   with:
-    #     path: db
-    #     key: chain-db-${{ matrix.chainwebVersion }}-
-    #     restore-keys: |
-    #       chain-db-${{ matrix.chainwebVersion }}-
     - name: Sync chain database from S3
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
       run: |
-        aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/" db/ --delete --exclude=LOCK
+        aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/" db/rocksdb/ --delete --exclude=LOCK
     - name: Store chain database as artifact
       uses: actions/upload-artifact@v1
       with:
@@ -218,10 +209,12 @@ jobs:
       fail-fast: false
       matrix:
         ghc: ['8.6.5', '8.8.3', '8.10.1']
-        cabal: ['3.0']
+        cabal: ['3.2.0.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
     env:
+      
+      # AWS S3 Credentials
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
 
@@ -245,19 +238,8 @@ jobs:
         [[ "${{ matrix.os }}" =~ ubuntu ]] && OS="linux" || OS="osx"
         mkdir -p "./tmp/bin"
         curl -Ls "https://github.com/haskell-works/cabal-cache/releases/download/v1.0.1.5/cabal-cache_x86_64_${OS}.tar.gz" | tar -xzC "./tmp/bin/"
-    - name: Install Haskell (macOS)
-      if: contains(matrix.os, 'macOS')
-      run: |
-        curl -sL https://haskell.futurice.com/haskell-on-macos.py | python3 - --make-dirs --paths.d --ghc-alias=${{ matrix.ghc }} --cabal-alias=3.0.0.0 install ghc-${{ matrix.ghc }} cabal-install-3.0.0.0
-        ln -s /opt/cabal/3.0.0.0 /opt/cabal/3.0
-    - name: Install Haskell (ubuntu)
-      if: contains(matrix.os, 'ubuntu')
-      run: |
-          sudo add-apt-repository ppa:hvr/ghc
-          sudo apt-get update
-          sudo apt-get install ghc-${{ matrix.ghc }}
-    - name: Set GHC and Cabal version
-      uses: actions/setup-haskell@v1
+    - name: Install GHC and Cabal
+      uses: actions/setup-haskell@c4e863e92fcd479e2fcec8fe81921baa76000fca
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -265,35 +247,32 @@ jobs:
       if: contains(matrix.os, 'ubuntu')
       run: |
           sudo apt-get update
-          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3
+          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
       run: |
         brew update
-        brew install z3
         brew install sqlite
         brew install rocksdb
-    - name: Append cabal.project
+    - name: Create cabal.project.local
       run: |
-        cat >> cabal.project <<EOF
+        cat > cabal.project.local <<EOF
         documentation: false
         executable-stripping: True
         library-stripping: True
         package chainweb
           documentation: false
           optimization: 2
-          ghc-options: -j
           benchmarks: True
           tests: True
         package pact
           documentation: false
           optimization: 2
-          ghc-options: -j
         EOF
-    - name: Append cabal.project for GHC-8.10
+    - name: Append cabal.project.local for GHC-8.10
       if: contains(matrix.ghc, '8.10')
       run : |
-        cat >> cabal.project <<EOF
+        cat >> cabal.project.local <<EOF
         package chainweb
           ghc-options: -Wwarn
         package cassava
@@ -313,19 +292,17 @@ jobs:
       run: cabal v2-update
     - name: Configure build
       run: |
-        cabal v2-build --dry-run
+        cabal v2-build all --dry-run
         cabal v2-freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
       run: eval $SYNC_FROM_CACHE
     - name: Install build dependencies
-      run: |
-          touch node/ChainwebNode.hs
-          touch test/ChainwebTests.hs
-          touch tools/cwtool/CwTool.hs
-          cabal v2-build --only-dependencies
-    - name: Build
-      run: cabal v2-build
+      run: cabal v2-build chainweb --only-dependencies
+    - name: Build chainweb library
+      run: cabal v2-build lib:chainweb
+    - name: Build chainweb applications
+      run: cabal v2-build all
     - name: Run Tests
       run: cabal v2-run chainweb-tests -- --hide-successes
     - name: Sync cabal cache
@@ -343,6 +320,7 @@ jobs:
         cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
         cp README.md artifacts/applications
         cp CHANGELOG.md artifacts/applications
+        cp LICENSE artifacts/applications
         cp chainweb.cabal artifacts/applications
         cp cabal.project artifacts/applications
         cp cabal.project.freeze artifacts/applications
