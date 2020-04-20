@@ -141,12 +141,14 @@ import System.Environment (withArgs)
 import System.IO.Temp
 import System.Random (randomIO)
 
-import Test.QuickCheck.Gen (unGen)
+import Test.QuickCheck.Property (Property, Testable, (===))
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Gen
 import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
+import Test.Tasty.QuickCheck (testProperty)
 
 import Text.Printf (printf)
 
