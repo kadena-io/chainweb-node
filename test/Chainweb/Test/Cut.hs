@@ -81,6 +81,7 @@ import Prelude hiding (lookup)
 import qualified Streaming.Prelude as S
 
 import qualified Test.QuickCheck as T
+import qualified Test.QuickCheck.Gen as T (chooseEnum)
 import qualified Test.QuickCheck.Monadic as T
 
 -- internal modules
