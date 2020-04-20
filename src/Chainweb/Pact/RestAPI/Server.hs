@@ -57,7 +57,6 @@ import Data.Tuple.Strict
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import qualified GHC.Event as Ev
 import GHC.Generics
 
 import Prelude hiding (init, lookup)
@@ -240,7 +239,7 @@ listenHandler
     -> Handler ListenResponse
 listenHandler logger cutR cid chain (ListenerRequest key) = do
     liftIO $ logg Info $ PactCmdLogListen $ requestKeyToB16Text key
-    liftIO (handleTimeout runListen)
+    liftIO (registerDelay defaultTimeout >>= runListen)
   where
     logg = logFunctionJson (setComponent "listen-handler" logger)
     runListen :: TVar Bool -> IO ListenResponse
@@ -273,19 +272,7 @@ listenHandler logger cutR cid chain (ListenerRequest key) = do
                      return cut
 
     -- TODO: make configurable
-    defaultTimeout = 120 * 1000000      -- two minutes
-
-    handleTimeout m = bracket init cleanup (m . fst)
-      where
-        init = do
-            !tv <- newTVarIO False
-            mgr <- Ev.getSystemTimerManager
-            !tkey <- Ev.registerTimeout mgr defaultTimeout $
-                     atomically $ writeTVar tv True
-            return (tv, tkey)
-        cleanup (_, tkey) = do
-            mgr <- Ev.getSystemTimerManager
-            Ev.unregisterTimeout mgr tkey
+    defaultTimeout = 120 * 1000000 -- two minutes
 
 -- TODO: reimplement local in terms of pact execution service
 localHandler
