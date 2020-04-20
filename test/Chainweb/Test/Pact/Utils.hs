@@ -185,8 +185,8 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Cut.Test
-import Chainweb.Cut.TestBlockDb
+import Chainweb.Test.Cut
+import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.InMemoryCheckpointer (initInMemoryCheckpointEnv)

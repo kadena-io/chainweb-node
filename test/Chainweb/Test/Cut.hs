@@ -13,7 +13,7 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
--- Module: Chainweb.Cut.Test
+-- Module: Chainweb.Test.Cut
 -- Copyright: Copyright © 2018 - 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
@@ -21,7 +21,7 @@
 --
 -- TODO
 --
-module Chainweb.Cut.Test
+module Chainweb.Test.Cut
 (
 -- * Testing
 

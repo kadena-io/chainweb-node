@@ -20,13 +20,13 @@ import Test.Tasty.QuickCheck
 -- internal modules
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
-import qualified Chainweb.Cut.Test (properties)
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
 import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeader.Validation
 import qualified Chainweb.Test.BlockHeaderDB
+import qualified Chainweb.Test.Cut (properties)
 import qualified Chainweb.Test.Mempool.Consensus
 import qualified Chainweb.Test.Mempool.InMem
 import qualified Chainweb.Test.Mempool.RestAPI
@@ -121,6 +121,6 @@ suite rdb =
         , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
-        , testProperties "Chainweb.Cut.Test" (Chainweb.Cut.Test.properties rdb)
+        , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)
         ]
     ]
