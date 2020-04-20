@@ -473,7 +473,6 @@ test-suite chainweb-tests
         -- external
         , Decimal >= 0.4.2
         , QuickCheck >= 2.12.6
-        , QuickCheck-GenT >=0.2
         , aeson >= 1.4.3
         , aeson-pretty
         , async >= 2.2

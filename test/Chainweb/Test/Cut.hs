@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -40,9 +41,7 @@ module Chainweb.Test.Cut
 , arbitraryChainId
 , arbitraryCut
 , arbitraryFork
-, arbitraryFork_
 , arbitraryJoin
-, arbitraryJoin_
 
 -- ** properties
 , prop_cutBraiding
@@ -79,8 +78,6 @@ import GHC.Stack
 
 import Prelude hiding (lookup)
 
-import qualified QuickCheck.GenT as TT
-
 import qualified Streaming.Prelude as S
 
 import qualified Test.QuickCheck as T
@@ -103,6 +100,7 @@ import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.RocksDB
 
+import Numeric.Additive
 import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
@@ -150,7 +148,15 @@ testMine' wdb n t payloadHash i c =
 offsetBlockTime :: TimeSpan Micros -> GenBlockTime
 offsetBlockTime offset cut cid = add offset t
   where
-    BlockCreationTime t = _blockCreationTime $ cut ^?! ixg cid
+    BlockCreationTime t = cut ^?! ixg cid . blockCreationTime
+
+arbitraryBlockTimeOffset
+    :: TimeSpan Micros
+    -> TimeSpan Micros
+    -> T.Gen GenBlockTime
+arbitraryBlockTimeOffset lower upper = do
+    t <- T.chooseEnum (lower, upper)
+    return $ offsetBlockTime t
 
 testMineWithPayloadHash
     :: forall cid
@@ -263,7 +269,19 @@ arbitraryWebChainCut
     -> Cut
         -- @genesisCut Test@ is always a valid cut
     -> T.PropertyM IO Cut
-arbitraryWebChainCut wdb initialCut = do
+arbitraryWebChainCut wdb i = arbitraryWebChainCut_ wdb i 0
+
+-- | Provide option to provide db with a branch/cut.
+--
+arbitraryWebChainCut_
+    :: HasCallStack
+    => WebBlockHeaderDb
+    -> Cut
+        -- @genesisCut Test@ is always a valid cut
+    -> Int
+        -- ^ A seed for the nonce which can used to enforce forks
+    -> T.PropertyM IO Cut
+arbitraryWebChainCut_ wdb initialCut seed = do
     k <- T.pick $ T.sized $ \s -> T.choose (0,s)
     foldlM (\c _ -> genCut c) initialCut [0..(k-1)]
   where
@@ -279,39 +297,12 @@ arbitraryWebChainCut wdb initialCut = do
             & fmap fromJuste
 
     mine c cid = do
-        n <- T.pick $ Nonce <$> T.arbitrary
+        n' <- T.pick $ Nonce . int . (* seed) <$> T.arbitrary
         let pay = hashPayload v cid "TEST PAYLOAD"
-        liftIO $! hush <$!> testMine' wdb n (offsetBlockTime second) pay cid c
+        delay <- pickBlind $ arbitraryBlockTimeOffset second (plus second second)
+        liftIO $! hush <$!> testMine' wdb n' delay pay cid c
 
     v = Test (_chainGraph @WebBlockHeaderDb wdb)
-
-arbitraryWebChainCut_
-    :: HasCallStack
-    => WebBlockHeaderDb
-    -> Cut
-        -- @genesisCut Test@ is always a valid cut
-    -> TT.GenT IO Cut
-arbitraryWebChainCut_ wdb initialCut = do
-    k <- TT.sized $ \s -> TT.choose (0,s)
-    foldlM (\c _ -> genCut c) initialCut [0..(k-1)]
-  where
-    genCut c = do
-        cids <- TT.liftGen
-            $ T.shuffle
-            $ toList
-            $ chainIds initialCut
-        S.each cids
-            & S.mapMaybeM (fmap hush . mine c)
-            & S.map (\(T2 _ c') -> c')
-            & S.head_
-            & fmap fromJuste
-
-    mine c cid = do
-        n <- Nonce <$> TT.liftGen T.arbitrary
-        let pay = hashPayload v cid "TEST PAYLOAD"
-        liftIO $ testMine' wdb n (offsetBlockTime second) pay cid c
-
-    v = Test $ _chainGraph @WebBlockHeaderDb wdb
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Fork
@@ -331,11 +322,6 @@ arbitraryJoin wdb = do
     TestFork _ cl cr <- arbitraryFork wdb
     liftIO $ join wdb (prioritizeHeavier cl cr) cl cr
 
-arbitraryJoin_ :: WebBlockHeaderDb -> TT.GenT IO (Join Int)
-arbitraryJoin_ wdb = do
-    TestFork _ cl cr <- arbitraryFork_ wdb
-    liftIO $ join wdb (prioritizeHeavier cl cr) cl cr
-
 -- | Fork point is the genesis cut
 --
 -- TODO: provide option to fork of elsewhere
@@ -346,17 +332,8 @@ arbitraryFork
 arbitraryFork wdb = do
     base <- arbitraryWebChainCut wdb (testGenCut wdb)
     TestFork base
-        <$> arbitraryWebChainCut wdb base
-        <*> arbitraryWebChainCut wdb base
-
-arbitraryFork_
-    :: WebBlockHeaderDb
-    -> TT.GenT IO TestFork
-arbitraryFork_ wdb = do
-    base <- arbitraryWebChainCut_ wdb (testGenCut wdb)
-    TestFork base
-        <$> arbitraryWebChainCut_ wdb base
-        <*> arbitraryWebChainCut_ wdb base
+        <$> arbitraryWebChainCut_ wdb base 11
+        <*> arbitraryWebChainCut_ wdb base 23
 
 -- -------------------------------------------------------------------------- --
 -- 'meet' and 'join' form a lattice with genesisCut as bottom
@@ -405,8 +382,8 @@ prop_joinAssociative
 prop_joinAssociative wdb = do
     TestFork _ c0 c1 <- arbitraryFork wdb
     TestFork _ c10 c11 <- TestFork c1
-        <$> arbitraryWebChainCut wdb c1
-        <*> arbitraryWebChainCut wdb c1
+        <$> arbitraryWebChainCut_ wdb c1 11
+        <*> arbitraryWebChainCut_ wdb c1 23
 
     -- d0 <- T.run $ forkDepth c10 c11
     -- T.pre (diameter (given @ChainGraph) <= d0)
@@ -454,8 +431,8 @@ prop_meetAssociative
 prop_meetAssociative wdb = do
     TestFork _ c0 c1 <- arbitraryFork wdb
     TestFork _ c10 c11 <- TestFork c1
-        <$> arbitraryWebChainCut wdb c1
-        <*> arbitraryWebChainCut wdb c1
+        <$> arbitraryWebChainCut_ wdb c1 11
+        <*> arbitraryWebChainCut_ wdb c1 23
     T.run $ do
         let m = meet wdb
         (==)
@@ -568,8 +545,6 @@ prop_joinBase :: RocksDb -> ChainwebVersion -> T.Property
 prop_joinBase db v = ioTest db v $ \wdb -> do
     TestFork b cl cr <- arbitraryFork wdb
     m <- liftIO $ join wdb (prioritizeHeavier cl cr) cl cr
-    unless (_joinBase m == b) $ liftIO $ print b
-    unless (_joinBase m == b) $ liftIO $ print $  _joinBase m
     return (_joinBase m == b)
 
 prop_joinBaseMeet :: RocksDb -> ChainwebVersion -> T.Property
@@ -613,3 +588,8 @@ ioTest
     -> T.Property
 ioTest db v f = T.monadicIO $
     liftIO (initWebBlockHeaderDb db v) >>= f >>= T.assert
+
+pickBlind :: T.Gen a -> T.PropertyM IO a
+pickBlind = fmap T.getBlind . T.pick . fmap T.Blind
+{-# INLINE pickBlind #-}
+
