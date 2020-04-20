@@ -20,11 +20,11 @@ import qualified Data.List as L
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 import Data.Word (Word64)
-import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Gen (chooseAny)
+import Test.QuickCheck.Arbitrary (Arbitrary(..))
+import Test.QuickCheck.Gen
 import Test.QuickCheck.Monadic
 import Test.Tasty
-import Test.Tasty.QuickCheck hiding ((.&.))
+import Test.Tasty.QuickCheck (testProperty)
 ------------------------------------------------------------------------------
 import Chainweb.BlockHeader
 import Chainweb.MerkleLogHash

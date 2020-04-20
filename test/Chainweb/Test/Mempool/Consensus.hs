@@ -25,7 +25,7 @@ import qualified Data.Vector as V
 
 import GHC.Generics
 
-import Test.QuickCheck hiding ((.&.))
+import Test.QuickCheck (quickCheck)
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Monadic
 import Test.Tasty.QuickCheck

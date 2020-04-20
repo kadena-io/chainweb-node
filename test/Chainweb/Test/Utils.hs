@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -99,6 +100,9 @@ module Chainweb.Test.Utils
 , runSchedRocks
 , withArgs
 , matchTest
+
+-- * Misc
+, genEnum
 ) where
 
 import Control.Concurrent
@@ -137,13 +141,14 @@ import System.Environment (withArgs)
 import System.IO.Temp
 import System.Random (randomIO)
 
-import Test.QuickCheck
-import Test.QuickCheck.Gen (chooseAny, unGen)
+import Test.QuickCheck.Property (Property, Testable, (===))
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Gen
 import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
+import Test.Tasty.QuickCheck (testProperty)
 
 import Text.Printf (printf)
 
@@ -181,6 +186,16 @@ import Data.CAS.RocksDB
 import Network.X509.SelfSigned
 
 import qualified P2P.Node.PeerDB as P2P
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+genEnum :: Enum a => (a, a) -> Gen a
+#if MIN_VERSION_QuickCheck(2,14,0)
+genEnum = chooseEnum
+#else
+genEnum (l, u) = toEnum <$> choose (fromEnum l, fromEnum u)
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB

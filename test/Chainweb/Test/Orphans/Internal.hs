@@ -23,8 +23,9 @@ import Control.Applicative
 
 import qualified Data.ByteString as B
 
-import Test.QuickCheck
-import Test.QuickCheck.Gen (chooseAny)
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Modifiers
+import Test.QuickCheck.Gen
 
 -- internal modules
 

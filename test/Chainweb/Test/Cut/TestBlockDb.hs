@@ -1,5 +1,5 @@
 -- |
--- Module: Chainweb.Cut.TestBlockDb
+-- Module: Chainweb.Test.Cut.TestBlockDb
 -- Copyright: Copyright © 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Stuart Popejoy
@@ -7,7 +7,7 @@
 -- Maintains block header and payload dbs alongside a current cut.
 --
 
-module Chainweb.Cut.TestBlockDb
+module Chainweb.Test.Cut.TestBlockDb
   ( TestBlockDb(..)
   , withTestBlockDb
   , mkTestBlockDb
@@ -23,7 +23,7 @@ import Data.Tuple.Strict (T2(..))
 import Chainweb.BlockHeader
 import Chainweb.ChainId
 import Chainweb.Cut
-import Chainweb.Cut.Test
+import Chainweb.Test.Cut
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
