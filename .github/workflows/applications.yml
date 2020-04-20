@@ -19,17 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         chainwebVersion: ['mainnet01', 'development']
-
     steps:
-    # Caches are limited to 5GB per repository. Currently the size of the db is 3.5GB
-    # - name: Sync chain database from cache
-    #   id: cache-chain-db
-    #   uses: actions/cache@v1
-    #   with:
-    #     path: db
-    #     key: chain-db-${{ matrix.chainwebVersion }}-
-    #     restore-keys: |
-    #       chain-db-${{ matrix.chainwebVersion }}-
     - name: Sync chain database from S3
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
@@ -212,7 +202,7 @@ jobs:
   # Build Chainweb Node
   #
   build:
-    name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
+    name: Build ${{ github.ref }} with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -233,6 +223,8 @@ jobs:
         - os: 'windows-latest'
           storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store/*'
     env:
+
+      # AWS S3 credentials
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
 
@@ -328,16 +320,17 @@ jobs:
       shell: bash
       run : |
         cat >> cabal.project.local <<EOF
-        package rocksdb-haskell
-          static: True
-          executable-static: True
-          extra-include-dirs: C:/mingw64/include
-          extra-lib-dirs: C:/mingw64/lib
-          ghc-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
-          ld-options: -lrocksdb -llz4 -lsnappy -lbz2 -lz -lzstd -lrpcrt4 -lstdc++
         package chainweb
           static: True
           executable-static: True
+        source-repository-package
+          type: git
+          location: https://github.com/larskuhtz/rocksdb-haskell.git
+          tag: 7243d036e963bb536be5e6ce89dbe55b209ccc74
+        package rocksdb-haskell
+          static: True
+          extra-include-dirs: C:/mingw64/include
+          extra-lib-dirs: C:/mingw64/lib
         EOF
     - uses: actions/cache@v1
       name: Cache dist-newstyle
@@ -365,7 +358,7 @@ jobs:
       run: eval $SYNC_FROM_CACHE
     - name: Install build dependencies
       shell: bash
-      run: cabal v2-build all --only-dependencies
+      run: cabal v2-build chainweb --only-dependencies
     - name: Build
       shell: bash
       run: cabal v2-build all
@@ -411,6 +404,6 @@ jobs:
       shell: bash
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
-        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
+        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ github.ref }}.tar.gz"
         aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$LATEST_BINFILE
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$LATEST_BINFILE --acl public-read
