@@ -293,7 +293,7 @@ library
 
     build-depends:
           Decimal >= 0.4.2
-        , QuickCheck >= 2.14
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , aeson-pretty >= 0.8
         , asn1-encoding >=0.9
@@ -472,7 +472,7 @@ test-suite chainweb-tests
 
         -- external
         , Decimal >= 0.4.2
-        , QuickCheck >= 2.14
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4.3
         , aeson-pretty
         , async >= 2.2
@@ -559,7 +559,7 @@ test-suite chainweb-tests
 
 --         -- external
 --         , Decimal >= 0.4.2
---         , QuickCheck >= 2.14
+--         , QuickCheck >= 2.12.6
 --         , aeson >= 1.4.3
 --         , async >= 2.2
 --         , attoparsec >= 0.13
@@ -702,7 +702,7 @@ executable cwtool
           chainweb
 
         -- external
-        , QuickCheck >= 2.14
+        , QuickCheck >= 2.12.6
         , aeson >= 1.4
         , aeson-pretty >= 0.8
         , lens-aeson >= 1.1

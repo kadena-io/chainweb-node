@@ -81,7 +81,6 @@ import Prelude hiding (lookup)
 import qualified Streaming.Prelude as S
 
 import qualified Test.QuickCheck as T
-import qualified Test.QuickCheck.Gen as T (chooseEnum)
 import qualified Test.QuickCheck.Monadic as T
 
 -- internal modules
@@ -94,6 +93,7 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
+import Chainweb.Test.Utils (genEnum)
 import Chainweb.Time (Micros(..), Time, TimeSpan, second)
 import Chainweb.Utils
 import Chainweb.Version
@@ -156,7 +156,7 @@ arbitraryBlockTimeOffset
     -> TimeSpan Micros
     -> T.Gen GenBlockTime
 arbitraryBlockTimeOffset lower upper = do
-    t <- T.chooseEnum (lower, upper)
+    t <- genEnum (lower, upper)
     return $ offsetBlockTime t
 
 testMineWithPayloadHash
@@ -241,7 +241,7 @@ arbitraryCut
     => ChainwebVersion
     -> T.Gen Cut
 arbitraryCut v = T.sized $ \s -> do
-    k <- T.choose (0,s)
+    k <- genEnum (0,s)
     foldlM (\c _ -> genCut c) (genesisCut v) [0..(k-1)]
   where
     genCut :: Cut -> T.Gen Cut
@@ -283,7 +283,7 @@ arbitraryWebChainCut_
         -- ^ A seed for the nonce which can used to enforce forks
     -> T.PropertyM IO Cut
 arbitraryWebChainCut_ wdb initialCut seed = do
-    k <- T.pick $ T.sized $ \s -> T.choose (0,s)
+    k <- T.pick $ T.sized $ \s -> genEnum (0,s)
     foldlM (\c _ -> genCut c) initialCut [0..(k-1)]
   where
     genCut c = do
