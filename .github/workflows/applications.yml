@@ -7,6 +7,11 @@ on:
     - ci/*
     - github-ci
     - release-candidate/*
+    tags:
+    - '[0-9].[0-9]+'
+  release:
+    types:
+    - created
 
 jobs:
 
@@ -53,7 +58,7 @@ jobs:
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool slow-tests
-  
+
   # Verify that all Genesis headers are up to date (no missing ea run)
   #
   verify-genesis-headers:
@@ -203,7 +208,7 @@ jobs:
   # Build Chainweb Node
   #
   build:
-    name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
+    name: Build ${{ github.ref }} with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -213,8 +218,8 @@ jobs:
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
     env:
-      
-      # AWS S3 Credentials
+
+      # AWS S3 credentials
       AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
 
@@ -232,8 +237,8 @@ jobs:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v1
-    - name: Install cabal-cache
-      if: matrix.cabalcache == 'true'
+    - name: Install cabal-cache (ubuntu and macOS)
+      if: matrix.cabalcache == 'true' && (contains(matrix.os, 'ubuntu') || contains(matrix.os, 'macOS'))
       run: |
         [[ "${{ matrix.os }}" =~ ubuntu ]] && OS="linux" || OS="osx"
         mkdir -p "./tmp/bin"
@@ -257,16 +262,16 @@ jobs:
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
-        documentation: false
+        documentation: False
         executable-stripping: True
         library-stripping: True
         package chainweb
-          documentation: false
+          documentation: False
           optimization: 2
           benchmarks: True
           tests: True
         package pact
-          documentation: false
+          documentation: False
           optimization: 2
         EOF
     - name: Append cabal.project.local for GHC-8.10
@@ -338,7 +343,7 @@ jobs:
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
     - name: Link latest-build application in S3
-      if: contains(github.ref, 'master')
+      if: contains(github.ref, 'master') || contains(github.event_name, 'release') || startsWith(github.ref, '1.')
       run: |
         export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
