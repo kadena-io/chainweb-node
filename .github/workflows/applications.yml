@@ -307,7 +307,7 @@ jobs:
     - name: Build chainweb library
       run: cabal v2-build lib:chainweb
     - name: Build chainweb applications
-      run: cabal v2-build all
+      run: cabal v2-build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
     - name: Run Tests
       run: cabal v2-run chainweb-tests -- --hide-successes
     - name: Sync cabal cache
