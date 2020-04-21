@@ -1,7 +1,7 @@
-cabal-version: 2.2
+cabal-version: 2.4
 
 name:         chainweb
-version:      1.7
+version:      1.8
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -15,8 +15,9 @@ category:     Blockchain, Currency, Bitcoin
 build-type:   Custom
 
 tested-with:
+    GHC == 8.10.1
+    GHC == 8.8.3
     GHC == 8.6.5
-    GHC == 8.4.4
 
 extra-source-files:
     CHANGELOG.md
