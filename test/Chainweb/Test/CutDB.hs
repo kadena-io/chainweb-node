@@ -60,7 +60,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
-import Chainweb.Cut.Test
+import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.Miner.Pact
 import Chainweb.Payload

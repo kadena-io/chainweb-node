@@ -683,9 +683,6 @@ startPeerDb nids conf = do
     !peerDb <- newEmptyPeerDb
     forM_ nids $ \nid ->
         peerDbInsertPeerInfoList_ True nid (_p2pConfigKnownPeers conf) peerDb
-    case _p2pConfigPeerDbFilePath conf of
-        Just dbFilePath -> loadIntoPeerDb dbFilePath peerDb
-        Nothing -> return ()
     return $ if _p2pConfigPrivate conf
         then makePeerDbPrivate peerDb
         else peerDb
@@ -693,9 +690,8 @@ startPeerDb nids conf = do
 -- | Stop a 'PeerDb', possibly persisting the db to a file.
 --
 stopPeerDb :: P2pConfiguration -> PeerDb -> IO ()
-stopPeerDb conf db = case _p2pConfigPeerDbFilePath conf of
-    Just dbFilePath -> storePeerDb dbFilePath db
-    Nothing -> return ()
+stopPeerDb _ _ = return ()
+{-# INLINE stopPeerDb #-}
 
 -- | Run a computation with a PeerDb
 --

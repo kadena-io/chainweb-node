@@ -16,7 +16,7 @@ import Control.Error.Util (note)
 import qualified Data.Text as T
 import Formatting
 import Options.Applicative
-import Shelly hiding (FilePath)
+import System.Process (callProcess)
 import System.Directory (executable, getPermissions)
 
 ---
@@ -62,7 +62,7 @@ pPassthrough = argument str
   (metavar "CHAINWEB-FLAGS" <> help "Native flags that a chainweb-node accepts")
 
 runNode :: Word8 -> Maybe FilePath -> Env -> IO ()
-runNode nid mconf (Env e ns v _ ps) = shelly $ run_ (fromText $ T.pack e) ops
+runNode nid mconf (Env e ns v _ ps) = callProcess e (T.unpack <$> ops)
   where
     ops :: [T.Text]
     ops = [ "--hostname=127.0.0.1"

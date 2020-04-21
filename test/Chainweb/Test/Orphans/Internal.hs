@@ -1,6 +1,9 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -29,7 +32,10 @@ import qualified Data.ByteString as B
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 
-import Test.QuickCheck
+import Test.QuickCheck.Exception (discard)
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Modifiers
+import Test.QuickCheck.Gen
 
 -- internal modules
 
@@ -48,6 +54,9 @@ import Chainweb.PowHash
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+
+import P2P.Node.Configuration
+import P2P.Node.PeerDB
 
 -- -------------------------------------------------------------------------- --
 -- Utils
@@ -98,6 +107,29 @@ instance Arbitrary HashTarget where
 
 instance Arbitrary HashDifficulty where
     arbitrary = HashDifficulty <$> arbitrary
+
+-- -------------------------------------------------------------------------- --
+-- P2P
+
+instance Arbitrary P2pConfiguration where
+    arbitrary = P2pConfiguration
+        <$> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
+
+instance Arbitrary PeerEntry where
+    arbitrary = PeerEntry
+        <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        <*> arbitrary
+
+instance Arbitrary HostAddressIdx where
+    arbitrary = hostAddressIdx <$> arbitrary
+    {-# INLINE arbitrary #-}
+
+deriving newtype instance Arbitrary LastSuccess
+deriving newtype instance Arbitrary SuccessiveFailures
+deriving newtype instance Arbitrary AddedTime
+deriving newtype instance Arbitrary ActiveSessionCount
 
 -- -------------------------------------------------------------------------- --
 -- Block Header

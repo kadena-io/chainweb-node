@@ -40,8 +40,7 @@ import qualified Data.Vector as V
 import GHC.Stack
 import Prelude hiding (lookup)
 import System.Timeout (timeout)
-import Test.QuickCheck hiding ((.&.))
-import Test.QuickCheck.Gen (chooseAny)
+import Test.QuickCheck.Gen
 import Test.QuickCheck.Monadic
 import Test.Tasty
 import Test.Tasty.HUnit

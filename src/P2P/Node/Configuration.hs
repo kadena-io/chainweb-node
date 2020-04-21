@@ -26,7 +26,6 @@ module P2P.Node.Configuration
 , p2pConfigMaxPeerCount
 , p2pConfigSessionTimeout
 , p2pConfigKnownPeers
-, p2pConfigPeerDbFilePath
 , p2pConfigIgnoreBootstrapNodes
 , defaultP2pConfiguration
 , pP2pConfiguration
@@ -41,10 +40,6 @@ import qualified Data.Text as T
 import GHC.Generics (Generic)
 
 import Numeric.Natural
-
-import Test.QuickCheck
-
-import Test.QuickCheck.Instances ({- Arbitrary V4.UUID -})
 
 -- Internal imports
 
@@ -77,9 +72,6 @@ data P2pConfiguration = P2pConfiguration
     , _p2pConfigKnownPeers :: ![PeerInfo]
         -- ^ List of known peers. Must not be empty.
 
-    , _p2pConfigPeerDbFilePath :: !(Maybe FilePath)
-        -- ^ the path where the peer database is persisted
-
     , _p2pConfigIgnoreBootstrapNodes :: !Bool
         -- ^ ignore builtin bootstrap nodes.
 
@@ -92,12 +84,6 @@ data P2pConfiguration = P2pConfiguration
     deriving (Show, Eq, Generic)
 
 makeLenses ''P2pConfiguration
-
-instance Arbitrary P2pConfiguration where
-    arbitrary = P2pConfiguration
-        <$> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary <*> arbitrary
-        <*> arbitrary <*> arbitrary
 
 -- | These are acceptable values for both test and production chainwebs.
 --
@@ -113,7 +99,6 @@ defaultP2pConfiguration = P2pConfiguration
         -- the configuration. So we have to wait until all configuration parsing
         -- is complete
 
-    , _p2pConfigPeerDbFilePath = Nothing
     , _p2pConfigIgnoreBootstrapNodes = False
     , _p2pConfigPrivate = False
     }
@@ -125,7 +110,6 @@ instance ToJSON P2pConfiguration where
         , "maxPeerCount" .= _p2pConfigMaxPeerCount o
         , "sessionTimeout" .= _p2pConfigSessionTimeout o
         , "peers" .= _p2pConfigKnownPeers o
-        , "peerDbFilePath" .= _p2pConfigPeerDbFilePath o
         , "ignoreBootstrapNodes" .= _p2pConfigIgnoreBootstrapNodes o
         , "private" .= _p2pConfigPrivate o
         ]
@@ -137,7 +121,6 @@ instance FromJSON (P2pConfiguration -> P2pConfiguration) where
         <*< p2pConfigMaxPeerCount ..: "maxPeerCount" % o
         <*< p2pConfigSessionTimeout ..: "sessionTimeout" % o
         <*< p2pConfigKnownPeers . from leftMonoidalUpdate %.: "peers" % o
-        <*< p2pConfigPeerDbFilePath ..: "peerDbFilePath" % o
         <*< p2pConfigIgnoreBootstrapNodes ..: "ignoreBootstrapNodes" % o
         <*< p2pConfigPrivate ..: "private" % o
 
@@ -148,7 +131,6 @@ instance FromJSON P2pConfiguration where
         <*> o .: "maxPeerCount"
         <*> o .: "sessionTimeout"
         <*> o .: "peers"
-        <*> o .: "peerDbFilePath"
         <*> o .: "ignoreBootstrapNodes"
         <*> o .: "private"
 
@@ -166,9 +148,6 @@ pP2pConfiguration networkId = id
         <> suffixHelp net "timeout for sessions in seconds"
     <*< p2pConfigKnownPeers %:: pLeftMonoidalUpdate
         (pure <$> pKnownPeerInfo)
-    <*< p2pConfigPeerDbFilePath .:: fmap Just % fileOption
-        % prefixLong net "p2p-peer-database-filepath"
-        <> suffixHelp net "file where the peer database is stored"
     <*< p2pConfigIgnoreBootstrapNodes .:: enableDisableFlag
         % prefixLong net "ignore-bootstrap-nodes"
         <> help ("when enabled the hard-coded bootstrap nodes for network are ignored")

@@ -234,8 +234,15 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockNonce %~ Nonce . (+1) . encodeNonceToWord64
       , [IncorrectHash, IncorrectPow]
       )
+    -- NOTE: The magic numbers in the following tests are directly related to
+    -- the constant set in `skipFeatureFlagValidationGuard`.
     , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGet decodeFeatureFlags badFlags)
-      , [IncorrectHash, IncorrectPow]
+            & testHeaderHdr . blockHeight .~ 530499
+      , [IncorrectHash, IncorrectPow, IncorrectHeight]
+      )
+    , ( hdr & testHeaderHdr . blockFlags .~ fromJuste (runGet decodeFeatureFlags badFlags)
+            & testHeaderHdr . blockHeight .~ 530500
+      , [IncorrectHash, IncorrectPow, InvalidFeatureFlags, IncorrectHeight]
       )
     , ( hdr & testHeaderHdr . blockAdjacentHashes .~ BlockHashRecord mempty
       , [IncorrectHash, IncorrectPow]
@@ -363,4 +370,3 @@ _testnet04InvalidHeaders = some
 
 t :: T.Text -> T.Text
 t = id
-

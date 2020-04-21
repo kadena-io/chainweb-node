@@ -151,8 +151,6 @@ library
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
-        , Chainweb.Cut.Test
-        , Chainweb.Cut.TestBlockDb
         , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
@@ -296,7 +294,6 @@ library
     build-depends:
           Decimal >= 0.4.2
         , QuickCheck >= 2.12.6
-        , QuickCheck-GenT >=0.2
         , aeson >= 1.4.3
         , aeson-pretty >= 0.8
         , asn1-encoding >=0.9
@@ -363,7 +360,6 @@ library
         , random-bytestring >= 0.1
         , reflection >= 2.1
         , resourcet >= 1.2
-        , safeio >= 0.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
         , semialign >= 1
@@ -434,6 +430,8 @@ test-suite chainweb-tests
         Chainweb.Test.BlockHeader.Genesis
         Chainweb.Test.BlockHeader.Validation
         Chainweb.Test.BlockHeaderDB
+        Chainweb.Test.Cut
+        Chainweb.Test.Cut.TestBlockDb
         Chainweb.Test.CutDB
         Chainweb.Test.Mempool
         Chainweb.Test.Mempool.Consensus
@@ -493,6 +491,7 @@ test-suite chainweb-tests
         , data-ordlist >= 0.4.7
         , deepseq >= 1.4
         , directory >= 1.2
+        , errors >= 2.3
         , exceptions
         , extra >= 1.6
         , file-embed >= 0.0
@@ -749,7 +748,6 @@ executable cwtool
         , safe-exceptions >= 0.1
         , servant-client >= 0.16
         , servant-client-core >= 0.16
-        , shelly >= 1.8
         , streaming >= 0.2.2
         , streaming-commons >= 0.2
         , streaming-concurrency >= 0.3.1.3
