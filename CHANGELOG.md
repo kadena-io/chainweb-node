@@ -6,7 +6,7 @@ This version replaces all previous versions. Any prior version will stop working
 on **2020-04-30T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
-This version will stop working on **TODO**.
+This version will stop working on **2020-06-11T00:00:00Z**.
 
 *   Starting with block height 530500 the first eight bytes of each block must be
     set to zero. (#974)
