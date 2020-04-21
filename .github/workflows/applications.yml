@@ -244,7 +244,7 @@ jobs:
         mkdir -p "./tmp/bin"
         curl -Ls "https://github.com/haskell-works/cabal-cache/releases/download/v1.0.1.5/cabal-cache_x86_64_${OS}.tar.gz" | tar -xzC "./tmp/bin/"
     - name: Install GHC and Cabal
-      uses: actions/setup-haskell@c4e863e92fcd479e2fcec8fe81921baa76000fca
+      uses: haskell-CI/setup@8f15d2f80373bad639e90c95dace7265800c6921
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
