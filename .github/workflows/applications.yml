@@ -328,6 +328,7 @@ jobs:
         cp LICENSE artifacts/applications
         cp chainweb.cabal artifacts/applications
         cp cabal.project artifacts/applications
+        cp cabal.project.local artifacts/applications
         cp cabal.project.freeze artifacts/applications
     - name: Publish applications
       uses: actions/upload-artifact@v1
