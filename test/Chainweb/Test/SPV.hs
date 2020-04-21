@@ -34,7 +34,6 @@ import Data.Foldable
 import Data.Functor.Of
 import qualified Data.List as L
 import Data.LogMessage
-import Data.Reflection hiding (int)
 import qualified Data.Vector.Unboxed as V
 
 import Numeric.Natural
@@ -81,7 +80,7 @@ tests :: RocksDb -> TestTree
 tests rdb = testGroup "SPV tests"
     [ testCaseStepsN "SPV transaction proof" 10 (spvTransactionRoundtripTest rdb version)
     , testCaseStepsN "SPV transaction output proof" 10 (spvTransactionOutputRoundtripTest rdb version)
-    , apiTests rdb True version
+    , apiTests rdb version
     , testCaseSteps "SPV transaction proof test" (spvTest rdb version)
     ]
   where
@@ -343,12 +342,12 @@ spvTransactionOutputRoundtripTest rdb v step = do
 
 type TestClientEnv_ cas = TestClientEnv MockTx cas
 
-apiTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
-apiTests rdb tls v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
+apiTests :: RocksDb -> ChainwebVersion -> TestTree
+apiTests rdb v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->
     testGroup "SPV API tests"
-        [ withPayloadServer tls v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
+        [ withPayloadServer False v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (without tls)" 10 (txApiTests env)
-        , withPayloadServer tls v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
+        , withPayloadServer True v dbIO (payloadDbs . view cutDbPayloadCas <$> dbIO) $ \env ->
             testCaseStepsN "spv api tests (with tls)" 10 (txApiTests env)
         ]
   where
@@ -359,49 +358,48 @@ apiTests rdb tls v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \db
 
 txApiTests :: PayloadCasLookup cas => IO (TestClientEnv_ cas) -> Step -> IO ()
 txApiTests envIO step = do
-    PayloadTestClientEnv env cutDb payloadDbs v <- envIO
-    give (snd . head $ payloadDbs) $ do
+    PayloadTestClientEnv env cutDb _payloadDbs v <- envIO
+    step "pick random transaction"
+    (h, txIx, tx, out) <- randomTransaction cutDb
 
-        step "pick random transaction"
-        (h, txIx, tx, out) <- randomTransaction cutDb
-        step $ "picked random transaction, height: " <> sshow (_blockHeight h) <> ", ix: " <> sshow txIx
+    step $ "picked random transaction, height: " <> sshow (_blockHeight h) <> ", ix: " <> sshow txIx
 
-        curCut <- _cut cutDb
-        trgChain <- targetChain curCut h
-        step $ "picked a reachable target chain, chain id: " <> sshow trgChain
+    curCut <- _cut cutDb
+    trgChain <- targetChain curCut h
+    step $ "picked a reachable target chain, chain id: " <> sshow trgChain
 
-        -- Transaction Proof:
+    -- Transaction Proof:
 
-        step "request transaction proof"
-        txProof <- flip runClientM env $
-            spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+    step "request transaction proof"
+    txProof <- flip runClientM env $
+        spvGetTransactionProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
 
-        case txProof of
+    case txProof of
 
-            Left err ->
-                assertFailure $ "request for transaction proof failed: " <> sshow err
+        Left err ->
+            assertFailure $ "request for transaction proof failed: " <> sshow err
 
-            Right proof -> do
-                step "verify transaction proof"
-                subj <- verifyTransactionProof cutDb proof
+        Right proof -> do
+            step "verify transaction proof"
+            subj <- verifyTransactionProof cutDb proof
 
-                step "confirm that transaction proof subject matches transaction"
-                assertEqual "proof subject matches transaction" tx subj
+            step "confirm that transaction proof subject matches transaction"
+            assertEqual "proof subject matches transaction" tx subj
 
-        -- Transaction Output Proof:
+    -- Transaction Output Proof:
 
-        step "request transaction output proof"
-        outProof <- flip runClientM env $
-            spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
+    step "request transaction output proof"
+    outProof <- flip runClientM env $
+        spvGetTransactionOutputProofClient v trgChain (_chainId h) (_blockHeight h) (int txIx)
 
-        case outProof of
+    case outProof of
 
-            Left err ->
-                assertFailure $ "request for transaction output proof failed: " <> sshow err
+        Left err ->
+            assertFailure $ "request for transaction output proof failed: " <> sshow err
 
-            Right proof -> do
-                step "verify transaction output proof"
-                subj <- verifyTransactionOutputProof cutDb proof
+        Right proof -> do
+            step "verify transaction output proof"
+            subj <- verifyTransactionOutputProof cutDb proof
 
-                step "confirm that transaction output proof subject matches transaction output"
-                assertEqual "proof subject matches transaction output" out subj
+            step "confirm that transaction output proof subject matches transaction output"
+            assertEqual "proof subject matches transaction output" out subj
