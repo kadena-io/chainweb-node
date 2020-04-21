@@ -173,7 +173,6 @@ import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.P2P.Peer.BootstrapConfig
     (bootstrapCertificate, bootstrapKey)
 import Chainweb.Time

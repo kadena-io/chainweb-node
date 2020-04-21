@@ -116,7 +116,7 @@ prop_validateTestnet04 = prop_validateHeaders "validate Testnet04 BlockHeaders" 
 
 prop_validateHeaders :: String -> [TestHeader] -> TestTree
 prop_validateHeaders msg hdrs = testGroup msg $ do
-    [ prop_validateHeader ("header " <> show i) h | h <- hdrs | i <- [0..] ]
+    [ prop_validateHeader ("header " <> show @Int i) h | h <- hdrs | i <- [0..] ]
 
 prop_validateHeader :: String -> TestHeader -> TestTree
 prop_validateHeader msg h = testCase msg $ do

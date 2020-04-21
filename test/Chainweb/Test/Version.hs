@@ -17,8 +17,8 @@ module Chainweb.Test.Version
 
 import qualified Data.List.NonEmpty as NE
 
-import Test.Tasty
-import Test.Tasty.QuickCheck
+import Test.Tasty (testGroup, TestTree)
+import Test.Tasty.QuickCheck (testProperty)
 import Test.QuickCheck
 
 -- internal modules

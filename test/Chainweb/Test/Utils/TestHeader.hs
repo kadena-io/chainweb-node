@@ -44,7 +44,8 @@ import Debug.Trace
 import GHC.Generics
 import GHC.Stack
 
-import Test.QuickCheck hiding (Success)
+import Test.QuickCheck.Arbitrary (arbitrary)
+import Test.QuickCheck.Gen (Gen)
 
 -- internal modules
 
@@ -54,6 +55,7 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Test.Orphans.Internal
+import Chainweb.Test.Utils (genEnum)
 import Chainweb.Test.Utils.ApiQueries
 import Chainweb.Version
 
@@ -134,7 +136,7 @@ testHeader v = case fromJSON (object v) of
 --
 arbitraryTestHeader :: ChainwebVersion -> ChainId -> Gen TestHeader
 arbitraryTestHeader v cid = do
-    h <- chooseEnum (genesisHeight v cid, maxBound `div` 2)
+    h <- genEnum (genesisHeight v cid, maxBound `div` 2)
     arbitraryTestHeaderHeight v cid h
 {-# INLINE arbitraryTestHeader #-}
 
@@ -152,7 +154,7 @@ arbitraryTestHeaderHeight v cid h = do
         $ adjacentChainIds (chainGraphAt v h) cid
     nonce <- arbitrary
     payloadHash <- arbitrary
-    t <- BlockCreationTime <$> chooseEnum (_bct $ _blockCreationTime (_parentHeader parent), maxBound)
+    t <- BlockCreationTime <$> genEnum (_bct $ _blockCreationTime (_parentHeader parent), maxBound)
     let adjHashes = BlockHashRecord (_blockHash <$> as)
     return $ TestHeader
         { _testHeaderHdr = newBlockHeader adjHashes payloadHash nonce t parent

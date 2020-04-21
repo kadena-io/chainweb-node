@@ -54,6 +54,7 @@ import Chainweb.Pact.TransactionExec
     (applyContinuation', applyExec', buildExecParsedCode)
 import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 import Chainweb.Test.Utils
 import Chainweb.Version
 
