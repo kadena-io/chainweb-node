@@ -198,6 +198,7 @@ library
         , Chainweb.RestAPI.NodeInfo
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.Rosetta.RestAPI
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.VerifyProof
