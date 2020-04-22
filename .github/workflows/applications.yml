@@ -203,7 +203,13 @@ jobs:
     - name: Validate ${{ matrix.chainwebVersion }} history
       run: |
         chmod 755 ./bin/chainweb-node
-        ./bin/chainweb-node --config-file=config.yaml | { sed -u -e '/start chainweb node/{p;q0};/\[Error\]/{p;q1}'; x=$?; killall chainweb-node ; exit $x ; }
+        ./bin/chainweb-node --config-file=config.yaml | {
+          sed -u -e '/start chainweb node/{p;q0};/\[Error\]/{p;q1}' ;
+          x=$? ;
+          echo "finished with exit code $x" ;
+          killall -q chainweb-node || true ;
+          exit $x ;
+        }
 
   # Build Chainweb Node
   #
