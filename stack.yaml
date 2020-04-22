@@ -1,7 +1,5 @@
 resolver: lts-15.7
 
-#ghc-options: {"$locals": -ddump-to-file -ddump-hi}
-
 build:
   test-arguments:
     additional-args: ["--hide-successes", "--color", "never"]
