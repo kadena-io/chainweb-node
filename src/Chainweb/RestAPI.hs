@@ -47,6 +47,7 @@ module Chainweb.RestAPI
 , serveChainwebSocket
 , serveChainwebSocketTls
 , Port
+, Rosetta(..)
 
 -- * Chainweb API Client
 
@@ -205,6 +206,8 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
 -- -------------------------------------------------------------------------- --
 -- Chainweb Server
 
+newtype Rosetta = Rosetta Bool
+
 someChainwebServer
     :: Show t
     => PayloadCasLookup cas
@@ -213,8 +216,9 @@ someChainwebServer
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
+    -> Rosetta
     -> SomeServer
-someChainwebServer v dbs mr (HeaderStream hs) =
+someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
     someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
         <> someHealthCheckServer
         <> someNodeInfoServer v
@@ -227,7 +231,7 @@ someChainwebServer v dbs mr (HeaderStream hs) =
         <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing (_chainwebServerCutDb dbs) hs)
-        <> someRosettaServer v
+        <> bool mempty (someRosettaServer v) r
   where
     cutPeerDb = fromJuste $ lookup CutNetwork $ _chainwebServerPeerDbs dbs
 
@@ -239,13 +243,14 @@ chainwebApplication
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
+    -> Rosetta
     -> Application
-chainwebApplication v dbs mr hs
+chainwebApplication v dbs mr hs r
     = chainwebTime
     . chainwebNodeVersion
     . chainwebCors
     . someServerApplication
-    $ someChainwebServer v dbs mr hs
+    $ someChainwebServer v dbs mr hs r
 
 -- Simple cors with actually simpleHeaders which includes content-type.
 chainwebCors :: Middleware
@@ -275,8 +280,9 @@ serveChainwebOnPort
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
+    -> Rosetta
     -> IO ()
-serveChainwebOnPort p v dbs mr hs = run (int p) $ chainwebApplication v dbs mr hs
+serveChainwebOnPort p v dbs mr hs r = run (int p) $ chainwebApplication v dbs mr hs r
 
 serveChainweb
     :: Show t
@@ -287,8 +293,9 @@ serveChainweb
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
+    -> Rosetta
     -> IO ()
-serveChainweb s v dbs mr hs = runSettings s $ chainwebApplication v dbs mr hs
+serveChainweb s v dbs mr hs r = runSettings s $ chainwebApplication v dbs mr hs r
 
 serveChainwebSocket
     :: Show t
@@ -300,9 +307,10 @@ serveChainwebSocket
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
+    -> Rosetta
     -> IO ()
-serveChainwebSocket s sock v dbs mr hs =
-    runSettingsSocket s sock $ chainwebApplication v dbs mr hs
+serveChainwebSocket s sock v dbs mr hs r =
+    runSettingsSocket s sock $ chainwebApplication v dbs mr hs r
 
 serveChainwebSocketTls
     :: Show t
@@ -316,13 +324,14 @@ serveChainwebSocketTls
     -> ChainwebServerDbs t logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
+    -> Rosetta
     -> Middleware
     -> IO ()
-serveChainwebSocketTls settings certChain key sock v dbs mr hs m =
+serveChainwebSocketTls settings certChain key sock v dbs mr hs r m =
     runTLSSocket tlsSettings settings sock $ m app
   where
     tlsSettings :: TLSSettings
     tlsSettings = tlsServerChainSettings certChain key
 
     app :: Application
-    app = chainwebApplication v dbs mr hs
+    app = chainwebApplication v dbs mr hs r

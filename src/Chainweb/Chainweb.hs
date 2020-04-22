@@ -60,6 +60,7 @@ module Chainweb.Chainweb
 , configBlockGasLimit
 , configThrottling
 , configReorgLimit
+, configRosetta
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -183,8 +184,8 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
-import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
+import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -322,6 +323,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configValidateHashesOnReplay :: !Bool
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
+    , _configRosetta :: !Bool
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -355,6 +357,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configReorgLimit = int defaultReorgLimit
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
+    , _configRosetta = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -374,6 +377,7 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
+        , "rosetta" .= _configRosetta o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -393,6 +397,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
+        <*< configRosetta ..: "rosetta" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -432,6 +437,9 @@ pChainwebConfiguration = id
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
+    <*< configRosetta .:: boolOption_
+        % long "rosetta"
+        <> help "Enable the Rosetta endpoints."
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -858,6 +866,7 @@ runChainweb cw = do
             }
         (_chainwebCoordinator cw)
         (_chainwebHeaderStream cw)
+        (Rosetta . _configRosetta $ _chainwebConfig cw)
 
     -- HTTP Request Logger
 
