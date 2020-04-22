@@ -39,6 +39,10 @@ module Chainweb.RestAPI
 , prettyChainwebSwagger
 , chainwebSwagger
 
+-- * Component Triggers
+, HeaderStream(..)
+, Rosetta(..)
+
 -- * Chainweb API Server
 , someChainwebServer
 , chainwebApplication
@@ -47,7 +51,6 @@ module Chainweb.RestAPI
 , serveChainwebSocket
 , serveChainwebSocketTls
 , Port
-, Rosetta(..)
 
 -- * Chainweb API Client
 
@@ -204,9 +207,14 @@ prettyChainwebSwagger v cs = T.decodeUtf8 . BL.toStrict . encodePretty
     $ chainwebSwagger v cs
 
 -- -------------------------------------------------------------------------- --
--- Chainweb Server
+-- Component Triggers
 
 newtype Rosetta = Rosetta Bool
+
+newtype HeaderStream = HeaderStream Bool
+
+-- -------------------------------------------------------------------------- --
+-- Chainweb Server
 
 someChainwebServer
     :: Show t

@@ -72,7 +72,6 @@ module Chainweb.Chainweb
 , chainwebHostAddress
 , chainwebMiner
 , chainwebCoordinator
-, chainwebHeaderStream
 , chainwebLogger
 , chainwebSocket
 , chainwebPeer
@@ -166,7 +165,6 @@ import qualified Pact.Types.Command as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
-import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
@@ -450,7 +448,6 @@ data Chainweb logger cas = Chainweb
     , _chainwebCutResources :: !(CutResources logger cas)
     , _chainwebMiner :: !(Maybe (MinerResources logger cas))
     , _chainwebCoordinator :: !(Maybe (MiningCoordination logger cas))
-    , _chainwebHeaderStream :: !HeaderStream
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
@@ -670,7 +667,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebCutResources = cuts
                             , _chainwebMiner = m
                             , _chainwebCoordinator = mc
-                            , _chainwebHeaderStream = HeaderStream $ _configHeaderStream conf
                             , _chainwebLogger = logger
                             , _chainwebPeer = peer
                             , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
@@ -865,7 +861,7 @@ runChainweb cw = do
             , _chainwebServerPactDbs = pactDbsToServe
             }
         (_chainwebCoordinator cw)
-        (_chainwebHeaderStream cw)
+        (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
 
     -- HTTP Request Logger
