@@ -1,6 +1,6 @@
 # `chainweb-node` Changelog
 
-## 1.8 (TODO)
+## 1.8 (2020-04-27)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2020-04-30T00:00:00Z**. Node administrators must upgrade to this version
@@ -17,7 +17,11 @@ This version will stop working on **2020-06-11T00:00:00Z**.
 
 *   Removed the PUT endpoints from the `/chain/header` APIs. (#1002).
 
-## 1.7 (2019-03-26)
+*   Make block header validation aware of adjacent parents. (#1004).
+
+*   Increased the default block gas limit by 10x to 150,000. (#1019).
+
+## 1.7 (2020-03-26)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2020-04-02T00:00:00Z**. Node administrators must upgrade to this version
