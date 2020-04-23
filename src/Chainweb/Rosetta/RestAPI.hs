@@ -49,13 +49,13 @@ type RosettaApi_ =
         :> Post '[JSON] MempoolResponse
     -- Network --
     :<|> "rosetta" :> "network" :> "list"
-        :> ReqBody '[JSON] ()  -- TODO Need clarification.
+        :> ReqBody '[JSON] MetadataRequest
         :> Post '[JSON] NetworkListResponse
     :<|> "rosetta" :> "network" :> "options"
-        :> ReqBody '[JSON] ()
+        :> ReqBody '[JSON] NetworkRequest
         :> Post '[JSON] NetworkOptionsResponse
     :<|> "rosetta" :> "network" :> "status"
-        :> ReqBody '[JSON] ()
+        :> ReqBody '[JSON] NetworkRequest
         :> Post '[JSON] NetworkStatusResponse
 
 type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaApi_
