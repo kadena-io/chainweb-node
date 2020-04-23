@@ -224,18 +224,6 @@ jobs:
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
     env:
-
-      # AWS S3 credentials
-      AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
-
-      # Cabal Cache
-      CABAL_CACHE: ./tmp/bin/cabal-cache
-      CABAL_CACHE_BUCKET: kadena-cabal-cache
-      SYNC_TO_CACHE: $CABAL_CACHE sync-to-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
-      SYNC_FROM_CACHE: $CABAL_CACHE sync-from-archive --threads 16 --archive-uri s3://$CABAL_CACHE_BUCKET/${{ matrix.os }} --region us-east-1
-
-      # Aritfacts
       ARTIFACT_BUCKET: kadena-cabal-cache
       ARTIFACT_FOLDER: chainweb-node
 
@@ -307,7 +295,14 @@ jobs:
         cabal v2-freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
-      run: eval $SYNC_FROM_CACHE
+      uses: larskuhtz/cabal-cache-action@e71fccc1eb83d3c4ac715d1349f0ecfb4045b9ad
+      with:
+        bucket: "kadena-cabal-cache"
+        region: "us-east-1"
+        folder: "${{ matrix.os }}"
+        aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
+        aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
+
     - name: Install build dependencies
       run: cabal v2-build chainweb --only-dependencies
     - name: Build chainweb library
@@ -316,9 +311,6 @@ jobs:
       run: cabal v2-build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
     - name: Run Tests
       run: cabal v2-run chainweb-tests -- --hide-successes
-    - name: Sync cabal cache
-      if: always() && (matrix.cabalcache == 'true')
-      run: eval $SYNC_TO_CACHE
 
     # Publish Artifacts
     - name: Prepare artifacts
