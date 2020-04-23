@@ -289,7 +289,7 @@ jobs:
         cabal v2-freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
-      uses: larskuhtz/cabal-cache-action@7ed020162f5e9b4fcfce6932940b20d9708d86fb
+      uses: larskuhtz/cabal-cache-action@21220b9f6499bb12cb0b4b926d6faa9c46a7b146
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
