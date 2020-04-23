@@ -28,16 +28,16 @@ import Chainweb.Version
 ---
 
 rosettaServer :: forall (v :: ChainwebVersionT). Server (RosettaApi v)
-rosettaServer = (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
-  :<|> (\_ -> pure ())
+rosettaServer = (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
+  :<|> (\_ -> undefined)
 
 someRosettaServer :: ChainwebVersion -> SomeServer
 someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) =
