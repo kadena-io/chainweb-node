@@ -231,12 +231,6 @@ jobs:
     # Setup
     - name: Checkout repository
       uses: actions/checkout@v1
-    - name: Install cabal-cache (ubuntu and macOS)
-      if: matrix.cabalcache == 'true' && (contains(matrix.os, 'ubuntu') || contains(matrix.os, 'macOS'))
-      run: |
-        [[ "${{ matrix.os }}" =~ ubuntu ]] && OS="linux" || OS="osx"
-        mkdir -p "./tmp/bin"
-        curl -Ls "https://github.com/haskell-works/cabal-cache/releases/download/v1.0.1.5/cabal-cache_x86_64_${OS}.tar.gz" | tar -xzC "./tmp/bin/"
     - name: Install GHC and Cabal
       uses: haskell-CI/setup@8f15d2f80373bad639e90c95dace7265800c6921
       with:
@@ -328,7 +322,7 @@ jobs:
         cp cabal.project artifacts/applications
         cp cabal.project.local artifacts/applications
         cp cabal.project.freeze artifacts/applications
-    - name: Publish applications
+    - name: Safe artifacts
       uses: actions/upload-artifact@v1
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
@@ -341,6 +335,9 @@ jobs:
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
     - name: Link latest-build application in S3
       if: contains(github.ref, 'master') || contains(github.event_name, 'release') || startsWith(github.ref, '1.')
       run: |
@@ -348,3 +345,6 @@ jobs:
         export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
         aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$LATEST_BINFILE
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$LATEST_BINFILE --acl public-read
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
