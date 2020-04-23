@@ -23,5 +23,10 @@ source-repository-package
     location: https://github.com/kadena-io/chainweb-storage.git
     tag: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
 
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/rosetta.git
+    tag: 206a0670d72a087a11188af160295ed63d70f99f
+
 package vault
     documentation: false

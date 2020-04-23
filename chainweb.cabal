@@ -361,6 +361,7 @@ library
         , random >= 1.1
         , random-bytestring >= 0.1
         , resourcet >= 1.2
+        , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
         , semialign >= 1
