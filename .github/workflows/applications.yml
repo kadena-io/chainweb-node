@@ -270,7 +270,18 @@ jobs:
           ghc-options: -Wwarn
         package cassava
           flags: -bytestring--lt-0_10_4
-        allow-newer: *
+        allow-newer:
+          *:base
+          *:template-haskell
+          *:lens
+          *:haskeline
+          *:Cabal
+          *:ghc-prim
+          thyme:*
+          *:optics-core
+          *:optics-extra
+          *:optics-th
+          *:process
     - uses: actions/cache@v1
       name: Cache dist-newstyle
       with:
