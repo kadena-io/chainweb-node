@@ -34,7 +34,6 @@ module Chainweb.BlockHeader
 (
 -- * Newtype wrappers for function parameters
   ParentHeader(..)
-, parentHeader
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -514,7 +513,6 @@ instance IsCasValue BlockHeader where
 type BlockHeaderCas cas = (CasConstraint cas BlockHeader)
 
 makeLenses ''BlockHeader
-makeLenses ''ParentHeader
 
 instance Serialize BlockHeader where
     put = encodeBlockHeader

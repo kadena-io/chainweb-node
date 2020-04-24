@@ -172,7 +172,7 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockTarget %~ messWords encodeHashTarget decodeHashTarget (flip complementBit 0)
       , [IncorrectHash, IncorrectPow, IncorrectTarget]
       )
-    , ( hdr & testHeaderParent . parentHeader . blockHeight .~ 318359
+    , ( hdr & testHeaderParent . coerced . blockHeight .~ 318359
       , [IncorrectHeight, IncorrectEpoch, IncorrectTarget]
       )
     , ( hdr & testHeaderHdr . blockParent %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
