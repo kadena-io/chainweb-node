@@ -738,5 +738,4 @@ oldTargetGuard _ _ = False
 --
 skipFeatureFlagValidationGuard :: ChainwebVersion -> BlockHeight -> Bool
 skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:xxZ
-skipFeatureFlagValidationGuard Development h = h < 140
 skipFeatureFlagValidationGuard _ _ = False
