@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -10,11 +11,22 @@
 -- Stability: experimental
 --
 --
-module Chainweb.Rosetta.RestAPI where
+module Chainweb.Rosetta.RestAPI
+  ( -- * Endpoints
+    RosettaApi_
+  , RosettaApi
+    -- * Errors
+  , RosettaError
+  , rosettaError
+  ) where
+
+import Data.Text (Text)
 
 import Rosetta
 
 import Servant.API
+
+-- internal modules
 
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc)
 import Chainweb.Version
@@ -59,3 +71,8 @@ type RosettaApi_ =
         :> Post '[JSON] NetworkStatusResponse
 
 type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaApi_
+
+data RosettaError
+
+rosettaError :: RosettaError -> (Word, Text)
+rosettaError _ = (0, "oops!")
