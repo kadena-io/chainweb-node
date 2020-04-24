@@ -668,10 +668,17 @@ useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- the tx timing checks a bit.
 
 -- | Checks height after which module name fix in effect.
---
-enableModuleNameFix :: ChainwebVersion -> BlockHeight -> Bool
-enableModuleNameFix Mainnet01 bh = bh >= 448501 -- ~ 2020-04-02T12:00:00Z
-enableModuleNameFix _ bh = bh >= 2
+enableModuleNameFix
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Bool
+enableModuleNameFix v bh = case v of
+  Mainnet01 -> forHeight 448501 -- ~ 2020-04-02T12:00:00Z
+  Development -> forHeight 100
+  _ -> forHeight 2
+  where
+    forHeight h = bh >= h
+
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
