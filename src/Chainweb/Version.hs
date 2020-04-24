@@ -644,6 +644,7 @@ coinV2Upgrade _ _ _ = False
 --
 pactBackCompat_v16 :: ChainwebVersion -> BlockHeight -> Bool
 pactBackCompat_v16 Mainnet01 h = h < 328000
+pactBackCompat_v16 Development h = h < 120
 pactBackCompat_v16 _ _ = False
 
 -- | If this is true the creation time of the current header is used for pact tx
