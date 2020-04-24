@@ -623,21 +623,18 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 8 = h == 140808
     | cid == unsafeChainId 9 = h == 140808
     | otherwise = error $ "invalid chain id " <> sshow cid
-coinV2Upgrade Development cid h
-    | cid == unsafeChainId 0 = h == 3
-    | otherwise = h == 4
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
 -- Devnet 1 hour of blocks
+--
 pactBackCompat_v16
   :: ChainwebVersion
   -> BlockHeight
   -> Bool
 pactBackCompat_v16 Mainnet01 h = h < 328000
-pactBackCompat_v16 Development h = h < 120
 pactBackCompat_v16 _ _ = False
 
 -- | If this is true the creation time of the current header is used for pact tx
@@ -653,8 +650,6 @@ useLegacyCreationTimeForTxValidation
     -> BlockHeight
     -> Bool
 useLegacyCreationTimeForTxValidation Mainnet01 h = h < 449940 -- ~ 2020-04-03T00:00:00Z
-useLegacyCreationTimeForTxValidation Testnet04 h = h < 286231 -- 2020-04-02T02:00:00Z
-useLegacyCreationTimeForTxValidation Development h = h < 150
 useLegacyCreationTimeForTxValidation _ h = h <= 1
     -- For most chainweb versions there is a large gap between creation times of
     -- the genesis blocks and the corresponding first blocks.
@@ -666,18 +661,13 @@ useLegacyCreationTimeForTxValidation _ h = h <= 1
 
 
 -- | Checks height after which module name fix in effect.
+--
 enableModuleNameFix
     :: ChainwebVersion
     -> BlockHeight
     -> Bool
-enableModuleNameFix v bh = case v of
-  Mainnet01 -> forHeight 448501 -- ~ 2020-04-02T12:00:00Z
-  Testnet04 -> forHeight 286110 -- ~ 2020-04-02T01:00:00Z
-  Development -> forHeight 100
-  _ -> forHeight 2
-  where
-    forHeight h = bh >= h
-
+enableModuleNameFix Mainnet01 bh = bh >= 448501 -- ~ 2020-04-02T12:00:00Z
+enableModuleNameFix _ bh = bh >= 2
 
 -- -------------------------------------------------------------------------- --
 -- Header Validation Guards
@@ -736,8 +726,6 @@ slowEpochGuard _ _ = False
 --
 oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
 oldTargetGuard Mainnet01 h = h < 452820 -- ~ 2020-04-04T00:00:00Z
-oldTargetGuard Testnet04 h = h < 286352 -- ~ 2020-04-02T03:00:00Z
-oldTargetGuard Development h = h < 360
 oldTargetGuard _ _ = False
 {-# INLINE oldTargetGuard #-}
 
@@ -756,7 +744,6 @@ skipFeatureFlagValidationGuard
     -> BlockHeight
         -- ^ height of header
     -> Bool
-skipFeatureFlagValidationGuard Mainnet01 _ = True
-skipFeatureFlagValidationGuard Development _ = True
-skipFeatureFlagValidationGuard Testnet04 _ = True
+skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:xxZ
+skipFeatureFlagValidationGuard Development h = h < 140
 skipFeatureFlagValidationGuard _ _ = False
