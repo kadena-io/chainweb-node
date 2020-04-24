@@ -19,7 +19,10 @@ This version will stop working on **2020-06-11T00:00:00Z**.
 
 *   Make block header validation aware of adjacent parents. (#1004).
 
-*   Increased the default block gas limit by 10x to 150,000. (#1019).
+*   Increased the default block gas limit by 10x to 150,000. Note that if you
+    have manually specified a block gas limit in your node config file, this
+    change will not take effect. We recommend removing it and using the
+    chainweb-node default. (#1019).
 
 ## 1.7 (2020-03-26)
 
