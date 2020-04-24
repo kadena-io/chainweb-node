@@ -16,11 +16,9 @@ module Chainweb.Rosetta.RestAPI
     RosettaApi_
   , RosettaApi
     -- * Errors
-  , RosettaError
+  , RosettaFailure(..)
   , rosettaError
   ) where
-
-import Data.Text (Text)
 
 import Rosetta
 
@@ -72,7 +70,8 @@ type RosettaApi_ =
 
 type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaApi_
 
-data RosettaError
+data RosettaFailure
+    = RosettaChainUnspecified
 
-rosettaError :: RosettaError -> (Word, Text)
-rosettaError _ = (0, "oops!")
+rosettaError :: RosettaFailure -> RosettaError
+rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False

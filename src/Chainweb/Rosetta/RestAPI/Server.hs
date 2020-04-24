@@ -14,7 +14,12 @@
 --
 module Chainweb.Rosetta.RestAPI.Server where
 
+import Control.Monad.Except (throwError)
+
+import Data.Aeson (encode)
 import Data.Proxy (Proxy(..))
+
+import Rosetta
 
 import Servant.API
 import Servant.Server
@@ -29,16 +34,32 @@ import Chainweb.Version
 
 rosettaServer :: forall (v :: ChainwebVersionT). Server (RosettaApi v)
 rosettaServer = (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
-  :<|> (\_ -> undefined)
+    -- Blocks --
+    :<|> (\_ -> undefined)
+    :<|> (\_ -> undefined)
+    -- Construction --
+    :<|> (\_ -> undefined)
+    :<|> (\_ -> undefined)
+    -- Mempool --
+    :<|> mempoolTransactionH
+    :<|> mempoolH
+    -- Network --
+    :<|> (\_ -> undefined)
+    :<|> (\_ -> undefined)
+    :<|> (\_ -> undefined)
 
 someRosettaServer :: ChainwebVersion -> SomeServer
 someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) =
     SomeServer (Proxy @(RosettaApi vT)) rosettaServer
+
+--------------------------------------------------------------------------------
+-- Mempool Handlers
+
+mempoolH :: MempoolRequest -> Handler MempoolResponse
+mempoolH (MempoolRequest (NetworkIdentifier _ _ msni)) = case msni of
+    Nothing -> throwError err500 { errBody = encode $ rosettaError RosettaChainUnspecified }
+    Just sni -> do
+        undefined
+
+mempoolTransactionH :: MempoolTransactionRequest -> Handler MempoolTransactionResponse
+mempoolTransactionH = undefined
