@@ -737,6 +737,7 @@ slowEpochGuard _ _ = False
 --
 oldTargetGuard :: ChainwebVersion -> BlockHeight -> Bool
 oldTargetGuard Mainnet01 h = h < 452820 -- ~ 2020-04-04T00:00:00Z
+oldTargetGuard Development h = h < 360
 oldTargetGuard _ _ = False
 {-# INLINE oldTargetGuard #-}
 
