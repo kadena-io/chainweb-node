@@ -633,12 +633,14 @@ coinV2Upgrade Mainnet01 cid h
     | cid == unsafeChainId 8 = h == 140808
     | cid == unsafeChainId 9 = h == 140808
     | otherwise = error $ "invalid chain id " <> sshow cid
+coinV2Upgrade Development cid h
+    | cid == unsafeChainId 0 = h == 3
+    | otherwise = h == 4
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56
--- Devnet 1 hour of blocks
 --
 pactBackCompat_v16 :: ChainwebVersion -> BlockHeight -> Bool
 pactBackCompat_v16 Mainnet01 h = h < 328000

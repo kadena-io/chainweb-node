@@ -139,6 +139,7 @@ prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
                     <> ", expected: " <> sshow expectedErrs
                     <> ", actual: " <> sshow errs
                     <> ", header: " <> sshow (_blockHash $ _testHeaderHdr h)
+                    <> ", height: " <> sshow (_blockHeight $ _testHeaderHdr h)
             _ -> return () -- FIXME be more specific
 
 -- -------------------------------------------------------------------------- --
@@ -171,6 +172,9 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockTarget %~ messWords encodeHashTarget decodeHashTarget (flip complementBit 0)
       , [IncorrectHash, IncorrectPow, IncorrectTarget]
       )
+    , ( hdr & testHeaderParent . parentHeader . blockHeight .~ 318359
+      , [IncorrectHeight, IncorrectEpoch, IncorrectTarget]
+      )
     , ( hdr & testHeaderHdr . blockParent %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
       , [MissingParent]
       )
@@ -184,7 +188,7 @@ validationFailures =
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
-      , [IncorrectHash, IncorrectPow, VersionMismatch]
+      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags]
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
