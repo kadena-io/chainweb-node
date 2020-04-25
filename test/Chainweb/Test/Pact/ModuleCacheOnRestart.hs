@@ -10,6 +10,8 @@ module Chainweb.Test.Pact.ModuleCacheOnRestart (tests) where
 
 import Control.Concurrent.MVar.Strict
 import Control.Lens
+import Control.Monad
+import Control.Monad.IO.Class
 
 import Data.Default
 import qualified Data.HashMap.Strict as HM
@@ -35,6 +37,7 @@ import Pact.Types.Term
 -- chainweb imports
 
 import Chainweb.BlockCreationTime
+import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.ChainId
@@ -44,11 +47,15 @@ import Chainweb.Pact.Backend.RelationalCheckpointer
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.PactService
 import Chainweb.Pact.Types
+import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
+import Chainweb.Test.Cut
+import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Version
+import Chainweb.WebBlockHeaderDB
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
@@ -60,37 +67,34 @@ tests :: ScheduledTest
 tests =
       ScheduledTest label $
       withMVarResource mempty $ \iom ->
-      withRocksResource $ \rocksIO ->
-      withPayloadDb $ \pdb ->
-      withBlockHeaderDb rocksIO genblock $ \bhdb ->
+      withTestBlockDbTest testVer $ \bdbio ->
       withTemporaryDir $ \dir ->
       testGroup label
       [
-        withPact' pdb bhdb dir iom testInitial (testCase "testInitial")
+        withPact' bdbio dir iom testInitial (testCase "testInitial")
       , after AllSucceed "testInitial" $
-        withPact' pdb bhdb dir iom testRestart1 (testCase "testRestart1")
+        withPact' bdbio dir iom testRestart (testCase "testRestart-1")
+      , after AllSucceed "testRestart1" $
+        withPact' bdbio dir iom (testCoinbase bdbio) (testCase "testCoinbase")
+      , after AllSucceed "testCoinbase" $
+        withPact' bdbio dir iom testRestart (testCase "testRestart-2")
 
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
-    genblock = genesisBlockHeader testVer testChainId
-
-initPayloadState :: PayloadCasLookup cas => PactServiceM cas ()
-initPayloadState = initialPayloadState dummyLogger testVer testChainId
 
 type CacheTest cas =
   (PactServiceM cas ()
   ,IO (MVar ModuleCache) -> ModuleCache -> Assertion)
 
+-- | Do genesis load, snapshot cache.
 testInitial :: PayloadCasLookup cas => CacheTest cas
-testInitial = (initPayloadState,populateMVar)
+testInitial = (initPayloadState,snapshotCache)
   where
-    populateMVar iomcache initCache = do
-      mcache <- iomcache
-      modifyMVar_ mcache (const (pure initCache))
 
-testRestart1 :: PayloadCasLookup cas => CacheTest cas
-testRestart1 = (initPayloadState,checkLoadedCache)
+-- | Do restart load, test results of 'initialPayloadState' against snapshotted cache.
+testRestart :: PayloadCasLookup cas => CacheTest cas
+testRestart = (initPayloadState,checkLoadedCache)
   where
     checkLoadedCache ioa initCache = do
       a <- ioa >>= readMVar
@@ -102,24 +106,49 @@ testRestart1 = (initPayloadState,checkLoadedCache)
                 "\nexpected: \n" <>
                 showCache a'
       assertBool msg (a' == c')
-    justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+
+-- | Run coinbase to do upgrade to v2, snapshot cache.
+testCoinbase :: PayloadCasLookup cas => IO TestBlockDb -> CacheTest cas
+testCoinbase iobdb = (initPayloadState >> doCoinbase,snapshotCache)
+  where
+    doCoinbase = do
+      bdb <- liftIO $ iobdb
+      pwo <- execNewBlock mempty (ParentHeader genblock) noMiner
+      liftIO $ addTestBlockDb bdb (Nonce 0) (offsetBlockTime second) testChainId pwo
+      nextH <- liftIO $ getParentTestBlockDb bdb testChainId
+      void $ execValidateBlock nextH (payloadWithOutputsToPayloadData pwo)
+
+-- | Interfaces can't be upgraded, but modules can, so verify hash in that case.
+justModuleHashes :: ModuleCache -> HM.HashMap ModuleName (Maybe ModuleHash)
+justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+
+genblock :: BlockHeader
+genblock = genesisBlockHeader testVer testChainId
+
+initPayloadState :: PayloadCasLookup cas => PactServiceM cas ()
+initPayloadState = initialPayloadState dummyLogger testVer testChainId
+
+snapshotCache :: IO (MVar ModuleCache) -> ModuleCache -> IO ()
+snapshotCache iomcache initCache = do
+  mcache <- iomcache
+  modifyMVar_ mcache (const (pure initCache))
+
 
 withPact'
-    :: PayloadCasLookup cas
-    => IO (PayloadDb cas)
-    -> IO BlockHeaderDb
+    :: IO TestBlockDb
     -> IO FilePath
     -> IO (MVar ModuleCache)
-    -> CacheTest cas
+    -> CacheTest RocksDbCas
     -> (Assertion -> TestTree)
     -> TestTree
-withPact' iopdb iobhdb iodir r ctest toTestTree =
+withPact' bdbio iodir r ctest toTestTree =
     withResource startPact stopPact go
   where
     go iof = toTestTree $ iof >>= \(_,f) -> f ctest
     startPact = do
-        pdb <- iopdb
-        bhdb <- iobhdb
+        bdb <- bdbio
+        bhdb <- getWebBlockHeaderDb (_bdbWebBlockHeaderDb bdb) testChainId
+        let pdb = _bdbPayloadDb bdb
         dir <- iodir
         sqlEnv <- startSqliteDb testVer testChainId logger (Just dir) Nothing False
         return $ (sqlEnv,) $ \(ps,cacheTest) -> do

@@ -13,6 +13,8 @@ module Chainweb.Test.Cut.TestBlockDb
   , mkTestBlockDb
   , addTestBlockDb
   , getParentTestBlockDb
+  -- convenience export
+  , RocksDbCas
   ) where
 
 import Control.Concurrent.MVar
