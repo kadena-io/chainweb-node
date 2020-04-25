@@ -73,11 +73,12 @@ tests =
       [
         withPact' bdbio dir iom testInitial (testCase "testInitial")
       , after AllSucceed "testInitial" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart-1")
+        withPact' bdbio dir iom testRestart (testCase "testRestart1")
       , after AllSucceed "testRestart1" $
-        withPact' bdbio dir iom (testCoinbase bdbio) (testCase "testCoinbase")
-      , after AllSucceed "testCoinbase" $
-        withPact' bdbio dir iom testRestart (testCase "testRestart-2")
+        -- wow, Tasty thinks there's a "loop" if the following test is called "testCoinbase"!!
+        withPact' bdbio dir iom (testCoinbase bdbio) (testCase "testDoUpgrades")
+      , after AllSucceed "testDoUpgrades" $
+        withPact' bdbio dir iom testRestart (testCase "testRestart2")
 
       ]
   where
