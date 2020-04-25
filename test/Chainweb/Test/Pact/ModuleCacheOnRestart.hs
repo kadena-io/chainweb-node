@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -25,9 +26,11 @@ import System.LogLevel
 -- pact imports
 
 import Pact.Gas.Table
+import Pact.Types.Info (Code(..))
 import Pact.Types.Logger hiding (Logger)
 import Pact.Types.SPV
 import Pact.Types.Runtime (mdModule,_MDModule,mHash)
+import Pact.Types.Term
 
 -- chainweb imports
 
@@ -105,8 +108,8 @@ withPact' version logLevel iopdb iobhdb iodir deepForkLimit r act toTestTree =
                   modifyMVar_ mcache (const (pure (_psInitCache pstate)))
               Check ioa -> do
                   a <- ioa
-                  let a' = justModuleHashes $ filterNsCoin a
-                  let c' = justModuleHashes $ _psInitCache pstate
+                  let a' = moduleCode $ filterNsCoin a
+                  let c' = moduleCode $ _psInitCache pstate
                   let msg = "Module cache mismatch, found " <> show c'
                             <> ", expected " <> show a'
                   assertBool msg (a' == c') -- (_psInitCache pstate))
@@ -114,8 +117,11 @@ withPact' version logLevel iopdb iobhdb iodir deepForkLimit r act toTestTree =
     stopPact (sqlEnv, _) = stopSqliteDb sqlEnv
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
-    filterNsCoin = HM.filterWithKey $ \k _ -> k `elem` ["coin","ns"]
-    justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+    filterNsCoin = HM.filterWithKey $ \k _ -> k `elem` ["coin","ns","gas-payer-v1"] -- TODO check entire module caceh
+    moduleCode = HM.map $ \v -> T.take 100 $ _unCode $ case view (_1 . mdModule) v of
+      MDModule Module {..} -> _mCode
+      MDInterface Interface {..} -> _interfaceCode
+
 
 -- We want a special version of initPactService'. The reason we need this
 -- version is that initial version of initPactService' calls evalPactServicM,

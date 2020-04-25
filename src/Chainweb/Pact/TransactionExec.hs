@@ -379,7 +379,7 @@ readInitModules logger dbEnv pd =
     go = do
       readExec <-
         liftIO $ buildExecParsedCode Nothing
-        "coin.MINIMUM_PRECISION ns.GUARD_SUCCESS"
+        "coin.MINIMUM_PRECISION ns.GUARD_SUCCESS gas-payer-v1.GAS_PAYER" -- TODO need to handle fungible-vX
       er <- catchesPactError $!
         applyExec' interp readExec [] chash permissiveNamespacePolicy
 
