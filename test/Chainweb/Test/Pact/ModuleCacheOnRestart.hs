@@ -13,6 +13,7 @@ import Control.Lens
 
 import Data.Default
 import qualified Data.HashMap.Strict as HM
+import Data.List (intercalate)
 import Data.Tuple.Strict (T2(..))
 import Data.Word
 import qualified Data.Text as T
@@ -26,10 +27,9 @@ import System.LogLevel
 -- pact imports
 
 import Pact.Gas.Table
-import Pact.Types.Info (Code(..))
 import Pact.Types.Logger hiding (Logger)
 import Pact.Types.SPV
-import Pact.Types.Runtime (mdModule,_MDModule,mHash)
+import Pact.Types.Runtime (mdModule)
 import Pact.Types.Term
 
 -- chainweb imports
@@ -108,20 +108,21 @@ withPact' version logLevel iopdb iobhdb iodir deepForkLimit r act toTestTree =
                   modifyMVar_ mcache (const (pure (_psInitCache pstate)))
               Check ioa -> do
                   a <- ioa
-                  let a' = moduleCode $ filterNsCoin a
-                  let c' = moduleCode $ _psInitCache pstate
-                  let msg = "Module cache mismatch, found " <> show c'
-                            <> ", expected " <> show a'
-                  assertBool msg (a' == c') -- (_psInitCache pstate))
+                  let a' = justModuleHashes a
+                      c' = justModuleHashes $ _psInitCache pstate
+                      showCache = intercalate "\n" . map show . HM.toList
+                      msg = "Module cache mismatch, found: \n " <>
+                            showCache c' <>
+                            "\nexpected: \n" <>
+                            showCache a'
+                  assertBool msg (a' == c')
 
     stopPact (sqlEnv, _) = stopSqliteDb sqlEnv
     logger = genericLogger logLevel T.putStrLn
     cid = someChainId version
-    filterNsCoin = HM.filterWithKey $ \k _ -> k `elem` ["coin","ns","gas-payer-v1"] -- TODO check entire module caceh
-    moduleCode = HM.map $ \v -> T.take 100 $ _unCode $ case view (_1 . mdModule) v of
-      MDModule Module {..} -> _mCode
-      MDInterface Interface {..} -> _interfaceCode
-
+    -- check module hashes in case of upgrades, interfaces can't be
+    -- reloaded so no need
+    justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 
 -- We want a special version of initPactService'. The reason we need this
 -- version is that initial version of initPactService' calls evalPactServicM,
