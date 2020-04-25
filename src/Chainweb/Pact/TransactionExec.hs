@@ -496,7 +496,6 @@ applyExec interp em senderSigs hsh nsp = do
     debug $ "gas logs: " <> sshow _evalLogGas
     logs <- use txLogs
     rk <- view txRequestKey
-
     -- applyExec enforces non-empty expression set so `last` ok
     -- forcing it here for lazy errors. TODO NFData the Pacts
     lastResult <- return $!! last _erOutput
