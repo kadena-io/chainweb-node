@@ -728,7 +728,7 @@ gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
     mc <- use txCache
     return $ initStateInterpreter
-        $ set evalLogGas (Just []) -- enables gas logging
+        $ set evalLogGas (Just [("GTxSize",g)]) -- enables gas logging
         $ set evalGas g
         $ setModuleCache mc def
 
