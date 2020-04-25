@@ -66,63 +66,68 @@ tests =
       withTemporaryDir $ \dir ->
       testGroup label
       [
-        withPact' testVer Quiet pdb bhdb dir defaultReorgLimit (Supply iom) action (testCase "initial-start")
-      , after AllSucceed "initial-start" $
-        withPact' testVer Quiet pdb bhdb dir defaultReorgLimit (Check (iom >>= readMVar)) action (testCase "restart")
+        withPact' pdb bhdb dir iom testInitial (testCase "testInitial")
+      , after AllSucceed "testInitial" $
+        withPact' pdb bhdb dir iom testRestart1 (testCase "testRestart1")
 
       ]
   where
     label = "Chainweb.Test.Pact.ModuleCacheOnRestart"
     genblock = genesisBlockHeader testVer testChainId
-    action = initialPayloadState dummyLogger testVer testChainId
 
-data R a
-  = Supply !(IO (MVar a)) -- used for catching a value from a test
-  | Check (IO a) -- used to pass a value from a previously run test to another test
+initPayloadState :: PayloadCasLookup cas => PactServiceM cas ()
+initPayloadState = initialPayloadState dummyLogger testVer testChainId
+
+type CacheTest cas =
+  (PactServiceM cas ()
+  ,IO (MVar ModuleCache) -> ModuleCache -> Assertion)
+
+testInitial :: PayloadCasLookup cas => CacheTest cas
+testInitial = (initPayloadState,populateMVar)
+  where
+    populateMVar iomcache initCache = do
+      mcache <- iomcache
+      modifyMVar_ mcache (const (pure initCache))
+
+testRestart1 :: PayloadCasLookup cas => CacheTest cas
+testRestart1 = (initPayloadState,checkLoadedCache)
+  where
+    checkLoadedCache ioa initCache = do
+      a <- ioa >>= readMVar
+      let a' = justModuleHashes a
+          c' = justModuleHashes initCache
+          showCache = intercalate "\n" . map show . HM.toList
+          msg = "Module cache mismatch, found: \n " <>
+                showCache c' <>
+                "\nexpected: \n" <>
+                showCache a'
+      assertBool msg (a' == c')
+    justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
 
 withPact'
     :: PayloadCasLookup cas
-    => ChainwebVersion
-    -> LogLevel
-    -> IO (PayloadDb cas)
+    => IO (PayloadDb cas)
     -> IO BlockHeaderDb
     -> IO FilePath
-    -> Word64
-    -> R ModuleCache
-    -> PactServiceM cas a
+    -> IO (MVar ModuleCache)
+    -> CacheTest cas
     -> (Assertion -> TestTree)
     -> TestTree
-withPact' version logLevel iopdb iobhdb iodir deepForkLimit r act toTestTree =
-    withResource startPact stopPact $ \iof -> toTestTree $ iof >>= \(_,f) -> f act
+withPact' iopdb iobhdb iodir r ctest toTestTree =
+    withResource startPact stopPact go
   where
+    go iof = toTestTree $ iof >>= \(_,f) -> f ctest
     startPact = do
         pdb <- iopdb
         bhdb <- iobhdb
         dir <- iodir
-        sqlEnv <- startSqliteDb version cid logger (Just dir) Nothing False
-        return $ (sqlEnv,) $ \ps -> do
-            T2 _ pstate <- initPactService'' version cid logger bhdb pdb sqlEnv deepForkLimit ps
-            case r of
-              Supply iomcache -> do
-                  mcache <- iomcache
-                  modifyMVar_ mcache (const (pure (_psInitCache pstate)))
-              Check ioa -> do
-                  a <- ioa
-                  let a' = justModuleHashes a
-                      c' = justModuleHashes $ _psInitCache pstate
-                      showCache = intercalate "\n" . map show . HM.toList
-                      msg = "Module cache mismatch, found: \n " <>
-                            showCache c' <>
-                            "\nexpected: \n" <>
-                            showCache a'
-                  assertBool msg (a' == c')
+        sqlEnv <- startSqliteDb testVer testChainId logger (Just dir) Nothing False
+        return $ (sqlEnv,) $ \(ps,cacheTest) -> do
+            T2 _ pstate <- initPactService'' testVer testChainId logger bhdb pdb sqlEnv defaultReorgLimit ps
+            cacheTest r (_psInitCache pstate)
 
     stopPact (sqlEnv, _) = stopSqliteDb sqlEnv
-    logger = genericLogger logLevel T.putStrLn
-    cid = someChainId version
-    -- check module hashes in case of upgrades, interfaces can't be
-    -- reloaded so no need
-    justModuleHashes = HM.map $ \v -> preview (_1 . mdModule . _MDModule . mHash) v
+    logger = genericLogger Quiet T.putStrLn
 
 -- We want a special version of initPactService'. The reason we need this
 -- version is that initial version of initPactService' calls evalPactServicM,
