@@ -32,6 +32,7 @@ import Control.Arrow ((***))
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, finally)
 import Control.Monad
+import Control.Lens (set)
 
 import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
@@ -43,7 +44,7 @@ import Data.IORef
 import Data.List (isInfixOf)
 import Data.Text (pack,Text)
 import qualified Data.Text.IO as T
-import Data.Vector (Vector, fromList)
+import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Data.Word
 
@@ -56,7 +57,6 @@ import Test.Tasty.HUnit
 
 -- internal pact modules
 
-import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Runtime (toPactId)
@@ -300,21 +300,20 @@ burnGen time pidv sid tid = do
             readIORef ref1 >>= \case
               True -> return mempty
               False -> do
-                ks <- testKeyPairs sender00KeyPair Nothing
+                cmd <- buildCwCmd $
+                  set cbSigners [mkSigner' sender00 []] $
+                  set cbCreationTime (toTxCreationTime time) $
+                  set cbChainId sid $
+                  mkCmd "0" $
+                  mkExec tx1Code tx1Data
+                writeIORef ref0 True
 
-                let pcid = Pact.ChainId $ chainIdToText sid
-
-                cmd <- mkTestExecTransactions "sender00" pcid ks "1" 24 0.01 100_000 (toTxCreationTime time) txs
-                  `finally` writeIORef ref0 True
-
-                let pid = toPactId $ toUntypedHash $ _cmdHash (Vector.head cmd)
+                let pid = toPactId $ toUntypedHash $ _cmdHash cmd
 
                 putMVar pidv pid `finally` writeIORef ref1 True
-                return cmd
+                return $ Vector.singleton cmd
 
 
-
-    txs = fromList [ PactTransaction tx1Code tx1Data ]
 
     tx1Code =
       [text|
@@ -332,10 +331,27 @@ burnGen time pidv sid tid = do
             ["6be2f485a7af75fedb4b7f153a903f7e6000ca4aa501179c91a2450b777bd2a7"]
             "keys-all"
 
-      in Just $ object
+      in object
          [ "sender01-keyset" .= ks
          , "target-chain-id" .= chainIdToText tid
          ]
+
+createCont
+  :: ChainId
+     -> MVar PactId
+     -> Maybe ContProof
+     -> Time Micros
+     -> IO (Vector ChainwebTransaction)
+createCont cid pidv proof time = do
+  pid <- readMVar pidv
+  fmap Vector.singleton $
+    buildCwCmd $
+    set cbSigners [mkSigner' sender00 []] $
+    set cbCreationTime (toTxCreationTime time) $
+    set cbChainId cid $
+    mkCmd "1" $
+    mkCont $
+    ((mkContMsg pid 1) { _cmProof = proof })
 
 -- | Generate the 'create-coin' command in response to the previous 'delete-coin' call.
 -- Note that we maintain an atomic update to make sure that if a given chain id
@@ -352,14 +368,8 @@ createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             True -> return mempty
             False -> do
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
-
-                let pcid = Pact.ChainId (chainIdToText tid)
-                    proof = Just . ContProof . B64U.encode . toStrict . Aeson.encode . toJSON $ q
-
-                ks <- testKeyPairs sender00KeyPair Nothing
-                pid <- readMVar pidv
-
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100_000 (toTxCreationTime time) Null
+                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
+                createCont tid pidv proof time
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the wrong target chain
@@ -376,13 +386,9 @@ createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             False -> do
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
 
-                let pcid = Pact.ChainId (chainIdToText sid)
-                    proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
-                ks <- testKeyPairs sender00KeyPair Nothing
-                pid <- readMVar pidv
-
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100_000 (toTxCreationTime time) Null
+                createCont sid pidv proof time
                     `finally` writeIORef ref True
 
 -- | Execute create-coin command with invalid proof
@@ -396,14 +402,8 @@ createInvalidProof time _ pidv _ tid _ = do
         | tid /= cid = return mempty
         | otherwise = readIORef ref >>= \case
             True -> return mempty
-            False -> do
-
-                let pcid = Pact.ChainId (chainIdToText tid)
-
-                ks <- testKeyPairs sender00KeyPair Nothing
-                pid <- readMVar pidv
-
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False Nothing 100_000 (toTxCreationTime time) Null
+            False ->
+                createCont tid pidv Nothing time
                     `finally` writeIORef ref True
 
 -- | Execute on the create-coin command on the correct target chain, with a proof
@@ -422,11 +422,7 @@ createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
                 tid' <- chainIdFromText "2"
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid' sid bhe 0
 
-                let pcid = Pact.ChainId (chainIdToText sid)
-                    proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof .  B64U.encode . toStrict . Aeson.encode $ q
 
-                ks <- testKeyPairs sender00KeyPair Nothing
-                pid <- readMVar pidv
-
-                mkTestContTransaction "sender00" pcid ks "1" 24 0.01 1 pid False proof 100_000 (toTxCreationTime time) Null
+                createCont sid pidv proof time
                     `finally` writeIORef ref True

@@ -38,8 +38,6 @@ module Chainweb.Test.Pact.Utils
   -- * helper functions
 , mergeObjects
 , formatB16PubKey
-, mkTestExecTransactions
-, mkTestContTransaction
 , mkCoinSig
 , pactTestLogger
 , withMVarResource
@@ -68,6 +66,7 @@ module Chainweb.Test.Pact.Utils
 , mkExec
 , mkCont
 , mkContMsg
+, ContMsg (..)
 , mkSigner
 , mkSigner'
 , CmdBuilder
@@ -145,8 +144,6 @@ import Data.Tuple.Strict
 import Data.String
 import Data.Word
 
-import Data.Vector (Vector)
-import qualified Data.Vector as Vector
 import qualified Data.Yaml as Y
 import GHC.Generics
 import Servant.Client
@@ -327,91 +324,6 @@ mergeObjects = Object . HM.unions . foldr unwrap []
 mkKeySetData :: Text  -> [SimpleKeyPair] -> Value
 mkKeySetData name keys = object [ name .= map fst keys ]
 
--- Make pact 'ExecMsg' transactions specifying sender, chain id of the signer,
--- signer keys, nonce, gas rate, gas limit, and the transactions
--- (with data) to execute.
---
-mkTestExecTransactions
-    :: Text
-      -- ^ sender
-    -> P.ChainId
-      -- ^ chain id of execution
-    -> [SomeKeyPairCaps]
-      -- ^ signer keys
-    -> Text
-      -- ^ nonce
-    -> GasLimit
-      -- ^ starting gas
-    -> GasPrice
-      -- ^ gas rate
-    -> TTLSeconds
-      -- ^ time in seconds until expiry (from offset)
-    -> TxCreationTime
-      -- ^ time in seconds until creation (from offset)
-    -> Vector PactTransaction
-      -- ^ the pact transactions with data to run
-    -> IO (Vector ChainwebTransaction)
-mkTestExecTransactions sender cid ks nonce0 gas gasrate ttl ct txs =
-    snd <$> foldM go (0 :: Int, mempty) txs
-  where
-    go (!n,acc) (PactTransaction c d) = do
-      let dd = mergeObjects (toList d)
-          pm = PublicMeta cid sender gas gasrate ttl ct
-          msg = Exec (ExecMsg c dd)
-
-      let nonce = nonce0 <> sshow n
-      cmd <- mkCommand ks pm nonce Nothing msg
-      case verifyCommand cmd of
-        ProcSucc t ->
-          let
-            -- r = fmap (k t) $ SB.toShort <$> cmd
-            r = mkPayloadWithText <$> t
-            -- order matters for these tests
-          in return (succ n, Vector.snoc acc r)
-        ProcFail e -> throwM $ userError e
-
-    -- k t bs = PayloadWithText bs (_cmdPayload t)
-
--- | Make pact 'ContMsg' transactions, specifying sender, chain id of the signer,
--- signer keys, nonce, gas rate, gas limit, cont step, pact id, rollback,
--- proof etc.
---
-mkTestContTransaction
-    :: Text
-      -- ^ sender
-    -> P.ChainId
-      -- ^ chain id of execution
-    -> [SomeKeyPairCaps]
-      -- ^ signer keys
-    -> Text
-      -- ^ nonce
-    -> GasLimit
-      -- ^ starting gas
-    -> GasPrice
-      -- ^ gas rate
-    -> Int
-      -- ^ continuation step
-    -> PactId
-      -- ^ pact id
-    -> Bool
-      -- ^ rollback?
-    -> Maybe ContProof
-      -- ^ SPV proof
-    -> TTLSeconds
-      -- ^ time in seconds until expiry (from offset)
-    -> TxCreationTime
-      -- ^ time in seconds until creation (from offset)
-    -> Value
-    -> IO (Vector ChainwebTransaction)
-mkTestContTransaction sender cid ks nonce gas rate step pid rollback proof ttl ct d = do
-    let pm = PublicMeta cid sender gas rate ttl ct
-        msg :: PactRPC ContMsg =
-          Continuation (ContMsg pid step rollback d proof)
-
-    cmd <- mkCommand ks pm nonce Nothing msg
-    case verifyCommand cmd of
-      ProcSucc t -> return $ Vector.singleton $ mkPayloadWithText <$> t
-      ProcFail e -> throwM $ userError e
 
 -- | Make PactValue from 'Integral'
 pInteger :: Integer -> PactValue
