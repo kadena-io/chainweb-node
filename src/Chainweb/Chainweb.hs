@@ -369,7 +369,7 @@ instance ToJSON ChainwebConfiguration where
         , "transactionIndex" .= _configTransactionIndex o
         , "throttling" .= _configThrottling o
         , "mempoolP2p" .= _configMempoolP2p o
-        , "gasLimitOfBlock" .= _configBlockGasLimit o
+        , "maxBlockGas" .= _configBlockGasLimit o
         , "pactQueueSize" .= _configPactQueueSize o
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
@@ -388,7 +388,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configTransactionIndex %.: "transactionIndex" % o
         <*< configThrottling %.: "throttling" % o
         <*< configMempoolP2p %.: "mempoolP2p" % o
-        <*< configBlockGasLimit ..: "gasLimitOfBlock" % o
+        <*< configBlockGasLimit ..: "maxBlockGas" % o
         <*< configPactQueueSize ..: "pactQueueSize" % o
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
