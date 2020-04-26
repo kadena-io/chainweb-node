@@ -514,6 +514,7 @@ applyExec
     -> TransactionM p (CommandResult [TxLog Value])
 applyExec interp em senderSigs hsh nsp = do
     EvalResult{..} <- applyExec' interp em senderSigs hsh nsp
+    debug $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
     -- applyExec enforces non-empty expression set so `last` ok
@@ -560,6 +561,7 @@ applyContinuation
     -> TransactionM p (CommandResult [TxLog Value])
 applyContinuation interp cm senderSigs hsh nsp = do
     EvalResult{..} <- applyContinuation' interp cm senderSigs hsh nsp
+    debug $ "gas logs: " <> sshow _erLogGas
     logs <- use txLogs
     rk <- view txRequestKey
     -- last safe here because cont msg is guaranteed one exp
@@ -747,6 +749,7 @@ gasInterpreter :: Gas -> TransactionM db (Interpreter p)
 gasInterpreter g = do
     mc <- use txCache
     return $ initStateInterpreter
+        $ set evalLogGas (Just [("GTxSize",g)]) -- enables gas logging
         $ set evalGas g
         $ setModuleCache mc def
 
