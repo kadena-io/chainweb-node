@@ -374,18 +374,39 @@ readInitModules logger dbEnv pd =
            rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter
+    die msg = throwM $ PactInternalError $ "readInitModules: " <> msg
+    mkCmd = buildExecParsedCode Nothing
+    run msg cmd = do
+      er <- catchesPactError $!
+        applyExec' interp cmd [] chash permissiveNamespacePolicy
+      case er of
+        Left e -> die $ msg <> ": failed: " <> sshow e
+        Right r -> case _erOutput r of
+          [] -> die $ msg <> ": empty result"
+          (o:_) -> return o
 
     go :: TransactionM p ModuleCache
     go = do
-      readExec <-
-        liftIO $ buildExecParsedCode Nothing
-        "coin.MINIMUM_PRECISION ns.GUARD_SUCCESS"
-      er <- catchesPactError $!
-        applyExec' interp readExec [] chash permissiveNamespacePolicy
 
-      case er of
-        Left e -> throwM $ PactInternalError $ "readInitModules failed: " <> sshow e
-        Right _ -> use txCache
+      -- see if fungible-v2 is there
+      checkCmd <- liftIO $ mkCmd "(contains \"fungible-v2\" (list-modules))"
+      checkFv2 <- run "check fungible-v2" checkCmd
+      hasFv2 <- case checkFv2 of
+        (PLiteral (LBool b)) -> return b
+        t -> die $ "got non-bool result from module read: " <> T.pack (showPretty t)
+
+      -- load modules by referencing members
+      refModsCmd <- liftIO $ mkCmd $ T.intercalate " " $
+        [ "coin.MINIMUM_PRECISION"
+        , "ns.GUARD_SUCCESS"
+        , "gas-payer-v1.GAS_PAYER"
+        , "fungible-v1.account-details"] ++
+        [ "fungible-v2.account-details" | hasFv2 ]
+      void $ run "load modules" refModsCmd
+
+      -- return loaded cache
+      use txCache
+
 
 
 applyUpgrades

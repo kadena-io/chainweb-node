@@ -40,6 +40,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 
@@ -124,7 +125,7 @@ genPayloadModule v tag txFiles =
 
         let logger = genericLogger Warn TIO.putStrLn
         pdb <- newPayloadDb
-        payloadWO <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
+        T2 payloadWO _ <- withSqliteDb v cid logger Nothing Nothing False $ \env ->
             initPactService' v cid logger bhdb pdb env defaultPactServiceConfig $
                 execNewGenesisBlock noMiner (V.fromList cwTxs)
 

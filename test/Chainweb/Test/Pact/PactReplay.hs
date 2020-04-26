@@ -12,26 +12,18 @@ import Control.Concurrent.MVar
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Lens
 
-import Data.Aeson
-import Data.CAS.HashMap
 import Data.IORef
-import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Tuple.Strict (T3(..))
 import qualified Data.Vector as V
 import Data.Word
 
-import NeatInterpolation (text)
-
 import System.LogLevel
 
 import Test.Tasty
 import Test.Tasty.HUnit
-
--- pact imports
-
-import Pact.ApiReq
 
 -- chainweb imports
 
@@ -39,13 +31,13 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
-import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
-import Chainweb.BlockHeight
+import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.BlockValidation
 import Chainweb.Pact.Service.PactQueue
+import Chainweb.Pact.Service.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Test.Pact.Utils
@@ -58,46 +50,52 @@ import Chainweb.Version
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
 
+cid :: ChainId
+cid = someChainId testVer
+
 tests :: ScheduledTest
 tests =
     ScheduledTest label $
-    withRocksResource $ \rocksIO ->
-    withPayloadDb $ \pdb ->
-    withBlockHeaderDb rocksIO genblock $ \bhdb ->
-    withTemporaryDir $ \dir ->
+    withDelegateMempool $ \dmp ->
+    let mp = snd <$> dmp
+        mpio = fst <$> dmp
+    in
     testGroup label
-        [ withPact testVer Warn pdb bhdb testMemPoolAccess dir 100_000
-            (testCase "initial-playthrough" . firstPlayThrough genblock pdb bhdb)
+        [ withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
+            (testCase "initial-playthrough" . firstPlayThrough mpio genblock)
         , after AllSucceed "initial-playthrough" $
-            withPact testVer Warn pdb bhdb testMemPoolAccess dir 100_000
-                (testCaseSteps "on-restart" . onRestart pdb bhdb)
+            withPactTestBlockDb testVer cid Warn mp (forkLimit 100_000)
+                (testCaseSteps "on-restart" . onRestart mpio)
         , after AllSucceed "on-restart" $
-            withPact testVer Quiet pdb bhdb dupegenMemPoolAccess dir 100_000
-            (testCase "reject-dupes" . testDupes genblock pdb bhdb)
+            withPactTestBlockDb testVer cid Quiet mp (forkLimit 100_000)
+            (testCase "reject-dupes" . testDupes mpio genblock)
         , after AllSucceed "reject-dupes" $
             let deepForkLimit = 4
-            in withPact testVer Quiet pdb bhdb testMemPoolAccess dir deepForkLimit
-                (testCaseSteps "deep-fork-limit" . testDeepForkLimit deepForkLimit pdb bhdb)
+            in withPactTestBlockDb testVer cid Quiet mp (forkLimit deepForkLimit)
+                (testCaseSteps "deep-fork-limit" . testDeepForkLimit mpio (fromIntegral deepForkLimit))
         ]
   where
     genblock = genesisBlockHeader testVer cid
     label = "Chainweb.Test.Pact.PactReplay"
-    cid = someChainId testVer
+
+    forkLimit fl = defaultPactServiceConfig { _pactReorgLimit = fl }
+
 
 onRestart
-    :: IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> IO PactQueue
+    :: IO (IORef MemPoolAccess)
+    -> IO (PactQueue,TestBlockDb)
     -> (String -> IO ())
     -> Assertion
-onRestart pdb bhdb r step = do
-    bhdb' <- bhdb
+onRestart mpio iop step = do
+    setMempool mpio testMemPoolAccess
+    bdb <- snd <$> iop
+    bhdb' <- getBlockHeaderDb cid bdb
     block <- maxEntry bhdb'
     step $ "max block has height " <> sshow (_blockHeight block)
     let nonce = Nonce $ fromIntegral $ _blockHeight block
     step "mine block on top of max block"
-    T3 _ b _ <- mineBlock (ParentHeader block) nonce pdb bhdb r
-    assertEqual "Invalid BlockHeight" 9 (_blockHeight b)
+    T3 _ b _ <- mineBlock (ParentHeader block) nonce iop
+    assertEqual "Invalid BlockHeight" 1 (_blockHeight b)
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = mempty
@@ -107,59 +105,51 @@ testMemPoolAccess = mempty
     }
   where
     getTestBlock _ _ 1 _ = mempty
-    getTestBlock txOrigTime validate bHeight@(BlockHeight bh) hash = do
-        akp0 <- stockKey "sender00"
-        kp0 <- mkKeyPairs [akp0]
-        let nonce = T.pack . show @(Time Micros) $ txOrigTime
-        outtxs <-
-          mkTestExecTransactions
-            "sender00" "0" kp0
-            nonce 10_000 0.000_000_000_01
-            3600 (toTxCreationTime txOrigTime) (tx bh)
-        oks <- validate bHeight hash outtxs
+    getTestBlock txOrigTime validate bHeight hash = do
+      let nonce = T.pack . show @(Time Micros) $ txOrigTime
+      tx <- buildCwCmd $
+        set cbSigners [mkSigner' sender00 []] $
+        set cbCreationTime (toTxCreationTime txOrigTime) $
+        mkCmd nonce $
+        mkExec' "1"
+      let outtxs = V.singleton tx
+      oks <- validate bHeight hash outtxs
+      unless (V.and oks) $ fail $ mconcat
+          [ "testMemPoolAccess: tx failed validation! input list: \n"
+          , show tx
+          , "\n\nouttxs: "
+          , show outtxs
+          , "\n\noks: "
+          , show oks
+          ]
+      return outtxs
+
+
+dupegenMemPoolAccess :: MemPoolAccess
+dupegenMemPoolAccess = mempty
+    { mpaGetBlock = \validate bHeight bHash _parentHeader -> do
+        outtxs <- fmap V.singleton $
+          buildCwCmd $
+          set cbSigners [mkSigner' sender00 []] $
+          mkCmd "0" $
+          mkExec' "1"
+        oks <- validate bHeight bHash outtxs
         unless (V.and oks) $ fail $ mconcat
-            [ "testMemPoolAccess: tx failed validation! input list: \n"
-            , show (tx bh)
-            , "\n\nouttxs: "
+            [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
             , show outtxs
             , "\n\noks: "
             , show oks
             ]
         return outtxs
-      where
-        ksData :: Text -> Value
-        ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
-        tx nonce = V.singleton $ PactTransaction (code nonce) (Just $ ksData (T.pack $ show nonce))
-        code nonce = defModule (T.pack $ show nonce)
-
-dupegenMemPoolAccess :: MemPoolAccess
-dupegenMemPoolAccess = mempty
-    { mpaGetBlock = \validate bHeight bHash _parentHeader -> do
-        akp0 <- stockKey "sender00"
-        kp0 <- mkKeyPairs [akp0]
-        let nonce = "0"
-            tx = V.singleton $ PactTransaction (defModule nonce) (Just $ ksData nonce)
-        outtxs <- mkTestExecTransactions "sender00" "0" kp0 nonce 10_000 0.000_000_000_01 3600 0 tx
-        oks <- validate bHeight bHash outtxs
-        unless (V.and oks) $ fail $ mconcat
-            [ "dupegenMemPoolAccess: tx failed validation! input list: \n"
-            , show tx
-            , "\n\nouttxs: "
-            , "\n\noks: "
-            , show oks
-            ]
-        return outtxs
     }
-  where
-    ksData idx = object [("k" <> idx) .= object [ "keys" .= ([] :: [Text]), "pred" .= String ">=" ]]
 
 firstPlayThrough
-    :: BlockHeader
-    -> IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> IO PactQueue
+    :: IO (IORef MemPoolAccess)
+    -> BlockHeader
+    -> IO (PactQueue,TestBlockDb)
     -> Assertion
-firstPlayThrough genesisBlock iopdb iobhdb rr = do
+firstPlayThrough mpio genesisBlock iop = do
+    setMempool mpio testMemPoolAccess
     nonceCounter <- newIORef (1 :: Word64)
     mainlineblocks <- mineLine genesisBlock nonceCounter 7
     let T3 _ startline1 _ = head mainlineblocks
@@ -168,28 +158,27 @@ firstPlayThrough genesisBlock iopdb iobhdb rr = do
     void $ mineLine startline2 nonceCounter 4
   where
     mineLine start ncounter len =
-      evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) rr) start
+      evalStateT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) start
         where
           startHeight = fromIntegral $ _blockHeight start
           go = do
-              r <- ask
               pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
 
 testDupes
-  :: BlockHeader
-  -> IO (PayloadDb HashMapCas)
-  -> IO BlockHeaderDb
-  -> IO PactQueue
+  :: IO (IORef MemPoolAccess)
+  -> BlockHeader
+  -> IO (PactQueue,TestBlockDb)
   -> Assertion
-testDupes genesisBlock iopdb iobhdb rr = do
-    (T3 _ newblock payload) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iopdb iobhdb rr
+testDupes mpio genesisBlock iop = do
+    setMempool mpio dupegenMemPoolAccess
+    (T3 _ newblock payload) <- liftIO $ mineBlock (ParentHeader genesisBlock) (Nonce 1) iop
     expectException newblock payload $ liftIO $
-        mineBlock (ParentHeader newblock) (Nonce 3) iopdb iobhdb rr
+        mineBlock (ParentHeader newblock) (Nonce 3) iop
   where
     expectException newblock payload act = do
         m <- wrap `catch` h
@@ -212,14 +201,15 @@ testDupes genesisBlock iopdb iobhdb rr = do
         h _ = return Nothing
 
 testDeepForkLimit
-  :: Word64
-  -> IO (PayloadDb HashMapCas)
-  -> IO BlockHeaderDb
-  -> IO PactQueue
+  :: IO (IORef MemPoolAccess)
+  -> Word64
+  -> IO (PactQueue,TestBlockDb)
   -> (String -> IO ())
   -> Assertion
-testDeepForkLimit deepForkLimit iopdb iobhdb rr step = do
-    bhdb <- iobhdb
+testDeepForkLimit mpio deepForkLimit iop step = do
+    setMempool mpio testMemPoolAccess
+    bdb <- snd <$> iop
+    bhdb <- getBlockHeaderDb cid bdb
     step "query max db entry"
     maxblock <- maxEntry bhdb
     step $ "max block has height " <> sshow (_blockHeight maxblock)
@@ -240,15 +230,14 @@ testDeepForkLimit deepForkLimit iopdb iobhdb rr step = do
     msg = "expected exception on a deep fork longer than " <> show deepForkLimit
 
     mineLine start ncounter len =
-      evalStateT (runReaderT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) rr) start
+      evalStateT (mapM (const go) [startHeight :: Word64 .. (startHeight + len)]) start
         where
           startHeight = fromIntegral $ _blockHeight start
           go = do
-              r <- ask
               pblock <- gets ParentHeader
               n <- liftIO $ Nonce <$> readIORef ncounter
               liftIO $ step $ "mine block on top of height " <> sshow (_blockHeight $ _parentHeader pblock)
-              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iopdb iobhdb r
+              ret@(T3 _ newblock _) <- liftIO $ mineBlock pblock n iop
               liftIO $ modifyIORef' ncounter succ
               put newblock
               return ret
@@ -257,13 +246,12 @@ testDeepForkLimit deepForkLimit iopdb iobhdb rr step = do
 mineBlock
     :: ParentHeader
     -> Nonce
-    -> IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> IO PactQueue
+    -> IO (PactQueue,TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock parentHeader nonce iopdb iobhdb r = do
+mineBlock parentHeader nonce iop = do
 
      -- assemble block without nonce and timestamp
+     let r = fst <$> iop
      mv <- r >>= newBlock noMiner parentHeader
      payload <- assertNotLeft =<< takeMVar mv
 
@@ -274,13 +262,14 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
               creationTime
               parentHeader
 
-     mv' <- r >>= validateBlock bh (toPayloadData payload)
+     mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
      void $ assertNotLeft =<< takeMVar mv'
 
-     pdb <- iopdb
+     bdb <- snd <$> iop
+     let pdb = _bdbPayloadDb bdb
      addNewPayload pdb payload
 
-     bhdb <- iobhdb
+     bhdb <- getBlockHeaderDb cid bdb
      unsafeInsertBlockHeaderDb bhdb bh
 
      return $ T3 parentHeader bh payload
@@ -291,48 +280,6 @@ mineBlock parentHeader nonce iopdb iobhdb r = do
           . _bct . _blockCreationTime
           $ _parentHeader parentHeader
 
-     toPayloadData :: PayloadWithOutputs -> PayloadData
-     toPayloadData d = PayloadData
-               { _payloadDataTransactions = fst <$> _payloadWithOutputsTransactions d
-               , _payloadDataMiner = _payloadWithOutputsMiner d
-               , _payloadDataPayloadHash = _payloadWithOutputsPayloadHash d
-               , _payloadDataTransactionsHash = _payloadWithOutputsTransactionsHash d
-               , _payloadDataOutputsHash = _payloadWithOutputsOutputsHash d
-               }
-
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
 assertNotLeft (Right r) = return r
-
-defModule :: Text -> Text
-defModule idx = [text| ;;
-
-(define-keyset 'k$idx (read-keyset 'k$idx))
-
-(namespace 'free)
-
-(module m$idx 'k$idx
-
-  (defschema sch col:integer)
-
-  (deftable tbl:{sch})
-
-  (defun insertTbl (a i)
-    (insert tbl a { 'col: i }))
-
-  (defun updateTbl (a i)
-    (update tbl a { 'col: i}))
-
-  (defun readTbl ()
-    (sort (map (at 'col)
-      (select tbl (constantly true)))))
-
-  (defpact dopact (n)
-    (step { 'name: n, 'value: 1 })
-    (step { 'name: n, 'value: 2 }))
-
-)
-(create-table tbl)
-(readTbl)
-(insertTbl "a" 1)
-|]
