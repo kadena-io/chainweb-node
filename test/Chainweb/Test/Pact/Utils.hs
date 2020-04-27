@@ -63,7 +63,7 @@ module Chainweb.Test.Pact.Utils
 , csPrivKey
 -- * Pact Service creation
 , withPactTestBlockDb
-, testWebPactExecutionService
+, withWebPactExecutionService
 , withPactCtxSQLite
 , WithPactCtxSQLite
 -- * Other service creation
@@ -424,43 +424,37 @@ testPactCtxSQLite v cid bhdb pdb sqlenv config = do
 
 -- | A test PactExecutionService for a chainweb (ie pact services
 -- for all chainweb chains).
-testWebPactExecutionService
-    :: PayloadCasLookup cas
-    => ChainwebVersion
-    -> IO WebBlockHeaderDb
-    -> IO (PayloadDb cas)
-    -> (Version.ChainId -> MemPoolAccess)
-       -- ^ transaction generator
-    -> [SQLiteEnv]
-    -> IO WebPactExecutionService
-testWebPactExecutionService v webdbIO pdbIO mempoolAccess sqlenvs
-    = fmap (mkWebPactExecutionService . HM.fromList)
-    $ traverse mkPact
-    $ zip sqlenvs
-    $ toList
-    $ chainIds v
+withWebPactExecutionService
+    :: ChainwebVersion
+    -> TestBlockDb
+    -> MemPoolAccess
+    -> (WebPactExecutionService -> IO a)
+    -> IO a
+withWebPactExecutionService v bdb mempoolAccess act =
+  withDbs $ \sqlenvs -> do
+    pacts <- fmap (mkWebPactExecutionService . HM.fromList)
+           $ traverse mkPact
+           $ zip sqlenvs
+           $ toList
+           $ chainIds v
+    act pacts
   where
+    withDbs f = foldl' (\soFar _ -> withDb soFar) f (chainIds v) []
+    withDb g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
     mkPact (sqlenv, c) = do
-        webdb <- webdbIO
-        let bhdbs = view webBlockHeaderDb webdb
-        let bhdb = fromJuste $ HM.lookup c bhdbs
-        let bhdbIO = return bhdb
-        (c,) <$> testPactExecutionService c bhdbIO (mempoolAccess c) sqlenv
-    testPactExecutionService cid bhdbIO mempoolAccess' sqlenv = do
-      bhdb <- bhdbIO
-      pdb <- pdbIO
-      (ctx,_) <- testPactCtxSQLite v cid bhdb pdb sqlenv defaultPactServiceConfig
-      return $ PactExecutionService
-        { _pactNewBlock = \m p -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess' p m
-        , _pactValidateBlock = \h d ->
-            evalPactServiceM_ ctx $ execValidateBlock h d
-        , _pactLocal = error
-            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
-        , _pactLookup = error
-            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
-        , _pactPreInsertCheck = error
-            "Chainweb.Test.Pact.Utils.testPactExecutionService._pactPreInsertCheck: not implemented"
-        }
+        bhdb <- getBlockHeaderDb c bdb
+        (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig
+        return $ (c,) $ PactExecutionService
+          { _pactNewBlock = \m p -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
+          , _pactValidateBlock = \h d ->
+              evalPactServiceM_ ctx $ execValidateBlock h d
+          , _pactLocal = error
+              "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
+          , _pactLookup = error
+              "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
+          , _pactPreInsertCheck = error
+              "Chainweb.Test.Pact.Utils.testPactExecutionService._pactPreInsertCheck: not implemented"
+          }
 
 
 -- | Noncer for 'runCut'
