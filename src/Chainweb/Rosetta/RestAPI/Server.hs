@@ -77,15 +77,13 @@ mempoolH (MempoolRequest (NetworkIdentifier _ _ msni)) ms = case msni of
         case readMaybe @ChainId (T.unpack n) >>= flip lookup ms of
             Nothing -> throwRosetta $ RosettaInvalidChain n
             Just _ -> do
-                undefined
+                undefined  -- TODO!
 
 mempoolTransactionH
     :: MempoolTransactionRequest
     -> [(ChainId, MempoolBackend a)]
     -> Handler MempoolTransactionResponse
-mempoolTransactionH mtr ms = runExceptT work >>= \case
-    Left e -> throwRosetta e
-    Right r -> pure r
+mempoolTransactionH mtr ms = runExceptT work >>= either throwRosetta pure
   where
     MempoolTransactionRequest (NetworkIdentifier _ _ msni) (TransactionIdentifier ti) = mtr
     th = TransactionHash . BSS.toShort $ T.encodeUtf8 ti
