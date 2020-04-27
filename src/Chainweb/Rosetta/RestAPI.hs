@@ -18,11 +18,18 @@ module Chainweb.Rosetta.RestAPI
     -- * Errors
   , RosettaFailure(..)
   , rosettaError
+  , throwRosetta
   ) where
+
+import Control.Monad.Except (throwError)
+
+import Data.Aeson (encode)
+import Data.Text (Text)
 
 import Rosetta
 
 import Servant.API
+import Servant.Server
 
 -- internal modules
 
@@ -72,6 +79,13 @@ type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc Rosetta
 
 data RosettaFailure
     = RosettaChainUnspecified
+    | RosettaInvalidChain Text
+    | RosettaMempoolBadTx
 
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
+rosettaError (RosettaInvalidChain cid) = RosettaError 1 ("Invalid chain value: " <> cid) False
+rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
+
+throwRosetta :: RosettaFailure -> Handler a
+throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }

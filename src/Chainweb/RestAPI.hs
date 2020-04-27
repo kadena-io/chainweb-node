@@ -227,21 +227,27 @@ someChainwebServer
     -> Rosetta
     -> SomeServer
 someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
-    someSwaggerServer v (fst <$> _chainwebServerPeerDbs dbs)
+    someSwaggerServer v (fst <$> peers)
         <> someHealthCheckServer
         <> someNodeInfoServer v
-        <> maybe mempty (someCutServer v cutPeerDb) (_chainwebServerCutDb dbs)
-        <> maybe mempty (someSpvServers v) (_chainwebServerCutDb dbs)
-        <> somePayloadServers v (_chainwebServerPayloadDbs dbs)
-        <> someBlockHeaderDbServers v (_chainwebServerBlockHeaderDbs dbs)
-        <> Mempool.someMempoolServers v (_chainwebServerMempools dbs)
-        <> someP2pServers v (_chainwebServerPeerDbs dbs)
-        <> PactAPI.somePactServers v (_chainwebServerPactDbs dbs)
+        <> maybe mempty (someCutServer v cutPeerDb) cuts
+        <> maybe mempty (someSpvServers v) cuts
+        <> somePayloadServers v payloads
+        <> someBlockHeaderDbServers v blocks
+        <> Mempool.someMempoolServers v mempools
+        <> someP2pServers v peers
+        <> PactAPI.somePactServers v pacts
         <> maybe mempty (Mining.someMiningServer v) mr
-        <> maybe mempty (someHeaderStreamServer v) (bool Nothing (_chainwebServerCutDb dbs) hs)
-        <> bool mempty (someRosettaServer v) r
+        <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
+        <> bool mempty (someRosettaServer v mempools) r
   where
-    cutPeerDb = fromJuste $ lookup CutNetwork $ _chainwebServerPeerDbs dbs
+    payloads = _chainwebServerPayloadDbs dbs
+    blocks = _chainwebServerBlockHeaderDbs dbs
+    pacts = _chainwebServerPactDbs dbs
+    cuts = _chainwebServerCutDb dbs
+    peers = _chainwebServerPeerDbs dbs
+    mempools = _chainwebServerMempools dbs
+    cutPeerDb = fromJuste $ lookup CutNetwork peers
 
 chainwebApplication
     :: Show t
