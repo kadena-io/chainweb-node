@@ -30,6 +30,8 @@ module Chainweb.Pact.PactService
     , execValidateBlock
     , execTransactions
     , execLocal
+    , execLookupPactTxs
+    , execPreInsertCheckReq
     , initPactService
     , readCoinAccount
     , readAccountBalance

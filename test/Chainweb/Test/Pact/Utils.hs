@@ -116,6 +116,7 @@ import Data.Text (Text)
 import qualified Data.Text.IO as T
 import Data.Tuple.Strict
 import Data.String
+import qualified Data.Vector as V
 
 import GHC.Generics
 
@@ -422,8 +423,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv config = do
         }
 
 
--- | A test PactExecutionService for a chainweb (ie pact services
--- for all chainweb chains).
+-- | A queue-less WebPactExecutionService (for all chains).
 withWebPactExecutionService
     :: ChainwebVersion
     -> TestBlockDb
@@ -445,15 +445,16 @@ withWebPactExecutionService v bdb mempoolAccess act =
         bhdb <- getBlockHeaderDb c bdb
         (ctx,_) <- testPactCtxSQLite v c bhdb (_bdbPayloadDb bdb) sqlenv defaultPactServiceConfig
         return $ (c,) $ PactExecutionService
-          { _pactNewBlock = \m p -> evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
+          { _pactNewBlock = \m p ->
+              evalPactServiceM_ ctx $ execNewBlock mempoolAccess p m
           , _pactValidateBlock = \h d ->
               evalPactServiceM_ ctx $ execValidateBlock h d
-          , _pactLocal = error
-              "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLocal: not implemented"
-          , _pactLookup = error
-              "Chainweb.Test.Pact.Utils.testPactExecutionService._pactLookup: not implemented"
-          , _pactPreInsertCheck = error
-              "Chainweb.Test.Pact.Utils.testPactExecutionService._pactPreInsertCheck: not implemented"
+          , _pactLocal = \cmd ->
+              evalPactServiceM_ ctx $ Right <$> execLocal cmd
+          , _pactLookup = \rp hashes ->
+              evalPactServiceM_ ctx $ Right <$> execLookupPactTxs rp hashes
+          , _pactPreInsertCheck = \_ txs ->
+              evalPactServiceM_ ctx $ (Right . V.map (() <$)) <$> execPreInsertCheckReq txs
           }
 
 
