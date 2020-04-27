@@ -74,7 +74,7 @@ tests = ScheduledTest label $
         withResource newPayloadDb killPdb $ \pdb ->
         withRocksResource $ \rocksIO ->
         testGroup label
-    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing defaultPactServiceConfig $
+    [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
         \ctx -> testGroup "single transactions" $ schedule Sequential
             [ execTest ctx testReq2
             , execTest ctx testReq3
@@ -85,18 +85,18 @@ tests = ScheduledTest label $
             , execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
             , execTxsTest ctx "testExecGasPayer" testExecGasPayer
             ]
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing defaultPactServiceConfig $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
       \ctx2 -> _schTest $ execTest ctx2 testReq6
       -- failures mess up cp state so run alone
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing defaultPactServiceConfig $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing defaultPactServiceConfig $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testBadSenderFails" testBadSenderFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing defaultPactServiceConfig $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testFailureRedeem" testFailureRedeem
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing defaultPactServiceConfig $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
-    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb Nothing allowReads $
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb allowReads $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalSuccess" testAllowReadsLocalSuccess
 
     ]
@@ -416,7 +416,7 @@ testFailureRedeem = (txs,checkResultSuccess test)
       mkCmd "testFailureRedeem" $
       mkExec' e
 
-    exps = -- map (`PactTransaction` Nothing)
+    exps =
       ["(coin.get-balance \"sender00\")"
       ,"(coin.get-balance \"miner\")"
       ,"(enforce false \"forced error\")"
