@@ -50,7 +50,7 @@ rosettaServer ms = (\_ -> undefined)
     :<|> (\_ -> undefined)
     :<|> (\_ -> undefined)
     -- Construction --
-    :<|> (\_ -> undefined)
+    :<|> constructionMetadataH
     :<|> (\_ -> undefined)
     -- Mempool --
     :<|> flip mempoolTransactionH ms
@@ -68,39 +68,54 @@ someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
     SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer ms
 
 --------------------------------------------------------------------------------
+-- Account Handlers
+
+--------------------------------------------------------------------------------
+-- Block Handlers
+
+--------------------------------------------------------------------------------
+-- Construction Handlers
+
+constructionMetadataH :: ConstructionMetadataReq -> Handler ConstructionMetadataResp
+constructionMetadataH _ = undefined
+
+--------------------------------------------------------------------------------
 -- Mempool Handlers
 
-mempoolH :: MempoolRequest -> [(ChainId, MempoolBackend a)] -> Handler MempoolResponse
-mempoolH (MempoolRequest (NetworkIdentifier _ _ msni)) ms = case msni of
+mempoolH :: MempoolReq -> [(ChainId, MempoolBackend a)] -> Handler MempoolResp
+mempoolH (MempoolReq (NetworkId _ _ msni)) ms = case msni of
     Nothing -> throwRosetta RosettaChainUnspecified
-    Just (SubNetworkIdentifier n _) ->
+    Just (SubNetworkId n _) ->
         case readMaybe @ChainId (T.unpack n) >>= flip lookup ms of
             Nothing -> throwRosetta $ RosettaInvalidChain n
             Just _ -> do
                 undefined  -- TODO!
 
 mempoolTransactionH
-    :: MempoolTransactionRequest
+    :: MempoolTransactionReq
     -> [(ChainId, MempoolBackend a)]
-    -> Handler MempoolTransactionResponse
+    -> Handler MempoolTransactionResp
 mempoolTransactionH mtr ms = runExceptT work >>= either throwRosetta pure
   where
-    MempoolTransactionRequest (NetworkIdentifier _ _ msni) (TransactionIdentifier ti) = mtr
+    MempoolTransactionReq (NetworkId _ _ msni) (TransactionId ti) = mtr
     th = TransactionHash . BSS.toShort $ T.encodeUtf8 ti
 
-    f :: LookupResult a -> Maybe MempoolTransactionResponse
+    f :: LookupResult a -> Maybe MempoolTransactionResp
     f Missing = Nothing
-    f (Pending _) = Just $ MempoolTransactionResponse tx Nothing
+    f (Pending _) = Just $ MempoolTransactionResp tx Nothing
       where
         tx = Transaction
-          { _transaction_transactionIdentifier = TransactionIdentifier ti
+          { _transaction_transactionId = TransactionId ti
           , _transaction_operations = [] -- TODO!
           , _transaction_metadata = Nothing
           }
 
-    work :: ExceptT RosettaFailure Handler MempoolTransactionResponse
+    work :: ExceptT RosettaFailure Handler MempoolTransactionResp
     work = do
-        SubNetworkIdentifier n _ <- msni ?? RosettaChainUnspecified
+        SubNetworkId n _ <- msni ?? RosettaChainUnspecified
         mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain n
         lrs <- liftIO . mempoolLookup mp $ V.singleton th
         (lrs V.!? 0 >>= f) ?? RosettaMempoolBadTx
+
+--------------------------------------------------------------------------------
+-- Network Handlers

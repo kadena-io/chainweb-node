@@ -41,39 +41,39 @@ import Chainweb.Version
 type RosettaApi_ =
     -- Accounts --
     "rosetta" :> "account" :> "balance"
-        :> ReqBody '[JSON] AccountBalanceRequest
-        :> Post '[JSON] AccountBalanceResponse
+        :> ReqBody '[JSON] AccountBalanceReq
+        :> Post '[JSON] AccountBalanceResp
     -- Blocks --
     :<|> "rosetta" :> "block" :> "transaction"
-        :> ReqBody '[JSON] BlockTransactionRequest
-        :> Post '[JSON] BlockTransactionResponse
+        :> ReqBody '[JSON] BlockTransactionReq
+        :> Post '[JSON] BlockTransactionResp
     :<|> "rosetta" :> "block"
-        :> ReqBody '[JSON] BlockRequest
-        :> Post '[JSON] BlockResponse
+        :> ReqBody '[JSON] BlockReq
+        :> Post '[JSON] BlockResp
     -- Construction --
     :<|> "rosetta" :> "construction" :> "metadata"
-        :> ReqBody '[JSON] ConstructionMetadataRequest
-        :> Post '[JSON] ConstructionMetadataResponse
+        :> ReqBody '[JSON] ConstructionMetadataReq
+        :> Post '[JSON] ConstructionMetadataResp
     :<|> "rosetta" :> "construction" :> "submit"
-        :> ReqBody '[JSON] ConstructionSubmitRequest
-        :> Post '[JSON] ConstructionSubmitResponse
+        :> ReqBody '[JSON] ConstructionSubmitReq
+        :> Post '[JSON] ConstructionSubmitResp
     -- Mempool --
     :<|> "rosetta" :> "mempool" :> "transaction"
-        :> ReqBody '[JSON] MempoolTransactionRequest
-        :> Post '[JSON] MempoolTransactionResponse
+        :> ReqBody '[JSON] MempoolTransactionReq
+        :> Post '[JSON] MempoolTransactionResp
     :<|> "rosetta" :> "mempool"
-        :> ReqBody '[JSON] MempoolRequest
-        :> Post '[JSON] MempoolResponse
+        :> ReqBody '[JSON] MempoolReq
+        :> Post '[JSON] MempoolResp
     -- Network --
     :<|> "rosetta" :> "network" :> "list"
-        :> ReqBody '[JSON] MetadataRequest
-        :> Post '[JSON] NetworkListResponse
+        :> ReqBody '[JSON] MetadataReq
+        :> Post '[JSON] NetworkListResp
     :<|> "rosetta" :> "network" :> "options"
-        :> ReqBody '[JSON] NetworkRequest
-        :> Post '[JSON] NetworkOptionsResponse
+        :> ReqBody '[JSON] NetworkReq
+        :> Post '[JSON] NetworkOptionsResp
     :<|> "rosetta" :> "network" :> "status"
-        :> ReqBody '[JSON] NetworkRequest
-        :> Post '[JSON] NetworkStatusResponse
+        :> ReqBody '[JSON] NetworkReq
+        :> Post '[JSON] NetworkStatusResp
 
 type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaApi_
 
