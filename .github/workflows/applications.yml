@@ -22,7 +22,7 @@ jobs:
   # Synchronize Mainnet01 Chain Database
   #
   sync-chain-db:
-    name: Synchronize ${{ matrix.chainwebVersion }} chain database
+    name: Synchronize chain database
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
@@ -42,7 +42,7 @@ jobs:
   # Run benchmarks and slow tests
   #
   slow-tests:
-    name: Run slow tests and benchmarks
+    name: Slow tests
     needs: [sync-chain-db, build]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -55,7 +55,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
@@ -66,7 +66,7 @@ jobs:
         ./bin/cwtool slow-tests
 
   run-benchmarks:
-    name: Run benchmarks
+    name: Benchmarks
     needs: [build]
     runs-on: 'ubuntu-18.04'
     steps:
@@ -74,7 +74,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
         name: chainweb-applications.8.8.3.ubuntu-18.04
@@ -87,7 +87,7 @@ jobs:
   # Validate Mainnet01 Chain Database With chainweb-node
   #
   validate-header-db:
-    name: Validate ${{ matrix.chainwebVersion }} block header db
+    name: Validate headers
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
     strategy:
@@ -103,17 +103,17 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
+    - name: Download chain database artifact
       uses: actions/download-artifact@v1
       with:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
         name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
-    - name: Validate ${{ matrix.chainwebVersion }} block header database
+    - name: Validate block header database
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool header-dump --database=db/rocksdb --chainweb-version=${{ matrix.chainwebVersion }} -o none --validate
@@ -121,7 +121,7 @@ jobs:
   # Validate Mainnet01 Chain Database With chainweb-node
   #
   validate-chain-db:
-    name: Validate ${{ matrix.chainwebVersion }} history with build
+    name: Validate pact history
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
     strategy:
@@ -142,12 +142,12 @@ jobs:
       with:
         name: chain-db-${{ matrix.chainwebVersion}}
         path: db
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
         name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
-    - name: Create configuration file for validating the chainweb history
+    - name: Write chainweb-node configuration file
       run: |
         cat >> config.yaml <<EOF
           databaseDirectory: "db/rocksdb"
@@ -186,7 +186,7 @@ jobs:
                 level: warn
               default: info
         EOF
-    - name: Validate ${{ matrix.chainwebVersion }} history
+    - name: Validate pact history
       run: |
         chmod 755 ./bin/chainweb-node
         ./bin/chainweb-node --config-file=config.yaml | {
@@ -200,7 +200,7 @@ jobs:
   # Build Chainweb Node
   #
   build:
-    name: Build ${{ github.ref }} with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
+    name: Build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
