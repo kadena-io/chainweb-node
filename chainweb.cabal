@@ -199,6 +199,8 @@ library
         , Chainweb.RestAPI.NodeInfo
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.Rosetta.RestAPI
+        , Chainweb.Rosetta.RestAPI.Server
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.VerifyProof
@@ -354,6 +356,7 @@ library
         , random >= 1.1
         , random-bytestring >= 0.1
         , resourcet >= 1.2
+        , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
         , semialign >= 1

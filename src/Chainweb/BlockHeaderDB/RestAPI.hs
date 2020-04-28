@@ -66,7 +66,6 @@ module Chainweb.BlockHeaderDB.RestAPI
 , someBlockHeaderDbApis
 
 -- * BlockHeader Event Stream
-, HeaderStream(..)
 , HeaderUpdate(..)
 , HeaderStreamApi
 , headerStreamApi
@@ -356,8 +355,6 @@ someBlockHeaderDbApis v = mconcat . fmap (someBlockHeaderDbApi v)
 
 -- -------------------------------------------------------------------------- --
 -- BlockHeader Event Stream
-
-newtype HeaderStream = HeaderStream Bool
 
 data HeaderUpdate = HeaderUpdate
     { _huHeader :: !(ObjectEncoded BlockHeader)
