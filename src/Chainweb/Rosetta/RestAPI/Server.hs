@@ -45,20 +45,20 @@ rosettaServer
     :: forall a (v :: ChainwebVersionT)
     . [(ChainId, MempoolBackend a)]
     -> Server (RosettaApi v)
-rosettaServer ms = (\_ -> undefined)
+rosettaServer ms = (const $ error "not yet implemented")
     -- Blocks --
-    :<|> (\_ -> undefined)
-    :<|> (\_ -> undefined)
+    :<|> (const $ error "not yet implemented")
+    :<|> (const $ error "not yet implemented")
     -- Construction --
     :<|> constructionMetadataH
-    :<|> (\_ -> undefined)
+    :<|> (const $ error "not yet implemented")
     -- Mempool --
     :<|> flip mempoolTransactionH ms
     :<|> flip mempoolH ms
     -- Network --
-    :<|> (\_ -> undefined)
-    :<|> (\_ -> undefined)
-    :<|> (\_ -> undefined)
+    :<|> (const $ error "not yet implemented")
+    :<|> (const $ error "not yet implemented")
+    :<|> (const $ error "not yet implemented")
 
 someRosettaServer
     :: ChainwebVersion
@@ -77,7 +77,7 @@ someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
 -- Construction Handlers
 
 constructionMetadataH :: ConstructionMetadataReq -> Handler ConstructionMetadataResp
-constructionMetadataH _ = undefined
+constructionMetadataH _ = error "not yet implemented"
 
 --------------------------------------------------------------------------------
 -- Mempool Handlers
@@ -89,7 +89,7 @@ mempoolH (MempoolReq (NetworkId _ _ msni)) ms = case msni of
         case readMaybe @ChainId (T.unpack n) >>= flip lookup ms of
             Nothing -> throwRosetta $ RosettaInvalidChain n
             Just _ -> do
-                undefined  -- TODO!
+                error "not yet implemented"  -- TODO!
 
 mempoolTransactionH
     :: MempoolTransactionReq
