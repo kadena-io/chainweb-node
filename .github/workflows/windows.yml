@@ -1,0 +1,234 @@
+name: Windows build
+
+on:
+  push:
+    branches:
+    - master
+    - ci/*
+    - github-ci
+    - release-candidate/*
+    tags:
+    - '[0-9].[0-9]+'
+  release:
+    types:
+    - created
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+
+
+jobs:
+
+  # Build Chainweb Node
+  #
+  build:
+    name: Build
+    runs-on: windows
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ['8.8.3', '8.10.1']
+        cabal: ['3.2.0.0']
+        os: ['windows-latest']
+        cabalcache: ['true']
+        storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store'
+
+    steps:
+
+    # Setup
+    - name: Checkout repository
+      uses: actions/checkout@v1
+    - name: Create env variables for git objects
+      shell: bash
+      run: |
+        echo "::set-env name=GIT_TAG::$(git describe --tags --exact-match)"
+        echo "::set-env name=GIT_REF_SHORT::$(git symbolic-ref -q --short HEAD)"
+        echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD)"
+
+    - name: Install GHC and Cabal
+      uses: haskell-CI/setup@8f15d2f80373bad639e90c95dace7265800c6921
+      with:
+         ghc-version: ${{ matrix.ghc }}
+         cabal-version: ${{ matrix.cabal }}
+
+    - name: Install non-Haskell dependencies (windows)
+      if: contains(matrix.os, 'windows')
+      shell: bash
+      run: |
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-libwinpthread-git-8.0.0.5680.0df6b89f-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-mpfr-4.0.2-2-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-mpc-1.1.0-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-gmp-6.2.0-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-gcc-libs-9.3.0-2-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-zstd-1.4.4-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-zlib-1.2.11-7-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-snappy-1.1.8-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-lz4-1.9.2-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-intel-tbb-1~2020.2-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-bzip2-1.0.8-1-any.pkg.tar.xz' | tar -xJC /c/
+        curl -sL 'http://repo.msys2.org/mingw/x86_64/mingw-w64-x86_64-rocksdb-6.7.3-1-any.pkg.tar.xz' | tar -xJC /c/
+        rm -rf /c/mingw64/lib/*.dll /c/mingw64/lib/*.dll.a
+        ln -s /c/ProgramData/chocolatey/lib/ghc.${{ matrix.ghc }}/tools/ghc-${{ matrix.ghc }}/bin/ghc-pkg.exe /c/ProgramData/chocolatey/lib/ghc.${{ matrix.ghc }}/tools/ghc-${{ matrix.ghc }}/bin/ghc-pkg-${{ matrix.ghc }}
+
+    - name: Create cabal.project.local
+      shell: bash
+      run: |
+        cat > cabal.project.local <<EOF
+        documentation: False
+        executable-stripping: True
+        library-stripping: True
+        package chainweb
+          documentation: False
+          optimization: 2
+          benchmarks: True
+          tests: True
+        package pact
+          documentation: False
+          optimization: 2
+        EOF
+    - name: Append cabal.project.local for GHC-8.10
+      if: contains(matrix.ghc, '8.10')
+      shell: bash
+      run : |
+        cat >> cabal.project.local <<EOF
+        package chainweb
+          ghc-options: -Wwarn
+        package cassava
+          flags: -bytestring--lt-0_10_4
+        allow-newer:
+          *:base
+          *:template-haskell
+          *:lens
+          *:haskeline
+          *:Cabal
+          *:ghc-prim
+          thyme:*
+          *:optics-core
+          *:optics-extra
+          *:optics-th
+          *:process
+    - name: Append cabal.project.local for Windows
+      if: contains(matrix.os, 'windows')
+      shell: bash
+      run : |
+        cat >> cabal.project.local <<EOF
+        package chainweb
+          static: True
+          executable-static: True
+          ghc-options: -fexternal-interpreter
+        source-repository-package
+          type: git
+          location: https://github.com/larskuhtz/rocksdb-haskell.git
+          tag: 7243d036e963bb536be5e6ce89dbe55b209ccc74
+        package rocksdb-haskell
+          static: True
+          extra-include-dirs: C:/mingw64/include
+          extra-lib-dirs: C:/mingw64/lib
+        EOF
+    - uses: actions/cache@v1
+      name: Cache dist-newstyle
+      with:
+        path: dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-${{ github.sha }}
+        restore-keys: |
+          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle-
+          ${{ matrix.os }}-${{ matrix.ghc }}-dist-newstyle
+
+    # Build
+    - name: Update package database
+      shell: bash
+      run: cabal v2-update
+    - name: Configure build
+      shell: bash
+      run: |
+        cabal v2-build all --dry-run
+        cabal v2-freeze
+    - name: Sync from cabal cache
+      if: matrix.cabalcache == 'true'
+      uses: larskuhtz/cabal-cache-action@21220b9f6499bb12cb0b4b926d6faa9c46a7b146
+      with:
+        bucket: "kadena-cabal-cache"
+        region: "us-east-1"
+        folder: "${{ matrix.os }}"
+        aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
+        aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
+    - name: Install build dependencies
+      shell: bash
+      run: cabal v2-build chainweb --only-dependencies
+    - name: Build chainweb library
+      shell: bash
+      run: cabal v2-build lib:chainweb
+    - name: Build chainweb applications
+      shell: bash
+      run: cabal v2-build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+
+    # Tests
+    - name: Run Tests
+      shell: bash
+      run: cabal v2-run chainweb-tests -- --hide-successes
+    - name: Check that working directly tree is clean
+      shell: bash
+      run: |
+        if ! git diff --exit-code; then
+          echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
+          exit 1
+        fi
+    - name: Run ea and verify consistency of genesis headers
+      shell: bash
+      run: |
+        cabal v2-run cwtool -- ea
+        if ! git diff --exit-code; then
+          echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
+          exit 1
+        fi
+
+    # Publish Artifacts
+    - name: Prepare artifacts
+      shell: bash
+      run: |
+        mkdir -p artifacts/applications
+        mkdir -p artifacts/docs
+        export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
+        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
+        cp README.md artifacts/applications
+        cp CHANGELOG.md artifacts/applications
+        cp LICENSE artifacts/applications
+        cp chainweb.cabal artifacts/applications
+        cp cabal.project artifacts/applications
+        cp cabal.project.local artifacts/applications
+        cp cabal.project.freeze artifacts/applications
+    - name: Safe artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
+        path: artifacts/applications
+
+    # Publish to S3
+    - name: Set up S3 environment
+      shell: bash
+      run: |
+        echo "::set-env name=BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_SHA_SHORT }}.tar.gz"
+        echo "::set-env name=BRANCH_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_REF_SHORT }}.tar.gz"
+        echo "::set-env name=TAG_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_TAG }}.tar.gz"
+
+    - name: Publish applications to S3
+      shell: bash
+      run: |
+        tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
+        aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
+    - name: Public applicaitons to S3 for master builds
+      if: env.GIT_REF_SHORT == 'master'
+      shell: bash
+      run: |
+        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BRANCH_BINFILE
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BRANCH_BINFILE --acl public-read
+    - name: Public applicaitons to S3 for release tag builds
+      if: contains(github.event_name, 'release') || startsWith(env.GIT_TAG, '1.')
+      shell: bash
+      run: |
+        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$TAG_BINFILE
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$TAG_BINFILE --acl public-read
