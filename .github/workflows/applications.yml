@@ -13,12 +13,16 @@ on:
     types:
     - created
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+
 jobs:
 
   # Synchronize Mainnet01 Chain Database
   #
   sync-chain-db:
-    name: Synchronize ${{ matrix.chainwebVersion }} chain database
+    name: Synchronize chain database
     runs-on: 'ubuntu-latest'
     strategy:
       fail-fast: false
@@ -27,9 +31,6 @@ jobs:
 
     steps:
     - name: Sync chain database from S3
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
       run: |
         aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/" db/rocksdb/ --delete --exclude=LOCK
     - name: Store chain database as artifact
@@ -41,61 +42,39 @@ jobs:
   # Run benchmarks and slow tests
   #
   slow-tests:
-    name: Run slow tests and benchmarks
+    name: Slow tests
     needs: [sync-chain-db, build]
-    runs-on: 'ubuntu-18.04'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ 'ubuntu-18.04' ]
+        ghc: ['8.6.5', '8.8.3', '8.10.1']
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.3.ubuntu-18.04
+        name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
     - name: Validate block header database
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool slow-tests
 
-  # Verify that all Genesis headers are up to date (no missing ea run)
-  #
-  verify-genesis-headers:
-    name: verify that genesis headers are up to date
-    needs: [build]
-    runs-on: 'ubuntu-latest'
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v1
-    - name: Install non-Haskell dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y librocksdb-dev
-    - name: Download chainweb application artifact
-      uses: actions/download-artifact@v1
-      with:
-        name: chainweb-applications.8.8.3.ubuntu-18.04
-        path: bin
-    - name: Validate block header database
-      run: |
-        chmod 755 ./bin/cwtool
-        ./bin/cwtool ea
-        if ! git diff --exit-code; then
-          echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
-          exit 1
-        fi
-
   run-benchmarks:
-    name: Run benchmarks
+    name: Benchmarks
     needs: [build]
-    runs-on: 'ubuntu-latest'
+    runs-on: 'ubuntu-18.04'
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
         name: chainweb-applications.8.8.3.ubuntu-18.04
@@ -108,29 +87,33 @@ jobs:
   # Validate Mainnet01 Chain Database With chainweb-node
   #
   validate-header-db:
-    name: Validate ${{ matrix.chainwebVersion }} block header db
+    name: Validate headers
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
     strategy:
       fail-fast: false
       matrix:
-        chainwebVersion: ['mainnet01', 'development']
+        ghc: ['8.6.5', '8.8.3', '8.10.1']
+        chainwebVersion: ['development']
+        include:
+        - ghc: '8.8.3'
+          chainwebVersion: 'mainnet01'
     steps:
     - name: Install non-Haskell dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
-    - name: Download ${{ matrix.chainwebVersion }} chain database artifact
+    - name: Download chain database artifact
       uses: actions/download-artifact@v1
       with:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.3.ubuntu-18.04
+        name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
-    - name: Validate ${{ matrix.chainwebVersion }} block header database
+    - name: Validate block header database
       run: |
         chmod 755 ./bin/cwtool
         ./bin/cwtool header-dump --database=db/rocksdb --chainweb-version=${{ matrix.chainwebVersion }} -o none --validate
@@ -138,13 +121,17 @@ jobs:
   # Validate Mainnet01 Chain Database With chainweb-node
   #
   validate-chain-db:
-    name: Validate ${{ matrix.chainwebVersion }} history with build
+    name: Validate pact history
     needs: [sync-chain-db, build]
     runs-on: 'ubuntu-18.04'
     strategy:
       fail-fast: false
       matrix:
-        chainwebVersion: ['mainnet01', 'development']
+        ghc: ['8.6.5', '8.8.3', '8.10.1']
+        chainwebVersion: ['development']
+        include:
+        - ghc: '8.8.3'
+          chainwebVersion: 'mainnet01'
     steps:
     - name: Install non-Haskell dependencies
       run: |
@@ -155,16 +142,15 @@ jobs:
       with:
         name: chain-db-${{ matrix.chainwebVersion}}
         path: db
-    - name: Download chainweb application artifact
+    - name: Download build artifacts
       uses: actions/download-artifact@v1
       with:
-        name: chainweb-applications.8.8.3.ubuntu-18.04
+        name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
-    - name: Create configuration file for validating the chainweb history
+    - name: Write chainweb-node configuration file
       run: |
         cat >> config.yaml <<EOF
           databaseDirectory: "db/rocksdb"
-          resetChainDatabases: false
           chainweb:
             chainwebVersion: ${{ matrix.chainwebVersion }}
             validateHashesOnReplay: true
@@ -200,7 +186,7 @@ jobs:
                 level: warn
               default: info
         EOF
-    - name: Validate ${{ matrix.chainwebVersion }} history
+    - name: Validate pact history
       run: |
         chmod 755 ./bin/chainweb-node
         ./bin/chainweb-node --config-file=config.yaml | {
@@ -214,7 +200,7 @@ jobs:
   # Build Chainweb Node
   #
   build:
-    name: Build ${{ github.ref }} with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
+    name: Build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -228,9 +214,16 @@ jobs:
       ARTIFACT_FOLDER: chainweb-node
 
     steps:
-    # Setup
+
+    # Setup    
     - name: Checkout repository
       uses: actions/checkout@v1
+    - name: Create env variables for git objects
+      run: |
+        echo "::set-env name=GIT_TAG::$(git describe --tags --exact-match)"
+        echo "::set-env name=GIT_REF_SHORT::$(git symbolic-ref -q --short HEAD)"
+        echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD)"
+        
     - name: Install GHC and Cabal
       uses: haskell-CI/setup@8f15d2f80373bad639e90c95dace7265800c6921
       with:
@@ -307,15 +300,29 @@ jobs:
         folder: "${{ matrix.os }}"
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
-
     - name: Install build dependencies
       run: cabal v2-build chainweb --only-dependencies
     - name: Build chainweb library
       run: cabal v2-build lib:chainweb
     - name: Build chainweb applications
       run: cabal v2-build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
+    
+    # Tests
     - name: Run Tests
       run: cabal v2-run chainweb-tests -- --hide-successes
+    - name: Check that working directly tree is clean
+      run: |
+        if ! git diff --exit-code; then
+          echo "Git working tree is not clean. The build changed some file that is checked into git." 1>&2
+          exit 1
+        fi
+    - name: Run ea and verify consistency of genesis headers
+      run: |
+        cabal v2-run cwtool -- ea
+        if ! git diff --exit-code; then
+          echo "Inconsistent genesis headers detected. Did you forget to run ea?" 1>&2
+          exit 1
+        fi
 
     # Publish Artifacts
     - name: Prepare artifacts
@@ -340,22 +347,24 @@ jobs:
         path: artifacts/applications
 
     # Publish to S3
+    - name: Set up S3 environment
+      run: |
+        echo "::set-env name=BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_SHA_SHORT }}.tar.gz"
+        echo "::set-env name=BRANCH_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_REF_SHORT }}.tar.gz"
+        echo "::set-env name=TAG_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_TAG }}.tar.gz"
+        
     - name: Publish applications to S3
       run: |
-        export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
         aws s3 cp $BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/
         aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BINFILE --acl public-read
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
-    - name: Link latest-build application in S3
-      if: contains(github.ref, 'master') || contains(github.event_name, 'release') || startsWith(github.ref, '1.')
+    - name: Public applicaitons to S3 for master builds
+      if: env.GIT_REF_SHORT == 'master'
       run: |
-        export BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.$(git rev-parse --short HEAD).tar.gz"
-        export LATEST_BINFILE="chainweb.${{ matrix.ghc }}.${{ matrix.os }}.master.tar.gz"
-        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$LATEST_BINFILE
-        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$LATEST_BINFILE --acl public-read
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
+        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BRANCH_BINFILE
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$BRANCH_BINFILE --acl public-read
+    - name: Public applicaitons to S3 for release tag builds
+      if: contains(github.event_name, 'release') || startsWith(env.GIT_TAG, '1.')
+      run: |
+        aws s3 cp s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$BINFILE s3://$ARTIFACT_BUCKET/$ARTIFACT_FOLDER/$TAG_BINFILE
+        aws s3api put-object-acl --bucket $ARTIFACT_BUCKET --key=$ARTIFACT_FOLDER/$TAG_BINFILE --acl public-read
