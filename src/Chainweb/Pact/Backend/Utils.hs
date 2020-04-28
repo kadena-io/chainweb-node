@@ -37,7 +37,7 @@ import Database.SQLite3.Direct as SQ3
 import Prelude hiding (log)
 
 import System.Directory (removeFile)
-import System.IO.Extra
+import System.IO.Temp
 
 -- pact
 
@@ -161,7 +161,7 @@ closeSQLiteConnection c = void $ close_v2 $ _sConn c
 
 withTempSQLiteConnection :: [Pragma] -> (SQLiteEnv -> IO c) -> IO c
 withTempSQLiteConnection ps action =
-  withTempFile (\file -> withSQLiteConnection file ps False action)
+  withSystemTempFile "sqlite-tmp" (\file _ -> withSQLiteConnection file ps False action)
 
 domainTableName :: Domain k v -> Utf8
 domainTableName = Utf8 . toS . asString

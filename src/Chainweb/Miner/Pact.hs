@@ -44,15 +44,15 @@ import Control.Monad.Catch (MonadThrow)
 
 import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import Data.Decimal (roundTo)
 import Data.FileEmbed (embedFile)
 import Data.Hashable
 import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HM
-import Data.List (sort)
+import qualified Data.List as L (sort)
 import Data.String (IsString(..))
-import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Data.Word
@@ -169,13 +169,13 @@ minerRewardHeights = lens _minerRewardHeights (\t b -> t { _minerRewardHeights =
 --
 readRewards :: HasChainGraph v => v -> MinerRewards
 readRewards v =
-    case CSV.decode CSV.NoHeader (toS rawMinerRewards) of
+    case CSV.decode CSV.NoHeader (BL.fromStrict rawMinerRewards) of
       Left e -> error
         $ "cannot construct miner reward map: "
         <> sshow e
       Right vs ->
         let !rs = HM.fromList . V.toList . V.map formatRow $ vs
-        in MinerRewards rs (V.fromList . sort $! HM.keys rs)
+        in MinerRewards rs (V.fromList . L.sort $! HM.keys rs)
   where
     formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
     formatRow (!a,!b) =
