@@ -15,7 +15,7 @@ jobs:
   #
   build:
     name: Build
-    runs-on: windows
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
