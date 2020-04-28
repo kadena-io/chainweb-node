@@ -3,20 +3,11 @@ name: Windows build
 on:
   push:
     branches:
-    - master
-    - ci/*
-    - github-ci
-    - release-candidate/*
-    tags:
-    - '[0-9].[0-9]+'
-  release:
-    types:
-    - created
+    - lars/windows-ci
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.kadena_cabal_cache_aws_access_key_id }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.kadena_cabal_cache_aws_secret_access_key }}
-
 
 jobs:
 
@@ -32,7 +23,9 @@ jobs:
         cabal: ['3.2.0.0']
         os: ['windows-latest']
         cabalcache: ['true']
-        storepath: '--store-path=${HOME}/AppData/Roaming/cabal/store'
+
+    env:
+      STOREPATH: '--store-path=${{env.HOME}}/AppData/Roaming/cabal/store'
 
     steps:
 
@@ -151,6 +144,7 @@ jobs:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
         folder: "${{ matrix.os }}"
+        storepath: "${{ env.STOREPATH }}"
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
