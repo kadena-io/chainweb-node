@@ -1,7 +1,5 @@
 resolver: lts-15.7
 
-#ghc-options: {"$locals": -ddump-to-file -ddump-hi}
-
 build:
   test-arguments:
     additional-args: ["--hide-successes", "--color", "never"]
@@ -41,3 +39,5 @@ extra-deps:
     commit: 3479b2f7f9d5cb19043baace614ea3539c429ed0
   - github: kadena-io/chainweb-storage
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
+  - github: kadena-io/rosetta
+    commit: 94c3ed0db019d74d3ae7877e73208f8b5ee977ff
