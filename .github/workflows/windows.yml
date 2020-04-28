@@ -144,7 +144,7 @@ jobs:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
         folder: "${{ matrix.os }}"
-        storepath: "${{ env.STOREPATH }}"
+        # storepath: "${{ env.STOREPATH }}"
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
