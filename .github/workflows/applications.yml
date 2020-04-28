@@ -82,7 +82,15 @@ jobs:
     - name: Run all benchmarks
       run: |
         chmod 755 ./bin/bench
-        ./bin/bench +RTS -N
+        ./bin/bench --json results.json +RTS -N
+    - name: Upload results
+      run: |
+        aws s3 cp $BENCH_FILE s3://$BENCH_BUCKET/$BENCH_FOLDER/
+        aws s3api put-object-acl --bucket $BENCH_BUCKET --key=$BENCH_FOLDER/$BENCH_FILE --acl public-read
+      env:
+        BENCH_FILE: results.${{ env.GITHUB_RUN_ID }}.${{ env.GITHUB_RUN_NUMBER }}.json
+        BENCH_BUCKET: kadena-cabal-cache
+        BENCH_FOLDER: chainweb-benchmark-results/${{ matrix.ghc }}/${{ matrix.os }}
 
   # Validate Mainnet01 Chain Database With chainweb-node
   #
@@ -215,7 +223,7 @@ jobs:
 
     steps:
 
-    # Setup    
+    # Setup
     - name: Checkout repository
       uses: actions/checkout@v1
     - name: Create env variables for git objects
@@ -223,7 +231,7 @@ jobs:
         echo "::set-env name=GIT_TAG::$(git describe --tags --exact-match)"
         echo "::set-env name=GIT_REF_SHORT::$(git symbolic-ref -q --short HEAD)"
         echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD)"
-        
+
     - name: Install GHC and Cabal
       uses: haskell-CI/setup@8f15d2f80373bad639e90c95dace7265800c6921
       with:
@@ -306,7 +314,7 @@ jobs:
       run: cabal v2-build lib:chainweb
     - name: Build chainweb applications
       run: cabal v2-build exe:chainweb-node test:chainweb-tests exe:cwtool chainweb:bench:bench
-    
+
     # Tests
     - name: Run Tests
       run: cabal v2-run chainweb-tests -- --hide-successes
@@ -352,7 +360,7 @@ jobs:
         echo "::set-env name=BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_SHA_SHORT }}.tar.gz"
         echo "::set-env name=BRANCH_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_REF_SHORT }}.tar.gz"
         echo "::set-env name=TAG_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_TAG }}.tar.gz"
-        
+
     - name: Publish applications to S3
       run: |
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
