@@ -69,6 +69,10 @@ jobs:
     name: Benchmarks
     needs: [build]
     runs-on: 'ubuntu-18.04'
+    env:
+      BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
+      BENCH_BUCKET: kadena-cabal-cache
+      BENCH_FOLDER: chainweb-benchmark-results/ghc-8.8.3/ubuntu-18.04
     steps:
     - name: Install non-Haskell dependencies
       run: |
@@ -82,12 +86,8 @@ jobs:
     - name: Run all benchmarks
       run: |
         chmod 755 ./bin/bench
-        ./bin/bench --json results.json +RTS -N
+        ./bin/bench --json $BENCH_FILE +RTS -N
     - name: Upload results
-      env:
-        BENCH_FILE: results.${{ github.run_id }}.${{ github.run_number }}.json
-        BENCH_BUCKET: kadena-cabal-cache
-        BENCH_FOLDER: chainweb-benchmark-results/ghc-8.8.3/ubuntu-18.04
       run: |
         aws s3 cp $BENCH_FILE s3://$BENCH_BUCKET/$BENCH_FOLDER/
         aws s3api put-object-acl --bucket $BENCH_BUCKET --key=$BENCH_FOLDER/$BENCH_FILE --acl public-read
