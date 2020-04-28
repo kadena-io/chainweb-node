@@ -25,7 +25,7 @@ jobs:
         cabalcache: ['true']
 
     env:
-      STOREPATH: '--store-path=${{env.HOME}}/AppData/Roaming/cabal/store'
+      STOREPATH: "--store-path=${HOME}/AppData/Roaming/cabal/store"
 
     steps:
 
