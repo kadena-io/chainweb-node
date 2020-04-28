@@ -20,6 +20,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 
 import qualified Data.ByteString.Short as BSS
+import qualified Data.HashMap.Strict as HM
 import Data.Proxy (Proxy(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -77,7 +78,14 @@ someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
 -- Construction Handlers
 
 constructionMetadataH :: ConstructionMetadataReq -> Handler ConstructionMetadataResp
-constructionMetadataH _ = error "not yet implemented"
+constructionMetadataH (ConstructionMetadataReq (NetworkId _ _ msni) _) =
+    runExceptT work >>= either throwRosetta pure
+  where
+    -- TODO: Extend as necessary.
+    work :: ExceptT RosettaFailure Handler ConstructionMetadataResp
+    work = do
+        SubNetworkId _ _ <- msni ?? RosettaChainUnspecified
+        pure $ ConstructionMetadataResp HM.empty
 
 --------------------------------------------------------------------------------
 -- Mempool Handlers
