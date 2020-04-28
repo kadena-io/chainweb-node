@@ -33,7 +33,7 @@ module Chainweb.Test.Pact.Utils
 -- * Capability helpers
 , mkCapability
 , mkTransferCap
-, gasCap
+, mkGasCap
 , mkCoinCap
 -- * Command builder
 , defaultCmd
@@ -242,8 +242,8 @@ mkTransferCap :: Text -> Text -> Decimal -> SigCapability
 mkTransferCap sender receiver amount = mkCoinCap "TRANSFER"
   [ pString sender, pString receiver, pDecimal amount ]
 
-gasCap :: SigCapability
-gasCap = mkCoinCap "GAS" []
+mkGasCap :: SigCapability
+mkGasCap = mkCoinCap "GAS" []
 
 
 

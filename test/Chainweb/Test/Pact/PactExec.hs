@@ -222,7 +222,7 @@ testTfrGas = (V.singleton <$> tx,checkResultSuccess test)
     tx = buildCwCmd $ set cbSigners
          [ mkSigner' sender00
            [ mkTransferCap "sender00" "sender01" 1.0
-           , gasCap
+           , mkGasCap
            ]
          ]
          $ mkCmd "testTfrGas"
@@ -268,7 +268,7 @@ testGasPayer = (txs,checkResultSuccess test)
 
         s01 = mkSigner' sender01
           [ mkTransferCap "sender01" "gas-payer" 100.0
-          , gasCap
+          , mkGasCap
           , mkCapability "user.gas-payer-v1-reference" "FUND_USER" []
           ]
 
@@ -314,7 +314,7 @@ testContinuationGasPayer = (txs,checkResultSuccess test)
         set cbSigners
           [ mkSigner' sender00
             [ mkTransferCap "sender00" "cont-gas-payer" 100.0
-            , gasCap
+            , mkGasCap
             ]] $
         mkCmd "testContinuationGasPayer" $
         mkExec' se
@@ -371,7 +371,7 @@ testExecGasPayer = (txs,checkResultSuccess test)
         set cbSigners
           [ mkSigner' sender00
             [ mkTransferCap "sender00" "exec-gas-payer" 100.0
-            , gasCap
+            , mkGasCap
             ]] $
         mkCmd "testExecGasPayer" $
         mkExec' se
