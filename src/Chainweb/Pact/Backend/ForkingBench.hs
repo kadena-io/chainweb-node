@@ -88,6 +88,7 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
@@ -359,8 +360,7 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = Development
--- we might need to change the version to fastTimedCPM
+testVer = FastTimedCPM petersonChainGraph
 
 genesisBlock :: BlockHeader
 genesisBlock = genesisBlockHeader testVer cid

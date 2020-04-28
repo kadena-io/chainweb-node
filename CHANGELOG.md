@@ -1,19 +1,30 @@
 # `chainweb-node` Changelog
 
-## Unreleased
+## 1.8 (2020-04-27)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2020-04-30T00:00:00Z**. Node administrators must upgrade to this version
 before that date.
 
+This version will stop working on **2020-06-11T00:00:00Z**.
+
 *   Starting with block height 530500 the first eight bytes of each block must be
     set to zero. (#974)
 
-*   The option to persist the peer database is removed (TODO). The functionality
+*   The option to persist the peer database is removed. The functionality
     was rarely used and can be simulated by using the peer REST API endpoints
-    along with the know peers configuration option.
+    along with the know peers configuration option. (#1010)
 
-## 1.7 (2019-03-26)
+*   Removed the PUT endpoints from the `/chain/header` APIs. (#1002).
+
+*   Make block header validation aware of adjacent parents. (#1004).
+
+*   Increased the default block gas limit by 10x to 150,000. Note that if you
+    have manually specified a block gas limit in your node config file, this
+    change will not take effect. We recommend removing it and using the
+    chainweb-node default. (#1019).
+
+## 1.7 (2020-03-26)
 
 This version replaces all previous versions. Any prior version will stop working
 on **2020-04-02T00:00:00Z**. Node administrators must upgrade to this version

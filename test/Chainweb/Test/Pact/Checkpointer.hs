@@ -32,7 +32,6 @@ import Pact.Types.Command
 import qualified Pact.Types.Hash as H
 import Pact.Types.Logger (newLogger)
 import Pact.Types.PactValue
-import Pact.Types.RPC (ContMsg(..))
 import Pact.Types.Runtime
 import Pact.Types.SPV (noSPVSupport)
 import Pact.Types.SQLite
