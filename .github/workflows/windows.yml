@@ -25,7 +25,7 @@ jobs:
         cabalcache: ['true']
 
     env:
-      STOREPATH: "--store-path=${HOME}/AppData/Roaming/cabal/store"
+      STOREPATH: "${HOME}/AppData/Roaming/cabal/store"
 
     steps:
 
@@ -139,12 +139,12 @@ jobs:
         cabal v2-freeze
     - name: Sync from cabal cache
       if: matrix.cabalcache == 'true'
-      uses: larskuhtz/cabal-cache-action@21220b9f6499bb12cb0b4b926d6faa9c46a7b146
+      uses: larskuhtz/cabal-cache-action@master
       with:
         bucket: "kadena-cabal-cache"
         region: "us-east-1"
         folder: "${{ matrix.os }}"
-        storepath: "--storepath=${{ env.STOREPATH }}"
+        storepath: "${{ env.STOREPATH }}"
         aws_access_key_id: "${{ secrets.kadena_cabal_cache_aws_access_key_id }}"
         aws_secret_access_key: "${{ secrets.kadena_cabal_cache_aws_secret_access_key }}"
     - name: Install build dependencies
