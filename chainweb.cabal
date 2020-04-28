@@ -681,7 +681,7 @@ executable cwtool
         cpp-options: -DWITH_ED25519=1
 
 
-benchmark bench
+executable bench
     default-language: Haskell2010
     ghc-options:
         -threaded
