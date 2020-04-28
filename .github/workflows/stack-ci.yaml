@@ -1,10 +1,6 @@
 name: Stack Build
 on:
-  pull_request:
   push:
-    branches:
-      - master
-      - ci/*
 
 jobs:
   build:
