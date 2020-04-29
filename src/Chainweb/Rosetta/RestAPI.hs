@@ -81,11 +81,14 @@ data RosettaFailure
     = RosettaChainUnspecified
     | RosettaInvalidChain Text
     | RosettaMempoolBadTx
+    | RosettaNotSupported ChainwebVersion
 
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
 rosettaError (RosettaInvalidChain cid) = RosettaError 1 ("Invalid chain value: " <> cid) False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
+rosettaError (RosettaNotSupported v) = RosettaError 3
+  ("Rosetta not supported for this chainweb node version: " <> chainwebVersionToText v) False
 
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }

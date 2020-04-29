@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -25,6 +26,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
+import qualified Data.HashSet as HS
+
 import Rosetta
 
 import Servant.API
@@ -44,8 +47,9 @@ import Chainweb.Version
 rosettaServer
     :: forall a (v :: ChainwebVersionT)
     . [(ChainId, MempoolBackend a)]
+    -> ChainwebVersion
     -> Server (RosettaApi v)
-rosettaServer ms = (const $ error "not yet implemented")
+rosettaServer ms v = (const $ error "not yet implemented")
     -- Blocks --
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
@@ -56,7 +60,7 @@ rosettaServer ms = (const $ error "not yet implemented")
     :<|> flip mempoolTransactionH ms
     :<|> flip mempoolH ms
     -- Network --
-    :<|> (const $ error "not yet implemented")
+    :<|> flip networkListH v
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
 
@@ -64,8 +68,8 @@ someRosettaServer
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend a)]
     -> SomeServer
-someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
-    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer ms
+someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
+    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer ms v
 
 --------------------------------------------------------------------------------
 -- Account Handlers
@@ -119,3 +123,37 @@ mempoolTransactionH mtr ms = runExceptT work >>= either throwRosetta pure
 
 --------------------------------------------------------------------------------
 -- Network Handlers
+
+networkListH :: MetadataReq -> ChainwebVersion -> Handler NetworkListResp
+networkListH _ v
+  | (isRosettaEnabled v) = return $ NetworkListResp (networkIds v)
+  | otherwise = throwRosetta $ RosettaNotSupported v
+
+--------------------------------------------------------------------------------
+-- Utils
+
+rosettaBlockchainName :: T.Text
+rosettaBlockchainName = "kadena"
+
+-- Rosetta only enabled for production versions
+-- NOTE: Explicit pattern match to trigger compile warning when new versions added
+isRosettaEnabled :: ChainwebVersion -> Bool
+isRosettaEnabled (Test _) = False
+isRosettaEnabled (TimedConsensus _) = False
+isRosettaEnabled (PowConsensus _) = False
+isRosettaEnabled (TimedCPM _) = False
+isRosettaEnabled (FastTimedCPM _) = False
+isRosettaEnabled Development = True
+isRosettaEnabled Testnet04 = True
+isRosettaEnabled Mainnet01 = True
+
+-- Unique Rosetta network ids for each of the chainweb version's chain ids
+networkIds :: ChainwebVersion -> [NetworkId]
+networkIds v = map f (HS.toList (chainIds v))
+  where
+    f :: ChainId -> NetworkId
+    f cid =  NetworkId
+      { _networkId_blockchain = rosettaBlockchainName
+      , _networkId_network = (chainwebVersionToText v)
+      , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
+      }
