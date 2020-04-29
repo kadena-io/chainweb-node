@@ -371,9 +371,9 @@ jobs:
       if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != 'cancelled'
       run: |
         cat > filter.jq <<EOF
-            .gitRevision = ${{ env.GITHUB_SHA }} |
-            .gitRef = ${{ env.GIT_REF_SHORT }} |
-            .gitTag = ${{ env.GIT_TAG }} |
+            .gitRevision = "${{ github.sha }}" |
+            .gitRef = "${{ env.GIT_REF_SHORT }}" |
+            .gitTag = "${{ env.GIT_TAG }}" |
             .githubRunId = ${{ github.run_id }} |
             .githubRunNumber = ${{ github.run_number }}
         EOF
