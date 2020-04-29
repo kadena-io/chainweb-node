@@ -317,7 +317,8 @@ jobs:
 
     # Tests
     - name: Run Tests
-      run: cabal v2-run chainweb-tests -- --hide-successes
+      id: tests
+      run: cabal v2-run chainweb-tests -- --hide-successes --results-json test-results.json
     - name: Check that working directly tree is clean
       run: |
         if ! git diff --exit-code; then
@@ -355,12 +356,32 @@ jobs:
         path: artifacts/applications
 
     # Publish to S3
-    - name: Set up S3 environment
+    - name: Define S3 locations
       run: |
         echo "::set-env name=BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_SHA_SHORT }}.tar.gz"
         echo "::set-env name=BRANCH_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_REF_SHORT }}.tar.gz"
         echo "::set-env name=TAG_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_TAG }}.tar.gz"
 
+        echo "::set-env name=TEST_RESULT_FILE::test-results.${{ github.run_id }}.${{ github.run_number }}.json"
+        echo "::set-env name=TEST_RESULT_BUCKET::kadena-cabal-cache"
+        echo "::set-env name=TEST_RESULT_FOLDER::chainweb-test-results/ghc-${{ matrix.ghc }}/${{ matrix.os }}"
+
+    # Publish test results to S3
+    - name: Upload test results
+      if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != 'cancelled'
+      run: |
+        cat > filter.jq <<EOF
+            .gitRevision = ${{ env.GITHUB_SHA }} |
+            .gitRef = ${{ env.GIT_REF_SHORT }} |
+            .gitTag = ${{ env.GIT_TAG }} |
+            .githubRunId = ${{ github.run_id }} |
+            .githubRunNumber = ${{ github.run_number }}
+        EOF
+        jq -f filter.jq test-results.json > $TEST_RESULT_FILE
+        aws s3 cp $TEST_RESULT_FILE s3://$TEST_RESULT_BUCKET/$TEST_RESULT_FOLDER/
+        aws s3api put-object-acl --bucket $TEST_RESULT_BUCKET --key=$TEST_RESULT_FOLDER/$TEST_RESULT_FILE --acl public-read
+
+    # Publish artifacts to S3
     - name: Publish applications to S3
       run: |
         tar -C ./artifacts/applications/ -czf $BINFILE chainweb-node
