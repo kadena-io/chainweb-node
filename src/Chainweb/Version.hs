@@ -530,7 +530,7 @@ chainwebVersionGraph (TimedConsensus g) = g
 chainwebVersionGraph (PowConsensus g) = g
 chainwebVersionGraph (TimedCPM g) = g
 chainwebVersionGraph (FastTimedCPM g) = g
-chainwebVersionGraph Development = petersonChainGraph
+chainwebVersionGraph Development = twentyChainGraph
 chainwebVersionGraph Testnet04 = petersonChainGraph
 chainwebVersionGraph Mainnet01 = petersonChainGraph
 
