@@ -53,8 +53,8 @@ import Chainweb.Version
 ---
 
 rosettaServer
-    :: forall a (v :: ChainwebVersionT)
-    . [(ChainId, MempoolBackend a)]
+    :: forall (v :: ChainwebVersionT)
+    . [(ChainId, MempoolBackend ChainwebTransaction)]
     -> Server (RosettaApi v)
 rosettaServer ms = (const $ error "not yet implemented")
     -- Blocks --
@@ -62,10 +62,10 @@ rosettaServer ms = (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
     -- Construction --
     :<|> constructionMetadataH
-    :<|> (const $ error "not yet implemented")
+    :<|> constructionSubmitH ms
     -- Mempool --
-    :<|> flip mempoolTransactionH ms
-    :<|> flip mempoolH ms
+    :<|> mempoolTransactionH ms
+    :<|> mempoolH ms
     -- Network --
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
@@ -73,7 +73,7 @@ rosettaServer ms = (const $ error "not yet implemented")
 
 someRosettaServer
     :: ChainwebVersion
-    -> [(ChainId, MempoolBackend a)]
+    -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> SomeServer
 someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
     SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer ms
@@ -98,10 +98,10 @@ constructionMetadataH (ConstructionMetadataReq (NetworkId _ _ msni) _) =
         pure $ ConstructionMetadataResp HM.empty
 
 constructionSubmitH
-    :: ConstructionSubmitReq
-    -> [(ChainId, MempoolBackend ChainwebTransaction)]
+    :: [(ChainId, MempoolBackend ChainwebTransaction)]
+    -> ConstructionSubmitReq
     -> Handler ConstructionSubmitResp
-constructionSubmitH (ConstructionSubmitReq (NetworkId _ _ msni) tx) ms =
+constructionSubmitH ms (ConstructionSubmitReq (NetworkId _ _ msni) tx) =
     runExceptT work >>= either throwRosetta pure
   where
     work :: ExceptT RosettaFailure Handler ConstructionSubmitResp
@@ -122,8 +122,8 @@ command = decode' . TL.encodeUtf8 . TL.fromStrict
 --------------------------------------------------------------------------------
 -- Mempool Handlers
 
-mempoolH :: MempoolReq -> [(ChainId, MempoolBackend a)] -> Handler MempoolResp
-mempoolH (MempoolReq (NetworkId _ _ msni)) ms = case msni of
+mempoolH :: [(ChainId, MempoolBackend a)] -> MempoolReq -> Handler MempoolResp
+mempoolH ms (MempoolReq (NetworkId _ _ msni)) = case msni of
     Nothing -> throwRosetta RosettaChainUnspecified
     Just (SubNetworkId n _) ->
         case readMaybe @ChainId (T.unpack n) >>= flip lookup ms of
@@ -132,10 +132,10 @@ mempoolH (MempoolReq (NetworkId _ _ msni)) ms = case msni of
                 error "not yet implemented"  -- TODO!
 
 mempoolTransactionH
-    :: MempoolTransactionReq
-    -> [(ChainId, MempoolBackend a)]
+    :: [(ChainId, MempoolBackend a)]
+    -> MempoolTransactionReq
     -> Handler MempoolTransactionResp
-mempoolTransactionH mtr ms = runExceptT work >>= either throwRosetta pure
+mempoolTransactionH ms mtr = runExceptT work >>= either throwRosetta pure
   where
     MempoolTransactionReq (NetworkId _ _ msni) (TransactionId ti) = mtr
     th = TransactionHash . BSS.toShort $ T.encodeUtf8 ti
