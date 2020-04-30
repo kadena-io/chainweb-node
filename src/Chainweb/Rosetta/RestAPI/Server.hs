@@ -1,6 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -19,12 +21,18 @@ import Control.Error.Util
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 
+import Data.Aeson
+import Data.Bifunctor
 import qualified Data.ByteString.Short as BSS
 import qualified Data.HashMap.Strict as HM
 import Data.Proxy (Proxy(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Vector as V
+
+import Pact.Types.Command
 
 import Rosetta
 
@@ -36,8 +44,10 @@ import Text.Read (readMaybe)
 -- internal modules
 
 import Chainweb.Mempool.Mempool
+import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Rosetta.RestAPI
+import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Version
 
 ---
@@ -86,6 +96,28 @@ constructionMetadataH (ConstructionMetadataReq (NetworkId _ _ msni) _) =
     work = do
         SubNetworkId _ _ <- msni ?? RosettaChainUnspecified
         pure $ ConstructionMetadataResp HM.empty
+
+constructionSubmitH
+    :: ConstructionSubmitReq
+    -> [(ChainId, MempoolBackend ChainwebTransaction)]
+    -> Handler ConstructionSubmitResp
+constructionSubmitH (ConstructionSubmitReq (NetworkId _ _ msni) tx) ms =
+    runExceptT work >>= either throwRosetta pure
+  where
+    work :: ExceptT RosettaFailure Handler ConstructionSubmitResp
+    work = do
+        SubNetworkId n _ <- msni ?? RosettaChainUnspecified
+        cmd <- command tx ?? RosettaUnparsableTx
+        validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
+        mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain n
+        let !vec = V.singleton validated
+        liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
+        liftIO (mempoolInsert mp UncheckedInsert vec)
+        let rk = requestKeyToB16Text $ cmdToRequestKey validated
+        pure $ ConstructionSubmitResp (TransactionId rk) Nothing
+
+command :: T.Text -> Maybe (Command T.Text)
+command = decode' . TL.encodeUtf8 . TL.fromStrict
 
 --------------------------------------------------------------------------------
 -- Mempool Handlers
