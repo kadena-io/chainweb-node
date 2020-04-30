@@ -38,7 +38,6 @@ import Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64U
 import Data.ByteString.Lazy (toStrict)
 import Data.CAS (casLookupM)
-import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.List (isInfixOf)
@@ -74,7 +73,6 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Graph
 import Chainweb.Pact.Backend.Types
-import Chainweb.Pact.Backend.Utils
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV.CreateProof
@@ -154,11 +152,6 @@ checkResult co ci expect =
     (HM.lookup (unsafeChainId ci) co) (isInfixOf expect . show)
 
 
-withAll :: ChainwebVersion -> ([SQLiteEnv] -> IO c) -> IO c
-withAll vv f = foldl' (\soFar _ -> with soFar) f (chainIds vv) []
-  where
-    with :: ([SQLiteEnv] -> IO c) -> [SQLiteEnv] -> IO c
-    with g envs =  withTempSQLiteConnection chainwebPragmas $ \s -> g (s : envs)
 
 getCutOutputs :: TestBlockDb -> IO CutOutputs
 getCutOutputs (TestBlockDb _ pdb cmv) = do
@@ -184,19 +177,15 @@ roundtrip
       -- ^ create tx generator
     -> (String -> IO ())
     -> IO (CutOutputs, CutOutputs)
-roundtrip sid0 tid0 burn create step = do
-  withTestBlockDb v $ \bdb@(TestBlockDb wdb pdb _) -> withAll v $ \sqlenvs -> do
+roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
+  tg <- newMVar mempty
+  withWebPactExecutionService v bdb (chainToMPA' tg) $ \pact -> do
 
     sid <- mkChainId v sid0
     tid <- mkChainId v tid0
 
     -- track the continuation pact id
     pidv <- newEmptyMVar @PactId
-
-    tg <- newMVar mempty
-    pact <- testWebPactExecutionService v
-              (return wdb) (return pdb)
-              (chainToMPA' tg) sqlenvs
 
     -- cut 0: empty run (not sure why this is needed but test fails without it)
     step "cut 0: empty run"
@@ -254,11 +243,11 @@ cutToPayloadOutputs c pdb = do
         toCR (TransactionOutput t) = fromJuste $ decodeStrict' t
     return txs
 
-chainToMPA' :: MVar TransactionGenerator -> Chainweb.ChainId -> MemPoolAccess
-chainToMPA' f cid = mempty
+chainToMPA' :: MVar TransactionGenerator -> MemPoolAccess
+chainToMPA' f = mempty
     { mpaGetBlock = \_pc hi ha he -> do
         tg <- readMVar f
-        tg cid hi ha he
+        tg (_blockChainId he) hi ha he
     }
 
 
