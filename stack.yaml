@@ -41,3 +41,5 @@ extra-deps:
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
     commit: 94c3ed0db019d74d3ae7877e73208f8b5ee977ff
+  - github: larskuhtz/tasty-json
+    commit: c0d15c1330020e1a864d5eba404c2e7c634ac3ca
