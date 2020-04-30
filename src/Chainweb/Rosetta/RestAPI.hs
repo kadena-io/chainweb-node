@@ -82,13 +82,19 @@ data RosettaFailure
     | RosettaInvalidChain Text
     | RosettaMempoolBadTx
     | RosettaNotSupported ChainwebVersion
+    | RosettaInvalidBlockchainName Text
+    | RosettaMismatchNetworkName ChainwebVersion Text
 
+-- TODO: Better grouping of rosetta error index
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
 rosettaError (RosettaInvalidChain cid) = RosettaError 1 ("Invalid chain value: " <> cid) False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
 rosettaError (RosettaNotSupported v) = RosettaError 3
-  ("Rosetta not supported for this chainweb node version: " <> chainwebVersionToText v) False
+  ("Rosetta not supported for chainweb node version: " <> chainwebVersionToText v) False
+rosettaError (RosettaInvalidBlockchainName a) = RosettaError 4 ("Invalid blockchain name: " <> a) False
+rosettaError (RosettaMismatchNetworkName v a) = RosettaError 5
+  ("Network name mismatch: expected " <> (chainwebVersionToText v) <> " but received " <> a) False
 
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }

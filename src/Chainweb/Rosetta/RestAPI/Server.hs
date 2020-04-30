@@ -16,6 +16,7 @@
 --
 module Chainweb.Rosetta.RestAPI.Server where
 
+import Control.Error.Safe (assertMay)
 import Control.Error.Util
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
@@ -37,6 +38,8 @@ import Text.Read (readMaybe)
 
 -- internal modules
 
+import Chainweb.Cut.CutHashes (cutToCutHashes)
+import Chainweb.CutDB
 import Chainweb.Mempool.Mempool
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Rosetta.RestAPI
@@ -45,11 +48,12 @@ import Chainweb.Version
 ---
 
 rosettaServer
-    :: forall a (v :: ChainwebVersionT)
+    :: forall a cas (v :: ChainwebVersionT)
     . [(ChainId, MempoolBackend a)]
     -> ChainwebVersion
+    -> CutDb cas
     -> Server (RosettaApi v)
-rosettaServer ms v = (const $ error "not yet implemented")
+rosettaServer ms v cutDb = (const $ error "not yet implemented")
     -- Blocks --
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
@@ -67,9 +71,10 @@ rosettaServer ms v = (const $ error "not yet implemented")
 someRosettaServer
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend a)]
+    -> CutDb cas
     -> SomeServer
-someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
-    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer ms v
+someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms cdb =
+    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer ms v cdb
 
 --------------------------------------------------------------------------------
 -- Account Handlers
@@ -117,7 +122,7 @@ mempoolTransactionH mtr ms = runExceptT work >>= either throwRosetta pure
     work :: ExceptT RosettaFailure Handler MempoolTransactionResp
     work = do
         SubNetworkId n _ <- msni ?? RosettaChainUnspecified
-        mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain n
+        mp <- (readChainId n >>= flip lookup ms) ?? RosettaInvalidChain n
         lrs <- liftIO . mempoolLookup mp $ V.singleton th
         (lrs V.!? 0 >>= f) ?? RosettaMempoolBadTx
 
@@ -126,14 +131,35 @@ mempoolTransactionH mtr ms = runExceptT work >>= either throwRosetta pure
 
 networkListH :: MetadataReq -> ChainwebVersion -> Handler NetworkListResp
 networkListH _ v
-  | (isRosettaEnabled v) = return $ NetworkListResp (networkIds v)
+  | (isRosettaEnabled v) = pure $ NetworkListResp (networkIds v)
   | otherwise = throwRosetta $ RosettaNotSupported v
+
+
+{--
+data NetworkStatusResponse = NetworkStatusResponse
+  { _NetworkStatusResponse_currentBlockIdentifier :: BlockIdentifier
+  , _NetworkStatusResponse_currentBlockTimestamp :: Word64
+  -- ^ Timestamp of the block in milliseconds since the Unix Epoch.
+  , _NetworkStatusResponse_genesisBlockIdentifier :: BlockIdentifier
+  , _NetworkStatusResponse_peers :: [Peer]
+  }
+--}
+
+networkStatusH :: NetworkReq -> ChainwebVersion -> CutDb cas -> Handler NetworkStatusResp
+networkStatusH (NetworkReq nid _) v db = do
+  cid <- runExceptT (enforceValidNetworkId v nid)
+         >>= either throwRosetta pure
+  cuts <- liftIO $ _cut db
+  undefined
 
 --------------------------------------------------------------------------------
 -- Utils
 
-rosettaBlockchainName :: T.Text
-rosettaBlockchainName = "kadena"
+blockchainName :: T.Text
+blockchainName = "kadena"
+
+readChainId :: T.Text -> Maybe ChainId
+readChainId = chainIdFromText
 
 -- Rosetta only enabled for production versions
 -- NOTE: Explicit pattern match to trigger compile warning when new versions added
@@ -147,13 +173,36 @@ isRosettaEnabled Development = True
 isRosettaEnabled Testnet04 = True
 isRosettaEnabled Mainnet01 = True
 
+isValidChainId :: ChainwebVersion -> ChainId -> Bool
+isValidChainId v cid = HS.member cid (chainIds v)
+
 -- Unique Rosetta network ids for each of the chainweb version's chain ids
 networkIds :: ChainwebVersion -> [NetworkId]
 networkIds v = map f (HS.toList (chainIds v))
   where
     f :: ChainId -> NetworkId
     f cid =  NetworkId
-      { _networkId_blockchain = rosettaBlockchainName
+      { _networkId_blockchain = blockchainName
       , _networkId_network = (chainwebVersionToText v)
       , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
       }
+
+enforceValidNetworkId
+  :: ChainwebVersion
+  -> NetworkId
+  -> ExceptT RosettaFailure Handler ChainId
+enforceValidNetworkId v (NetworkId bn rv sid) = do
+  enforce (isRosettaEnabled v) (RosettaNotSupported v)
+  enforce isValidBlockchainName (RosettaInvalidBlockchainName bn)
+  enforce isValidNetworkVersion (RosettaMismatchNetworkName v rv)
+  SubNetworkId cidt _ <- sid ?? RosettaChainUnspecified
+  cid <- (readChainId cidt) ?? (RosettaInvalidChain cidt)
+  enforce (isValidChainId v cid) (RosettaInvalidChain cidt)
+  pure cid
+
+  where
+    enforce :: Bool -> RosettaFailure -> ExceptT RosettaFailure Handler ()
+    enforce p e = assertMay p ?? e
+
+    isValidBlockchainName = bn == blockchainName
+    isValidNetworkVersion = rv == (chainwebVersionToText v)
