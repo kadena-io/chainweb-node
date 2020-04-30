@@ -155,7 +155,6 @@ import Text.Printf (printf)
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.BlockHeader
@@ -470,7 +469,7 @@ withChainServer
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
     app :: W.Application
-    app = chainwebApplication (Test singletonChainGraph) dbs Nothing (HeaderStream False)
+    app = chainwebApplication (Test singletonChainGraph) dbs Nothing (HeaderStream False) (Rosetta False)
 
     work :: Int -> IO a
     work port = do
@@ -608,7 +607,11 @@ clientEnvWithChainwebTestServer tls v dbsIO =
     miningRes = Nothing
 
     mkApp :: IO W.Application
-    mkApp = chainwebApplication v <$> dbsIO <*> pure miningRes <*> pure (HeaderStream False)
+    mkApp = chainwebApplication v
+        <$> dbsIO
+        <*> pure miningRes
+        <*> pure (HeaderStream False)
+        <*> pure (Rosetta False)
 
     mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do

@@ -60,6 +60,7 @@ module Chainweb.Chainweb
 , configBlockGasLimit
 , configThrottling
 , configReorgLimit
+, configRosetta
 , defaultChainwebConfiguration
 , pChainwebConfiguration
 , validateChainwebConfiguration
@@ -71,7 +72,6 @@ module Chainweb.Chainweb
 , chainwebHostAddress
 , chainwebMiner
 , chainwebCoordinator
-, chainwebHeaderStream
 , chainwebLogger
 , chainwebSocket
 , chainwebPeer
@@ -165,7 +165,6 @@ import qualified Pact.Types.Command as P
 
 import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
-import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Chainweb.ChainResources
@@ -182,8 +181,8 @@ import Chainweb.Mempool.P2pConfig
 import Chainweb.Miner.Config
 import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Server (PactServerData)
-import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Service.Types (PactServiceConfig(..))
+import Chainweb.Pact.Types (defaultReorgLimit)
 import Chainweb.Pact.Utils (fromPactChainId)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
@@ -321,6 +320,7 @@ data ChainwebConfiguration = ChainwebConfiguration
     , _configValidateHashesOnReplay :: !Bool
         -- ^ Re-validate payload hashes during replay.
     , _configAllowReadsInLocal :: !Bool
+    , _configRosetta :: !Bool
     } deriving (Show, Eq, Generic)
 
 makeLenses ''ChainwebConfiguration
@@ -350,6 +350,7 @@ defaultChainwebConfiguration v = ChainwebConfiguration
     , _configReorgLimit = int defaultReorgLimit
     , _configValidateHashesOnReplay = False
     , _configAllowReadsInLocal = False
+    , _configRosetta = False
     }
 
 instance ToJSON ChainwebConfiguration where
@@ -369,6 +370,7 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
+        -- , "rosetta" .= _configRosetta o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -388,6 +390,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
+        -- <*< configRosetta ..: "rosetta" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -427,6 +430,9 @@ pChainwebConfiguration = id
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
+    -- <*< configRosetta .:: boolOption_
+    --     % long "rosetta"
+    --     <> help "Enable the Rosetta endpoints."
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -437,7 +443,6 @@ data Chainweb logger cas = Chainweb
     , _chainwebCutResources :: !(CutResources logger cas)
     , _chainwebMiner :: !(Maybe (MinerResources logger cas))
     , _chainwebCoordinator :: !(Maybe (MiningCoordination logger cas))
-    , _chainwebHeaderStream :: !HeaderStream
     , _chainwebLogger :: !logger
     , _chainwebPeer :: !(PeerResources logger)
     , _chainwebPayloadDb :: !(PayloadDb cas)
@@ -653,7 +658,6 @@ withChainwebInternal conf logger peer rocksDb dbDir nodeid resetDb inner = do
                             , _chainwebCutResources = cuts
                             , _chainwebMiner = m
                             , _chainwebCoordinator = mc
-                            , _chainwebHeaderStream = HeaderStream $ _configHeaderStream conf
                             , _chainwebLogger = logger
                             , _chainwebPeer = peer
                             , _chainwebPayloadDb = view cutDbPayloadCas $ _cutResCutDb cuts
@@ -848,7 +852,8 @@ runChainweb cw = do
             , _chainwebServerPactDbs = pactDbsToServe
             }
         (_chainwebCoordinator cw)
-        (_chainwebHeaderStream cw)
+        (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
+        (Rosetta . _configRosetta $ _chainwebConfig cw)
 
     -- HTTP Request Logger
 

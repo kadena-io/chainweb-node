@@ -284,6 +284,13 @@ powTarget p@(ParentHeader ph) bct
                 adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
             | isLastInEpoch ph ->
                 adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            | ver == Development && _blockHeight ph == 1 -> HashTarget (maxBound `div` 10000)
+                -- this is a special case for starting  new devnet. Using
+                -- maxtarget results in an two high block production and
+                -- consecutively orphans and network congestion. The consequence
+                -- are osciallations to take serval hundred blocks before the
+                -- system stabilizes. This code cools down initial block
+                -- production.
             | otherwise -> _blockTarget ph
   where
     t = EpochStartTime $ if oldTargetGuard ver (_blockHeight ph)
@@ -307,6 +314,12 @@ epochStart
 epochStart (ParentHeader p) (BlockCreationTime bt)
     | isLastInEpoch p && oldTargetGuard ver (_blockHeight p) = EpochStartTime bt
     | isLastInEpoch p = EpochStartTime (_bct $ _blockCreationTime p)
+    | ver == Development && _blockHeight p == 1 = EpochStartTime (_bct $ _blockCreationTime p)
+        -- this is a special case for starting a new devnet. The creation time
+        -- of the development genesis blocks way in the past which would cause
+        -- the first /and/ second epochs to be at max target. By using the first
+        -- block instead of the genesis block for computing the first epoch time
+        -- we slow down mining eariler.
     | otherwise = _blockEpochStart p
   where
     ver = _chainwebVersion p
@@ -349,7 +362,6 @@ newtype ParentHeader = ParentHeader
     { _parentHeader :: BlockHeader }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
-
 
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader

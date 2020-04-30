@@ -30,6 +30,8 @@ module Chainweb.Pact.PactService
     , execValidateBlock
     , execTransactions
     , execLocal
+    , execLookupPactTxs
+    , execPreInsertCheckReq
     , initPactService
     , readCoinAccount
     , readAccountBalance
@@ -227,7 +229,7 @@ initPactService
     -> PactServiceConfig
     -> IO ()
 initPactService ver cid chainwebLogger reqQ mempoolAccess bhDb pdb sqlenv config =
-    initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
+    void $ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config $ do
         initialPayloadState chainwebLogger ver cid
         serviceRequests (logFunction chainwebLogger) mempoolAccess reqQ
 
@@ -242,7 +244,7 @@ initPactService'
     -> SQLiteEnv
     -> PactServiceConfig
     -> PactServiceM cas a
-    -> IO a
+    -> IO (T2 a PactServiceState)
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger ver
     let !rs = readRewards ver
@@ -262,7 +264,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                 }
         !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
-    evalPactServiceM pst pse act
+    runPactServiceM pst pse act
   where
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)

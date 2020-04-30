@@ -13,14 +13,19 @@ module Chainweb.Test.Cut.TestBlockDb
   , mkTestBlockDb
   , addTestBlockDb
   , getParentTestBlockDb
+  , getBlockHeaderDb
+  -- convenience export
+  , RocksDbCas
   ) where
 
 import Control.Concurrent.MVar
+import Control.Monad.Catch
 import Data.Bifunctor (first)
 import qualified Data.HashMap.Strict as HM
 import Data.Tuple.Strict (T2(..))
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Test.Cut
@@ -71,3 +76,8 @@ getParentTestBlockDb (TestBlockDb _ _ cmv) cid = do
   c <- readMVar cmv
   fromMaybeM (userError $ "Internal error, parent not found for cid " ++ show cid) $
     HM.lookup cid $ _cutMap c
+
+-- | Convenience accessor
+getBlockHeaderDb :: MonadThrow m => ChainId -> TestBlockDb -> m BlockHeaderDb
+getBlockHeaderDb cid (TestBlockDb wdb _ _) =
+  getWebBlockHeaderDb wdb cid

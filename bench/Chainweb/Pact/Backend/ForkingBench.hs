@@ -49,8 +49,6 @@ import qualified Data.Vector as V
 import Data.Word
 import qualified Data.Yaml as Y
 
-import Fake
-
 import GHC.Conc hiding (withMVar)
 import GHC.Generics hiding (from, to)
 
@@ -88,6 +86,7 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Difficulty
+import Chainweb.Graph
 import Chainweb.Logger
 import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
@@ -169,7 +168,7 @@ testMemPoolAccess txsPerBlock accounts = mempty
         | otherwise =
           withMVar mVarAccounts $ \accs -> do
             blockSize <- readIORef txsPerBlock
-            coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs) >>= traverse generate
+            coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs)
             txs <- forM coinReqs $ \coinReq -> do
                 let (Account sender, ks) =
                       case coinReq of
@@ -359,8 +358,7 @@ cid :: ChainId
 cid = someChainId testVer
 
 testVer :: ChainwebVersion
-testVer = Development
--- we might need to change the version to fastTimedCPM
+testVer = FastTimedCPM petersonChainGraph
 
 genesisBlock :: BlockHeader
 genesisBlock = genesisBlockHeader testVer cid
@@ -484,19 +482,19 @@ validateCommand cmdText = case verifyCommand cmdBS of
 mkRandomCoinContractRequest
     :: Bool
     -> M.Map Account (NonEmpty SomeKeyPairCaps)
-    -> IO (FGen CoinContractRequest)
+    -> IO CoinContractRequest
 mkRandomCoinContractRequest transfersPred kacts = do
     request <- bool (randomRIO @Int (0, 1)) (return 1) transfersPred
-    pure $ case request of
-      0 -> CoinAccountBalance <$> fake
+    case request of
+      0 -> CoinAccountBalance <$> fakeAccount
       1 -> do
-          (from, to) <- distinctPair (M.keys kacts)
+          (from, to) <- distinctAccounts (M.keys kacts)
           case M.lookup to kacts of
               Nothing -> error $ errmsg ++ getAccount to
               Just _keyset -> CoinTransfer
                   (SenderName from)
                   (ReceiverName to)
-                  <$> fake
+                  <$> fakeAmount
       _ -> error "mkRandomCoinContractRequest: impossible case"
     where
       errmsg =
@@ -527,23 +525,30 @@ instance Show SenderName where
 instance Show ReceiverName where
     show (ReceiverName account) = "sender: " ++ show account
 
-instance Fake Account where
-  fake = elements $ NEL.toList accountNames
+pick :: Foldable l => l a -> IO a
+pick l = (toList l !!) <$> randomRIO (0, length l - 1)
+
+fakeAccount :: IO Account
+fakeAccount =  pick accountNames
 
 newtype Amount = Amount
   { getAmount :: Decimal
   } deriving (Eq, Show, Generic)
 
-instance Fake Amount where
-  fake =
+fakeAmount :: IO Amount
+fakeAmount =
     (Amount . realFracToDecimal 12) <$>
-    (fromRange @Double (lowerLimit, upperLimit))
-    where
+    (randomRIO @Double (lowerLimit, upperLimit))
+  where
       lowerLimit = 0
       upperLimit = 5
 
-distinctPair :: (Fake a, Eq a) => [a] -> FGen (a,a)
-distinctPair xs = elements xs >>= \a -> (,) a <$> suchThat fake (/= a)
+distinctAccounts :: [Account] -> IO (Account, Account)
+distinctAccounts xs = pick xs >>= go
+  where
+    go a = do
+        b <- pick xs
+        if (a == b) then (go a) else return (a,b)
 
 createCoinContractRequest
     :: ChainwebVersion

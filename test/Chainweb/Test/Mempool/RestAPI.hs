@@ -16,7 +16,6 @@ import Test.Tasty
 
 -- internal modules
 
-import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Graph
 import Chainweb.Logger (GenericLogger)
@@ -85,9 +84,10 @@ newTestServer = mask_ $ do
     chain = someChainId version
 
     mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)]) mr hs
+    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)]) mr hs r
       where
         hs = HeaderStream False
+        r  = Rosetta False
 
         mr :: Maybe (MiningCoordination GenericLogger cas)
         mr = Nothing
