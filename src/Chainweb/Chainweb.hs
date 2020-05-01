@@ -823,9 +823,6 @@ runChainweb cw = do
     chainDbsToServe :: [(ChainId, BlockHeaderDb)]
     chainDbsToServe = proj _chainResBlockHeaderDb
 
-    mempoolsToServe :: [(ChainId, Mempool.MempoolBackend ChainwebTransaction)]
-    mempoolsToServe = proj _chainResMempool
-
     chainP2pToServe :: [(NetworkId, PeerDb)]
     chainP2pToServe =
         bimap ChainNetwork (_peerResDb . _chainResPeer) <$> itoList (_chainwebChains cw)
@@ -855,7 +852,6 @@ runChainweb cw = do
         ChainwebServerDbs
             { _chainwebServerCutDb = Just cutDb
             , _chainwebServerBlockHeaderDbs = chainDbsToServe
-            , _chainwebServerMempools = mempoolsToServe
             , _chainwebServerPayloadDbs = payloadDbsToServe
             , _chainwebServerPeerDbs = (CutNetwork, cutPeerDb) : chainP2pToServe <> memP2pToServe
             , _chainwebServerPactDbs = pactDbsToServe

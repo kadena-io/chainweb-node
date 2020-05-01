@@ -55,7 +55,6 @@ import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.Mempool.Mempool (MockTx)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
@@ -340,7 +339,7 @@ spvTransactionOutputRoundtripTest rdb v step = do
 -- -------------------------------------------------------------------------- --
 -- REST API
 
-type TestClientEnv_ cas = TestClientEnv MockTx cas
+type TestClientEnv_ cas = TestClientEnv cas
 
 apiTests :: RocksDb -> ChainwebVersion -> TestTree
 apiTests rdb v = withTestPayloadResource rdb v 100 (\_ _ -> return ()) $ \dbIO ->

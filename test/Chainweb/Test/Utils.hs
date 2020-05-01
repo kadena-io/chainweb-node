@@ -113,8 +113,7 @@ import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class
 
 import qualified Data.ByteString.Lazy as BL
-import Data.Aeson (FromJSON, ToJSON)
-import Data.Bifunctor hiding (second)
+import qualified Data.Bifunctor as BF
 import Data.Bytes.Get
 import Data.Bytes.Put
 import qualified Data.ByteString as B
@@ -154,6 +153,8 @@ import Text.Printf (printf)
 
 -- internal modules
 
+import Chainweb.Chainweb.ChainResources
+import Chainweb.Transaction
 import Chainweb.BlockCreationTime
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Logger (Logger, GenericLogger)
@@ -458,13 +459,10 @@ starBlockHeaderDbs n genDbs = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withChainServer
-    :: forall t cas logger a
-    .  Show t
-    => ToJSON t
-    => FromJSON t
-    => PayloadCasLookup cas
+    :: forall cas logger a
+    . PayloadCasLookup cas
     => Logger logger
-    => ChainwebServerDbs t logger cas
+    => ChainwebServerDbs logger cas
     -> (ClientEnv -> IO a)
     -> IO a
 withChainServer dbs f = W.testWithApplication (pure app) work
@@ -483,11 +481,11 @@ withChainServer dbs f = W.testWithApplication (pure app) work
 testHost :: String
 testHost = "localhost"
 
-data TestClientEnv t cas = TestClientEnv
+data TestClientEnv cas = TestClientEnv
     { _envClientEnv :: !ClientEnv
     , _envCutDb :: !(Maybe (CutDb cas))
     , _envBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
-    , _envMempools :: ![(ChainId, MempoolBackend t)]
+    , _envMempools :: ![(ChainId, MempoolBackend ChainwebTransaction)]
     , _envPayloadDbs :: ![(ChainId, PayloadDb cas)]
     , _envPeerDbs :: ![(NetworkId, P2P.PeerDb)]
     , _envVersion :: !ChainwebVersion
@@ -497,7 +495,7 @@ pattern BlockHeaderDbsTestClientEnv
     :: ClientEnv
     -> [(ChainId, BlockHeaderDb)]
     -> ChainwebVersion
-    -> TestClientEnv t cas
+    -> TestClientEnv cas
 pattern BlockHeaderDbsTestClientEnv { _cdbEnvClientEnv, _cdbEnvBlockHeaderDbs, _cdbEnvVersion }
     = TestClientEnv _cdbEnvClientEnv Nothing _cdbEnvBlockHeaderDbs [] [] [] _cdbEnvVersion
 
@@ -505,7 +503,7 @@ pattern PeerDbsTestClientEnv
     :: ClientEnv
     -> [(NetworkId, P2P.PeerDb)]
     -> ChainwebVersion
-    -> TestClientEnv t cas
+    -> TestClientEnv cas
 pattern PeerDbsTestClientEnv { _pdbEnvClientEnv, _pdbEnvPeerDbs, _pdbEnvVersion }
     = TestClientEnv _pdbEnvClientEnv Nothing [] [] [] _pdbEnvPeerDbs _pdbEnvVersion
 
@@ -514,7 +512,7 @@ pattern PayloadTestClientEnv
     -> CutDb cas
     -> [(ChainId, PayloadDb cas)]
     -> ChainwebVersion
-    -> TestClientEnv t cas
+    -> TestClientEnv cas
 pattern PayloadTestClientEnv { _pEnvClientEnv, _pEnvCutDb, _pEnvPayloadDbs, _eEnvVersion }
     = TestClientEnv _pEnvClientEnv (Just _pEnvCutDb) [] [] _pEnvPayloadDbs [] _eEnvVersion
 
@@ -591,15 +589,12 @@ withChainwebTestServer tls v appIO envIO test = withResource start stop $ \x ->
         close sock
 
 clientEnvWithChainwebTestServer
-    :: forall t cas
-    .  Show t
-    => ToJSON t
-    => FromJSON t
-    => PayloadCasLookup cas
+    :: forall cas
+    . PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
-    -> IO (ChainwebServerDbs t GenericLogger cas)
-    -> (IO (TestClientEnv t cas) -> TestTree)
+    -> IO (ChainwebServerDbs GenericLogger cas)
+    -> (IO (TestClientEnv cas) -> TestTree)
     -> TestTree
 clientEnvWithChainwebTestServer tls v dbsIO =
     withChainwebTestServer tls v mkApp mkEnv
@@ -614,31 +609,29 @@ clientEnvWithChainwebTestServer tls v dbsIO =
         <*> pure (HeaderStream False)
         <*> pure (Rosetta False)
 
-    mkEnv :: Int -> IO (TestClientEnv t cas)
+    mkEnv :: Int -> IO (TestClientEnv cas)
     mkEnv port = do
         mgrSettings <- if
             | tls -> certificateCacheManagerSettings TlsInsecure Nothing
             | otherwise -> return HTTP.defaultManagerSettings
         mgr <- HTTP.newManager mgrSettings
         dbs <- dbsIO
+        let concreteMs = map (BF.second (_chainResMempool . snd)) $ _chainwebServerPactDbs dbs
         return $ TestClientEnv
             (mkClientEnv mgr (BaseUrl (if tls then Https else Http) testHost port ""))
             (_chainwebServerCutDb dbs)
             (_chainwebServerBlockHeaderDbs dbs)
-            (_chainwebServerMempools dbs)
+            concreteMs
             (_chainwebServerPayloadDbs dbs)
             (_chainwebServerPeerDbs dbs)
             v
 
 withPeerDbsServer
-    :: Show t
-    => PayloadCasLookup cas
-    => ToJSON t
-    => FromJSON t
+    :: PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
     -> IO [(NetworkId, P2P.PeerDb)]
-    -> (IO (TestClientEnv t cas) -> TestTree)
+    -> (IO (TestClientEnv cas) -> TestTree)
     -> TestTree
 withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
     peerDbs <- peerDbsIO
@@ -647,15 +640,12 @@ withPeerDbsServer tls v peerDbsIO = clientEnvWithChainwebTestServer tls v $ do
         }
 
 withPayloadServer
-    :: Show t
-    => PayloadCasLookup cas
-    => ToJSON t
-    => FromJSON t
+    :: PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
     -> IO (CutDb cas)
     -> IO [(ChainId, PayloadDb cas)]
-    -> (IO (TestClientEnv t cas) -> TestTree)
+    -> (IO (TestClientEnv cas) -> TestTree)
     -> TestTree
 withPayloadServer tls v cutDbIO payloadDbsIO =
     clientEnvWithChainwebTestServer tls v $ do
@@ -667,23 +657,17 @@ withPayloadServer tls v cutDbIO payloadDbsIO =
             }
 
 withBlockHeaderDbsServer
-    :: Show t
-    => PayloadCasLookup cas
-    => ToJSON t
-    => FromJSON t
+    :: PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
     -> IO [(ChainId, BlockHeaderDb)]
-    -> IO [(ChainId, MempoolBackend t)]
-    -> (IO (TestClientEnv t cas) -> TestTree)
+    -> (IO (TestClientEnv cas) -> TestTree)
     -> TestTree
-withBlockHeaderDbsServer tls v chainDbsIO mempoolsIO =
+withBlockHeaderDbsServer tls v chainDbsIO =
     clientEnvWithChainwebTestServer tls v $ do
         chainDbs <- chainDbsIO
-        mempools <- mempoolsIO
         return $ emptyChainwebServerDbs
             { _chainwebServerBlockHeaderDbs = chainDbs
-            , _chainwebServerMempools = mempools
             }
 
 -- -------------------------------------------------------------------------- --
@@ -700,7 +684,7 @@ prop_iso'
     -> (a -> b)
     -> a
     -> Property
-prop_iso' d e a = Right a === first show (d (e a))
+prop_iso' d e a = Right a === BF.first show (d (e a))
 
 prop_encodeDecodeRoundtrip
     :: Eq a

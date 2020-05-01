@@ -101,7 +101,6 @@ import Chainweb.CutDB.RestAPI
 import Chainweb.CutDB.RestAPI.Server
 import Chainweb.HostAddress
 import Chainweb.Logger (Logger)
-import Chainweb.Mempool.Mempool (MempoolBackend)
 import qualified Chainweb.Mempool.RestAPI.Server as Mempool
 import Chainweb.Miner.RestAPI (someMiningApi)
 import qualified Chainweb.Miner.RestAPI.Server as Mining
@@ -132,21 +131,19 @@ import P2P.Node.RestAPI.Server
 -- | Datatype for collectively passing all storage backends to
 -- functions that run a chainweb server.
 --
-data ChainwebServerDbs t logger cas = ChainwebServerDbs
+data ChainwebServerDbs logger cas = ChainwebServerDbs
     { _chainwebServerCutDb :: !(Maybe (CutDb cas))
     , _chainwebServerBlockHeaderDbs :: ![(ChainId, BlockHeaderDb)]
-    , _chainwebServerMempools :: ![(ChainId, MempoolBackend t)]
     , _chainwebServerPayloadDbs :: ![(ChainId, PayloadDb cas)]
     , _chainwebServerPeerDbs :: ![(NetworkId, PeerDb)]
     , _chainwebServerPactDbs :: ![(ChainId, PactAPI.PactServerData logger cas)]
     }
     deriving (Generic)
 
-emptyChainwebServerDbs :: ChainwebServerDbs t logger cas
+emptyChainwebServerDbs :: ChainwebServerDbs logger cas
 emptyChainwebServerDbs = ChainwebServerDbs
     { _chainwebServerCutDb = Nothing
     , _chainwebServerBlockHeaderDbs = []
-    , _chainwebServerMempools = []
     , _chainwebServerPayloadDbs = []
     , _chainwebServerPeerDbs = []
     , _chainwebServerPactDbs = []
@@ -219,11 +216,10 @@ newtype HeaderStream = HeaderStream Bool
 -- Chainweb Server
 
 someChainwebServer
-    :: Show t
-    => PayloadCasLookup cas
+    :: PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t logger cas
+    -> ChainwebServerDbs logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
@@ -236,7 +232,7 @@ someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
         <> maybe mempty (someSpvServers v) cuts
         <> somePayloadServers v payloads
         <> someBlockHeaderDbServers v blocks
-        <> Mempool.someMempoolServers v mempools
+        <> Mempool.someMempoolServers v concreteMs
         <> someP2pServers v peers
         <> PactAPI.somePactServers v pacts
         <> maybe mempty (Mining.someMiningServer v) mr
@@ -248,16 +244,14 @@ someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
     pacts = _chainwebServerPactDbs dbs
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
-    mempools = _chainwebServerMempools dbs
     concreteMs = map (second (_chainResMempool . snd)) pacts
     cutPeerDb = fromJuste $ lookup CutNetwork peers
 
 chainwebApplication
-    :: Show t
-    => PayloadCasLookup cas
+    :: PayloadCasLookup cas
     => Logger logger
     => ChainwebVersion
-    -> ChainwebServerDbs t logger cas
+    -> ChainwebServerDbs logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
@@ -289,12 +283,11 @@ chainwebNodeVersion app req resp = app req $ \res ->
         res
 
 serveChainwebOnPort
-    :: Show t
-    => PayloadCasLookup cas
+    :: PayloadCasLookup cas
     => Logger logger
     => Port
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
+    -> ChainwebServerDbs logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
@@ -302,12 +295,11 @@ serveChainwebOnPort
 serveChainwebOnPort p v dbs mr hs r = run (int p) $ chainwebApplication v dbs mr hs r
 
 serveChainweb
-    :: Show t
-    => PayloadCasLookup cas
+    :: PayloadCasLookup cas
     => Logger logger
     => Settings
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
+    -> ChainwebServerDbs logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
@@ -315,13 +307,12 @@ serveChainweb
 serveChainweb s v dbs mr hs r = runSettings s $ chainwebApplication v dbs mr hs r
 
 serveChainwebSocket
-    :: Show t
-    => PayloadCasLookup cas
+    :: PayloadCasLookup cas
     => Logger logger
     => Settings
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
+    -> ChainwebServerDbs logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta
@@ -330,15 +321,14 @@ serveChainwebSocket s sock v dbs mr hs r =
     runSettingsSocket s sock $ chainwebApplication v dbs mr hs r
 
 serveChainwebSocketTls
-    :: Show t
-    => PayloadCasLookup cas
+    :: PayloadCasLookup cas
     => Logger logger
     => Settings
     -> X509CertChainPem
     -> X509KeyPem
     -> Socket
     -> ChainwebVersion
-    -> ChainwebServerDbs t logger cas
+    -> ChainwebServerDbs logger cas
     -> Maybe (MiningCoordination logger cas)
     -> HeaderStream
     -> Rosetta

@@ -46,7 +46,6 @@ import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
 import Chainweb.ChainId
 import Chainweb.Graph
-import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.Utils
@@ -110,15 +109,12 @@ tests_ rdb tls =
 
 -- | The type of 'TestClientEnv' that is used everywhere in this file
 --
-type TestClientEnv_ = TestClientEnv MockTx RocksDbCas
-
-noMempool :: [(ChainId, MempoolBackend MockTx)]
-noMempool = []
+type TestClientEnv_ = TestClientEnv RocksDbCas
 
 simpleSessionTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 simpleSessionTests rdb tls version =
     withBlockHeaderDbsResource rdb version $ \dbs ->
-        withBlockHeaderDbsServer tls version dbs (return noMempool)
+        withBlockHeaderDbsServer tls version dbs
         $ \env -> testGroup "client session tests"
             $ httpHeaderTests env (head $ toList $ chainIds version)
             : (simpleClientSession env <$> toList (chainIds version))
@@ -326,7 +322,6 @@ pagingTests :: RocksDb -> Bool -> ChainwebVersion -> TestTree
 pagingTests rdb tls version =
     withBlockHeaderDbsServer tls version
             (starBlockHeaderDbs 6 $ testBlockHeaderDbs rdb version)
-            (return noMempool)
     $ \env -> testGroup "paging tests"
         [ testPageLimitHeadersClient version env
         , testPageLimitHashesClient version env

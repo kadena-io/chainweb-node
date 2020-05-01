@@ -70,7 +70,7 @@ newTestServer = mask_ $ do
     server inMemCfg inmemMv envMv restore =
         InMem.withInMemoryMempool inMemCfg version $ \inmem -> do
             putMVar inmemMv inmem
-            restore $ withTestAppServer True version (return $! mkApp inmem) mkEnv $ \env -> do
+            restore $ withTestAppServer True version (return mkApp) mkEnv $ \env -> do
                 putMVar envMv env
                 atomically retry
 
@@ -83,8 +83,8 @@ newTestServer = mask_ $ do
     chain :: ChainId
     chain = someChainId version
 
-    mkApp :: MempoolBackend MockTx -> Application
-    mkApp mp = chainwebApplication version (serverMempools [(chain, mp)]) mr hs r
+    mkApp :: Application
+    mkApp = chainwebApplication version serverMempools mr hs r
       where
         hs = HeaderStream False
         r  = Rosetta False
@@ -106,12 +106,8 @@ newPool = Pool.createPool newTestServer destroyTestServer 1 10 20
 
 ------------------------------------------------------------------------------
 
-serverMempools
-    :: [(ChainId, MempoolBackend t)]
-    -> ChainwebServerDbs t a RocksDbCas {- ununsed -}
-serverMempools mempools = emptyChainwebServerDbs
-    { _chainwebServerMempools = mempools
-    }
+serverMempools :: ChainwebServerDbs a RocksDbCas {- ununsed -}
+serverMempools = emptyChainwebServerDbs
 
 withRemoteMempool
     :: IO (Pool.Pool TestServer)
