@@ -249,7 +249,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger ver
     let !rs = readRewards ver
         !gasModel = officialGasModel
-        !t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+        !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
         !pse = PactServiceEnv
                 { _psMempoolAccess = Nothing
                 , _psCheckpointEnv = checkpointEnv
@@ -263,7 +263,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
                 , _psValidateHashesOnReplay = _pactRevalidate config
                 , _psAllowReadsInLocal = _pactAllowReadsInLocal config
                 }
-        !pst = PactServiceState Nothing mempty 0 t0 Nothing P.noSPVSupport
+        !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse act
   where
     loggers = pactLoggers chainwebLogger
@@ -665,16 +665,12 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
     createGasEnv db cmd gp gl = do
         l <- view $ psCheckpointEnv . cpeLogger
 
-        ph <- use psParentHash >>= \case
-             Nothing -> internalError "attemptBuyGas: Parent hash not set"
-             Just a -> return a
-
-        pd <- mkPublicData' (publicMetaOf cmd) ph
+        pd <- getTxContext (publicMetaOf cmd)
         spv <- use psSpvSupport
         let ec = mkExecutionConfig
               [ P.FlagDisableModuleInstall
               , P.FlagDisableHistoryInTransactionalMode ]
-        return $! TransactionEnv P.Transactional db l pd spv nid gp rk gl ec
+        return $! TransactionEnv P.Transactional db l (ctxToPublicData pd) spv nid gp rk gl ec
       where
         !nid = networkIdOf cmd
         !rk = P.cmdToRequestKey cmd
@@ -1057,7 +1053,7 @@ execLocal cmd = withDiscardedBatch $ do
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         mc <- use psInitCache
-        pd <- mkPublicData "execLocal" (publicMetaOf $! payloadObj <$> cmd)
+        pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
         spv <- use psSpvSupport
         execConfig <- view psAllowReadsInLocal >>= \b ->
           return $ if b then mkExecutionConfig [P.FlagAllowReadInLocal] else def
@@ -1295,17 +1291,17 @@ runCoinbase
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
 runCoinbase Nothing _ _ _ _ _ = return noCoinbase
-runCoinbase (Just parentHeader) dbEnv miner enfCBFail usePrecomp mc = do
+runCoinbase (Just _) dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
     v <- view chainwebVersion
-    pd <- mkPublicData "coinbase" def
+    pd <- getTxContext def
 
-    let !bh = BlockHeight $ P._pdBlockHeight pd
+    let !bh = _blockHeight $ ctxBlockHeader pd
 
     reward <- liftIO $! minerReward rs bh
     (T2 cr upgradedCacheM) <-
-      liftIO $! applyCoinbase v logger dbEnv miner reward pd parentHeader enfCBFail usePrecomp mc
+      liftIO $! applyCoinbase v logger dbEnv miner reward pd enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
     debugResult "runCoinbase" cr
     return $! cr
@@ -1347,9 +1343,9 @@ applyPactCmd isGenesis dbEnv cmdIn miner mcache dl = do
     v <- view psVersion
 
     T2 result mcache' <- if isGenesis
-      then liftIO $! applyGenesisCmd logger dbEnv def P.noSPVSupport (payloadObj <$> cmdIn)
+      then liftIO $! applyGenesisCmd logger dbEnv P.noSPVSupport (payloadObj <$> cmdIn)
       else do
-        pd <- mkPublicData "applyPactCmd" (publicMetaOf $ payloadObj <$> cmdIn)
+        pd <- getTxContext (publicMetaOf $ payloadObj <$> cmdIn)
         spv <- use psSpvSupport
         liftIO $! applyCmd v logger dbEnv miner gasModel pd spv cmdIn mcache
         {- the following can be used instead of above to nerf transaction execution

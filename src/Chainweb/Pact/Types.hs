@@ -350,9 +350,9 @@ ctxToPublicData :: TxContext -> PublicData
 ctxToPublicData ctx@(TxContext _ pm) = PublicData pm bh bt (toText hsh)
   where
     h = ctxBlockHeader ctx
-    BlockHeight bh = _blockHeight h
+    BlockHeight bh = succ $ _blockHeight h
     BlockCreationTime (Time (TimeSpan (Micros !bt))) = _blockCreationTime h
-    BlockHash hsh = _blockHash h
+    BlockHash hsh = _blockParent h
 
 
 ctxBlockHeader :: TxContext -> BlockHeader

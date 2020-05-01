@@ -164,8 +164,8 @@ applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
-    isModuleNameFix = enableModuleNameFix v $ _blockHeight $ ctxBlockHeader pd
-    isPactBackCompatV16 = pactBackCompat_v16 v $ _blockHeight $ ctxBlockHeader pd
+    isModuleNameFix = enableModuleNameFix v $ succ $ _blockHeight $ ctxBlockHeader pd
+    isPactBackCompatV16 = pactBackCompat_v16 v $ succ $ _blockHeight $ ctxBlockHeader pd
 
     redeemAllGas r = do
       txGasUsed .= fromIntegral gasLimit
@@ -204,19 +204,17 @@ applyGenesisCmd
       -- ^ Pact logger
     -> PactDbEnv p
       -- ^ Pact db environment
-    -> TxContext
-      -- ^ Contains block height, time, prev hash + metadata
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
     -> Command (Payload PublicMeta ParsedCode)
       -- ^ command with payload to execute
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyGenesisCmd logger dbEnv pd spv cmd =
+applyGenesisCmd logger dbEnv spv cmd =
     second _txCache <$!> runTransactionM tenv txst go
   where
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
-    tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData pd) spv nid 0.0 rk 0
+    tenv = TransactionEnv Transactional dbEnv logger def spv nid 0.0 rk 0
            def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
 
@@ -269,7 +267,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd
     rk = RequestKey chash
     parentHeader = _tcParentHeader pd
 
-    bh = _blockHeight $ ctxBlockHeader pd
+    bh = succ $ _blockHeight $ ctxBlockHeader pd
         -- NOTE generally it should hold that @bh == 1 + _blockHeight parentHeader@.
         -- This isn't the case for some unit tests, that don't mine blocks in order
         -- from the genesisblock but skip ahead using 'someTestVersionHeader'.
