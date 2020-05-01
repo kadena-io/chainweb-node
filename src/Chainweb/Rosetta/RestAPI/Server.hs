@@ -154,9 +154,16 @@ mempoolTransactionH v mtr ms = runExceptT work >>= either throwRosetta pure
 -- Network Handlers
 
 networkListH :: ChainwebVersion -> MetadataReq -> Handler NetworkListResp
-networkListH v _
-  | (isRosettaEnabled v) = pure $ NetworkListResp (networkIds v)
-  | otherwise = throwRosetta $ RosettaNotSupported v
+networkListH v _ = pure $ NetworkListResp networkIds
+  where
+    -- Unique Rosetta network ids for each of the chainweb version's chain ids
+    networkIds = map f (HS.toList (chainIds v))
+    f :: ChainId -> NetworkId
+    f cid =  NetworkId
+      { _networkId_blockchain = blockchainName
+      , _networkId_network = (chainwebVersionToText v)
+      , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
+      }
 
 networkStatusH
     :: ChainwebVersion
@@ -239,35 +246,11 @@ readChainIdText v c = do
   cid :: Word64 <- readMaybe (T.unpack c)
   mkChainId v cid
 
--- Rosetta only enabled for production versions
--- NOTE: Explicit pattern match to trigger compile warning when new versions added
-isRosettaEnabled :: ChainwebVersion -> Bool
-isRosettaEnabled (Test _) = False
-isRosettaEnabled (TimedConsensus _) = False
-isRosettaEnabled (PowConsensus _) = False
-isRosettaEnabled (TimedCPM _) = False
-isRosettaEnabled (FastTimedCPM _) = False
-isRosettaEnabled Development = True
-isRosettaEnabled Testnet04 = True
-isRosettaEnabled Mainnet01 = True
-
--- Unique Rosetta network ids for each of the chainweb version's chain ids
-networkIds :: ChainwebVersion -> [NetworkId]
-networkIds v = map f (HS.toList (chainIds v))
-  where
-    f :: ChainId -> NetworkId
-    f cid =  NetworkId
-      { _networkId_blockchain = blockchainName
-      , _networkId_network = (chainwebVersionToText v)
-      , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
-      }
-
 enforceValidNetworkId
   :: ChainwebVersion
   -> NetworkId
   -> ExceptT RosettaFailure Handler ChainId
 enforceValidNetworkId v (NetworkId bn rv sid) = do
-  enforce (isRosettaEnabled v) (RosettaNotSupported v)
   enforce isValidBlockchainName (RosettaInvalidBlockchainName bn)
   enforce isValidNetworkVersion (RosettaMismatchNetworkName v rv)
   SubNetworkId cidt _ <- sid ?? RosettaChainUnspecified
