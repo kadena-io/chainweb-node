@@ -107,7 +107,7 @@ constructionSubmitH ms (ConstructionSubmitReq (NetworkId _ _ msni) tx) =
         SubNetworkId n _ <- msni ?? RosettaChainUnspecified
         cmd <- command tx ?? RosettaUnparsableTx
         validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
-        mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain n
+        mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain
         let !vec = V.singleton validated
         liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
         liftIO (mempoolInsert mp UncheckedInsert vec)
@@ -125,7 +125,7 @@ mempoolH ms (MempoolReq (NetworkId _ _ msni)) = case msni of
     Nothing -> throwRosetta RosettaChainUnspecified
     Just (SubNetworkId n _) ->
         case readMaybe @ChainId (T.unpack n) >>= flip lookup ms of
-            Nothing -> throwRosetta $ RosettaInvalidChain n
+            Nothing -> throwRosetta RosettaInvalidChain
             Just _ -> do
                 error "not yet implemented"  -- TODO!
 
@@ -151,7 +151,7 @@ mempoolTransactionH ms mtr = runExceptT work >>= either throwRosetta pure
     work :: ExceptT RosettaFailure Handler MempoolTransactionResp
     work = do
         SubNetworkId n _ <- msni ?? RosettaChainUnspecified
-        mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain n
+        mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain
         lrs <- liftIO . mempoolLookup mp $ V.singleton th
         (lrs V.!? 0 >>= f) ?? RosettaMempoolBadTx
 
