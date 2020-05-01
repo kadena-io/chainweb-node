@@ -83,6 +83,8 @@ data RosettaFailure
     | RosettaMempoolBadTx
     | RosettaInvalidBlockchainName Text
     | RosettaMismatchNetworkName ChainwebVersion Text
+    | RosettaUnparsableTx
+    | RosettaInvalidTx
 
 -- TODO: Better grouping of rosetta error index
 rosettaError :: RosettaFailure -> RosettaError
@@ -92,6 +94,8 @@ rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in me
 rosettaError (RosettaInvalidBlockchainName a) = RosettaError 3 ("Invalid blockchain name: " <> a) False
 rosettaError (RosettaMismatchNetworkName v a) = RosettaError 4
   ("Network name mismatch: expected " <> (chainwebVersionToText v) <> " but received " <> a) False
+rosettaError RosettaUnparsableTx = RosettaError 5 "Transaction not parsable" False
+rosettaError RosettaInvalidTx = RosettaError 6 "Invalid transaction" False
 
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }

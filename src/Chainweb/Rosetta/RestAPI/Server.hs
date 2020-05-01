@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
@@ -20,7 +21,8 @@ import Control.Error.Safe (assertMay)
 import Control.Error.Util
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
-import Data.Aeson ((.=))
+import Data.Aeson
+import Data.Bifunctor
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64)
 
@@ -31,6 +33,8 @@ import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
+
+import Pact.Types.Command
 
 import Rosetta
 
@@ -51,11 +55,13 @@ import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
+import Chainweb.Pact.RestAPI.Server (validateCommand)
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Utils (int)
 import Chainweb.Utils.Paging
+import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Version
 
 import P2P.Node.PeerDB
@@ -65,8 +71,8 @@ import P2P.Peer (PeerInfo(..))
 ---
 
 rosettaServer
-    :: forall a cas (v :: ChainwebVersionT)
-    . [(ChainId, MempoolBackend a)]
+    :: forall cas (v :: ChainwebVersionT)
+    . [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> ChainwebVersion
     -> CutDb cas
@@ -77,10 +83,10 @@ rosettaServer ms peerDb v cutDb = (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
     -- Construction --
     :<|> constructionMetadataH
-    :<|> (const $ error "not yet implemented")
+    :<|> constructionSubmitH ms
     -- Mempool --
-    :<|> flip (mempoolTransactionH v) ms
-    :<|> flip (mempoolH v) ms
+    :<|> mempoolTransactionH v ms
+    :<|> mempoolH v ms
     -- Network --
     :<|> networkListH v
     :<|> (const $ error "not yet implemented")
@@ -88,7 +94,7 @@ rosettaServer ms peerDb v cutDb = (const $ error "not yet implemented")
 
 someRosettaServer
     :: ChainwebVersion
-    -> [(ChainId, MempoolBackend a)]
+    -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> CutDb cas
     -> SomeServer
@@ -105,17 +111,46 @@ someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms p
 -- Construction Handlers
 
 constructionMetadataH :: ConstructionMetadataReq -> Handler ConstructionMetadataResp
-constructionMetadataH _ = error "not yet implemented"
+constructionMetadataH (ConstructionMetadataReq (NetworkId _ _ msni) _) =
+    runExceptT work >>= either throwRosetta pure
+  where
+    -- TODO: Extend as necessary.
+    work :: ExceptT RosettaFailure Handler ConstructionMetadataResp
+    work = do
+        SubNetworkId _ _ <- msni ?? RosettaChainUnspecified
+        pure $ ConstructionMetadataResp HM.empty
+
+constructionSubmitH
+    :: [(ChainId, MempoolBackend ChainwebTransaction)]
+    -> ConstructionSubmitReq
+    -> Handler ConstructionSubmitResp
+constructionSubmitH ms (ConstructionSubmitReq (NetworkId _ _ msni) tx) =
+    runExceptT work >>= either throwRosetta pure
+  where
+    work :: ExceptT RosettaFailure Handler ConstructionSubmitResp
+    work = do
+        SubNetworkId n _ <- msni ?? RosettaChainUnspecified
+        cmd <- command tx ?? RosettaUnparsableTx
+        validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
+        mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain n
+        let !vec = V.singleton validated
+        liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
+        liftIO (mempoolInsert mp UncheckedInsert vec)
+        let rk = requestKeyToB16Text $ cmdToRequestKey validated
+        pure $ ConstructionSubmitResp (TransactionId rk) Nothing
+
+command :: T.Text -> Maybe (Command T.Text)
+command = decodeStrict' . T.encodeUtf8
 
 --------------------------------------------------------------------------------
 -- Mempool Handlers
 
 mempoolH
     :: ChainwebVersion
-    -> MempoolReq
     -> [(ChainId, MempoolBackend a)]
+    -> MempoolReq
     -> Handler MempoolResp
-mempoolH v (MempoolReq (NetworkId _ _ msni)) ms = case msni of
+mempoolH v ms (MempoolReq (NetworkId _ _ msni)) = case msni of
     Nothing -> throwRosetta RosettaChainUnspecified
     Just (SubNetworkId n _) ->
         case readChainIdText v n >>= flip lookup ms of
@@ -125,10 +160,10 @@ mempoolH v (MempoolReq (NetworkId _ _ msni)) ms = case msni of
 
 mempoolTransactionH
     :: ChainwebVersion
-    -> MempoolTransactionReq
     -> [(ChainId, MempoolBackend a)]
+    -> MempoolTransactionReq
     -> Handler MempoolTransactionResp
-mempoolTransactionH v mtr ms = runExceptT work >>= either throwRosetta pure
+mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
   where
     MempoolTransactionReq (NetworkId _ _ msni) (TransactionId ti) = mtr
     th = TransactionHash . BSS.toShort $ T.encodeUtf8 ti

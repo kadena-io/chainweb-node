@@ -64,6 +64,7 @@ module Chainweb.RestAPI
 import Control.Lens
 
 import Data.Aeson.Encode.Pretty
+import Data.Bifunctor
 import Data.Bool (bool)
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe
@@ -93,6 +94,7 @@ import Chainweb.BlockHeaderDB.RestAPI
 import Chainweb.BlockHeaderDB.RestAPI.Client
 import Chainweb.BlockHeaderDB.RestAPI.Server
 import Chainweb.ChainId
+import Chainweb.Chainweb.ChainResources
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.CutDB
 import Chainweb.CutDB.RestAPI
@@ -239,7 +241,7 @@ someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
         <> PactAPI.somePactServers v pacts
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-        <> maybe mempty (bool mempty (someRosettaServer v mempools cutPeerDb) r) cuts
+        <> maybe mempty (bool mempty (someRosettaServer v concreteMs cutPeerDb) r) cuts
         -- TODO: not sure if passing the correct PeerDb here
   where
     payloads = _chainwebServerPayloadDbs dbs
@@ -248,6 +250,7 @@ someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
     cuts = _chainwebServerCutDb dbs
     peers = _chainwebServerPeerDbs dbs
     mempools = _chainwebServerMempools dbs
+    concreteMs = map (second (_chainResMempool . snd)) pacts
     cutPeerDb = fromJuste $ lookup CutNetwork peers
 
 chainwebApplication
