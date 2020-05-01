@@ -74,7 +74,7 @@ module Chainweb.Pact.Types
     -- * TxContext
   , TxContext(..)
   , ctxToPublicData
-  , ctxBlockHeader
+  , ctxCurrentBlockHeight
   , getTxContext
 
     -- * Pact Service State
@@ -340,24 +340,35 @@ data PactServiceState = PactServiceState
 makeLenses ''PactServiceState
 
 
-
+-- | Pair parent header with transaction metadata.
+-- In cases where there is no transaction/Command, 'PublicMeta'
+-- default value is used.
 data TxContext = TxContext
   { _tcParentHeader :: ParentHeader
   , _tcPublicMeta :: PublicMeta
   }
 
+-- | Convert context to datatype for Pact environment.
 ctxToPublicData :: TxContext -> PublicData
 ctxToPublicData ctx@(TxContext _ pm) = PublicData pm bh bt (toText hsh)
   where
     h = ctxBlockHeader ctx
-    BlockHeight bh = succ $ _blockHeight h
+    BlockHeight bh = ctxCurrentBlockHeight ctx
     BlockCreationTime (Time (TimeSpan (Micros !bt))) = _blockCreationTime h
     BlockHash hsh = _blockParent h
 
 
+-- | Retreive parent header as 'BlockHeader'
 ctxBlockHeader :: TxContext -> BlockHeader
 ctxBlockHeader = _parentHeader . _tcParentHeader
 
+-- | Get "current" block height, which means parent height + 1.
+-- This reflects Pact environment focus on current block height,
+-- which influenced legacy switch checks as well.
+ctxCurrentBlockHeight :: TxContext -> BlockHeight
+ctxCurrentBlockHeight = succ . _blockHeight . ctxBlockHeader
+
+-- | Assemble tx context from transaction metadata and parent header.
 getTxContext :: PublicMeta -> PactServiceM cas TxContext
 getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
 

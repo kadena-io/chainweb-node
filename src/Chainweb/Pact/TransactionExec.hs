@@ -136,7 +136,7 @@ applyCmd
     -> GasModel
       -- ^ Gas model (pact Service config)
     -> TxContext
-      -- ^ Contains block height, time, prev hash + metadata
+      -- ^ tx metadata and parent header
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
     -> Command PayloadWithText
@@ -144,7 +144,7 @@ applyCmd
     -> ModuleCache
       -- ^ cached module state
     -> IO (T2 (CommandResult [TxLog Value]) ModuleCache)
-applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
+applyCmd v logger pdbenv miner gasModel txCtx spv cmdIn mcache0 =
     second _txCache <$!>
       runTransactionM cenv txst applyBuyGas
   where
@@ -155,7 +155,7 @@ applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
       : ( [ FlagOldReadOnlyBehavior | isPactBackCompatV16 ]
           ++ [ FlagPreserveModuleNameBug | not isModuleNameFix ] )
 
-    cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData pd) spv nid gasPrice
+    cenv = TransactionEnv Transactional pdbenv logger (ctxToPublicData txCtx) spv nid gasPrice
       requestKey (fromIntegral gasLimit) executionConfigNoHistory
 
     cmd = payloadObj <$> cmdIn
@@ -164,8 +164,9 @@ applyCmd v logger pdbenv miner gasModel pd spv cmdIn mcache0 =
     gasLimit = gasLimitOf cmd
     initialGas = initialGasOf (_cmdPayload cmdIn)
     nid = networkIdOf cmd
-    isModuleNameFix = enableModuleNameFix v $ succ $ _blockHeight $ ctxBlockHeader pd
-    isPactBackCompatV16 = pactBackCompat_v16 v $ succ $ _blockHeight $ ctxBlockHeader pd
+    currHeight = ctxCurrentBlockHeight txCtx
+    isModuleNameFix = enableModuleNameFix v currHeight
+    isPactBackCompatV16 = pactBackCompat_v16 v currHeight
 
     redeemAllGas r = do
       txGasUsed .= fromIntegral gasLimit
@@ -237,14 +238,14 @@ applyCoinbase
     -> ParsedDecimal
       -- ^ Miner reward
     -> TxContext
-      -- ^ Contains block height, time, prev hash + metadata
+      -- ^ tx metadata and parent header
     -> EnforceCoinbaseFailure
       -- ^ enforce coinbase failure or not
     -> CoinbaseUsePrecompiled
       -- ^ always enable precompilation
     -> ModuleCache
     -> IO (T2 (CommandResult [TxLog Value]) (Maybe ModuleCache))
-applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd
+applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
   (EnforceCoinbaseFailure enfCBFailure) (CoinbaseUsePrecompiled enablePC) mc
   | fork1_3InEffect || enablePC = do
     let (cterm, cexec) = mkCoinbaseTerm mid mks reward
@@ -260,24 +261,15 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) pd
     ec = mkExecutionConfig
       [ FlagDisableModuleInstall
       , FlagDisableHistoryInTransactionalMode ]
-    tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData pd) noSPVSupport
+    tenv = TransactionEnv Transactional dbEnv logger (ctxToPublicData txCtx) noSPVSupport
            Nothing 0.0 rk 0 ec
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
-    parentHeader = _tcParentHeader pd
+    parentHeader = _tcParentHeader txCtx
 
-    bh = succ $ _blockHeight $ ctxBlockHeader pd
-        -- NOTE generally it should hold that @bh == 1 + _blockHeight parentHeader@.
-        -- This isn't the case for some unit tests, that don't mine blocks in order
-        -- from the genesisblock but skip ahead using 'someTestVersionHeader'.
-
+    bh = ctxCurrentBlockHeight txCtx
     cid = V._chainId parentHeader
-        -- NOTE: generally should hold that
-        -- @cid == unsafeFromText $ P._chainId $ _pmChainId $ _pdPublicMeta pd@
-        -- but in some unit test runs the chain id in public data is empty. This is
-        -- fine since coinbase is a special case.
-
     chash = Pact.Hash $ encodeToByteString $ _blockHash $ _parentHeader parentHeader
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
@@ -314,7 +306,7 @@ applyLocal
     -> GasModel
       -- ^ Gas model (pact Service config)
     -> TxContext
-      -- ^ Contains block height, time, prev hash + metadata
+      -- ^ tx metadata and parent header
     -> SPVSupport
       -- ^ SPV support (validates cont proofs)
     -> Command PayloadWithText
@@ -322,7 +314,7 @@ applyLocal
     -> ModuleCache
     -> ExecutionConfig
     -> IO (CommandResult [TxLog Value])
-applyLocal logger dbEnv gasModel pd spv cmdIn mc execConfig =
+applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     evalTransactionM tenv txst go
   where
     cmd = payloadObj <$> cmdIn
@@ -332,7 +324,7 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc execConfig =
     signers = _pSigners $ _cmdPayload cmd
     gasPrice = gasPriceOf cmd
     gasLimit = gasLimitOf cmd
-    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData pd) spv nid gasPrice
+    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) spv nid gasPrice
            rk (fromIntegral gasLimit) execConfig
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
@@ -344,7 +336,7 @@ applyLocal logger dbEnv gasModel pd spv cmdIn mc execConfig =
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
-        Right r -> return $! r { _crMetaData = Just (toJSON $ ctxToPublicData pd) }
+        Right r -> return $! r { _crMetaData = Just (toJSON $ ctxToPublicData txCtx) }
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
@@ -359,15 +351,15 @@ readInitModules
     -> PactDbEnv p
       -- ^ Pact db environment
     -> TxContext
-      -- ^ Contains block height, time, prev hash + metadata
+      -- ^ tx metadata and parent header
     -> IO ModuleCache
-readInitModules logger dbEnv pd =
+readInitModules logger dbEnv txCtx =
     evalTransactionM tenv txst go
   where
     rk = RequestKey chash
     nid = Nothing
     chash = pactInitialHash
-    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData pd) noSPVSupport nid 0.0
+    tenv = TransactionEnv Local dbEnv logger (ctxToPublicData txCtx) noSPVSupport nid 0.0
            rk 0 def
     txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
     interp = defaultInterpreter

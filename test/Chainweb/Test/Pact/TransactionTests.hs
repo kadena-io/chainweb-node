@@ -310,5 +310,5 @@ testCoinbaseUpgradeDevnet cid upgradeHeight = do
     parentHeader = ParentHeader $ (someBlockHeader v upgradeHeight)
       { _blockChainwebVersion = v
       , _blockChainId = cid
-      , _blockHeight = upgradeHeight
+      , _blockHeight = pred upgradeHeight
       }

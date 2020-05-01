@@ -324,7 +324,7 @@ initializeCoinContract _logger v cid pwo = do
         (Just !p) -> return p
       let target = Just (succ bhe, bhash)
       parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "initializeCoinContract"
-      setBlockData parentHeader
+      setParentHeader parentHeader
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
@@ -921,7 +921,7 @@ execNewBlock
 execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
     updateMempool
     withDiscardedBatch $ do
-      setBlockData parentHeader
+      setParentHeader parentHeader
       rewindTo newblockRewindLimit target
       newTrans <- withCheckpointer target "preBlock" doPreBlock
       withCheckpointer target "execNewBlock" (doNewBlock newTrans)
@@ -971,7 +971,7 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        setBlockData parentHeader -- could have been overwritten in rewind, so set again
+        setParentHeader parentHeader -- could have been overwritten in rewind, so set again
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- execTransactions (Just parentHeader) miner newTrans
@@ -1044,11 +1044,7 @@ execLocal cmd = withDiscardedBatch $ do
                        (Just !p) -> return p
     let target = Just (succ bhe, bhash)
     parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "execLocal"
-
-    -- NOTE: On local calls, there might be code which needs the results of
-    -- (chain-data). In such a case, the function `setBlockData` provides the
-    -- necessary information for this call to return sensible values.
-    setBlockData parentHeader
+    setParentHeader parentHeader
 
     withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
@@ -1074,11 +1070,9 @@ logError = logg "ERROR"
 logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
--- | Set blockheader data. Sets block height, block time,
--- parent hash, and spv support (using parent hash)
---
-setBlockData :: ParentHeader -> PactServiceM cas ()
-setBlockData ph@(ParentHeader bh) = do
+-- | Set parent header in state and spv support (using parent hash)
+setParentHeader :: ParentHeader -> PactServiceM cas ()
+setParentHeader ph@(ParentHeader bh) = do
   psParentHeader .= ph
   bdb <- view psBlockHeaderDb
   psSpvSupport .= pactSPV bdb (_blockHash bh)
@@ -1145,13 +1139,13 @@ playOneBlock currHeader plData pdbenv = do
 
     go m txs = if isGenesisBlock
       then do
-        setBlockData (ParentHeader currHeader)
+        setParentHeader (ParentHeader currHeader)
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions Nothing m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
         parentHeader <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
-        setBlockData parentHeader
+        setParentHeader parentHeader
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         execTransactions (Just parentHeader) m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
@@ -1297,7 +1291,7 @@ runCoinbase (Just _) dbEnv miner enfCBFail usePrecomp mc = do
     v <- view chainwebVersion
     pd <- getTxContext def
 
-    let !bh = _blockHeight $ ctxBlockHeader pd
+    let !bh = ctxCurrentBlockHeight pd
 
     reward <- liftIO $! minerReward rs bh
     (T2 cr upgradedCacheM) <-
