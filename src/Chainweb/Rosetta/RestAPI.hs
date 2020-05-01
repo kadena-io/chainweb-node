@@ -81,7 +81,6 @@ data RosettaFailure
     = RosettaChainUnspecified
     | RosettaInvalidChain Text
     | RosettaMempoolBadTx
-    | RosettaNotSupported ChainwebVersion
     | RosettaInvalidBlockchainName Text
     | RosettaMismatchNetworkName ChainwebVersion Text
 
@@ -90,10 +89,8 @@ rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
 rosettaError (RosettaInvalidChain cid) = RosettaError 1 ("Invalid chain value: " <> cid) False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
-rosettaError (RosettaNotSupported v) = RosettaError 3
-  ("Rosetta not supported for chainweb node version: " <> chainwebVersionToText v) False
-rosettaError (RosettaInvalidBlockchainName a) = RosettaError 4 ("Invalid blockchain name: " <> a) False
-rosettaError (RosettaMismatchNetworkName v a) = RosettaError 5
+rosettaError (RosettaInvalidBlockchainName a) = RosettaError 3 ("Invalid blockchain name: " <> a) False
+rosettaError (RosettaMismatchNetworkName v a) = RosettaError 4
   ("Network name mismatch: expected " <> (chainwebVersionToText v) <> " but received " <> a) False
 
 throwRosetta :: RosettaFailure -> Handler a
