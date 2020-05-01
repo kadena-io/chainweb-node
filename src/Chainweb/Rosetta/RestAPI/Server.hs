@@ -56,7 +56,7 @@ import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.Pact.RestAPI.Server (validateCommand)
-import Chainweb.RestAPI.Utils (SomeServer(..))
+import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Utils (int)
@@ -89,7 +89,7 @@ rosettaServer ms peerDb v cutDb = (const $ error "not yet implemented")
     :<|> mempoolH v ms
     -- Network --
     :<|> networkListH v
-    :<|> (const $ error "not yet implemented")
+    :<|> networkOptionsH v
     :<|> (networkStatusH v cutDb peerDb)
 
 someRosettaServer
@@ -200,6 +200,29 @@ networkListH v _ = pure $ NetworkListResp networkIds
       , _networkId_subNetworkId = Just (SubNetworkId (chainIdToText cid) Nothing)
       }
 
+networkOptionsH :: ChainwebVersion -> NetworkReq -> Handler NetworkOptionsResp
+networkOptionsH v (NetworkReq nid _) = do
+  _ <- handle (enforceValidNetworkId v nid)
+  pure $ NetworkOptionsResp version allow
+  where
+    version = RosettaNodeVersion
+      { _version_rosettaVersion = "1.3.1"   -- TODO: Make this a variable in /rosetta repo
+      , _version_nodeVersion = chainwebNodeVersionHeaderValue :: T.Text
+      , _version_middlewareVersion = Nothing
+      , _version_metadata = Just $ HM.fromList metaPairs
+      }
+    -- TODO: Document this meta data
+    metaPairs =
+      [ "node-api-version" .= prettyApiVersion
+      , "chainweb-version" .= (chainwebVersionToText v)
+      ]
+    allow = Allow
+      { _allow_operationStatuses = [] -- TODO
+      , _allow_operationTypes = [] -- TODO
+      , _allow_errors = errExamples
+      }
+    errExamples = map rosettaError [minBound..maxBound]
+
 networkStatusH
     :: ChainwebVersion
     -> CutDb cas
@@ -211,7 +234,6 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) = do
   cut' <- liftIO $ _cut cutDb
   bh <- handle (getBlockHeader cut' cid)
   let genesisBh = genesisBlockHeader v cid
-
   -- TODO: Will this throw Handler error? How to wrap as Rosetta Error?
   peers <- _pageItems <$>
     peerGetHandler
@@ -219,8 +241,8 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) = do
     ChainwebNetId.CutNetwork
     (Just (Limit maxRosettaNodePeerLimit)) -- TODO: document max number of peers returned
     Nothing
-
   pure $ resp bh genesisBh peers
+
   where
     getBlockHeader c i =
       (HM.lookup i (_cutMap c)) ??
@@ -254,6 +276,7 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) = do
           { _peer_peerId = hostAddressToText (_peerAddr p)
           , _peer_metadata = Just $ HM.fromList (metaPairs p)
           }
+        -- TODO: document this meta data
         metaPairs p =
           addrPairs (_peerAddr p) ++ someCertPair (_peerId p)
         addrPairs addr =

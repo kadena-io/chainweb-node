@@ -77,6 +77,7 @@ type RosettaApi_ =
 
 type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaApi_
 
+-- TODO: Investigate if Rosetta Erros can be dynamic
 data RosettaFailure
     = RosettaChainUnspecified
     | RosettaInvalidChain Text
@@ -85,6 +86,59 @@ data RosettaFailure
     | RosettaMismatchNetworkName ChainwebVersion Text
     | RosettaUnparsableTx
     | RosettaInvalidTx
+    deriving (Show)
+
+instance Enum RosettaFailure where
+  succ RosettaChainUnspecified = RosettaInvalidChain defChainIdErrMsg
+  succ (RosettaInvalidChain _) = RosettaMempoolBadTx
+  succ RosettaMempoolBadTx = RosettaInvalidBlockchainName defBlockchainNameErrMsg
+  succ (RosettaInvalidBlockchainName _) = RosettaMismatchNetworkName defChainwebVerErrMsg defNetworkNameErrMsg
+  succ (RosettaMismatchNetworkName _ _) = RosettaUnparsableTx
+  succ RosettaUnparsableTx = RosettaInvalidTx
+  succ RosettaInvalidTx = errorWithoutStackTrace "Prelude.Enum.Bool.succ: bad argument"
+
+  pred RosettaInvalidTx = RosettaUnparsableTx
+  pred RosettaUnparsableTx = RosettaMismatchNetworkName defChainwebVerErrMsg defNetworkNameErrMsg
+  pred (RosettaMismatchNetworkName _ _) = RosettaInvalidBlockchainName defBlockchainNameErrMsg
+  pred (RosettaInvalidBlockchainName _) = RosettaMempoolBadTx
+  pred RosettaMempoolBadTx = RosettaInvalidChain defChainIdErrMsg
+  pred (RosettaInvalidChain _) = RosettaChainUnspecified
+  pred RosettaChainUnspecified = errorWithoutStackTrace "Prelude.Enum.Bool.pred: bad argument"
+
+  toEnum x
+    | x == 0 = RosettaChainUnspecified
+    | x == 1 = RosettaInvalidChain defChainIdErrMsg
+    | x == 2 = RosettaMempoolBadTx
+    | x == 3 = RosettaInvalidBlockchainName defBlockchainNameErrMsg
+    | x == 4 = RosettaMismatchNetworkName defChainwebVerErrMsg defNetworkNameErrMsg
+    | x == 5 = RosettaUnparsableTx
+    | x == 6 = RosettaInvalidTx
+    | otherwise = errorWithoutStackTrace "Prelude.Enum.().toEnum: bad argument"
+
+  fromEnum RosettaChainUnspecified = 0
+  fromEnum (RosettaInvalidChain _) = 1
+  fromEnum RosettaMempoolBadTx = 2
+  fromEnum (RosettaInvalidBlockchainName _) = 3
+  fromEnum (RosettaMismatchNetworkName _ _) = 4
+  fromEnum RosettaUnparsableTx = 5
+  fromEnum RosettaInvalidTx = 6
+
+-- NOTE: Must update when new rosetta errors are added
+instance Bounded RosettaFailure where
+  minBound = RosettaChainUnspecified
+  maxBound = RosettaInvalidTx
+
+defChainIdErrMsg :: Text
+defChainIdErrMsg = "someInvalidChainId"
+
+defBlockchainNameErrMsg :: Text
+defBlockchainNameErrMsg = "someInvalidBlockchainName"
+
+defChainwebVerErrMsg :: ChainwebVersion
+defChainwebVerErrMsg = Mainnet01
+
+defNetworkNameErrMsg :: Text
+defNetworkNameErrMsg = "someInvalidNetworkName"
 
 -- TODO: Better grouping of rosetta error index
 rosettaError :: RosettaFailure -> RosettaError
