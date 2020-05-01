@@ -71,13 +71,17 @@ module Chainweb.Pact.Types
   , psValidateHashesOnReplay
   , psAllowReadsInLocal
 
+    -- * TxContext
+  , TxContext(..)
+  , ctxToPublicData
+  , ctxBlockHeader
+  , getTxContext
+
     -- * Pact Service State
   , PactServiceState(..)
   , psStateValidated
   , psInitCache
-  , psBlockHeight
-  , psBlockTime
-  , psParentHash
+  , psParentHeader
   , psSpvSupport
 
     -- * Pact Service Monad
@@ -85,8 +89,6 @@ module Chainweb.Pact.Types
   , runPactServiceM
   , evalPactServiceM
   , execPactServiceM
-  , mkPublicData
-  , mkPublicData'
 
     -- * types
   , ModuleCache
@@ -332,36 +334,32 @@ defaultOnFatalError lf pex t = do
 data PactServiceState = PactServiceState
     { _psStateValidated :: !(Maybe BlockHeader)
     , _psInitCache :: !ModuleCache
-    , _psBlockHeight :: {-# UNPACK #-} !BlockHeight
-    , _psBlockTime :: {-# UNPACK #-} !BlockCreationTime
-    , _psParentHash :: !(Maybe BlockHash)
+    , _psParentHeader :: !ParentHeader
     , _psSpvSupport :: !SPVSupport
     }
 makeLenses ''PactServiceState
 
--- | Construct the transaction 'PublicData' from given public
--- metadata and the current pact service state.
---
-mkPublicData :: Text -> PublicMeta -> PactServiceM cas PublicData
-mkPublicData src pm = do
-    BlockHash ph <- use psParentHash >>= \case
-        Nothing -> internalError
-          $ "mkPublicData: "
-          <> src
-          <> ": Parent hash not set"
-        Just a -> return a
-    BlockHeight !bh <- use psBlockHeight
-    BlockCreationTime (Time (TimeSpan (Micros !bt))) <- use psBlockTime
-    return $ PublicData pm bh bt (toText ph)
 
--- | A useful variant of 'mkPublicData' which constructs a transaction 'PublicData'
--- instance given both public meta and blockheader info
---
-mkPublicData' :: PublicMeta -> BlockHash -> PactServiceM cas PublicData
-mkPublicData' pm (BlockHash ph)= do
-    BlockHeight !bh <- use psBlockHeight
-    BlockCreationTime (Time (TimeSpan (Micros !bt))) <- use psBlockTime
-    return $ PublicData pm bh bt (toText ph)
+
+data TxContext = TxContext
+  { _tcParentHeader :: ParentHeader
+  , _tcPublicMeta :: PublicMeta
+  }
+
+ctxToPublicData :: TxContext -> PublicData
+ctxToPublicData ctx@(TxContext _ pm) = PublicData pm bh bt (toText hsh)
+  where
+    h = ctxBlockHeader ctx
+    BlockHeight bh = _blockHeight h
+    BlockCreationTime (Time (TimeSpan (Micros !bt))) = _blockCreationTime h
+    BlockHash hsh = _blockHash h
+
+
+ctxBlockHeader :: TxContext -> BlockHeader
+ctxBlockHeader = _parentHeader . _tcParentHeader
+
+getTxContext :: PublicMeta -> PactServiceM cas TxContext
+getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
 
 
 newtype PactServiceM cas a = PactServiceM

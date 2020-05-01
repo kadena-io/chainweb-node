@@ -327,7 +327,7 @@ initializeCoinContract _logger v cid pwo = do
       setBlockData parentHeader
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
-        pd <- mkPublicData "readContracts" def
+        pd <- getTxContext def
         mc <- liftIO $ readInitModules (_cpeLogger _psCheckpointEnv) pdbenv pd
         psInitCache .= mc
         return $! Discard ()
@@ -1082,13 +1082,10 @@ logDebug = logg "DEBUG"
 -- parent hash, and spv support (using parent hash)
 --
 setBlockData :: ParentHeader -> PactServiceM cas ()
-setBlockData (ParentHeader bh) = do
-    psBlockHeight .= succ (_blockHeight bh)
-    psBlockTime .= _blockCreationTime bh
-    psParentHash .= (Just $ _blockParent bh)
-
-    bdb <- view psBlockHeaderDb
-    psSpvSupport .= pactSPV bdb (_blockHash bh)
+setBlockData ph@(ParentHeader bh) = do
+  psParentHeader .= ph
+  bdb <- view psBlockHeaderDb
+  psSpvSupport .= pactSPV bdb (_blockHash bh)
 
 -- | Execute a block -- only called in validate either for replay or for validating current block.
 --
