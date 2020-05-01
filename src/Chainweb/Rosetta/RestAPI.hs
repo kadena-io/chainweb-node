@@ -19,9 +19,12 @@ module Chainweb.Rosetta.RestAPI
   , RosettaFailure(..)
   , rosettaError
   , throwRosetta
+  , validateNetwork
   ) where
 
+import Control.Monad (unless)
 import Control.Monad.Except (throwError)
+import Control.Monad.Trans.Except (ExceptT)
 
 import Data.Aeson (encode)
 
@@ -33,6 +36,7 @@ import Servant.Server
 -- internal modules
 
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc)
+import Chainweb.Utils
 import Chainweb.Version
 
 ---
@@ -94,3 +98,7 @@ rosettaError RosettaBadNetwork = RosettaError 5 "Invalid network identifier" Fal
 
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
+
+validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ()
+validateNetwork v (NetworkId bc n _) = unless (bc == "kadena" && Just v == fromText n)
+    $ throwError RosettaBadNetwork

@@ -52,18 +52,19 @@ import Chainweb.Version
 
 rosettaServer
     :: forall (v :: ChainwebVersionT)
-    . [(ChainId, MempoolBackend ChainwebTransaction)]
+    . ChainwebVersion
+    -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> Server (RosettaApi v)
-rosettaServer ms = (const $ error "not yet implemented")
+rosettaServer v ms = (const $ error "not yet implemented")
     -- Blocks --
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
     -- Construction --
-    :<|> constructionMetadataH
-    :<|> constructionSubmitH ms
+    :<|> constructionMetadataH v
+    :<|> constructionSubmitH v ms
     -- Mempool --
-    :<|> mempoolTransactionH ms
-    :<|> mempoolH ms
+    :<|> mempoolTransactionH v ms
+    :<|> mempoolH v ms
     -- Network --
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
@@ -73,8 +74,8 @@ someRosettaServer
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> SomeServer
-someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
-    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer ms
+someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
+    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ms
 
 --------------------------------------------------------------------------------
 -- Account Handlers
@@ -85,25 +86,31 @@ someRosettaServer (FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms =
 --------------------------------------------------------------------------------
 -- Construction Handlers
 
-constructionMetadataH :: ConstructionMetadataReq -> Handler ConstructionMetadataResp
-constructionMetadataH (ConstructionMetadataReq (NetworkId _ _ msni) _) =
+constructionMetadataH
+    :: ChainwebVersion
+    -> ConstructionMetadataReq
+    -> Handler ConstructionMetadataResp
+constructionMetadataH v (ConstructionMetadataReq net@(NetworkId _ _ msni) _) =
     runExceptT work >>= either throwRosetta pure
   where
     -- TODO: Extend as necessary.
     work :: ExceptT RosettaFailure Handler ConstructionMetadataResp
     work = do
+        validateNetwork v net
         SubNetworkId _ _ <- msni ?? RosettaChainUnspecified
         pure $ ConstructionMetadataResp HM.empty
 
 constructionSubmitH
-    :: [(ChainId, MempoolBackend ChainwebTransaction)]
+    :: ChainwebVersion
+    -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> ConstructionSubmitReq
     -> Handler ConstructionSubmitResp
-constructionSubmitH ms (ConstructionSubmitReq (NetworkId _ _ msni) tx) =
+constructionSubmitH v ms (ConstructionSubmitReq net@(NetworkId _ _ msni) tx) =
     runExceptT work >>= either throwRosetta pure
   where
     work :: ExceptT RosettaFailure Handler ConstructionSubmitResp
     work = do
+        validateNetwork v net
         SubNetworkId n _ <- msni ?? RosettaChainUnspecified
         cmd <- command tx ?? RosettaUnparsableTx
         validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
@@ -120,22 +127,27 @@ command = decodeStrict' . T.encodeUtf8
 --------------------------------------------------------------------------------
 -- Mempool Handlers
 
-mempoolH :: [(ChainId, MempoolBackend a)] -> MempoolReq -> Handler MempoolResp
-mempoolH ms (MempoolReq (NetworkId _ _ msni)) = case msni of
-    Nothing -> throwRosetta RosettaChainUnspecified
-    Just (SubNetworkId n _) ->
-        case readMaybe @ChainId (T.unpack n) >>= flip lookup ms of
-            Nothing -> throwRosetta RosettaInvalidChain
-            Just _ -> do
-                error "not yet implemented"  -- TODO!
+mempoolH
+    :: ChainwebVersion
+    -> [(ChainId, MempoolBackend a)]
+    -> MempoolReq -> Handler MempoolResp
+mempoolH v ms (MempoolReq net@(NetworkId _ _ msni)) =
+    runExceptT work >>= either throwRosetta pure
+  where
+    work = do
+        validateNetwork v net
+        SubNetworkId n _ <- msni ?? RosettaChainUnspecified
+        _ <- (readMaybe @ChainId (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain
+        error "not yet implemented"  -- TODO!
 
 mempoolTransactionH
-    :: [(ChainId, MempoolBackend a)]
+    :: ChainwebVersion
+    -> [(ChainId, MempoolBackend a)]
     -> MempoolTransactionReq
     -> Handler MempoolTransactionResp
-mempoolTransactionH ms mtr = runExceptT work >>= either throwRosetta pure
+mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
   where
-    MempoolTransactionReq (NetworkId _ _ msni) (TransactionId ti) = mtr
+    MempoolTransactionReq net@(NetworkId _ _ msni) (TransactionId ti) = mtr
     th = TransactionHash . BSS.toShort $ T.encodeUtf8 ti
 
     f :: LookupResult a -> Maybe MempoolTransactionResp
@@ -150,6 +162,7 @@ mempoolTransactionH ms mtr = runExceptT work >>= either throwRosetta pure
 
     work :: ExceptT RosettaFailure Handler MempoolTransactionResp
     work = do
+        validateNetwork v net
         SubNetworkId n _ <- msni ?? RosettaChainUnspecified
         mp <- (readMaybe (T.unpack n) >>= flip lookup ms) ?? RosettaInvalidChain
         lrs <- liftIO . mempoolLookup mp $ V.singleton th
