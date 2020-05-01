@@ -28,8 +28,6 @@ import qualified Data.HashMap.Strict as HM
 import Data.Proxy (Proxy(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Vector as V
 
 import Pact.Types.Command
@@ -117,7 +115,7 @@ constructionSubmitH ms (ConstructionSubmitReq (NetworkId _ _ msni) tx) =
         pure $ ConstructionSubmitResp (TransactionId rk) Nothing
 
 command :: T.Text -> Maybe (Command T.Text)
-command = decode' . TL.encodeUtf8 . TL.fromStrict
+command = decodeStrict' . T.encodeUtf8
 
 --------------------------------------------------------------------------------
 -- Mempool Handlers
