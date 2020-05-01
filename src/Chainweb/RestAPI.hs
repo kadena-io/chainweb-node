@@ -239,7 +239,8 @@ someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
         <> PactAPI.somePactServers v pacts
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-        <> maybe mempty (bool mempty (someRosettaServer v mempools) r) cuts
+        <> maybe mempty (bool mempty (someRosettaServer v mempools cutPeerDb) r) cuts
+        -- TODO: not sure if passing the correct PeerDb here
   where
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs
