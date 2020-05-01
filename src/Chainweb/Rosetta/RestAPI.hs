@@ -81,11 +81,15 @@ data RosettaFailure
     = RosettaChainUnspecified
     | RosettaInvalidChain Text
     | RosettaMempoolBadTx
+    | RosettaUnparsableTx
+    | RosettaInvalidTx
 
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
 rosettaError (RosettaInvalidChain cid) = RosettaError 1 ("Invalid chain value: " <> cid) False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
+rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" False
+rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
 
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
