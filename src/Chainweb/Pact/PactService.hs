@@ -66,7 +66,6 @@ import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
-import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -974,7 +973,7 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
         setParentHeader parentHeader -- could have been overwritten in rewind, so set again
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
-        results <- execTransactions (Just parentHeader) miner newTrans
+        results <- execTransactions False miner newTrans
           (EnforceCoinbaseFailure True)
           (CoinbaseUsePrecompiled True)
           pdbenv
@@ -1027,7 +1026,7 @@ execNewGenesisBlock miner newTrans = withDiscardedBatch $
     withCheckpointer Nothing "execNewGenesisBlock" $ \pdbenv -> do
 
         -- NEW GENESIS COINBASE: Reject bad coinbase, use date rule for precompilation
-        results <- execTransactions Nothing miner newTrans
+        results <- execTransactions True miner newTrans
                    (EnforceCoinbaseFailure True)
                    (CoinbaseUsePrecompiled False) pdbenv
         return $! Discard (toPayloadWithOutputs miner results)
@@ -1141,13 +1140,13 @@ playOneBlock currHeader plData pdbenv = do
       then do
         setParentHeader (ParentHeader currHeader)
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
-        execTransactions Nothing m txs
+        execTransactions True m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
         parentHeader <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
         setParentHeader parentHeader
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
-        execTransactions (Just parentHeader) m txs
+        execTransactions False m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
 
 -- | Rewinds the pact state to @mb@.
@@ -1261,31 +1260,29 @@ execValidateBlock currHeader plData = do
     handleEx e = throwM e
 
 execTransactions
-    :: Maybe ParentHeader
+    :: Bool
     -> Miner
     -> Vector ChainwebTransaction
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> PactDbEnv'
     -> PactServiceM cas Transactions
-execTransactions nonGenesisParentHeader miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
+execTransactions isGenesis miner ctxs enfCBFail usePrecomp (PactDbEnv' pactdbenv) = do
     mc <- use psInitCache
-    coinOut <- runCoinbase nonGenesisParentHeader pactdbenv miner enfCBFail usePrecomp mc
+    coinOut <- runCoinbase isGenesis pactdbenv miner enfCBFail usePrecomp mc
     txOuts <- applyPactCmds isGenesis pactdbenv ctxs miner mc
     return $! Transactions (V.zip ctxs txOuts) coinOut
-  where
-    !isGenesis = isNothing nonGenesisParentHeader
 
 runCoinbase
-    :: Maybe ParentHeader
+    :: Bool
     -> P.PactDbEnv p
     -> Miner
     -> EnforceCoinbaseFailure
     -> CoinbaseUsePrecompiled
     -> ModuleCache
     -> PactServiceM cas (P.CommandResult [P.TxLog A.Value])
-runCoinbase Nothing _ _ _ _ _ = return noCoinbase
-runCoinbase (Just _) dbEnv miner enfCBFail usePrecomp mc = do
+runCoinbase True _ _ _ _ _ = return noCoinbase
+runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
     logger <- view (psCheckpointEnv . cpeLogger)
     rs <- view psMinerRewards
     v <- view chainwebVersion
