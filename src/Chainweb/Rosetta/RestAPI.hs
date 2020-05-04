@@ -22,7 +22,7 @@ module Chainweb.Rosetta.RestAPI
   , validateNetwork
   ) where
 
-import Control.Monad (unless)
+import Control.Monad (when)
 import Control.Monad.Except (throwError)
 import Control.Monad.Trans.Except (ExceptT)
 
@@ -87,8 +87,9 @@ data RosettaFailure
     | RosettaMempoolBadTx
     | RosettaUnparsableTx
     | RosettaInvalidTx
-    | RosettaBadNetwork
-    deriving (Enum, Bounded)
+    | RosettaInvalidBlockchainName
+    | RosettaMismatchNetworkName
+    deriving (Show, Enum, Bounded)
 
 -- TODO: Better grouping of rosetta error index
 rosettaError :: RosettaFailure -> RosettaError
@@ -97,11 +98,13 @@ rosettaError RosettaInvalidChain = RosettaError 1 "Invalid chain value" False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
 rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" False
 rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
-rosettaError RosettaBadNetwork = RosettaError 5 "Invalid network identifier" False
+rosettaError RosettaInvalidBlockchainName = RosettaError 5 "Invalid blockchain name" False
+rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb network name" False
 
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
 
 validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ()
-validateNetwork v (NetworkId bc n _) = unless (bc == "kadena" && Just v == fromText n)
-    $ throwError RosettaBadNetwork
+validateNetwork v (NetworkId bc n _) = do
+    when (bc /= "kadena") $ throwError RosettaInvalidBlockchainName
+    when (Just v /= fromText n) $ throwError RosettaMismatchNetworkName
