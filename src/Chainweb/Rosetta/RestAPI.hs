@@ -90,52 +90,6 @@ data RosettaFailure
     | RosettaBadNetwork
     deriving (Enum, Bounded)
 
--- instance Enum RosettaFailure where
---   succ RosettaChainUnspecified = RosettaInvalidChain defChainIdErrMsg
---   succ (RosettaInvalidChain _) = RosettaMempoolBadTx
---   succ RosettaMempoolBadTx = RosettaInvalidBlockchainName defBlockchainNameErrMsg
---   succ RosettaUnparsableTx = RosettaInvalidTx
---   succ RosettaInvalidTx = errorWithoutStackTrace "Prelude.Enum.Bool.succ: bad argument"
-
---   pred RosettaInvalidTx = RosettaUnparsableTx
---   pred RosettaUnparsableTx = RosettaMismatchNetworkName defChainwebVerErrMsg defNetworkNameErrMsg
---   pred RosettaMempoolBadTx = RosettaInvalidChain defChainIdErrMsg
---   pred (RosettaInvalidChain _) = RosettaChainUnspecified
---   pred RosettaChainUnspecified = errorWithoutStackTrace "Prelude.Enum.Bool.pred: bad argument"
-
---   toEnum x
---     | x == 0 = RosettaChainUnspecified
---     | x == 1 = RosettaInvalidChain defChainIdErrMsg
---     | x == 2 = RosettaMempoolBadTx
---     | x == 3 = RosettaInvalidBlockchainName defBlockchainNameErrMsg
---     | x == 4 = RosettaMismatchNetworkName defChainwebVerErrMsg defNetworkNameErrMsg
---     | x == 5 = RosettaUnparsableTx
---     | x == 6 = RosettaInvalidTx
---     | otherwise = errorWithoutStackTrace "Prelude.Enum.().toEnum: bad argument"
-
---   fromEnum RosettaChainUnspecified = 0
---   fromEnum (RosettaInvalidChain _) = 1
---   fromEnum RosettaMempoolBadTx = 2
---   fromEnum RosettaUnparsableTx = 5
---   fromEnum RosettaInvalidTx = 6
-
--- -- NOTE: Must update when new rosetta errors are added
--- instance Bounded RosettaFailure where
---   minBound = RosettaChainUnspecified
---   maxBound = RosettaInvalidTx
-
--- defChainIdErrMsg :: Text
--- defChainIdErrMsg = "someInvalidChainId"
-
--- defBlockchainNameErrMsg :: Text
--- defBlockchainNameErrMsg = "someInvalidBlockchainName"
-
--- defChainwebVerErrMsg :: ChainwebVersion
--- defChainwebVerErrMsg = Mainnet01
-
--- defNetworkNameErrMsg :: Text
--- defNetworkNameErrMsg = "someInvalidNetworkName"
-
 -- TODO: Better grouping of rosetta error index
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
