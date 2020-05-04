@@ -233,7 +233,7 @@ jobs:
         echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD)"
 
     - name: Install GHC and Cabal
-      uses: haskell-CI/setup@8f15d2f80373bad639e90c95dace7265800c6921
+      uses: actions/setup-haskell@v1.1
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}

@@ -13,12 +13,9 @@ jobs:
           sudo apt-get install -y librocksdb-dev
 
       - name: Setup GHC
-        uses: actions/setup-haskell@v1
+        uses: actions/setup-haskell@v1.1
         with:
           ghc-version: "8.8.3"
-
-      - name: Setup Stack
-        uses: mstksg/setup-stack@v1
 
       - name: Clone project
         uses: actions/checkout@v2
