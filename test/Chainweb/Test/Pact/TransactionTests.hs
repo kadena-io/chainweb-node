@@ -49,6 +49,7 @@ import Pact.Types.SPV
 
 -- internal chainweb modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
@@ -207,9 +208,9 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 
   where
     doCoinbaseExploit pdb mc height localCmd precompile testResult = do
-      let pd = PublicData def (int height) 0 ""
+      let ctx = TxContext (mkTestParentHeader $ height - 1) def
 
-      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 pd (mkTestParentHeader $ height - 1)
+      void $ applyCoinbase Mainnet01 logger pdb miner 0.1 ctx
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled precompile) mc
 
       let h = H.toUntypedHash (H.hash "" :: H.PactHash)
@@ -242,7 +243,7 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 pubData someParentHeader
+    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 (TxContext someParentHeader def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) ->
@@ -252,18 +253,18 @@ testCoinbaseEnforceFailure = do
       Right _ -> assertFailure "Coinbase did not fail for bad miner id"
   where
     miner = Miner (MinerId "") (MinerKeys $ mkKeySet [] "<")
-    pubData = PublicData def blockHeight' blockTime ""
-    blockTime = toInt64 [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
-    toInt64 (Time (TimeSpan (Micros m))) = m
     blockHeight' = 123
     logger = newLogger neverLog ""
-    someParentHeader = ParentHeader someTestVersionHeader
+    someParentHeader = ParentHeader (someTestVersionHeader
+                       { _blockHeight = blockHeight'
+                       , _blockCreationTime = BlockCreationTime [timeMicrosQQ| 2019-12-10T01:00:00.0 |]
+                       })
 
 
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight = do
     (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
-    r <- try $ applyCoinbase v logger pdb miner 0.1 pubData parentHeader
+    r <- try $ applyCoinbase v logger pdb miner 0.1 (TxContext parentHeader def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
       Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
@@ -304,11 +305,10 @@ testCoinbaseUpgradeDevnet cid upgradeHeight = do
 
     v = Development
     miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
-    pubData = PublicData def (int upgradeHeight) 0 ""
     logger = newLogger neverLog "" -- set to alwaysLog to debug
 
     parentHeader = ParentHeader $ (someBlockHeader v upgradeHeight)
       { _blockChainwebVersion = v
       , _blockChainId = cid
+      , _blockHeight = pred upgradeHeight
       }
-
