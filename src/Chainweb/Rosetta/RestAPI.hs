@@ -109,7 +109,7 @@ rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb netwo
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
 
--- | Every Rosetta reqest that requires a `NetworkId` also requires a
+-- | Every Rosetta request that requires a `NetworkId` also requires a
 -- `SubNetworkId`, at least in the case of Chainweb.
 validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ChainId
 validateNetwork v (NetworkId bc n msni) = do
