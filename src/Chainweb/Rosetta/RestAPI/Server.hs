@@ -212,7 +212,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
         pure $ NetworkOptionsResp version allow
 
     version = RosettaNodeVersion
-      { _version_rosettaVersion = "1.3.1"   -- TODO: Make this a variable in /rosetta repo
+      { _version_rosettaVersion = rosettaSpecVersion
       , _version_nodeVersion = chainwebNodeVersionHeaderValue
       , _version_middlewareVersion = Nothing
       , _version_metadata = Just $ HM.fromList metaPairs }
