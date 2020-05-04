@@ -15,6 +15,7 @@
 module Main ( main ) where
 
 import Test.Tasty
+import Test.Tasty.JsonReporter
 import Test.Tasty.QuickCheck
 
 -- internal modules
@@ -65,7 +66,7 @@ main :: IO ()
 main =
     withTempRocksDb "chainweb-tests" $ \rdb ->
     withToyDB rdb toyChainId $ \h0 db ->
-        defaultMain
+        defaultMainWithIngredients (consoleAndJsonReporter : defaultIngredients)
             $ adjustOption adj
             $ testGroup "Chainweb Tests" . schedule Sequential
             $ pactTestSuite rdb
