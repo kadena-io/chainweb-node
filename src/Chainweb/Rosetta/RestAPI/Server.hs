@@ -17,6 +17,7 @@
 module Chainweb.Rosetta.RestAPI.Server where
 
 import Control.Error.Util
+import Control.Monad (void)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -41,8 +42,6 @@ import Rosetta
 
 import Servant.API
 import Servant.Server
-
-import Text.Read (readMaybe)
 
 -- internal modules
 
@@ -115,14 +114,13 @@ constructionMetadataH
     :: ChainwebVersion
     -> ConstructionMetadataReq
     -> Handler ConstructionMetadataResp
-constructionMetadataH v (ConstructionMetadataReq net@(NetworkId _ _ msni) _) =
+constructionMetadataH v (ConstructionMetadataReq net _) =
     runExceptT work >>= either throwRosetta pure
   where
     -- TODO: Extend as necessary.
     work :: ExceptT RosettaFailure Handler ConstructionMetadataResp
     work = do
-        validateNetwork v net
-        SubNetworkId _ _ <- msni ?? RosettaChainUnspecified
+        void $ validateNetwork v net
         pure $ ConstructionMetadataResp HM.empty
 
 constructionSubmitH
@@ -130,16 +128,15 @@ constructionSubmitH
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> ConstructionSubmitReq
     -> Handler ConstructionSubmitResp
-constructionSubmitH v ms (ConstructionSubmitReq net@(NetworkId _ _ msni) tx) =
+constructionSubmitH v ms (ConstructionSubmitReq net tx) =
     runExceptT work >>= either throwRosetta pure
   where
     work :: ExceptT RosettaFailure Handler ConstructionSubmitResp
     work = do
-        validateNetwork v net
-        SubNetworkId n _ <- msni ?? RosettaChainUnspecified
+        cid <- validateNetwork v net
         cmd <- command tx ?? RosettaUnparsableTx
         validated <- hoistEither . first (const RosettaInvalidTx) $ validateCommand cmd
-        mp <- (readChainIdText v n >>= flip lookup ms) ?? RosettaInvalidChain
+        mp <- lookup cid ms ?? RosettaInvalidChain
         let !vec = V.singleton validated
         liftIO (mempoolInsertCheck mp vec) >>= hoistEither . first (const RosettaInvalidTx)
         liftIO (mempoolInsert mp UncheckedInsert vec)
@@ -157,13 +154,11 @@ mempoolH
     -> [(ChainId, MempoolBackend a)]
     -> MempoolReq
     -> Handler MempoolResp
-mempoolH v ms (MempoolReq net@(NetworkId _ _ msni)) =
-    runExceptT work >>= either throwRosetta pure
+mempoolH v ms (MempoolReq net) = runExceptT work >>= either throwRosetta pure
   where
     work = do
-        validateNetwork v net
-        SubNetworkId n _ <- msni ?? RosettaChainUnspecified
-        _ <- (readChainIdText v n >>= flip lookup ms) ?? RosettaInvalidChain
+        cid <- validateNetwork v net
+        _ <- lookup cid ms ?? RosettaInvalidChain
         error "not yet implemented"  -- TODO!
 
 mempoolTransactionH
@@ -173,7 +168,7 @@ mempoolTransactionH
     -> Handler MempoolTransactionResp
 mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
   where
-    MempoolTransactionReq net@(NetworkId _ _ msni) (TransactionId ti) = mtr
+    MempoolTransactionReq net (TransactionId ti) = mtr
     th = TransactionHash . BSS.toShort $ T.encodeUtf8 ti
 
     f :: LookupResult a -> Maybe MempoolTransactionResp
@@ -188,9 +183,8 @@ mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
 
     work :: ExceptT RosettaFailure Handler MempoolTransactionResp
     work = do
-        validateNetwork v net
-        SubNetworkId n _ <- msni ?? RosettaChainUnspecified
-        mp <- (readChainIdText v n >>= flip lookup ms) ?? RosettaInvalidChain
+        cid <- validateNetwork v net
+        mp <- lookup cid ms ?? RosettaInvalidChain
         lrs <- liftIO . mempoolLookup mp $ V.singleton th
         (lrs V.!? 0 >>= f) ?? RosettaMempoolBadTx
 
@@ -214,7 +208,7 @@ networkOptionsH v (NetworkReq nid _) = runExceptT work >>= either throwRosetta p
   where
     work :: ExceptT RosettaFailure Handler NetworkOptionsResp
     work = do
-        validateNetwork v nid
+        void $ validateNetwork v nid
         pure $ NetworkOptionsResp version allow
 
     version = RosettaNodeVersion
@@ -247,9 +241,7 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
   where
     work :: ExceptT RosettaFailure Handler NetworkStatusResp
     work = do
-        validateNetwork v nid
-        SubNetworkId n _ <- _networkId_subNetworkId nid ?? RosettaChainUnspecified
-        cid <- readChainIdText v n ?? RosettaInvalidChain
+        cid <- validateNetwork v nid
         c <- liftIO $ _cut cutDb
         bh <- getBlockHeader c cid
         let genesisBh = genesisBlockHeader v cid
@@ -317,8 +309,3 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
 
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
-
-readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
-readChainIdText v c = do
-  cid :: Word64 <- readMaybe (T.unpack c)
-  mkChainId v cid

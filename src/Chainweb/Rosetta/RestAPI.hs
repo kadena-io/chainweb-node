@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -22,16 +23,20 @@ module Chainweb.Rosetta.RestAPI
   , validateNetwork
   ) where
 
+import Control.Error.Util
 import Control.Monad (when)
 import Control.Monad.Except (throwError)
 import Control.Monad.Trans.Except (ExceptT)
 
 import Data.Aeson (encode)
+import qualified Data.Text as T
 
 import Rosetta
 
 import Servant.API
 import Servant.Server
+
+import Text.Read (readMaybe)
 
 -- internal modules
 
@@ -104,7 +109,18 @@ rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb netwo
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
 
-validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ()
-validateNetwork v (NetworkId bc n _) = do
+-- | Every Rosetta reqest that requires a `NetworkId` also requires a
+-- `SubNetworkId`, at least in the case of Chainweb.
+validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ChainId
+validateNetwork v (NetworkId bc n msni) = do
     when (bc /= "kadena") $ throwError RosettaInvalidBlockchainName
     when (Just v /= fromText n) $ throwError RosettaMismatchNetworkName
+    SubNetworkId cid _ <- msni ?? RosettaChainUnspecified
+    readChainIdText v cid ?? RosettaInvalidChain
+
+-- | Guarantees that the `ChainId` given actually belongs to this
+-- `ChainwebVersion`.
+readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
+readChainIdText v c = do
+  cid <- readMaybe @Word (T.unpack c)
+  mkChainId v cid
