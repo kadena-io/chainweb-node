@@ -19,6 +19,7 @@ extra-deps:
   - streaming-events-1.0.0
   - streaming-with-0.2.2.1
   - strict-tuple-0.1.3
+  - tasty-json-0.1.0.0
   - token-bucket-0.1.0.1
   - wai-middleware-throttle-0.3.0.1
   - yet-another-logger-0.4.0

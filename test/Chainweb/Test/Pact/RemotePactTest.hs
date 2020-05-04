@@ -852,7 +852,7 @@ withNodes rdb n f = withResource start
     start :: IO (Async (), ClientEnv)
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes rdb Warn v n peerInfoVar
+        a <- async $ runTestNodes rdb Quiet v n peerInfoVar
         i <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
         return (a, cwEnv)
