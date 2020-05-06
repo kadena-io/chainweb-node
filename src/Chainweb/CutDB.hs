@@ -161,7 +161,7 @@ data CutDbParams = CutDbParams
     , _cutDbParamsTelemetryLevel :: !LogLevel
     , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
-    , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
+    , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -214,8 +214,8 @@ cutHashesTable :: RocksDb -> RocksDbCas CutHashes
 cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
   where
     keyCodec = Codec
-        (\(a,b,c) -> runPut $ encodeBlockHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
-        (runGet $ (,,) <$> decodeBlockHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
+        (\(a,b,c) -> runPut $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
+        (runGet $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
 
 -- -------------------------------------------------------------------------- --

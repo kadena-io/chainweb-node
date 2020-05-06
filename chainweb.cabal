@@ -219,6 +219,7 @@ library
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
         , Chainweb.Version
+        , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
 

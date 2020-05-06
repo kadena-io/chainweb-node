@@ -9,6 +9,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -41,7 +42,6 @@ module Chainweb.Graph
 
 , ChainGraph
 , chainGraphKnown
-, toChainGraph
 , validChainGraph
 , adjacentChainIds
 , HasChainGraph(..)
@@ -67,16 +67,19 @@ module Chainweb.Graph
 , checkWebChainId
 , checkAdjacentChainIds
 
--- * Specific, Known Graphs
-
+-- * Known Graphs
 , KnownGraph(..)
 , knownGraph
+
+-- * Memoize Known Chain Graphs
+
+, knownChainGraph
 , singletonChainGraph
 , pairChainGraph
 , triangleChainGraph
 , petersonChainGraph
 , twentyChainGraph
-, hoffmanSingletonGraph
+, hoffmanSingletonChainGraph
 
 ) where
 
@@ -153,26 +156,16 @@ instance Ord ChainGraph where
 instance Hashable ChainGraph where
     hashWithSalt s = xor s . _chainGraphHash
 
+instance HasTextRepresentation ChainGraph where
+    toText = toText . _chainGraphKnown
+    fromText = fmap knownChainGraph . fromText
+
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
 chainGraphKnown :: Getter ChainGraph KnownGraph
 chainGraphKnown = to _chainGraphKnown
 {-# INLINE chainGraphKnown #-}
-
--- | This function is unsafe, it throws an error if the graph isn't a valid
--- chain graph. That's OK, since chaingraphs are hard-coded in the code and
--- won't change dynamically, except for during testing.
---
-toChainGraph :: (a -> ChainId) -> KnownGraph -> G.DiGraph a -> ChainGraph
-toChainGraph f kg g
-    | validChainGraph c = ChainGraph
-        { _chainGraphGraph = c
-        , _chainGraphKnown = kg
-        , _chainGraphShortestPathCache = G.shortestPathCache c
-        , _chainGraphHash = hash c
-        }
-    | otherwise = error "the given graph is not a valid chain graph"
-  where
-    c = G.mapVertices f g
-{-# INLINE toChainGraph #-}
 
 -- | A valid chain graph is symmetric, regular, and the out-degree
 -- is at least 1 if the graph has at least two vertices.
@@ -202,6 +195,8 @@ adjacentChainIds graph@(ChainGraph g _ _ _) cid
 -- -------------------------------------------------------------------------- --
 -- Undirected Edges
 
+-- | Undirected Edge in a Chain Graph
+--
 newtype AdjPair a = AdjPair { _getAdjPair :: (a, a) }
     deriving stock (Show, Ord, Eq, Generic, Functor)
     deriving anyclass (Hashable)
@@ -324,32 +319,85 @@ checkAdjacentChainIds g cid expectedAdj = do
 
 -- | Graphs which have known, specific, intended meaning for Chainweb.
 --
-data KnownGraph = Singleton | Pair | Triangle | Peterson | Twenty | HoffmanSingle
+data KnownGraph = Singleton | Pair | Triangle | Peterson | Twenty | HoffmanSingleton
     deriving (Generic)
     deriving anyclass (NFData)
 
-knownGraph :: KnownGraph -> ChainGraph
-knownGraph Singleton = singletonChainGraph
-knownGraph Pair = pairChainGraph
-knownGraph Triangle = triangleChainGraph
-knownGraph Peterson = petersonChainGraph
-knownGraph Twenty = twentyChainGraph
-knownGraph HoffmanSingle = hoffmanSingletonGraph
+instance HasTextRepresentation KnownGraph where
+    toText Singleton = "singleton"
+    toText Pair = "pair"
+    toText Triangle = "triangle"
+    toText Peterson = "peterson"
+    toText Twenty = "twenty"
+    toText HoffmanSingleton = "hoffman"
+
+    fromText "singleton" = return Singleton
+    fromText "pair" = return Pair
+    fromText "triangle" = return Triangle
+    fromText "peterson" = return Peterson
+    fromText "twenty" = return Twenty
+    fromText "hoffman" = return HoffmanSingleton
+    fromText x = throwM $ TextFormatException $ "unknown KnownGraph: " <> x
+
+    {-# INLINE toText #-}
+    {-# INLINE fromText #-}
+
+knownGraph :: KnownGraph -> G.DiGraph Int
+knownGraph Singleton = G.singleton
+knownGraph Pair = G.pair
+knownGraph Triangle = G.triangle
+knownGraph Peterson = G.petersonGraph
+knownGraph Twenty = G.twentyChainGraph
+knownGraph HoffmanSingleton = G.hoffmanSingleton
+
+-- -------------------------------------------------------------------------- --
+-- Memoized Known Chain Graphs
+
+-- | This function is unsafe, it throws an error if the graph isn't a valid
+-- chain graph. That's OK, since chaingraphs are hard-coded in the code and
+-- won't change dynamically, except for during testing.
+--
+toChainGraph :: KnownGraph -> ChainGraph
+toChainGraph kg
+    | validChainGraph c = ChainGraph
+        { _chainGraphGraph = c
+        , _chainGraphKnown = kg
+        , _chainGraphShortestPathCache = G.shortestPathCache c
+        , _chainGraphHash = hash c
+        }
+    | otherwise = error "the given graph is not a valid chain graph"
+  where
+    c = G.mapVertices (unsafeChainId . int) $! knownGraph kg
+{-# INLINE toChainGraph #-}
+
+knownChainGraph :: KnownGraph -> ChainGraph
+knownChainGraph Singleton = singletonChainGraph
+knownChainGraph Pair = pairChainGraph
+knownChainGraph Triangle = triangleChainGraph
+knownChainGraph Peterson = petersonChainGraph
+knownChainGraph Twenty = twentyChainGraph
+knownChainGraph HoffmanSingleton = hoffmanSingletonChainGraph
 
 singletonChainGraph :: ChainGraph
-singletonChainGraph = toChainGraph (unsafeChainId . int) Singleton G.singleton
+singletonChainGraph = toChainGraph Singleton
+{-# NOINLINE singletonChainGraph #-}
 
 pairChainGraph :: ChainGraph
-pairChainGraph = toChainGraph (unsafeChainId . int) Pair G.pair
+pairChainGraph = toChainGraph Pair
+{-# NOINLINE pairChainGraph #-}
 
 triangleChainGraph :: ChainGraph
-triangleChainGraph = toChainGraph (unsafeChainId . int) Triangle G.triangle
+triangleChainGraph = toChainGraph Triangle
+{-# NOINLINE triangleChainGraph #-}
 
 petersonChainGraph :: ChainGraph
-petersonChainGraph = toChainGraph (unsafeChainId . int) Peterson G.petersonGraph
+petersonChainGraph = toChainGraph Peterson
+{-# NOINLINE petersonChainGraph #-}
 
 twentyChainGraph :: ChainGraph
-twentyChainGraph = toChainGraph (unsafeChainId . int) Twenty G.twentyChainGraph
+twentyChainGraph = toChainGraph Twenty
+{-# NOINLINE twentyChainGraph #-}
 
-hoffmanSingletonGraph :: ChainGraph
-hoffmanSingletonGraph = toChainGraph (unsafeChainId . int) HoffmanSingle G.hoffmanSingleton
+hoffmanSingletonChainGraph :: ChainGraph
+hoffmanSingletonChainGraph = toChainGraph HoffmanSingleton
+{-# NOINLINE hoffmanSingletonChainGraph #-}

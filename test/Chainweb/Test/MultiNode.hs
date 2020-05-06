@@ -11,6 +11,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.MultiNode
@@ -34,7 +35,7 @@
 module Chainweb.Test.MultiNode ( test ) where
 
 #ifndef DEBUG_MULTINODE_TEST
-#define DEBUG_MULTINODE_TEST 0
+#define DEBUG_MULTINODE_TEST 1
 #endif
 
 import Control.Concurrent
@@ -89,6 +90,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.RocksDB
@@ -334,10 +336,10 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
             tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds)
             tastylog $ encodeToText stats
             tastylog $ encodeToText $ object
-                [ "maxEfficiency%" .= (realToFrac (_statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "minEfficiency%" .= (realToFrac (_statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "medEfficiency%" .= (realToFrac (_statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "avgEfficiency%" .= (_statAvgHeight stats * (100 :: Double) / int (_statBlockCount stats))
+                [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
                 ]
 
             (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
@@ -356,6 +358,8 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
     u = upperStats v seconds
 
     label = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
+
+    bc = blockCountAtCutHeight v
 
 -- -------------------------------------------------------------------------- --
 -- Results
@@ -394,10 +398,10 @@ sampleConsensusState nid bhdb cutdb s = do
         }
 
 data Stats = Stats
-    { _statBlockCount :: !Int
-    , _statMaxHeight :: !BlockHeight
-    , _statMinHeight :: !BlockHeight
-    , _statMedHeight :: !BlockHeight
+    { _statBlockCount :: !Natural
+    , _statMaxHeight :: !CutHeight
+    , _statMinHeight :: !CutHeight
+    , _statMedHeight :: !CutHeight
     , _statAvgHeight :: !Double
     }
     deriving (Show, Eq, Ord, Generic, ToJSON)
@@ -406,7 +410,7 @@ consensusStateSummary :: ConsensusState -> Maybe Stats
 consensusStateSummary s
     | HM.null (_stateCutMap s) = Nothing
     | otherwise = Just Stats
-        { _statBlockCount = hashCount
+        { _statBlockCount = int $ hashCount
         , _statMaxHeight = maxHeight
         , _statMinHeight = minHeight
         , _statMedHeight = medHeight
@@ -431,20 +435,11 @@ consensusStateSummary s
     avgHeight = avg $ HM.elems cutHeights
     medHeight = median $ HM.elems cutHeights
 
-expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
-expectedBlockCount v (Seconds seconds) = round ebc
-  where
-    chainCount = order $ chainGraphAt v maxBound
-
-    ebc :: Double
-    ebc = int seconds * int chainCount / int br
-
-    br :: Natural
-    br = case blockRate v of
-        BlockRate (Seconds n) -> int n
+expectedBlockCount :: ChainwebVersion -> Seconds -> Double
+expectedBlockCount v s = expectedCutHeightAfterSeconds v s
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
-lowerStats v (Seconds seconds) = Stats
+lowerStats v seconds = Stats
     { _statBlockCount = round $ ebc * 0.3 -- temporarily, was 0.8
     , _statMaxHeight = round $ ebc * 0.3 -- temporarily, was 0.7
     , _statMinHeight = round $ ebc * 0.09 -- temporarily, was 0.3
@@ -452,17 +447,11 @@ lowerStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 0.3 -- temporarily, was 0.5
     }
   where
-    chainCount = order $ chainGraphAt v maxBound
+    ebc = expectedBlockCount v seconds
 
-    ebc :: Double
-    ebc = int seconds * int chainCount / int br
-
-    br :: Natural
-    br = case blockRate v of
-        BlockRate (Seconds n) -> int n
 
 upperStats :: ChainwebVersion -> Seconds -> Stats
-upperStats v (Seconds seconds) = Stats
+upperStats v seconds = Stats
     { _statBlockCount = round $ ebc * 1.2
     , _statMaxHeight = round $ ebc * 1.2
     , _statMinHeight = round $ ebc * 1.2
@@ -470,11 +459,4 @@ upperStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 1.2
     }
   where
-    chainCount = order $ chainGraphAt v maxBound
-
-    ebc :: Double
-    ebc = int seconds * int chainCount / int br
-
-    br :: Natural
-    br = case blockRate v of
-        BlockRate (Seconds n) -> int n
+    ebc = expectedBlockCount v seconds

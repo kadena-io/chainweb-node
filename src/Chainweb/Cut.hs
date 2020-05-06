@@ -48,6 +48,7 @@ module Chainweb.Cut
 , meanChainHeight
 , maxChainHeight
 , minChainHeight
+, isTransitionCut
 
 -- * Exceptions
 , CutException(..)
@@ -97,7 +98,6 @@ import Data.Functor.Of
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Heap as H
-import qualified Data.List.NonEmpty as NE
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
@@ -116,7 +116,7 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeaders)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeaders, genesisBlockHeadersAtHeight)
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -124,6 +124,7 @@ import Chainweb.Graph
 import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 -- -------------------------------------------------------------------------- --
@@ -142,17 +143,26 @@ import Chainweb.WebBlockHeaderDB
 -- * all blockHeaders are valid (which is guaranteed by 'genesisBlockHeader')
 --   with respect to the graph.
 --
-data Cut = Cut
+data Cut = Cut'
     { _cutHeaders :: !(HM.HashMap ChainId BlockHeader)
     , _cutChainwebVersion :: !ChainwebVersion
     }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
 
-makeLenses ''Cut
+cutChainwebVersion :: Lens' Cut ChainwebVersion
+cutChainwebVersion = lens _cutChainwebVersion $ \c v -> c { _cutChainwebVersion = v }
+{-# INLINE cutChainwebVersion #-}
+
+cutHeaders :: Getter Cut (HM.HashMap ChainId BlockHeader)
+cutHeaders = to _cutHeaders
+
+unsafeCutHeaders :: Setter' Cut (HM.HashMap ChainId BlockHeader)
+unsafeCutHeaders = lens _cutHeaders $ \c m -> c { _cutHeaders = m }
+{-# INLINE unsafeCutHeaders #-}
 
 instance HasChainGraph Cut where
-    _chainGraph c = _chainGraph (_chainwebVersion c, meanChainHeight c)
+    _chainGraph c = _chainGraph (_chainwebVersion c, maxChainHeight c)
     {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion Cut where
@@ -190,38 +200,61 @@ cutWeight :: Getter Cut BlockWeight
 cutWeight = to _cutWeight
 {-# INLINE cutWeight #-}
 
-_cutHeight :: Cut -> BlockHeight
-_cutHeight = sumOf $ cutHeaders . folded . blockHeight
+_cutHeight :: Cut -> CutHeight
+_cutHeight = sumOf $ cutHeaders . folded . blockHeight . to int
 
-cutHeight :: Getter Cut BlockHeight
+cutHeight :: Getter Cut CutHeight
 cutHeight = to _cutHeight
 {-# INLINE cutHeight #-}
 
--- | All adjacent pairs of a cut
+unsafeMkCut :: ChainwebVersion -> HM.HashMap ChainId BlockHeader -> Cut
+unsafeMkCut v hdrs = Cut'
+    { _cutHeaders = hdrs
+    , _cutChainwebVersion = v
+    }
+
+-- -------------------------------------------------------------------------- --
+-- Adjacents
 --
-_cutAdjPairs :: Cut -> HS.HashSet (AdjPair BlockHeader)
-_cutAdjPairs c = HS.map (fmap (\x -> c ^?! ixg x)) . adjs $ _chainGraph c
+-- Note that in a cut adjacency is directed. The reason is that the headers in a
+-- cut may be of different height and may thus use different graphs.
 
-cutAdjPairs :: Getter Cut (HS.HashSet (AdjPair BlockHeader))
-cutAdjPairs = to _cutAdjPairs
-{-# INLINE cutAdjPairs #-}
-
--- | Assumes that the cid exists in the graph.
+-- | Map of adjacent block headers for a chain in a cut. The function considers
+-- the block height for the respective chain in the given cut.
+--
+-- Assumes that the cid exists in the graph.
 --
 cutAdjs
     :: HasChainId cid
     => Cut
     -> cid
     -> HM.HashMap ChainId BlockHeader
-cutAdjs c cid = HM.intersection
-    (_cutHeaders c)
-    (HS.toMap (adjacentChainIds (_chainGraph c) cid))
+cutAdjs c = HM.intersection (_cutHeaders c) . HS.toMap . cutAdjChainIds c
+{-# INLINE cutAdjs #-}
 
-unsafeMkCut :: ChainwebVersion -> HM.HashMap ChainId BlockHeader -> Cut
-unsafeMkCut v hdrs = Cut
-    { _cutHeaders = hdrs
-    , _cutChainwebVersion = v
-    }
+-- | Adjacent chain ids for a chain in a cut. The function considers the block
+-- height for the respective chain in the given cut.
+--
+-- Assumes that the cid exists in the graph.
+--
+cutAdjChainIds :: HasChainId cid => Cut -> cid -> HS.HashSet ChainId
+cutAdjChainIds c cid = c ^?! ixg (_chainId cid) . blockAdjacentChainIds
+{-# INLINE cutAdjChainIds #-}
+
+-- | /Directed/ adjacent pairs of a cut. Note that block headers in a cut can be
+-- of different block height and can thus use different chain graphs.
+--
+_cutAdjPairs :: Cut -> [(BlockHeader, BlockHeader)]
+_cutAdjPairs c =
+    [ (h, x)
+    | (cid, h) <- HM.toList (_cutMap c)
+    , x <- toList (cutAdjs c cid)
+    ]
+{-# INLINE _cutAdjPairs #-}
+
+cutAdjPairs :: Getter Cut [(BlockHeader, BlockHeader)]
+cutAdjPairs = to _cutAdjPairs
+{-# INLINE cutAdjPairs #-}
 
 -- -------------------------------------------------------------------------- --
 -- Chain Heights
@@ -244,8 +277,31 @@ minChainHeight :: Cut -> BlockHeight
 minChainHeight = minimum . chainHeights
 {-# INLINE minChainHeight #-}
 
+-- | Returns whether a chain graph transition occurs within the cut.
+--
+isTransitionCut :: Cut -> Bool
+isTransitionCut c = minChainHeight c <= lastGraphChange c (maxChainHeight c)
+
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height
+
+-- | This an internal function. The result is meaningful only if the input
+-- headers form a valid cut. In particular, the input must not be empty.
+--
+projectChains
+    :: HM.HashMap ChainId BlockHeader
+    -> HM.HashMap ChainId BlockHeader
+projectChains m = projectChains_ v h m
+  where
+    v = _chainwebVersion $ head $ toList m
+    h = minimum $ _blockHeight <$> toList m
+
+projectChains_
+    :: ChainwebVersion
+    -> BlockHeight
+    -> HM.HashMap ChainId BlockHeader
+    -> HM.HashMap ChainId BlockHeader
+projectChains_ v h m = HM.intersection m $ HS.toMap $ chainIdsAt v h
 
 -- | Find a `Cut` that is a predecessor of the given one, and that has a block
 -- height that is smaller or equal the given height.
@@ -260,7 +316,7 @@ minChainHeight = minimum . chainHeights
 limitCut
     :: HasCallStack
     => WebBlockHeaderDb
-    -> BlockHeight
+    -> CutHeight
         -- upper bound for the cut height. This is not a tight bound.
     -> Cut
     -> IO Cut
@@ -268,10 +324,13 @@ limitCut wdb h c
     | h >= _cutHeight c = return c
     | otherwise = do
         hdrs <- itraverse go $ view cutHeaders c
-        return $ set cutHeaders (HM.mapMaybe id hdrs) c
+        return $ set unsafeCutHeaders (projectChains_ v ch $ HM.mapMaybe id hdrs) c
   where
+    v :: ChainwebVersion
+    v = _chainwebVersion c
+
     ch :: BlockHeight
-    ch = chainHeightAtCutHeight (_chainwebVersion wdb) h
+    ch = floor $ avgBlockHeightAtCutHeight (_chainwebVersion wdb) h
 
     go :: ChainId -> BlockHeader -> IO (Maybe BlockHeader)
     go cid bh = do
@@ -280,33 +339,17 @@ limitCut wdb h c
         -- this is safe because it's guaranteed that the requested rank is
         -- smaller then the block height of the argument
 
-chainHeightAtCutHeight :: ChainwebVersion -> BlockHeight -> BlockHeight
-chainHeightAtCutHeight v ch = bh + (ch - a) * int (order g)
-  where
-    ((a, g), (bh, _)) = NE.head
-        $ NE.zip (chainGraphsAtCutHeight v ch) (chainwebGraphs v)
-
-chainGraphsByCutHeight :: ChainwebVersion -> NE.NonEmpty (BlockHeight, ChainGraph)
-chainGraphsByCutHeight = NE.scanr1 (\(h',g') (!h,!g) -> (h + h' * int (order g), g')) . chainwebGraphs
-{-# INLINE chainGraphsByCutHeight #-}
-
-chainGraphsAtCutHeight
-    :: ChainwebVersion
-    -> BlockHeight
-    -> NE.NonEmpty (BlockHeight, ChainGraph)
-chainGraphsAtCutHeight v h = NE.fromList
-    $ NE.dropWhile ((> h) . fst)
-    $ chainGraphsByCutHeight v
-{-# INLINE chainGraphsAtCutHeight #-}
-
+-- | The resulting headers are valid cut headers only cut if the input headers
+-- are valid cut headers, too. The inverse is not true.
+--
 limitCutHeaders
     :: HasCallStack
     => WebBlockHeaderDb
-    -> BlockHeight
+    -> CutHeight
         -- ^ upper bound for the cut height. This is not a tight bound.
     -> HM.HashMap ChainId BlockHeader
     -> IO (HM.HashMap ChainId BlockHeader)
-limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h Cut
+limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h Cut'
     { _cutHeaders = ch
     , _cutChainwebVersion = _chainwebVersion whdb
     }
@@ -314,7 +357,9 @@ limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h Cut
 -- -------------------------------------------------------------------------- --
 -- Genesis Cut
 
--- | TODO
+-- | The genesis cut for a chainweb version.
+--
+-- The genesis cut contains only the genesis headers at block height0 0.
 --
 -- This guarantees that
 --
@@ -328,8 +373,8 @@ limitCutHeaders whdb h ch = _cutHeaders <$> limitCut whdb h Cut
 genesisCut
     :: ChainwebVersion
     -> Cut
-genesisCut v = Cut
-    { _cutHeaders = genesisBlockHeaders v
+genesisCut v = Cut'
+    { _cutHeaders = genesisBlockHeadersAtHeight v 0
     , _cutChainwebVersion = v
     }
 
@@ -337,7 +382,7 @@ genesisCut v = Cut
 -- Exceptions
 
 data CutException
-    = InvalidCutPair (AdjPair BlockHeader)
+    = InvalidCutPair BlockHeader BlockHeader
     | NonMonotonicCutExtension (Expected BlockHash) (Actual BlockHash) BlockHeader
     | InvalidCutExtension BlockHeader
     deriving (Show, Eq, Ord, Generic)
@@ -349,48 +394,86 @@ instance Exception CutException
 
 -- | Check that a cut is correctly braided.
 --
--- This check is only needed for external cuts. Note, that for
--- imported cuts this must be checked recursively. This can
--- be done by doing a join that starts with a meet with a local
--- cut.
+-- This check is only needed for external cuts. Note, that for imported cuts
+-- this must be checked recursively.
 --
-checkBraidingOfCut
-    :: MonadThrow m
-    => Cut
-    -> m ()
+-- The implementation of this check here is expensive, namely \(O(m)\), where
+-- \(m\) is the size of the chain graph, i.e. the order of the graph times the
+-- degree. Usually, a more efficient way to check this property for a new cut is
+-- to performm a join that starts with a meet with a local cut, where the local
+-- cut is know to have this property.
+--
+-- Thus, the functions in this section are mostly used for assertions in tests.
+-- They also serve as reference implementations and documentation.
+--
+checkBraidingOfCut :: MonadThrow m => Cut -> m ()
 checkBraidingOfCut = checkBraidingOfCutPairs . _cutAdjPairs
+{-# INLINE checkBraidingOfCut #-}
 
 -- | Check that a set of adjacent pairs of a cut is correctly braided.
 --
 checkBraidingOfCutPairs
     :: MonadThrow m
     => Foldable f
-    => f (AdjPair BlockHeader)
+    => f (BlockHeader, BlockHeader)
     -> m ()
-checkBraidingOfCutPairs = traverse_ checkBraidingOfCutPair
+checkBraidingOfCutPairs = traverse_ (uncurry checkBraidingOfCutPair)
+{-# INLINE checkBraidingOfCutPairs #-}
 
+-- | Checks that directed adjacent pair in a cut is correctly braided.
+--
 checkBraidingOfCutPair
     :: MonadThrow m
-    => AdjPair BlockHeader
+    => BlockHeader
+        -- ^ Source header
+    -> BlockHeader
+        -- ^ target header
     -> m ()
-checkBraidingOfCutPair p = unlessM (isBraidingOfCutPair p)
-    $ throwM (InvalidCutPair p)
+checkBraidingOfCutPair s t = do
+    unless (absBlockHeightDiff s t <= 1) $ throwM $ InvalidCutPair s t
+    unlessM (isBraidingOfCutPair s t) $ throwM (InvalidCutPair s t)
 
--- | Returns whether an adjacent pair in a cut is correctly braided.
+-- | Returns whether a directed adjacent pair in a cut is correctly braided.
 --
 -- * throws 'ChainNotAdjacentException'
 --
+-- Assuming that all headers in the cut have the same graph, the following
+-- condition for all undirected adjacent pairs in the cut would inductively
+-- guarantee a valid braiding:
+--
+-- @
+-- isBraidingOfCutPair (AdjPair a b) = do
+--    ab <- getAdjacentHash b a -- adjacent of a on chain of b
+--    ba <- getAdjacentHash a b -- adajcent of b on chain of a
+--    return
+--        $! (_blockParent a == ba && _blockParent b == ab)
+--        || ab == _blockHash b
+--        || ba == _blockHash a
+-- @
+--
+-- The actual implementation is a it more complex because headers of different
+-- height in a cut may use a diferent chain graph during the transition from one
+-- graph to another graph: instead of undirected adjacent pairs the condition
+-- consideres directed adjacent pairs.
+--
+-- A corresponding function is implemente in 'Chainweb.Miner.Coordinator'
+-- TODO: provide test that the implementation in the miner matches with this
+-- function.
+--
 isBraidingOfCutPair
     :: MonadThrow m
-    => AdjPair BlockHeader
+    => BlockHeader
+        -- ^ Source header
+    -> BlockHeader
+        -- ^ target header
     -> m Bool
-isBraidingOfCutPair (Adj a b) = do
-    ab <- getAdjacentHash b a
-    ba <- getAdjacentHash a b
+isBraidingOfCutPair a b = do
+    ab <- getAdjacentHash b a -- adjacent of a on chain of b
+    ba <- getAdjacentHash a b -- adajcent of b on chain of a
     return
-        $! (_blockParent a == ba && _blockParent b == ab)
-        || ba == _blockHash a
-        || ab == _blockHash b
+        $! (_blockParent a == ba && _blockParent b == ab) -- same graph
+        || (_blockHeight a > _blockHeight b) && ab == _blockHash b
+        || (_blockHeight a < _blockHeight b) && True {- if same graph: ba == _blockHash a -}
 
 -- -------------------------------------------------------------------------- --
 -- Extending Cuts
@@ -406,6 +489,9 @@ isBraidingOfCutPair (Adj a b) = do
 -- * update is monotonic
 --
 -- This includes a check that inductively maintains 'checkBraidingOfCut'.
+--
+-- FIXME: this must conform with 'isBraidingOfCutPair'. Double check that we have
+-- test for this or check if the implementation can be shared.
 --
 isMonotonicCutExtension
     :: MonadThrow m
@@ -428,7 +514,7 @@ monotonicCutExtension
     -> m Cut
 monotonicCutExtension c h = do
     unlessM (isMonotonicCutExtension c h) $ throwM $ InvalidCutExtension h
-    return $! c & cutHeaders . ix (_chainId h) .~ h
+    return $! c & unsafeCutHeaders . ix (_chainId h) .~ h
 
 tryMonotonicCutExtension
     :: MonadThrow m
@@ -437,7 +523,7 @@ tryMonotonicCutExtension
     -> m (Maybe Cut)
 tryMonotonicCutExtension c h = extendIf <$> isMonotonicCutExtension c h
   where
-    extendIf True = Just $ set (cutHeaders . ix (_chainId h)) h c
+    extendIf True = Just $ set (unsafeCutHeaders . ix (_chainId h)) h c
     extendIf False = Nothing
 
 -- -------------------------------------------------------------------------- --
@@ -452,6 +538,12 @@ data Join a = Join
     , _joinQueue :: !(JoinQueue a)
     }
 
+-- | This computes the join for cuts accross all chains.
+--
+-- If you want to compute a join for cuts that include only a subset of all
+-- chains, make sure that @genesisBlockHeaders v@ only returns genesis headers
+-- for those chains that you care about.
+--
 join
     :: Ord a
     => WebBlockHeaderDb
@@ -459,11 +551,18 @@ join
     -> Cut
     -> Cut
     -> IO (Join a)
-join wdb f = join_ wdb f `on` _cutHeaders
+join wdb f = join_ wdb f `on` (addMissingChains . _cutHeaders)
+  where
+    -- adds genesis blocks for chains that are not yet active
+    addMissingChains hdrs = HM.union hdrs (genesisBlockHeaders v)
+    v = _chainwebVersion wdb
 
 -- | This merges two maps from ChainIds to BlockHeaders such that the result
 -- is a Cut. Note, however, that the resulting cut contains only the chain ids
 -- from the intersection of the input maps.
+--
+-- NOTE: For this to work as expected make sure that both inputs contain
+-- all chains that should be present in the output.
 --
 join_
     :: forall a
@@ -475,7 +574,7 @@ join_
     -> IO (Join a)
 join_ wdb prioFun a b = do
     (m, h) <- foldM f (mempty, mempty) (zipChainIdMaps a b)
-    return $! Join (Cut m (_chainwebVersion wdb)) h
+    return $! Join (Cut' m (_chainwebVersion wdb)) h
   where
     f
         :: (HM.HashMap ChainId BlockHeader, JoinQueue a)
@@ -522,14 +621,17 @@ zipCuts a b = catMaybes
     | (cidb, y) <- itoList $ _cutHeaders b
     ]
 
--- This can't fail because of missing dependencies. It can fail because
+-- This can't fail because of missing dependencies. It can't fail because
 -- of conflict.
 --
+-- Non-existing chains are stripped from the result.
+--
 applyJoin :: MonadThrow m => Join a -> m Cut
-applyJoin m = foldM
-    (\c b -> fromMaybe c <$> tryMonotonicCutExtension c (H.payload b))
-    (_joinBase m)
-    (_joinQueue m)
+applyJoin m = over unsafeCutHeaders projectChains
+    <$> foldM
+        (\c b -> fromMaybe c <$> tryMonotonicCutExtension c (H.payload b))
+        (_joinBase m)
+        (_joinQueue m)
 
 -- | Merge two Cuts. If at least one of the input cuts had a valid braiding the
 -- result is guaranteed to have a valid braiding for all blocks included in cut
@@ -541,6 +643,13 @@ applyJoin m = foldM
 -- the intersection. 'tryMonotonicCutExtension' is guaranteed to maintain that
 -- property.
 --
+-- Chains that aren't yet initialized are included in the join and later
+-- stripped from the result.
+--
+-- If you want to compute a join for cuts that include only a subset of all
+-- chains, make sure that @genesisBlockHeaders v@ only returns genesis headers
+-- for those chains that you care about.
+--
 joinIntoHeavier
     :: WebBlockHeaderDb
     -> Cut
@@ -548,14 +657,24 @@ joinIntoHeavier
     -> IO Cut
 joinIntoHeavier wdb = joinIntoHeavier_ wdb `on` _cutHeaders
 
+-- | Chains that aren't yet initialized are included in the join and later
+-- stripped from the result.
+--
+-- If you want to compute a join for cuts that include only a subset of all
+-- chains, make sure that @genesisBlockHeaders v@ only returns genesis headers
+-- for those chains that you care about.
+--
 joinIntoHeavier_
     :: WebBlockHeaderDb
     -> HM.HashMap ChainId BlockHeader
     -> HM.HashMap ChainId BlockHeader
     -> IO Cut
 joinIntoHeavier_ wdb a b = do
-    m <- join_ wdb (prioritizeHeavier_ a b) a b
+    m <- join_ wdb (prioritizeHeavier_ a b) (addMissingChains a) (addMissingChains b)
     applyJoin m
+  where
+    addMissingChains hdrs = HM.union hdrs (genesisBlockHeaders v)
+    v = _chainwebVersion wdb
 
 prioritizeHeavier :: Cut -> Cut -> DiffItem BlockHeader -> DiffItem (Maybe Int)
 prioritizeHeavier = prioritizeHeavier_ `on` _cutHeaders
@@ -607,7 +726,7 @@ meet
     -> IO Cut
 meet wdb a b = do
     !r <- HM.fromList <$> mapM f (zipCuts a b)
-    return $! Cut r (_chainwebVersion wdb)
+    return $! Cut' r (_chainwebVersion wdb)
   where
     f (!cid, !x, !y) = (cid,) <$!> do
         db <- getWebBlockHeaderDb wdb cid

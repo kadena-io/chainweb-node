@@ -275,7 +275,7 @@ data CutConfig = CutConfig
     { _cutIncludeOrigin :: !Bool
     , _cutPruneChainDatabase :: !Bool
     , _cutFetchTimeout :: !Int
-    , _cutInitialCutHeightLimit :: !(Maybe BlockHeight)
+    , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig

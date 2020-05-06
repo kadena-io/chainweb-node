@@ -178,6 +178,7 @@ import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import Data.CAS.RocksDB
 

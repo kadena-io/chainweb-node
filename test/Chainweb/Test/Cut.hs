@@ -43,7 +43,7 @@ module Chainweb.Test.Cut
 , arbitraryFork
 , arbitraryJoin
 
--- ** properties
+-- ** Cut properties
 , prop_cutBraiding
 , prop_cutBraidingGenesis
 , prop_joinBase
@@ -53,6 +53,8 @@ module Chainweb.Test.Cut
 , properties_lattice_passing
 , properties_cut
 , properties_testMining
+, properties_miscCut
+, properties_misc
 
 -- ** all passing properties
 , properties
@@ -97,6 +99,7 @@ import Chainweb.Test.Utils (genEnum)
 import Chainweb.Time (Micros(..), Time, TimeSpan, second)
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.RocksDB
@@ -558,12 +561,40 @@ properties_testMining :: RocksDb -> ChainwebVersion -> [(String, T.Property)]
 properties_testMining db v =
     [ ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db v)]
 
-properties_misc :: RocksDb -> ChainwebVersion -> [(String, T.Property)]
-properties_misc db v =
+properties_miscCut :: RocksDb -> ChainwebVersion -> [(String, T.Property)]
+properties_miscCut db v =
     [ ("prop_joinBase", prop_joinBase db v)
     , ("prop_joinBaseMeet", prop_joinBaseMeet db v)
     , ("prop_meetGenesisCut", ioTest db v prop_meetGenesisCut)
     , ("Cuts of arbitrary fork have valid braiding", prop_arbitraryForkBraiding db v)
+    ]
+
+-- -------------------------------------------------------------------------- --
+-- Other Miscelaneous Properties
+
+prop_cutHeightAtChainHeight :: ChainGraph -> ChainGraph -> Bool
+prop_cutHeightAtChainHeight g0 g1 = all p [0..10]
+  where
+    p i = int @_ @Int (avgCutHeightAt v i) == h (int i)
+    h i = min 8 (i + 1) * int (order g0) + max 0 (i - 7) * int (order g1)
+
+    -- (8, g1) :| [(0, g0)]
+    v = TimedConsensus g0 g1
+
+properties_misc :: [(String, T.Property)]
+properties_misc =
+    [
+        ( "prop_cutHeightAtChainHeight peterson twenty"
+        , T.property $ prop_cutHeightAtChainHeight petersonChainGraph twentyChainGraph
+        )
+    ,
+        ( "prop_cutHeitherAtChainheight peterson peterson"
+        , T.property $ prop_cutHeightAtChainHeight petersonChainGraph petersonChainGraph
+        )
+    ,
+        ( "prop_cutHeightAtChainHeight pair twenty"
+        , T.property $ prop_cutHeightAtChainHeight pairChainGraph twentyChainGraph
+        )
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -574,7 +605,8 @@ properties db
     = properties_lattice_passing db v
     <> properties_cut v
     <> properties_testMining db v
-    <> properties_misc db v
+    <> properties_miscCut db v
+    <> properties_misc
   where
     v = Test pairChainGraph
 

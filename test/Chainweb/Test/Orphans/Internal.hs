@@ -55,6 +55,7 @@ import Chainweb.Test.Utils (genEnum)
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
@@ -77,8 +78,10 @@ instance Arbitrary ChainwebVersion where
     arbitrary = elements
         [ Test singletonChainGraph
         , Test petersonChainGraph
-        , TimedConsensus singletonChainGraph
-        , TimedConsensus petersonChainGraph
+        , TimedConsensus singletonChainGraph singletonChainGraph
+        , TimedConsensus petersonChainGraph petersonChainGraph
+        , TimedConsensus singletonChainGraph pairChainGraph
+        , TimedConsensus petersonChainGraph twentyChainGraph
         , PowConsensus singletonChainGraph
         , PowConsensus petersonChainGraph
         , TimedCPM singletonChainGraph
@@ -188,7 +191,7 @@ arbitraryBlockHeaderVersionHeight
     -> BlockHeight
     -> Gen BlockHeader
 arbitraryBlockHeaderVersionHeight v h = do
-    cid <- elements $ toList $ chainIdsAtHeight v h
+    cid <- elements $ toList $ chainIdsAt v h
     arbitraryBlockHeaderVersionHeightChain v h cid
 {-# INLINE arbitraryBlockHeaderVersionHeight #-}
 

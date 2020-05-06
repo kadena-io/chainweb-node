@@ -23,7 +23,8 @@ import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Miner.Core
 import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version.Utils (someChainId)
 
 ---
 

@@ -68,12 +68,13 @@ import Chainweb.TreeDB hiding (properties)
 import Chainweb.Utils
 import Chainweb.Utils.Paging hiding (properties)
 import Chainweb.Version
+import Chainweb.Version.Utils
+
+import P2P.Peer
 
 import Pact.Parse (ParsedInteger(..))
 import Pact.Server.API ()
 import Pact.Types.Gas (GasLimit(..))
-
-import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- HttpApiData
@@ -124,6 +125,12 @@ instance FromHttpApiData BlockHeight where
 
 instance ToHttpApiData BlockHeight where
     toUrlPiece (BlockHeight k) = toUrlPiece k
+
+instance FromHttpApiData CutHeight where
+    parseUrlPiece = fmap CutHeight . parseUrlPiece
+
+instance ToHttpApiData CutHeight where
+    toUrlPiece (CutHeight k) = toUrlPiece k
 
 instance FromHttpApiData MinRank where
     parseUrlPiece = fmap (MinRank . Min) . parseUrlPiece
@@ -267,7 +274,7 @@ instance ToParamSchema ChainwebVersion where
         & type_ .~ Just SwaggerString
         & enum_ ?~ (toJSON <$>
             [ Test petersonChainGraph
-            , TimedConsensus petersonChainGraph
+            , TimedConsensus petersonChainGraph twentyChainGraph
             , PowConsensus petersonChainGraph
             , TimedCPM petersonChainGraph
             , Development

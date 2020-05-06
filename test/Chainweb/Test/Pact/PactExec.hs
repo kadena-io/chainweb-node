@@ -57,7 +57,8 @@ import Chainweb.Payload.PayloadStore.InMemory (newPayloadDb)
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
-import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version.Utils (someChainId)
 import Chainweb.Utils (sshow)
 
 import Pact.Types.Command

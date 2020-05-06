@@ -60,6 +60,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson

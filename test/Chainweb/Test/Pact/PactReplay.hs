@@ -46,6 +46,7 @@ import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils (sshow)
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson

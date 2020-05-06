@@ -94,6 +94,7 @@ module Chainweb.BlockHeader
 , getAdjacentHash
 , computeBlockHash
 , adjacentChainIds
+, absBlockHeightDiff
 
 -- * IsBlockHeader
 , IsBlockHeader(..)
@@ -710,6 +711,10 @@ _blockAdjacentChainIds =
 blockAdjacentChainIds :: Getter BlockHeader (HS.HashSet ChainId)
 blockAdjacentChainIds = to _blockAdjacentChainIds
 
+-- | @getAdjacentHash cid h@ returns the adjacent hash of h for chain cid. It
+-- throws a @ChainNotAdjacentException@ if @cid@ is not adajcent with @_chainId
+-- h@ in the chain graph of @h@.
+--
 getAdjacentHash :: MonadThrow m => HasChainId p => p -> BlockHeader -> m BlockHash
 getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
     ??? ChainNotAdjacentException
@@ -745,6 +750,13 @@ timeBetween after before = f after - f before
   where
     f :: BlockCreationTime -> Micros
     f (BlockCreationTime (Time (TimeSpan ts))) = ts
+
+-- | Absolute BlockHeight Difference
+--
+absBlockHeightDiff :: BlockHeader -> BlockHeader -> BlockHeight
+absBlockHeightDiff a b
+    | _blockHeight a >= _blockHeight b = _blockHeight a - _blockHeight b
+    | otherwise = _blockHeight b - _blockHeight a
 
 -- -------------------------------------------------------------------------- --
 -- Object JSON encoding

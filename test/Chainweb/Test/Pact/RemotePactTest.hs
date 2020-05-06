@@ -185,7 +185,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
-awaitNetworkHeight :: IO ChainwebNetwork -> BlockHeight -> IO ()
+awaitNetworkHeight :: IO ChainwebNetwork -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
     cenv <- _getClientEnv <$> nio
     void $ awaitCutHeight cenv h
@@ -682,7 +682,7 @@ getClientEnv url = do
 
 awaitCutHeight
     :: ClientEnv
-    -> BlockHeight
+    -> CutHeight
     -> IO CutHashes
 awaitCutHeight cenv i = do
     result <- retrying (exponentialBackoff 20_000 <> limitRetries 9) checkRetry

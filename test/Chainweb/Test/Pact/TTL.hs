@@ -47,6 +47,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Settings

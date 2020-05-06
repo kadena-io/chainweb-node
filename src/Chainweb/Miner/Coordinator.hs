@@ -8,6 +8,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -32,26 +33,28 @@ module Chainweb.Miner.Coordinator
   , publish
   ) where
 
-import Data.Aeson (ToJSON)
-import Data.Bool (bool)
-
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
 import Control.Error.Util (hoistEither, (!?), (??))
-import Control.Lens (iforM, set, to, (^.), (^?!))
+import Control.Lens (imapM, set, to, (^.), (^?!))
 import Control.Monad (join, unless)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (runExceptT)
 
+import Data.Aeson (ToJSON)
+import Data.Bool (bool)
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import qualified Data.Vector as V
 
 import GHC.Generics (Generic)
+import GHC.Stack
 
 import System.LogLevel (LogLevel(..))
 
@@ -61,7 +64,6 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash (BlockHash, BlockHashRecord(..))
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation (prop_block_pow)
-import Chainweb.BlockHeight
 import Chainweb.Cut hiding (join)
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB
@@ -72,6 +74,7 @@ import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros(..), Time(..), getCurrentTimeIntegral)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import Data.LogMessage (JsonLog(..), LogFunction)
 
@@ -140,8 +143,9 @@ newWork logFun choice eminer pact tpw c = do
     -- one.
     --
     cid <- chainChoice c choice
+    logFun @T.Text Debug $ "newWork: picked chain " <> sshow cid
 
-    -- The parent block the mine on. Any given chain will always
+    -- The parent block to mine on. Any given chain will always
     -- contain at least a genesis block, so this otherwise naughty
     -- `^?!` will always succeed.
     --
@@ -153,7 +157,9 @@ newWork logFun choice eminer pact tpw c = do
     case mr of
         -- The proposed Chain wasn't mineable, either because the adjacent
         -- parents weren't available, or because the chain is mid-update.
-        Nothing -> newWork logFun (TriedLast cid) eminer pact tpw c
+        Nothing -> do
+            logFun @T.Text Debug $ "newWork: chain " <> sshow cid <> " not mineable"
+            newWork logFun (TriedLast cid) eminer pact tpw c
         Just (T2 payload adjParents) -> do
             -- Assemble a candidate `BlockHeader` without a specific `Nonce`
             -- value. `Nonce` manipulation is assumed to occur within the
@@ -162,6 +168,7 @@ newWork logFun choice eminer pact tpw c = do
             creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
             let !phash = _payloadWithOutputsPayloadHash payload
                 !header = newBlockHeader adjParents phash (Nonce 0) creationTime p
+            logFun @T.Text Debug $ "newWork: got work for header " <> encodeToText (ObjectEncoded header)
             pure $ T2 header payload
   where
     primed
@@ -170,13 +177,21 @@ newWork logFun choice eminer pact tpw c = do
         -> ParentHeader
         -> PrimedWork
         -> Maybe (T2 PayloadWithOutputs BlockHashRecord)
-    primed (Miner mid _) cid (ParentHeader p) (PrimedWork pw) = T2
+    primed (Miner mid _) cid p (PrimedWork pw) = T2
         <$> join (HM.lookup mid pw >>= HM.lookup cid)
         <*> getAdjacentParents c p
 
-    public :: ParentHeader -> Miner -> IO (Maybe (T2 PayloadWithOutputs BlockHashRecord))
-    public p miner = case getAdjacentParents c (_parentHeader p) of
-        Nothing -> pure Nothing
+    public
+        :: ParentHeader
+        -> Miner
+        -> IO (Maybe (T2 PayloadWithOutputs BlockHashRecord))
+    public p miner = case getAdjacentParents c p of
+        Nothing -> do
+            logFun @T.Text Debug
+                $ "newWork.public: failed to get adjacent parents."
+                <> " Parent: " <> encodeToText (ObjectEncoded $ _parentHeader p)
+                <> " Cuthashes: " <> encodeToText (cutToCutHashes Nothing c)
+            pure Nothing
         Just adj -> do
             -- This is an expensive call --
             payload <- trace logFun "Chainweb.Miner.Coordinator.newWork.newBlock" () 1
@@ -185,14 +200,14 @@ newWork logFun choice eminer pact tpw c = do
 
 chainChoice :: Cut -> ChainChoice -> IO ChainId
 chainChoice c choice = case choice of
-    Anything -> randomChainId c
+    Anything -> randomChainIdAt c (maxChainHeight c + 1)
     Suggestion cid -> pure cid
     TriedLast cid -> loop cid
   where
     loop :: ChainId -> IO ChainId
     loop cid = do
-      new <- randomChainId c
-      bool (pure new) (loop cid) $ new == cid
+        new <- randomChainIdAt c (maxChainHeight c + 1)
+        bool (pure new) (loop cid) $ new == cid
 
 -- | Accepts a "solved" `BlockHeader` from some external source (e.g. a remote
 -- mining client), attempts to reassociate it with the current best `Cut`, and
@@ -251,20 +266,67 @@ publish lf (MiningState ms) cdb bh = do
         -- here.
         Left (T2 mnr msg) -> do
             let !p = c ^?! ixg (_chainId bh)
-            lf Info . JsonLog $ OrphanedBlock (ObjectEncoded bh) (ObjectEncoded p) now mnr msg
+            lf Info $ JsonLog OrphanedBlock
+                { _orphanedHeader = ObjectEncoded bh
+                , _orphanedBestOnCut = ObjectEncoded p
+                , _orphanedDiscoveredAt = now
+                , _orphanedMiner = mnr
+                , _orphanedReason = msg
+                }
         Right r -> lf Info $ JsonLog r
 
-getAdjacentParents :: Cut -> BlockHeader -> Maybe BlockHashRecord
+-- | Try to assemble the adjacent hashes for a new block header that is minded
+-- on the given header.
+--
+-- FIXME: this function assumes that the Graph of the given parent header
+-- is the same as for the new header!
+--
+getAdjacentParents
+    :: HasCallStack
+    => Cut
+        -- ^ the cut which is to be extended
+    -> ParentHeader
+        -- ^ the header onto which the new block is created. It is expected
+        -- that this header is contained in the cut.
+    -> Maybe BlockHashRecord
 getAdjacentParents c p = BlockHashRecord <$> newAdjHashes
   where
+    parentHeight = _blockHeight $ _parentHeader p
+    graph = chainGraphAt_ p (parentHeight + 1)
+
     -- | Try to get all adjacent hashes dependencies.
     --
     newAdjHashes :: Maybe (HM.HashMap ChainId BlockHash)
-    newAdjHashes = iforM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \xcid _ ->
-        c ^?! ixg xcid . to (tryAdj (_blockHeight p))
+    newAdjHashes =
+        imapM (\xcid _ -> c ^?! ixg xcid . to tryAdj)
+        $ HS.toMap
+        $ adjacentChainIds graph p
 
-    tryAdj :: BlockHeight -> BlockHeader -> Maybe BlockHash
-    tryAdj h b
-        | _blockHeight b == h = Just $! _blockHash b
-        | _blockHeight b == h + 1 = Just $! _blockParent b
-        | otherwise = Nothing
+    -- TODO add test that this conforms with the braiding checks in Chainweb.Cut, or
+    -- use a function from that module.
+    --
+    tryAdj :: BlockHeader -> Maybe BlockHash
+    tryAdj b
+        -- When the block is behind, we can move ahead
+        | _blockHeight b == parentHeight + 1 = Just $! _blockParent b
+
+        -- if the block is ahead it's blocked
+        | _blockHeight b + 1 == parentHeight = Nothing -- chain is blocked
+
+        -- If this is a graph transition we have to wait for all chains to catchup.
+        -- When all chains have caught up @isTransitionCut c@ is @False@.
+        | isTransitionCut c = Nothing
+
+        -- If it's not a graph transition we can move ahead
+        | _blockHeight b == parentHeight = Just $! _blockHash b
+
+        -- The cut is invalid
+        | _blockHeight b > parentHeight + 1 = error $ T.unpack
+            $ "getAdjacentParents: detected invalid cut (adjacent parent too far ahead)."
+            <> " Parent: " <> encodeToText (ObjectEncoded $ _parentHeader p)
+            <> " Conflict: " <> encodeToText (ObjectEncoded b)
+        | _blockHeight b + 1 < parentHeight = error $ T.unpack
+            $ "getAdjacentParents: detected invalid cut (adjacent parent too far behind)."
+            <> " Parent: " <> encodeToText (ObjectEncoded $ _parentHeader p)
+            <> " Conflict: " <> encodeToText (ObjectEncoded b)
+        | otherwise = error "Chainweb.Miner.Coordinator.getAdjacentParents: internal code invariant violation"
