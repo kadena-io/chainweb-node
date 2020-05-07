@@ -101,6 +101,7 @@ import qualified Data.Heap as H
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
+import qualified Data.Text as T
 import Data.These
 
 import GHC.Generics (Generic)
@@ -116,7 +117,7 @@ import qualified Streaming.Prelude as S
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeader.Genesis (genesisBlockHeaders, genesisBlockHeadersAtHeight)
+import Chainweb.BlockHeader.Genesis (genesisBlockHeaders, genesisBlockHeadersAtHeight, genesisParentBlockHash)
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
@@ -280,13 +281,19 @@ minChainHeight = minimum . chainHeights
 -- | Returns whether a chain graph transition occurs within the cut.
 --
 isTransitionCut :: Cut -> Bool
-isTransitionCut c = minChainHeight c <= lastGraphChange c (maxChainHeight c)
+isTransitionCut c = minChainHeight c < lastGraphChange c (maxChainHeight c)
 
 -- -------------------------------------------------------------------------- --
 -- Limit Cut Hashes By Height
 
 -- | This an internal function. The result is meaningful only if the input
 -- headers form a valid cut. In particular, the input must not be empty.
+--
+-- The function projects onto the chains available at the minimum block height
+-- in the cut. The reason for this is that at a graph change chains are
+-- considered blocked until "all" chains preformed the transition to the new
+-- graph. Note, that the block in the new graph has all its dependencies
+-- available in the "old" projected cut.
 --
 projectChains
     :: HM.HashMap ChainId BlockHeader
@@ -494,7 +501,8 @@ isBraidingOfCutPair a b = do
 -- test for this or check if the implementation can be shared.
 --
 isMonotonicCutExtension
-    :: MonadThrow m
+    :: HasCallStack
+    => MonadThrow m
     => Cut
     -> BlockHeader
     -> m Bool
@@ -502,10 +510,19 @@ isMonotonicCutExtension c h = do
     checkBlockHeaderGraph h
     return $! monotonic && validBraiding
   where
-    monotonic = _blockParent h == c ^?! ixg (_chainId h) . blockHash
+    monotonic = _blockParent h == case c ^? ixg (_chainId h) . blockHash of
+        Nothing -> error $ T.unpack $ "isMonotonicCutExtension.monotonic: missing parent in cut. " <> encodeToText h
+        Just x -> x
     validBraiding = getAll $ ifoldMap
-        (\cid v -> All $ let a = c ^?! ixg cid in _blockHash a == v || _blockParent a == v)
+        (\cid -> All . validBraidingCid cid)
         (_getBlockHashRecord $ _blockAdjacentHashes h)
+
+    validBraidingCid cid a
+        | Just b <- c ^? ixg cid = _blockHash b == a || _blockParent b == a
+        | _blockHeight h == genesisHeight v cid = a == genesisParentBlockHash v cid
+        | otherwise = error $ T.unpack $ "isMonotonicCutExtension.validBraiding: missing adjacent parent on chain " <> sshow cid <> " in cut. " <> encodeToText h
+
+    v = _chainwebVersion c
 
 monotonicCutExtension
     :: MonadThrow m

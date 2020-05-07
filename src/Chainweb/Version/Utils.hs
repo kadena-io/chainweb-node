@@ -33,6 +33,7 @@ module Chainweb.Version.Utils
 , blockCountAt
 , globalBlockCountAt
 , globalBlockRateAt
+, isGraphChange
 
 -- * Chain Graph Properties By Cut Height
 , avgCutHeightAt
@@ -207,6 +208,10 @@ someChainIdAt v h = head . toList $ chainIdsAt v h
     -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
     -- graph.
 {-# INLINE someChainIdAt #-}
+
+isGraphChange :: HasChainwebVersion v => v -> BlockHeight -> Bool
+isGraphChange v h = M.member h (chainGraphs v)
+{-# INLINE isGraphChange #-}
 
 -- -------------------------------------------------------------------------- --
 -- Block Count

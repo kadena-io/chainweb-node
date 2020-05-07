@@ -200,6 +200,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
 
 -- | This is an expensive call, try not to repeat it.
+--
 genesisBlockHeaders :: ChainwebVersion -> HM.HashMap ChainId BlockHeader
 genesisBlockHeaders v = HM.fromList
     . fmap (id &&& genesisBlockHeader v)

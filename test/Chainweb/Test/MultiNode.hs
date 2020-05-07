@@ -333,7 +333,7 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
         Just stats -> do
             logsCount <- readMVar var
             tastylog $ "Number of logs: " <> sshow logsCount
-            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds)
+            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
             tastylog $ encodeToText stats
             tastylog $ encodeToText $ object
                 [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
