@@ -572,10 +572,10 @@ properties_miscCut db v =
 -- -------------------------------------------------------------------------- --
 -- Other Miscelaneous Properties
 
-prop_cutHeightAtChainHeight :: ChainGraph -> ChainGraph -> Bool
-prop_cutHeightAtChainHeight g0 g1 = all p [0..10]
+prop_blockCountAtChainHeight :: ChainGraph -> ChainGraph -> Bool
+prop_blockCountAtChainHeight g0 g1 = all p [0..10]
   where
-    p i = int @_ @Int (avgCutHeightAt v i) == h (int i)
+    p i = int @_ @Int (globalBlockCountAt v i) == h (int i)
     h i = min 8 (i + 1) * int (order g0) + max 0 (i - 7) * int (order g1)
 
     -- (8, g1) :| [(0, g0)]
@@ -584,16 +584,16 @@ prop_cutHeightAtChainHeight g0 g1 = all p [0..10]
 properties_misc :: [(String, T.Property)]
 properties_misc =
     [
-        ( "prop_cutHeightAtChainHeight peterson twenty"
-        , T.property $ prop_cutHeightAtChainHeight petersonChainGraph twentyChainGraph
+        ( "prop_blockCountAtChainHeight peterson twenty"
+        , T.property $ prop_blockCountAtChainHeight petersonChainGraph twentyChainGraph
         )
     ,
-        ( "prop_cutHeitherAtChainheight peterson peterson"
-        , T.property $ prop_cutHeightAtChainHeight petersonChainGraph petersonChainGraph
+        ( "prop_blockCountAtChainheight peterson peterson"
+        , T.property $ prop_blockCountAtChainHeight petersonChainGraph petersonChainGraph
         )
     ,
-        ( "prop_cutHeightAtChainHeight pair twenty"
-        , T.property $ prop_cutHeightAtChainHeight pairChainGraph twentyChainGraph
+        ( "prop_blockCountAtChainHeight pair twenty"
+        , T.property $ prop_blockCountAtChainHeight pairChainGraph twentyChainGraph
         )
     ]
 
