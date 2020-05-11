@@ -504,9 +504,7 @@ chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
 chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
 chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = (2000, twentyChainGraph) NE.:|
-    [ (0, petersonChainGraph)
-    ]
+chainwebGraphs Development = pure (0, petersonChainGraph)
 {-# INLINE chainwebGraphs #-}
 
 -- chainwebGlobalBlockRates :: ChainwebVersion -> NE.NonEmpty (BlokHeight, Natural)
