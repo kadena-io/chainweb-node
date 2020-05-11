@@ -111,6 +111,10 @@ throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
 
 -- | Every Rosetta request that requires a `NetworkId` also requires a
 -- `SubNetworkId`, at least in the case of Chainweb.
+--
+-- TODO for requests that concern only a particular block height it should
+-- be verified that the chain is is active at that height.
+--
 validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ChainId
 validateNetwork v (NetworkId bc n msni) = do
     when (bc /= "kadena") $ throwError RosettaInvalidBlockchainName
@@ -119,8 +123,10 @@ validateNetwork v (NetworkId bc n msni) = do
     readChainIdText v cid ?? RosettaInvalidChain
 
 -- | Guarantees that the `ChainId` given actually belongs to this
--- `ChainwebVersion`.
+-- `ChainwebVersion`. This doesn't guarantee that the chain is active.
+--
 readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
 readChainIdText v c = do
   cid <- readMaybe @Word (T.unpack c)
-  mkChainId v cid
+  mkChainId v maxBound cid
+
