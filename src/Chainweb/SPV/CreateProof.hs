@@ -92,6 +92,7 @@ createTransactionProof cutDb tcid scid bh i =
     tcid scid bh i
 
 -- | Version without CutDb dependency
+--
 createTransactionProof_
     :: HasCallStack
     => PayloadCasLookup cas
@@ -471,7 +472,8 @@ minimumTrgHeader
     -> ChainId
         -- ^ source chain. This the chain of the subject
     -> BlockHeight
-        -- ^ The block height of the transaction
+        -- ^ The block height of the transaction, i.e. the subject on the source
+        -- chain.
     -> IO BlockHeader
 minimumTrgHeader headerDb tcid scid bh = do
     trgHeadHeader <- maxEntry trgChain
@@ -486,7 +488,13 @@ minimumTrgHeader headerDb tcid scid bh = do
             }
   where
     trgChain = headerDb ^?! ixg tcid
-    trgHeight = int bh + int (length path)
+    trgHeight
+        | srcGraph == trgGraph = int bh + int distance
+        | otherwise = int bh + 2 * (int distance)
+            -- This assumes that graph changes are at least graph-diameter
+            -- blocks appart.
 
-    graph = chainGraphAt_ headerDb bh
-    path = shortestPath tcid scid graph
+    distance = length $ shortestPath tcid scid srcGraph
+    srcGraph = chainGraphAt_ headerDb bh
+    trgGraph = chainGraphAt_ headerDb (bh + int distance)
+
