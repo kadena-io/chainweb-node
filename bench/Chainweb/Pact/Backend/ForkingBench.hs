@@ -104,6 +104,7 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
