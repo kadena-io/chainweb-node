@@ -43,7 +43,6 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
-import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB (BlockHeaderDb)
 import Chainweb.Graph
@@ -474,14 +473,13 @@ execTest
 execTest runPact request = _trEval request $ do
     cmdStrs <- mapM getPactCode $ _trCmds request
     trans <- mkCmds cmdStrs
-    results <- runPact $ execTransactions (Just parentHeader) defaultMiner
+    results <- runPact $ execTransactions False defaultMiner
       trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
     let outputs = V.toList $ snd <$> _transactionPairs results
     return $ TestResponse
         (zip (_trCmds request) (toHashCommandResult <$> outputs))
         (toHashCommandResult $ _transactionCoinbase results)
   where
-    parentHeader = ParentHeader someTestVersionHeader
     mkCmds cmdStrs =
       fmap V.fromList $ forM (zip cmdStrs [0..]) $ \(code,n :: Int) ->
       buildCwCmd $
@@ -501,10 +499,10 @@ execTxsTest
     -> ScheduledTest
 execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
-    parentHeader = ParentHeader someTestVersionHeader
     go = do
       trans <- trans'
-      results' <- try $ runPact $ execTransactions (Just parentHeader) defaultMiner trans (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
+      results' <- try $ runPact $ execTransactions False defaultMiner trans
+        (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
       case results' of
         Right results -> Right <$> do
           let outputs = V.toList $ snd <$> _transactionPairs results

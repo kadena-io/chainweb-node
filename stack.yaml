@@ -19,6 +19,7 @@ extra-deps:
   - streaming-events-1.0.0
   - streaming-with-0.2.2.1
   - strict-tuple-0.1.3
+  - tasty-json-0.1.0.0
   - token-bucket-0.1.0.1
   - wai-middleware-throttle-0.3.0.1
   - yet-another-logger-0.4.0
@@ -40,4 +41,4 @@ extra-deps:
   - github: kadena-io/chainweb-storage
     commit: 07e7eb7596c7105aee42dbdb6edd10e3f23c0d7e
   - github: kadena-io/rosetta
-    commit: 94c3ed0db019d74d3ae7877e73208f8b5ee977ff
+    commit: ac4d7932db23bc8a726c9421df8a32db9a399e49

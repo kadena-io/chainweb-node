@@ -400,9 +400,9 @@ testPactCtxSQLite
 testPactCtxSQLite v cid bhdb pdb sqlenv config = do
     (dbSt,cpe) <- initRelationalCheckpointer' initBlockState sqlenv logger v
     let rs = readRewards v
-        t0 = BlockCreationTime $ Time (TimeSpan (Micros 0))
+        ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
-      <$!> newMVar (PactServiceState Nothing mempty 0 t0 Nothing noSPVSupport)
+      <$!> newMVar (PactServiceState Nothing mempty ph noSPVSupport)
       <*> pure (pactServiceEnv cpe rs)
     evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
     return (ctx,dbSt)

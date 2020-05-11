@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
@@ -23,6 +22,7 @@ module Chainweb.Pact.RestAPI.Server
 , pactServer
 , somePactServer
 , somePactServers
+, validateCommand
 ) where
 
 
@@ -439,12 +439,12 @@ internalPoll cutR cid chain cut requestKeys0 = do
         in (rk, cr)
 
     enrichCR :: BlockHeader -> CommandResult Hash -> MaybeT IO (CommandResult Hash)
-    enrichCR BlockHeader{..} = return . set crMetaData
+    enrichCR bh = return . set crMetaData
       (Just $ object
-       [ "blockHeight" .= _blockHeight
-       , "blockTime" .= _blockCreationTime
-       , "blockHash" .= _blockHash
-       , "prevBlockHash" .= _blockParent
+       [ "blockHeight" .= _blockHeight bh
+       , "blockTime" .= _blockCreationTime bh
+       , "blockHash" .= _blockHash bh
+       , "prevBlockHash" .= _blockParent bh
        ])
 
 toPactTx :: Transaction -> Maybe (Command Text)
