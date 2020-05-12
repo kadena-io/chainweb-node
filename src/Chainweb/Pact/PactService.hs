@@ -32,6 +32,7 @@ module Chainweb.Pact.PactService
     , execLocal
     , execLookupPactTxs
     , execPreInsertCheckReq
+    , execBlockTxHistory
     , initPactService
     , readCoinAccount
     , readAccountBalance
@@ -387,6 +388,10 @@ serviceRequests logFn memPoolAccess reqQ = do
                     tryOne "execPreInsertCheckReq" resultVar $
                     V.map (() <$) <$> execPreInsertCheckReq txs
                 go
+            BlockTxHistoryMsg (BlockTxHistoryReq bh resultVar) -> do
+              trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
+                tryOne "execBlockTxHistory" resultVar $
+                execBlockTxHistory bh
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
@@ -1380,6 +1385,11 @@ debugResult msg result =
     trunc t | T.length t < limit = t
             | otherwise = T.take limit t <> " [truncated]"
     limit = 5000
+
+execBlockTxHistory :: BlockHeader -> PactServiceM cas (BlockTxHistory (P.TxLog A.Value))
+execBlockTxHistory bh = do
+  !cp <- getCheckpointer
+  liftIO $ _cpGetBlockHistory cp bh
 
 execPreInsertCheckReq
     :: PayloadCasLookup cas

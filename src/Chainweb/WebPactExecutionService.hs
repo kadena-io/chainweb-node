@@ -14,6 +14,7 @@ import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Monad.Catch
 
+import Data.Aeson
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
@@ -37,30 +38,57 @@ import Data.Vector (Vector)
 
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Persistence (TxLog)
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
 
+-- | Service API for interacting with a single or multi-chain ("Web") pact service.
+-- Thread-safe to be called from multiple threads. Backend is queue-backed on a per-chain
+-- basis.
 data PactExecutionService = PactExecutionService
-    { _pactValidateBlock :: BlockHeader -> PayloadData -> IO PayloadWithOutputs
-    , _pactNewBlock :: Miner -> ParentHeader -> IO PayloadWithOutputs
-    , _pactLocal :: ChainwebTransaction -> IO (Either PactException (CommandResult Hash))
-    , _pactLookup
-        :: Rewind
-            -- restore point. 'NoRewind' means we
-            -- don't care about the restore point.
+    { _pactValidateBlock :: !(
+        BlockHeader ->
+        PayloadData ->
+        IO PayloadWithOutputs
+        )
+      -- ^ Validate block payload data by running through pact service.
+    , _pactNewBlock :: !(
+        Miner ->
+        ParentHeader ->
+        IO PayloadWithOutputs
+        )
+      -- ^ Request a new block to be formed using mempool
+    , _pactLocal :: !(
+        ChainwebTransaction ->
+        IO (Either PactException (CommandResult Hash)))
+      -- ^ Directly execute a single transaction in "local" mode (all DB interactions rolled back).
+      -- Corresponds to `local` HTTP endpoint.
+    , _pactLookup :: !(
+        Rewind
+        -- ^ restore point, either a block header or the current "head" of the pact service.
         -> Vector PactHash
-            -- txs to lookup
+        -- ^ txs to lookup
         -> IO (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash))))
-    , _pactPreInsertCheck
-        :: ChainId
+        )
+      -- ^ Lookup pact hashes as of a block header to detect duplicates
+    , _pactPreInsertCheck :: !(
+        ChainId
         -> Vector ChainwebTransaction
-        -> IO (Either PactException (Vector (Either InsertError ())))
+        -> IO (Either PactException (Vector (Either InsertError ()))))
+      -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
+    , _pactBlockTxHistory :: !(
+        BlockHeader ->
+        IO (Either PactException (BlockTxHistory (TxLog Value)))
+        )
     }
 
+-- | Newtype to indicate "routing"/multi-chain service.
+-- See 'mkWebPactExecutionService' for implementation.
 newtype WebPactExecutionService = WebPactExecutionService
     { _webPactExecutionService :: PactExecutionService
     }
+
 
 _webPactNewBlock
     :: WebPactExecutionService
@@ -87,6 +115,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
     , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
+    , _pactBlockTxHistory = \h -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h
     }
   where
     withChainService cid act =  maybe (err cid) act $ HM.lookup cid hm
@@ -109,14 +138,15 @@ mkPactExecutionService q = PactExecutionService
         mv <- newBlock m h q
         r <- takeMVar mv
         either throwM evaluate r
-    , _pactLocal = \ct -> do
-        mv <- local ct q
-        takeMVar mv
-    , _pactLookup = \h txs -> do
-        mv <- lookupPactTxs h txs q
-        takeMVar mv
+    , _pactLocal = \ct ->
+        local ct q >>= takeMVar
+    , _pactLookup = \h txs ->
+        lookupPactTxs h txs q >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
         pactPreInsertCheck txs q >>= takeMVar
+    , _pactBlockTxHistory = \h ->
+        pactBlockTxHistory h q >>= takeMVar
+
     }
 
 -- | A mock execution service for testing scenarios. Throws out anything it's
@@ -129,4 +159,5 @@ emptyPactExecutionService = PactExecutionService
     , _pactLocal = \_ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
+    , _pactBlockTxHistory = \_ -> throwM (userError "unsupported")
     }

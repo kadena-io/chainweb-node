@@ -22,6 +22,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
+import Data.Aeson (Value)
 import qualified Data.DList as DL
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
@@ -41,15 +42,17 @@ import Prelude hiding (log)
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Logger (Logger(..))
+import Pact.Types.Persistence
 import Pact.Types.SQLite
 
 -- chainweb
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Service.Types
 import Chainweb.Version
 
 
@@ -90,6 +93,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v = do
               , _cpGetBlockParent = doGetBlockParent db
               , _cpRegisterProcessedTx = doRegisterSuccessful db
               , _cpLookupProcessedTx = doLookupSuccessful db
+              , _cpGetBlockHistory = doGetBlockHistory db
               }
         , _cpeLogger = loggr
         })
@@ -256,3 +260,6 @@ doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
         !hsh <- either fail return $ Data.Serialize.decode blob
         return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"
+
+doGetBlockHistory :: Db -> BlockHeader -> IO (BlockTxHistory (TxLog Value))
+doGetBlockHistory dbenv bh = undefined

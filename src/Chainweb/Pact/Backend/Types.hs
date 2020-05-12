@@ -112,6 +112,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Mempool.Mempool (MempoolPreBlockCheck)
+import Chainweb.Pact.Service.Types
 import Chainweb.Transaction
 
 
@@ -281,6 +282,7 @@ data Checkpointer = Checkpointer
 
       -- TODO: this would be nicer as a batch lookup :(
     , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
+    , _cpGetBlockHistory :: !(BlockHeader -> IO (BlockTxHistory (TxLog Value)))
     }
 
 data CheckpointEnv = CheckpointEnv

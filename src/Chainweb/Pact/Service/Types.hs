@@ -33,6 +33,7 @@ import Numeric.Natural (Natural)
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Persistence
 
 -- internal chainweb modules
 
@@ -85,6 +86,20 @@ instance FromJSON PactException
 
 instance Exception PactException
 
+-- | Gather tx logs for a block. Not intended
+-- for public API use; ToJSONs are for logging output.
+data BlockTxHistory l = BlockTxHistory
+  { _bthCoinbase :: !l
+  , _bthTxs :: !(Vector l)
+  }
+  deriving (Eq,Generic)
+instance ToJSON l => ToJSON (BlockTxHistory l)
+instance FromJSON l => FromJSON (BlockTxHistory l)
+instance ToJSON l => Show (BlockTxHistory l) where
+  show = unpack . encodeToText
+
+
+
 
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . PactInternalError
@@ -97,6 +112,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
                 | LocalMsg LocalReq
                 | LookupPactTxsMsg LookupPactTxsReq
                 | PreInsertCheckMsg PreInsertCheckReq
+                | BlockTxHistoryMsg BlockTxHistoryReq
                 | CloseMsg
                 deriving (Show)
 
@@ -139,6 +155,14 @@ data PreInsertCheckReq = PreInsertCheckReq
 instance Show PreInsertCheckReq where
     show (PreInsertCheckReq v _) =
         "PreInsertCheckReq@" ++ show v
+
+data BlockTxHistoryReq = BlockTxHistoryReq
+  { _blockTxHistoryHeader :: !BlockHeader
+  , _blockTxHistoryResult :: !(PactExMVar (BlockTxHistory (TxLog Value)))
+  }
+instance Show BlockTxHistoryReq where
+  show (BlockTxHistoryReq h _) =
+    "BlockTxHistoryReq@" ++ show h
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey
