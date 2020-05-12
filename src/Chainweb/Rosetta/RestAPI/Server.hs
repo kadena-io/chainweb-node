@@ -23,6 +23,8 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
+import Data.Decimal
+import Data.String
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64)
 
@@ -36,7 +38,11 @@ import qualified Data.Vector as V
 
 import Numeric.Natural
 
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command
+import Pact.Types.RPC
+import Pact.Types.PactValue (PactValue(..))
+import Pact.Types.Exp (Literal(..))
 
 import Rosetta
 
@@ -50,19 +56,21 @@ import Chainweb.BlockHash (blockHashToText)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Chainweb.ChainResources (ChainResources(..))
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.RestAPI.Server (validateCommand)
+import Chainweb.Pact.RestAPI.Server
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Transaction (ChainwebTransaction)
-import Chainweb.Utils (int)
+import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.WebPactExecutionService (PactExecutionService(..))
 
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Server (peerGetHandler)
@@ -71,13 +79,16 @@ import P2P.Peer
 ---
 
 rosettaServer
-    :: forall cas (v :: ChainwebVersionT)
+    :: forall cas a (v :: ChainwebVersionT)
     . ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> CutDb cas
+    -> [(ChainId, ChainResources a)]
     -> Server (RosettaApi v)
-rosettaServer v ms peerDb cutDb = (const $ error "not yet implemented")
+rosettaServer v ms peerDb cutDb cr =
+    -- Account --
+    accountBalanceH v cr
     -- Blocks --
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
@@ -96,13 +107,83 @@ someRosettaServer
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
+    -> [(ChainId, ChainResources a)]
     -> CutDb cas
     -> SomeServer
-someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms pdb cdb =
-    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ms pdb cdb
+someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms pdb crs cdb =
+    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ms pdb cdb crs
 
 --------------------------------------------------------------------------------
 -- Account Handlers
+accountBalanceH
+    :: ChainwebVersion
+    -> [(ChainId, ChainResources a)]
+    -> AccountBalanceReq
+    -> Handler AccountBalanceResp
+accountBalanceH _ _ (AccountBalanceReq _ _ (Just _)) = throwRosetta RosettaHistBalCheckUnsupported
+accountBalanceH _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) = throwRosetta RosettaSubAcctUnsupported
+accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
+  runExceptT work >>= either throwRosetta pure
+  where
+    readBal :: PactValue -> Maybe Decimal
+    readBal (PLiteral (LDecimal d)) = Just d
+    readBal _ = Nothing
+
+    readMeta :: Maybe Value -> Maybe (HM.HashMap T.Text Value)
+    readMeta (Just (Object hm)) = Just hm
+    readMeta _ = Nothing
+
+    readBlockHeight :: Maybe Value -> Maybe Word64
+    readBlockHeight Nothing = Nothing
+    readBlockHeight (Just a) = case (fromJSON a) of
+      Success w -> Just w
+      Error _ -> Nothing
+
+    readBlockHash :: Maybe Value -> Maybe T.Text
+    readBlockHash (Just (String hsh)) = Just hsh
+    readBlockHash _ = Nothing
+
+    balCheckCmd :: ChainId -> IO (Command T.Text)
+    balCheckCmd cid = do
+      cmd <- mkCommand [] meta "nonce" Nothing rpc
+      return $ T.decodeUtf8 <$> cmd
+      where
+        tableName = "coin"
+        rpc = Exec $ ExecMsg code Null
+        code = mconcat
+          ["(at \"balance\" ",
+           "(", tableName, ".details ",
+           "\"", acct, "\"))"]
+        meta = PublicMeta
+          (fromString $ show $ chainIdToText cid)
+          "someSender"
+          10000
+          0.0001
+          300
+          0
+
+    work :: ExceptT RosettaFailure Handler AccountBalanceResp
+    work = do
+      cid <- validateNetwork v net
+      cr <- lookup cid crs ?? RosettaInvalidChain
+      cmd <- do
+        c <- liftIO $ balCheckCmd cid
+        (hush $ validateCommand c) ?? RosettaInvalidTx
+      cRes <- do
+        r <- liftIO $ _pactLocal (_chainResPact cr) cmd
+        (hush r) ?? RosettaPactExceptionThrown
+      let (PactResult pRes) = _crResult cRes
+      pv <- (hush pRes) ?? RosettaPactErrorThrown
+      balKDA <- readBal pv ?? RosettaExpectedBalDecimal
+      meta <- (readMeta $ _crMetaData cRes) ?? RosettaInvalidResultMetaData
+
+      blockHeight <- (readBlockHeight $ HM.lookup "blockHeight" meta) ?? RosettaInvalidResultMetaData
+      blockHash <- (readBlockHash $ HM.lookup "prevBlockHash" meta) ?? RosettaInvalidResultMetaData
+
+      pure $ AccountBalanceResp
+        { _accountBalanceResp_blockId = BlockId blockHeight blockHash
+        , _accountBalanceResp_balances = [ kdaToRosettaAmount balKDA ]
+        , _accountBalanceResp_metadata = Nothing }
 
 --------------------------------------------------------------------------------
 -- Block Handlers
