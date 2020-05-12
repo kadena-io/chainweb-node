@@ -14,7 +14,6 @@ import Control.Concurrent.MVar
 import Control.Exception (evaluate)
 import Control.Monad.Catch
 
-import Data.Aeson
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 
@@ -38,7 +37,6 @@ import Data.Vector (Vector)
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Persistence (TxLog)
 
 -- -------------------------------------------------------------------------- --
 -- PactExecutionService
@@ -79,7 +77,8 @@ data PactExecutionService = PactExecutionService
       -- ^ Run speculative checks to find bad transactions (ie gas buy failures, etc)
     , _pactBlockTxHistory :: !(
         BlockHeader ->
-        IO (Either PactException (BlockTxHistory (TxLog Value)))
+        Domain' ->
+        IO (Either PactException BlockTxHistory)
         )
     }
 
@@ -115,7 +114,7 @@ mkWebPactExecutionService hm = WebPactExecutionService $ PactExecutionService
     , _pactLocal = \_ct -> throwM $ userError "No web-level local execution supported"
     , _pactLookup = \h txs -> withChainService (_chainId h) $ \p -> _pactLookup p h txs
     , _pactPreInsertCheck = \cid txs -> withChainService cid $ \p -> _pactPreInsertCheck p cid txs
-    , _pactBlockTxHistory = \h -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h
+    , _pactBlockTxHistory = \h d -> withChainService (_chainId h) $ \p -> _pactBlockTxHistory p h d
     }
   where
     withChainService cid act =  maybe (err cid) act $ HM.lookup cid hm
@@ -144,8 +143,8 @@ mkPactExecutionService q = PactExecutionService
         lookupPactTxs h txs q >>= takeMVar
     , _pactPreInsertCheck = \_ txs ->
         pactPreInsertCheck txs q >>= takeMVar
-    , _pactBlockTxHistory = \h ->
-        pactBlockTxHistory h q >>= takeMVar
+    , _pactBlockTxHistory = \h d ->
+        pactBlockTxHistory h d q >>= takeMVar
 
     }
 
@@ -159,5 +158,5 @@ emptyPactExecutionService = PactExecutionService
     , _pactLocal = \_ -> throwM (userError "emptyPactExecutionService: attempted `local` call")
     , _pactLookup = \_ v -> return $! Right $! V.map (const Nothing) v
     , _pactPreInsertCheck = \_ txs -> return $ Right $ V.map (const (Right ())) txs
-    , _pactBlockTxHistory = \_ -> throwM (userError "unsupported")
+    , _pactBlockTxHistory = \_ _ -> throwM (userError "unsupported")
     }

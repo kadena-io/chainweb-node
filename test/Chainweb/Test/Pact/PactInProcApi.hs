@@ -42,6 +42,7 @@ import Pact.Parse
 import Pact.Types.ChainMeta
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Persistence
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
@@ -79,6 +80,7 @@ tests = ScheduledTest testName $ go
          , test Warn $ goldenNewBlock "empty-block-tests" mempty
          , test Warn $ newBlockAndValidate
          , test Warn $ newBlockRewindValidate
+         , test Quiet $ getHistory
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
@@ -120,6 +122,17 @@ newBlockAndValidate refIO reqIO = testCase "newBlockAndValidate" $ do
   (q,bdb) <- reqIO
   setMempool refIO goldenMemPool
   void $ runBlock q bdb second "newBlockAndValidate"
+
+
+getHistory :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
+getHistory refIO reqIO = testCase "getHistory" $ do
+  (q,bdb) <- reqIO
+  setMempool refIO goldenMemPool
+  void $ runBlock q bdb second "getHistory"
+  h <- getParentTestBlockDb bdb cid
+  mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) q
+  readMVar mv >>= print
+  -- TODO need full datastructure
 
 newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do

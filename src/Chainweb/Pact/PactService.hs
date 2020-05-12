@@ -388,10 +388,10 @@ serviceRequests logFn memPoolAccess reqQ = do
                     tryOne "execPreInsertCheckReq" resultVar $
                     V.map (() <$) <$> execPreInsertCheckReq txs
                 go
-            BlockTxHistoryMsg (BlockTxHistoryReq bh resultVar) -> do
+            BlockTxHistoryMsg (BlockTxHistoryReq bh d resultVar) -> do
               trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
                 tryOne "execBlockTxHistory" resultVar $
-                execBlockTxHistory bh
+                execBlockTxHistory bh d
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
@@ -1386,10 +1386,10 @@ debugResult msg result =
             | otherwise = T.take limit t <> " [truncated]"
     limit = 5000
 
-execBlockTxHistory :: BlockHeader -> PactServiceM cas (BlockTxHistory (P.TxLog A.Value))
-execBlockTxHistory bh = do
+execBlockTxHistory :: BlockHeader -> Domain' -> PactServiceM cas BlockTxHistory
+execBlockTxHistory bh (Domain' d) = do
   !cp <- getCheckpointer
-  liftIO $ _cpGetBlockHistory cp bh
+  liftIO $ _cpGetBlockHistory cp bh d
 
 execPreInsertCheckReq
     :: PayloadCasLookup cas

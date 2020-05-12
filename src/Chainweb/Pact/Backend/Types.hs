@@ -11,6 +11,7 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module: Chainweb.Pact.Backend.Types
@@ -105,7 +106,8 @@ import Pact.Persist.SQLite (Pragma(..), SQLiteConfig(..))
 import Pact.PersistPactDb (DbEnv(..))
 import qualified Pact.Types.Hash as P
 import Pact.Types.Logger (Logger(..), Logging(..))
-import Pact.Types.Runtime (PactDb,TxId,TableName,TxLog,ExecutionMode)
+import Pact.Types.Persistence
+import Pact.Types.Runtime (TableName)
 
 -- internal modules
 import Chainweb.BlockHash
@@ -282,7 +284,8 @@ data Checkpointer = Checkpointer
 
       -- TODO: this would be nicer as a batch lookup :(
     , _cpLookupProcessedTx :: !(P.PactHash -> IO (Maybe (T2 BlockHeight BlockHash)))
-    , _cpGetBlockHistory :: !(BlockHeader -> IO (BlockTxHistory (TxLog Value)))
+    , _cpGetBlockHistory :: !(
+        forall k v . (FromJSON v) => BlockHeader -> Domain k v -> IO BlockTxHistory)
     }
 
 data CheckpointEnv = CheckpointEnv

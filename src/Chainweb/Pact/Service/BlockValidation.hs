@@ -24,13 +24,11 @@ module Chainweb.Pact.Service.BlockValidation
 
 import Control.Concurrent.MVar.Strict
 
-import Data.Aeson
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Persistence
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -102,11 +100,12 @@ pactPreInsertCheck txs reqQ = do
 
 pactBlockTxHistory
   :: BlockHeader
+  -> Domain'
   -> PactQueue
-  -> IO (MVar (Either PactException (BlockTxHistory (TxLog Value))))
-pactBlockTxHistory bh reqQ = do
+  -> IO (MVar (Either PactException BlockTxHistory))
+pactBlockTxHistory bh d reqQ = do
   resultVar <- newEmptyMVar
-  let !req = BlockTxHistoryReq bh resultVar
+  let !req = BlockTxHistoryReq bh d resultVar
   let !msg = BlockTxHistoryMsg req
   addRequest reqQ msg
   return resultVar

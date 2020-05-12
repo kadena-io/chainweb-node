@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,6 +7,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ExistentialQuantification #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -88,14 +91,11 @@ instance Exception PactException
 
 -- | Gather tx logs for a block. Not intended
 -- for public API use; ToJSONs are for logging output.
-data BlockTxHistory l = BlockTxHistory
-  { _bthCoinbase :: !l
-  , _bthTxs :: !(Vector l)
-  }
+newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Vector (TxLog Value) }
   deriving (Eq,Generic)
-instance ToJSON l => ToJSON (BlockTxHistory l)
-instance FromJSON l => FromJSON (BlockTxHistory l)
-instance ToJSON l => Show (BlockTxHistory l) where
+instance ToJSON BlockTxHistory
+instance FromJSON BlockTxHistory
+instance Show BlockTxHistory where
   show = unpack . encodeToText
 
 
@@ -156,13 +156,19 @@ instance Show PreInsertCheckReq where
     show (PreInsertCheckReq v _) =
         "PreInsertCheckReq@" ++ show v
 
+-- | Existential wrapper for a Pact persistence domain.
+data Domain' = forall k v . (FromJSON v) => Domain' (Domain k v)
+instance Show Domain' where
+  show (Domain' d) = show d
+
 data BlockTxHistoryReq = BlockTxHistoryReq
   { _blockTxHistoryHeader :: !BlockHeader
-  , _blockTxHistoryResult :: !(PactExMVar (BlockTxHistory (TxLog Value)))
+  , _blockTxHistoryDomain :: !Domain'
+  , _blockTxHistoryResult :: !(PactExMVar BlockTxHistory)
   }
 instance Show BlockTxHistoryReq where
-  show (BlockTxHistoryReq h _) =
-    "BlockTxHistoryReq@" ++ show h
+  show (BlockTxHistoryReq h d _) =
+    "BlockTxHistoryReq@" ++ show h ++ ", " ++ show d
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey

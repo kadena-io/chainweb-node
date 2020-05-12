@@ -18,11 +18,12 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
 import Control.Concurrent.MVar
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
-import Data.Aeson (Value)
+import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
@@ -53,6 +54,7 @@ import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types
+import Chainweb.Utils
 import Chainweb.Version
 
 
@@ -261,5 +263,33 @@ doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
         return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"
 
-doGetBlockHistory :: Db -> BlockHeader -> IO (BlockTxHistory (TxLog Value))
-doGetBlockHistory dbenv bh = undefined
+doGetBlockHistory :: FromJSON v => Db -> BlockHeader -> Domain k v -> IO BlockTxHistory
+doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
+  callDb "doGetBlockHistory" $ \db -> do
+    endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
+    startTxId <- getEndTxId db (pred bHeight) (_blockParent blockHeader)
+    history <- queryHistory db (domainTableName d) startTxId endTxId
+    return $! BlockTxHistory $ V.fromList history
+  where
+
+    bHeight = _blockHeight blockHeader
+
+    getEndTxId db bhi bha = do
+      r <- qry db
+        "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
+        [SInt $ fromIntegral $ bhi, SBlob $ encode $ bha]
+        [RInt]
+      case r of
+        [[SInt tid]] -> return tid
+        [] -> throwM $ BlockHeaderLookupFailure $ "doGetBlockHistory: not in db: " <>
+              sshow (bhi,bha)
+        _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
+
+    queryHistory db tableName s e = do
+      let sql = "SELECT rowkey, rowdata FROM [" <> tableName <>
+                "] WHERE txid > ? AND txid <= ?"
+      print sql
+      r <- qry db sql
+           [SInt $ fromIntegral s,SInt $ fromIntegral e]
+           [RText,RBlob]
+      readHistoryResult d r
