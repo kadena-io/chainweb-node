@@ -25,7 +25,7 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , backendWriteUpdateBatch
 , createUserTable
 , vacuumDb
-, readHistoryResult
+, toTxLog
 ) where
 
 import Control.Applicative

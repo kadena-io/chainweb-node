@@ -91,7 +91,7 @@ instance Exception PactException
 
 -- | Gather tx logs for a block. Not intended
 -- for public API use; ToJSONs are for logging output.
-newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Vector (TxLog Value) }
+newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Vector (TxId,[TxLog Value]) }
   deriving (Eq,Generic)
 instance ToJSON BlockTxHistory
 instance FromJSON BlockTxHistory

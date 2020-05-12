@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -26,6 +27,7 @@ import Data.ByteString (ByteString)
 import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
 import Data.Foldable (toList)
+import qualified Data.Map.Strict as M
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import Data.Serialize hiding (get)
@@ -269,10 +271,13 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
     startTxId <- getEndTxId db (pred bHeight) (_blockParent blockHeader)
     history <- queryHistory db (domainTableName d) startTxId endTxId
-    return $! BlockTxHistory $ V.fromList history
+    return $! BlockTxHistory $ V.fromList $ M.toList $ foldl groupByTxid mempty history
   where
 
     bHeight = _blockHeight blockHeader
+
+    groupByTxid :: Ord a => M.Map a [b] -> (a,b) -> M.Map a [b]
+    groupByTxid r (t,l) = M.insertWith (++) t [l] r
 
     getEndTxId db bhi bha = do
       r <- qry db
@@ -286,10 +291,18 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
         _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
 
     queryHistory db tableName s e = do
-      let sql = "SELECT rowkey, rowdata FROM [" <> tableName <>
+      let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
                 "] WHERE txid > ? AND txid <= ?"
-      print sql
       r <- qry db sql
            [SInt $ fromIntegral s,SInt $ fromIntegral e]
-           [RText,RBlob]
-      readHistoryResult d r
+           [RInt,RText,RBlob]
+      readHistoryResult' d r
+
+
+    readHistoryResult' :: (FromJSON v,FromJSON l) =>
+                         Domain k v -> [[SType]] -> IO [(TxId,TxLog l)]
+    readHistoryResult' _d rows = forM rows $ \case
+      [SInt txid, SText key, SBlob value] -> (fromIntegral txid,) <$> toTxLog d key value
+      err -> internalError $
+              "readHistoryResult': Expected single row with three columns as the \
+              \result, got: " <> T.pack (show err)

@@ -22,7 +22,7 @@ import Control.Exception
 import Control.Lens hiding ((.=))
 import Control.Monad
 
-import Data.Aeson (object, (.=))
+import Data.Aeson (object, (.=), Value(..))
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
@@ -131,8 +131,22 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   void $ runBlock q bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
   mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) q
-  readMVar mv >>= print
-  -- TODO need full datastructure
+  (BlockTxHistory hist) <- forSuccess "getHistory" (return mv)
+  -- just check first one here
+  assertEqual "check first entry of history"
+    (10,[TxLog "coin_coin-table" "sender00"
+         (object
+          [
+            "guard" .= object [ "pred" .= ("keys-all" :: T.Text),
+                                "keys" .= ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" :: T.Text] ]
+          , "balance" .= (Number 9.99999e7)
+          ])])
+    (V.head hist)
+  -- and transaction txids
+  assertEqual "check txids"
+    (V.fromList [10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42])
+    (fmap fst hist)
+
 
 newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
