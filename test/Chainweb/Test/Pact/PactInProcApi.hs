@@ -134,13 +134,16 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   (BlockTxHistory hist) <- forSuccess "getHistory" (return mv)
   -- just check first one here
   assertEqual "check first entry of history"
-    (10,[TxLog "coin_coin-table" "sender00"
-         (object
-          [
-            "guard" .= object [ "pred" .= ("keys-all" :: T.Text),
-                                "keys" .= ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" :: T.Text] ]
-          , "balance" .= (Number 9.99999e7)
-          ])])
+    (10,
+     [TxLog "coin_coin-table" "sender00"
+      (object
+       [ "guard" .= object
+         [ "pred" .= ("keys-all" :: T.Text)
+         , "keys" .=
+           ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" :: T.Text]
+         ]
+       , "balance" .= (Number 9.99999e7)
+       ])])
     (V.head hist)
   -- and transaction txids
   assertEqual "check txids"
