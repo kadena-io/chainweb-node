@@ -26,7 +26,7 @@ import Control.Monad.State (gets)
 import Data.ByteString (ByteString)
 import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
-import Data.Foldable (toList)
+import Data.Foldable (toList,foldl')
 import qualified Data.Map.Strict as M
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
@@ -271,7 +271,7 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
     startTxId <- getEndTxId db (pred bHeight) (_blockParent blockHeader)
     history <- queryHistory db (domainTableName d) startTxId endTxId
-    return $! BlockTxHistory $ V.fromList $ M.toList $ foldl groupByTxid mempty history
+    return $! BlockTxHistory $ V.fromList $ M.toList $ foldl' groupByTxid mempty history
   where
 
     bHeight = _blockHeight blockHeader
@@ -296,13 +296,8 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
       r <- qry db sql
            [SInt $ fromIntegral s,SInt $ fromIntegral e]
            [RInt,RText,RBlob]
-      readHistoryResult' d r
-
-
-    readHistoryResult' :: (FromJSON v,FromJSON l) =>
-                         Domain k v -> [[SType]] -> IO [(TxId,TxLog l)]
-    readHistoryResult' _d rows = forM rows $ \case
-      [SInt txid, SText key, SBlob value] -> (fromIntegral txid,) <$> toTxLog d key value
-      err -> internalError $
-              "readHistoryResult': Expected single row with three columns as the \
-              \result, got: " <> T.pack (show err)
+      forM r $ \case
+        [SInt txid, SText key, SBlob value] -> (fromIntegral txid,) <$> toTxLog d key value
+        err -> internalError $
+               "readHistoryResult': Expected single row with three columns as the \
+               \result, got: " <> T.pack (show err)

@@ -530,19 +530,16 @@ doGetTxLog d txid = do
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt
           [ SInt (fromIntegral txid) ]
           [RText, RBlob]
-        liftIO $ readHistoryResult d rows
+        forM rows $ \case
+            [SText key, SBlob value] -> toTxLog d key value
+            err -> internalError $
+              "readHistoryResult: Expected single row with two columns as the \
+              \result, got: " <> T.pack (show err)
     stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
                    , tableName
                    , "] WHERE txid = ?"
                    ]
 
-readHistoryResult :: (FromJSON v,FromJSON l) =>
-                     Domain k v -> [[SType]] -> IO [TxLog l]
-readHistoryResult d rows = forM rows $ \case
-            [SText key, SBlob value] -> toTxLog d key value
-            err -> internalError $
-              "readHistoryResult: Expected single row with two columns as the \
-              \result, got: " <> T.pack (show err)
 
 toTxLog :: (MonadThrow m, FromJSON v, FromJSON l) =>
            Domain k v -> Utf8 -> ByteString -> m (TxLog l)
