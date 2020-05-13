@@ -149,10 +149,9 @@ readChainIdText v c = do
 kdaToRosettaAmount :: Decimal -> Amount
 kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
   where
-    -- Value of the transaction in atomic units represented as an
-    -- arbitrary-sized signed integer.
+    -- Value in atomic units represented as an arbitrary-sized signed integer.
     amount :: Integer
-    amount = floor $ k * (realToFrac $ (10 :: Integer) ^ numDecimals)
+    amount = floor $ k * (realToFrac ((10 :: Integer) ^ numDecimals))
 
     -- How to convert from atomic units to standard units
     numDecimals = 12 :: Word

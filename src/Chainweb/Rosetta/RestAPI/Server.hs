@@ -42,6 +42,7 @@ import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command
 import Pact.Types.RPC
 import Pact.Types.PactValue (PactValue(..))
+import Pact.Types.Pretty (renderCompactText)
 import Pact.Types.Exp (Literal(..))
 
 import Rosetta
@@ -62,6 +63,7 @@ import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Server
+import Chainweb.Pact.Templates
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
@@ -133,7 +135,7 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
     readBlock (Just (Object meta)) = do
       hi <- (HM.lookup "blockHeight" meta) >>= (hushResult . fromJSON)
       hsh <- (HM.lookup "prevBlockHash" meta) >>= (hushResult . fromJSON)
-      pure $ (pred hi, hsh)   -- TODO: something's off with these results (i.e. pred hight)
+      pure $ (pred hi, hsh)
       where
         hushResult (Success w) = Just w
         hushResult (Error _) = Nothing
@@ -144,12 +146,12 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
       cmd <- mkCommand [] meta "nonce" Nothing rpc
       return $ T.decodeUtf8 <$> cmd
       where
-        tableName = "coin"
         rpc = Exec $ ExecMsg code Null
-        code = mconcat    -- TODO: use terms instead
-          ["(at \"balance\" ",
-           "(", tableName, ".details ",
-           "\"", acct, "\"))"]
+        code = renderCompactText $
+          app (bn "at")
+            [ strLit "balance"
+            , app (qn "coin" "details") [ strLit acct ]
+            ]
         meta = PublicMeta
           (fromString $ show $ chainIdToText cid)
           "someSender"
