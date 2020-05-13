@@ -129,19 +129,15 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
     readBal (PLiteral (LDecimal d)) = Just d
     readBal _ = Nothing
 
-    readMeta :: Maybe Value -> Maybe (HM.HashMap T.Text Value)
-    readMeta (Just (Object hm)) = Just hm
-    readMeta _ = Nothing
-
-    readBlockHeight :: Maybe Value -> Maybe Word64
-    readBlockHeight Nothing = Nothing
-    readBlockHeight (Just a) = case (fromJSON a) of
-      Success w -> Just w
-      Error _ -> Nothing
-
-    readBlockHash :: Maybe Value -> Maybe T.Text
-    readBlockHash (Just (String hsh)) = Just hsh
-    readBlockHash _ = Nothing
+    readBlock :: Maybe Value -> Maybe (Word64, T.Text)
+    readBlock (Just (Object meta)) = do
+      hi <- (HM.lookup "blockHeight" meta) >>= (hushResult . fromJSON)
+      hsh <- (HM.lookup "prevBlockHash" meta) >>= (hushResult . fromJSON)
+      pure $ (pred hi, hsh)   -- TODO: something's off with these results (i.e. pred hight)
+      where
+        hushResult (Success w) = Just w
+        hushResult (Error _) = Nothing
+    readBlock _ = Nothing
 
     balCheckCmd :: ChainId -> IO (Command T.Text)
     balCheckCmd cid = do
@@ -150,17 +146,17 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
       where
         tableName = "coin"
         rpc = Exec $ ExecMsg code Null
-        code = mconcat
+        code = mconcat    -- TODO: use terms instead
           ["(at \"balance\" ",
            "(", tableName, ".details ",
            "\"", acct, "\"))"]
         meta = PublicMeta
           (fromString $ show $ chainIdToText cid)
           "someSender"
-          10000
-          0.0001
-          300
-          0
+          10000   -- gas limit
+          0.0001  -- gas price
+          300     -- ttl
+          0       -- creation time
 
     work :: ExceptT RosettaFailure Handler AccountBalanceResp
     work = do
@@ -175,10 +171,7 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
       let (PactResult pRes) = _crResult cRes
       pv <- (hush pRes) ?? RosettaPactErrorThrown
       balKDA <- readBal pv ?? RosettaExpectedBalDecimal
-      meta <- (readMeta $ _crMetaData cRes) ?? RosettaInvalidResultMetaData
-
-      blockHeight <- (readBlockHeight $ HM.lookup "blockHeight" meta) ?? RosettaInvalidResultMetaData
-      blockHash <- (readBlockHash $ HM.lookup "prevBlockHash" meta) ?? RosettaInvalidResultMetaData
+      (blockHeight, blockHash) <- (readBlock $ _crMetaData cRes) ?? RosettaInvalidResultMetaData
 
       pure $ AccountBalanceResp
         { _accountBalanceResp_blockId = BlockId blockHeight blockHash
