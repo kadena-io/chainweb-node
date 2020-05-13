@@ -350,7 +350,12 @@ data TxContext = TxContext
 
 -- | Convert context to datatype for Pact environment.
 ctxToPublicData :: TxContext -> PublicData
-ctxToPublicData ctx@(TxContext _ pm) = PublicData pm bh bt (toText hsh)
+ctxToPublicData ctx@(TxContext _ pm) = PublicData
+    { _pdPublicMeta = pm
+    , _pdBlockHeight = bh
+    , _pdBlockTime = bt
+    , _pdPrevBlockHash = toText hsh
+    }
   where
     h = ctxBlockHeader ctx
     BlockHeight bh = ctxCurrentBlockHeight ctx
