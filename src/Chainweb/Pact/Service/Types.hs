@@ -24,6 +24,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
@@ -91,12 +92,10 @@ instance Exception PactException
 
 -- | Gather tx logs for a block. Not intended
 -- for public API use; ToJSONs are for logging output.
-newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Vector (TxId,[TxLog Value]) }
+newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Map TxId [TxLog Value] }
   deriving (Eq,Generic)
-instance ToJSON BlockTxHistory
-instance FromJSON BlockTxHistory
 instance Show BlockTxHistory where
-  show = unpack . encodeToText
+  show = show . fmap encodeToText . _blockTxHistory
 
 
 

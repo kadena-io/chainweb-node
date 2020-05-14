@@ -272,7 +272,7 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
     startTxId <- getEndTxId db (pred bHeight) (_blockParent blockHeader)
     history <- queryHistory db (domainTableName d) startTxId endTxId
-    return $! BlockTxHistory $ V.fromList $ M.toList $ foldl' groupByTxid mempty history
+    return $! BlockTxHistory $ foldl' groupByTxid mempty history
   where
 
     bHeight = _blockHeight blockHeader
