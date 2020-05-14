@@ -26,6 +26,7 @@ import Data.Aeson (object, (.=), Value(..))
 import Data.Either (isRight)
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Yaml as Y
@@ -134,8 +135,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   (BlockTxHistory hist) <- forSuccess "getHistory" (return mv)
   -- just check first one here
   assertEqual "check first entry of history"
-    (10,
-     [TxLog "coin_coin-table" "sender00"
+    (Just [TxLog "coin_coin-table" "sender00"
       (object
        [ "guard" .= object
          [ "pred" .= ("keys-all" :: T.Text)
@@ -144,11 +144,11 @@ getHistory refIO reqIO = testCase "getHistory" $ do
          ]
        , "balance" .= (Number 9.99999e7)
        ])])
-    (V.head hist)
+    (M.lookup 10 hist)
   -- and transaction txids
   assertEqual "check txids"
-    (V.fromList [10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42])
-    (fmap fst hist)
+    [10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42]
+    (M.keys hist)
 
 
 newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
