@@ -18,6 +18,7 @@ module Chainweb.Pact.Service.BlockValidation
 , local
 , lookupPactTxs
 , pactPreInsertCheck
+, pactBlockTxHistory
 ) where
 
 
@@ -96,3 +97,15 @@ pactPreInsertCheck txs reqQ = do
     let !msg = PreInsertCheckMsg req
     addRequest reqQ msg
     return resultVar
+
+pactBlockTxHistory
+  :: BlockHeader
+  -> Domain'
+  -> PactQueue
+  -> IO (MVar (Either PactException BlockTxHistory))
+pactBlockTxHistory bh d reqQ = do
+  resultVar <- newEmptyMVar
+  let !req = BlockTxHistoryReq bh d resultVar
+  let !msg = BlockTxHistoryMsg req
+  addRequest reqQ msg
+  return resultVar

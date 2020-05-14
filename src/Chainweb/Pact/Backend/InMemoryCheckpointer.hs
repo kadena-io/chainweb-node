@@ -67,6 +67,7 @@ initInMemoryCheckpointEnv loggers logger = do
                     , _cpGetBlockParent = doGetBlockParent inmem
                     , _cpRegisterProcessedTx = doRegisterSuccessful inmem
                     , _cpLookupProcessedTx = doLookupSuccessful inmem
+                    , _cpGetBlockHistory = \_ _ -> error "unimplemented"
                 }
             , _cpeLogger = logger
             })
