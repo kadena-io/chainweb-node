@@ -23,12 +23,14 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
+import Data.Map (Map)
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64)
 
 import qualified Data.ByteString.Short as BSS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import qualified Data.Map as M
 import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -37,6 +39,8 @@ import qualified Data.Vector as V
 import Numeric.Natural
 
 import Pact.Types.Command
+import Pact.Types.Hash
+import Pact.Types.Runtime (TxId(..), TxLog(..))
 
 import Rosetta
 
@@ -106,6 +110,41 @@ someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms p
 
 --------------------------------------------------------------------------------
 -- Block Handlers
+
+newtype CoinbaseResult = CoinbaseResult (CommandResult Hash)
+
+blockH :: ChainwebVersion -> BlockReq -> Handler BlockResp
+blockH v (BlockReq net (PartialBlockId bheight bhash)) =
+  runExceptT work >>= either throwRosetta pure
+  where
+    getTxLogs :: BlockHeader -> IO (Map TxId [TxLog Value])
+    getTxLogs = undefined
+
+    work :: ExceptT RosettaFailure Handler BlockResp
+    work = do
+      cid <- validateNetwork v net
+      bh <- findBlockHeader v cid bheight bhash
+      (coinbaseOut, txsOut) <- getBlockOutputs bh
+      logs <- liftIO $ getTxLogs bh
+
+      undefined
+
+
+getBlockOutputs
+    :: BlockHeader
+    -> ExceptT RosettaFailure Handler (CoinbaseResult, Map RequestKey (CommandResult Hash))
+getBlockOutputs = undefined
+
+-- /cut to get current fork's chain hash
+-- chain/1/header/branch?minheight=567820&maxheight=567820
+-- /chain/1/payload/3x3f6kTQMBywYF8uBcDXHH7DW7Ah_NCHcEzhnI4FHjc=/outputs   (to get the outputs)
+findBlockHeader
+    :: ChainwebVersion
+    -> ChainId
+    -> Maybe Word64
+    -> Maybe T.Text
+    -> ExceptT RosettaFailure Handler BlockHeader
+findBlockHeader = undefined
 
 --------------------------------------------------------------------------------
 -- Construction Handlers
