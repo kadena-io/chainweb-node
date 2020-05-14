@@ -80,6 +80,7 @@ data PactExecutionService = PactExecutionService
         Domain' ->
         IO (Either PactException BlockTxHistory)
         )
+      -- ^ Obtain all transaction history in block for specified table/domain.
     }
 
 -- | Newtype to indicate "routing"/multi-chain service.

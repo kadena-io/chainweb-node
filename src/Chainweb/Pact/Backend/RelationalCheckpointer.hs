@@ -27,6 +27,7 @@ import Data.ByteString (ByteString)
 import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
+import Data.Int
 import qualified Data.Map.Strict as M
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
@@ -36,7 +37,7 @@ import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
-import Database.SQLite3.Direct (Utf8(..))
+import Database.SQLite3.Direct
 
 import Prelude hiding (log)
 
@@ -290,11 +291,12 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
               sshow (bhi,bha)
         _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
 
+    queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(TxId,TxLog Value)]
     queryHistory db tableName s e = do
       let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
                 "] WHERE txid > ? AND txid <= ?"
       r <- qry db sql
-           [SInt $ fromIntegral s,SInt $ fromIntegral e]
+           [SInt s,SInt e]
            [RInt,RText,RBlob]
       forM r $ \case
         [SInt txid, SText key, SBlob value] -> (fromIntegral txid,) <$> toTxLog d key value
