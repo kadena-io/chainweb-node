@@ -18,6 +18,10 @@ module Chainweb.Pact.Templates
 ( mkBuyGasTerm
 , mkCoinbaseTerm
 , mkCoinbaseCmd
+, app
+, bn
+, qn
+, strLit
 ) where
 
 

@@ -24,6 +24,8 @@ import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
 import Data.Map (Map)
+import Data.Decimal
+import Data.String
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
@@ -39,9 +41,14 @@ import qualified Data.Vector as V
 
 import Numeric.Natural
 
+import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command
 import Pact.Types.Hash
 import Pact.Types.Runtime (TxId(..), TxLog(..))
+import Pact.Types.RPC
+import Pact.Types.PactValue (PactValue(..))
+import Pact.Types.Pretty (renderCompactText)
+import Pact.Types.Exp (Literal(..))
 
 import Rosetta
 
@@ -55,11 +62,13 @@ import Chainweb.BlockHash (blockHashToText)
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeight (BlockHeight(..))
+import Chainweb.Chainweb.ChainResources (ChainResources(..))
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
-import Chainweb.Pact.RestAPI.Server (validateCommand)
+import Chainweb.Pact.RestAPI.Server
+import Chainweb.Pact.Templates
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
@@ -68,6 +77,7 @@ import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
+import Chainweb.WebPactExecutionService (PactExecutionService(..))
 
 import P2P.Node.PeerDB
 import P2P.Node.RestAPI.Server (peerGetHandler)
@@ -76,13 +86,16 @@ import P2P.Peer
 ---
 
 rosettaServer
-    :: forall cas (v :: ChainwebVersionT)
+    :: forall cas a (v :: ChainwebVersionT)
     . ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> CutDb cas
+    -> [(ChainId, ChainResources a)]
     -> Server (RosettaApi v)
-rosettaServer v ms peerDb cutDb = (const $ error "not yet implemented")
+rosettaServer v ms peerDb cutDb cr =
+    -- Account --
+    accountBalanceH v cr
     -- Blocks --
     :<|> (const $ error "not yet implemented")
     :<|> (const $ error "not yet implemented")
@@ -101,13 +114,76 @@ someRosettaServer
     :: ChainwebVersion
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
+    -> [(ChainId, ChainResources a)]
     -> CutDb cas
     -> SomeServer
-someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms pdb cdb =
-    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ms pdb cdb
+someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms pdb crs cdb =
+    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ms pdb cdb crs
 
 --------------------------------------------------------------------------------
 -- Account Handlers
+accountBalanceH
+    :: ChainwebVersion
+    -> [(ChainId, ChainResources a)]
+    -> AccountBalanceReq
+    -> Handler AccountBalanceResp
+accountBalanceH _ _ (AccountBalanceReq _ _ (Just _)) = throwRosetta RosettaHistBalCheckUnsupported
+accountBalanceH _ _ (AccountBalanceReq _ (AccountId _ (Just _) _) _) = throwRosetta RosettaSubAcctUnsupported
+accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
+  runExceptT work >>= either throwRosetta pure
+  where
+    readBal :: PactValue -> Maybe Decimal
+    readBal (PLiteral (LDecimal d)) = Just d
+    readBal _ = Nothing
+
+    readBlock :: Maybe Value -> Maybe (Word64, T.Text)
+    readBlock (Just (Object meta)) = do
+      hi <- (HM.lookup "blockHeight" meta) >>= (hushResult . fromJSON)
+      hsh <- (HM.lookup "prevBlockHash" meta) >>= (hushResult . fromJSON)
+      pure $ (pred hi, hsh)
+      where
+        hushResult (Success w) = Just w
+        hushResult (Error _) = Nothing
+    readBlock _ = Nothing
+
+    balCheckCmd :: ChainId -> IO (Command T.Text)
+    balCheckCmd cid = do
+      cmd <- mkCommand [] meta "nonce" Nothing rpc
+      return $ T.decodeUtf8 <$> cmd
+      where
+        rpc = Exec $ ExecMsg code Null
+        code = renderCompactText $
+          app (bn "at")
+            [ strLit "balance"
+            , app (qn "coin" "details") [ strLit acct ]
+            ]
+        meta = PublicMeta
+          (fromString $ show $ chainIdToText cid)
+          "someSender"
+          10000   -- gas limit
+          0.0001  -- gas price
+          300     -- ttl
+          0       -- creation time
+
+    work :: ExceptT RosettaFailure Handler AccountBalanceResp
+    work = do
+      cid <- validateNetwork v net
+      cr <- lookup cid crs ?? RosettaInvalidChain
+      cmd <- do
+        c <- liftIO $ balCheckCmd cid
+        (hush $ validateCommand c) ?? RosettaInvalidTx
+      cRes <- do
+        r <- liftIO $ _pactLocal (_chainResPact cr) cmd
+        (hush r) ?? RosettaPactExceptionThrown
+      let (PactResult pRes) = _crResult cRes
+      pv <- (hush pRes) ?? RosettaPactErrorThrown
+      balKDA <- readBal pv ?? RosettaExpectedBalDecimal
+      (blockHeight, blockHash) <- (readBlock $ _crMetaData cRes) ?? RosettaInvalidResultMetaData
+
+      pure $ AccountBalanceResp
+        { _accountBalanceResp_blockId = BlockId blockHeight blockHash
+        , _accountBalanceResp_balances = [ kdaToRosettaAmount balKDA ]
+        , _accountBalanceResp_metadata = Nothing }
 
 --------------------------------------------------------------------------------
 -- Block Handlers
@@ -118,7 +194,7 @@ newtype FundTxLogs = FundTxLogs (T2 TxId [TxLog Value])
 newtype GasPaymentLogs = GasPaymentLogs (T2 TxId [TxLog Value])
 
 data RosettaOperationStatus =
-    Success
+    OperationSuccess
   | LockedInPact -- TODO: Think about.
   | UnlockedReverted -- TODO: Think about in case of rollback (same chain pacts)?
   | UnlockedTransfer -- TOOD: pacts finished, cross-chain?
