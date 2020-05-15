@@ -25,6 +25,7 @@ import Data.Aeson
 import Data.Bifunctor
 import Data.Map (Map)
 import Data.Proxy (Proxy(..))
+import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
 
 import qualified Data.ByteString.Short as BSS
@@ -64,7 +65,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Transaction (ChainwebTransaction)
-import Chainweb.Utils (int)
+import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -111,40 +112,85 @@ someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms p
 --------------------------------------------------------------------------------
 -- Block Handlers
 
-newtype CoinbaseResult = CoinbaseResult (CommandResult Hash)
+type CoinbaseCommandResult = CommandResult Hash
+
+newtype FundTxLogs = FundTxLogs (T2 TxId [TxLog Value])
+newtype GasPaymentLogs = GasPaymentLogs (T2 TxId [TxLog Value])
+
+data RosettaOperationStatus =
+    Success
+  | LockedInPact -- TODO: Think about.
+  | UnlockedReverted -- TODO: Think about in case of rollback (same chain pacts)?
+  | UnlockedTransfer -- TOOD: pacts finished, cross-chain?
+  deriving (Enum, Bounded, Show)
+
+data OperationType =
+    CoinbaseReward
+  | FundTx
+  | GasRefundAndPayment
+  | GasReward
+  | TransferOrCreateAcct
+  deriving (Enum, Bounded, Show)
 
 blockH :: ChainwebVersion -> BlockReq -> Handler BlockResp
 blockH v (BlockReq net (PartialBlockId bheight bhash)) =
   runExceptT work >>= either throwRosetta pure
   where
+    block :: BlockHeader -> [Transaction] -> Block
+    block bh txs = Block
+      { _block_blockId = blockId bh
+      , _block_parentBlockId = parentBlockId bh
+      , _block_timestamp = timestamp bh
+      , _block_transactions = txs
+      , _block_metadata = Nothing
+      }
+
     getTxLogs :: BlockHeader -> IO (Map TxId [TxLog Value])
     getTxLogs = undefined
 
     work :: ExceptT RosettaFailure Handler BlockResp
     work = do
       cid <- validateNetwork v net
-      bh <- findBlockHeader v cid bheight bhash
+      bh <- findBlockHeaderInCurrFork v cid bheight bhash
       (coinbaseOut, txsOut) <- getBlockOutputs bh
       logs <- liftIO $ getTxLogs bh
 
       undefined
 
+txLogToOperation
+    :: Word64
+    -> TxId
+    -> TxLog Value
+    -> OperationType
+    -> RosettaOperationStatus
+    -> ExceptT RosettaFailure Handler Operation
+txLogToOperation idx txid txlog otype ostatus = do
+  pure $ Operation
+    { _operation_operationId = OperationId idx Nothing
+    , _operation_relatedOperations = Nothing -- TODO
+    , _operation_type = sshow otype
+    , _operation_status = sshow ostatus
+    , _operation_account = Just undefined
+    , _operation_amount = Just undefined
+    , _operation_metadata = Just undefined
+    }
 
 getBlockOutputs
     :: BlockHeader
-    -> ExceptT RosettaFailure Handler (CoinbaseResult, Map RequestKey (CommandResult Hash))
+    -> ExceptT RosettaFailure Handler (CoinbaseCommandResult, Map RequestKey (CommandResult Hash))
 getBlockOutputs = undefined
 
 -- /cut to get current fork's chain hash
 -- chain/1/header/branch?minheight=567820&maxheight=567820
 -- /chain/1/payload/3x3f6kTQMBywYF8uBcDXHH7DW7Ah_NCHcEzhnI4FHjc=/outputs   (to get the outputs)
-findBlockHeader
+-- In the current fork
+findBlockHeaderInCurrFork
     :: ChainwebVersion
     -> ChainId
     -> Maybe Word64
     -> Maybe T.Text
     -> ExceptT RosettaFailure Handler BlockHeader
-findBlockHeader = undefined
+findBlockHeaderInCurrFork = undefined
 
 --------------------------------------------------------------------------------
 -- Construction Handlers
@@ -300,25 +346,10 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
     resp :: BlockHeader -> BlockHeader -> [PeerInfo] -> NetworkStatusResp
     resp bh genesis ps = NetworkStatusResp
       { _networkStatusResp_currentBlockId = blockId bh
-      , _networkStatusResp_currentBlockTimestamp = currTimestamp bh
+      , _networkStatusResp_currentBlockTimestamp = timestamp bh
       , _networkStatusResp_genesisBlockId = blockId genesis
       , _networkStatusResp_peers = rosettaNodePeers ps
       }
-
-    blockId :: BlockHeader -> BlockId
-    blockId bh = BlockId
-      { _blockId_index = _height (_blockHeight bh)
-      , _blockId_hash = blockHashToText (_blockHash bh)
-      }
-
-    -- Timestamp of the block in milliseconds since the Unix Epoch.
-    -- NOTE: Chainweb provides this timestamp in microseconds.
-    currTimestamp :: BlockHeader -> Word64
-    currTimestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
-      where
-        msTime = int $ microTime `div` ms
-        TimeSpan ms = millisecond
-        microTime = encodeTimeToWord64 $ _bct (_blockCreationTime bh)
 
     rosettaNodePeers :: [PeerInfo] -> [RosettaNodePeer]
     rosettaNodePeers ps = map f ps
@@ -348,3 +379,29 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
 
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
+
+-- | If its the genesis block, Rosetta wants the parent block to be itself.
+--   Otherwise, fetch the parent header from the block.
+parentBlockId :: BlockHeader -> BlockId
+parentBlockId bh
+  | (_blockHeight bh == 0) = blockId bh  -- genesis
+  | otherwise = parent
+  where parent = BlockId
+          { _blockId_index = _height (pred $ _blockHeight bh)
+          , _blockId_hash = blockHashToText (_blockParent bh)
+          }
+
+blockId :: BlockHeader -> BlockId
+blockId bh = BlockId
+  { _blockId_index = _height (_blockHeight bh)
+  , _blockId_hash = blockHashToText (_blockHash bh)
+  }
+
+-- Timestamp of the block in milliseconds since the Unix Epoch.
+-- NOTE: Chainweb provides this timestamp in microseconds.
+timestamp :: BlockHeader -> Word64
+timestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
+  where
+    msTime = int $ microTime `div` ms
+    TimeSpan ms = millisecond
+    microTime = encodeTimeToWord64 $ _bct (_blockCreationTime bh)
