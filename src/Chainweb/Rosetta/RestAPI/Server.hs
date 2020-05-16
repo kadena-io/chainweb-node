@@ -25,6 +25,7 @@ import Data.Aeson
 import Data.Bifunctor
 import Data.Map (Map)
 import Data.Decimal
+import Data.List (foldl')
 import Data.String
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..))
@@ -141,9 +142,6 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
       hi <- (HM.lookup "blockHeight" meta) >>= (hushResult . fromJSON)
       hsh <- (HM.lookup "prevBlockHash" meta) >>= (hushResult . fromJSON)
       pure $ (pred hi, hsh)
-      where
-        hushResult (Success w) = Just w
-        hushResult (Error _) = Nothing
     readBlock _ = Nothing
 
     balCheckCmd :: ChainId -> IO (Command T.Text)
@@ -192,9 +190,10 @@ type CoinbaseCommandResult = CommandResult Hash
 
 newtype FundTxLogs = FundTxLogs (T2 TxId [TxLog Value])
 newtype GasPaymentLogs = GasPaymentLogs (T2 TxId [TxLog Value])
+newtype TransferLogs = TransferLogs (T2 TxId [TxLog Value])
 
 data RosettaOperationStatus =
-    OperationSuccess
+    Successful
   | LockedInPact -- TODO: Think about.
   | UnlockedReverted -- TODO: Think about in case of rollback (same chain pacts)?
   | UnlockedTransfer -- TOOD: pacts finished, cross-chain?
@@ -203,8 +202,7 @@ data RosettaOperationStatus =
 data OperationType =
     CoinbaseReward
   | FundTx
-  | GasRefundAndPayment
-  | GasReward
+  | GasPayment
   | TransferOrCreateAcct
   deriving (Enum, Bounded, Show)
 
@@ -233,29 +231,102 @@ blockH v (BlockReq net (PartialBlockId bheight bhash)) =
 
       undefined
 
+
+groupTxLogs :: V.Vector (TxId, [TxLog Value]) -> [CommandResult Hash] -> Maybe [Transaction]
+groupTxLogs allLogs allTxs = do
+  T2 _ ts <- foldl' acc (Just $ T2 1 []) allTxs
+  pure ts
+  where
+    acc :: Maybe (T2 Int [Transaction]) -> CommandResult Hash -> Maybe (T2 Int [Transaction])
+    acc Nothing _ = Nothing
+    acc (Just (T2 idx txs)) res = do
+      (transferIdx, fund) <- fundLogs idx
+      (gasIdx, transfer) <- transferLogs transferIdx
+      (nextIdx, gas) <- gasLogs gasIdx
+      tx' <- createRosettaTx res fund transfer gas
+      pure $ T2 nextIdx (tx' : txs) -- TODO: order?
+      where
+        fundLogs :: Int -> Maybe (Int, FundTxLogs)
+        fundLogs i = do
+          (tid, l) <- allLogs V.!? i
+          pure (succ i, FundTxLogs $ T2 tid l)
+
+        transferLogs :: Int -> Maybe (Int, Maybe TransferLogs)
+        transferLogs i = do
+          (tid, l) <- allLogs V.!? i
+          if (_crTxId res == Just tid)
+            then pure $ (succ i, Just $ TransferLogs $ T2 tid l)
+            else pure $ (i, Nothing)
+
+        gasLogs :: Int -> Maybe (Int, GasPaymentLogs)
+        gasLogs i = do
+          (tid, l) <- allLogs V.!? i
+          pure (succ i, GasPaymentLogs $ T2 tid l)
+
+createRosettaTx
+    :: CommandResult Hash
+    -> FundTxLogs
+    -> Maybe TransferLogs
+    -> GasPaymentLogs
+    -> Maybe Transaction
+createRosettaTx cr fund transfer gas = do
+  let (FundTxLogs (T2 ftid flogs)) = fund
+      (GasPaymentLogs (T2 gtid glogs)) = gas
+      allFundsF = map (txLogToOperation FundTx Successful ftid) flogs
+      allGasF = map (txLogToOperation GasPayment Successful gtid) glogs
+      allTransferF = case transfer of
+        Just (TransferLogs (T2 ttid tlogs)) ->
+          map (txLogToOperation TransferOrCreateAcct Successful ttid) tlogs
+        Nothing -> []
+      allF = allFundsF ++ allTransferF ++ allGasF -- TODO: more efficient way?
+
+  allOp <- sequence $ zipWith (\f idx -> f idx) allF [(0 :: Word64)..]
+  pure $ Transaction
+    { _transaction_transactionId = TransactionId $ requestKeyToB16Text (_crReqKey cr)
+    , _transaction_operations = allOp
+    , _transaction_metadata = txMeta
+    }
+  where
+    -- Include information on related transactions (i.e. continuations)
+    txMeta = case _crContinuation cr of
+      Nothing -> Nothing
+      Just pe -> Just $ HM.fromList [("related-transaction", toJSON pe)]   -- TODO: document, nicer?
+
 txLogToOperation
-    :: Word64
+    :: OperationType
+    -> RosettaOperationStatus
     -> TxId
     -> TxLog Value
-    -> OperationType
-    -> RosettaOperationStatus
-    -> ExceptT RosettaFailure Handler Operation
-txLogToOperation idx txid txlog otype ostatus = do
+    -> Word64
+    -> Maybe Operation
+txLogToOperation otype ostatus txid (TxLog _ key (Object row)) idx = do
+  guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
+  (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
+  let acctId = AccountId
+        { _accountId_address = key
+        , _accountId_subAccount = Nothing  -- assumes coin acct contract only
+        , _accountId_metadata = Just $ HM.fromList [("ownership", guard)]  -- TODO: document
+        }
   pure $ Operation
     { _operation_operationId = OperationId idx Nothing
-    , _operation_relatedOperations = Nothing -- TODO
+    , _operation_relatedOperations = Nothing -- TODO: implement
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
-    , _operation_account = Just undefined
-    , _operation_amount = Just undefined
-    , _operation_metadata = Just undefined
+    , _operation_account = Just acctId
+    , _operation_amount = Just $ kdaToRosettaAmount bal
+    , _operation_metadata = Just $ HM.fromList [("txId", toJSON txid)] -- TODO: document
     }
+txLogToOperation _ _ _ _ _ = Nothing
 
+
+-- TODO
 getBlockOutputs
     :: BlockHeader
     -> ExceptT RosettaFailure Handler (CoinbaseCommandResult, Map RequestKey (CommandResult Hash))
 getBlockOutputs = undefined
 
+
+-- TODO
 -- /cut to get current fork's chain hash
 -- chain/1/header/branch?minheight=567820&maxheight=567820
 -- /chain/1/payload/3x3f6kTQMBywYF8uBcDXHH7DW7Ah_NCHcEzhnI4FHjc=/outputs   (to get the outputs)
@@ -481,3 +552,8 @@ timestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
     msTime = int $ microTime `div` ms
     TimeSpan ms = millisecond
     microTime = encodeTimeToWord64 $ _bct (_blockCreationTime bh)
+
+
+hushResult :: Result a -> Maybe a
+hushResult (Success w) = Just w
+hushResult (Error _) = Nothing
