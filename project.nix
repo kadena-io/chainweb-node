@@ -14,11 +14,19 @@ proj = kpkgs.rp.project ({ pkgs, hackGet, ... }: with pkgs.haskell.lib;
         sed -i -e 's/^\(test-suite\|benchmark\) /executable /' -e '/^ *type: *exitcode-stdio-1.0$/d' *.cabal
       '';
     });
+  # Nixpkgs with the `find-libs` command added as a top-level package
+  nixpkgsWithFindLibs = import (pkgs.fetchFromGitHub {
+    owner = "ryantrinkle";
+    repo = "nixpkgs";
+    rev = "a9a141a10f32691228ae7668e571359f2aaf82e4";
+    sha256 = "0ncqzsq3rwkh4g68bxsxmznq4z4pcqy6wclslnrsnqbq1b2lk2gl";
+  }) {};
   in {
     name = "chainweb";
     overrides = self: super: {
       chainweb = enableCabalFlag (
         justStaticExecutables (enableDWARFDebugging (convertCabalTestsAndBenchmarksToExecutables super.chainweb))) "use_systemd";
+      chainweb-portable = nixpkgsWithFindLibs.callPackage ./make-portable.nix {} "/opt/chainweb" self.chainweb;
     };
 
     packages = {
