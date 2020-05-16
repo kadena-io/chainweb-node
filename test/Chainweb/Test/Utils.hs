@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -99,6 +100,9 @@ module Chainweb.Test.Utils
 , runSchedRocks
 , withArgs
 , matchTest
+
+-- * Misc
+, genEnum
 ) where
 
 import Control.Concurrent
@@ -137,20 +141,20 @@ import System.Environment (withArgs)
 import System.IO.Temp
 import System.Random (randomIO)
 
-import Test.QuickCheck
-import Test.QuickCheck.Gen (chooseAny, unGen)
+import Test.QuickCheck.Property (Property, Testable, (===))
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Gen
 import Test.QuickCheck.Random (mkQCGen)
 import Test.Tasty
 import Test.Tasty.Golden
 import Test.Tasty.HUnit
-import Test.Tasty.QuickCheck
+import Test.Tasty.QuickCheck (testProperty)
 
 import Text.Printf (printf)
 
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHeaderDB.RestAPI (HeaderStream(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.BlockHeader
@@ -181,6 +185,16 @@ import Data.CAS.RocksDB
 import Network.X509.SelfSigned
 
 import qualified P2P.Node.PeerDB as P2P
+
+-- -------------------------------------------------------------------------- --
+-- Misc
+
+genEnum :: Enum a => (a, a) -> Gen a
+#if MIN_VERSION_QuickCheck(2,14,0)
+genEnum = chooseEnum
+#else
+genEnum (l, u) = toEnum <$> choose (fromEnum l, fromEnum u)
+#endif
 
 -- -------------------------------------------------------------------------- --
 -- Intialize Test BlockHeader DB
@@ -456,7 +470,7 @@ withChainServer
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
     app :: W.Application
-    app = chainwebApplication (Test singletonChainGraph) dbs Nothing (HeaderStream False)
+    app = chainwebApplication (Test singletonChainGraph) dbs Nothing (HeaderStream False) (Rosetta False)
 
     work :: Int -> IO a
     work port = do
@@ -594,7 +608,11 @@ clientEnvWithChainwebTestServer tls v dbsIO =
     miningRes = Nothing
 
     mkApp :: IO W.Application
-    mkApp = chainwebApplication v <$> dbsIO <*> pure miningRes <*> pure (HeaderStream False)
+    mkApp = chainwebApplication v
+        <$> dbsIO
+        <*> pure miningRes
+        <*> pure (HeaderStream False)
+        <*> pure (Rosetta False)
 
     mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do

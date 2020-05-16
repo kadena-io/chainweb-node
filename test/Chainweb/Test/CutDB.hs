@@ -60,7 +60,7 @@ import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
-import Chainweb.Cut.Test
+import Chainweb.Test.Cut
 import Chainweb.CutDB
 import Chainweb.Miner.Pact
 import Chainweb.Payload
@@ -478,8 +478,9 @@ fakePact = WebPactExecutionService $ PactExecutionService
             $ (\x -> (x, getFakeOutput x)) <$> payloadDat
 
   , _pactLocal = \_t -> error "Unimplemented"
-  , _pactLookup = error "Unimplemented"
-  , _pactPreInsertCheck = error "_pactPreInsertCheck: unimplemented"
+  , _pactLookup = \_ _ -> error "Unimplemented"
+  , _pactPreInsertCheck = \_ _ -> error "Unimplemented"
+  , _pactBlockTxHistory = \_ _ -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

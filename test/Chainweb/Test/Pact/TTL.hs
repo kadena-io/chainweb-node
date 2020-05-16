@@ -15,7 +15,6 @@ import Control.Lens (set)
 import Control.Monad
 import Control.Monad.Catch
 
-import Data.CAS.HashMap
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
@@ -42,6 +41,7 @@ import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Utils (lenientTimeSlop)
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
+import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -75,33 +75,30 @@ defTtl = 60 * 60 * 2 -- 2 hours
 --
 tests :: ScheduledTest
 tests = ScheduledTest "Chainweb.Test.Pact.TTL" $
-    withRocksResource $ \rocksIO ->
-    withPayloadDb $ \pdbIO ->
-    withBlockHeaderDb rocksIO genblock $ \bdbIO ->
     testGroup "timing tests"
-        [ withTestPact testVer pdbIO bdbIO testTxTime
-        , withTestPact testVer pdbIO bdbIO testTxTimeLenient
-        , withTestPact testVer pdbIO bdbIO testTxTimeFail1
-        , withTestPact testVer pdbIO bdbIO testTxTimeFail2
-        , withTestPact testVer pdbIO bdbIO testTtlTooLarge
-        , withTestPact testVer pdbIO bdbIO testTtlSmall
-        , withTestPact testVer pdbIO bdbIO testExpired
-        , withTestPact testVer pdbIO bdbIO testExpiredTight
-        , withTestPact testVer pdbIO bdbIO testJustMadeItSmall
-        , withTestPact testVer pdbIO bdbIO testJustMadeItLarge
+        [ withTestPact testTxTime
+        , withTestPact testTxTimeLenient
+        , withTestPact testTxTimeFail1
+        , withTestPact testTxTimeFail2
+        , withTestPact testTtlTooLarge
+        , withTestPact testTtlSmall
+        , withTestPact testExpired
+        , withTestPact testExpiredTight
+        , withTestPact testJustMadeItSmall
+        , withTestPact testJustMadeItLarge
 
         -- This tests can be removed once the transition is complete and the guard
         -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
         -- of all chainweb versions.
         --
         , testGroup "mainnet transition to new timing checks"
-            [ withTestPact testVer pdbIO bdbIO testTtlTooSmall
-            , withTestPact testVer pdbIO bdbIO testTtlSmall2
-            , withTestPact testVer pdbIO bdbIO testExpiredTight2
-            , withTestPact testVer pdbIO bdbIO testExpiredExtraTight
-            , withTestPact testVer pdbIO bdbIO testExpiredExtraTight2
-            , withTestPact testVer pdbIO bdbIO testJustMadeIt2
-            , withTestPact testVer pdbIO bdbIO testJustMadeIt3
+            [ withTestPact testTtlTooSmall
+            , withTestPact testTtlSmall2
+            , withTestPact testExpiredTight2
+            , withTestPact testExpiredExtraTight
+            , withTestPact testExpiredExtraTight2
+            , withTestPact testJustMadeIt2
+            , withTestPact testJustMadeIt3
             ]
         ]
 
@@ -360,22 +357,24 @@ assertDoPreBlockFailure action = try @_ @PactException action >>= \case
 data Ctx = Ctx
     { _ctxMempool :: !(MVar MemPoolAccess)
     , _ctxQueue :: !PactQueue
-    , _ctxPdb :: !(PayloadDb HashMapCas)
+    , _ctxPdb :: !(PayloadDb RocksDbCas)
     , _ctxBdb :: !BlockHeaderDb
     }
 
 withTestPact
-    :: ChainwebVersion
-    -> IO (PayloadDb HashMapCas)
-    -> IO BlockHeaderDb
-    -> (IO Ctx -> TestTree)
+    :: (IO Ctx -> TestTree)
     -> TestTree
-withTestPact v pdbIO bdbIO test = withTemporaryDir $ \dirIO ->
-    withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
-        withPact v Quiet pdbIO bdbIO (mempool mempoolVarIO) dirIO 4000 $ \queueIO ->
-            test (Ctx <$> mempoolVarIO <*> queueIO <*> pdbIO <*> bdbIO)
+withTestPact test =
+  withResource newEmptyMVar (const $ return ()) $ \mempoolVarIO ->
+    withPactTestBlockDb testVer cid Quiet (mempool mempoolVarIO) defaultPactServiceConfig $ \ios ->
+      test $ do
+        (pq,bdb) <- ios
+        mp <- mempoolVarIO
+        bhdb <- getBlockHeaderDb cid bdb
+        return $ Ctx mp pq (_bdbPayloadDb bdb) bhdb
   where
-    mempool mempoolVarIO = mempty
+    cid = someChainId testVer
+    mempool mempoolVarIO = return $ mempty
         { mpaGetBlock = \val he h p ->
             mempoolVarIO >>= tryTakeMVar >>= \case
                 Nothing -> mempty

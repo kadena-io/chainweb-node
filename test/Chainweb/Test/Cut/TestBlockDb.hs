@@ -1,5 +1,5 @@
 -- |
--- Module: Chainweb.Cut.TestBlockDb
+-- Module: Chainweb.Test.Cut.TestBlockDb
 -- Copyright: Copyright © 2020 Kadena LLC.
 -- License: MIT
 -- Maintainer: Stuart Popejoy
@@ -7,23 +7,28 @@
 -- Maintains block header and payload dbs alongside a current cut.
 --
 
-module Chainweb.Cut.TestBlockDb
+module Chainweb.Test.Cut.TestBlockDb
   ( TestBlockDb(..)
   , withTestBlockDb
   , mkTestBlockDb
   , addTestBlockDb
   , getParentTestBlockDb
+  , getBlockHeaderDb
+  -- convenience export
+  , RocksDbCas
   ) where
 
 import Control.Concurrent.MVar
+import Control.Monad.Catch
 import Data.Bifunctor (first)
 import qualified Data.HashMap.Strict as HM
 import Data.Tuple.Strict (T2(..))
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
-import Chainweb.Cut.Test
+import Chainweb.Test.Cut
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB
@@ -71,3 +76,8 @@ getParentTestBlockDb (TestBlockDb _ _ cmv) cid = do
   c <- readMVar cmv
   fromMaybeM (userError $ "Internal error, parent not found for cid " ++ show cid) $
     HM.lookup cid $ _cutMap c
+
+-- | Convenience accessor
+getBlockHeaderDb :: MonadThrow m => ChainId -> TestBlockDb -> m BlockHeaderDb
+getBlockHeaderDb cid (TestBlockDb wdb _ _) =
+  getWebBlockHeaderDb wdb cid

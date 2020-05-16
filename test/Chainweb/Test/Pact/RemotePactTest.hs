@@ -28,6 +28,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , polling
 , sending
 , PollingExpectation(..)
+, ChainwebNetwork(..)
 ) where
 
 import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
@@ -229,7 +230,7 @@ localChainDataTest iot nio = do
     localTestBatch iott mnonce = modifyMVar mnonce $ \(!nn) -> do
         let nonce = "nonce" <> sshow nn
         t <- toTxCreationTime <$> iott
-        kps <- testKeyPairs sender00KeyPair Nothing
+        kps <- testKeyPairs sender00 Nothing
         c <- Pact.mkExec "(chain-data)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
         pure (succ nn, SubmitBatch (pure c))
         where
@@ -281,7 +282,7 @@ sendValidationTest iot nio =
             pactSendApiClient v cid batch4
 
         step "check bad sender"
-        batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00KeyPair Nothing
+        batch5 <- mkBadGasTxBatch "(+ 1 2)" "invalid-sender" sender00 Nothing
         expectSendFailure
           "(read coin-table sender): Failure: Tx Failed: read: row not found: invalid-sender" $
           flip runClientM cenv $
@@ -333,7 +334,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     ttl = 2 * 24 * 60 * 60
 
     mkTxBatch = do
-      ks <- liftIO $ testKeyPairs sender00KeyPair Nothing
+      ks <- liftIO $ testKeyPairs sender00 Nothing
       t <- toTxCreationTime <$> iot
       let pm = Pact.PublicMeta (Pact.ChainId "1") "sender00" 100_000 0.01 ttl t
       cmd1 <- liftIO $ Pact.mkExec txcode txdata pm ks (Just "fastTimedCPM-peterson") (Just "1")
@@ -414,7 +415,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     gasError1 = "Gas limit (5) exceeded: 6"
 
     mkTxBatch code cdata limit = do
-      ks <- testKeyPairs sender00KeyPair Nothing
+      ks <- testKeyPairs sender00 Nothing
       t <- toTxCreationTime <$> iot
       let ttl = 2 * 24 * 60 * 60
           pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" limit 0.01 ttl t
@@ -435,7 +436,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     r <- flip runClientM cenv $ do
       batch <- liftIO
-        $ mkSingletonBatch iot sender00KeyPair tx0 n0 (pm "sender00") clist
+        $ mkSingletonBatch iot sender00 tx0 n0 (pm "sender00") clist
 
       testCaseStep "send transfer request with caplist sender00 -> sender01"
       rks <- liftIO $ sending sid cenv batch
@@ -461,8 +462,8 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     clist :: Maybe [SigCapability]
     clist = Just $
-      [ mkCoinSig "GAS" []
-      , mkCoinSig "TRANSFER"
+      [ mkCoinCap "GAS" []
+      , mkCoinCap "TRANSFER"
           [ PLiteral $ LString "sender00"
           , PLiteral $ LString "sender01"
           , PLiteral $ LDecimal 100.0
@@ -471,6 +472,30 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     tx0 = PactTransaction "(coin.transfer \"sender00\" \"sender01\" 100.0)" Nothing
 
+
+allocation00KeyPair :: SimpleKeyPair
+allocation00KeyPair =
+    ( "d82d0dcde9825505d86afb6dcc10411d6b67a429a79e21bda4bb119bf28ab871"
+    , "c63cd081b64ae9a7f8296f11c34ae08ba8e1f8c84df6209e5dee44fa04bcb9f5"
+    )
+
+allocation01KeyPair :: SimpleKeyPair
+allocation01KeyPair =
+    ( "b4c8a3ea91d3146b0560994740f0e3eed91c59d2eeca1dc99f0c2872845c294d"
+    , "5dbbbd8b765b7d0cf8426d6992924b057c70a2138ecd4cf60cfcde643f304ea9"
+    )
+
+allocation02KeyPair :: SimpleKeyPair
+allocation02KeyPair =
+    ( "e9e4e71bd063dcf7e06bd5b1a16688897d15ca8bd2e509c453c616219c186cc5"
+    , "45f026b7a6bb278ed4099136c13e842cdd80138ab7c5acd4a1f0e6c97d1d1e3c"
+    )
+
+allocation02KeyPair' :: SimpleKeyPair
+allocation02KeyPair' =
+    ( "0c8212a903f6442c84acd0069acc263c69434b5af37b2997b16d6348b53fcd0a"
+    , "2f75b5d875dd7bf07cc1a6973232a9e53dc1d4ffde2bab0bbace65cd87e87f53"
+    )
 
 allocationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
@@ -600,9 +625,26 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 -- -------------------------------------------------------------------------- --
 -- Utils
 
+
+data PactTransaction = PactTransaction
+  { _pactCode :: Text
+  , _pactData :: Maybe A.Value
+  } deriving (Eq, Show)
+
+
+data PactTestFailure
+    = PollingFailure String
+    | SendFailure String
+    | LocalFailure String
+    | SpvFailure String
+    deriving Show
+
+instance Exception PactTestFailure
+
+
 mkSingletonBatch
     :: IO (Time Micros)
-    -> ChainwebKeyPair
+    -> SimpleKeyPair
     -> PactTransaction
     -> Maybe String
     -> (Pact.TxCreationTime -> Pact.PublicMeta)
@@ -777,7 +819,7 @@ testBatch'' :: Pact.ChainId -> IO (Time Micros) -> Integer -> MVar Int -> GasPri
 testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do
     let nonce = "nonce" <> sshow nn
     t <- toTxCreationTime <$> iot
-    kps <- testKeyPairs sender00KeyPair Nothing
+    kps <- testKeyPairs sender00 Nothing
     c <- Pact.mkExec "(+ 1 2)" A.Null (pm t) kps (Just "fastTimedCPM-peterson") (Just nonce)
     pure (succ nn, SubmitBatch (pure c))
   where
@@ -796,6 +838,8 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
 -- test node(s), config, etc. for this test
 --------------------------------------------------------------------------------
 
+newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
+
 withNodes
     :: RocksDb
     -> Natural
@@ -808,7 +852,7 @@ withNodes rdb n f = withResource start
     start :: IO (Async (), ClientEnv)
     start = do
         peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes rdb Warn v n peerInfoVar
+        a <- async $ runTestNodes rdb Quiet v n peerInfoVar
         i <- readMVar peerInfoVar
         cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
         return (a, cwEnv)
