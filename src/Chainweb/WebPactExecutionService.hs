@@ -64,9 +64,9 @@ data PactExecutionService = PactExecutionService
       -- Corresponds to `local` HTTP endpoint.
     , _pactLookup :: !(
         Rewind
-        -- ^ restore point, either a block header or the current "head" of the pact service.
+        -- restore point, either a block header or the current "head" of the pact service.
         -> Vector PactHash
-        -- ^ txs to lookup
+        -- txs to lookup
         -> IO (Either PactException (Vector (Maybe (T2 BlockHeight BlockHash))))
         )
       -- ^ Lookup pact hashes as of a block header to detect duplicates

@@ -105,6 +105,8 @@ import Utils.Logging
 import Utils.Logging.Config
 import Utils.Logging.Trace
 
+import Utils.InstallSignalHandlers
+
 -- -------------------------------------------------------------------------- --
 -- Configuration
 
@@ -479,12 +481,15 @@ mainInfo = programInfoValidate
     validateChainwebNodeConfiguration
 
 main :: IO ()
-main = runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
-    let v = _configChainwebVersion $ _nodeConfigChainweb conf
-    hSetBuffering stderr LineBuffering
-    withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
-        kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
-        withKillSwitch (logFunctionText logger) kt $
-            node conf logger
+main = do
+    installSignalHandlers
+    runWithPkgInfoConfiguration mainInfo pkgInfo $ \conf -> do
+        let v = _configChainwebVersion $ _nodeConfigChainweb conf
+        hSetBuffering stderr LineBuffering
+        withNodeLogger (_nodeConfigLog conf) v $ \logger -> do
+            kt <- mapM (parseTimeM False defaultTimeLocale timeFormat) killSwitchDate
+            withKillSwitch (logFunctionText logger) kt $
+                node conf logger
   where
     timeFormat = iso8601DateFormat (Just "%H:%M:%SZ")
+
