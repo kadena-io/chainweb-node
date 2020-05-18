@@ -187,10 +187,8 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
 -- Block Handlers
 
 type CoinbaseCommandResult = CommandResult Hash
-
-newtype FundTxLogs = FundTxLogs (T2 TxId [TxLog Value])
-newtype GasPaymentLogs = GasPaymentLogs (T2 TxId [TxLog Value])
-newtype TransferLogs = TransferLogs (T2 TxId [TxLog Value])
+type AccountLog = (T.Text, Decimal, Value)
+type UnindexedOperation = (Word64 -> Operation)
 
 data RosettaOperationStatus =
     Successful
@@ -214,12 +212,12 @@ blockH v (BlockReq net (PartialBlockId bheight bhash)) =
     block bh txs = Block
       { _block_blockId = blockId bh
       , _block_parentBlockId = parentBlockId bh
-      , _block_timestamp = timestamp bh
+      , _block_timestamp = rosettaTimestamp bh
       , _block_transactions = txs
       , _block_metadata = Nothing
       }
 
-    getTxLogs :: BlockHeader -> IO (Map TxId [TxLog Value])
+    getTxLogs :: BlockHeader -> IO (Map TxId [AccountLog])
     getTxLogs = undefined
 
     work :: ExceptT RosettaFailure Handler BlockResp
@@ -228,14 +226,104 @@ blockH v (BlockReq net (PartialBlockId bheight bhash)) =
       bh <- findBlockHeaderInCurrFork v cid bheight bhash
       (coinbaseOut, txsOut) <- getBlockOutputs bh
       logs <- liftIO $ getTxLogs bh
+      trans <- (getBlockTxs bh logs coinbaseOut txsOut) ?? RosettaUnparsableTxLogs
+      pure $ BlockResp
+        { _blockResp_block = block bh trans
+        , _blockResp_otherTransactions = Nothing
+        }
 
-      undefined
+getBlockTxs
+    :: BlockHeader
+    -> Map TxId [AccountLog]
+    -> CoinbaseCommandResult
+    -> [CommandResult Hash]
+    -> Maybe [Transaction]
+getBlockTxs bh logs coinbase rest
+  | (_blockHeight bh == 0) = genesisTransactions logs rest
+  | otherwise = nonGenesisTransactions logs coinbase rest
 
 
-groupTxLogs :: V.Vector (TxId, [TxLog Value]) -> [CommandResult Hash] -> Maybe [Transaction]
-groupTxLogs allLogs allTxs = do
+-- Genesis transactions have no coinbase or gas payments.
+genesisTransactions
+    :: Map TxId [AccountLog]
+    -> [CommandResult Hash]
+    -> Maybe [Transaction]
+genesisTransactions logs crs = sequence $ map f crs
+  where
+    makeOps tid l = indexedOperations $
+      map (operation Successful TransferOrCreateAcct tid) l
+    f cr = case (_crTxId cr) of
+      Nothing -> pure $ rosettaTransaction cr []
+      Just tid -> do
+        l <- M.lookup tid logs
+        pure $ rosettaTransaction cr $ makeOps tid l
+
+-- The first transaction in non-genesis block is coinbase transaction.
+-- For each following transaction, each has logs that fund the transaction,
+-- interact with the coin contract (optional), and pay gas to the miner.
+nonGenesisTransactions
+    :: Map TxId [AccountLog]
+    -> CoinbaseCommandResult
+    -> [CommandResult Hash]
+    -> Maybe [Transaction]
+nonGenesisTransactions logs coinbaseCr crs = do
+  coinbaseTid <- _crTxId coinbaseCr
+  coinbaseTx <- do
+    l <- M.lookup coinbaseTid logs
+    let ops = indexedOperations $
+          map (operation Successful CoinbaseReward coinbaseTid) l
+    pure $ rosettaTransaction coinbaseCr ops
+  (_,ts) <- foldl' acc (Just (succ coinbaseTid, [])) crs
+  pure $ coinbaseTx : (reverse ts)
+
+  where
+    -- Allows for O(1) lookup by index
+    --logsVector = V.fromList undefined -- TODO
+
+    getLogs
+        :: TxId
+        -> OperationType
+        -> Maybe (TxId, [UnindexedOperation])
+    getLogs tid otype = do
+      l <- M.lookup tid logs
+      let opsF = map (operation Successful otype tid) l
+      pure $ (succ tid, opsF)
+
+    getTransferLogs
+        :: TxId
+        -> Maybe TxId
+        -> Maybe (TxId, [UnindexedOperation])
+    getTransferLogs expected actual
+      | (actual == Just expected) = getLogs expected TransferOrCreateAcct
+      | (actual == Nothing) = pure $ (expected, [])
+      | otherwise = Nothing
+
+    acc
+        :: Maybe (TxId, [Transaction])
+        -> CommandResult Hash
+        -> Maybe (TxId, [Transaction])
+    acc Nothing _ = Nothing
+    acc (Just (tid,ts)) cr = do
+      (transferTid, fund) <- getLogs tid FundTx
+      (gasTid, transfer) <- getTransferLogs transferTid (_crTxId cr)
+      (nextTid, gas) <- getLogs gasTid GasPayment
+      let ops = indexedOperations $ fund ++ transfer ++ gas
+          tx = rosettaTransaction cr ops
+      pure $ (nextTid, tx:ts)
+
+
+-- TODO: delete, similar to nonGenesisTransactions but uses vector.
+_groupTxLogs
+  :: V.Vector (TxId, [AccountLog])
+  -> CoinbaseCommandResult
+  -> [CommandResult Hash]
+  -> Maybe [Transaction]
+_groupTxLogs allLogs coinbaseRes allTxs = do
+  coinbaseLogs <- allLogs V.!? 0
+  coinbaseTx <- getCoinbaseRosettaTx coinbaseLogs coinbaseRes
   T2 _ ts <- foldl' acc (Just $ T2 1 []) allTxs
-  pure ts
+  -- when statement to check that went through all of txids
+  pure (coinbaseTx : ts)
   where
     acc :: Maybe (T2 Int [Transaction]) -> CommandResult Hash -> Maybe (T2 Int [Transaction])
     acc Nothing _ = Nothing
@@ -243,86 +331,45 @@ groupTxLogs allLogs allTxs = do
       (transferIdx, fund) <- fundLogs idx
       (gasIdx, transfer) <- transferLogs transferIdx
       (nextIdx, gas) <- gasLogs gasIdx
-      tx' <- createRosettaTx res fund transfer gas
+      let ops = indexedOperations $ fund ++ transfer ++ gas
+          tx' = rosettaTransaction res ops
       pure $ T2 nextIdx (tx' : txs) -- TODO: order?
       where
-        fundLogs :: Int -> Maybe (Int, FundTxLogs)
+        fundLogs :: Int -> Maybe (Int, [UnindexedOperation])
         fundLogs i = do
           (tid, l) <- allLogs V.!? i
-          pure (succ i, FundTxLogs $ T2 tid l)
+          let opsF = map (operation Successful FundTx tid) l
+          pure (succ i, opsF)
 
-        transferLogs :: Int -> Maybe (Int, Maybe TransferLogs)
+        transferLogs :: Int -> Maybe (Int, [UnindexedOperation])
         transferLogs i = do
           (tid, l) <- allLogs V.!? i
           if (_crTxId res == Just tid)
-            then pure $ (succ i, Just $ TransferLogs $ T2 tid l)
-            else pure $ (i, Nothing)
+            then pure $ (succ i, opsF l tid)
+            else pure $ (i, [])
+          where
+            opsF li tid =
+              map (operation Successful TransferOrCreateAcct tid) li
 
-        gasLogs :: Int -> Maybe (Int, GasPaymentLogs)
+        gasLogs :: Int -> Maybe (Int, [UnindexedOperation])
         gasLogs i = do
           (tid, l) <- allLogs V.!? i
-          pure (succ i, GasPaymentLogs $ T2 tid l)
+          let opF = map (operation Successful GasPayment tid) l
+          pure (succ i, opF)
 
-createRosettaTx
-    :: CommandResult Hash
-    -> FundTxLogs
-    -> Maybe TransferLogs
-    -> GasPaymentLogs
-    -> Maybe Transaction
-createRosettaTx cr fund transfer gas = do
-  let (FundTxLogs (T2 ftid flogs)) = fund
-      (GasPaymentLogs (T2 gtid glogs)) = gas
-      allFundsF = map (txLogToOperation FundTx Successful ftid) flogs
-      allGasF = map (txLogToOperation GasPayment Successful gtid) glogs
-      allTransferF = case transfer of
-        Just (TransferLogs (T2 ttid tlogs)) ->
-          map (txLogToOperation TransferOrCreateAcct Successful ttid) tlogs
-        Nothing -> []
-      allF = allFundsF ++ allTransferF ++ allGasF -- TODO: more efficient way?
-
-  allOp <- sequence $ zipWith (\f idx -> f idx) allF [(0 :: Word64)..]
-  pure $ Transaction
-    { _transaction_transactionId = TransactionId $ requestKeyToB16Text (_crReqKey cr)
-    , _transaction_operations = allOp
-    , _transaction_metadata = txMeta
-    }
-  where
-    -- Include information on related transactions (i.e. continuations)
-    txMeta = case _crContinuation cr of
-      Nothing -> Nothing
-      Just pe -> Just $ HM.fromList [("related-transaction", toJSON pe)]   -- TODO: document, nicer?
-
-txLogToOperation
-    :: OperationType
-    -> RosettaOperationStatus
-    -> TxId
-    -> TxLog Value
-    -> Word64
-    -> Maybe Operation
-txLogToOperation otype ostatus txid (TxLog _ key (Object row)) idx = do
-  guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
-  (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
-  let acctId = AccountId
-        { _accountId_address = key
-        , _accountId_subAccount = Nothing  -- assumes coin acct contract only
-        , _accountId_metadata = Just $ HM.fromList [("ownership", guard)]  -- TODO: document
-        }
-  pure $ Operation
-    { _operation_operationId = OperationId idx Nothing
-    , _operation_relatedOperations = Nothing -- TODO: implement
-    , _operation_type = sshow otype
-    , _operation_status = sshow ostatus
-    , _operation_account = Just acctId
-    , _operation_amount = Just $ kdaToRosettaAmount bal
-    , _operation_metadata = Just $ HM.fromList [("txId", toJSON txid)] -- TODO: document
-    }
-txLogToOperation _ _ _ _ _ = Nothing
+    getCoinbaseRosettaTx :: (TxId, [AccountLog]) -> CoinbaseCommandResult -> Maybe Transaction
+    getCoinbaseRosettaTx (tid, [coinbaseLog]) cr
+      | (Just tid == _crTxId cr) =
+        let op = operation Successful CoinbaseReward tid coinbaseLog 0
+        in pure $ rosettaTransaction cr [op]
+      | otherwise = Nothing
+    getCoinbaseRosettaTx _ _ = Nothing
 
 
 -- TODO
 getBlockOutputs
     :: BlockHeader
-    -> ExceptT RosettaFailure Handler (CoinbaseCommandResult, Map RequestKey (CommandResult Hash))
+    -> ExceptT RosettaFailure Handler (CoinbaseCommandResult, [CommandResult Hash])
 getBlockOutputs = undefined
 
 
@@ -493,7 +540,7 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
     resp :: BlockHeader -> BlockHeader -> [PeerInfo] -> NetworkStatusResp
     resp bh genesis ps = NetworkStatusResp
       { _networkStatusResp_currentBlockId = blockId bh
-      , _networkStatusResp_currentBlockTimestamp = timestamp bh
+      , _networkStatusResp_currentBlockTimestamp = rosettaTimestamp bh
       , _networkStatusResp_genesisBlockId = blockId genesis
       , _networkStatusResp_peers = rosettaNodePeers ps
       }
@@ -544,10 +591,59 @@ blockId bh = BlockId
   , _blockId_hash = blockHashToText (_blockHash bh)
   }
 
+txLogToAccountInfo :: TxLog Value -> Maybe AccountLog
+txLogToAccountInfo (TxLog _ key (Object row)) = do
+  guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
+  (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
+  pure $ (key, bal, guard)
+txLogToAccountInfo _ = Nothing
+
+rosettaTransaction :: CommandResult Hash -> [Operation] -> Transaction
+rosettaTransaction cr ops =
+  Transaction
+    { _transaction_transactionId = TransactionId $ requestKeyToB16Text (_crReqKey cr)
+    , _transaction_operations = ops
+    , _transaction_metadata = txMeta
+    }
+  where
+    -- Include information on related transactions (i.e. continuations)
+    txMeta = case _crContinuation cr of
+      Nothing -> Nothing
+      Just pe -> Just $ HM.fromList [("related-transaction", toJSON pe)]   -- TODO: document, nicer?
+
+indexedOperations :: [UnindexedOperation] -> [Operation]
+indexedOperations logs = zipWith (\f i -> f i) logs [(0 :: Word64)..]
+
+operation
+    :: RosettaOperationStatus
+    -> OperationType
+    -> TxId
+    -> AccountLog
+    -> Word64
+    -> Operation
+operation ostatus otype txid (key, bal, guard) idx =
+  Operation
+    { _operation_operationId = OperationId idx Nothing
+    , _operation_relatedOperations = Nothing -- TODO: implement
+    , _operation_type = sshow otype
+    , _operation_status = sshow ostatus
+    , _operation_account = Just accountId
+    , _operation_amount = Just $ kdaToRosettaAmount bal
+    , _operation_metadata = Just $ HM.fromList [("txId", toJSON txid)] -- TODO: document
+    }
+  where
+    accountId = AccountId
+      { _accountId_address = key
+      , _accountId_subAccount = Nothing  -- assumes coin acct contract only
+      , _accountId_metadata = Just accountIdMeta
+      }
+    accountIdMeta = HM.fromList [("ownership", guard)]  -- TODO: document
+
+
 -- Timestamp of the block in milliseconds since the Unix Epoch.
 -- NOTE: Chainweb provides this timestamp in microseconds.
-timestamp :: BlockHeader -> Word64
-timestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
+rosettaTimestamp :: BlockHeader -> Word64
+rosettaTimestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
   where
     msTime = int $ microTime `div` ms
     TimeSpan ms = millisecond

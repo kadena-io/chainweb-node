@@ -102,6 +102,7 @@ data RosettaFailure
     | RosettaExpectedBalDecimal
     | RosettaInvalidResultMetaData
     | RosettaSubAcctUnsupported
+    | RosettaUnparsableTxLogs
     deriving (Show, Enum, Bounded)
 
 
@@ -122,6 +123,7 @@ rosettaError RosettaPactErrorThrown = RosettaError 8 "Transaction failed with a 
 rosettaError RosettaExpectedBalDecimal = RosettaError 9 "Expected balance as a decimal" False
 rosettaError RosettaInvalidResultMetaData = RosettaError 10 "Invalid meta data field in command result" False
 rosettaError RosettaSubAcctUnsupported = RosettaError 11 "Sub account identifier is not supported" False
+rosettaError RosettaUnparsableTxLogs = RosettaError 12 "Could not parse Chainweb block's transaction logs" False
 
 
 throwRosetta :: RosettaFailure -> Handler a
