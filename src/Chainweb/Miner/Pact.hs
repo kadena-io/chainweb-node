@@ -29,7 +29,6 @@ module Chainweb.Miner.Pact
   -- * Optics
 , minerId
 , minerKeys
-, minerRewards
   -- * Defaults
 , noMiner
 , defaultMiner
@@ -147,11 +146,6 @@ newtype MinerRewards = MinerRewards
     { _minerRewards :: Map BlockHeight Decimal
       -- ^ The map of blockheight thresholds to miner rewards
     } deriving (Eq, Ord, Show, Generic)
-
--- | A getter into the map of heights to rewards
---
-minerRewards :: Getter MinerRewards (Map BlockHeight Decimal)
-minerRewards = to _minerRewards
 
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
