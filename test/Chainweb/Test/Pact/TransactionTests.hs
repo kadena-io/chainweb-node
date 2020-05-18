@@ -95,7 +95,7 @@ tests = testGroup "Chainweb.Test.Pact.TransactionTests"
 
 ccReplTests :: FilePath -> Assertion
 ccReplTests ccFile = do
-    (r, rst) <- execScript' (Script False ccFile) ccFile
+    (r, rst) <- execScript' Quiet ccFile
     either fail (\_ -> execRepl rst) r
   where
     execRepl rst = do
@@ -110,7 +110,7 @@ loadCC = loadScript coinRepl
 
 loadScript :: FilePath -> IO (PactDbEnv LibState, ModuleCache)
 loadScript fp = do
-  (r, rst) <- execScript' (Script False coinRepl) fp
+  (r, rst) <- execScript' Quiet fp
   either fail (const $ return ()) r
   let pdb = PactDbEnv
             (view (rEnv . eePactDb) rst)
