@@ -25,12 +25,13 @@ module Chainweb.Pact.Backend.ChainwebPactDb
 , backendWriteUpdateBatch
 , createUserTable
 , vacuumDb
+, toTxLog
 ) where
 
 import Control.Applicative
 import Control.Lens
 import Control.Monad
-import Control.Monad.Catch (throwM)
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
@@ -523,29 +524,32 @@ doGetTxLog d txid = do
         pb <- use bsPendingBlock
         let deltas = (ptx ++ [pb]) >>= HashMap.elems . _pendingWrites >>= takeHead . DL.toList
         let ourDeltas = filter predicate deltas
-        mapM (\x -> toTxLog (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
+        mapM (\x -> toTxLog d (Utf8 $ _deltaRowKey x) (_deltaData x)) ourDeltas
 
     readFromDb = do
         rows <- callDb "doGetTxLog" $ \db -> qry db stmt
           [ SInt (fromIntegral txid) ]
           [RText, RBlob]
         forM rows $ \case
-            [SText key, SBlob value] -> toTxLog key value
+            [SText key, SBlob value] -> toTxLog d key value
             err -> internalError $
-              "doGetTxLog: Expected single row with two columns as the \
+              "readHistoryResult: Expected single row with two columns as the \
               \result, got: " <> T.pack (show err)
+    stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
+                   , tableName
+                   , "] WHERE txid = ?"
+                   ]
 
-    toTxLog key value =
+
+toTxLog :: (MonadThrow m, FromJSON v, FromJSON l) =>
+           Domain k v -> Utf8 -> ByteString -> m (TxLog l)
+toTxLog d key value =
         case Data.Aeson.decodeStrict' value of
             Nothing -> internalError $
-              "doGetTxLog: Unexpected value, unable to deserialize log"
+              "toTxLog: Unexpected value, unable to deserialize log"
             Just v ->
               return $! TxLog (toS $ unwrap $ domainTableName d) (toS $ unwrap key) v
 
-    stmt = mconcat [ "SELECT rowkey, rowdata FROM ["
-                , tableName
-                , "] WHERE txid = ?"
-                ]
 
 unwrap :: Utf8 -> BS.ByteString
 unwrap (Utf8 str) = str

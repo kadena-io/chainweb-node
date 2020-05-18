@@ -478,8 +478,9 @@ fakePact = WebPactExecutionService $ PactExecutionService
             $ (\x -> (x, getFakeOutput x)) <$> payloadDat
 
   , _pactLocal = \_t -> error "Unimplemented"
-  , _pactLookup = error "Unimplemented"
-  , _pactPreInsertCheck = error "_pactPreInsertCheck: unimplemented"
+  , _pactLookup = \_ _ -> error "Unimplemented"
+  , _pactPreInsertCheck = \_ _ -> error "Unimplemented"
+  , _pactBlockTxHistory = \_ _ -> error "Unimplemented"
   }
   where
     getFakeOutput (Transaction txBytes) = TransactionOutput txBytes

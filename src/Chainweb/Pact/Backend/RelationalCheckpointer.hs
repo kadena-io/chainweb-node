@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -18,12 +19,16 @@ module Chainweb.Pact.Backend.RelationalCheckpointer
 import Control.Concurrent.MVar
 import Control.Lens
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State (gets)
 
 import Data.ByteString (ByteString)
+import Data.Aeson hiding (encode,(.=))
 import qualified Data.DList as DL
-import Data.Foldable (toList)
+import Data.Foldable (toList,foldl')
+import Data.Int
+import qualified Data.Map.Strict as M
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
 import Data.Serialize hiding (get)
@@ -32,7 +37,7 @@ import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Vector.Algorithms.Tim as TimSort
 
-import Database.SQLite3.Direct (Utf8(..))
+import Database.SQLite3.Direct
 
 import Prelude hiding (log)
 
@@ -41,15 +46,18 @@ import Prelude hiding (log)
 import Pact.Interpreter (PactDbEnv(..))
 import Pact.Types.Hash (PactHash, TypedHash(..))
 import Pact.Types.Logger (Logger(..))
+import Pact.Types.Persistence
 import Pact.Types.SQLite
 
 -- chainweb
 import Chainweb.BlockHash
+import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.ChainwebPactDb
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
-import Chainweb.Pact.Service.Types (internalError)
+import Chainweb.Pact.Service.Types
+import Chainweb.Utils
 import Chainweb.Version
 
 
@@ -90,6 +98,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v = do
               , _cpGetBlockParent = doGetBlockParent db
               , _cpRegisterProcessedTx = doRegisterSuccessful db
               , _cpLookupProcessedTx = doLookupSuccessful db
+              , _cpGetBlockHistory = doGetBlockHistory db
               }
         , _cpeLogger = loggr
         })
@@ -256,3 +265,41 @@ doLookupSuccessful dbenv (TypedHash hash) = runBlockEnv dbenv $ do
         !hsh <- either fail return $ Data.Serialize.decode blob
         return $! T2 (fromIntegral h) hsh
     go _ = fail "impossible"
+
+doGetBlockHistory :: FromJSON v => Db -> BlockHeader -> Domain k v -> IO BlockTxHistory
+doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
+  callDb "doGetBlockHistory" $ \db -> do
+    endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
+    startTxId <- getEndTxId db (pred bHeight) (_blockParent blockHeader)
+    history <- queryHistory db (domainTableName d) startTxId endTxId
+    return $! BlockTxHistory $ foldl' groupByTxid mempty history
+  where
+
+    bHeight = _blockHeight blockHeader
+
+    groupByTxid :: Ord a => M.Map a [b] -> (a,b) -> M.Map a [b]
+    groupByTxid r (t,l) = M.insertWith (++) t [l] r
+
+    getEndTxId db bhi bha = do
+      r <- qry db
+        "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
+        [SInt $ fromIntegral $ bhi, SBlob $ encode $ bha]
+        [RInt]
+      case r of
+        [[SInt tid]] -> return tid
+        [] -> throwM $ BlockHeaderLookupFailure $ "doGetBlockHistory: not in db: " <>
+              sshow (bhi,bha)
+        _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
+
+    queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(TxId,TxLog Value)]
+    queryHistory db tableName s e = do
+      let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
+                "] WHERE txid > ? AND txid <= ?"
+      r <- qry db sql
+           [SInt s,SInt e]
+           [RInt,RText,RBlob]
+      forM r $ \case
+        [SInt txid, SText key, SBlob value] -> (fromIntegral txid,) <$> toTxLog d key value
+        err -> internalError $
+               "readHistoryResult': Expected single row with three columns as the \
+               \result, got: " <> T.pack (show err)

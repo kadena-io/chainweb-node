@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -19,21 +20,28 @@ module Chainweb.Rosetta.RestAPI
   , RosettaFailure(..)
   , rosettaError
   , throwRosetta
+  , validateNetwork
   ) where
 
+import Control.Error.Util
+import Control.Monad (when)
 import Control.Monad.Except (throwError)
+import Control.Monad.Trans.Except (ExceptT)
 
 import Data.Aeson (encode)
-import Data.Text (Text)
+import qualified Data.Text as T
 
 import Rosetta
 
 import Servant.API
 import Servant.Server
 
+import Text.Read (readMaybe)
+
 -- internal modules
 
 import Chainweb.RestAPI.Utils (ChainwebEndpoint(..), Reassoc)
+import Chainweb.Utils
 import Chainweb.Version
 
 ---
@@ -77,15 +85,42 @@ type RosettaApi_ =
 
 type RosettaApi (v :: ChainwebVersionT) = 'ChainwebEndpoint v :> Reassoc RosettaApi_
 
+-- TODO: Investigate if Rosetta Erros can be dynamic
 data RosettaFailure
     = RosettaChainUnspecified
-    | RosettaInvalidChain Text
+    | RosettaInvalidChain
     | RosettaMempoolBadTx
+    | RosettaUnparsableTx
+    | RosettaInvalidTx
+    | RosettaInvalidBlockchainName
+    | RosettaMismatchNetworkName
+    deriving (Show, Enum, Bounded)
 
+-- TODO: Better grouping of rosetta error index
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
-rosettaError (RosettaInvalidChain cid) = RosettaError 1 ("Invalid chain value: " <> cid) False
+rosettaError RosettaInvalidChain = RosettaError 1 "Invalid chain value" False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
+rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" False
+rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
+rosettaError RosettaInvalidBlockchainName = RosettaError 5 "Invalid blockchain name" False
+rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb network name" False
 
 throwRosetta :: RosettaFailure -> Handler a
 throwRosetta e = throwError err500 { errBody = encode $ rosettaError e }
+
+-- | Every Rosetta request that requires a `NetworkId` also requires a
+-- `SubNetworkId`, at least in the case of Chainweb.
+validateNetwork :: Monad m => ChainwebVersion -> NetworkId -> ExceptT RosettaFailure m ChainId
+validateNetwork v (NetworkId bc n msni) = do
+    when (bc /= "kadena") $ throwError RosettaInvalidBlockchainName
+    when (Just v /= fromText n) $ throwError RosettaMismatchNetworkName
+    SubNetworkId cid _ <- msni ?? RosettaChainUnspecified
+    readChainIdText v cid ?? RosettaInvalidChain
+
+-- | Guarantees that the `ChainId` given actually belongs to this
+-- `ChainwebVersion`.
+readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
+readChainIdText v c = do
+  cid <- readMaybe @Word (T.unpack c)
+  mkChainId v cid
