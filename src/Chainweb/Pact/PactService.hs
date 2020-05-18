@@ -912,7 +912,7 @@ minerReward v (MinerRewards rs q) bh = case V.find (bh <=) q of
       Nothing -> err
       Just m -> pure $! P.ParsedDecimal (roundTo 8 (m / n))
   where
-    !n = int $! order (chainGraphAt v bh)
+    !n = view (chainGraph . to (int . order)) v
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
