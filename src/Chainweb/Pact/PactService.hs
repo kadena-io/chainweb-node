@@ -906,11 +906,10 @@ minerReward
     -> MinerRewards
     -> BlockHeight
     -> IO P.ParsedDecimal
-minerReward v (MinerRewards rs q) bh = case V.find (bh <=) q of
-    Nothing -> err
-    Just h -> case HM.lookup h rs of
+minerReward v (MinerRewards rs) bh =
+    case Map.lookupGE bh rs of
       Nothing -> err
-      Just m -> pure $! P.ParsedDecimal (roundTo 8 (m / n))
+      Just (_, m) -> pure $! P.ParsedDecimal (roundTo 8 (m / n))
   where
     !n = view (chainGraph . to (int . order)) v
     err = internalError "block heights have been exhausted"
