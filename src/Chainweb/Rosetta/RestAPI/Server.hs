@@ -17,7 +17,9 @@
 module Chainweb.Rosetta.RestAPI.Server where
 
 import Control.Error.Util
+import Control.Lens ((^?))
 import Control.Monad (void)
+import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -25,6 +27,7 @@ import Data.Aeson
 import Data.Bifunctor
 import Data.Map (Map)
 import Data.Decimal
+import Data.CAS
 import Data.List (foldl')
 import Data.String
 import Data.Proxy (Proxy(..))
@@ -45,7 +48,7 @@ import Numeric.Natural
 import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), TxLog(..))
+import Pact.Types.Runtime (TxId(..), TxLog(..), Domain(..))
 import Pact.Types.RPC
 import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Pretty (renderCompactText)
@@ -59,7 +62,7 @@ import Servant.Server
 -- internal modules
 
 import Chainweb.BlockCreationTime (BlockCreationTime(..))
-import Chainweb.BlockHash (blockHashToText)
+import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeight (BlockHeight(..))
@@ -70,11 +73,13 @@ import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Templates
+import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Transaction (ChainwebTransaction)
+import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -204,8 +209,13 @@ data OperationType =
   | TransferOrCreateAcct
   deriving (Enum, Bounded, Show)
 
-blockH :: ChainwebVersion -> BlockReq -> Handler BlockResp
-blockH v (BlockReq net (PartialBlockId bheight bhash)) =
+blockH
+    :: ChainwebVersion
+    -> CutDb cas
+    -> [(ChainId, ChainResources a)]
+    -> BlockReq
+    -> Handler BlockResp
+blockH v cutDb crs (BlockReq net (PartialBlockId bheight bhash)) =
   runExceptT work >>= either throwRosetta pure
   where
     block :: BlockHeader -> [Transaction] -> Block
@@ -217,16 +227,29 @@ blockH v (BlockReq net (PartialBlockId bheight bhash)) =
       , _block_metadata = Nothing
       }
 
-    getTxLogs :: BlockHeader -> IO (Map TxId [AccountLog])
-    getTxLogs = undefined
+    getTxLogs
+        :: PactExecutionService
+        -> BlockHeader
+        -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
+    getTxLogs cr bh = do
+      (BlockTxHistory hist) <- do
+        h <- liftIO $ (_pactBlockTxHistory cr) bh d
+        (hush h) ?? RosettaPactExceptionThrown
+      let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
+      if (M.size histParsed == M.size hist)
+        then pure histParsed
+        else throwError RosettaUnparsableTxLog
+      where
+        d = (Domain' (UserTables "coin_coin-table"))
 
     work :: ExceptT RosettaFailure Handler BlockResp
     work = do
       cid <- validateNetwork v net
-      bh <- findBlockHeaderInCurrFork v cid bheight bhash
+      cr <- lookup cid crs ?? RosettaInvalidChain
+      bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbaseOut, txsOut) <- getBlockOutputs bh
-      logs <- liftIO $ getTxLogs bh
-      trans <- (getBlockTxs bh logs coinbaseOut txsOut) ?? RosettaUnparsableTxLogs
+      logs <- getTxLogs (_chainResPact cr) bh
+      trans <- (getBlockTxs bh logs coinbaseOut txsOut) ?? RosettaMismatchTxLogs
       pure $ BlockResp
         { _blockResp_block = block bh trans
         , _blockResp_otherTransactions = Nothing
@@ -248,7 +271,7 @@ genesisTransactions
     :: Map TxId [AccountLog]
     -> [CommandResult Hash]
     -> Maybe [Transaction]
-genesisTransactions logs crs = sequence $ map f crs
+genesisTransactions logs crs = mapM f crs
   where
     makeOps tid l = indexedOperations $
       map (operation Successful TransferOrCreateAcct tid) l
@@ -373,18 +396,39 @@ getBlockOutputs
 getBlockOutputs = undefined
 
 
--- TODO
--- /cut to get current fork's chain hash
--- chain/1/header/branch?minheight=567820&maxheight=567820
--- /chain/1/payload/3x3f6kTQMBywYF8uBcDXHH7DW7Ah_NCHcEzhnI4FHjc=/outputs   (to get the outputs)
--- In the current fork
 findBlockHeaderInCurrFork
-    :: ChainwebVersion
+    :: CutDb cas
     -> ChainId
     -> Maybe Word64
+    -- ^ Block Height
     -> Maybe T.Text
+    -- ^ Block Hash
     -> ExceptT RosettaFailure Handler BlockHeader
-findBlockHeaderInCurrFork = undefined
+findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
+  latestBlock <- getLatestBlockHeader cutDb cid
+  chainDb <- (cutDb ^? cutDbBlockHeaderDb cid) ?? RosettaInvalidChain
+
+  case (someHeight, someHash) of
+    (Nothing, Nothing) -> pure latestBlock   -- assumes latest block at given chain id
+    (Just hi, Nothing) -> byHeight chainDb latestBlock hi
+    (Just hi, Just hsh) -> do
+      bh <- byHeight chainDb latestBlock hi
+      bhashExpected <- (blockHashFromText hsh) ?? RosettaUnparsableBlockHash
+      if (_blockHash bh == bhashExpected)
+        then pure bh
+        else throwError RosettaMismatchBlockHashHeight
+    (Nothing, Just hsh) -> do
+      bhash <- (blockHashFromText hsh) ?? RosettaUnparsableBlockHash
+      somebh <- liftIO $ (casLookup chainDb bhash)
+      bh <- somebh ?? RosettaBlockHashNotFound
+      isInCurrFork <- liftIO $ memberOfHeader cutDb cid bhash latestBlock
+      if isInCurrFork
+        then pure bh
+        else throwError RosettaOrphanBlockHash
+  where
+    byHeight db latest hi = do
+      somebh <- liftIO $ seekAncestor db latest (int hi)
+      somebh ?? RosettaInvalidBlockHeight
 
 --------------------------------------------------------------------------------
 -- Construction Handlers
@@ -521,8 +565,7 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
     work :: ExceptT RosettaFailure Handler NetworkStatusResp
     work = do
         cid <- validateNetwork v nid
-        c <- liftIO $ _cut cutDb
-        bh <- getBlockHeader c cid
+        bh <- getLatestBlockHeader cutDb cid
         let genesisBh = genesisBlockHeader v cid
         -- TODO: Will this throw Handler error? How to wrap as Rosetta Error?
         peers <- lift $ _pageItems <$>
@@ -533,9 +576,6 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
           (Just $ Limit maxRosettaNodePeerLimit)
           Nothing
         pure $ resp bh genesisBh peers
-
-    getBlockHeader :: Cut -> ChainId -> ExceptT RosettaFailure Handler BlockHeader
-    getBlockHeader c i = HM.lookup i (_cutMap c) ?? RosettaInvalidChain
 
     resp :: BlockHeader -> BlockHeader -> [PeerInfo] -> NetworkStatusResp
     resp bh genesis ps = NetworkStatusResp
@@ -573,6 +613,15 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
 
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
+
+getLatestBlockHeader
+    :: CutDb cas
+    -> ChainId
+    -> ExceptT RosettaFailure Handler BlockHeader
+getLatestBlockHeader cutDb cid = do
+  c <- liftIO $ _cut cutDb
+  HM.lookup cid (_cutMap c) ?? RosettaInvalidChain
+
 
 -- | If its the genesis block, Rosetta wants the parent block to be itself.
 --   Otherwise, fetch the parent header from the block.

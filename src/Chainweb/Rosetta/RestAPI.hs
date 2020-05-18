@@ -102,7 +102,13 @@ data RosettaFailure
     | RosettaExpectedBalDecimal
     | RosettaInvalidResultMetaData
     | RosettaSubAcctUnsupported
-    | RosettaUnparsableTxLogs
+    | RosettaMismatchTxLogs
+    | RosettaUnparsableTxLog
+    | RosettaInvalidBlockHeight
+    | RosettaBlockHashNotFound
+    | RosettaUnparsableBlockHash
+    | RosettaOrphanBlockHash
+    | RosettaMismatchBlockHashHeight
     deriving (Show, Enum, Bounded)
 
 
@@ -123,7 +129,14 @@ rosettaError RosettaPactErrorThrown = RosettaError 8 "Transaction failed with a 
 rosettaError RosettaExpectedBalDecimal = RosettaError 9 "Expected balance as a decimal" False
 rosettaError RosettaInvalidResultMetaData = RosettaError 10 "Invalid meta data field in command result" False
 rosettaError RosettaSubAcctUnsupported = RosettaError 11 "Sub account identifier is not supported" False
-rosettaError RosettaUnparsableTxLogs = RosettaError 12 "Could not parse Chainweb block's transaction logs" False
+rosettaError RosettaMismatchTxLogs =
+  RosettaError 12 "Unable to match transactions to transaction logs as expected" False
+rosettaError RosettaUnparsableTxLog = RosettaError 13 "TxLogs not parsable" False
+rosettaError RosettaInvalidBlockHeight = RosettaError 14 "Invalid block height" False -- TODO if retry could succeed
+rosettaError RosettaBlockHashNotFound = RosettaError 15 "Block hash was not found" False
+rosettaError RosettaUnparsableBlockHash = RosettaError 16 "Block hash not parsable" False
+rosettaError RosettaOrphanBlockHash = RosettaError 17 "Block hash not in the latest fork" False
+rosettaError RosettaMismatchBlockHashHeight = RosettaError 18 "Block hash and block height did not match" False
 
 
 throwRosetta :: RosettaFailure -> Handler a
