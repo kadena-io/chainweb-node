@@ -373,11 +373,11 @@ ctxToPublicData ctx@(TxContext _ pm) = PublicData
 --
 ctxToPublicData' :: TxContext -> PublicData
 ctxToPublicData' (TxContext ph pm) = PublicData
-  { _pdPublicMeta = pm
-  , _pdBlockHeight = bh
-  , _pdBlockTime = bt
-  , _pdPrevBlockHash = toText h
-  }
+    { _pdPublicMeta = pm
+    , _pdBlockHeight = bh
+    , _pdBlockTime = bt
+    , _pdPrevBlockHash = toText h
+    }
   where
     bheader = _parentHeader ph
     BlockHeight !bh = succ $ _blockHeight bheader
