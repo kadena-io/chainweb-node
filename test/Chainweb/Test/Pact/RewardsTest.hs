@@ -30,8 +30,8 @@ tests = ScheduledTest "Chainweb.Test.Pact.RewardsTest" $
 rewardsTest :: HasCallStack => TestTree
 rewardsTest = testCaseSteps "rewards" $ \step -> do
 
-    let rs = readRewards v
-        k = minerReward rs
+    let rs = readRewards
+        k = minerReward v rs
 
     step "block heights below initial threshold"
     ParsedDecimal a <- k 0

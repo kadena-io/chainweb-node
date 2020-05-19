@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -6,6 +7,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ExistentialQuantification #-}
 -- |
 -- Module: Chainweb.Pact.Service.Types
 -- Copyright: Copyright © 2018 Kadena LLC.
@@ -21,6 +24,7 @@ import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 
 import Data.Aeson
+import Data.Map (Map)
 import Data.Text (Text, pack, unpack)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
@@ -33,6 +37,7 @@ import Numeric.Natural (Natural)
 import qualified Pact.Types.ChainId as Pact
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Persistence
 
 -- internal chainweb modules
 
@@ -85,6 +90,15 @@ instance FromJSON PactException
 
 instance Exception PactException
 
+-- | Gather tx logs for a block. Not intended
+-- for public API use; ToJSONs are for logging output.
+newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Map TxId [TxLog Value] }
+  deriving (Eq,Generic)
+instance Show BlockTxHistory where
+  show = show . fmap encodeToText . _blockTxHistory
+
+
+
 
 internalError :: MonadThrow m => Text -> m a
 internalError = throwM . PactInternalError
@@ -97,6 +111,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
                 | LocalMsg LocalReq
                 | LookupPactTxsMsg LookupPactTxsReq
                 | PreInsertCheckMsg PreInsertCheckReq
+                | BlockTxHistoryMsg BlockTxHistoryReq
                 | CloseMsg
                 deriving (Show)
 
@@ -139,6 +154,20 @@ data PreInsertCheckReq = PreInsertCheckReq
 instance Show PreInsertCheckReq where
     show (PreInsertCheckReq v _) =
         "PreInsertCheckReq@" ++ show v
+
+-- | Existential wrapper for a Pact persistence domain.
+data Domain' = forall k v . (FromJSON v) => Domain' (Domain k v)
+instance Show Domain' where
+  show (Domain' d) = show d
+
+data BlockTxHistoryReq = BlockTxHistoryReq
+  { _blockTxHistoryHeader :: !BlockHeader
+  , _blockTxHistoryDomain :: !Domain'
+  , _blockTxHistoryResult :: !(PactExMVar BlockTxHistory)
+  }
+instance Show BlockTxHistoryReq where
+  show (BlockTxHistoryReq h d _) =
+    "BlockTxHistoryReq@" ++ show h ++ ", " ++ show d
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey

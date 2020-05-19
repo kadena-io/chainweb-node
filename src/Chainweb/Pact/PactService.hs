@@ -32,6 +32,7 @@ module Chainweb.Pact.PactService
     , execLocal
     , execLookupPactTxs
     , execPreInsertCheckReq
+    , execBlockTxHistory
     , initPactService
     , readCoinAccount
     , readAccountBalance
@@ -246,7 +247,7 @@ initPactService'
     -> IO (T2 a PactServiceState)
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
     checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger ver
-    let !rs = readRewards ver
+    let !rs = readRewards
         !gasModel = officialGasModel
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
         !pse = PactServiceEnv
@@ -387,6 +388,10 @@ serviceRequests logFn memPoolAccess reqQ = do
                     tryOne "execPreInsertCheckReq" resultVar $
                     V.map (() <$) <$> execPreInsertCheckReq txs
                 go
+            BlockTxHistoryMsg (BlockTxHistoryReq bh d resultVar) -> do
+              trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
+                tryOne "execBlockTxHistory" resultVar $
+                execBlockTxHistory bh d
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
@@ -897,14 +902,16 @@ readAccountGuard pdb account
 -- See: 'rewards/miner_rewards.csv'
 --
 minerReward
-    :: MinerRewards
+    :: ChainwebVersion
+    -> MinerRewards
     -> BlockHeight
     -> IO P.ParsedDecimal
-minerReward (MinerRewards rs q) bh =
-    case V.find (bh <=) q of
+minerReward v (MinerRewards rs) bh =
+    case Map.lookupGE bh rs of
       Nothing -> err
-      Just h -> maybe err pure (HM.lookup h rs)
+      Just (_, m) -> pure $! P.ParsedDecimal (roundTo 8 (m / n))
   where
+    !n = view (chainGraph . to (int . order)) v
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
@@ -1290,7 +1297,8 @@ runCoinbase False dbEnv miner enfCBFail usePrecomp mc = do
 
     let !bh = ctxCurrentBlockHeight pd
 
-    reward <- liftIO $! minerReward rs bh
+    reward <- liftIO $! minerReward v rs bh
+
     (T2 cr upgradedCacheM) <-
       liftIO $! applyCoinbase v logger dbEnv miner reward pd enfCBFail usePrecomp mc
     mapM_ upgradeInitCache upgradedCacheM
@@ -1380,6 +1388,11 @@ debugResult msg result =
     trunc t | T.length t < limit = t
             | otherwise = T.take limit t <> " [truncated]"
     limit = 5000
+
+execBlockTxHistory :: BlockHeader -> Domain' -> PactServiceM cas BlockTxHistory
+execBlockTxHistory bh (Domain' d) = do
+  !cp <- getCheckpointer
+  liftIO $ _cpGetBlockHistory cp bh d
 
 execPreInsertCheckReq
     :: PayloadCasLookup cas
