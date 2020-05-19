@@ -30,8 +30,6 @@ module Chainweb.Miner.Pact
   -- * Optics
 , minerId
 , minerKeys
-, minerRewardHeights
-, minerRewards
   -- * Defaults
 , noMiner
 , defaultMiner
@@ -47,12 +45,11 @@ import Data.Aeson hiding (decode)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
-import Data.Decimal (roundTo)
+import Data.Decimal (Decimal)
 import Data.FileEmbed (embedFile)
 import Data.Hashable
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as L (sort)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 import Data.String (IsString(..))
 import Data.Text (Text)
 import qualified Data.Vector as V
@@ -61,12 +58,10 @@ import Data.Word
 -- internal modules
 
 import Chainweb.BlockHeight (BlockHeight(..))
-import Chainweb.Graph (order)
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion, chainGraphAt)
 
-import Pact.Parse (ParsedDecimal(..))
 import Pact.Types.Term (KeySet(..), mkKeySet)
 
 -- -------------------------------------------------------------------------- --
@@ -149,43 +144,24 @@ fromMinerData :: MonadThrow m => MinerData -> m Miner
 fromMinerData = decodeStrictOrThrow' . _minerData
 {-# INLINABLE fromMinerData #-}
 
-data MinerRewards = MinerRewards
-    { _minerRewards :: !(HashMap BlockHeight ParsedDecimal)
+newtype MinerRewards = MinerRewards
+    { _minerRewards :: Map BlockHeight Decimal
       -- ^ The map of blockheight thresholds to miner rewards
-    , _minerRewardHeights :: !(V.Vector BlockHeight)
-      -- ^ A (sorted) vector of blockheights (head is most recent)
     } deriving (Eq, Ord, Show, Generic)
-
--- | A getter into the map of heights to rewards
---
-minerRewards :: Getter MinerRewards (HashMap BlockHeight ParsedDecimal)
-minerRewards = to _minerRewards
-
--- | A lens into the sorted vector of significant block heights pegged to a reward
---
-minerRewardHeights :: Lens' MinerRewards (V.Vector BlockHeight)
-minerRewardHeights = lens _minerRewardHeights (\t b -> t { _minerRewardHeights = b })
 
 -- | Rewards table mapping 3-month periods to their rewards
 -- according to the calculated exponential decay over 120 year period
 --
-readRewards :: ChainwebVersion -> MinerRewards
-readRewards v =
+readRewards :: MinerRewards
+readRewards =
     case CSV.decode CSV.NoHeader (BL.fromStrict rawMinerRewards) of
       Left e -> error
         $ "cannot construct miner reward map: "
         <> sshow e
-      Right vs ->
-        let !rs = HM.fromList . V.toList . V.map formatRow $ vs
-        in MinerRewards rs (V.fromList . L.sort $! HM.keys rs)
+      Right vs -> MinerRewards $ M.fromList . V.toList . V.map formatRow $ vs
   where
-    formatRow :: (Word64, Double) -> (BlockHeight, ParsedDecimal)
-    formatRow (!a,!b) =
-      let
-        !n = int $! order $! chainGraphAt v h
-        !m = fromRational $ toRational b
-        !h = BlockHeight $ int a
-      in (h, ParsedDecimal $! roundTo 8 (m / n))
+    formatRow :: (Word64, Double) -> (BlockHeight, Decimal)
+    formatRow (!a,!b) = (BlockHeight $ int a,  fromRational $ toRational b)
 
 -- | Read in the reward csv via TH for deployment purposes.
 --
