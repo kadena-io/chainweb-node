@@ -74,6 +74,7 @@ module Chainweb.Pact.Types
     -- * TxContext
   , TxContext(..)
   , ctxToPublicData
+  , ctxToPublicData'
   , ctxCurrentBlockHeight
   , getTxContext
 
@@ -349,6 +350,10 @@ data TxContext = TxContext
   }
 
 -- | Convert context to datatype for Pact environment.
+--
+-- TODO: this should be deprecated, since the `ctxBlockHeader`
+-- call fetches a grandparent, not the parent.
+--
 ctxToPublicData :: TxContext -> PublicData
 ctxToPublicData ctx@(TxContext _ pm) = PublicData
     { _pdPublicMeta = pm
@@ -362,6 +367,23 @@ ctxToPublicData ctx@(TxContext _ pm) = PublicData
     BlockCreationTime (Time (TimeSpan (Micros !bt))) = _blockCreationTime h
     BlockHash hsh = _blockParent h
 
+-- | Convert context to datatype for Pact environment using the
+-- current blockheight, referencing the parent header (not grandparent!)
+-- hash and blocktime data
+--
+ctxToPublicData' :: TxContext -> PublicData
+ctxToPublicData' (TxContext ph pm) = PublicData
+  { _pdPublicMeta = pm
+  , _pdBlockHeight = bh
+  , _pdBlockTime = bt
+  , _pdPrevBlockHash = toText h
+  }
+  where
+    bheader = _parentHeader ph
+    BlockHeight !bh = succ $ _blockHeight bheader
+    BlockCreationTime (Time (TimeSpan (Micros !bt))) =
+      _blockCreationTime bheader
+    BlockHash h = _blockHash bheader
 
 -- | Retreive parent header as 'BlockHeader'
 ctxBlockHeader :: TxContext -> BlockHeader
