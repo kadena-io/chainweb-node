@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
@@ -61,13 +62,15 @@ module Chainweb.Test.Cut
 
 ) where
 
-import Control.Error.Util (hush, note)
+import Control.Error.Util (hush, note, (??))
 import Control.Exception hiding (catch)
-import Control.Lens hiding ((:>))
+import Control.Lens hiding ((:>), (??))
 import Control.Monad hiding (join)
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Except
 
 import Data.Bifunctor (first)
+import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
@@ -93,6 +96,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.ChainId
 import Chainweb.Cut
+import Chainweb.Cut.Create
 import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
 import Chainweb.Test.Utils (genEnum)
@@ -112,6 +116,15 @@ import Numeric.AffineSpace
 
 data MineFailure = BadNonce | BadAdjacents
   deriving (Show)
+
+-- | Solve Work. Doesn't check that the nonce and the time are valid.
+--
+solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
+solveWork w n t = case runGet decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
+    Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
+    Just hdr -> SolvedWork $ hdr
+        & blockNonce .~ n
+        & blockCreationTime .~ BlockCreationTime t
 
 -- | Try to mine a new block header on the given chain for the given cut.
 -- Returns 'Nothing' if mining isn't possible because of missing adjacent
@@ -145,8 +158,9 @@ testMine'
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMine' wdb n t payloadHash i c =
-    forM (createNewCut n (t c (_chainId i)) payloadHash i c) $ \p@(T2 h _) ->
-        p <$ insertWebBlockHeaderDb wdb h
+    createNewCut wdb n (t c (_chainId i)) payloadHash i c >>= \case
+        Right p@(T2 h _) -> Right p <$ insertWebBlockHeaderDb wdb h
+        e -> return e
 
 -- | Block time generation that offsets from previous chain block in cut.
 offsetBlockTime :: TimeSpan Micros -> GenBlockTime
@@ -165,55 +179,39 @@ arbitraryBlockTimeOffset lower upper = do
 testMineWithPayloadHash
     :: forall cid
     . HasChainId cid
-    => Nonce
+    => WebBlockHeaderDb
+    -> Nonce
     -> Time Micros
     -> BlockPayloadHash
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayloadHash n t payloadHash i c =
-    forM (createNewCut n t payloadHash i c) return
+testMineWithPayloadHash = createNewCut
 
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
 --
+-- The creation time isn't checked.
+--
 createNewCut
     :: HasCallStack
     => HasChainId cid
-    => Nonce
+    => WebBlockHeaderDb
+    -> Nonce
     -> Time Micros
     -> BlockPayloadHash
     -> cid
     -> Cut
-    -> Either MineFailure (T2 BlockHeader Cut)
-createNewCut n t pay i c = do
-    h <- note BadAdjacents $ newHeader . BlockHashRecord <$> newAdjHashes
-    unless (checkTarget (_blockTarget h) $ _blockPow h) $ Left BadNonce
-    c' <- first (\e -> error $ "Chainweb.Cut.createNewCut: " <> sshow e)
-        $ monotonicCutExtension c h
+    -> IO (Either MineFailure (T2 BlockHeader Cut))
+createNewCut wdb n t pay i c = runExceptT $ do
+    extension <- getCutExtension c i ?? BadAdjacents
+    work <- liftIO $ newWorkHeader wdb extension pay
+    let solved = solveWork work n t
+    (h, mc') <- extendCut c pay solved
+    c' <- mc' ?? BadAdjacents
     return $ T2 h c'
   where
     cid = _chainId i
-
-    -- | The parent block to mine on.
-    --
-    p :: BlockHeader
-    p = c ^?! ixg cid
-
-    newHeader :: BlockHashRecord -> BlockHeader
-    newHeader as = newBlockHeader as pay n (BlockCreationTime t) $ ParentHeader p
-
-    -- | Try to get all adjacent hashes dependencies.
-    --
-    newAdjHashes :: Maybe (HM.HashMap ChainId BlockHash)
-    newAdjHashes = iforM (_getBlockHashRecord $ _blockAdjacentHashes p) $ \xcid _ ->
-        c ^?! ixg xcid . to (tryAdj (_blockHeight p))
-
-    tryAdj :: BlockHeight -> BlockHeader -> Maybe BlockHash
-    tryAdj h b
-        | _blockHeight b == h = Just $! _blockHash b
-        | _blockHeight b == h + 1 = Just $! _blockParent b
-        | otherwise = Nothing
 
 -- | Create a new cut where the new block has a creation time of one second
 -- after its parent.
@@ -221,13 +219,14 @@ createNewCut n t pay i c = do
 createNewCutWithoutTime
     :: HasCallStack
     => HasChainId cid
-    => Nonce
+    => WebBlockHeaderDb
+    -> Nonce
     -> BlockPayloadHash
     -> cid
     -> Cut
-    -> Maybe (T2 BlockHeader Cut)
-createNewCutWithoutTime n pay i c
-    = hush $ createNewCut n (add second t) pay i c
+    -> IO (Maybe (T2 BlockHeader Cut))
+createNewCutWithoutTime wdb n pay i c
+    = hush <$> createNewCut wdb n (add second t) pay i c
   where
     cid = _chainId i
     BlockCreationTime t = _blockCreationTime $ c ^?! ixg cid

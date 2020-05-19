@@ -385,7 +385,7 @@ header p = do
             :+: BlockWeight (targetToDifficulty target) + _blockWeight p
             :+: succ (_blockHeight p)
             :+: v
-            :+: epochStart (ParentHeader p) t'
+            :+: epochStart (ParentHeader p) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where

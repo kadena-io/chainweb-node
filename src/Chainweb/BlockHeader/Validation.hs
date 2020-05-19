@@ -723,15 +723,20 @@ prop_block_chainId (ChainStep (ParentHeader p) b)
 -- Mutli chain inductive properties
 
 prop_block_epoch :: WebStep -> Bool
-prop_block_epoch (WebStep _as (ChainStep p b))
+prop_block_epoch (WebStep as (ChainStep p b))
     = _blockEpochStart b <= EpochStartTime (_bct $ _blockCreationTime b)
     && _blockEpochStart (_parentHeader p) <= _blockEpochStart b
-    && _blockEpochStart b == epochStart p (_blockCreationTime b)
+    && _blockEpochStart b == epochStart p as (_blockCreationTime b)
 
 prop_block_creationTime :: WebStep -> Bool
-prop_block_creationTime (WebStep _as (ChainStep (ParentHeader p) b))
-    | isGenesisBlockHeader b = _blockCreationTime b == _blockCreationTime p
-    | otherwise = _blockCreationTime b > _blockCreationTime p
+prop_block_creationTime (WebStep as (ChainStep (ParentHeader p) b))
+    | isGenesisBlockHeader b
+        = _blockCreationTime b == _blockCreationTime p
+    | fixedEpochStartGuard (_chainwebVersion b) (_blockHeight b)
+        = _blockCreationTime b > _blockCreationTime p
+    | otherwise
+        = _blockCreationTime b > _blockCreationTime p
+        && all (\x -> _blockCreationTime b > _blockCreationTime (_parentHeader x)) as
 
 prop_block_adjacent_chainId :: WebStep -> Bool
 prop_block_adjacent_chainId (WebStep _as (ChainStep (ParentHeader p) b))

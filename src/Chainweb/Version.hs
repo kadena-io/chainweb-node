@@ -48,11 +48,12 @@ module Chainweb.Version
 , coinV2Upgrade
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
+, enableModuleNameFix
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , oldTargetGuard
 , skipFeatureFlagValidationGuard
-, enableModuleNameFix
+, fixedEpochStartGuard
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -793,3 +794,7 @@ oldTargetGuard _ _ = False
 skipFeatureFlagValidationGuard :: ChainwebVersion -> BlockHeight -> Bool
 skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:xxZ
 skipFeatureFlagValidationGuard _ _ = False
+
+fixedEpochStartGuard :: ChainwebVersion -> BlockHeight -> Bool
+fixedEpochStartGuard Mainnet01 h = h < 1000000
+fixedEpochStartGuard _ _ = False

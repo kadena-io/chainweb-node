@@ -155,9 +155,8 @@ arbitraryTestHeaderHeight v cid h = do
     nonce <- arbitrary
     payloadHash <- arbitrary
     t <- BlockCreationTime <$> genEnum (_bct $ _blockCreationTime (_parentHeader parent), maxBound)
-    let adjHashes = BlockHashRecord (_blockHash <$> as)
     return $ TestHeader
-        { _testHeaderHdr = newBlockHeader adjHashes payloadHash nonce t parent
+        { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent
         , _testHeaderParent = parent
         , _testHeaderAdjs = toList $ ParentHeader <$> as
         }

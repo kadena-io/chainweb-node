@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -18,7 +19,7 @@ module Chainweb.Miner.Core
   ( HeaderBytes(..)
   , TargetBytes(..)
   , ChainBytes(..)
-  , WorkBytes(..), workBytes, unWorkBytes
+  , WorkBytes(..)
   , MiningResult(..)
   , usePowHash
   , mine
@@ -35,14 +36,14 @@ import Control.Monad.Trans.Except
 import Crypto.Hash.Algorithms (Blake2s_256)
 import Crypto.Hash.IO
 
-import Data.Bifunctor (second)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Short as BS
 import Data.Char (isSpace)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
-import Data.Tuple.Strict (T2(..), T3(..))
+import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64, Word8)
 
 import Foreign.Marshal.Alloc (allocaBytes)
@@ -58,7 +59,10 @@ import qualified System.Process as P
 
 -- internal modules
 
-import Chainweb.BlockHeader (Nonce(..))
+import Chainweb.BlockHeader
+import Chainweb.Cut.Create
+import Chainweb.Difficulty
+import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
@@ -86,20 +90,6 @@ newtype ChainBytes = ChainBytes { _chainBytes :: B.ByteString }
     deriving stock (Eq, Show)
     deriving newtype (MimeRender OctetStream, MimeUnrender OctetStream)
 
--- | Combine `ChainBytes`, `TargetBytes` and `HeaderBytes` in such a way that
--- can be later undone by `unWorkBytes`.
---
-workBytes :: ChainBytes -> TargetBytes -> HeaderBytes -> WorkBytes
-workBytes (ChainBytes c) (TargetBytes t) (HeaderBytes h) = WorkBytes $ c <> t <> h
-
--- | NOTE: This makes a low-level assumption about the encoded size of
--- `HashTarget` and `ChainId`!
---
-unWorkBytes :: WorkBytes -> T3 ChainBytes TargetBytes HeaderBytes
-unWorkBytes (WorkBytes w) = T3 (ChainBytes c) (TargetBytes t) (HeaderBytes h)
-  where
-    (c, (t, h)) = second (B.splitAt 32) $ B.splitAt 4 w
-
 -- | Select a hashing algorithm.
 --
 usePowHash :: ChainwebVersion -> (forall a. HashAlgorithm a => Proxy a -> f) -> f
@@ -118,20 +108,17 @@ usePowHash Mainnet01 f = f $ Proxy @Blake2s_256
 -- TODO: Check the chainweb version to make sure this function can handle the
 -- respective version.
 --
--- TODO: Remove the `Proxy`?
---
 mine
-  :: forall a. HashAlgorithm a
-  => Proxy a
-  -> Nonce
-  -> TargetBytes
-  -> HeaderBytes
-  -> IO (T2 HeaderBytes Word64)
-mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
+  :: forall a
+  . HashAlgorithm a
+  => Nonce
+  -> WorkHeader
+  -> IO (T2 SolvedWork Word64)
+mine orig@(Nonce o) work = do
     nonces <- newIORef 0
     BA.withByteArray tbytes $ \trgPtr -> do
       !ctx <- hashMutableInit @a
-      new <- fmap HeaderBytes . BA.copy hbytes $ \buf ->
+      new <- BA.copy hbytes $ \buf ->
           allocaBytes (powSize :: Int) $ \pow -> do
 
               -- inner mining loop
@@ -148,8 +135,12 @@ mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
 
               -- Start inner mining loop
               go orig
-      T2 new <$> readIORef nonces
+      solved <- runGet decodeSolvedWork new
+      T2 solved <$> readIORef nonces
   where
+    tbytes = runPut $ encodeHashTarget (_workHeaderTarget work)
+    hbytes = BS.fromShort $ _workHeaderBytes work
+
     bufSize :: Int
     !bufSize = B.length hbytes
 

@@ -29,13 +29,14 @@ module Chainweb.Test.Orphans.Internal
 import Control.Applicative
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 
-import Test.QuickCheck.Exception (discard)
 import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Modifiers
+import Test.QuickCheck.Exception (discard)
 import Test.QuickCheck.Gen
+import Test.QuickCheck.Modifiers
 
 -- internal modules
 
@@ -46,6 +47,7 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
+import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
@@ -220,6 +222,21 @@ arbitraryBlockHeaderVersionHeightChain v h cid
         $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
         $ fmap (MerkleLogBody . blockHashRecordToVector)
             (arbitraryBlockHashRecordVersionHeightChain v h cid) -- adjacents
+
+-- -------------------------------------------------------------------------- --
+-- Mining Work
+
+instance Arbitrary WorkHeader where
+    arbitrary = do
+        hdr <- arbitrary
+        return $ WorkHeader
+            { _workHeaderChainId = _chainId hdr
+            , _workHeaderTarget = _blockTarget hdr
+            , _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash hdr
+            }
+
+instance Arbitrary SolvedWork where
+    arbitrary = SolvedWork <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Payload

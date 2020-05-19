@@ -32,6 +32,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.MerkleLogHash
@@ -107,6 +108,11 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
     , testProperty "BlockTransactionsHash"
         $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
+
+    , testProperty "WorkHeader"
+        $ prop_encodeDecodeRoundtrip decodeWorkHeader encodeWorkHeader
+    , testProperty "SolvedWork"
+        $ prop_encodeDecodeRoundtrip decodeSolvedWork encodeSolvedWork
 
     -- TODO Fix this!
     -- The following doesn't hold:

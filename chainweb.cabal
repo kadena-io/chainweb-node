@@ -152,6 +152,7 @@ library
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
+        , Chainweb.Cut.Create
         , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
@@ -436,7 +437,6 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
-        Chainweb.Test.Miner.Core
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
