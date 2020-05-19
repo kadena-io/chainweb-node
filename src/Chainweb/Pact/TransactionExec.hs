@@ -336,7 +336,7 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
-        Right r -> return $! r { _crMetaData = Just (toJSON $ ctxToPublicData txCtx) }
+        Right r -> return $! r { _crMetaData = Just (toJSON $ ctxToPublicData' txCtx) }
 
     go = do
       em <- case _pPayload $ _cmdPayload cmd of
