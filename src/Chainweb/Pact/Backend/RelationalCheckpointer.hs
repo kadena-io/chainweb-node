@@ -270,7 +270,9 @@ doGetBlockHistory :: FromJSON v => Db -> BlockHeader -> Domain k v -> IO BlockTx
 doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
   callDb "doGetBlockHistory" $ \db -> do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
-    startTxId <- getEndTxId db (pred bHeight) (_blockParent blockHeader)
+    startTxId <- if (_blockHeight blockHeader == 0)
+      then pure 0  -- genesis block
+      else getEndTxId db (pred bHeight) (_blockParent blockHeader)
     history <- queryHistory db (domainTableName d) startTxId endTxId
     return $! BlockTxHistory $ foldl' groupByTxid mempty history
   where
@@ -291,10 +293,12 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
               sshow (bhi,bha)
         _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
 
+    -- Start index is inclusive, while ending index is not.
+    -- `endingtxid` in a block is the beginning txid of the following block.
     queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(TxId,TxLog Value)]
     queryHistory db tableName s e = do
       let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
-                "] WHERE txid > ? AND txid <= ?"
+                "] WHERE txid >= ? AND txid < ?"
       r <- qry db sql
            [SInt s,SInt e]
            [RInt,RText,RBlob]

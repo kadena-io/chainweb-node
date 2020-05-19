@@ -258,7 +258,7 @@ getBlockTxs
     -> [CommandResult Hash]
     -> Maybe [Transaction]
 getBlockTxs bh logs coinbase rest
-  | (_blockHeight bh == 0) = genesisTransactions logs rest   -- TODO: genesis logs throws error
+  | (_blockHeight bh == 0) = genesisTransactions logs rest
   | otherwise = nonGenesisTransactions logs coinbase rest
 
 
@@ -267,38 +267,36 @@ genesisTransactions
     :: Map TxId [AccountLog]
     -> [CommandResult Hash]
     -> Maybe [Transaction]
-genesisTransactions logs crs = mapM f crs
+genesisTransactions logs crs = traverse f crs
   where
     makeOps tid l = indexedOperations $
       map (operation Successful TransferOrCreateAcct tid) l
-    f cr = case (_crTxId cr) of
-      Nothing -> pure $ rosettaTransaction cr []
-      Just tid -> do
-        l <- M.lookup tid logs
-        pure $ rosettaTransaction cr $ makeOps tid l
+    f cr = do
+      tid <- _crTxId cr -- all genesis tx have txid
+      case (M.lookup tid logs) of
+        Nothing -> pure $ rosettaTransaction cr []  -- not a coin contract tx
+        Just l -> pure $ rosettaTransaction cr $ makeOps tid l
 
 
 -- The first transaction in non-genesis blocks is the coinbase transaction.
 -- For each transaction that follows, each has logs that fund the transaction,
 -- interact with the coin contract (optional), and pay gas to the miner.
--- TODO: fix, returning the coinbase tx from the next block
 nonGenesisTransactions
     :: Map TxId [AccountLog]
     -> CoinbaseCommandResult
     -> [CommandResult Hash]
     -> Maybe [Transaction]
-nonGenesisTransactions logs coinbaseCr _ = do
+nonGenesisTransactions logs coinbaseCr crs = do
   coinbaseTid <- _crTxId coinbaseCr
   coinbaseTx <- do
     l <- M.lookup coinbaseTid logs
     let ops = indexedOperations $
           map (operation Successful CoinbaseReward coinbaseTid) l
     pure $ rosettaTransaction coinbaseCr ops
-  --(_,ts) <- foldl' acc (Just (succ coinbaseTid, [])) crs
-  --pure $ coinbaseTx : (reverse ts)   -- TODO: find efficient way to append to end
-  pure $ [coinbaseTx]
+  (_,ts) <- foldl' acc (Just (succ coinbaseTid, [])) crs
+  pure $ coinbaseTx : (reverse ts)
 
-  {--where
+  where
     -- Allows for O(1) lookup by index
     --logsVector = V.fromList undefined -- TODO
     getLogs
@@ -330,7 +328,7 @@ nonGenesisTransactions logs coinbaseCr _ = do
       (nextTid, gas) <- getLogs gasTid GasPayment
       let ops = indexedOperations $ fund ++ transfer ++ gas
           tx = rosettaTransaction cr ops
-      pure $ (nextTid, tx:ts)--}
+      pure $ (nextTid, tx:ts)
 
 
 -- TODO: delete, similar to nonGenesisTransactions but uses vector.
