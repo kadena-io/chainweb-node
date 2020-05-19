@@ -581,7 +581,7 @@ instance HasChainGraph (ChainwebVersion, BlockHeight) where
 --
 -- Invariant:
 --
--- * The given ChainId exists in the first graph fo the graph history.
+-- * The given ChainId exists in the first graph of the graph history.
 --   (We generally assume that this invariant holds throughout the code base.
 --   It is enforced via the 'mkChainId' smart constructor for ChainId.)
 --
