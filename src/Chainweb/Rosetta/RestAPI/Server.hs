@@ -258,7 +258,7 @@ getBlockTxs
     -> [CommandResult Hash]
     -> Maybe [Transaction]
 getBlockTxs bh logs coinbase rest
-  | (_blockHeight bh == 0) = genesisTransactions logs rest
+  | (_blockHeight bh == 0) = genesisTransactions logs rest   -- TODO: genesis logs throws error
   | otherwise = nonGenesisTransactions logs coinbase rest
 
 
@@ -277,28 +277,30 @@ genesisTransactions logs crs = mapM f crs
         l <- M.lookup tid logs
         pure $ rosettaTransaction cr $ makeOps tid l
 
--- The first transaction in non-genesis block is coinbase transaction.
--- For each following transaction, each has logs that fund the transaction,
+
+-- The first transaction in non-genesis blocks is the coinbase transaction.
+-- For each transaction that follows, each has logs that fund the transaction,
 -- interact with the coin contract (optional), and pay gas to the miner.
+-- TODO: fix, returning the coinbase tx from the next block
 nonGenesisTransactions
     :: Map TxId [AccountLog]
     -> CoinbaseCommandResult
     -> [CommandResult Hash]
     -> Maybe [Transaction]
-nonGenesisTransactions logs coinbaseCr crs = do
+nonGenesisTransactions logs coinbaseCr _ = do
   coinbaseTid <- _crTxId coinbaseCr
   coinbaseTx <- do
     l <- M.lookup coinbaseTid logs
     let ops = indexedOperations $
           map (operation Successful CoinbaseReward coinbaseTid) l
     pure $ rosettaTransaction coinbaseCr ops
-  (_,ts) <- foldl' acc (Just (succ coinbaseTid, [])) crs
-  pure $ coinbaseTx : (reverse ts)
+  --(_,ts) <- foldl' acc (Just (succ coinbaseTid, [])) crs
+  --pure $ coinbaseTx : (reverse ts)   -- TODO: find efficient way to append to end
+  pure $ [coinbaseTx]
 
-  where
+  {--where
     -- Allows for O(1) lookup by index
     --logsVector = V.fromList undefined -- TODO
-
     getLogs
         :: TxId
         -> OperationType
@@ -328,10 +330,11 @@ nonGenesisTransactions logs coinbaseCr crs = do
       (nextTid, gas) <- getLogs gasTid GasPayment
       let ops = indexedOperations $ fund ++ transfer ++ gas
           tx = rosettaTransaction cr ops
-      pure $ (nextTid, tx:ts)
+      pure $ (nextTid, tx:ts)--}
 
 
 -- TODO: delete, similar to nonGenesisTransactions but uses vector.
+-- TODO: fix, coinbase tx is last not first
 _groupTxLogs
   :: V.Vector (TxId, [AccountLog])
   -> CoinbaseCommandResult
@@ -392,6 +395,9 @@ getTxLogs
 getTxLogs cr bh = do
   someHist <- liftIO $ (_pactBlockTxHistory cr) bh d
   (BlockTxHistory hist) <- (hush someHist) ?? RosettaPactExceptionThrown
+  case (M.size hist) of
+    0 -> throwError RosettaInvalidChain
+    _ -> pure ()
   let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
   if (M.size histParsed == M.size hist)
     then pure histParsed
@@ -435,7 +441,7 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
   chainDb <- (cutDb ^? cutDbBlockHeaderDb cid) ?? RosettaInvalidChain
 
   case (someHeight, someHash) of
-    (Nothing, Nothing) -> pure latestBlock   -- assumes latest block at given chain id
+    (Nothing, Nothing) -> pure latestBlock   -- assumes latest block at given chain id. TODO: too fast that the logs return empty list
     (Just hi, Nothing) -> byHeight chainDb latestBlock hi
     (Just hi, Just hsh) -> do
       bh <- byHeight chainDb latestBlock hi

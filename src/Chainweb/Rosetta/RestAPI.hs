@@ -117,7 +117,7 @@ data RosettaFailure
 -- TODO: Better grouping of rosetta error index?
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
-rosettaError RosettaInvalidChain = RosettaError 1 "Invalid chain value" False
+rosettaError RosettaInvalidChain = RosettaError 1 "Invalid sub-network chain id value" False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
 rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" False
 rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
