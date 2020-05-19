@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |
@@ -74,6 +75,8 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Templates
 import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
+import Chainweb.Payload hiding (Transaction(..))
+import Chainweb.Payload.PayloadStore
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
@@ -93,18 +96,20 @@ import P2P.Peer
 
 rosettaServer
     :: forall cas a (v :: ChainwebVersionT)
-    . ChainwebVersion
+    . PayloadCasLookup cas
+    => ChainwebVersion
+    -> [(ChainId, PayloadDb cas)]
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> CutDb cas
     -> [(ChainId, ChainResources a)]
     -> Server (RosettaApi v)
-rosettaServer v ms peerDb cutDb cr =
+rosettaServer v ps ms peerDb cutDb cr =
     -- Account --
     accountBalanceH v cr
     -- Blocks --
     :<|> (const $ error "not yet implemented")
-    :<|> (const $ error "not yet implemented")
+    :<|> blockH v cutDb ps cr
     -- Construction --
     :<|> constructionMetadataH v
     :<|> constructionSubmitH v ms
@@ -117,14 +122,16 @@ rosettaServer v ms peerDb cutDb cr =
     :<|> (networkStatusH v cutDb peerDb)
 
 someRosettaServer
-    :: ChainwebVersion
+    :: PayloadCasLookup cas
+    => ChainwebVersion
+    -> [(ChainId, PayloadDb cas)]
     -> [(ChainId, MempoolBackend ChainwebTransaction)]
     -> PeerDb
     -> [(ChainId, ChainResources a)]
     -> CutDb cas
     -> SomeServer
-someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ms pdb crs cdb =
-    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ms pdb cdb crs
+someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps ms pdb crs cdb =
+    SomeServer (Proxy @(RosettaApi vT)) $ rosettaServer v ps ms pdb cdb crs
 
 --------------------------------------------------------------------------------
 -- Account Handlers
@@ -210,12 +217,15 @@ data OperationType =
   deriving (Enum, Bounded, Show)
 
 blockH
-    :: ChainwebVersion
+    :: forall a cas
+    . PayloadCasLookup cas
+    => ChainwebVersion
     -> CutDb cas
+    -> [(ChainId, PayloadDb cas)]
     -> [(ChainId, ChainResources a)]
     -> BlockReq
     -> Handler BlockResp
-blockH v cutDb crs (BlockReq net (PartialBlockId bheight bhash)) =
+blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
   runExceptT work >>= either throwRosetta pure
   where
     block :: BlockHeader -> [Transaction] -> Block
@@ -227,27 +237,13 @@ blockH v cutDb crs (BlockReq net (PartialBlockId bheight bhash)) =
       , _block_metadata = Nothing
       }
 
-    getTxLogs
-        :: PactExecutionService
-        -> BlockHeader
-        -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
-    getTxLogs cr bh = do
-      (BlockTxHistory hist) <- do
-        h <- liftIO $ (_pactBlockTxHistory cr) bh d
-        (hush h) ?? RosettaPactExceptionThrown
-      let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
-      if (M.size histParsed == M.size hist)
-        then pure histParsed
-        else throwError RosettaUnparsableTxLog
-      where
-        d = (Domain' (UserTables "coin_coin-table"))
-
     work :: ExceptT RosettaFailure Handler BlockResp
     work = do
       cid <- validateNetwork v net
       cr <- lookup cid crs ?? RosettaInvalidChain
+      payloadDb <- lookup cid ps ?? RosettaInvalidChain
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
-      (coinbaseOut, txsOut) <- getBlockOutputs bh
+      (coinbaseOut, txsOut) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs (_chainResPact cr) bh
       trans <- (getBlockTxs bh logs coinbaseOut txsOut) ?? RosettaMismatchTxLogs
       pure $ BlockResp
@@ -389,11 +385,41 @@ _groupTxLogs allLogs coinbaseRes allTxs = do
     getCoinbaseRosettaTx _ _ = Nothing
 
 
--- TODO
+getTxLogs
+    :: PactExecutionService
+    -> BlockHeader
+    -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
+getTxLogs cr bh = do
+  someHist <- liftIO $ (_pactBlockTxHistory cr) bh d
+  (BlockTxHistory hist) <- (hush someHist) ?? RosettaPactExceptionThrown
+  let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
+  if (M.size histParsed == M.size hist)
+    then pure histParsed
+    else throwError RosettaUnparsableTxLog
+  where
+    d = (Domain' (UserTables "coin_coin-table"))
+
+
 getBlockOutputs
-    :: BlockHeader
+    :: forall cas
+    . PayloadCasLookup cas
+    => PayloadDb cas
+    -> BlockHeader
     -> ExceptT RosettaFailure Handler (CoinbaseCommandResult, [CommandResult Hash])
-getBlockOutputs = undefined
+getBlockOutputs payloadDb bh = do
+  someOut <- liftIO $ casLookup payloadDb (_blockPayloadHash bh)
+  outputs <- someOut ?? RosettaPayloadNotFound
+  txsOut <- decodeTxsOut outputs ?? RosettaUnparsableTxOut
+  coinbaseOut <- decodeCoinbaseOut outputs ?? RosettaUnparsableTxOut
+  pure $ (coinbaseOut, V.toList txsOut)
+
+  where
+    decodeCoinbaseOut :: PayloadWithOutputs -> Maybe (CommandResult Hash)
+    decodeCoinbaseOut = decodeStrictOrThrow . _coinbaseOutput . _payloadWithOutputsCoinbase
+
+    decodeTxsOut :: PayloadWithOutputs -> Maybe (V.Vector (CommandResult Hash))
+    decodeTxsOut pwo = mapM (decodeStrictOrThrow . _transactionOutputBytes . snd)
+                       (_payloadWithOutputsTransactions pwo)
 
 
 findBlockHeaderInCurrFork

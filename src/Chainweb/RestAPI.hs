@@ -241,8 +241,9 @@ someChainwebServer v dbs mr (HeaderStream hs) (Rosetta r) =
         <> PactAPI.somePactServers v pacts
         <> maybe mempty (Mining.someMiningServer v) mr
         <> maybe mempty (someHeaderStreamServer v) (bool Nothing cuts hs)
-        <> maybe mempty (bool mempty (someRosettaServer v concreteMs cutPeerDb concreteCr) r) cuts
+        <> maybe mempty (bool mempty (someRosettaServer v payloads concreteMs cutPeerDb concreteCr) r) cuts
         -- TODO: not sure if passing the correct PeerDb here
+        -- TODO: simplify number of resources passing to rosetta
   where
     payloads = _chainwebServerPayloadDbs dbs
     blocks = _chainwebServerBlockHeaderDbs dbs

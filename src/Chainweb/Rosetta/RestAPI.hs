@@ -109,6 +109,8 @@ data RosettaFailure
     | RosettaUnparsableBlockHash
     | RosettaOrphanBlockHash
     | RosettaMismatchBlockHashHeight
+    | RosettaPayloadNotFound
+    | RosettaUnparsableTxOut
     deriving (Show, Enum, Bounded)
 
 
@@ -137,6 +139,8 @@ rosettaError RosettaBlockHashNotFound = RosettaError 15 "Block hash was not foun
 rosettaError RosettaUnparsableBlockHash = RosettaError 16 "Block hash not parsable" False
 rosettaError RosettaOrphanBlockHash = RosettaError 17 "Block hash not in the latest fork" False
 rosettaError RosettaMismatchBlockHashHeight = RosettaError 18 "Block hash and block height did not match" False
+rosettaError RosettaPayloadNotFound = RosettaError 19 "Block payload not found" False
+rosettaError RosettaUnparsableTxOut = RosettaError 20 "Transaction output not parsable" False
 
 
 throwRosetta :: RosettaFailure -> Handler a
