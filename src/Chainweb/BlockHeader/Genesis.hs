@@ -207,8 +207,6 @@ genesisBlockHeaders v = HM.fromList
     . toList
     $ chainIds v
 
-    -- TODO define chainIdsAtHeight
-    -- (and use max graph for chainIds)
 
 genesisBlockHeadersAtHeight
     :: ChainwebVersion

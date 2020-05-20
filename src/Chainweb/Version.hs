@@ -508,9 +508,6 @@ chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
 chainwebGraphs Development = pure (0, petersonChainGraph)
 {-# INLINE chainwebGraphs #-}
 
--- chainwebGlobalBlockRates :: ChainwebVersion -> NE.NonEmpty (BlokHeight, Natural)
--- chainwebGlobalBlockRates =
-
 -- | Return the Graph History at a given block height in descending order.
 --
 -- The functions provided in 'Chainweb.Version.Utils' are generally more
