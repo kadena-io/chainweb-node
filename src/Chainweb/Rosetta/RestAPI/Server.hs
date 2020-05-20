@@ -36,6 +36,7 @@ import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
 
 import qualified Data.ByteString.Short as BSS
+import qualified Data.DList as DList
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Map as M
@@ -258,78 +259,161 @@ getBlockTxs
     -> [CommandResult Hash]
     -> Maybe [Transaction]
 getBlockTxs bh logs coinbase rest
-  | (_blockHeight bh == 0) = genesisTransactions logs rest
-  | otherwise = nonGenesisTransactions logs coinbase rest
+  | (_blockHeight bh == 0) = pure $ genesisTransactions logs rest
+  | otherwise = hush $ nonGenesisTransactions logs _crTxId rosettaTransaction coinbase rest
 
 
 -- Genesis transactions have no coinbase or gas payments.
 genesisTransactions
     :: Map TxId [AccountLog]
     -> [CommandResult Hash]
-    -> Maybe [Transaction]
-genesisTransactions logs crs = traverse f crs
+    -> [Transaction]
+genesisTransactions logs crs = map f crs
   where
     makeOps tid l = indexedOperations $
       map (operation Successful TransferOrCreateAcct tid) l
     f cr = do
-      tid <- _crTxId cr -- all genesis tx have txid
-      case (M.lookup tid logs) of
-        Nothing -> pure $ rosettaTransaction cr []  -- not a coin contract tx
-        Just l -> pure $ rosettaTransaction cr $ makeOps tid l
+      case (_crTxId cr) of
+        Just tid -> case (M.lookup tid logs) of
+          Just l -> rosettaTransaction cr $ makeOps tid l
+          Nothing -> rosettaTransaction cr []  -- not a coin contract tx
+        Nothing -> rosettaTransaction cr [] -- all genesis tx should have a txid
 
 
 -- The first transaction in non-genesis blocks is the coinbase transaction.
--- For each transaction that follows, each has logs that fund the transaction,
+-- For transactions that follows, each has logs that fund the transaction,
 -- interact with the coin contract (optional), and pay gas to the miner.
+-- TODO: Add unit tests
 nonGenesisTransactions
     :: Map TxId [AccountLog]
-    -> CoinbaseCommandResult
-    -> [CommandResult Hash]
-    -> Maybe [Transaction]
-nonGenesisTransactions logs coinbaseCr crs = do
-  coinbaseTid <- _crTxId coinbaseCr
-  coinbaseTx <- do
-    l <- M.lookup coinbaseTid logs
+    -> (a -> Maybe TxId)
+    -> (a -> [Operation] -> b)
+    -> a
+    -> [a]
+    -> Either String [b]
+nonGenesisTransactions logs getTxId f initial rest = do
+  let initialIdx = 0
+  initialTx <- do
+    (tid, l) <- note ("initial logs missing with txId=" ++ show initialIdx)
+         $ logsVector V.!? initialIdx
     let ops = indexedOperations $
-          map (operation Successful CoinbaseReward coinbaseTid) l
-    pure $ rosettaTransaction coinbaseCr ops
-  (_,ts) <- foldl' acc (Just (succ coinbaseTid, [])) crs
-  pure $ coinbaseTx : (reverse ts)
+          map (operation Successful CoinbaseReward tid) l
+    pure $ f initial ops
+  (_,ts) <- foldl' acc
+            (Right (succ initialIdx, DList.singleton initialTx))
+            rest
+  pure $ DList.toList ts
 
   where
     -- Allows for O(1) lookup by index
-    --logsVector = V.fromList undefined -- TODO
+    logsVector = V.fromList $ M.toAscList logs
+
+    -- Returns logs at given index and the next index to try
     getLogs
-        :: TxId
+        :: Int
         -> OperationType
-        -> Maybe (TxId, [UnindexedOperation])
-    getLogs tid otype = do
-      l <- M.lookup tid logs
+        -> Either String (Int, [UnindexedOperation])
+    getLogs idx otype = do
+      (tid,l) <- note (show otype ++ " logs not found at txIdx=" ++ show idx)
+           $ logsVector V.!? idx
       let opsF = map (operation Successful otype tid) l
-      pure $ (succ tid, opsF)
+      pure $ (succ idx, opsF)
 
+    -- Scenario:
+    -- Assuming the txId that funded the transaction occurred at txId=x,
+    -- then if the transaction succeeded, the gas payment occurred
+    -- at txId=(x + 1).
+    -- Otherwise, gas payment occurred at txId=(x + 1 + 1).
+    -- Moreover, if the transaction succeeded and logs were found with
+    -- its txId, then this transaction touched the coin contract somehow.
     getTransferLogs
-        :: TxId
+        :: Int
         -> Maybe TxId
-        -> Maybe (TxId, [UnindexedOperation])
-    getTransferLogs expected actual
-      | (actual == Just expected) = getLogs expected TransferOrCreateAcct
-      | (actual == Nothing) = pure $ (expected, [])
-      | otherwise = Nothing
+        -> Either String (Int, [UnindexedOperation])
+    getTransferLogs expected actual =
+      case actual of
+        Nothing -> pure (expected, [])  -- failed tx
+        Just actualTid -> do
+          (tid,_) <- note ("logs not found at txIdx=" ++ show expected)
+            $ logsVector V.!? expected
+          if (tid == actualTid)
+            then getLogs expected TransferOrCreateAcct  -- tx interacts coin contract
+            else pure (expected, [])
 
-    acc
-        :: Maybe (TxId, [Transaction])
-        -> CommandResult Hash
-        -> Maybe (TxId, [Transaction])
-    acc Nothing _ = Nothing
-    acc (Just (tid,ts)) cr = do
-      (transferTid, fund) <- getLogs tid FundTx
-      (gasTid, transfer) <- getTransferLogs transferTid (_crTxId cr)
-      (nextTid, gas) <- getLogs gasTid GasPayment
+    acc (Right (idx,ts)) cr = do
+      (transferIdx, fund) <- getLogs idx FundTx
+      (gasIdx, transfer) <- getTransferLogs transferIdx (getTxId cr)
+      (nextIdx, gas) <- getLogs gasIdx GasPayment
       let ops = indexedOperations $ fund ++ transfer ++ gas
-          tx = rosettaTransaction cr ops
-      pure $ (nextTid, tx:ts)
+          tx = f cr ops
+      pure $ (nextIdx, DList.snoc ts tx)
+    acc e _ = e
 
+-- type AccountLog = (T.Text, Decimal, Value)
+test1 :: Either String [(T.Text, [Operation])]
+test1 = nonGenesisTransactions logs getTxId toTx initial rest
+  where
+    toTx (_, rk) ops = (rk, ops)
+    getTxId (tid, _) = tid
+    (log1,initial) =
+      let key = "miner1"
+          amt = 2.0
+          g = toJSON (key <> "PublicKey" :: T.Text)
+          tid = TxId 1
+          l = [(key, amt, g)]
+          a = (Just tid, key <> "ReqKey1")
+      in ((tid,l), a)
+
+    -- successful, non-coin contract tx
+    (logs2,tx1) =
+      let minerKey = "miner1"
+          key = "sender1"
+          gMiner = toJSON (key <> "PublicKey" :: T.Text)
+          gKey = toJSON (key <> "PublicKey" :: T.Text)
+          (fundTid, tid, gasTid) = (TxId 2, TxId 3, TxId 4)
+          fundLogs = (fundTid, [(key, 10.0, gKey)])
+          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
+          a = (Just tid, key <> "ReqKey2")
+      in ([fundLogs,gasLogs], a)
+
+    (logs3,tx2) =
+      let minerKey = "miner1"
+          key = "sender1"
+          gMiner = toJSON (key <> "PublicKey" :: T.Text)
+          gKey = toJSON (key <> "PublicKey" :: T.Text)
+          (fundTid, tid, gasTid) = (TxId 5, TxId 6, TxId 7)
+          fundLogs = (fundTid, [(key, 10.0, gKey)])
+          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
+          a = (Just tid, key <> "ReqKey3")
+      in ([fundLogs,gasLogs], a)
+
+    -- successful, coin contract tx
+    (logs4,tx3) =
+      let minerKey = "miner1"
+          key = "sender1"
+          gMiner = toJSON (key <> "PublicKey" :: T.Text)
+          gKey = toJSON (key <> "PublicKey" :: T.Text)
+          (fundTid, tid, gasTid) = (TxId 8, TxId 9, TxId 10)
+          fundLogs = (fundTid, [(key, 10.0, gKey)])
+          transferLogs = (tid, [(key, 5.0, gKey)])
+          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
+          a = (Just tid, key <> "ReqKey4")
+      in ([fundLogs,transferLogs,gasLogs], a)
+
+    -- unsuccessful tx
+    (logs5,tx4) =
+      let minerKey = "miner1"
+          key = "sender1"
+          gMiner = toJSON (key <> "PublicKey" :: T.Text)
+          gKey = toJSON (key <> "PublicKey" :: T.Text)
+          (fundTid, gasTid) = (TxId 11, TxId 12)
+          fundLogs = (fundTid, [(key, 10.0, gKey)])
+          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
+          a = (Nothing, key <> "ReqKey5")
+      in ([fundLogs,gasLogs], a)
+
+    rest = [tx1, tx2, tx3, tx4]
+    logs = M.fromList $ [log1] ++ logs2 ++ logs3 ++ logs4 ++ logs5
 
 -- TODO: delete, similar to nonGenesisTransactions but uses vector.
 -- TODO: fix, coinbase tx is last not first
@@ -439,7 +523,7 @@ findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
   chainDb <- (cutDb ^? cutDbBlockHeaderDb cid) ?? RosettaInvalidChain
 
   case (someHeight, someHash) of
-    (Nothing, Nothing) -> pure latestBlock   -- assumes latest block at given chain id. TODO: too fast that the logs return empty list
+    (Nothing, Nothing) -> pure latestBlock
     (Just hi, Nothing) -> byHeight chainDb latestBlock hi
     (Just hi, Just hsh) -> do
       bh <- byHeight chainDb latestBlock hi
