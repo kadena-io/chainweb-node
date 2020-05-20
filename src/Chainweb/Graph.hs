@@ -42,6 +42,7 @@ module Chainweb.Graph
 
 , ChainGraph
 , chainGraphKnown
+, chainGraphGraph
 , validChainGraph
 , adjacentChainIds
 , HasChainGraph(..)
@@ -166,6 +167,10 @@ instance HasTextRepresentation ChainGraph where
 chainGraphKnown :: Getter ChainGraph KnownGraph
 chainGraphKnown = to _chainGraphKnown
 {-# INLINE chainGraphKnown #-}
+
+chainGraphGraph :: Getter ChainGraph (G.DiGraph ChainId)
+chainGraphGraph = to _chainGraphGraph
+{-# INLINE chainGraphGraph #-}
 
 -- | A valid chain graph is symmetric, regular, and the out-degree
 -- is at least 1 if the graph has at least two vertices.

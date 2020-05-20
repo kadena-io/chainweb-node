@@ -14,6 +14,7 @@ import qualified RunNodes
 import qualified SlowTests
 import qualified TestMiner
 import qualified TxStream
+import qualified KnownGraphs
 
 main :: IO ()
 main = do
@@ -87,6 +88,10 @@ topLevelCommands =
       "Generate a checksum of all the checkpointer database tables between\
       \\n an inclusive range of blocks."
       CheckpointerDBChecksum.main
+  , CommandSpec
+      "known-graphs"
+      "Encode know graphs as JSON values"
+      KnownGraphs.main
   ]
 
 printHelp :: [CommandSpec] -> IO ()

@@ -321,7 +321,7 @@ library
         , data-default >=0.7
         , data-dword >= 0.3
         , deepseq >= 1.4
-        , digraph >= 0.1.0.2
+        , digraph >= 0.2
         , direct-sqlite >= 2.3
         , directory >= 1.3
         , dlist >= 0.8
@@ -600,7 +600,7 @@ executable cwtool
         -threaded
         -rtsopts
         "-with-rtsopts=-N -H1G -A64M"
-    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum node test
+    hs-source-dirs: tools/cwtool tools/ea tools/encode-decode tools/genconf tools/run-nodes tools/txstream tools/test-miner tools/header-dump tools/db-checksum tools/known-graphs node test
     main-is: CwTool.hs
     other-modules:
         Allocations
@@ -618,6 +618,7 @@ executable cwtool
         RunNodes
         SlowTests
         TxStream
+        KnownGraphs
     build-depends:
         -- internal
           chainweb
@@ -642,6 +643,7 @@ executable cwtool
         , containers >= 0.5
         , cryptonite >= 0.25
         , deepseq >= 1.4
+        , digraph >= 0.2
         , direct-sqlite >= 2.3
         , directory >= 1.3
         , file-embed
