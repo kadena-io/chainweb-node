@@ -19,7 +19,7 @@ module Chainweb.Rosetta.RestAPI.Server where
 
 import Control.Error.Util
 import Control.Lens ((^?))
-import Control.Monad (void)
+import Control.Monad (void, foldM)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
@@ -29,7 +29,6 @@ import Data.Bifunctor
 import Data.Map (Map)
 import Data.Decimal
 import Data.CAS
-import Data.List (foldl')
 import Data.String
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..))
@@ -252,6 +251,8 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
         , _blockResp_otherTransactions = Nothing
         }
 
+-- TODO: Max limit of tx to return at once.
+--       When to do pagination using /block/transaction?
 getBlockTxs
     :: BlockHeader
     -> Map TxId [AccountLog]
@@ -264,26 +265,50 @@ getBlockTxs bh logs coinbase rest
                 logs _crTxId rosettaTransaction coinbase rest
 
 
+-- | Matches all transactions in the genesis block to their coin contract logs.
 -- Genesis transactions have no coinbase or gas payments.
 genesisTransactions
     :: Map TxId [AccountLog]
     -> V.Vector (CommandResult Hash)
     -> [Transaction]
-genesisTransactions logs crs = V.toList $ V.map f crs
+genesisTransactions logs crs =
+  V.toList $ V.map (genesisTransaction logs) crs
+
+genesisTransaction
+    :: Map TxId [AccountLog]
+    -> CommandResult Hash
+    -> Transaction
+genesisTransaction logs cr =
+  case (_crTxId cr) of
+    Just tid -> case (M.lookup tid logs) of
+      Just l -> rosettaTransaction cr $ makeOps tid l
+      Nothing -> rosettaTransaction cr []  -- not a coin contract tx
+    Nothing -> rosettaTransaction cr [] -- all genesis tx should have a txid
   where
-    makeOps tid l = indexedOperations $
-      map (operation Successful TransferOrCreateAcct tid) l
-    f cr = do
-      case (_crTxId cr) of
-        Just tid -> case (M.lookup tid logs) of
-          Just l -> rosettaTransaction cr $ makeOps tid l
-          Nothing -> rosettaTransaction cr []  -- not a coin contract tx
-        Nothing -> rosettaTransaction cr [] -- all genesis tx should have a txid
+      makeOps tid l = indexedOperations $
+        map (operation Successful TransferOrCreateAcct tid) l
 
 
+-- | Matches a single genesis transaction to its coin contract logs
+nonGenesisCoinbase
+    :: V.Vector (TxId, [AccountLog])
+    -> (a -> [Operation] -> b)
+    -> a
+    -> Either String (T2 Int b)
+nonGenesisCoinbase logs f cr = do
+  let idx = 0
+  (tid, l) <- note
+    ("initial logs missing with txId=" ++ show idx)
+    $ logs V.!? idx
+  let ops = indexedOperations $
+            map (operation Successful CoinbaseReward tid) l
+  pure $ T2 idx (f cr ops)
+
+
+-- | Matches all transactions in a non-genesis block to their coin contract logs.
 -- The first transaction in non-genesis blocks is the coinbase transaction.
--- For transactions that follows, each has logs that fund the transaction,
--- interact with the coin contract (optional), and pay gas to the miner.
+-- Each transactions that follows has (1) logs that fund the transaction,
+-- (2) optinal tx specific coin contract logs, and (3) logs that pay gas.
 nonGenesisTransactions
     :: Map TxId [AccountLog]
     -> (a -> Maybe TxId)
@@ -292,34 +317,67 @@ nonGenesisTransactions
     -> V.Vector a
     -> Either String [b]
 nonGenesisTransactions logs getTxId f initial rest = do
-  let initialIdx = 0
-  initialTx <- do
-    (tid, l) <- note ("initial logs missing with txId=" ++ show initialIdx)
-         $ logsVector V.!? initialIdx
-    let ops = indexedOperations $
-              map (operation Successful CoinbaseReward tid) l
-    pure $ f initial ops
-  (T2 _ ts) <- foldl' acc
-    (Right $ T2 (succ initialIdx) (DList.singleton initialTx))
-    rest
+  T2 initIdx initTx <- nonGenesisCoinbase logsVector f initial
+  T2 _ ts <- foldM matchLogs (defAcc initIdx initTx) rest
   pure $ DList.toList ts
-
   where
     logsVector = V.fromList $ M.toAscList logs   -- O(1) lookup by index
+    matchLogs = gasTransactionAcc logsVector getTxId f DList.snoc
+    defAcc i tx = T2 (succ i) (DList.singleton tx)
 
+-- | Matches a single non-genesis transaction to its coin contract logs
+nonGenesisTransaction
+    :: Map TxId [AccountLog]
+    -> (a -> RequestKey)
+    -> (a -> TxId)
+    -> (a -> [Operation] -> b)
+    -> a
+    -> V.Vector a
+    -> RequestKey
+    -- ^ Lookup target
+    -> Either String b
+nonGenesisTransaction logs getTxId getRk f initial rest target = do
+  undefined
+
+-- | Algorithm:
+-- Assumes logs at current index (i.e. idx) funded the tx.
+-- Attempts to get the coin contract logs the tx
+-- might have. If the tx succeeded (i.e. the tx has a TxId),
+-- it peeks at the next logs in the list (i.e. idx + 1).
+-- If the log's txId matches the tx's txId, then these
+-- logs are associated with the tx and the logs that
+-- paid for gas are retrieved from following index (i.e. idx + 1 + 1).
+-- If the txIds don't match OR if the tx failed, the gas logs
+-- are retrieved from idx + 1 instead.
+gasTransactionAcc
+    :: V.Vector (TxId, [AccountLog])
+    -> (a -> Maybe TxId)
+    -> (a -> [Operation] -> b)
+    -> (c -> b -> c)
+    -> T2 Int c
+    -> a
+    -> Either String (T2 Int c)
+gasTransactionAcc logs getTxId f acc (T2 idx txs) cr = do
+  T2 transferIdx fund <- getLogs idx FundTx
+  T2 gasIdx transfer <- getTransferLogs transferIdx (getTxId cr)
+  T2 nextIdx gas <- getLogs gasIdx GasPayment
+  let ops = indexedOperations $ fund <> transfer <> gas
+      tx = f cr ops
+  pure $ T2 nextIdx (acc txs tx)
+  where
     peek i = note
       ("no logs found at txIdx=" ++ show i)
-      $ logsVector V.!? i
+      $ logs V.!? i
 
     -- Returns logs at given index and the next index to try
     getLogs
         :: Int
         -> OperationType
         -> Either String (T2 Int [UnindexedOperation])
-    getLogs idx otype = do
-      (tid,l) <- peek idx
+    getLogs i otype = do
+      (tid,l) <- peek i
       let opsF = map (operation Successful otype tid) l
-      pure $ T2 (succ idx) opsF
+      pure $ T2 (succ i) opsF
 
     getTransferLogs
         :: Int
@@ -337,28 +395,10 @@ nonGenesisTransactions logs getTxId f initial rest = do
           | (eTid == aTid) = transferLogs
           | otherwise = noTransferLogs
 
-    -- | Algorithm:
-    -- Assumes logs at current index (i.e. idx) funded the tx.
-    -- Attempts to get the coin contract logs the tx
-    -- might have. If the tx succeeded (i.e. the tx has a TxId),
-    -- it peeks at the next logs in the list (i.e. idx + 1).
-    -- If the log's txId matches the tx's txId, then these
-    -- logs are associated with the tx and the logs that
-    -- paid for gas are retrieved from following index (i.e. idx + 1 + 1).
-    -- If the txId's don't match OR if the tx failed, the gas logs
-    -- are retrieved from idx + 1 instead.
-    acc (Right (T2 idx ts)) cr = do
-      T2 transferIdx fund <- getLogs idx FundTx
-      T2 gasIdx transfer <- getTransferLogs transferIdx (getTxId cr)
-      T2 nextIdx gas <- getLogs gasIdx GasPayment
-      let ops = indexedOperations $ fund ++ transfer ++ gas
-          tx = f cr ops
-      pure $ T2 nextIdx (DList.snoc ts tx)
-    acc e _ = e
 
 -- TODO: Incorporate into unit tests
-test :: Either String [(T.Text, [Operation])]
-test = nonGenesisTransactions logs getTxId toTx initial rest
+testBlock :: Either String [(T.Text, [Operation])]
+testBlock = nonGenesisTransactions logs getTxId toTx initial rest
   where
     toTx (_, rk) ops = (rk, ops)
     getTxId (tid, _) = tid
