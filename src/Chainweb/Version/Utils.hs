@@ -80,10 +80,18 @@ limitHeight :: BlockHeight -> M.Map BlockHeight a -> M.Map BlockHeight a
 limitHeight h = M.takeWhileAntitone (h >=)
 {-# INLINE limitHeight #-}
 
+-- | This is an internal function and must not be exported.
+--
+-- Precondition: the is non-empty maps and has an entry 0.
+--
 atHeight :: HasCallStack => BlockHeight -> M.Map BlockHeight a -> a
 atHeight h = snd . fromJuste . M.lookupLE h
 {-# INLINE atHeight #-}
 
+-- | This is an internal function and must not be exported.
+--
+-- Precondition: the is non-empty maps and has an entry 0.
+--
 atCutHeight :: HasCallStack => CutHeight -> M.Map CutHeight a -> a
 atCutHeight h = snd . fromJuste . M.lookupLE h
 {-# INLINE atCutHeight #-}
@@ -99,12 +107,30 @@ atCutHeight h = snd . fromJuste . M.lookupLE h
 -- 0 == minimum $ M.keys $ chainGraphs v
 -- @
 --
-chainGraphs
-    :: HasChainwebVersion v
-    => v
-    -> M.Map BlockHeight ChainGraph
-chainGraphs = M.fromList . toList . chainwebGraphs . _chainwebVersion
-{-# INLINE chainGraphs #-}
+chainGraphs :: HasChainwebVersion v => v -> M.Map BlockHeight ChainGraph
+chainGraphs v = case _chainwebVersion v of
+    Mainnet01 -> mainnet01GraphMap
+    Testnet04 -> testnet04GraphMap
+    Development -> developmentGraphMap
+    x -> M.fromList . toList $ chainwebGraphs x
+
+-- | Memoized mainnet01 chainweb graphs map
+--
+mainnet01GraphMap :: M.Map BlockHeight ChainGraph
+mainnet01GraphMap = M.fromList . toList $ chainwebGraphs Mainnet01
+{-# NOINLINE mainnet01GraphMap #-}
+
+-- | Memoized testnet04 chainweb graphs map
+--
+testnet04GraphMap :: M.Map BlockHeight ChainGraph
+testnet04GraphMap = M.fromList . toList $ chainwebGraphs Testnet04
+{-# NOINLINE testnet04GraphMap #-}
+
+-- | Memoized devnet chainweb graphs map
+--
+developmentGraphMap :: M.Map BlockHeight ChainGraph
+developmentGraphMap = M.fromList . toList $ chainwebGraphs Development
+{-# NOINLINE developmentGraphMap #-}
 
 -- | BlockHeight intervals for the chain graphs of a chainweb version up to a
 -- given block height.
