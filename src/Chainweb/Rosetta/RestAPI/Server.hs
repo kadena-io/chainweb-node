@@ -23,6 +23,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
+import Data.IORef
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64)
 
@@ -156,10 +157,18 @@ mempoolH
     -> Handler MempoolResp
 mempoolH v ms (MempoolReq net) = runExceptT work >>= either throwRosetta pure
   where
+    f :: TransactionHash -> TransactionId
+    f (TransactionHash h) = TransactionId (T.decodeUtf8 $ BSS.fromShort h)
+
     work = do
         cid <- validateNetwork v net
-        _ <- lookup cid ms ?? RosettaInvalidChain
-        error "not yet implemented"  -- TODO!
+        mp <- lookup cid ms ?? RosettaInvalidChain
+        r <- liftIO $ newIORef mempty
+        -- TODO: This will need to be revisited once we can add
+        -- pagination + streaming the mempool
+        _ <- liftIO $ mempoolGetPendingTransactions mp Nothing $ writeIORef r
+        txs <- liftIO $ fmap f <$> readIORef r
+        return $ MempoolResp $ V.toList txs
 
 mempoolTransactionH
     :: ChainwebVersion
