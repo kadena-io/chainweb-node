@@ -348,7 +348,7 @@ chainwebVersions = HM.fromList $
             , ("-triangle", triangleChainGraph)
             , ("-peterson", petersonChainGraph)
             , ("-twenty", twentyChainGraph)
-            , ("-hoffman-singleton", hoffmanSingletonGraph)
+            , ("-hoffman-singleton", hoffmanSingletonChainGraph)
             ]
 
 prettyVersions :: HM.HashMap ChainwebVersion T.Text
@@ -375,7 +375,7 @@ graphToCode Pair = 0x00020000
 graphToCode Triangle = 0x00030000
 graphToCode Peterson = 0x00040000
 graphToCode Twenty = 0x00050000
-graphToCode HoffmanSingle = 0x00060000
+graphToCode HoffmanSingleton = 0x00060000
 
 codeToGraph :: HasCallStack => Word32 -> KnownGraph
 codeToGraph 0x00010000 = Singleton
@@ -383,7 +383,7 @@ codeToGraph 0x00020000 = Pair
 codeToGraph 0x00030000 = Triangle
 codeToGraph 0x00040000 = Peterson
 codeToGraph 0x00050000 = Twenty
-codeToGraph 0x00060000 = HoffmanSingle
+codeToGraph 0x00060000 = HoffmanSingleton
 codeToGraph _ = error "Unknown Graph Code"
 
 -- | Split a `Word32` representation of a `ChainwebVersion` / `ChainGraph` pair
@@ -415,7 +415,7 @@ testVersionToCode Mainnet01 =
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
 fromTestChainwebVersionId i =
-    uncurry ($) . bimap codeToTestVersion (knownGraph . codeToGraph) $ splitTestCode i
+    uncurry ($) . bimap codeToTestVersion (knownChainGraph . codeToGraph) $ splitTestCode i
 
 -- -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion
