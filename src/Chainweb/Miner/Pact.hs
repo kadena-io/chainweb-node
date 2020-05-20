@@ -60,7 +60,6 @@ import Data.Word
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Payload (MinerData(..))
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion, chainGraphAt)
 
 import Pact.Types.Term (KeySet(..), mkKeySet)
 
