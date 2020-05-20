@@ -40,6 +40,7 @@ module Chainweb.Graph
 -- * Chain Graph
 
 , ChainGraph
+, _chainGraphGraph
 , chainGraphKnown
 , toChainGraph
 , validChainGraph
@@ -75,7 +76,7 @@ module Chainweb.Graph
 , pairChainGraph
 , triangleChainGraph
 , petersonChainGraph
-, twentyChainGraph
+, cwTwentyChainGraph
 , hoffmanSingletonGraph
 
 ) where
@@ -333,7 +334,7 @@ knownGraph Singleton = singletonChainGraph
 knownGraph Pair = pairChainGraph
 knownGraph Triangle = triangleChainGraph
 knownGraph Peterson = petersonChainGraph
-knownGraph Twenty = twentyChainGraph
+knownGraph Twenty = cwTwentyChainGraph
 knownGraph HoffmanSingle = hoffmanSingletonGraph
 
 singletonChainGraph :: ChainGraph
@@ -348,8 +349,33 @@ triangleChainGraph = toChainGraph (unsafeChainId . int) Triangle G.triangle
 petersonChainGraph :: ChainGraph
 petersonChainGraph = toChainGraph (unsafeChainId . int) Peterson G.petersonGraph
 
-twentyChainGraph :: ChainGraph
-twentyChainGraph = toChainGraph (unsafeChainId . int) Twenty G.twentyChainGraph
-
 hoffmanSingletonGraph :: ChainGraph
 hoffmanSingletonGraph = toChainGraph (unsafeChainId . int) HoffmanSingle G.hoffmanSingleton
+
+cwTwentyChainGraph :: ChainGraph
+cwTwentyChainGraph = toChainGraph (unsafeChainId . int) Twenty (G.fromList cwTwentyAdjacencies)
+
+-- twentyChainGraph from the digraph package is has diameter 4, this has diameter 3
+cwTwentyAdjacencies :: [(Int, [Int])]
+cwTwentyAdjacencies =
+  [(0,[3,7,2])
+  ,(1,[5,2,13])
+  ,(2,[12,1,0])
+  ,(3,[15,19,0])
+  ,(4,[9,6,11])
+  ,(5,[17,9,1])
+  ,(6,[4,18,7])
+  ,(7,[6,0,13])
+  ,(8,[14,10,15])
+  ,(9,[5,4,15])
+  ,(10,[16,8,13])
+  ,(11,[4,12,16])
+  ,(12,[14,11,2])
+  ,(13,[10,1,7])
+  ,(14,[18,12,8])
+  ,(15,[9,8,3])
+  ,(16,[11,10,19])
+  ,(17,[5,18,19])
+  ,(18,[17,6,14])
+  ,(19,[17,16,3])
+  ]

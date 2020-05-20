@@ -356,7 +356,7 @@ chainwebVersions = HM.fromList $
             , ("-pair", pairChainGraph)
             , ("-triangle", triangleChainGraph)
             , ("-peterson", petersonChainGraph)
-            , ("-twenty", twentyChainGraph)
+            , ("-twenty", cwTwentyChainGraph)
             , ("-hoffman-singleton", hoffmanSingletonGraph)
             ]
 
@@ -571,9 +571,10 @@ chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
 chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
 chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = (2000, twentyChainGraph) NE.:|
-    [ (0, petersonChainGraph)
-    ]
+chainwebGraphs Development = pure (0, cwTwentyChainGraph)
+--chainwebGraphs Development = (2000, cwTwentyChainGraph) NE.:|
+--    [ (0, petersonChainGraph)
+--    ]
 {-# INLINE chainwebGraphs #-}
 
 -- | Return the Graph History at a given block height in descending
