@@ -201,6 +201,7 @@ library
         , Chainweb.RestAPI.Utils
         , Chainweb.Rosetta.RestAPI
         , Chainweb.Rosetta.RestAPI.Server
+        , Chainweb.Rosetta.Util
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.VerifyProof
@@ -453,6 +454,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
+        Chainweb.Test.Rosetta.Server
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
