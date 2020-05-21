@@ -7,6 +7,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module: Chainweb.Cut.Create
@@ -49,6 +51,7 @@ module Chainweb.Cut.Create
 , encodeWorkHeader
 , decodeWorkHeader
 , newWorkHeader
+, newWorkHeaderPure
 
 -- * Solved Work
 , SolvedWork(..)
@@ -81,6 +84,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
+import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
 import Chainweb.Difficulty
@@ -89,7 +93,6 @@ import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
-import Chainweb.WebBlockHeaderDB
 
 -- -------------------------------------------------------------------------- --
 -- Adjacent Parent Hashes
@@ -271,28 +274,41 @@ decodeWorkHeader = WorkHeader
 -- | Create work header for cut
 --
 newWorkHeader
-    :: WebBlockHeaderDb
+    :: ChainValueCasLookup hdb BlockHeader
+    => hdb
     -> CutExtension
     -> BlockPayloadHash
     -> IO WorkHeader
-newWorkHeader hdb extension phash = do
+newWorkHeader hdb e h = do
+    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
+    newWorkHeaderPure (chainLookupM hdb) creationTime e h
 
+-- | A pure version of 'newWorkHeader' that is useful in testing.
+--
+newWorkHeaderPure
+    :: Applicative m
+    => (ChainValue BlockHash -> m BlockHeader)
+    -> BlockCreationTime
+    -> CutExtension
+    -> BlockPayloadHash
+    -> m WorkHeader
+newWorkHeaderPure hdb creationTime extension phash = do
     -- Collect block headers for adjacent parents, some of which may be
     -- available in the cut.
-    adjParentHeaders <- getAdjacentParentHeaders hdb extension
-
+    createWithParents <$> getAdjacentParentHeaders hdb extension
+  where
     -- Assemble a candidate `BlockHeader` without a specific `Nonce`
     -- value. `Nonce` manipulation is assumed to occur within the
     -- core Mining logic.
     --
-    creationTime <- BlockCreationTime <$> getCurrentTimeIntegral
-    let nh = newBlockHeader adjParentHeaders phash (Nonce 0) creationTime
-            $! _cutExtensionParent extension
-    return WorkHeader
-        { _workHeaderBytes = SB.toShort $ runPut $ encodeBlockHeaderWithoutHash nh
-        , _workHeaderTarget = _blockTarget nh
-        , _workHeaderChainId = _chainId nh
-        }
+    createWithParents parents =
+        let nh = newBlockHeader parents phash (Nonce 0) creationTime
+                $! _cutExtensionParent extension
+        in WorkHeader
+            { _workHeaderBytes = SB.toShort $ runPut $ encodeBlockHeaderWithoutHash nh
+            , _workHeaderTarget = _blockTarget nh
+            , _workHeaderChainId = _chainId nh
+            }
 
 -- | Get all adjacent parent headers for a new block header for a given cut.
 --
@@ -308,13 +324,16 @@ newWorkHeader hdb extension phash = do
 -- adjust the epoch start, which is fine.
 --
 getAdjacentParentHeaders
-    :: WebBlockHeaderDb
+    :: Applicative m
+    => (ChainValue BlockHash -> m BlockHeader)
     -> CutExtension
-    -> IO (HM.HashMap ChainId ParentHeader)
+    -> m (HM.HashMap ChainId ParentHeader)
 getAdjacentParentHeaders hdb extension
     = itraverse
         ( \cid h -> fmap ParentHeader $ let ch = c ^?! ixg cid in
-            if _blockHash ch == h then return ch else lookupWebBlockHeaderDb hdb cid h
+            if _blockHash ch == h
+              then pure ch
+              else hdb (ChainValue cid h)
         )
     . HM.filterWithKey (\cid h -> genesisParentBlockHash ver cid /= h)
     . _getBlockHashRecord
@@ -394,8 +413,10 @@ extendCut c ph (SolvedWork bh) = do
 
         -- Fail Early: check that the given payload matches the new block.
         --
-        unless (_blockPayloadHash bh /= ph)
-            $ throwM $ InvalidSolvedHeader bh "Invalid payload hash"
+        unless (_blockPayloadHash bh == ph) $ throwM $ InvalidSolvedHeader bh
+            $ "Invalid payload hash"
+            <> ". Expected: " <> sshow (_blockPayloadHash bh)
+            <> ", Got: " <> sshow ph
 
         -- If the `BlockHeader` is already stale and can't be appended to the
         -- best `Cut`, Nothing is returned
