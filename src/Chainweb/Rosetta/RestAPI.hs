@@ -112,6 +112,7 @@ data RosettaFailure
     | RosettaPayloadNotFound
     | RosettaUnparsableTxOut
     | RosettaTxIdNotFound
+    | RosettaUnparsableTransactionId
     deriving (Show, Enum, Bounded)
 
 
@@ -143,6 +144,7 @@ rosettaError RosettaMismatchBlockHashHeight = RosettaError 18 "Block hash and bl
 rosettaError RosettaPayloadNotFound = RosettaError 19 "Block payload not found" False
 rosettaError RosettaUnparsableTxOut = RosettaError 20 "Transaction output not parsable" False
 rosettaError RosettaTxIdNotFound = RosettaError 21 "Transaction Id not found in block" False
+rosettaError RosettaUnparsableTransactionId = RosettaError 22 "Transaction Id not parsable" False
 
 
 throwRosetta :: RosettaFailure -> Handler a
