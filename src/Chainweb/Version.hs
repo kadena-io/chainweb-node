@@ -23,7 +23,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Properties of Chainweb Versions
 --
 module Chainweb.Version
 ( ChainwebVersion(..)
@@ -43,6 +43,8 @@ module Chainweb.Version
 , blockRate
 , WindowWidth(..)
 , window
+, headerSizeBytes
+, workSizeBytes
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
@@ -99,6 +101,10 @@ module Chainweb.Version
 , adjs
 , adjsOfVertex
 , checkAdjacentChainIds
+
+-- * Internal. Don't use. Exported only for testing
+, headerSizes
+, headerBaseSizeBytes
 ) where
 
 import Control.DeepSeq
@@ -632,6 +638,58 @@ window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet04 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
+
+-- -------------------------------------------------------------------------- --
+-- Header Serialization
+
+-- | The size in bytes of the constant portion of the serialized header. This is
+-- the header /without/ the adjacent hashes.
+--
+-- NOTE: This is an internal function. For the actual size of the serialized header
+-- use 'headerSizeBytes'.
+--
+headerBaseSizeBytes :: ChainwebVersion -> Natural
+headerBaseSizeBytes _ = 318 - 110
+
+-- | This is an internal function. Use 'headerSizeBytes' instead.
+--
+-- Postconditions: for all @v@
+--
+-- * @not . null $ headerSizes v@, and
+-- * @0 == (fst . last) (headerSizes v)@.
+--
+headerSizes :: ChainwebVersion -> NE.NonEmpty (BlockHeight, Natural)
+headerSizes v = fmap (\g -> headerBaseSizeBytes v + 36 * degree g + 2) <$> chainwebGraphs v
+
+-- | The size of the serialized block header.
+--
+-- This function is safe because of the invariant of 'headerSize' that there
+-- exists and entry for block height 0.
+--
+headerSizeBytes
+    :: HasCallStack
+    => ChainwebVersion
+    -> BlockHeight
+    -> Natural
+headerSizeBytes v h = snd
+    $ head
+    $ NE.dropWhile ((> h) . fst)
+    $ headerSizes v
+{-# INLINE headerSizeBytes #-}
+
+-- | The size of the work bytes /without/ the preamble of the chain id and target
+--
+-- NOTE: For projection versions we require that the value is constant for a
+-- given chainweb version. This would only ever change as part of the
+-- introduction of new block header format.
+--
+workSizeBytes
+    :: HasCallStack
+    => ChainwebVersion
+    -> BlockHeight
+    -> Natural
+workSizeBytes v h = headerSizeBytes v h - 32
+{-# INLINE workSizeBytes #-}
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
