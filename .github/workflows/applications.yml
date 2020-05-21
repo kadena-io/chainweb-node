@@ -232,6 +232,12 @@ jobs:
         echo "::set-env name=GIT_REF_SHORT::${GITHUB_REF#refs/heads/}"
         echo "::set-env name=GIT_HEAD_REF_SHORT::${GITHUB_HEAD_REF#refs/heads/}"
         echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD || true)"
+        
+        if [[ "$GIT_REF_SHORT" = "master" || -n "$GIT_TAG" ] ; then
+          echo "::set-env name=OPT_LEVEL::2"
+        else
+          echo "::set-env name=OPT_LEVEL::1"
+        fi        
 
     - name: Install GHC and Cabal
       uses: actions/setup-haskell@v1.1
@@ -257,12 +263,12 @@ jobs:
         library-stripping: True
         package chainweb
           documentation: False
-          optimization: ${{ 1 + ((env.GIT_REF_SHORT == 'master') || contains(github.event_name, 'release')) }}
+          optimization: $OPT_LEVEL
           benchmarks: True
           tests: True
         package pact
           documentation: False
-          optimization: ${{ 1 + ((env.GIT_REF_SHORT == 'master') || contains(github.event_name, 'release')) }}
+          optimization: $OPT_LEVEL
         EOF
     - name: Append cabal.project.local for GHC-8.10
       if: contains(matrix.ghc, '8.10')
