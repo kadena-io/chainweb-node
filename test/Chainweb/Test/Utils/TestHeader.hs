@@ -154,7 +154,9 @@ arbitraryTestHeaderHeight v cid h = do
         $ adjacentChainIds (chainGraphAt v h) cid
     nonce <- arbitrary
     payloadHash <- arbitrary
-    t <- BlockCreationTime <$> genEnum (_bct $ _blockCreationTime (_parentHeader parent), maxBound)
+    let pt = maximum $ _bct . _blockCreationTime
+            <$> HM.insert cid (_parentHeader parent) as
+    t <- BlockCreationTime <$> genEnum (pt, maxBound)
     return $ TestHeader
         { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent
         , _testHeaderParent = parent

@@ -196,6 +196,9 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockHash .~ nullBlockHash
       , [IncorrectHash]
       )
+    , ( hdr & testHeaderHdr . blockCreationTime .~ (_blockCreationTime . _parentHeader $ _testHeaderParent hdr)
+      , [IncorrectHash, IncorrectPow, CreatedBeforeParent]
+      )
     , ( hdr & testHeaderHdr . blockHash %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
       , [IncorrectHash]
       )
@@ -218,7 +221,7 @@ validationFailures =
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
-      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags]
+      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent]
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]

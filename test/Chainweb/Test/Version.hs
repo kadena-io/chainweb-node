@@ -15,44 +15,52 @@ module Chainweb.Test.Version
 ( tests
 ) where
 
+import qualified Data.ByteString as B
+import Data.Foldable
 import qualified Data.List.NonEmpty as NE
 
+import Test.QuickCheck
 import Test.Tasty (testGroup, TestTree)
 import Test.Tasty.QuickCheck (testProperty)
-import Test.QuickCheck
 
 -- internal modules
 
+import Chainweb.BlockHash
+import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.Graph
+import Chainweb.Test.Orphans.Internal
 import Chainweb.Test.Orphans.Internal ()
+import Chainweb.Utils
 import Chainweb.Version
 
 tests :: TestTree
 tests = testGroup "ChainwebVersion properties"
-    [ testProperty "chainwebGraphs are sorted" $ prop_chainGraphs_sorted
-    , testProperty "chainwebGraphs is sorted for mainnet" $ prop_chainGraphs_sorted Mainnet01
-    , testProperty "chainwebGraphs is sorted for testnet" $ prop_chainGraphs_sorted Testnet04
-    , testProperty "chainwebGraphs is sorted for devnet" $ prop_chainGraphs_sorted Development
+    [ graphTests
+    , headerSizeTests
+    ]
 
-    , testProperty "chainGraphs history starts at 0" $ prop_chainGraphs_0
-    , testProperty "chainGraphs history starts at 0 for mainnet" $ prop_chainGraphs_0 Mainnet01
-    , testProperty "chainGraphs history starts at 0 for testnet" $ prop_chainGraphs_0 Testnet04
-    , testProperty "chainGraphs history starts at 0 for devenet" $ prop_chainGraphs_0 Development
+-- -------------------------------------------------------------------------- --
+-- Utils
 
-    , testProperty "gensisHeight is greater or equal than 0 for all chains" prop_genesisHeight
-    , testProperty "gensisHeight is greater or equal than 0 for all chains on mainnet" $ prop_genesisHeight Mainnet01
-    , testProperty "gensisHeight is greater or equal than 0 for all chains on testnet" $ prop_genesisHeight Testnet04
-    , testProperty "gensisHeight is greater or equal than 0 for all chains on devnet" $ prop_genesisHeight Development
+propForVersions :: String -> (ChainwebVersion -> Property) -> TestTree
+propForVersions desc prop = testGroup desc
+    [ testProperty "arbitrary versions" $ prop
+    , testProperty "mainnet" $ prop Mainnet01
+    , testProperty "testnet" $ prop Testnet04
+    , testProperty "devnet" $ prop Development
+    ]
 
-    , testProperty "chain graphs order ordered by order" prop_chainGraphs_order
-    , testProperty "chain graphs order ordered by order on mainnet" $ prop_chainGraphs_order Mainnet01
-    , testProperty "chain graphs order ordered by order on testnet" $ prop_chainGraphs_order Testnet04
-    , testProperty "chain graphs order ordered by order on devnet" $ prop_chainGraphs_order Development
+-- -------------------------------------------------------------------------- --
+-- Graphs
 
-    , testProperty "chainIds are chains of latest graph" prop_chainIds
-    , testProperty "chainIds are chains of latest graph on mainnet" $ prop_chainIds Mainnet01
-    , testProperty "chainIds are chains of latest graph on testnet" $ prop_chainIds Testnet04
-    , testProperty "chainIds are chains of latest graph on devnet" $ prop_chainIds Development
+graphTests :: TestTree
+graphTests = testGroup "Graphs"
+    [ propForVersions "chainwebGraphs are sorted" prop_chainGraphs_sorted
+    , propForVersions "chainGraphs history starts at 0" $ prop_chainGraphs_0
+    , propForVersions "gensisHeight is greater or equal than 0 for all chains" prop_genesisHeight
+    , propForVersions "chain graphs order ordered by order" prop_chainGraphs_order
+    , propForVersions "chainIds are chains of latest graph" prop_chainIds
     ]
 
 prop_chainGraphs_sorted :: ChainwebVersion -> Property
@@ -67,9 +75,75 @@ prop_chainGraphs_order v = orders === NE.reverse (NE.sort orders)
   where
     orders = fmap (order . snd) $ chainwebGraphs v
 
-prop_genesisHeight :: ChainwebVersion -> Bool
-prop_genesisHeight v = all ((>= 0) . genesisHeight v) $ chainIds v
+prop_genesisHeight :: ChainwebVersion -> Property
+prop_genesisHeight v = property $ all ((>= 0) . genesisHeight v) $ chainIds v
 
 prop_chainIds :: ChainwebVersion -> Property
 prop_chainIds v = chainIds v === graphChainIds (snd $ NE.head $ chainwebGraphs v)
+
+-- -------------------------------------------------------------------------- --
+--  Header Sizes
+
+headerSizeTests :: TestTree
+headerSizeTests = testGroup "HeaderSize"
+    [ propForVersions "base size golden" prop_headerBaseSizeBytes_golden
+    , propForVersions "base size" prop_headerBaseSizeBytes
+    , propForVersions "sizes sorted" prop_headerSizes_sorted
+    , propForVersions "sizes 0" prop_headerSizes_0
+    , propForVersions "sizes order" prop_headerSizes_order
+    , propForVersions "genesis header size bytes" prop_headerSizeBytes_gen
+    , propForVersions "header size bytes" prop_headerSizeBytes
+    , propForVersions "work size bytes" prop_workSizeBytes
+    ]
+
+-- | A "golden" test property. If the value changes the test will fails and must
+-- be manually updated. This protectes against accidentally changing this value.
+--
+prop_headerBaseSizeBytes_golden :: ChainwebVersion -> Property
+prop_headerBaseSizeBytes_golden v = headerBaseSizeBytes v === 208
+
+prop_headerBaseSizeBytes :: ChainwebVersion -> Property
+prop_headerBaseSizeBytes v = property $ do
+    cid <- elements $ toList $ chainIds v
+    let genHdr = genesisBlockHeader v cid
+        gen = runPut $ encodeBlockHeader genHdr
+        as = runPut $ encodeBlockHashRecord (_blockAdjacentHashes genHdr)
+    return $ headerBaseSizeBytes v === int (B.length gen - B.length as)
+
+prop_headerSizes_sorted :: ChainwebVersion -> Property
+prop_headerSizes_sorted v
+    = (NE.reverse $ NE.sort $ headerSizes v) === headerSizes v
+
+prop_headerSizes_0 :: ChainwebVersion -> Property
+prop_headerSizes_0 = (===) 0 . fst . NE.last . headerSizes
+
+prop_headerSizes_order :: ChainwebVersion -> Property
+prop_headerSizes_order v = orders === NE.reverse (NE.sort orders)
+  where
+    orders = fmap (order . snd) $ chainwebGraphs v
+
+prop_headerSizeBytes_gen :: ChainwebVersion -> Property
+prop_headerSizeBytes_gen v = property $ do
+    cid <- elements $ toList $ chainIds v
+    let hdr = genesisBlockHeader v cid
+        l = int $ B.length $ runPut $ encodeBlockHeader $ hdr
+    return
+        $ counterexample ("chain: " <> sshow cid)
+        $ headerSizeBytes v (_blockHeight hdr) === l
+
+prop_headerSizeBytes :: ChainwebVersion -> Property
+prop_headerSizeBytes v = property $ do
+    h <- arbitraryBlockHeaderVersion v
+    let l = int $ B.length $ runPut $ encodeBlockHeader h
+    return
+        $ counterexample ("header: " <> sshow h)
+        $ headerSizeBytes (_chainwebVersion h) (_blockHeight h) === l
+
+prop_workSizeBytes :: ChainwebVersion -> Property
+prop_workSizeBytes v = property $ do
+    h <- arbitraryBlockHeaderVersion v
+    let l = int $ B.length $ runPut $ encodeBlockHeaderWithoutHash h
+    return
+        $ counterexample ("header: " <> sshow h)
+        $ workSizeBytes (_chainwebVersion h) (_blockHeight h) === l
 
