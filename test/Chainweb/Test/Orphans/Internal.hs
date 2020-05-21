@@ -146,6 +146,9 @@ instance Arbitrary BlockHash where
 instance Arbitrary BlockHeight where
     arbitrary = BlockHeight <$> arbitrary
 
+instance Arbitrary CutHeight where
+    arbitrary = CutHeight <$> arbitrary
+
 instance Arbitrary BlockWeight where
     arbitrary = BlockWeight <$> arbitrary
 
@@ -177,7 +180,7 @@ arbitraryBlockHashRecordVersionHeightChain v h cid
     | isWebChain graph cid = BlockHashRecord
         . HM.fromList
         . zip (toList $ adjacentChainIds graph cid)
-        <$> arbitrary
+        <$> infiniteListOf arbitrary
     | otherwise = discard
   where
     graph = chainGraphAt v h
