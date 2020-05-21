@@ -30,6 +30,7 @@ import Data.Bool
 import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as BS
 import Data.Char
 import Data.Decimal
 import Data.FileEmbed
@@ -40,6 +41,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -84,6 +86,7 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
+import Chainweb.Cut.Create
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Graph
@@ -238,16 +241,20 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
          bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
               parentHeader
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+         work = WorkHeader
+            { _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash bh
+            , _workHeaderChainId = _chainId bh
+            , _workHeaderTarget = _blockTarget bh
+            }
 
-     T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
-     newHeader <- runGet decodeBlockHeaderWithoutHash new
+     T2 (SolvedWork newHeader) _ <- usePowHash testVer $ \(_ :: Proxy a) -> mine @a (_blockNonce bh) work
 
      mv' <- validateBlock newHeader (payloadWithOutputsToPayloadData payload) r
 
@@ -278,7 +285,7 @@ noMineBlock validate parentHeader nonce r = do
 
      let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
      let bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
