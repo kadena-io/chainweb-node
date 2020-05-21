@@ -9,6 +9,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -20,8 +21,6 @@
 -- License: MIT
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
---
--- TODO
 --
 module Chainweb.Test.Cut
 (
@@ -62,20 +61,19 @@ module Chainweb.Test.Cut
 
 ) where
 
-import Control.Error.Util (hush, note, (??))
-import Control.Exception hiding (catch)
+import Control.Exception (throw)
 import Control.Lens hiding ((:>), (??))
 import Control.Monad hiding (join)
+import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Except
 
-import Data.Bifunctor (first)
 import qualified Data.ByteString.Short as BS
 import Data.Foldable
 import Data.Function
 import qualified Data.HashMap.Strict as HM
 import Data.Monoid
 import Data.Ord
+import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..))
 
 import GHC.Generics (Generic)
@@ -93,14 +91,14 @@ import qualified Test.QuickCheck.Monadic as T
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
-import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.Create
-import Chainweb.Difficulty (checkTarget)
 import Chainweb.Graph
 import Chainweb.Test.Utils (genEnum)
-import Chainweb.Time (Micros(..), Time, TimeSpan, second)
+import Chainweb.Time (Micros(..), Time, TimeSpan)
+import qualified Chainweb.Time as Time (second)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.Version.Utils
@@ -112,23 +110,74 @@ import Numeric.Additive
 import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
--- Test Mining
+-- Utils
 
-data MineFailure = BadNonce | BadAdjacents
-  deriving (Show)
+type TestHeaderMap = HM.HashMap BlockHash BlockHeader
+
+testLookup
+    :: MonadThrow m
+    => TestHeaderMap
+    -> ChainValue BlockHash
+    -> m BlockHeader
+testLookup db (ChainValue _ h) = fromMaybeM MissingParentHeader $ HM.lookup h db
+
+type GenBlockTime = Cut -> ChainId -> Time Micros
+
+-- | Block time generation that offsets from previous chain block in cut.
+--
+offsetBlockTime :: TimeSpan Micros -> GenBlockTime
+offsetBlockTime offset cut cid = add offset
+    $ maximum
+    $ fmap (_bct . _blockCreationTime)
+    $ HM.insert cid (cut ^?! ixg cid)
+    $ cutAdjs cut cid
+
+arbitraryBlockTimeOffset
+    :: TimeSpan Micros
+    -> TimeSpan Micros
+    -> T.Gen GenBlockTime
+arbitraryBlockTimeOffset lower upper = do
+    t <- genEnum (lower, upper)
+    return $ offsetBlockTime t
 
 -- | Solve Work. Doesn't check that the nonce and the time are valid.
 --
 solveWork :: HasCallStack => WorkHeader -> Nonce -> Time Micros -> SolvedWork
-solveWork w n t = case runGet decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
-    Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
-    Just hdr -> SolvedWork $ hdr
-        & blockNonce .~ n
-        & blockCreationTime .~ BlockCreationTime t
+solveWork w n t =
+    case runGet decodeBlockHeaderWithoutHash $ BS.fromShort $ _workHeaderBytes w of
+        Nothing -> error "Chainwb.Test.Cut.solveWork: Invalid work header bytes"
+        Just hdr -> hdr
+            & blockNonce .~ n
+            & blockCreationTime .~ BlockCreationTime t
+
+            -- After injecting the nonce and the creation time will have to do a
+            -- serialization roundtrip to update the Merkle hash.
+            --
+            -- A "real" miner would inject the nonce and time without first
+            -- decoding the header and would hand over the header in serialized
+            -- form.
+            --
+            & encodeBlockHeaderWithoutHash
+            & runPut
+            & runGet decodeBlockHeaderWithoutHash
+            & fromJuste
+            & SolvedWork
+
+-- -------------------------------------------------------------------------- --
+-- Test Mining
+
+data MineFailure
+    = InvalidHeader T.Text
+        -- ^ The header is invalid, e.g. because of a bad nonce or creation time.
+    | MissingParentHeader
+        -- ^ A parent header is missing in the chain db
+    | BadAdjacents
+        -- ^ This could mean that the chain is blocked.
+  deriving (Show)
+
+instance Exception MineFailure
 
 -- | Try to mine a new block header on the given chain for the given cut.
--- Returns 'Nothing' if mining isn't possible because of missing adjacent
--- dependencies.
 --
 testMine
     :: forall cid
@@ -140,12 +189,10 @@ testMine
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMine wdb n t payloadHash i c =
-    testMine' wdb n (\_ _ -> t) payloadHash i c
-
-type GenBlockTime = Cut -> ChainId -> Time Micros
+testMine wdb n t payloadHash i c = testMine' wdb n (\_ _ -> t) payloadHash i c
 
 -- | Version of 'testMine' with block time function.
+--
 testMine'
     :: forall cid
     . HasChainId cid
@@ -158,35 +205,23 @@ testMine'
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
 testMine' wdb n t payloadHash i c =
-    createNewCut wdb n (t c (_chainId i)) payloadHash i c >>= \case
+    try (createNewCut (chainLookupM wdb) n (t c (_chainId i)) payloadHash i c) >>= \case
         Right p@(T2 h _) -> Right p <$ insertWebBlockHeaderDb wdb h
         e -> return e
 
--- | Block time generation that offsets from previous chain block in cut.
-offsetBlockTime :: TimeSpan Micros -> GenBlockTime
-offsetBlockTime offset cut cid = add offset t
-  where
-    BlockCreationTime t = cut ^?! ixg cid . blockCreationTime
-
-arbitraryBlockTimeOffset
-    :: TimeSpan Micros
-    -> TimeSpan Micros
-    -> T.Gen GenBlockTime
-arbitraryBlockTimeOffset lower upper = do
-    t <- genEnum (lower, upper)
-    return $ offsetBlockTime t
-
 testMineWithPayloadHash
-    :: forall cid
+    :: forall cid hdb
     . HasChainId cid
-    => WebBlockHeaderDb
+    => ChainValueCasLookup hdb BlockHeader
+    => hdb
     -> Nonce
     -> Time Micros
     -> BlockPayloadHash
     -> cid
     -> Cut
     -> IO (Either MineFailure (T2 BlockHeader Cut))
-testMineWithPayloadHash = createNewCut
+testMineWithPayloadHash db n t ph cid c = try
+    $ createNewCut (chainLookupM db) n t ph cid c
 
 -- | Create a new block. Only produces a new cut but doesn't insert it into the
 -- chain database.
@@ -195,41 +230,39 @@ testMineWithPayloadHash = createNewCut
 --
 createNewCut
     :: HasCallStack
+    => MonadCatch m
     => HasChainId cid
-    => WebBlockHeaderDb
+    => (ChainValue BlockHash -> m BlockHeader)
     -> Nonce
     -> Time Micros
     -> BlockPayloadHash
     -> cid
     -> Cut
-    -> IO (Either MineFailure (T2 BlockHeader Cut))
-createNewCut wdb n t pay i c = runExceptT $ do
-    extension <- getCutExtension c i ?? BadAdjacents
-    work <- liftIO $ newWorkHeader wdb extension pay
-    let solved = solveWork work n t
-    (h, mc') <- extendCut c pay solved
-    c' <- mc' ?? BadAdjacents
+    -> m (T2 BlockHeader Cut)
+createNewCut hdb n t pay i c = do
+    extension <- fromMaybeM BadAdjacents $ getCutExtension c i
+    work <- newWorkHeaderPure hdb (BlockCreationTime t) extension pay
+    (h, mc') <- extendCut c pay (solveWork work n t)
+        `catch` \(InvalidSolvedHeader _ msg) -> throwM $ InvalidHeader msg
+    c' <- fromMaybeM BadAdjacents mc'
     return $ T2 h c'
-  where
-    cid = _chainId i
 
 -- | Create a new cut where the new block has a creation time of one second
 -- after its parent.
 --
-createNewCutWithoutTime
-    :: HasCallStack
+createNewCut1Second
+    :: forall m cid
+    . HasCallStack
+    => MonadCatch m
     => HasChainId cid
-    => WebBlockHeaderDb
+    => (ChainValue BlockHash -> m BlockHeader)
     -> Nonce
     -> BlockPayloadHash
     -> cid
     -> Cut
-    -> IO (Maybe (T2 BlockHeader Cut))
-createNewCutWithoutTime wdb n pay i c
-    = hush <$> createNewCut wdb n (add second t) pay i c
-  where
-    cid = _chainId i
-    BlockCreationTime t = _blockCreationTime $ c ^?! ixg cid
+    -> m (T2 BlockHeader Cut)
+createNewCut1Second db n p i c
+    = createNewCut db n (offsetBlockTime Time.second c (_chainId i)) p i c
 
 -- -------------------------------------------------------------------------- --
 -- Arbitrary Cuts
@@ -244,22 +277,29 @@ arbitraryCut
     -> T.Gen Cut
 arbitraryCut v = T.sized $ \s -> do
     k <- genEnum (0,s)
-    foldlM (\c _ -> genCut c) (genesisCut v) [0..(k-1)]
+    fst <$> foldlM (\x _ -> genCut x) (genesis, initDb) [0..(k-1)]
   where
-    genCut :: Cut -> T.Gen Cut
-    genCut c = do
+    genesis = genesisCut v
+    initDb = foldl' (\d h -> HM.insert (_blockHash h) h d) mempty $ _cutMap genesis
+
+    genCut :: (Cut, TestHeaderMap) -> T.Gen (Cut, TestHeaderMap)
+    genCut (c, db) = do
         cids <- T.shuffle (toList $ chainIds v)
         S.each cids
-            & S.mapMaybeM (mine c)
-            & S.map (\(T2 _ x) -> x)
+            & S.mapMaybeM (mine db c)
+            & S.map (\(T2 h x) -> (x, HM.insert (_blockHash h) h db))
             & S.head_
             & fmap fromJuste
 
-    mine :: Cut -> ChainId -> T.Gen (Maybe (T2 BlockHeader Cut))
-    mine c cid = do
+    mine :: TestHeaderMap -> Cut -> ChainId -> T.Gen (Maybe (T2 BlockHeader Cut))
+    mine db c cid = do
         n <- Nonce <$> T.arbitrary
         let pay = hashPayload v cid "TEST PAYLOAD"
-        return $ createNewCutWithoutTime n pay cid c
+        case try (createNewCut1Second (testLookup db) n pay cid c) of
+            Left e -> throw e
+            Right (Left BadAdjacents) -> return Nothing
+            Right (Left e) -> throw e
+            Right (Right x) -> return $ Just x
 
 arbitraryChainGraphChainId :: ChainGraph -> T.Gen ChainId
 arbitraryChainGraphChainId = T.elements . toList . graphChainIds
@@ -301,8 +341,11 @@ arbitraryWebChainCut_ wdb initialCut seed = do
 
     mine c cid = do
         n' <- T.pick $ Nonce . int . (* seed) <$> T.arbitrary
-        delay <- pickBlind $ arbitraryBlockTimeOffset second (plus second second)
-        liftIO $! hush <$!> testMine' wdb n' delay pay cid c
+        delay <- pickBlind $ arbitraryBlockTimeOffset Time.second (plus Time.second Time.second)
+        liftIO (testMine' wdb n' delay pay cid c) >>= \case
+            Right x -> return $ Just x
+            Left BadAdjacents -> return Nothing
+            Left e -> throw e
       where
         pay = hashPayload (_chainwebVersion wdb) cid "TEST PAYLOAD"
 
