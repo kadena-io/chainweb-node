@@ -228,12 +228,14 @@ jobs:
       uses: actions/checkout@v1
     - name: Create env variables for git objects
       run: |
-        echo "::set-env name=GIT_TAG::${GITHUB_REF#refs/tags/}"
+        echo "::set-env name=IS_RELEASE::${{ contains(github.event_name, 'release') }}"
         echo "::set-env name=GIT_REF_SHORT::${GITHUB_REF#refs/heads/}"
         echo "::set-env name=GIT_HEAD_REF_SHORT::${GITHUB_HEAD_REF#refs/heads/}"
         echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD || true)"
         
-        if [[ "$GIT_REF_SHORT" = "master" || -n "$GIT_TAG" ]] ; then
+    - name: Set optimization level
+      run: |
+        if [[ "$GIT_REF_SHORT" = "master" || "$IS_RELEASE" = "true" ]] ; then
           echo "::set-env name=OPT_LEVEL::2"
         else
           echo "::set-env name=OPT_LEVEL::1"
@@ -346,9 +348,15 @@ jobs:
         mkdir -p artifacts/applications
         mkdir -p artifacts/docs
         export VER=$(grep '^version' chainweb.cabal | sed -e 's/.*: *//')
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
-        cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
+        if [ "$OPT_LEVEL" -gt 1 ] ; then
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/chainweb-node artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/cwtool artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/opt/build/*/bench artifacts/applications
+        else
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/chainweb-node artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/cwtool artifacts/applications
+          cp dist-newstyle/build/*/ghc-${{ matrix.ghc }}/chainweb-${VER}/build/*/bench artifacts/applications
+        fi
         cp README.md artifacts/applications
         cp CHANGELOG.md artifacts/applications
         cp LICENSE artifacts/applications
@@ -364,6 +372,7 @@ jobs:
 
     # Publish to S3
     - name: Define S3 locations
+      if: always()
       run: |
         echo "::set-env name=BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_SHA_SHORT }}.tar.gz"
         echo "::set-env name=BRANCH_BINFILE::chainweb.${{ matrix.ghc }}.${{ matrix.os }}.${{ env.GIT_REF_SHORT }}.tar.gz"
