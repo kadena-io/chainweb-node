@@ -84,6 +84,7 @@ import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
+import Chainweb.BlockHeight
 import Chainweb.ChainValue
 import Chainweb.Cut
 import Chainweb.Cut.CutHashes
@@ -265,11 +266,14 @@ encodeWorkHeader wh = do
     encodeHashTarget $ _workHeaderTarget wh
     putByteString $ SB.fromShort $ _workHeaderBytes wh
 
-decodeWorkHeader :: MonadGet m => m WorkHeader
-decodeWorkHeader = WorkHeader
+-- FIXME: We really want this indepenent of the block height. For production
+-- chainweb version this is actually the case. We should
+--
+decodeWorkHeader :: MonadGet m => ChainwebVersion -> BlockHeight -> m WorkHeader
+decodeWorkHeader ver h = WorkHeader
     <$> decodeChainId
     <*> decodeHashTarget
-    <*> (SB.toShort <$> getByteString 286)
+    <*> (SB.toShort <$> getByteString (int $ workSizeBytes ver h))
 
 -- | Create work header for cut
 --
