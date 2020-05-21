@@ -28,7 +28,6 @@ import Test.Tasty.HUnit
 -- chainweb imports
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
@@ -257,7 +256,7 @@ mineBlock parentHeader nonce iop = do
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
