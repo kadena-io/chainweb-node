@@ -329,7 +329,7 @@ epochStart
         --
     -> EpochStartTime
         -- ^ epoch start time of new block
-epochStart (ParentHeader p) adj (BlockCreationTime bt)
+epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
 
     -- A special case for starting a new devnet. Using maxtarget results in an
     -- two high block production and consecutively orphans and network
@@ -379,10 +379,11 @@ epochStart (ParentHeader p) adj (BlockCreationTime bt)
     --    b) adjusting timeBlocked in both directions, possibly based off the
     --       avg?
     --
-    timeBlocked = max (TimeSpan 0)
-        $ maximum adjCreationTimes .-. _blockCreationTime p
+    timeBlocked = maximum adjCreationTimes .-. _blockCreationTime p
+        -- the maximum is at least @_blockCreationTime p@ and thus the result is
+        -- greater or equal 0.
 
-    adjCreationTimes = _blockCreationTime . _parentHeader <$> adj
+    adjCreationTimes = _blockCreationTime . _parentHeader <$> HM.insert cid ph adj
 
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid
