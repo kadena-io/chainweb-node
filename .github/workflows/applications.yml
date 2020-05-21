@@ -233,7 +233,7 @@ jobs:
         echo "::set-env name=GIT_HEAD_REF_SHORT::${GITHUB_HEAD_REF#refs/heads/}"
         echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD || true)"
         
-        if [[ "$GIT_REF_SHORT" = "master" || -n "$GIT_TAG" ] ; then
+        if [[ "$GIT_REF_SHORT" = "master" || -n "$GIT_TAG" ]] ; then
           echo "::set-env name=OPT_LEVEL::2"
         else
           echo "::set-env name=OPT_LEVEL::1"
