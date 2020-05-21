@@ -329,15 +329,51 @@ nonGenesisTransactions logs getTxId f initial rest = do
 nonGenesisTransaction
     :: Map TxId [AccountLog]
     -> (a -> RequestKey)
-    -> (a -> TxId)
+    -> (a -> Maybe TxId)
     -> (a -> [Operation] -> b)
     -> a
     -> V.Vector a
     -> RequestKey
     -- ^ Lookup target
-    -> Either String b
-nonGenesisTransaction logs getTxId getRk f initial rest target = do
-  undefined
+    -> Either RosettaFailure b
+nonGenesisTransaction logs getRk getTxId f initial rest target = do
+  T2 initIdx initTx <- (note RosettaMismatchTxLogs) . hush $ getCoinbaseLogs
+  if (getRk initial == target)
+    then pure $ initTx
+    else (work initIdx initTx)
+
+  where
+    getCoinbaseLogs = nonGenesisCoinbase logsVector f initial
+    logsVector = V.fromList $ M.toAscList logs
+    matchLogs = gasTransactionAcc logsVector getTxId f overwriteLastTx
+    overwriteLastTx _ curr = curr
+
+    -- | Traverse list matching transactions to their logs.
+    -- If target's logs found or if error throw by matching function,
+    -- short circuit.
+    work initIdx initTx = do
+      let acc = T2 (succ initIdx) initTx
+      hoistToRosettaFailure $ foldM findTx acc rest
+
+    hoistToRosettaFailure
+        :: Either (Either String c) (T2 Int c)
+        -> Either RosettaFailure c
+    hoistToRosettaFailure (Right _) = Left RosettaTxIdNotFound
+    hoistToRosettaFailure (Left (Left _)) = Left RosettaMismatchTxLogs
+    hoistToRosettaFailure (Left (Right tx)) = pure tx
+
+    hoistToShortCircuit
+        :: Either String (T2 Int c)
+        -> Either (Either String c) (T2 Int c)
+    hoistToShortCircuit (Left e) = Left $ Left e  -- short-circuit if matching function threw error
+    hoistToShortCircuit (Right r) = Right r
+
+    findTx acc cr = do
+      T2 nextIdx nextTx <- hoistToShortCircuit (matchLogs acc cr)
+      if (getRk cr == target)
+        then Left $ Right nextTx   -- short-circuit if find target's logs
+        else pure $ (T2 nextIdx nextTx)  -- continue matching other txs' logs until find target
+      
 
 -- | Algorithm:
 -- Assumes logs at current index (i.e. idx) funded the tx.
@@ -354,6 +390,7 @@ gasTransactionAcc
     -> (a -> Maybe TxId)
     -> (a -> [Operation] -> b)
     -> (c -> b -> c)
+    -- ^ Accumulator function
     -> T2 Int c
     -> a
     -> Either String (T2 Int c)
