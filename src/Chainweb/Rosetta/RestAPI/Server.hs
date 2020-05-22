@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,7 +17,7 @@
 --
 module Chainweb.Rosetta.RestAPI.Server where
 
-import Control.Concurrent.MVar
+
 import Control.Error.Util
 import Control.Monad (void)
 import Control.Monad.IO.Class
@@ -24,6 +25,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
+import Data.IORef
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64)
 
@@ -155,22 +157,25 @@ mempoolH
     -> [(ChainId, MempoolBackend a)]
     -> MempoolReq
     -> Handler MempoolResp
-mempoolH v ms (MempoolReq net) = runExceptT work >>= either throwRosetta pure
+mempoolH v ms (MempoolReq net) = work >>= \case
+    Left !e -> throwRosetta e
+    Right !a -> pure a
   where
     f :: TransactionHash -> TransactionId
-    f (TransactionHash h) = TransactionId (T.decodeUtf8 $ BSS.fromShort h)
+    f (TransactionHash !h) = TransactionId (T.decodeUtf8 $! BSS.fromShort h)
 
-    work = do
+    work = runExceptT $! do
         cid <- validateNetwork v net
         mp <- lookup cid ms ?? RosettaInvalidChain
-        mv <- liftIO $ newEmptyMVar
+        r <- liftIO $ newIORef mempty
         -- TODO: This will need to be revisited once we can add
         -- pagination + streaming the mempool
-        void $! liftIO $ mempoolGetPendingTransactions mp Nothing $ \hs ->
-          void $! putMVar mv hs
+        void $! liftIO $ mempoolGetPendingTransactions mp Nothing $ \hs -> do
+          modifyIORef' r (<> hs)
 
-        txs <- liftIO $! V.toList . fmap f <$> takeMVar mv
-        return $ MempoolResp txs
+        !txs <- liftIO $ readIORef r
+        liftIO $! print txs
+        return $ MempoolResp $! V.toList $ fmap f txs
 
 mempoolTransactionH
     :: ChainwebVersion
