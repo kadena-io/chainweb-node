@@ -166,9 +166,9 @@ mempoolH v ms (MempoolReq net) = runExceptT work >>= either throwRosetta pure
         r <- liftIO $ newIORef mempty
         -- TODO: This will need to be revisited once we can add
         -- pagination + streaming the mempool
-        _ <- liftIO $ mempoolGetPendingTransactions mp Nothing $ writeIORef r
-        txs <- liftIO $ fmap f <$> readIORef r
-        return $ MempoolResp $ V.toList txs
+        void $! liftIO $ mempoolGetPendingTransactions mp Nothing $ writeIORef r
+        txs <- liftIO $! V.toList . fmap f <$> readIORef r
+        return $ MempoolResp txs
 
 mempoolTransactionH
     :: ChainwebVersion
