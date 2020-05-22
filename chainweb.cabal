@@ -40,6 +40,13 @@ extra-source-files:
     test/pact/*.pact
     test/golden/*.txt
 
+    -- alloations and rewards
+
+    allocations/token_payments.csv
+    allocations/Mainnet-Keysets.csv
+    allocations/Testnet-Keysets.csv
+    rewards/miner_rewards.csv
+
 data-files:
     examples/static-html/index.html
     examples/static-html/jquery-3.3.1.min.js
@@ -617,6 +624,7 @@ executable cwtool
         SlowTests
         TxStream
         KnownGraphs
+        TestMiner
     build-depends:
         -- internal
           chainweb
