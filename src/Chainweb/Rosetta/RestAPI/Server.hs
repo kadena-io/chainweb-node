@@ -174,7 +174,7 @@ mempoolH v ms (MempoolReq net) = work >>= \case
           modifyIORef' r (<> hs)
 
         txs <- liftIO $! readIORef r
-        let !ts = V.toList $! f <$!> txs
+        let !ts = V.toList $ f <$!> txs
         return $ MempoolResp ts
 
 mempoolTransactionH
