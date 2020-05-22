@@ -19,7 +19,7 @@ module Chainweb.Rosetta.RestAPI.Server where
 
 
 import Control.Error.Util
-import Control.Monad (void)
+import Control.Monad (void, (<$!>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -173,9 +173,9 @@ mempoolH v ms (MempoolReq net) = work >>= \case
         void $! liftIO $ mempoolGetPendingTransactions mp Nothing $ \hs -> do
           modifyIORef' r (<> hs)
 
-        !txs <- liftIO $ readIORef r
-        liftIO $! print txs
-        return $ MempoolResp $! V.toList $ fmap f txs
+        txs <- liftIO $! readIORef r
+        let !ts = V.toList $! f <$!> txs
+        return $ MempoolResp ts
 
 mempoolTransactionH
     :: ChainwebVersion
