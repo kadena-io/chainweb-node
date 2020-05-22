@@ -148,6 +148,8 @@ arbitraryTestHeaderHeight
 arbitraryTestHeaderHeight v cid h = do
     parent <- ParentHeader <$> arbitraryBlockHeaderVersionHeightChain v h cid
     trace "a" $ return ()
+
+    -- TODO: support graph changes in arbitary?
     as <- fmap HM.fromList
         $ traverse (\c -> (c,) <$> arbitraryBlockHeaderVersionHeightChain v h c)
         $ toList
@@ -158,7 +160,7 @@ arbitraryTestHeaderHeight v cid h = do
             <$> HM.insert cid (_parentHeader parent) as
     t <- BlockCreationTime <$> genEnum (pt, maxBound)
     return $ TestHeader
-        { _testHeaderHdr = newBlockHeader (ParentHeader <$> as) payloadHash nonce t parent
+        { _testHeaderHdr = newBlockHeader (Right . ParentHeader <$> as) payloadHash nonce t parent
         , _testHeaderParent = parent
         , _testHeaderAdjs = toList $ ParentHeader <$> as
         }

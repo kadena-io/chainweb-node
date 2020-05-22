@@ -105,17 +105,10 @@ module Chainweb.BlockHeader
 -- * Create a new BlockHeader
 , newBlockHeader
 
--- * Testing
-, testBlockHeader
-, testBlockHeaders
-, testBlockHeadersWithNonce
-, testBlockPayload
-
 -- * CAS Constraint
 , BlockHeaderCas
 ) where
 
-import Control.Arrow ((&&&))
 import Control.DeepSeq
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
@@ -130,7 +123,6 @@ import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import Data.Kind
-import Data.List (unfoldr)
 import qualified Data.Memory.Endian as BA
 import Data.MerkleLog hiding (Actual, Expected, MerkleHash)
 import Data.Serialize (Serialize(..))
@@ -898,9 +890,28 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
 -- | Creates a new block header. No validation of the input parameters is
 -- performaned.
 --
+-- It's not guaranteed that the result is a valid block header. It is, however,
+-- guaranteed by construction that
+--
+-- * the target,
+-- * the weight,
+-- * the block height,
+-- * the version,
+-- * the chain id, and
+-- * the epoch start time
+--
+-- are valid with respect to the given parent header and adjacent parent
+-- headers.
+--
+-- TODO: also check adjacent chains. This would probably break a lot of tests,
+-- but might be worth it!
+--
 newBlockHeader
-    :: HM.HashMap ChainId ParentHeader
-        -- ^ Adjacent parent hashes
+    :: HM.HashMap ChainId (Either BlockHash ParentHeader)
+        -- ^ Adjacent parent hashes. In case of a graph change it can happen
+        -- that some adjacent parents are the parent hashes of genesis blocks,
+        -- in which case the header doesn't exist and only the block hash is
+        -- provided.
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
@@ -921,14 +932,15 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: epochStart p adj t
+    :+: epochStart p adjParents t
     :+: nonce
     :+: MerkleLogBody (blockHashRecordToVector adjHashes)
   where
     cid = _chainId p
     v = _chainwebVersion p
     target = powTarget p t
-    adjHashes = BlockHashRecord $ _blockHash . _parentHeader <$> adj
+    adjHashes = BlockHashRecord $ either id (_blockHash . _parentHeader) <$> adj
+    adjParents = HM.mapMaybe (either (const Nothing) Just) adj
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance
@@ -941,41 +953,3 @@ instance TreeDbEntry BlockHeader where
         | isGenesisBlockHeader e = Nothing
         | otherwise = Just (_blockParent e)
 
--- -------------------------------------------------------------------------- --
--- Testing
-
-testBlockPayload :: BlockHeader -> BlockPayloadHash
-testBlockPayload b = hashPayload (_blockChainwebVersion b) b "TEST PAYLOAD"
-
-testBlockHeader
-    :: HM.HashMap ChainId ParentHeader
-        -- ^ Adjacent parent hashes
-    -> Nonce
-        -- ^ Randomness to affect the block hash
-    -> ParentHeader
-        -- ^ parent block header
-    -> BlockHeader
-testBlockHeader adj nonce p@(ParentHeader b) =
-    newBlockHeader adj (testBlockPayload b) nonce (BlockCreationTime $ add second t) p
-  where
-    BlockCreationTime t = _blockCreationTime b
-
--- | Given a `BlockHeader` of some initial parent, generate an infinite stream
--- of `BlockHeader`s which form a legal chain.
---
--- Should only be used for testing purposes.
---
-testBlockHeaders :: ParentHeader -> [BlockHeader]
-testBlockHeaders (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
-  where
-    f b = testBlockHeader mempty (_blockNonce b) $ ParentHeader b
-
--- | Given a `BlockHeader` of some initial parent, generate an infinite stream
--- of `BlockHeader`s which form a legal chain.
---
--- Should only be used for testing purposes.
---
-testBlockHeadersWithNonce :: Nonce -> ParentHeader -> [BlockHeader]
-testBlockHeadersWithNonce n (ParentHeader p) = unfoldr (Just . (id &&& id) . f) p
-  where
-    f b = testBlockHeader mempty n $ ParentHeader b

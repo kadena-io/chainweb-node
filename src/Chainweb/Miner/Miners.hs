@@ -57,7 +57,6 @@ import Chainweb.Miner.Core
 import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Seconds(..))
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
@@ -98,8 +97,7 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
     hdb = view cutDbWebBlockHeaderDb cdb
 
     meanBlockTime :: Double
-    meanBlockTime = case blockRate v of
-        BlockRate (Seconds n) -> int n
+    meanBlockTime = int $ _getBlockRate $ blockRate v
 
     work :: BlockHeight -> WorkHeader -> IO SolvedWork
     work height w = do

@@ -31,7 +31,6 @@ import Test.QuickCheck.Monadic
 import Test.Tasty.QuickCheck
 
 -- internal modules
-import Pact.Types.Gas
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
@@ -45,9 +44,12 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 
 import Data.LogMessage
+
+import Pact.Types.Gas
 
 ----------------------------------------------------------------------------------------------------
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest

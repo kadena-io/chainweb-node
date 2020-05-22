@@ -600,7 +600,7 @@ genesisHeight v c = fst
 -- | The gap in SECONDS that we desire between the Creation Time of subsequent
 -- blocks in some chain.
 --
-newtype BlockRate = BlockRate Seconds
+newtype BlockRate = BlockRate { _getBlockRate :: Seconds }
 
 -- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
 -- number of seconds we expect to pass while a miner mines on various chains,

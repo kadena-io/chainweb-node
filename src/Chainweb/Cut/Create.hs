@@ -210,7 +210,7 @@ getCutExtension c cid = do
         -- existing chain
         | Just b <- c ^? ixg acid = tryAdj b
         -- new chain after graph transition
-        | targetHeight == genesisHeight v acid = Just $ genesisParentBlockHash v cid
+        | targetHeight == genesisHeight v acid = Just $ genesisParentBlockHash v acid
         | otherwise = error $ T.unpack
             $ "getAdjacentParents: invalid cut, can't find adjacent hash for chain "
             <> sshow acid
@@ -308,6 +308,7 @@ newWorkHeaderPure hdb creationTime extension phash = do
     createWithParents parents =
         let nh = newBlockHeader parents phash (Nonce 0) creationTime
                 $! _cutExtensionParent extension
+                    -- FIXME: check that parents also include hashes on new chains!
         in WorkHeader
             { _workHeaderBytes = SB.toShort $ runPut $ encodeBlockHeaderWithoutHash nh
             , _workHeaderTarget = _blockTarget nh
@@ -318,8 +319,8 @@ newWorkHeaderPure hdb creationTime extension phash = do
 --
 -- This yields the same result as 'blockAdjacentParentHeaders', however, it is
 -- more efficent when the cut and the adjacent parent hashes are already known.
--- It is not checked whether the given adjacent parent hashes are consistent
--- with the cut.
+-- Also, it works accross graph changes. It is not checked whether the given
+-- adjacent parent hashes are consistent with the cut.
 --
 -- Only those parents are included that are not block parent hashes of genesis
 -- blocks. This can occur when new graphs are introduced. The headers are used
@@ -327,24 +328,34 @@ newWorkHeaderPure hdb creationTime extension phash = do
 -- change the target computation may only use some (or none) adjacent parents to
 -- adjust the epoch start, which is fine.
 --
+-- If the parent header doesn't exist, because the chain is new, only the
+-- genesis parent hash is included as 'Left' value.
+--
 getAdjacentParentHeaders
-    :: Applicative m
+    :: HasCallStack
+    => Applicative m
     => (ChainValue BlockHash -> m BlockHeader)
     -> CutExtension
-    -> m (HM.HashMap ChainId ParentHeader)
+    -> m (HM.HashMap ChainId (Either BlockHash ParentHeader))
 getAdjacentParentHeaders hdb extension
-    = itraverse
-        ( \cid h -> fmap ParentHeader $ let ch = c ^?! ixg cid in
-            if _blockHash ch == h
-              then pure ch
-              else hdb (ChainValue cid h)
-        )
-    . HM.filterWithKey (\cid h -> genesisParentBlockHash ver cid /= h)
+    = itraverse select
     . _getBlockHashRecord
     $ _cutExtensionAdjacentHashes extension
   where
     ver = _chainwebVersion c
     c = _cutExtensionCut extension
+
+    select cid h = case c ^? ixg cid of
+        Just ch -> Right . ParentHeader <$> if _blockHash ch == h
+            then pure ch
+            else hdb (ChainValue cid h)
+
+        Nothing | h == genesisParentBlockHash ver cid -> Left <$> pure h
+
+        Nothing -> error $ T.unpack
+            $ "Chainweb.Cut.Create.getAdjacentParentHeaders: inconsistent cut extension detected"
+            <> ". ChainId: " <> encodeToText cid
+            <> ". CutHashes: " <> encodeToText (cutToCutHashes Nothing c)
 
 -- -------------------------------------------------------------------------- --
 -- Solved Header
@@ -425,5 +436,7 @@ extendCut c ph (SolvedWork bh) = do
         -- If the `BlockHeader` is already stale and can't be appended to the
         -- best `Cut`, Nothing is returned
         --
+        -- (bh,) <$> tryMonotonicCutExtension c bh
         (bh,) <$> tryMonotonicCutExtension c bh
+        -- return (bh, Just $ c & ix (_chainId bh) .~ bh)
 

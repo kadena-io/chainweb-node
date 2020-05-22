@@ -154,8 +154,6 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Test.Cut
-import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -170,13 +168,16 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.Cut
+import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..), chainIds)
-import Chainweb.Version.Utils (someChainId)
 import qualified Chainweb.Version as Version
+import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 

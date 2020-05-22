@@ -155,8 +155,6 @@ import Text.Printf (printf)
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
-import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
@@ -164,16 +162,19 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
+import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
 import Chainweb.Test.P2P.Peer.BootstrapConfig
     (bootstrapCertificate, bootstrapKey)
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
