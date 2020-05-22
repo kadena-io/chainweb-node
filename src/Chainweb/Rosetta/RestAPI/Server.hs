@@ -63,7 +63,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Transaction (ChainwebTransaction)
-import Chainweb.Utils (int)
+import Chainweb.Utils (int, encodeToText)
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -162,7 +162,7 @@ mempoolH v ms (MempoolReq net) = work >>= \case
     Right !a -> pure a
   where
     f :: TransactionHash -> TransactionId
-    f (TransactionHash !h) = TransactionId (T.decodeUtf8 $! BSS.fromShort h)
+    f !h = TransactionId (encodeToText h)
 
     work = runExceptT $! do
         cid <- validateNetwork v net
