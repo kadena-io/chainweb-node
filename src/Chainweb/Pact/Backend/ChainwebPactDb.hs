@@ -802,7 +802,8 @@ initSchema = do
 getEndingTxId :: BlockHeight -> BlockHandler SQLiteEnv TxId
 getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
     if bh == 0 -- FIXME: what if genesisHeight > 0 for the chain?
-      then return 0
+      then error "Chainweb.Pact.Backend.ChainwebPactDb.getEndingTxId: called with block height 0"
+      -- then return 0
       else
         qry db "SELECT endingtxid FROM BlockHistory where blockheight = ?"
             [SInt (fromIntegral $ pred bh)]

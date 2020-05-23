@@ -223,8 +223,15 @@ data BlockState = BlockState
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
-initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing False
+initBlockState :: BlockHeight -> BlockState
+initBlockState initialBlockHeight = BlockState
+    { _bsTxId = 0
+    , _bsMode = Nothing
+    , _bsBlockHeight = initialBlockHeight
+    , _bsPendingBlock = emptySQLitePendingData
+    , _bsPendingTx = Nothing
+    , _bsModuleNameFix = False
+    }
 
 makeLenses ''BlockState
 
