@@ -30,27 +30,41 @@ import Pact.Types.Hash (PactHash)
 import Pact.Types.Logger
 
 -- internal modules
+
 import Chainweb.BlockHash
 import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Service.Types (internalError)
-
-
+import Chainweb.Version
 
 data Store = Store
   { _theStore :: HashMap (BlockHeight, BlockHash) (DbEnv PureDb)
   , _lastBlock :: Maybe (BlockHeight, BlockHash)
   , _dbenv :: MVar (DbEnv PureDb)
   , _playedTxs :: MVar (HashSet PactHash, HashMap PactHash (BlockHeight, BlockHash))
+  , _version :: !ChainwebVersion
+  , _cid :: !ChainId
   }
 
-initInMemoryCheckpointEnv :: Loggers -> Logger -> IO CheckpointEnv
-initInMemoryCheckpointEnv loggers logger = do
+initInMemoryCheckpointEnv
+    :: Loggers
+    -> Logger
+    -> ChainwebVersion
+    -> ChainId
+    -> IO CheckpointEnv
+initInMemoryCheckpointEnv loggers logger ver cid = do
     pdenv@(PactDbEnv _ env) <- mkPureEnv loggers
     initSchema pdenv
     genesis <- readMVar env
     played <- newMVar mempty
-    inmem <- newMVar (Store mempty Nothing env played)
+    inmem <- newMVar $ Store
+        { _theStore = mempty
+        , _lastBlock = Nothing
+        , _dbenv = env
+        , _playedTxs = played
+        , _version = ver
+        , _cid = cid
+        }
     return $
         (CheckpointEnv
             { _cpeCheckpointer =
@@ -97,20 +111,34 @@ doRestore _ lock (Just (height, hash)) =
               <> ", hash=" <> pack (show hash)
               <> ", known=" <> pack (show (HMS.keys (_theStore store)))
 doRestore genesis lock Nothing =
-    modifyMVarMasked lock $ \_ -> do
+    modifyMVarMasked lock $ \s -> do
       gen <- newMVar genesis
       played <- newMVar mempty
-      return (Store mempty Nothing gen played,
-                 PactDbEnv' (PactDbEnv pactdb gen))
+      let store = Store
+            { _theStore = mempty
+            , _lastBlock = Nothing
+            , _dbenv = gen
+            , _playedTxs = played
+            , _version = _version s
+            , _cid = _cid s
+            }
+      return (store, PactDbEnv' (PactDbEnv pactdb gen))
 
 doSave :: MVar Store -> BlockHash -> IO ()
-doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv played) -> do
+doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv played ver cid) -> do
     env <- readMVar dbenv
     let bh = case mheight of
-               Nothing -> (BlockHeight 0, hash)
+               Nothing -> (genesisHeight ver cid, hash)
                Just (height, _) -> (succ height, hash)
     modifyMVar_ played $ updatePlayed bh
-    return $ Store (HMS.insert bh env store) (Just bh) dbenv played
+    return Store
+        { _theStore = HMS.insert bh env store
+        , _lastBlock = Just bh
+        , _dbenv = dbenv
+        , _playedTxs = played
+        , _version = ver
+        , _cid = cid
+        }
   where
     updatePlayed bh (pset, mp) =
         let !mp' = foldl' (\m h -> HMS.insert h bh m) mp pset
@@ -118,13 +146,13 @@ doSave lock hash = modifyMVar_ lock $ \(Store store mheight dbenv played) -> do
         in return $! out
 
 doGetLatest :: MVar Store -> IO (Maybe (BlockHeight, BlockHash))
-doGetLatest lock = withMVar lock $ \(Store _ m _ _) -> return m
+doGetLatest lock = withMVar lock $ \(Store _ m _ _ _ _) -> return m
 
 doDiscard :: MVar Store -> IO ()
 doDiscard _ = return ()
 
 doLookupBlock :: MVar Store -> (BlockHeight, BlockHash) -> IO Bool
-doLookupBlock lock x = withMVar lock $ \(Store s _ _ _) ->
+doLookupBlock lock x = withMVar lock $ \(Store s _ _ _ _ _) ->
                        return $! HMS.member x s
 
 doGetBlockParent :: MVar Store -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
@@ -137,7 +165,7 @@ doGetBlockParent _lock (_bh, _hash) = error msg
 doRegisterSuccessful :: MVar Store -> PactHash -> IO ()
 doRegisterSuccessful lock hash =
     withMVar lock $
-    \(Store _ _ _ played) -> modifyMVar_ played $
+    \(Store _ _ _ played _ _) -> modifyMVar_ played $
     \(pset, mp) -> do
         let b = HMS.member hash mp || HashSet.member hash pset
         -- TODO: need a better error recovery story here, because we need to
@@ -150,7 +178,7 @@ doRegisterSuccessful lock hash =
 doLookupSuccessful :: MVar Store -> PactHash -> IO (Maybe (T2 BlockHeight BlockHash))
 doLookupSuccessful lock hash =
     withMVar lock $
-    \(Store _ _ _ played) -> do
+    \(Store _ _ _ played _ _) -> do
         (_, mp) <- readMVar played
         return $! fmap toS $! HMS.lookup hash mp
   where
