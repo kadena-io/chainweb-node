@@ -287,7 +287,7 @@ powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
         -- congestion. The consequence are osciallations to take serval hundred
         -- blocks before the system stabilizes. This code cools down initial
         -- block production.
-        | ver == Development && _blockHeight ph == (genesisHeight ver cid + 1) -> HashTarget (maxBound `div` 10000)
+        | ver == Development && _blockHeight ph == (genesisHeight ver cid + 1) -> HashTarget (maxBound `div` 100000)
 
         -- Emergency DA, legacy
         | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
@@ -378,7 +378,7 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     adjCreationTimes = _blockCreationTime . _parentHeader <$> HM.insert cid ph adj
 
     parentIsFirstOnNewChain
-        = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid
+        = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
 {-# INLINE epochStart #-}
 
 -- -----------------------------------------------------------------------------

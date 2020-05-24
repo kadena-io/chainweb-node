@@ -413,8 +413,7 @@ adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Micros -> HashTarget -> Has
 adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget = newTarget
   where
     br :: Natural
-    br = case blockRate ver of
-        BlockRate (Seconds n) -> int n
+    br = int $ _getBlockRate $ blockRate ver
 
     -- The average time in seconds that it took to mine each block in
     -- the given window.
