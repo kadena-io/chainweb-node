@@ -41,7 +41,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
-import Control.Lens (at, over, view, (&), (?~), (^?!))
+import Control.Lens (at, over, view, (&), (?~))
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
@@ -62,7 +62,7 @@ import Chainweb.Payload (PayloadData(..), payloadWithOutputsToPayloadData)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (fromJuste, ixg, runForever, thd)
+import Chainweb.Utils (fromJuste, runForever, thd)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
@@ -156,12 +156,16 @@ withMiningCoordination logger conf cdb inner
     updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
         PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
 
+    -- TODO: Should we initialize new chains, too, ahead of time?
+    -- It seems that it's not needed and 'awaitNewCutByChainId' in 'primedWork'
+    -- will take are of it.
+    --
     initialPayloads :: Cut -> [Miner] -> IO PrimedWork
     initialPayloads cut ms =
         PrimedWork . HM.fromList <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) ms
       where
         pairs :: [T2 ChainId ParentHeader]
-        pairs = map (\cid -> T2 cid (ParentHeader (cut ^?! ixg cid))) cids
+        pairs = fmap (uncurry T2) $ HM.toList $ ParentHeader <$> _cutMap cut
 
     -- | Based on a `Cut`, form payloads for each chain for a given `Miner`.
     --
