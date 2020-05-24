@@ -80,8 +80,6 @@ import qualified Data.Text as T
 import GHC.Generics
 import GHC.TypeNats
 
-import Numeric.Natural (Natural)
-
 import Test.QuickCheck (Property, property)
 
 import Text.Printf (printf)
@@ -91,7 +89,7 @@ import Text.Printf (printf)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.PowHash
-import Chainweb.Time (Micros(..), Seconds(..), TimeSpan(..))
+import Chainweb.Time (Micros(..), Seconds, TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -412,8 +410,8 @@ decodeHashTarget = HashTarget <$!> decodePowHashNat
 adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Micros -> HashTarget -> HashTarget
 adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget = newTarget
   where
-    br :: Natural
-    br = int $ _getBlockRate $ blockRate ver
+    br :: Seconds
+    br = _getBlockRate $ blockRate ver
 
     -- The average time in seconds that it took to mine each block in
     -- the given window.

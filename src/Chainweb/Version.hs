@@ -613,9 +613,13 @@ blockRate PowConsensus{} = BlockRate 10
 blockRate TimedCPM{} = BlockRate 4
 blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Development = BlockRate 30
 blockRate Testnet04 = BlockRate 30
 blockRate Mainnet01 = BlockRate 30
+
+-- uses new DA. This block rate is with respect to the solve time, it doesn't
+-- take in to account the time that a chain is blocked. The actuall block rate
+-- is about 3/2 of this value.
+blockRate Development = BlockRate 20
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
