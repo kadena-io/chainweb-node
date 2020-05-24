@@ -59,6 +59,8 @@ import qualified System.Process as P
 -- internal modules
 
 import Chainweb.BlockHeader (Nonce(..))
+import Chainweb.Time hiding (second)
+import Chainweb.Utils
 import Chainweb.Version (ChainwebVersion(..))
 
 ---
@@ -130,25 +132,39 @@ mine
 mine _ orig@(Nonce o) (TargetBytes tbytes) (HeaderBytes hbytes) = do
     nonces <- newIORef 0
     BA.withByteArray tbytes $ \trgPtr -> do
-      !ctx <- hashMutableInit @a
-      new <- fmap HeaderBytes . BA.copy hbytes $ \buf ->
-          allocaBytes (powSize :: Int) $ \pow -> do
+        !ctx <- hashMutableInit @a
+        new <- fmap HeaderBytes . BA.copy hbytes $ \buf ->
+            allocaBytes (powSize :: Int) $ \pow -> do
 
-              -- inner mining loop
-              --
-              let go !n@(Nonce nv) = do
-                      -- Compute POW hash for the nonce
-                      injectNonce n buf
-                      hash ctx buf pow
+                -- inner mining loop
+                --
+                let go1 0 n = return (Just n)
+                    go1 !i !n@(Nonce nv) = do
+                        -- Compute POW hash for the nonce
+                        injectNonce n buf
+                        hash ctx buf pow
 
-                      -- check whether the nonce meets the target
-                      fastCheckTarget trgPtr (castPtr pow) >>= \case
-                          True -> writeIORef nonces (nv - o)
-                          False -> go (Nonce $ nv + 1)
+                        -- check whether the nonce meets the target
+                        fastCheckTarget trgPtr (castPtr pow) >>= \case
+                            True -> Nothing <$ writeIORef nonces (nv - o)
+                            False -> go1 (i - 1) (Nonce $ nv + 1)
 
-              -- Start inner mining loop
-              go orig
-      T2 new <$> readIORef nonces
+                -- outer loop
+                let go0 :: Int -> Time Micros -> Nonce -> IO ()
+                    go0 x t !n = do
+                        injectTime t buf
+                        go1 x n >>= \case
+                            Nothing -> return ()
+                            Just n' -> do
+                                t' <- getCurrentTimeIntegral
+                                let TimeSpan td = diff t' t
+                                    x' = round @Double (int x * 1000000 / int td) -- target 1 second
+                                go0 x' t' n'
+
+                -- Start outer mining loop
+                t <- getCurrentTimeIntegral
+                go0 100000 t orig
+        T2 new <$> readIORef nonces
   where
     bufSize :: Int
     !bufSize = B.length hbytes
@@ -177,6 +193,9 @@ injectNonce :: Nonce -> Ptr Word8 -> IO ()
 injectNonce (Nonce n) buf = pokeByteOff buf 278 n
 {-# INLINE injectNonce #-}
 
+injectTime :: Time Micros -> Ptr Word8 -> IO ()
+injectTime t buf = pokeByteOff buf 8 $ encodeTimeToWord64 t
+{-# INLINE injectTime #-}
 
 -- | `PowHashNat` interprets POW hashes as unsigned 256 bit integral numbers in
 -- little endian encoding, hence we compare against the target from the end of
