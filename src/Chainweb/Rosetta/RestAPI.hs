@@ -21,7 +21,6 @@ module Chainweb.Rosetta.RestAPI
   , rosettaError
   , throwRosetta
   , validateNetwork
-  , kdaToRosettaAmount
   ) where
 
 import Control.Error.Util
@@ -30,7 +29,6 @@ import Control.Monad.Except (throwError)
 import Control.Monad.Trans.Except (ExceptT)
 
 import Data.Aeson (encode)
-import Data.Decimal
 import qualified Data.Text as T
 
 import Rosetta
@@ -167,16 +165,3 @@ readChainIdText :: ChainwebVersion -> T.Text -> Maybe ChainId
 readChainIdText v c = do
   cid <- readMaybe @Word (T.unpack c)
   mkChainId v cid
-
-
-kdaToRosettaAmount :: Decimal -> Amount
-kdaToRosettaAmount k = Amount (sshow amount) currency Nothing
-  where
-    -- Value in atomic units represented as an arbitrary-sized signed integer.
-    amount :: Integer
-    amount = floor $ k * (realToFrac ((10 :: Integer) ^ numDecimals))
-
-    -- How to convert from atomic units to standard units
-    numDecimals = 12 :: Word
-
-    currency = Currency "KDA" numDecimals Nothing

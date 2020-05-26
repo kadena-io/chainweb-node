@@ -18,9 +18,7 @@
 module Chainweb.Rosetta.RestAPI.Server where
 
 import Control.Error.Util
-import Control.Lens ((^?))
 import Control.Monad (void, foldM)
-import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
@@ -28,7 +26,6 @@ import Data.Aeson
 import Data.Bifunctor
 import Data.Map (Map)
 import Data.Decimal
-import Data.CAS
 import Data.String
 import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..))
@@ -39,17 +36,14 @@ import qualified Data.DList as DList
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Map as M
-import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 
-import Numeric.Natural
-
 import Pact.Types.ChainMeta (PublicMeta(..))
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), TxLog(..), Domain(..))
+import Pact.Types.Runtime (TxId(..))
 import Pact.Types.RPC
 import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Pretty (renderCompactText)
@@ -63,27 +57,20 @@ import Servant.Server
 
 -- internal modules
 
-import Chainweb.BlockCreationTime (BlockCreationTime(..))
-import Chainweb.BlockHash
 import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
-import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Chainweb.ChainResources (ChainResources(..))
-import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.HostAddress
 import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Server
 import Chainweb.Pact.Templates
-import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
-import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
-import Chainweb.Time
+import Chainweb.Rosetta.Util
 import Chainweb.Transaction (ChainwebTransaction)
-import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
 import Chainweb.Version
@@ -199,24 +186,6 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
 --------------------------------------------------------------------------------
 -- Block Handlers
 
-type CoinbaseCommandResult = CommandResult Hash
-type AccountLog = (T.Text, Decimal, Value)
-type UnindexedOperation = (Word64 -> Operation)
-
-data PendingOperationStatus =
-    Successful
-  | LockedInPact -- TODO: Think about.
-  | UnlockedReverted -- TODO: Think about in case of rollback (same chain pacts)?
-  | UnlockedTransfer -- TOOD: pacts finished, cross-chain?
-  deriving (Enum, Bounded, Show)
-
-data OperationType =
-    CoinbaseReward
-  | FundTx
-  | GasPayment
-  | TransferOrCreateAcct
-  deriving (Enum, Bounded, Show)
-
 blockH
     :: forall a cas
     . PayloadCasLookup cas
@@ -229,6 +198,20 @@ blockH
 blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
   runExceptT work >>= either throwRosetta pure
   where
+    -- TODO: Max limit of tx to return at once.
+    --       When to do pagination using /block/transaction?
+    -- | Retrieve the coin contract logs for all transactions in a block.
+    getBlockTxs
+        :: BlockHeader
+        -> Map TxId [AccountLog]
+        -> CoinbaseCommandResult
+        -> V.Vector (CommandResult Hash)
+        -> Maybe [Transaction]
+    getBlockTxs bh logs coinbase rest
+      | (_blockHeight bh == 0) = pure $ V.toList $ V.map (getGenesisLog logs) rest
+      | otherwise = hush $ nonGenesisTransactions
+                    logs _crTxId rosettaTransaction coinbase rest
+ 
     block :: BlockHeader -> [Transaction] -> Block
     block bh txs = Block
       { _block_blockId = blockId bh
@@ -252,20 +235,6 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
         , _blockResp_otherTransactions = Nothing
         }
 
--- TODO: Max limit of tx to return at once.
---       When to do pagination using /block/transaction?
--- | Retrieve the coin contract logs for all transactions in a block.
-getBlockTxs
-    :: BlockHeader
-    -> Map TxId [AccountLog]
-    -> CoinbaseCommandResult
-    -> V.Vector (CommandResult Hash)
-    -> Maybe [Transaction]
-getBlockTxs bh logs coinbase rest
-  | (_blockHeight bh == 0) = pure $ genesisTransactions logs rest
-  | otherwise = hush $ nonGenesisTransactions
-                logs _crTxId rosettaTransaction coinbase rest
-
 blockTransactionH
     :: forall a cas
     . PayloadCasLookup cas
@@ -281,6 +250,32 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) =
     BlockId bheight bhash = bid
     TransactionId rtid = t
 
+    -- | Find target transaction in the block and,
+    --   if it is present in the block, retrieve its coin contract logs.
+    getBlockTx
+        :: BlockHeader
+        -> Map TxId [AccountLog]
+        -> CoinbaseCommandResult
+        -> V.Vector (CommandResult Hash)
+        -> RequestKey
+        -> Either RosettaFailure Transaction
+    getBlockTx bh logs coinbase rest target
+      | (_blockHeight bh == 0) = genesisTransaction logs rest target
+      | otherwise = nonGenesisTransaction
+                    logs _crReqKey _crTxId rosettaTransaction coinbase rest target
+
+    -- | Matches a single genesis transaction to its coin contract logs.
+    genesisTransaction
+        :: Map TxId [AccountLog]
+        -> V.Vector (CommandResult Hash)
+        -> RequestKey
+        -- ^ target tx
+        -> Either RosettaFailure Transaction
+    genesisTransaction logs rest target = do
+      cr <- note RosettaTxIdNotFound $
+            V.find (\c -> (_crReqKey c) == target) rest
+      pure $ getGenesisLog logs cr
+
     work :: ExceptT RosettaFailure Handler BlockTransactionResp
     work = do
       cid <- validateNetwork v net
@@ -293,42 +288,8 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) =
       tran <- hoistEither $ getBlockTx bh logs coinbaseOut txsOut tagetReqKey
       pure $ BlockTransactionResp tran
 
--- | Find target transaction in the block and,
---   if it is present in the block, retrieve its coin contract logs.
-getBlockTx
-    :: BlockHeader
-    -> Map TxId [AccountLog]
-    -> CoinbaseCommandResult
-    -> V.Vector (CommandResult Hash)
-    -> RequestKey
-    -> Either RosettaFailure Transaction
-getBlockTx bh logs coinbase rest target
-  | (_blockHeight bh == 0) = genesisTransaction logs rest target
-  | otherwise = nonGenesisTransaction
-                logs _crReqKey _crTxId rosettaTransaction coinbase rest target
 
-
--- | Matches all genesis transactions to their coin contract logs.
-genesisTransactions
-    :: Map TxId [AccountLog]
-    -> V.Vector (CommandResult Hash)
-    -> [Transaction]
-genesisTransactions logs crs =
-  V.toList $ V.map (getGenesisLog logs) crs
-
--- | Matches a single genesis transaction to its coin contract logs.
-genesisTransaction
-    :: Map TxId [AccountLog]
-    -> V.Vector (CommandResult Hash)
-    -> RequestKey
-    -- ^ target tx
-    -> Either RosettaFailure Transaction
-genesisTransaction logs crs target = do
-  cr <- note RosettaTxIdNotFound $
-        V.find (\c -> (_crReqKey c) == target) crs
-  pure $ getGenesisLog logs cr
-
--- Genesis transactions do not have coinbase or gas payments.
+-- | Genesis transactions do not have coinbase or gas payments.
 getGenesisLog
     :: Map TxId [AccountLog]
     -> CommandResult Hash
@@ -490,163 +451,6 @@ gasTransactionAcc logs getTxId f acc (T2 idx txs) cr = do
         isCoinTx aTid eTid
           | (eTid == aTid) = transferLogs
           | otherwise = noTransferLogs
-
-
--- TODO: Incorporate into unit tests
-type MockTxResult = (Maybe TxId, T.Text)
-mockTxLogs :: (Map TxId [AccountLog], MockTxResult, V.Vector MockTxResult)
-mockTxLogs = (logs, initial, rest)
-  where
-    (log1,initial) =
-      let key = "miner1"
-          amt = 2.0
-          g = toJSON (key <> "PublicKey" :: T.Text)
-          tid = TxId 1
-          l = [(key, amt, g)]
-          a = (Just tid, "ReqKey1")
-      in ((tid,l), a)
-
-    -- successful, non-coin contract tx
-    (logs2,tx1) =
-      let minerKey = "miner1"
-          key = "sender1"
-          gMiner = toJSON (key <> "PublicKey" :: T.Text)
-          gKey = toJSON (key <> "PublicKey" :: T.Text)
-          (fundTid, tid, gasTid) = (TxId 2, TxId 3, TxId 4)
-          fundLogs = (fundTid, [(key, 10.0, gKey)])
-          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
-          a = (Just tid, "ReqKey2")
-      in ([fundLogs,gasLogs], a)
-
-    (logs3,tx2) =
-      let minerKey = "miner1"
-          key = "sender1"
-          gMiner = toJSON (key <> "PublicKey" :: T.Text)
-          gKey = toJSON (key <> "PublicKey" :: T.Text)
-          (fundTid, tid, gasTid) = (TxId 5, TxId 6, TxId 7)
-          fundLogs = (fundTid, [(key, 10.0, gKey)])
-          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
-          a = (Just tid, "ReqKey3")
-      in ([fundLogs,gasLogs], a)
-
-    -- successful, coin contract tx
-    (logs4,tx3) =
-      let minerKey = "miner1"
-          key = "sender1"
-          gMiner = toJSON (key <> "PublicKey" :: T.Text)
-          gKey = toJSON (key <> "PublicKey" :: T.Text)
-          (fundTid, tid, gasTid) = (TxId 8, TxId 9, TxId 10)
-          fundLogs = (fundTid, [(key, 10.0, gKey)])
-          transferLogs = (tid, [(key, 5.0, gKey)])
-          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
-          a = (Just tid, "ReqKey4")
-      in ([fundLogs,transferLogs,gasLogs], a)
-
-    -- unsuccessful tx
-    (logs5,tx4) =
-      let minerKey = "miner1"
-          key = "sender1"
-          gMiner = toJSON (key <> "PublicKey" :: T.Text)
-          gKey = toJSON (key <> "PublicKey" :: T.Text)
-          (fundTid, gasTid) = (TxId 11, TxId 12)
-          fundLogs = (fundTid, [(key, 10.0, gKey)])
-          gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
-          a = (Nothing, "ReqKey5")
-      in ([fundLogs,gasLogs], a)
-
-    rest = V.fromList [tx1, tx2, tx3, tx4]
-    logs = M.fromList $ [log1] <> logs2 <> logs3 <> logs4 <> logs5
-
-testBlock :: Either String [(T.Text, [Operation])]
-testBlock = nonGenesisTransactions logs getTxId toTx initial rest
-  where
-    toTx (_, rk) ops = (rk, ops)
-    getTxId (tid, _) = tid
-    (logs, initial, rest) = mockTxLogs
-
-testBlockTransaction :: T.Text -> Either RosettaFailure (T.Text, [Operation])
-testBlockTransaction trk =
-  nonGenesisTransaction logs toRk getTxId toTx initial rest (RequestKey $ Hash $ T.encodeUtf8 trk)
-  where
-    toTx (_, rk) ops = (rk, ops)
-    toRk (_, rk) = RequestKey $ Hash $ T.encodeUtf8 rk
-    getTxId (tid, _) = tid
-    (logs, initial, rest) = mockTxLogs
-
-
-getTxLogs
-    :: PactExecutionService
-    -> BlockHeader
-    -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
-getTxLogs cr bh = do
-  someHist <- liftIO $ (_pactBlockTxHistory cr) bh d
-  (BlockTxHistory hist) <- (hush someHist) ?? RosettaPactExceptionThrown
-  case (M.size hist) of
-    0 -> throwError RosettaInvalidChain
-    _ -> pure ()
-  let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
-  if (M.size histParsed == M.size hist)
-    then pure histParsed
-    else throwError RosettaUnparsableTxLog
-  where
-    d = (Domain' (UserTables "coin_coin-table"))
-
-
-getBlockOutputs
-    :: forall cas
-    . PayloadCasLookup cas
-    => PayloadDb cas
-    -> BlockHeader
-    -> ExceptT RosettaFailure Handler (CoinbaseCommandResult, V.Vector (CommandResult Hash))
-getBlockOutputs payloadDb bh = do
-  someOut <- liftIO $ casLookup payloadDb (_blockPayloadHash bh)
-  outputs <- someOut ?? RosettaPayloadNotFound
-  txsOut <- decodeTxsOut outputs ?? RosettaUnparsableTxOut
-  coinbaseOut <- decodeCoinbaseOut outputs ?? RosettaUnparsableTxOut
-  pure $ (coinbaseOut, txsOut)
-
-  where
-    decodeCoinbaseOut :: PayloadWithOutputs -> Maybe (CommandResult Hash)
-    decodeCoinbaseOut = decodeStrictOrThrow . _coinbaseOutput . _payloadWithOutputsCoinbase
-
-    decodeTxsOut :: PayloadWithOutputs -> Maybe (V.Vector (CommandResult Hash))
-    decodeTxsOut pwo = mapM (decodeStrictOrThrow . _transactionOutputBytes . snd)
-                       (_payloadWithOutputsTransactions pwo)
-
-
-findBlockHeaderInCurrFork
-    :: CutDb cas
-    -> ChainId
-    -> Maybe Word64
-    -- ^ Block Height
-    -> Maybe T.Text
-    -- ^ Block Hash
-    -> ExceptT RosettaFailure Handler BlockHeader
-findBlockHeaderInCurrFork cutDb cid someHeight someHash = do
-  latestBlock <- getLatestBlockHeader cutDb cid
-  chainDb <- (cutDb ^? cutDbBlockHeaderDb cid) ?? RosettaInvalidChain
-
-  case (someHeight, someHash) of
-    (Nothing, Nothing) -> pure latestBlock
-    (Just hi, Nothing) -> byHeight chainDb latestBlock hi
-    (Just hi, Just hsh) -> do
-      bh <- byHeight chainDb latestBlock hi
-      bhashExpected <- (blockHashFromText hsh) ?? RosettaUnparsableBlockHash
-      if (_blockHash bh == bhashExpected)
-        then pure bh
-        else throwError RosettaMismatchBlockHashHeight
-    (Nothing, Just hsh) -> do
-      bhash <- (blockHashFromText hsh) ?? RosettaUnparsableBlockHash
-      somebh <- liftIO $ (casLookup chainDb bhash)
-      bh <- somebh ?? RosettaBlockHashNotFound
-      isInCurrFork <- liftIO $ memberOfHeader cutDb cid bhash latestBlock
-      if isInCurrFork
-        then pure bh
-        else throwError RosettaOrphanBlockHash
-  where
-    byHeight db latest hi = do
-      somebh <- liftIO $ seekAncestor db latest (int hi)
-      somebh ?? RosettaInvalidBlockHeight
 
 --------------------------------------------------------------------------------
 -- Construction Handlers
@@ -831,124 +635,3 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
         someCertPair :: Maybe PeerId -> [(T.Text, Value)]
         someCertPair (Just i) = ["certificate_id" .= i]
         someCertPair Nothing = []
-
---------------------------------------------------------------------------------
--- Utils
-
-maxRosettaNodePeerLimit :: Natural
-maxRosettaNodePeerLimit = 64
-
-getLatestBlockHeader
-    :: CutDb cas
-    -> ChainId
-    -> ExceptT RosettaFailure Handler BlockHeader
-getLatestBlockHeader cutDb cid = do
-  c <- liftIO $ _cut cutDb
-  HM.lookup cid (_cutMap c) ?? RosettaInvalidChain
-
-
--- | If its the genesis block, Rosetta wants the parent block to be itself.
---   Otherwise, fetch the parent header from the block.
-parentBlockId :: BlockHeader -> BlockId
-parentBlockId bh
-  | (_blockHeight bh == 0) = blockId bh  -- genesis
-  | otherwise = parent
-  where parent = BlockId
-          { _blockId_index = _height (pred $ _blockHeight bh)
-          , _blockId_hash = blockHashToText (_blockParent bh)
-          }
-
-blockId :: BlockHeader -> BlockId
-blockId bh = BlockId
-  { _blockId_index = _height (_blockHeight bh)
-  , _blockId_hash = blockHashToText (_blockHash bh)
-  }
-
-txLogToAccountInfo :: TxLog Value -> Maybe AccountLog
-txLogToAccountInfo (TxLog _ key (Object row)) = do
-  guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
-  (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
-  pure $ (key, bal, guard)
-txLogToAccountInfo _ = Nothing
-
-rosettaTransaction :: CommandResult Hash -> [Operation] -> Transaction
-rosettaTransaction cr ops =
-  Transaction
-    { _transaction_transactionId = rosettaTransactionId (_crReqKey cr)
-    , _transaction_operations = ops
-    , _transaction_metadata = txMeta
-    }
-  where
-    -- Include information on related transactions (i.e. continuations)
-    txMeta = case _crContinuation cr of
-      Nothing -> Nothing
-      Just pe -> Just $ HM.fromList [("related-transaction", toJSON pe)]   -- TODO: document, nicer?
-
-rosettaTransactionId :: RequestKey -> TransactionId
-rosettaTransactionId rk = TransactionId $ requestKeyToB16Text rk
-
-indexedOperations :: [UnindexedOperation] -> [Operation]
-indexedOperations logs = zipWith (\f i -> f i) logs [(0 :: Word64)..]
-
-operation
-    :: PendingOperationStatus
-    -> OperationType
-    -> TxId
-    -> AccountLog
-    -> Word64
-    -> Operation
-operation ostatus otype txid (key, bal, guard) idx =
-  Operation
-    { _operation_operationId = OperationId idx Nothing
-    , _operation_relatedOperations = Nothing -- TODO: implement
-    , _operation_type = sshow otype
-    , _operation_status = sshow ostatus
-    , _operation_account = Just accountId
-    , _operation_amount = Just $ kdaToRosettaAmount bal
-    , _operation_metadata = Just $ HM.fromList [("txId", toJSON txid)] -- TODO: document
-    }
-  where
-    accountId = AccountId
-      { _accountId_address = key
-      , _accountId_subAccount = Nothing  -- assumes coin acct contract only
-      , _accountId_metadata = Just accountIdMeta
-      }
-    accountIdMeta = HM.fromList [("ownership", guard)]  -- TODO: document
-
-
--- TODO: Investigate how continuations affect amounts in coin table
-operationStatus :: PendingOperationStatus -> OperationStatus
-operationStatus s@Successful =
-  OperationStatus
-    { _operationStatus_status = sshow s
-    , _operationStatus_successful = True
-    }
-operationStatus s@LockedInPact =
-  OperationStatus
-    { _operationStatus_status = sshow s
-    , _operationStatus_successful = True
-    }
-operationStatus s@UnlockedReverted =
-  OperationStatus
-    { _operationStatus_status = sshow s
-    , _operationStatus_successful = True
-    }
-operationStatus s@UnlockedTransfer =
-  OperationStatus
-    { _operationStatus_status = sshow s
-    , _operationStatus_successful = True
-    }
-
--- Timestamp of the block in milliseconds since the Unix Epoch.
--- NOTE: Chainweb provides this timestamp in microseconds.
-rosettaTimestamp :: BlockHeader -> Word64
-rosettaTimestamp bh = BA.unLE . BA.toLE $ fromInteger msTime
-  where
-    msTime = int $ microTime `div` ms
-    TimeSpan ms = millisecond
-    microTime = encodeTimeToWord64 $ _bct (_blockCreationTime bh)
-
-
-hushResult :: Result a -> Maybe a
-hushResult (Success w) = Just w
-hushResult (Error _) = Nothing
