@@ -56,6 +56,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Retry
 
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Short as SB
@@ -67,6 +68,7 @@ import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
+import Data.Maybe (isNothing)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -332,12 +334,51 @@ initializeCoinContract _logger v cid pwo = do
         psInitCache .= mc
         return $! Discard ()
 
+-- | Lookup a header in the BlockHeader db.
+--
+-- This function is supposed to be called when it is certain that the header
+-- exists in the BlockHeader DB -- or if it will exist there very soon.
+--
+-- After validating a block (via 'execValidateBlock') pact stores the hash in
+-- the @BlockHistory@ table and uses it at basis for calls that don't refer to a
+-- particular parent block header as validation context, which is the case for
+-- pact local calls and pre-checks from the mempool (those calls are much more
+-- efficient and don't block consensus and mining by using whatever state
+-- pact-service is in).
+--
+-- However, at the time a block hash is stored in @BlockHistory@, it is still
+-- the job of the cutDb to complete validation and add the block header and the
+-- payload to the chain db. There are two corner cases:
+--
+-- 1. The top entry of @BlockHistory@ becomes stall because futher validation
+--    fails or some component crashes.
+-- 2. A new pact request without an explict parent header context comes in
+--    before the header is available in the chain db.
+--
+-- The second case is mitigated by retrying for a short period of time and
+-- reporting a failure in case of timeout. If that happens the caller of the
+-- pact request should consider retrying the request (which wouldn't block other
+-- pact-serive users).
+--
+-- Retrying doesn't resolve the first case. But that case is supposed to be very
+-- rare and is a proper failure condition. If it happens an exception is raised
+-- that causes pact service to be restarted. Upon restart the pact-service
+-- ignores inconsistent entries in the @BlockHistory@ table.
+--
+-- If the lookup fails this function blocks and retries for a short period of time.
+--
 lookupBlockHeader :: BlockHash -> Text -> PactServiceM cas BlockHeader
 lookupBlockHeader bhash ctx = do
-  bhdb <- asks _psBlockHeaderDb
-  liftIO $! lookupM bhdb bhash
-        `catch` \e -> throwM $ BlockHeaderLookupFailure $
-                      "failed lookup of parent header in " <> ctx <> ": " <> sshow (e :: SomeException)
+    bhdb <- asks _psBlockHeaderDb
+    liftIO $! (retryOnNothing (lookup bhdb bhash)) >>= \case
+        Nothing -> throwM $ BlockHeaderLookupFailure $
+            "failed lookup of parent header in " <> ctx <> ". Parent header hash: " <> encodeToText bhash
+        Just x -> return x
+  where
+    -- Lookup failures are presumably expensive (involve disk IO).
+    -- We start with 500us, in total 3.5ms
+    policy = exponentialBackoff 500 <> limitRetries 3
+    retryOnNothing = retrying policy (const $ return . isNothing) . const
 
 isGenesisParent :: ParentHeader -> Bool
 isGenesisParent (ParentHeader p)

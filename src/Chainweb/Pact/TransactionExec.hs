@@ -1,11 +1,13 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -- |
 -- Module      :  Chainweb.Pact.TransactionExec
@@ -98,9 +100,19 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
 import Chainweb.Version as V
 
+-- -------------------------------------------------------------------------- --
+-- NFData orphans for Pact types
+--
+-- TODO: these should be moved to Pact!
+
+deriving instance NFData PactResult
+deriving instance NFData RequestKey
+deriving instance NFData a => NFData (CommandResult a)
+
+-- -------------------------------------------------------------------------- --
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
@@ -429,12 +441,11 @@ applyUpgrades v cid height
 
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
-      r <- try $ runGenesis tx permissiveNamespacePolicy interp
-
-      case r of
+      tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
         Right _ -> return ()
-        Left (e :: SomeException) -> do
+        Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
+            -- TODO: is it really OK, to just swallow the exception?
           return ()
 
 jsonErrorResult
