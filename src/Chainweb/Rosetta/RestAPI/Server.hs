@@ -126,6 +126,7 @@ someRosettaServer v@(FromSingChainwebVersion (SChainwebVersion :: Sing vT)) ps m
 
 --------------------------------------------------------------------------------
 -- Account Handlers
+
 accountBalanceH
     :: ChainwebVersion
     -> [(ChainId, ChainResources a)]

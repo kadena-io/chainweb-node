@@ -111,7 +111,7 @@ data RosettaFailure
     | RosettaUnparsableTxOut
     | RosettaTxIdNotFound
     | RosettaUnparsableTransactionId
-    deriving (Show, Enum, Bounded)
+    deriving (Show, Enum, Bounded, Eq)
 
 
 -- TODO: Better grouping of rosetta error index?
