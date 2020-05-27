@@ -12,6 +12,7 @@ module Chainweb.Test.Rosetta
   ( tests
   ) where
 
+import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Decimal
 import Data.Map (Map)
@@ -33,10 +34,10 @@ import Test.Tasty.HUnit
 
 -- internal modules
 
---import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.RestAPI.Server
 import Chainweb.Rosetta.Util
+import Chainweb.Version
 
 ---
 
@@ -46,6 +47,8 @@ tests = testGroup "Chainweb.Test.Rosetta.Server"
   [ testGroup "Unit Tests"
     [ testCase "matchNonGenesisBlockTransactionsToLogs" matchNonGenesisBlockTransactionsToLogs
     , testCase "matchNonGenesisSingleTransactionsToLogs" matchNonGenesisSingleTransactionsToLogs
+    , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
+    , testCase "checkValidateNetwork" checkValidateNetwork
     ]
   ]
 
@@ -141,6 +144,67 @@ matchNonGenesisSingleTransactionsToLogs = do
     expectedRk5 = ("ReqKey5", [ op FundTx 11 "sender1" 10.0 0
                             , op GasPayment 12 "miner1" 12.0 1])
     expectedMissing = RosettaTxIdNotFound
+
+checkKDAToRosettaAmount :: Assertion
+checkKDAToRosettaAmount = do
+  assertEqual "normal: 123.0"
+    (rosettaAmount normalStandard) normalAtomic
+  assertEqual "min precision: 0.123456789123"
+    (rosettaAmount smallStandard) smallAtomic
+  assertEqual "big with min precision: 123456789123.123456789123"
+    (rosettaAmount bigStandard) bigAtomic
+  assertEqual "smaller than min precision: 0.123456789123456789"
+    (rosettaAmount reallySmallStandard) reallySmallAtomic
+  assertEqual "really big with min precision: 123456789123456789.123456789123"
+    (rosettaAmount reallyBigStandard) reallyBigAtomic
+  where
+    rosettaAmount = _amount_value . kdaToRosettaAmount
+
+    (normalStandard, normalAtomic) =
+      (123.0, "123000000000000")
+    (smallStandard, smallAtomic) =
+      (0.123456789123, "123456789123")
+    (bigStandard, bigAtomic) =
+      (123456789123.123456789123, "123456789123123456789123")
+    (reallySmallStandard, reallySmallAtomic) =
+      (0.123456789123456789, "123456789123") -- smaller than min precision so will drop extras
+    (reallyBigStandard, reallyBigAtomic) =
+      (123456789123456789.123456789123, "123456789123456789123456789123")
+
+checkValidateNetwork :: Assertion
+checkValidateNetwork = do
+  assertEqual "valid network id"
+    (run validNetId) (Right "0")
+  assertEqual "invalid blockchain name"
+    (run invalidBlockchainName) (Left RosettaInvalidBlockchainName)
+  assertEqual "mismatched network name"
+    (run mismatchedNetName) (Left RosettaMismatchNetworkName)
+  assertEqual "chain id unspecified"
+    (run chainIdUnspecified) (Left RosettaChainUnspecified)
+  assertEqual "invalid chain id"
+    (run invalidChainId) (Left RosettaInvalidChain)
+  where
+    run :: (ChainwebVersion, NetworkId) -> Either RosettaFailure T.Text
+    run (v,net) = runExceptT (validateNetwork v net) >>= either Left (pure . chainIdToText)
+    
+    validNetId = (Development, NetworkId
+      { _networkId_blockchain = "kadena"
+      , _networkId_network = "development"
+      , _networkId_subNetworkId = Just $ SubNetworkId "0" Nothing
+      })
+    invalidBlockchainName =
+      (fst validNetId,
+       (snd validNetId) { _networkId_blockchain = "incorrectName" }
+      )
+    mismatchedNetName = (Testnet04, snd validNetId)
+    chainIdUnspecified =
+      (fst validNetId,
+       (snd validNetId) { _networkId_subNetworkId = Nothing }
+      )
+    invalidChainId =
+      (fst validNetId,
+       (snd validNetId) { _networkId_subNetworkId = Just $ SubNetworkId "1000" Nothing }
+      )
     
 
 --------------------------------------------------------------------------------
