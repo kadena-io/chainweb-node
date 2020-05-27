@@ -94,7 +94,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
-import Chainweb.Pact.Templates hiding (qn)
+import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Transaction

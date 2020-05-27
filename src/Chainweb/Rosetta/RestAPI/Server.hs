@@ -145,6 +145,9 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
       hi <- (HM.lookup "blockHeight" meta) >>= (hushResult . fromJSON)
       hsh <- (HM.lookup "prevBlockHash" meta) >>= (hushResult . fromJSON)
       pure $ (pred hi, hsh)
+      -- ^ Return the block the account balance was executed on.
+      -- Hash returned is the "parent hash", i.e. the lookup occurred on top of this parent block.
+      -- Thus, the block height returned is the {height of parent block} + 1.
     readBlock _ = Nothing
 
     balCheckCmd :: ChainId -> IO (Command T.Text)
@@ -154,17 +157,17 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
       where
         rpc = Exec $ ExecMsg code Null
         code = renderCompactText $
-          app (bn "at")
-            [ strLit "balance"
-            , app (qn "coin" "details") [ strLit acct ]
+          pactApp (pactBareName "at")
+            [ pactStrLit "balance"
+            , pactApp (pactQualifiedName "coin" "details") [ pactStrLit acct ]
             ]
         meta = PublicMeta
           (fromString $ show $ chainIdToText cid)
           "someSender"
-          10000   -- gas limit
-          0.0001  -- gas price
-          300     -- ttl
-          0       -- creation time
+          10000   -- default gas limit
+          0.0001  -- default gas price
+          300     -- default ttl
+          0       -- default creation time
 
     work :: ExceptT RosettaFailure Handler AccountBalanceResp
     work = do
@@ -177,7 +180,7 @@ accountBalanceH v crs (AccountBalanceReq net (AccountId acct _ _) _) =
         r <- liftIO $ _pactLocal (_chainResPact cr) cmd
         (hush r) ?? RosettaPactExceptionThrown
       let (PactResult pRes) = _crResult cRes
-      pv <- (hush pRes) ?? RosettaPactErrorThrown
+      pv <- (hush pRes) ?? RosettaCouldNotRetrieveBalance
       balKDA <- readBal pv ?? RosettaExpectedBalDecimal
       (blockHeight, blockHash) <- (readBlock $ _crMetaData cRes) ?? RosettaInvalidResultMetaData
 

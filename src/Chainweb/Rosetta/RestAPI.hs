@@ -96,7 +96,7 @@ data RosettaFailure
     | RosettaMismatchNetworkName
     | RosettaHistBalCheckUnsupported
     | RosettaPactExceptionThrown
-    | RosettaPactErrorThrown
+    | RosettaCouldNotRetrieveBalance
     | RosettaExpectedBalDecimal
     | RosettaInvalidResultMetaData
     | RosettaSubAcctUnsupported
@@ -117,7 +117,7 @@ data RosettaFailure
 -- TODO: Better grouping of rosetta error index?
 rosettaError :: RosettaFailure -> RosettaError
 rosettaError RosettaChainUnspecified = RosettaError 0 "No SubNetwork (chain) specified" False
-rosettaError RosettaInvalidChain = RosettaError 1 "Invalid sub-network chain id value" False
+rosettaError RosettaInvalidChain = RosettaError 1 "Invalid SubNetwork (chain) value" False
 rosettaError RosettaMempoolBadTx = RosettaError 2 "Transaction not present in mempool" False
 rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" False
 rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
@@ -127,7 +127,7 @@ rosettaError RosettaHistBalCheckUnsupported =
   RosettaError 7 "Historical account balance lookup is not supported." False
 rosettaError RosettaPactExceptionThrown =
   RosettaError 7 "A pact exception was thrown" False
-rosettaError RosettaPactErrorThrown = RosettaError 8 "Transaction failed with a pact error" False
+rosettaError RosettaCouldNotRetrieveBalance = RosettaError 8 "Could not retrieve account balance" False
 rosettaError RosettaExpectedBalDecimal = RosettaError 9 "Expected balance as a decimal" False
 rosettaError RosettaInvalidResultMetaData = RosettaError 10 "Invalid meta data field in command result" False
 rosettaError RosettaSubAcctUnsupported = RosettaError 11 "Sub account identifier is not supported" False
