@@ -63,7 +63,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Transaction (ChainwebTransaction)
-import Chainweb.Utils (int, encodeToText)
+import Chainweb.Utils (int, encodeB64UrlNoPaddingText)
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -161,9 +161,6 @@ mempoolH v ms (MempoolReq net) = work >>= \case
     Left !e -> throwRosetta e
     Right !a -> pure a
   where
-    f :: TransactionHash -> TransactionId
-    f !h = TransactionId (encodeToText h)
-
     work = runExceptT $! do
         cid <- validateNetwork v net
         mp <- lookup cid ms ?? RosettaInvalidChain
@@ -174,7 +171,7 @@ mempoolH v ms (MempoolReq net) = work >>= \case
           modifyIORef' r (<> hs)
 
         txs <- liftIO $! readIORef r
-        let !ts = V.toList $ f <$!> txs
+        let !ts = V.toList $ transactionHashToId <$!> txs
         return $ MempoolResp ts
 
 mempoolTransactionH
@@ -325,3 +322,11 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
 
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
+
+-- | Convert a transaction hash to a Rosetta transaction id
+--
+transactionHashToId :: TransactionHash -> TransactionId
+transactionHashToId (TransactionHash h) = TransactionId h'
+  where
+    !h' = encodeB64UrlNoPaddingText $
+      BSS.fromShort h
