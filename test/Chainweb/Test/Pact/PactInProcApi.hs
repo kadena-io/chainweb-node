@@ -147,7 +147,7 @@ getHistory refIO reqIO = testCase "getHistory" $ do
     (M.lookup 10 hist)
   -- and transaction txids
   assertEqual "check txids"
-    [10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42]
+    [7,10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42]
     (M.keys hist)
 
 
