@@ -24,9 +24,11 @@ import Data.CAS
 import Data.Word (Word64)
 
 
+import qualified Data.ByteString.Short as BSS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as M
 import qualified Data.Memory.Endian as BA
+import qualified Data.Text.Encoding as T
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -49,6 +51,7 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Cut
 import Chainweb.CutDB
+import Chainweb.Mempool.Mempool (TransactionHash(..))
 import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
@@ -68,11 +71,7 @@ type CoinbaseCommandResult = CommandResult Hash
 type AccountLog = (T.Text, Decimal, Value)
 type UnindexedOperation = (Word64 -> Operation)
 
-data ChainwebOperationStatus =
-    Successful
-  | LockedInPact -- TODO: Think about.
-  | UnlockedReverted -- TODO: Think about in case of rollback (same chain pacts)?
-  | UnlockedTransfer -- TOOD: pacts finished, cross-chain?
+data ChainwebOperationStatus = Successful
   deriving (Enum, Bounded, Show)
 
 data OperationType =
@@ -122,6 +121,9 @@ rosettaTransaction cr ops =
 rkToTransactionId :: RequestKey -> TransactionId
 rkToTransactionId rk = TransactionId $ requestKeyToB16Text rk
 
+fromTransactionId :: TransactionId -> TransactionHash
+fromTransactionId (TransactionId ti) = TransactionHash . BSS.toShort $ T.encodeUtf8 ti
+
 
 indexedOperations :: [UnindexedOperation] -> [Operation]
 indexedOperations logs = zipWith (\f i -> f i) logs [(0 :: Word64)..]
@@ -131,21 +133,6 @@ indexedOperations logs = zipWith (\f i -> f i) logs [(0 :: Word64)..]
 -- Convert chainweb operation status enum to Rosetta operation status
 operationStatus :: ChainwebOperationStatus -> OperationStatus
 operationStatus s@Successful =
-  OperationStatus
-    { _operationStatus_status = sshow s
-    , _operationStatus_successful = True
-    }
-operationStatus s@LockedInPact =
-  OperationStatus
-    { _operationStatus_status = sshow s
-    , _operationStatus_successful = True
-    }
-operationStatus s@UnlockedReverted =
-  OperationStatus
-    { _operationStatus_status = sshow s
-    , _operationStatus_successful = True
-    }
-operationStatus s@UnlockedTransfer =
   OperationStatus
     { _operationStatus_status = sshow s
     , _operationStatus_successful = True

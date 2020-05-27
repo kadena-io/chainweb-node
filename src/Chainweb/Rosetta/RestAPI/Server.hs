@@ -34,7 +34,6 @@ import Data.Proxy (Proxy(..))
 import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
 
-import qualified Data.ByteString.Short as BSS
 import qualified Data.DList as DList
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -531,7 +530,7 @@ mempoolTransactionH
 mempoolTransactionH v ms mtr = runExceptT work >>= either throwRosetta pure
   where
     MempoolTransactionReq net (TransactionId ti) = mtr
-    th = TransactionHash . BSS.toShort $ T.encodeUtf8 ti  --TODO reconcile with request key
+    th = fromTransactionId (TransactionId ti)
 
     f :: LookupResult a -> Maybe MempoolTransactionResp
     f Missing = Nothing
