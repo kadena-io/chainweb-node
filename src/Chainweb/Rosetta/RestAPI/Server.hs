@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,13 +17,15 @@
 --
 module Chainweb.Rosetta.RestAPI.Server where
 
+
 import Control.Error.Util
-import Control.Monad (void)
+import Control.Monad (void, (<$!>))
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Bifunctor
+import Data.IORef
 import Data.Proxy (Proxy(..))
 import Data.Word (Word64)
 
@@ -60,7 +63,7 @@ import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Time
 import Chainweb.Transaction (ChainwebTransaction)
-import Chainweb.Utils (int)
+import Chainweb.Utils (int, encodeB64UrlNoPaddingText)
 import Chainweb.Utils.Paging
 import Chainweb.Version
 
@@ -154,12 +157,22 @@ mempoolH
     -> [(ChainId, MempoolBackend a)]
     -> MempoolReq
     -> Handler MempoolResp
-mempoolH v ms (MempoolReq net) = runExceptT work >>= either throwRosetta pure
+mempoolH v ms (MempoolReq net) = work >>= \case
+    Left !e -> throwRosetta e
+    Right !a -> pure a
   where
-    work = do
+    work = runExceptT $! do
         cid <- validateNetwork v net
-        _ <- lookup cid ms ?? RosettaInvalidChain
-        error "not yet implemented"  -- TODO!
+        mp <- lookup cid ms ?? RosettaInvalidChain
+        r <- liftIO $ newIORef mempty
+        -- TODO: This will need to be revisited once we can add
+        -- pagination + streaming the mempool
+        void $! liftIO $ mempoolGetPendingTransactions mp Nothing $ \hs -> do
+          modifyIORef' r (<> hs)
+
+        txs <- liftIO $! readIORef r
+        let !ts = V.toList $ transactionHashToId <$!> txs
+        return $ MempoolResp ts
 
 mempoolTransactionH
     :: ChainwebVersion
@@ -309,3 +322,11 @@ networkStatusH v cutDb peerDb (NetworkReq nid _) =
 
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
+
+-- | Convert a transaction hash to a Rosetta transaction id
+--
+transactionHashToId :: TransactionHash -> TransactionId
+transactionHashToId (TransactionHash h) = TransactionId h'
+  where
+    !h' = encodeB64UrlNoPaddingText $
+      BSS.fromShort h
