@@ -104,14 +104,6 @@ import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
 import Chainweb.Version as V
 
--- -------------------------------------------------------------------------- --
--- NFData orphans for Pact types
---
--- TODO: these should be moved to Pact!
-
-deriving instance NFData PactResult
-deriving instance NFData RequestKey
-deriving instance NFData a => NFData (CommandResult a)
 
 -- -------------------------------------------------------------------------- --
 
