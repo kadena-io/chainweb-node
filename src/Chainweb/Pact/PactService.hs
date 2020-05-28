@@ -130,7 +130,7 @@ import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Time
 import Chainweb.Transaction
-import Chainweb.TreeDB (collectForkBlocks, lookup, lookupM)
+import Chainweb.TreeDB (collectForkBlocks, lookup)
 import Chainweb.Utils hiding (check)
 import Chainweb.Version
 import Data.CAS (casLookupM)
