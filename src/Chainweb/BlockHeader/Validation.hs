@@ -720,7 +720,7 @@ prop_block_chainId (ChainStep (ParentHeader p) b)
     = _blockChainId p == _blockChainId b
 
 -- -------------------------------------------------------------------------- --
--- Mutli chain inductive properties
+-- Multi chain inductive properties
 
 prop_block_epoch :: WebStep -> Bool
 prop_block_epoch (WebStep as (ChainStep p b))
@@ -754,4 +754,3 @@ prop_block_adjacent_chainId (WebStep _as (ChainStep (ParentHeader p) b))
 --
 prop_block_braiding :: WebStep -> Bool
 prop_block_braiding _ = True
-
