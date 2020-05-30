@@ -155,8 +155,6 @@ import Text.Printf (printf)
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
-import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
@@ -458,19 +456,18 @@ starBlockHeaderDbs n genDbs = do
 -- | Spawn a server that acts as a peer node for the purpose of querying / syncing.
 --
 withChainServer
-    :: forall t cas logger a
+    :: forall t cas a
     .  Show t
     => ToJSON t
     => FromJSON t
     => PayloadCasLookup cas
-    => Logger logger
-    => ChainwebServerDbs t logger cas
+    => ChainwebServerDbs t cas
     -> (ClientEnv -> IO a)
     -> IO a
 withChainServer dbs f = W.testWithApplication (pure app) work
   where
     app :: W.Application
-    app = chainwebApplication (Test singletonChainGraph) dbs Nothing (HeaderStream False) (Rosetta False)
+    app = chainwebApplication (Test singletonChainGraph) dbs
 
     work :: Int -> IO a
     work port = do
@@ -598,21 +595,14 @@ clientEnvWithChainwebTestServer
     => PayloadCasLookup cas
     => Bool
     -> ChainwebVersion
-    -> IO (ChainwebServerDbs t GenericLogger cas)
+    -> IO (ChainwebServerDbs t cas)
     -> (IO (TestClientEnv t cas) -> TestTree)
     -> TestTree
 clientEnvWithChainwebTestServer tls v dbsIO =
     withChainwebTestServer tls v mkApp mkEnv
   where
-    miningRes :: Maybe (MiningCoordination GenericLogger cas)
-    miningRes = Nothing
-
     mkApp :: IO W.Application
-    mkApp = chainwebApplication v
-        <$> dbsIO
-        <*> pure miningRes
-        <*> pure (HeaderStream False)
-        <*> pure (Rosetta False)
+    mkApp = chainwebApplication v <$> dbsIO
 
     mkEnv :: Int -> IO (TestClientEnv t cas)
     mkEnv port = do
