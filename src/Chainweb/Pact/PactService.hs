@@ -622,6 +622,17 @@ withCheckpointer target caller act = mask $ \restore -> do
         finalizeCheckpointer (flip _cpSave $ _blockHash header)
         psStateValidated .= Just header
 
+-- | 'withCheckpointer' but using the cached parent header for target.
+withCurrentCheckpointer
+    :: PayloadCasLookup cas
+    => String
+    -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
+    -> PactServiceM cas a
+withCurrentCheckpointer caller act = do
+  ph <- _parentHeader <$> use psParentHeader
+  let target = Just (succ $ _blockHeight ph, _blockHash ph)
+  withCheckpointer target caller act
+
 -- | Same as 'withCheckpointer' but rewinds the checkpointer state to the
 -- provided target.
 --
@@ -1042,26 +1053,18 @@ execLocal
     :: PayloadCasLookup cas
     => ChainwebTransaction
     -> PactServiceM cas (P.CommandResult P.Hash)
-execLocal cmd = withDiscardedBatch $ do
-    cp <- getCheckpointer
-    mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
-    (bhe, bhash) <- case mbLatestBlock of
-                       Nothing -> throwM NoBlockValidatedYet
-                       (Just !p) -> return p
-    let target = Just (succ bhe, bhash)
-    parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "execLocal"
-    setParentHeader parentHeader
-
-    withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
-        PactServiceEnv{..} <- ask
-        mc <- use psInitCache
-        pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
-        spv <- use psSpvSupport
-        execConfig <- view psAllowReadsInLocal >>= \b ->
-          return $ if b then mkExecutionConfig [P.FlagAllowReadInLocal] else def
-        r <- liftIO $
-          applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc execConfig
-        return $! Discard (toHashCommandResult r)
+execLocal cmd = do
+  PactServiceEnv{..} <- ask
+  mc <- use psInitCache
+  pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
+  spv <- use psSpvSupport
+  let execConfig | _psAllowReadsInLocal = mkExecutionConfig [P.FlagAllowReadInLocal]
+                 | otherwise = def
+      logger = _cpeLogger _psCheckpointEnv
+  withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
+    r <- liftIO $
+         applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
+    return $! Discard (toHashCommandResult r)
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)
@@ -1399,27 +1402,22 @@ execPreInsertCheckReq
     => Vector ChainwebTransaction
     -> PactServiceM cas (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = do
-    cp <- getCheckpointer
-    b <- liftIO $ _cpGetLatestBlock cp
-    case b of
-        Nothing -> return $! V.map Right txs
-        Just (parentHeight, parentHash) -> do
-            let currHeight = parentHeight + 1
-            withCheckpointer (Just (currHeight, parentHash)) "execPreInsertCheckReq" $ \pdb -> do
-                psEnv <- ask
-                psState <- get
-                parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "execPreInsertCheckReq"
+  parentHeader <- use psParentHeader
+  let currHeight = succ $ _blockHeight $ _parentHeader parentHeader
+  psEnv <- ask
+  psState <- get
+  let parentTime = _blockCreationTime $ _parentHeader parentHeader
+      lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
+  cp <- getCheckpointer
+  withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb ->
+    liftIO $ fmap Discard $ V.zipWith (>>)
+       <$> validateChainwebTxs cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
 
-                let parentTime = _blockCreationTime $ _parentHeader parentHeader
-                    lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
-                liftIO $ fmap Discard $ V.zipWith (>>)
-                    <$> validateChainwebTxs cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
-
-                    -- This code can be removed once the transition is complete and the guard
-                    -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
-                    -- of all chainweb versions.
-                    --
-                    <*> pure (validateLegacyTTL parentHeader txs)
+       -- This code can be removed once the transition is complete and the guard
+       -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
+       -- of all chainweb versions.
+       --
+       <*> pure (validateLegacyTTL parentHeader txs)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
