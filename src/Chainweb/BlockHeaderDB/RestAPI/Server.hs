@@ -45,7 +45,6 @@ import Data.Foldable
 import Data.Functor.Of
 import Data.IORef
 import Data.Proxy
-import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as T
 
 import Network.Wai.EventSource (ServerEvent(..), eventSourceAppIO)
@@ -306,7 +305,7 @@ headerStreamHandler db = Tagged $ \req respond -> do
         pure $ HeaderUpdate
             { _huHeader =  ObjectEncoded bh
             , _huTxCount = length $ _payloadWithOutputsTransactions x
-            , _huPowHash = decodeUtf8 . B16.encode . BS.reverse . fromShort . powHashBytes $ _blockPow bh
+            , _huPowHash = B16.encodeBase16 . BS.reverse . fromShort . powHashBytes $ _blockPow bh
             , _huTarget = showTargetHex $ _blockTarget bh }
 
     f :: HeaderUpdate -> ServerEvent

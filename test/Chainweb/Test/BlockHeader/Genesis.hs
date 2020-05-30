@@ -45,7 +45,7 @@ blockHashes =
     BB.toLazyByteString . foldMap (hash . snd) . sortBy (compare `on` fst) . HM.toList
   where
     hash :: BlockHeader -> BB.Builder
-    hash = BB.byteString . B64U.encode . runPut . encodeBlockHash . _blockHash
+    hash = BB.byteString . B64U.encodeBase64' . runPut . encodeBlockHash . _blockHash
 
 blockHash :: ChainwebVersion -> TestTree
 blockHash v = golden (sshow v <> "-block-hashes") $

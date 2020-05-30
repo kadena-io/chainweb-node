@@ -24,7 +24,7 @@ withDB userFunc = bracket mkdir rmRF go
 
     mkdir = mask $ \restore -> do
         tmpdir <- (Path.fromFilePath <$> Dir.getTemporaryDirectory) >>= restore . Path.makeAbsolute
-        suffix <- (Path.fromUnrootedFilePath . B.unpack . B16.encode) <$> MWCB.random 8
+        suffix <- (Path.fromUnrootedFilePath . B.unpack . B16.encodeBase16') <$> MWCB.random 8
         let p = Path.toFilePath (tmpdir </> suffix)
         restore (Dir.createDirectoryIfMissing True p)
         return p

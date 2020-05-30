@@ -154,7 +154,7 @@ getBlockPath :: Path Absolute                  -- ^ payload store root
              -> (Path Absolute, FilePath)  -- ^ (dirname, filename)
 getBlockPath root hash = (dir, B.unpack fn)
   where
-    b16hash = B16.encode $ runPutS $ encodeBlockPayloadHash hash
+    b16hash = B16.encodeBase16' $ runPutS $ encodeBlockPayloadHash hash
     (pfx1, r1) = B.splitAt 3 b16hash
     (pfx2, fn) = B.splitAt 3 r1
     unp = Path.fromUnrootedFilePath . B.unpack
@@ -182,7 +182,7 @@ systemFsOps = do
     randomBytes mv = withMVar mv $ flip MWCB.randomGen 6
     rmFile = eatIOExceptions . Dir.removeFile
     writeAtomic mv fp s = do
-        suffix <- (B.unpack . B16.encode) <$> randomBytes mv
+        suffix <- (B.unpack . B16.encodeBase16') <$> randomBytes mv
         let tmp = fp ++ ('.' : suffix)
         let write = B.writeFile tmp s >> Dir.renameFile tmp fp
         write `onException` rmFile tmp

@@ -200,8 +200,8 @@ data BinaryLog
     deriving anyclass (NFData)
 
 instance LogMessage BinaryLog where
-    logText (BinaryLog a) = T.decodeUtf8 $ B64.encode a
-    logText (BinaryLogLazy a) = T.decodeUtf8 . B64.encode $ BL.toStrict a
+    logText (BinaryLog a) = B64.encodeBase64 a
+    logText (BinaryLogLazy a) = B64.encodeBase64 $ BL.toStrict a
     {-# INLINE logText #-}
 
 -- | Static textual log messages using 'Symbol' literals from 'GHC.TypeLits'.
@@ -214,4 +214,3 @@ instance NFData SomeSymbolLog where
 instance LogMessage SomeSymbolLog where
     logText (SomeSymbolLog (_ :: Proxy a)) = T.pack $ symbolVal (Proxy @a)
     {-# INLINE logText #-}
-

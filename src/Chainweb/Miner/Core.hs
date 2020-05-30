@@ -42,6 +42,7 @@ import qualified Data.ByteString.Char8 as B
 import Data.Char (isSpace)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Proxy (Proxy(..))
+import qualified Data.Text as T
 import Data.Tuple.Strict (T2(..), T3(..))
 import Data.Word (Word64, Word8)
 
@@ -235,7 +236,7 @@ callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
             P.std_out = P.CreatePipe,
             P.std_err = P.CreatePipe
             }
-    targetHashStr = B.unpack $ B16.encode target
+    targetHashStr = B.unpack $ B16.encodeBase16' target
     go (Just hstdin) (Just hstdout) (Just hstderr) ph = do
         B.hPut hstdin blockBytes
         hClose hstdin
@@ -260,7 +261,10 @@ callExternalMiner minerPath0 minerArgs saveStderr target blockBytes = do
                         _ -> (0, 0)
 
                 -- reverse -- we want little-endian
-                let nonceBytes = B.reverse $ fst $ B16.decode nonceB16
+                nonceBytes <- case B16.decodeBase16 nonceB16 of
+                  Left t -> throwE $ "Got error while decoding nonce: " <> T.unpack t
+                  Right bs -> return $! B.reverse bs
+
                 when (B.length nonceBytes /= 8) $ throwE "process returned short nonce"
                 return $ MiningResult nonceBytes numHashes rate errbytes
     go _ _ _ _ = fail "impossible: process is opened with CreatePipe in/out/err"

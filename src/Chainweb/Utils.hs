@@ -547,15 +547,15 @@ parseText p = either (fail . sshow) return . fromText =<< p
 --
 decodeB64Text :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64Text = fromEitherM
-    . first (Base64DecodeException . T.pack)
-    . B64.decode
+    . first Base64DecodeException
+    . B64.decodeBase64
     . T.encodeUtf8
 {-# INLINE decodeB64Text #-}
 
 -- | Encode a binary value to a textual base64 representation.
 --
 encodeB64Text :: B.ByteString -> T.Text
-encodeB64Text = T.decodeUtf8 . B64.encode
+encodeB64Text = B64.encodeBase64
 {-# INLINE encodeB64Text #-}
 
 -- | Decode a binary value from a textual base64-url representation. A
@@ -564,15 +564,15 @@ encodeB64Text = T.decodeUtf8 . B64.encode
 --
 decodeB64UrlText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlText = fromEitherM
-    . first (Base64DecodeException . T.pack)
-    . B64U.decode
+    . first Base64DecodeException
+    . B64U.decodeBase64
     . T.encodeUtf8
 {-# INLINE decodeB64UrlText #-}
 
 -- | Encode a binary value to a textual base64-url representation.
 --
 encodeB64UrlText :: B.ByteString -> T.Text
-encodeB64UrlText = T.decodeUtf8 . B64U.encode
+encodeB64UrlText = B64U.encodeBase64
 {-# INLINE encodeB64UrlText #-}
 
 -- | Decode a binary value from a textual base64-url without padding
@@ -581,19 +581,16 @@ encodeB64UrlText = T.decodeUtf8 . B64U.encode
 --
 decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlNoPaddingText = fromEitherM
-    . first (Base64DecodeException . T.pack)
-    . B64U.decode
+    . first Base64DecodeException
+    . B64U.decodeBase64Unpadded
     . T.encodeUtf8
-    . pad
-  where
-    pad t = let s = T.length t `mod` 4 in t <> T.replicate ((4 - s) `mod` 4) "="
 {-# INLINE decodeB64UrlNoPaddingText #-}
 
 -- | Encode a binary value to a textual base64-url without padding
 -- representation.
 --
 encodeB64UrlNoPaddingText :: B.ByteString -> T.Text
-encodeB64UrlNoPaddingText = T.dropWhileEnd (== '=') . T.decodeUtf8 . B64U.encode
+encodeB64UrlNoPaddingText = B64U.encodeBase64Unpadded
 {-# INLINE encodeB64UrlNoPaddingText #-}
 
 -- -------------------------------------------------------------------------- --
