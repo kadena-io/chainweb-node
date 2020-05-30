@@ -357,7 +357,7 @@ createSuccess time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             True -> return mempty
             False -> do
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
-                let proof = Just . ContProof .  B64U.encodeBase64Unpadded' . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof .  B64U.encodeBase64' . toStrict . Aeson.encode $ q
                 createCont tid pidv proof time
                     `finally` writeIORef ref True
 
@@ -375,7 +375,7 @@ createWrongTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
             False -> do
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid sid bhe 0
 
-                let proof = Just . ContProof .  B64U.encodeBase64Unpadded' . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof .  B64U.encodeBase64' . toStrict . Aeson.encode $ q
 
                 createCont sid pidv proof time
                     `finally` writeIORef ref True
@@ -411,7 +411,7 @@ createProofBadTargetChain time (TestBlockDb wdb pdb _c) pidv sid tid bhe = do
                 tid' <- chainIdFromText "2"
                 q <- toJSON <$> createTransactionOutputProof_ wdb pdb tid' sid bhe 0
 
-                let proof = Just . ContProof .  B64U.encodeBase64Unpadded' . toStrict . Aeson.encode $ q
+                let proof = Just . ContProof .  B64U.encodeBase64' . toStrict . Aeson.encode $ q
 
                 createCont sid pidv proof time
                     `finally` writeIORef ref True

@@ -565,7 +565,7 @@ encodeB64Text = B64.encodeBase64
 decodeB64UrlText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlText = fromEitherM
     . first Base64DecodeException
-    . B64U.decodeBase64
+    . B64U.decodeBase64Padded
     . T.encodeUtf8
 {-# INLINE decodeB64UrlText #-}
 
@@ -575,14 +575,14 @@ encodeB64UrlText :: B.ByteString -> T.Text
 encodeB64UrlText = B64U.encodeBase64
 {-# INLINE encodeB64UrlText #-}
 
--- | Decode a binary value from a textual base64-url without padding
+-- | Decode a binary value from a textual base64-url with optional padding
 -- representation. A 'Base64DecodeException' is thrown if the input is not a
 -- valid base64-url without padding encoding.
 --
 decodeB64UrlNoPaddingText :: MonadThrow m => T.Text -> m B.ByteString
 decodeB64UrlNoPaddingText = fromEitherM
     . first Base64DecodeException
-    . B64U.decodeBase64Unpadded
+    . B64U.decodeBase64
     . T.encodeUtf8
 {-# INLINE decodeB64UrlNoPaddingText #-}
 
