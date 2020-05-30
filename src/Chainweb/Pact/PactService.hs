@@ -1082,6 +1082,7 @@ logDebug = logg "DEBUG"
 -- | Set parent header in state and spv support (using parent hash)
 setParentHeader :: ParentHeader -> PactServiceM cas ()
 setParentHeader ph@(ParentHeader bh) = do
+  logDebug $ "setParentHeader: " ++ show (_blockHash bh,_blockHeight bh)
   psParentHeader .= ph
   bdb <- view psBlockHeaderDb
   psSpvSupport .= pactSPV bdb (_blockHash bh)
@@ -1231,13 +1232,17 @@ execValidateBlock currHeader plData = do
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
-    either throwM return $!
+    either throwM setCurrAsParent $!
       validateHashes currHeader plData miner transactions
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
+
+    -- On final success, use header as the new/next parent header
+    setCurrAsParent pwos =
+      setParentHeader (ParentHeader currHeader) >> return pwos
 
     -- TODO: knob to configure whether this rewind is fatal
     fatalRewindError a h1 h2 = do
