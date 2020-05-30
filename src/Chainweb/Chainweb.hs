@@ -537,7 +537,7 @@ withChainweb c logger rocksDb dbDir resetDb inner =
                     & set configP2p (_peerResConfig peer)
                     & set (configLocalApi . localApiConfigPort) (fst localSock)
             withChainwebInternal
-                conf
+                conf'
                 logger'
                 peer
                 localSock
