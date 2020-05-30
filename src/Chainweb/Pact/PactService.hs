@@ -629,9 +629,9 @@ withCurrentCheckpointer
     -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
     -> PactServiceM cas a
 withCurrentCheckpointer caller act = do
-  ph <- _parentHeader <$> use psParentHeader
-  let target = Just (succ $ _blockHeight ph, _blockHash ph)
-  withCheckpointer target caller act
+    ph <- _parentHeader <$> use psParentHeader
+    let target = Just (succ $ _blockHeight ph, _blockHash ph)
+    withCheckpointer target caller act
 
 -- | Same as 'withCheckpointer' but rewinds the checkpointer state to the
 -- provided target.
@@ -1408,22 +1408,22 @@ execPreInsertCheckReq
     => Vector ChainwebTransaction
     -> PactServiceM cas (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = do
-  parentHeader <- use psParentHeader
-  let currHeight = succ $ _blockHeight $ _parentHeader parentHeader
-  psEnv <- ask
-  psState <- get
-  let parentTime = _blockCreationTime $ _parentHeader parentHeader
-      lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
-  cp <- getCheckpointer
-  withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb ->
-    liftIO $ fmap Discard $ V.zipWith (>>)
-       <$> validateChainwebTxs cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
+    parentHeader <- use psParentHeader
+    let currHeight = succ $ _blockHeight $ _parentHeader parentHeader
+    psEnv <- ask
+    psState <- get
+    let parentTime = _blockCreationTime $ _parentHeader parentHeader
+        lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
+    cp <- getCheckpointer
+    withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb ->
+      liftIO $ fmap Discard $ V.zipWith (>>)
+        <$> validateChainwebTxs cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
 
-       -- This code can be removed once the transition is complete and the guard
-       -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
-       -- of all chainweb versions.
-       --
-       <*> pure (validateLegacyTTL parentHeader txs)
+        -- This code can be removed once the transition is complete and the guard
+        -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
+        -- of all chainweb versions.
+        --
+        <*> pure (validateLegacyTTL parentHeader txs)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)
