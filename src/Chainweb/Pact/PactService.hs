@@ -1054,17 +1054,18 @@ execLocal
     => ChainwebTransaction
     -> PactServiceM cas (P.CommandResult P.Hash)
 execLocal cmd = do
-  PactServiceEnv{..} <- ask
-  mc <- use psInitCache
-  pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
-  spv <- use psSpvSupport
-  let execConfig | _psAllowReadsInLocal = mkExecutionConfig [P.FlagAllowReadInLocal]
-                 | otherwise = def
-      logger = _cpeLogger _psCheckpointEnv
-  withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
-    r <- liftIO $
-         applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
-    return $! Discard (toHashCommandResult r)
+    PactServiceEnv{..} <- ask
+    mc <- use psInitCache
+    pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
+    spv <- use psSpvSupport
+    let execConfig | _psAllowReadsInLocal = mkExecutionConfig [P.FlagAllowReadInLocal]
+                   | otherwise = def
+        logger = _cpeLogger _psCheckpointEnv
+    withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
+        r <- liftIO $
+          applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
+        return $! Discard (toHashCommandResult r)
+
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)
