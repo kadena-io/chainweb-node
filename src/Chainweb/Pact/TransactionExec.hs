@@ -435,7 +435,7 @@ applyUpgrades v cid height
         Right _ -> return ()
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
-            -- TODO: is it really OK, to just swallow the exception?
+          throwM e
           return ()
 
 jsonErrorResult
