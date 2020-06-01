@@ -435,8 +435,7 @@ applyUpgrades v cid height
         Right _ -> return ()
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
-         void $  throwM e
-          return ()
+          void $ throwM e
 
 jsonErrorResult
     :: PactError
