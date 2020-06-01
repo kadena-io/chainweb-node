@@ -435,7 +435,7 @@ applyUpgrades v cid height
         Right _ -> return ()
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
-          throwM e
+         void $  throwM e
           return ()
 
 jsonErrorResult
