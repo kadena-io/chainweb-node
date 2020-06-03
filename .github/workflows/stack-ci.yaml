@@ -13,15 +13,15 @@ jobs:
           sudo apt-get install -y librocksdb-dev
 
       - name: Setup GHC
-        uses: actions/setup-haskell@v1.1
+        uses: actions/setup-haskell@v1.1.0
         with:
           ghc-version: "8.8.3"
 
       - name: Clone project
-        uses: actions/checkout@v2
+        uses: actions/checkout@v2.2.0
 
       - name: Cache dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2.0.0
         with:
           path: ~/.stack
           key: ${{ runner.os }}-stack883-${{ hashFiles('stack.yaml') }}
