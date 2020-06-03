@@ -1,6 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -101,6 +103,7 @@ module Chainweb.Pact.Types
   , defaultPactServiceConfig
   ) where
 
+import Control.DeepSeq
 import Control.Exception (asyncExceptionFromException, asyncExceptionToException, throw)
 import Control.Lens hiding ((.=))
 import Control.Monad.Catch
@@ -115,6 +118,8 @@ import Data.Text (pack, unpack, Text)
 import Data.Tuple.Strict (T2)
 import Data.Vector (Vector)
 import Data.Word
+
+import GHC.Generics (Generic)
 
 import System.LogLevel
 
@@ -153,7 +158,7 @@ import Chainweb.Version
 data Transactions = Transactions
     { _transactionPairs :: !(Vector (ChainwebTransaction, CommandResult [TxLog Value]))
     , _transactionCoinbase :: !(CommandResult [TxLog Value])
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Generic, NFData)
 
 data PactDbStatePersist = PactDbStatePersist
     { _pdbspRestoreFile :: !(Maybe FilePath)
@@ -169,7 +174,8 @@ mkExecutionConfig = ExecutionConfig . S.fromList
 
 -- | Indicates a computed gas charge (gas amount * gas price)
 newtype GasSupply = GasSupply { _gasSupply :: ParsedDecimal }
-   deriving (Eq,Ord,Num,Real,Fractional,ToJSON,FromJSON)
+   deriving (Eq,Ord)
+   deriving newtype (Num,Real,Fractional, ToJSON,FromJSON)
 instance Show GasSupply where show (GasSupply g) = show g
 
 newtype GasId = GasId PactId deriving (Eq, Show)
@@ -223,7 +229,7 @@ makeLenses ''TransactionEnv
 newtype TransactionM db a = TransactionM
     { _unTransactionM
         :: ReaderT (TransactionEnv db) (StateT TransactionState IO) a
-    } deriving
+    } deriving newtype
       ( Functor, Applicative, Monad
       , MonadReader (TransactionEnv db)
       , MonadState TransactionState
@@ -403,7 +409,7 @@ getTxContext pm = use psParentHeader >>= \ph -> return (TxContext ph pm)
 newtype PactServiceM cas a = PactServiceM
   { _unPactServiceM ::
        ReaderT (PactServiceEnv cas) (StateT PactServiceState IO) a
-  } deriving
+  } deriving newtype
     ( Functor, Applicative, Monad
     , MonadReader (PactServiceEnv cas)
     , MonadState PactServiceState
