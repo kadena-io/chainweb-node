@@ -70,23 +70,32 @@ testVersion = FastTimedCPM petersonChainGraph
 
 tests :: ScheduledTest
 tests = ScheduledTest label $
-        withResource newPayloadDb killPdb $ \pdb ->
-        withRocksResource $ \rocksIO ->
-        testGroup label
+    withResource newPayloadDb killPdb $ \pdb ->
+    withRocksResource $ \rocksIO ->
+    testGroup label
+
+    -- The test pact context evaluates the test code at block height 1.
+    -- fungible-v2 is installed at that block height 1. Because applying the
+    -- update twice resuls in an validaton failures, we have to run each test on
+    -- a fresh pact environment. Unfortunately, that's a bit slow.
     [ withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
-        \ctx -> testGroup "single transactions" $ schedule Sequential
-            [ execTest ctx testReq2
-            , execTest ctx testReq3
-            , execTest ctx testReq4
-            , execTest ctx testReq5
-            , execTxsTest ctx "testTfrGas" testTfrGas
-            , execTxsTest ctx "testGasPayer" testGasPayer
-            , execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
-            , execTxsTest ctx "testExecGasPayer" testExecGasPayer
-            ]
+        \ctx -> _schTest $ execTest ctx testReq2
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
-      \ctx2 -> _schTest $ execTest ctx2 testReq6
-      -- failures mess up cp state so run alone
+        \ctx -> _schTest $ execTest ctx testReq3
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+        \ctx -> _schTest $ execTest ctx testReq4
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+        \ctx -> _schTest $ execTest ctx testReq5
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+        \ctx -> _schTest $ execTxsTest ctx "testTfrGas" testTfrGas
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+        \ctx -> _schTest $ execTxsTest ctx "testGasPayer" testGasPayer
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+        \ctx -> _schTest $ execTxsTest ctx "testContinuationGasPayer" testContinuationGasPayer
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+        \ctx -> _schTest $ execTxsTest ctx "testExecGasPayer" testExecGasPayer
+    , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
+      \ctx -> _schTest $ execTest ctx testReq6
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
       \ctx -> _schTest $ execTxsTest ctx "testTfrNoGasFails" testTfrNoGasFails
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb defaultPactServiceConfig $
@@ -97,7 +106,6 @@ tests = ScheduledTest label $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalFails" testAllowReadsLocalFails
     , withPactCtxSQLite testVersion (bhdbIO rocksIO) pdb allowReads $
       \ctx -> _schTest $ execLocalTest ctx "testAllowReadsLocalSuccess" testAllowReadsLocalSuccess
-
     ]
   where
     bhdbIO :: IO RocksDb -> IO BlockHeaderDb
@@ -110,7 +118,6 @@ tests = ScheduledTest label $
     killPdb _ = return ()
     cid = someChainId testVersion
     allowReads = defaultPactServiceConfig { _pactAllowReadsInLocal = True }
-
 
 -- -------------------------------------------------------------------------- --
 -- Pact test datatypes
