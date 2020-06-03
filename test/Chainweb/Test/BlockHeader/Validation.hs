@@ -139,14 +139,14 @@ prop_validateHeader msg h = testCase msg $ do
 prop_fail_validate :: TestTree
 prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) validationFailures
+    traverse_ (f now) $ zip [0..] validationFailures
   where
-    f now (h, expectedErrs)
+    f now (i, (h, expectedErrs))
         = try (validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)) >>= \case
-            Right _ -> assertFailure $ "Validation succeeded unexpectedly for validationFailures BlockHeader"
+            Right _ -> assertFailure $ "Validation of test case " <> sshow i <> " succeeded unexpectedly for validationFailures BlockHeader"
             Left ValidationFailure{ _validationFailureFailures = errs }
                 | sort errs /= sort expectedErrs -> assertFailure
-                    $ "Validation failed with unexpected errors for BlockHeader"
+                    $ "Validation of test case " <> sshow i <> " failed with unexpected errors for BlockHeader"
                     <> ", expected: " <> sshow expectedErrs
                     <> ", actual: " <> sshow errs
                     <> ", header: " <> sshow (_blockHash $ _testHeaderHdr h)
@@ -221,7 +221,8 @@ validationFailures =
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
-      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent]
+      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags]
+            -- when 'fixedEpochStartGuard' is enabled add 'CreatedBeforeParent'
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
