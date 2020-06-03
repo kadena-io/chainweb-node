@@ -34,7 +34,7 @@ jobs:
       run: |
         aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/" db/rocksdb/ --delete --exclude=LOCK
     - name: Store chain database as artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v2
       with:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
@@ -56,7 +56,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
@@ -79,7 +79,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
@@ -112,12 +112,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download chain database artifact
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
@@ -146,12 +146,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chain-db-${{ matrix.chainwebVersion}}
         path: db
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
@@ -225,7 +225,7 @@ jobs:
 
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v1
+      uses: actions/checkout@v2.2.0
     - name: Create env variables for git objects
       run: |
         echo "::set-env name=IS_RELEASE::${{ contains(github.event_name, 'release') }}"
@@ -242,7 +242,7 @@ jobs:
         fi        
 
     - name: Install GHC and Cabal
-      uses: actions/setup-haskell@v1.1
+      uses: actions/setup-haskell@v1.1.0
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
@@ -365,7 +365,7 @@ jobs:
         cp cabal.project.local artifacts/applications
         cp cabal.project.freeze artifacts/applications
     - name: Safe artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: artifacts/applications
