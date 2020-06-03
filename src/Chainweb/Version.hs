@@ -511,7 +511,8 @@ chainwebGraphs (TimedCPM g) = pure (0, g)
 chainwebGraphs (FastTimedCPM g) = pure (0, g)
 chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
 chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
-chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
+chainwebGraphs Development = pure (0, petersonChainGraph)
+-- chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
 {-# INLINE chainwebGraphs #-}
 
 -- | Return the Graph History at a given block height in descending order.
@@ -615,11 +616,7 @@ blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
 blockRate Testnet04 = BlockRate 30
 blockRate Mainnet01 = BlockRate 30
-
--- uses new DA. This block rate is with respect to the solve time, it doesn't
--- take in to account the time that a chain is blocked. The actuall block rate
--- is about 3/2 of this value.
-blockRate Development = BlockRate 20
+blockRate Development = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -855,5 +852,7 @@ skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:x
 skipFeatureFlagValidationGuard _ _ = False
 
 fixedEpochStartGuard :: ChainwebVersion -> BlockHeight -> Bool
-fixedEpochStartGuard Mainnet01 h = h < 1000000
+fixedEpochStartGuard Mainnet01 _ = True
+fixedEpochStartGuard Testnet04 _ = True
+fixedEpochStartGuard Development _ = True
 fixedEpochStartGuard _ _ = False
