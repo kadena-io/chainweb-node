@@ -27,7 +27,7 @@ import Chainweb.Mempool.InMemTypes
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Mempool
     (InsertCheck, MempoolWithFunc(..), lookupIsPending, mempoolProperty)
-import Chainweb.Utils (Codec(..))
+import Chainweb.Utils (Codec(..), catchAllSynchronous)
 import Chainweb.Version (ChainwebVersion(..))
 ------------------------------------------------------------------------------
 
@@ -134,7 +134,7 @@ propSync (txs, missing, later) _ localMempool' =
     laterHashes = V.map hash laterV
 
 eatExceptions :: IO () -> IO ()
-eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
+eatExceptions = flip catchAllSynchronous $ void . evaluate
 
 timebomb :: Int -> IO a -> MempoolBackend t -> IO (MempoolBackend t)
 timebomb k act mp = do

@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -22,7 +23,6 @@ module Chainweb.Test.Pact.PactExec
 
 import Control.Lens hiding ((.=))
 import Control.Monad
-import Control.Monad.Catch
 import Data.Aeson
 import Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -57,7 +57,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Transaction
 import Chainweb.Version (ChainwebVersion(..), someChainId)
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (sshow, tryAllSynchronous)
 
 import Pact.Types.Command
 import Pact.Types.Hash
@@ -489,8 +489,6 @@ execTest runPact request = _trEval request $ do
       mkExec code $
       mkKeySetData "test-admin-keyset" [sender00]
 
-
-
 execTxsTest
     :: WithPactCtxSQLite cas
     -> String
@@ -500,7 +498,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- try $ runPact $ execTransactions False defaultMiner trans
+      results' <- tryAllSynchronous $ runPact $ execTransactions False defaultMiner trans
         (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled True)
       case results' of
         Right results -> Right <$> do
@@ -510,7 +508,7 @@ execTxsTest runPact name (trans',check) = testCaseSch name (go >>= check)
           return $ TestResponse
             (zip inputs (toHashCommandResult <$> outputs))
             (toHashCommandResult $ _transactionCoinbase results)
-        Left (e :: SomeException) -> return $ Left $ show e
+        Left e -> return $ Left $ show e
 
 type LocalTest = (IO ChainwebTransaction,Either String (CommandResult Hash) -> Assertion)
 
@@ -524,12 +522,10 @@ execLocalTest runPact name (trans',check) = testCaseSch name (go >>= check)
   where
     go = do
       trans <- trans'
-      results' <- try $ runPact $ \_ -> execLocal trans
+      results' <- tryAllSynchronous $ runPact $ \_ -> execLocal trans
       case results' of
         Right cr -> return $ Right cr
-        Left (e :: SomeException) -> return $ Left $ show e
-
-
+        Left e -> return $ Left $ show e
 
 getPactCode :: TestSource -> IO Text
 getPactCode (Code str) = return (pack str)

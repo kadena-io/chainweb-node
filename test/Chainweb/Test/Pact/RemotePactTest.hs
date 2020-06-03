@@ -34,6 +34,7 @@ module Chainweb.Test.Pact.RemotePactTest
 import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -298,13 +299,17 @@ sendValidationTest iot nio =
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
-expectSendFailure :: (Show a,Show b) => String -> IO (Either b a) -> Assertion
-expectSendFailure expectErr act = do
-  r :: Either SomeException (Either b a) <- try act
-  case r of
+expectSendFailure
+    :: NFData a
+    => NFData b
+    => Show a
+    => Show b
+    => String
+    -> IO (Either b a)
+    -> Assertion
+expectSendFailure expectErr act = tryAllSynchronous act >>= \case
     (Right (Left e)) -> test $ show e
-    (Right (Right out)) -> assertFailure $ "expected exception on bad tx, got: "
-                           <> show out
+    (Right (Right out)) -> assertFailure $ "expected exception on bad tx, got: " <> show out
     (Left e) -> test $ show e
   where
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
