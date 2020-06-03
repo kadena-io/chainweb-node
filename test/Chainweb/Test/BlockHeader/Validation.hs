@@ -139,7 +139,7 @@ prop_validateHeader msg h = testCase msg $ do
 prop_fail_validate :: TestTree
 prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) $ zip [0..] validationFailures
+    traverse_ (f now) $ zip [0 :: Int ..] validationFailures
   where
     f now (i, (h, expectedErrs))
         = try (validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)) >>= \case
