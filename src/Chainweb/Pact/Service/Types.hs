@@ -112,6 +112,7 @@ data RequestMsg = NewBlockMsg NewBlockReq
                 | LookupPactTxsMsg LookupPactTxsReq
                 | PreInsertCheckMsg PreInsertCheckReq
                 | BlockTxHistoryMsg BlockTxHistoryReq
+                | HistoricalLookupMsg HistoricalLookupReq
                 | CloseMsg
                 deriving (Show)
 
@@ -168,6 +169,16 @@ data BlockTxHistoryReq = BlockTxHistoryReq
 instance Show BlockTxHistoryReq where
   show (BlockTxHistoryReq h d _) =
     "BlockTxHistoryReq@" ++ show h ++ ", " ++ show d
+
+data HistoricalLookupReq = HistoricalLookupReq
+  { _historicalLookupHeader :: !BlockHeader
+  , _historicalLookupDomain :: !Domain'
+  , _historicalLookupRowKey :: !RowKey
+  , _historicalLookupResult :: !(PactExMVar (Maybe (TxLog Value)))
+  }
+instance Show HistoricalLookupReq where
+  show (HistoricalLookupReq h d k _) =
+    "HistoricalLookupReq@" ++ show h ++ ", " ++ show d ++ ", " ++ show k
 
 data SpvRequest = SpvRequest
     { _spvRequestKey :: RequestKey

@@ -19,16 +19,19 @@ module Chainweb.Pact.Service.BlockValidation
 , lookupPactTxs
 , pactPreInsertCheck
 , pactBlockTxHistory
+, pactHistoricalLookup
 ) where
 
 
 import Control.Concurrent.MVar.Strict
 
+import Data.Aeson (Value)
 import Data.Tuple.Strict
 import Data.Vector (Vector)
 
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Persistence (RowKey, TxLog)
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
@@ -107,5 +110,18 @@ pactBlockTxHistory bh d reqQ = do
   resultVar <- newEmptyMVar
   let !req = BlockTxHistoryReq bh d resultVar
   let !msg = BlockTxHistoryMsg req
+  addRequest reqQ msg
+  return resultVar
+
+pactHistoricalLookup
+    :: BlockHeader
+    -> Domain'
+    -> RowKey
+    -> PactQueue
+    -> IO (MVar (Either PactException (Maybe (TxLog Value))))
+pactHistoricalLookup bh d k reqQ = do
+  resultVar <- newEmptyMVar
+  let !req = HistoricalLookupReq bh d k resultVar
+  let !msg = HistoricalLookupMsg req
   addRequest reqQ msg
   return resultVar

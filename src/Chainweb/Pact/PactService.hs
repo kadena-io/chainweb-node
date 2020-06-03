@@ -33,6 +33,7 @@ module Chainweb.Pact.PactService
     , execLookupPactTxs
     , execPreInsertCheckReq
     , execBlockTxHistory
+    , execHistoricalLookup
     , initPactService
     , readCoinAccount
     , readAccountBalance
@@ -392,6 +393,10 @@ serviceRequests logFn memPoolAccess reqQ = do
               trace logFn "Chainweb.Pact.PactService.execBlockTxHistory" bh 1 $
                 tryOne "execBlockTxHistory" resultVar $
                 execBlockTxHistory bh d
+            HistoricalLookupMsg (HistoricalLookupReq bh d k resultVar) -> do
+              trace logFn "Chainweb.Pact.PactService.execHistoricalLookup" bh 1 $
+                tryOne "execHistoricalLookup" resultVar $
+                execHistoricalLookup bh d k
 
     toPactInternalError e = Left $ PactInternalError $ T.pack $ show e
 
@@ -1393,6 +1398,11 @@ execBlockTxHistory :: BlockHeader -> Domain' -> PactServiceM cas BlockTxHistory
 execBlockTxHistory bh (Domain' d) = do
   !cp <- getCheckpointer
   liftIO $ _cpGetBlockHistory cp bh d
+
+execHistoricalLookup :: BlockHeader -> Domain' -> P.RowKey -> PactServiceM cas (Maybe (P.TxLog A.Value))
+execHistoricalLookup bh (Domain' d) k = do
+  !cp <- getCheckpointer
+  liftIO $ _cpGetHistoricalLookup cp bh d k
 
 execPreInsertCheckReq
     :: PayloadCasLookup cas
