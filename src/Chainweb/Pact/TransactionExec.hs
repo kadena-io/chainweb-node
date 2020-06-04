@@ -98,9 +98,11 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
 import Chainweb.Version as V
 
+
+-- -------------------------------------------------------------------------- --
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
@@ -445,13 +447,11 @@ applyUpgrades v cid height
 
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
-      r <- try $ runGenesis tx permissiveNamespacePolicy interp
-
-      case r of
+      tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
         Right _ -> return ()
-        Left (e :: SomeException) -> do
+        Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
-          return ()
+          void $ throwM e
 
 jsonErrorResult
     :: PactError

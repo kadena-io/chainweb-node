@@ -8,7 +8,6 @@ module Chainweb.Test.Mempool.Sync (tests) where
 ------------------------------------------------------------------------------
 import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.MVar
-import Control.Exception
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except
@@ -81,37 +80,33 @@ propSync (txs, missing, later) _ localMempool' =
         mempoolInsert remoteMempool CheckedInsert txsV
         mempoolInsert remoteMempool CheckedInsert missingV
 
-        syncThMv <- newEmptyMVar
+        doneVar <- newEmptyMVar
         syncFinished <- newEmptyMVar
 
         let nmissing = V.length missingV
         let nlater = V.length laterV
         let onInitialSyncFinished = tryPutMVar syncFinished ()
-        let onFinalSyncFinished = do
-                readMVar syncThMv >>= Async.uninterruptibleCancel
-                throwIO ThreadKilled
+        let onFinalSyncFinished = putMVar doneVar ()
         localMempool <-
               timebomb nmissing onInitialSyncFinished =<<
               timebomb (nmissing + nlater) onFinalSyncFinished localMempool'
-        let syncThread = eatExceptions $
-                         syncMempools noLog 10 localMempool remoteMempool
+        let syncThread = syncMempools noLog 10 localMempool remoteMempool
 
 
         -- expect remote to deliver transactions during sync.
         -- Timeout to guard against waiting forever
         m <- timeout 20_000_000 $ do
-            syncTh <- Async.async syncThread
-            putMVar syncThMv syncTh
-            Async.link syncTh
+            Async.withAsync syncThread $ \_ -> do
+                -- Wait until time bomb 1 goes off
+                takeMVar syncFinished
 
-            -- Wait until time bomb 1 goes off
-            takeMVar syncFinished
+                -- We should now be subscribed and waiting for V.length laterV
+                -- more transactions before getting killed. Transactions
+                -- inserted into remote should get synced to us.
+                mempoolInsert remoteMempool CheckedInsert laterV
 
-            -- We should now be subscribed and waiting for V.length laterV
-            -- more transactions before getting killed. Transactions
-            -- inserted into remote should get synced to us.
-            mempoolInsert remoteMempool CheckedInsert laterV
-            Async.wait syncTh
+                -- wait until time bomb 2 goes off
+                takeMVar doneVar
 
         maybe (fail "timeout") return m
 
@@ -132,9 +127,6 @@ propSync (txs, missing, later) _ localMempool' =
 
     laterV = V.fromList $ Set.toList later
     laterHashes = V.map hash laterV
-
-eatExceptions :: IO () -> IO ()
-eatExceptions = handle $ \(e :: SomeException) -> void $ evaluate e
 
 timebomb :: Int -> IO a -> MempoolBackend t -> IO (MempoolBackend t)
 timebomb k act mp = do

@@ -112,6 +112,9 @@ import Chainweb.Version.Utils
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
 
+import Numeric.Additive
+import Numeric.AffineSpace
+
 _run :: [String] -> IO ()
 _run args = withArgs args $ C.defaultMain [bench]
 
@@ -149,7 +152,8 @@ bench = C.bgroup "PactService" $
 testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = mempty
     { mpaGetBlock = \validate bh hash header ->
-        getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
+        getTestBlock accounts ((_bct $ _blockCreationTime header) .+^ second) validate bh hash
+        -- getTestBlock accounts ((_bct $ _blockCreationTime header)) validate bh hash
     }
   where
 

@@ -57,6 +57,7 @@ import Chainweb.Pact.Types
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Orphans.Internal ({- Arbitrary BlockHash -})
 import Chainweb.Test.Utils
+import Chainweb.Utils (catchAllSynchronous)
 import Chainweb.Version
 
 -- -------------------------------------------------------------------------- --
@@ -375,7 +376,7 @@ checkpointerTest name cenvIO = testCaseSteps name $ \next -> do
     h = const (return Nothing)
 
     expectException act = do
-        result <- (act >> return (Just msg)) `catch` h
+        result <- (act >> return (Just msg)) `catchAllSynchronous` h
         maybe (return ()) (`assertBool` False) result
       where
         msg = "The table duplication somehow went through. Investigate this error."

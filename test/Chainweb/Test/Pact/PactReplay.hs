@@ -43,7 +43,7 @@ import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.TreeDB
-import Chainweb.Utils (sshow)
+import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous)
 import Chainweb.Version
 import Chainweb.Version.Utils
 
@@ -181,7 +181,7 @@ testDupes mpio genesisBlock iop = do
         mineBlock (ParentHeader newblock) (Nonce 3) iop
   where
     expectException newblock payload act = do
-        m <- wrap `catch` h
+        m <- wrap `catchAllSynchronous` h
         maybe (return ()) (\msg -> assertBool msg False) m
       where
         wrap = do
@@ -222,7 +222,7 @@ testDeepForkLimit mpio deepForkLimit iop step = do
     -- how far it mines doesn't really matter
     step "try to mine a fork on top of max block"
     nCounter <- newIORef (fromIntegral $ _blockHeight maxblock)
-    try (mineLine maxblock nCounter 1) >>= \case
+    tryAllSynchronous (mineLine maxblock nCounter 1) >>= \case
         Left SomeException{} -> return ()
         Right _ -> assertBool msg False
 
