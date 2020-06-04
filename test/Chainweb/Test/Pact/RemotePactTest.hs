@@ -110,7 +110,7 @@ import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.Utils (sshow,int,toText,enableConfigEnabled)
+import Chainweb.Utils (sshow,int,toText,enableConfigEnabled,tryAllSynchronous)
 import Chainweb.Version
 
 import Data.CAS.RocksDB
