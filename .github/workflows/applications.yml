@@ -217,6 +217,13 @@ jobs:
         cabal: ['3.2.0.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
+        # exclusions can be removed once https://github.com/actions/setup-haskell/issues/21 is resolved
+        exclude:
+          - os: 'macOS-latest'
+            ghc: '8.6.5'
+          - os: 'macOS-latest'
+            ghc: '8.8.3'
+
     env:
       ARTIFACT_BUCKET: kadena-cabal-cache
       ARTIFACT_FOLDER: chainweb-node
@@ -246,6 +253,10 @@ jobs:
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
+    - name: Confirm GHC and Cabal installation
+      run: |
+        ghc --version
+        cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: |
