@@ -17,6 +17,7 @@ module Chainweb.Test.Pact.PactInProcApi
 ( tests
 ) where
 
+import Control.DeepSeq
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens hiding ((.=))
@@ -94,14 +95,14 @@ tests = ScheduledTest testName $ go
 
 
 
-forSuccess :: String -> IO (MVar (Either PactException a)) -> IO a
-forSuccess msg mvio = (`catch` handler) $ do
+forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
+forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   mv <- mvio
   takeMVar mv >>= \r -> case r of
     Left e -> assertFailure $ msg ++ ": got failure result: " ++ show e
     Right v -> return v
   where
-    handler (e :: SomeException) = assertFailure $ msg ++ ": exception thrown: " ++ show e
+    handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
 runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO ()
 runBlock q bdb timeOffset msg = do
