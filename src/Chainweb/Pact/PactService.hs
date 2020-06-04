@@ -324,7 +324,7 @@ initializeCoinContract _logger v cid pwo = do
         (Just !p) -> return p
       let target = Just (succ bhe, bhash)
       parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "initializeCoinContract"
-      setParentHeader parentHeader
+      setParentHeader "readContracts" parentHeader
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
@@ -938,7 +938,7 @@ execNewBlock
 execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
     updateMempool
     withDiscardedBatch $ do
-      setParentHeader parentHeader
+      setParentHeader "execNewBlock" parentHeader
       rewindTo newblockRewindLimit target
       newTrans <- withCheckpointer target "preBlock" doPreBlock
       withCheckpointer target "execNewBlock" (doNewBlock newTrans)
@@ -988,7 +988,7 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        setParentHeader parentHeader -- could have been overwritten in rewind, so set again
+        setParentHeader "doNewBlock" parentHeader -- could have been overwritten in rewind, so set again
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- execTransactions False miner newTrans
@@ -1081,9 +1081,9 @@ logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
 -- | Set parent header in state and spv support (using parent hash)
-setParentHeader :: ParentHeader -> PactServiceM cas ()
-setParentHeader ph@(ParentHeader bh) = do
-  logDebug $ "setParentHeader: " ++ show (_blockHash bh,_blockHeight bh)
+setParentHeader :: String -> ParentHeader -> PactServiceM cas ()
+setParentHeader msg ph@(ParentHeader bh) = do
+  logDebug $ "setParentHeader: " ++ msg ++ ": " ++ show (_blockHash bh,_blockHeight bh)
   psParentHeader .= ph
   bdb <- view psBlockHeaderDb
   psSpvSupport .= pactSPV bdb (_blockHash bh)
@@ -1150,13 +1150,13 @@ playOneBlock currHeader plData pdbenv = do
 
     go m txs = if isGenesisBlock
       then do
-        setParentHeader (ParentHeader currHeader)
+        setParentHeader "playOneBlock:genesis" (ParentHeader currHeader)
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions True m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
         parentHeader <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
-        setParentHeader parentHeader
+        setParentHeader "playOneBlock:normal" parentHeader
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         execTransactions False m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
@@ -1243,7 +1243,7 @@ execValidateBlock currHeader plData = do
 
     -- On final success, use header as the new/next parent header
     setCurrAsParent pwos =
-      setParentHeader (ParentHeader currHeader) >> return pwos
+      setParentHeader "setCurrAsParent" (ParentHeader currHeader) >> return pwos
 
     -- TODO: knob to configure whether this rewind is fatal
     fatalRewindError a h1 h2 = do
