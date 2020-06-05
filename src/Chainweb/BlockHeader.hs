@@ -343,8 +343,9 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- End of epoch, DA adjustment
     | isLastInEpoch p = EpochStartTime (_bct $ _blockCreationTime p)
 
-    -- Within epoch
+    -- Within epoch but before fixed epoch start guard
     | fixedEpochStartGuard ver (_blockHeight p + 1) = _blockEpochStart p
+    -- Within an epoch when legacy 'fixedEpochStartGuard' does not apply
     | otherwise = _blockEpochStart p .+^ timeBlocked
   where
     ver = _chainwebVersion p
@@ -782,8 +783,8 @@ computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
 {-# INLINE computeBlockHash #-}
 
 isGenesisBlockHeader :: BlockHeader -> Bool
-isGenesisBlockHeader b
-    = _blockHeight b == genesisHeight (_blockChainwebVersion b) (_blockChainId b)
+isGenesisBlockHeader b =
+    _blockHeight b == genesisHeight (_blockChainwebVersion b) (_blockChainId b)
 {-# INLINE isGenesisBlockHeader #-}
 
 -- | The Proof-Of-Work hash includes all data in the block except for the
@@ -952,4 +953,3 @@ instance TreeDbEntry BlockHeader where
     parent e
         | isGenesisBlockHeader e = Nothing
         | otherwise = Just (_blockParent e)
-
