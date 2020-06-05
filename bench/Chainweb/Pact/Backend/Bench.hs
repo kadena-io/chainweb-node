@@ -105,6 +105,7 @@ cpWithBench torun =
   where
 
     name = "batchedCheckpointer"
+    cid = unsafeChainId 0
 
     initialBlockState = initBlockState $ genesisHeight v cid
 
@@ -113,7 +114,7 @@ cpWithBench torun =
         !sqliteEnv <- openSQLiteConnection f chainwebPragmas
         let nolog = newLogger neverLog ""
         !cenv <-
-          initRelationalCheckpointer initialBlockState sqliteEnv nolog v
+          initRelationalCheckpointer initialBlockState sqliteEnv nolog v cid
         return $ NoopNFData (sqliteEnv, cenv, deleter)
 
     teardown (NoopNFData (sqliteEnv, _cenv, deleter)) = do
