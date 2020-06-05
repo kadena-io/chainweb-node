@@ -28,7 +28,6 @@ import Test.Tasty.HUnit
 -- chainweb imports
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB.Internal (unsafeInsertBlockHeaderDb)
@@ -46,6 +45,7 @@ import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils (sshow, tryAllSynchronous, catchAllSynchronous)
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 testVer :: ChainwebVersion
 testVer = FastTimedCPM peterson
@@ -256,7 +256,7 @@ mineBlock parentHeader nonce iop = do
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime

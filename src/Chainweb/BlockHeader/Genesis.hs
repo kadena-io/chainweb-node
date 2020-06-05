@@ -18,6 +18,7 @@ module Chainweb.BlockHeader.Genesis
     genesisBlockHeader
   , genesisBlockHeader'
   , genesisBlockHeaders
+  , genesisBlockHeadersAtHeight
     -- ** Querying
   , genesisBlockPayload
   , genesisParentBlockHash
@@ -59,7 +60,6 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.Crypto.MerkleLog
 import Chainweb.Difficulty (HashTarget, maxTarget)
-import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.MerkleUniverse
 import Chainweb.Miner.Pact
@@ -105,15 +105,15 @@ emptyPayload = PayloadWithOutputs mempty miner coinbase h i o
 -- | The moment of creation of a Genesis Block. For test chains, this is the
 -- Linux Epoch. Production chains are otherwise fixed to a specific timestamp.
 --
-genesisTime :: ChainwebVersion -> BlockCreationTime
-genesisTime Test{} = BlockCreationTime epoch
-genesisTime TimedConsensus{} = BlockCreationTime epoch
-genesisTime PowConsensus{} = BlockCreationTime epoch
-genesisTime TimedCPM{} = BlockCreationTime epoch
-genesisTime FastTimedCPM{} = BlockCreationTime epoch
-genesisTime Development = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-genesisTime Testnet04 = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
-genesisTime Mainnet01 = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
+genesisTime :: ChainwebVersion -> ChainId -> BlockCreationTime
+genesisTime Test{} _ = BlockCreationTime epoch
+genesisTime TimedConsensus{} _ = BlockCreationTime epoch
+genesisTime PowConsensus{} _ = BlockCreationTime epoch
+genesisTime TimedCPM{} _ = BlockCreationTime epoch
+genesisTime FastTimedCPM{} _ = BlockCreationTime epoch
+genesisTime Development _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+genesisTime Testnet04 _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
+genesisTime Mainnet01 _ = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -166,9 +166,8 @@ genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
 -- We assume that there is always only a single 'ChainwebVersion' in
 -- scope and identify chains only by their internal 'ChainId'.
 --
---
 genesisBlockHeader :: HasChainId p => ChainwebVersion -> p -> BlockHeader
-genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v) (Nonce 0)
+genesisBlockHeader v p = genesisBlockHeader' v p (genesisTime v (_chainId p)) (Nonce 0)
 
 -- | Like `genesisBlockHeader`, but with slightly more control.
 --
@@ -181,7 +180,7 @@ genesisBlockHeader'
     -> BlockHeader
 genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
   where
-    g = _chainGraph v
+    g = genesisGraph v p
     cid = _chainId p
 
     mlog = newMerkleLog
@@ -192,7 +191,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
-        :+: BlockHeight 0
+        :+: genesisHeight v cid -- because of chain graph changes (new chains) not all chains start at 0
         :+: v
         :+: EpochStartTime t
         :+: n
@@ -201,8 +200,18 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         (\c -> (c, genesisParentBlockHash v c)) <$> HS.toList (adjacentChainIds g p)
 
 -- | This is an expensive call, try not to repeat it.
+--
 genesisBlockHeaders :: ChainwebVersion -> HM.HashMap ChainId BlockHeader
 genesisBlockHeaders v = HM.fromList
     . fmap (id &&& genesisBlockHeader v)
     . toList
     $ chainIds v
+
+
+genesisBlockHeadersAtHeight
+    :: ChainwebVersion
+    -> BlockHeight
+    -> HM.HashMap ChainId BlockHeader
+genesisBlockHeadersAtHeight v h = HM.filter
+    (\hdr -> _blockHeight hdr <= h)
+    $ genesisBlockHeaders v

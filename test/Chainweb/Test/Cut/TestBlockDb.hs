@@ -28,7 +28,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
 import Chainweb.Cut
-import Chainweb.Test.Cut
+import Chainweb.Test.Cut (GenBlockTime, testMine')
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.RocksDB

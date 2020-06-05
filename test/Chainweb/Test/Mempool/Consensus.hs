@@ -31,7 +31,6 @@ import Test.QuickCheck.Monadic
 import Test.Tasty.QuickCheck
 
 -- internal modules
-import Pact.Types.Gas
 
 import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
@@ -45,9 +44,12 @@ import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Mempool.Consensus
 import Chainweb.Mempool.Mempool
 import Chainweb.Test.Utils
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 
 import Data.LogMessage
+
+import Pact.Types.Gas
 
 ----------------------------------------------------------------------------------------------------
 tests :: BlockHeaderDb -> BlockHeader -> ScheduledTest
@@ -327,6 +329,9 @@ postForkTrunk db mapRef h avail count = do
     return [theNewNode]
 
 ----------------------------------------------------------------------------------------------------
+-- TODO: does this test really has to go that low-level? Let try to refactor it use
+-- existing functionlity for creating a test block chain.
+--
 header' :: BlockHeader -> PropertyM IO BlockHeader
 header' h = do
     nonce <- Nonce <$> pick chooseAny
@@ -342,7 +347,7 @@ header' h = do
             :+: BlockWeight (targetToDifficulty target) + _blockWeight h
             :+: succ (_blockHeight h)
             :+: v
-            :+: epochStart (ParentHeader h) t'
+            :+: epochStart (ParentHeader h) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where

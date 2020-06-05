@@ -11,6 +11,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.MultiNode
@@ -89,6 +90,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS.RocksDB
@@ -331,13 +333,13 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
         Just stats -> do
             logsCount <- readMVar var
             tastylog $ "Number of logs: " <> sshow logsCount
-            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds)
+            tastylog $ "Expected BlockCount: " <> sshow (expectedBlockCount v seconds) -- 80 + 19.5 * 20
             tastylog $ encodeToText stats
             tastylog $ encodeToText $ object
-                [ "maxEfficiency%" .= (realToFrac (_statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "minEfficiency%" .= (realToFrac (_statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "medEfficiency%" .= (realToFrac (_statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
-                , "avgEfficiency%" .= (_statAvgHeight stats * (100 :: Double) / int (_statBlockCount stats))
+                [ "maxEfficiency%" .= (realToFrac (bc $ _statMaxHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "minEfficiency%" .= (realToFrac (bc $ _statMinHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "medEfficiency%" .= (realToFrac (bc $ _statMedHeight stats) * (100 :: Double) / int (_statBlockCount stats))
+                , "avgEfficiency%" .= (realToFrac (bc $ round (_statAvgHeight stats)) * (100 :: Double) / int (_statBlockCount stats))
                 ]
 
             (assertGe "number of blocks") (Actual $ _statBlockCount stats) (Expected $ _statBlockCount l)
@@ -357,6 +359,8 @@ test loglevel v n seconds = testCaseSteps label $ \f -> do
 
     label = "ConsensusNetwork (nodes: " <> show n <> ", seconds: " <> show seconds <> ")"
 
+    bc = blockCountAtCutHeight v
+
 -- -------------------------------------------------------------------------- --
 -- Results
 
@@ -373,10 +377,6 @@ data ConsensusState = ConsensusState
 instance HasChainwebVersion ConsensusState where
     _chainwebVersion = _stateChainwebVersion
     {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph ConsensusState where
-    _chainGraph = _chainGraph . _chainwebVersion
-    {-# INLINE _chainGraph #-}
 
 emptyConsensusState :: ChainwebVersion -> ConsensusState
 emptyConsensusState v = ConsensusState mempty mempty v
@@ -398,10 +398,10 @@ sampleConsensusState nid bhdb cutdb s = do
         }
 
 data Stats = Stats
-    { _statBlockCount :: !Int
-    , _statMaxHeight :: !BlockHeight
-    , _statMinHeight :: !BlockHeight
-    , _statMedHeight :: !BlockHeight
+    { _statBlockCount :: !Natural
+    , _statMaxHeight :: !CutHeight
+    , _statMinHeight :: !CutHeight
+    , _statMedHeight :: !CutHeight
     , _statAvgHeight :: !Double
     }
     deriving (Show, Eq, Ord, Generic, ToJSON)
@@ -410,7 +410,7 @@ consensusStateSummary :: ConsensusState -> Maybe Stats
 consensusStateSummary s
     | HM.null (_stateCutMap s) = Nothing
     | otherwise = Just Stats
-        { _statBlockCount = hashCount
+        { _statBlockCount = int $ hashCount
         , _statMaxHeight = maxHeight
         , _statMinHeight = minHeight
         , _statMedHeight = medHeight
@@ -418,7 +418,11 @@ consensusStateSummary s
         }
   where
     cutHeights = _cutHeight <$> _stateCutMap s
-    hashCount = HS.size (_stateBlockHashes s) - int (order $ _chainGraph s)
+    graph = chainGraphAt_ s
+        $ maximum . concatMap chainHeights
+        $ toList
+        $ _stateCutMap s
+    hashCount = HS.size (_stateBlockHashes s) - int (order graph)
 
     avg :: Foldable f => Real a => f a -> Double
     avg f = realToFrac (sum $ toList f) / realToFrac (length f)
@@ -431,18 +435,11 @@ consensusStateSummary s
     avgHeight = avg $ HM.elems cutHeights
     medHeight = median $ HM.elems cutHeights
 
-expectedBlockCount :: ChainwebVersion -> Seconds -> Natural
-expectedBlockCount v (Seconds seconds) = round ebc
-  where
-    ebc :: Double
-    ebc = int seconds * int (order $ _chainGraph v) / int br
-
-    br :: Natural
-    br = case blockRate v of
-        BlockRate (Seconds n) -> int n
+expectedBlockCount :: ChainwebVersion -> Seconds -> Double
+expectedBlockCount v s = expectedCutHeightAfterSeconds v s
 
 lowerStats :: ChainwebVersion -> Seconds -> Stats
-lowerStats v (Seconds seconds) = Stats
+lowerStats v seconds = Stats
     { _statBlockCount = round $ ebc * 0.3 -- temporarily, was 0.8
     , _statMaxHeight = round $ ebc * 0.3 -- temporarily, was 0.7
     , _statMinHeight = round $ ebc * 0.09 -- temporarily, was 0.3
@@ -450,15 +447,11 @@ lowerStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 0.3 -- temporarily, was 0.5
     }
   where
-    ebc :: Double
-    ebc = int seconds * int (order $ _chainGraph v) / int br
+    ebc = expectedBlockCount v seconds
 
-    br :: Natural
-    br = case blockRate v of
-        BlockRate (Seconds n) -> int n
 
 upperStats :: ChainwebVersion -> Seconds -> Stats
-upperStats v (Seconds seconds) = Stats
+upperStats v seconds = Stats
     { _statBlockCount = round $ ebc * 1.2
     , _statMaxHeight = round $ ebc * 1.2
     , _statMinHeight = round $ ebc * 1.2
@@ -466,9 +459,4 @@ upperStats v (Seconds seconds) = Stats
     , _statAvgHeight = ebc * 1.2
     }
   where
-    ebc :: Double
-    ebc = int seconds * int (order $ _chainGraph v) / int br
-
-    br :: Natural
-    br = case blockRate v of
-        BlockRate (Seconds n) -> int n
+    ebc = expectedBlockCount v seconds

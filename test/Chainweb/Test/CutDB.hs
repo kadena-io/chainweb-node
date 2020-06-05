@@ -14,8 +14,6 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
 module Chainweb.Test.CutDB
 ( withTestCutDb
 , extendTestCutDb
@@ -396,7 +394,7 @@ tryMineForChain miner webPact cutDb c cid = do
     outputs <- _webPactNewBlock webPact miner parent
     let payloadHash = _payloadWithOutputsPayloadHash outputs
     t <- getCurrentTimeIntegral
-    x <- testMineWithPayloadHash (Nonce 0) t payloadHash cid c
+    x <- testMineWithPayloadHash wdb (Nonce 0) t payloadHash cid c
     case x of
         Right (T2 h c') -> do
             addCutHashes cutDb (cutToCutHashes Nothing c')
@@ -407,6 +405,7 @@ tryMineForChain miner webPact cutDb c cid = do
         Left e -> return $ Left e
   where
     parent = ParentHeader $ c ^?! ixg cid -- parent to mine on
+    wdb = view cutDbWebBlockHeaderDb cutDb
 
 -- | picks a random block header from a web chain. The result header is
 -- guaranteed to not be a genesis header.

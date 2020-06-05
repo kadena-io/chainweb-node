@@ -54,6 +54,7 @@ import Chainweb.Payload.PayloadStore
 import Chainweb.SPV
 import Chainweb.TreeDB
 import Chainweb.Utils
+import Chainweb.Version
 import Chainweb.WebBlockHeaderDB
 
 import Data.CAS
@@ -91,6 +92,7 @@ createTransactionProof cutDb tcid scid bh i =
     tcid scid bh i
 
 -- | Version without CutDb dependency
+--
 createTransactionProof_
     :: HasCallStack
     => PayloadCasLookup cas
@@ -444,7 +446,8 @@ crumbsToChain db srcCid trgHeader
     | (int (_blockHeight trgHeader) + 1) < length path = return Nothing
     | otherwise = Just <$> go trgHeader path []
   where
-    path = shortestPath (_chainId trgHeader) srcCid (_chainGraph db)
+    graph = chainGraphAt_ db (_blockHeight trgHeader)
+    path = shortestPath (_chainId trgHeader) srcCid graph
 
     go
        :: BlockHeader
@@ -469,7 +472,8 @@ minimumTrgHeader
     -> ChainId
         -- ^ source chain. This the chain of the subject
     -> BlockHeight
-        -- ^ The block height of the transaction
+        -- ^ The block height of the transaction, i.e. the subject on the source
+        -- chain.
     -> IO BlockHeader
 minimumTrgHeader headerDb tcid scid bh = do
     trgHeadHeader <- maxEntry trgChain
@@ -484,7 +488,14 @@ minimumTrgHeader headerDb tcid scid bh = do
             }
   where
     trgChain = headerDb ^?! ixg tcid
-    trgHeight = int bh + int (length path)
+    trgHeight
+        | srcGraph == trgGraph = int bh + int srcDistance
+        | otherwise = int bh + int srcDistance + int trgDistance
+            -- This assumes that graph changes are at least graph-diameter
+            -- blocks appart.
 
-    graph = _chainGraph @WebBlockHeaderDb headerDb
-    path = shortestPath tcid scid graph
+    srcGraph = chainGraphAt_ headerDb bh
+    srcDistance = length $ shortestPath tcid scid srcGraph
+    trgGraph = chainGraphAt_ headerDb (bh + int srcDistance)
+    trgDistance = length $ shortestPath tcid scid trgGraph
+

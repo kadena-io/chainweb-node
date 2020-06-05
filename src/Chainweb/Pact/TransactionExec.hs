@@ -217,9 +217,25 @@ applyGenesisCmd logger dbEnv spv cmd =
   where
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
-    tenv = TransactionEnv Transactional dbEnv logger def spv nid 0.0 rk 0
-           def
-    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    tenv = TransactionEnv
+        { _txMode = Transactional
+        , _txDbEnv = dbEnv
+        , _txLogger = logger
+        , _txPublicData = def
+        , _txSpvSupport = spv
+        , _txNetworkId = nid
+        , _txGasPrice = 0.0
+        , _txRequestKey = rk
+        , _txGasLimit = 0
+        , _txExecutionConfig = def
+        }
+    txst = TransactionState
+        { _txCache = mempty
+        , _txLogs = mempty
+        , _txGasUsed = 0
+        , _txGasId = Nothing
+        , _txGasModel = _geGasModel freeGasEnv
+        }
 
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
 

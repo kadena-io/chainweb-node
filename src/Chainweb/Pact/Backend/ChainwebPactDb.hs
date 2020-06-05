@@ -81,6 +81,7 @@ import Chainweb.BlockHeight
 import Chainweb.Pact.Backend.Types
 import Chainweb.Pact.Backend.Utils
 import Chainweb.Pact.Service.Types (PactException(..), internalError)
+import Chainweb.Version (ChainwebVersion, ChainId, genesisHeight)
 
 chainwebPactDb :: PactDb (BlockEnv SQLiteEnv)
 chainwebPactDb = PactDb
@@ -653,8 +654,14 @@ createVersionedTable tablename db = do
            , tablename
            , "](txid DESC);"]
 
-handlePossibleRewind :: HasCallStack => BlockHeight -> ParentHash -> BlockHandler SQLiteEnv TxId
-handlePossibleRewind bRestore hsh = do
+handlePossibleRewind
+    :: HasCallStack
+    => ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> ParentHash
+    -> BlockHandler SQLiteEnv TxId
+handlePossibleRewind v cid bRestore hsh = do
     bCurrent <- getBCurrent
     checkHistoryInvariant (bCurrent + 1)
     case compare bRestore (bCurrent + 1) of
@@ -716,7 +723,7 @@ handlePossibleRewind bRestore hsh = do
 
     rewindBlock bh = do
         assign bsBlockHeight bh
-        endingtx <- getEndingTxId bh
+        endingtx <- getEndingTxId v cid bh
         tableMaintenanceRowsVersionedSystemTables endingtx
         callDb "rewindBlock" $ \db -> do
             droppedtbls <- dropTablesAtRewind bh db
@@ -799,9 +806,9 @@ initSchema = do
         log "DDL" $ "initSchema: "  ++ toS tablename
         callDb "initSchema" $ createVersionedTable tablename
 
-getEndingTxId :: BlockHeight -> BlockHandler SQLiteEnv TxId
-getEndingTxId bh = callDb "getEndingTxId" $ \db -> do
-    if bh == 0
+getEndingTxId :: ChainwebVersion -> ChainId -> BlockHeight -> BlockHandler SQLiteEnv TxId
+getEndingTxId v cid bh = callDb "getEndingTxId" $ \db -> do
+    if bh == genesisHeight v cid
       then return 0
       else
         qry db "SELECT endingtxid FROM BlockHistory where blockheight = ?"
