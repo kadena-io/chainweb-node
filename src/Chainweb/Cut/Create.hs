@@ -203,7 +203,7 @@ getCutExtension c cid = do
     newAdjHashes :: ChainGraph -> Maybe (HM.HashMap ChainId BlockHash)
     newAdjHashes g =
         imapM (\xcid _ -> hashForChain xcid)
-        $ HS.toMap
+        $ HS.toMap -- converts to Map Foo ()
         $ adjacentChainIds g p
 
     hashForChain acid
@@ -439,4 +439,3 @@ extendCut c ph (SolvedWork bh) = do
         -- (bh,) <$> tryMonotonicCutExtension c bh
         (bh,) <$> tryMonotonicCutExtension c bh
         -- return (bh, Just $ c & ix (_chainId bh) .~ bh)
-
