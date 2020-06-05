@@ -136,6 +136,8 @@ mine orig@(Nonce o) work = do
                             False -> go1 (i - 1) (Nonce $ nv + 1)
 
                 -- outer loop
+                -- Estimates how many iterations of the inner loop run in one second. It runs the inner loop
+                -- that many times and injects an updated creation time in each cycle.
                 let go0 :: Int -> Time Micros -> Nonce -> IO ()
                     go0 x t !n = do
                         injectTime t buf

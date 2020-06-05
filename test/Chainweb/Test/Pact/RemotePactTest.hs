@@ -206,8 +206,7 @@ localTest iot nio = do
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
-    sid <- mkChainId v maxBound (0 :: Int)
-    res <- local sid cenv cmd
+    res <- local (unsafeChainId 0) cenv cmd
     let (PactResult e) = _crResult res
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))

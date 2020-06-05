@@ -236,7 +236,7 @@ publish lf cdb miner pd s = do
         -- Publish CutHashes to CutDb and log success
         Right (bh, Just ch) -> do
             addCutHashes cdb ch
-            let bytes = foldl' (\acc (Transaction bs) -> acc + BS.length bs) 0 $
+            let bytes = sum . fmap (BS.length . _transactionBytes) $
                         _payloadDataTransactions pd
 
             lf Info $ JsonLog $ NewMinedBlock

@@ -111,9 +111,9 @@ genesisTime TimedConsensus{} _ = BlockCreationTime epoch
 genesisTime PowConsensus{} _ = BlockCreationTime epoch
 genesisTime TimedCPM{} _ = BlockCreationTime epoch
 genesisTime FastTimedCPM{} _ = BlockCreationTime epoch
+genesisTime Development _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 genesisTime Testnet04 _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 genesisTime Mainnet01 _ = BlockCreationTime [timeMicrosQQ| 2019-10-30T00:01:00.0 |]
-genesisTime Development _ = BlockCreationTime [timeMicrosQQ| 2019-07-17T18:28:37.613832 |]
 
 genesisBlockPayloadHash :: ChainwebVersion -> ChainId -> BlockPayloadHash
 genesisBlockPayloadHash v = _payloadWithOutputsPayloadHash . genesisBlockPayload v
@@ -191,7 +191,7 @@ genesisBlockHeader' v p ct@(BlockCreationTime t) n = fromLog mlog
         :+: genesisBlockPayloadHash v cid
         :+: cid
         :+: BlockWeight 0
-        :+: genesisHeight v cid
+        :+: genesisHeight v cid -- because of chain graph changes (new chains) not all chains start at 0
         :+: v
         :+: EpochStartTime t
         :+: n

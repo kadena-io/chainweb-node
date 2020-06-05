@@ -264,7 +264,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
 
      T2 (SolvedWork newHeader) _ <- usePowHash testVer $ \(_ :: Proxy a) -> mine @a (_blockNonce bh) work
 
-     mv' <- validateBlock newHeader (payloadWithOutputsToPayloadData payload) r
+     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) r
 
      void $ assertNotLeft =<< takeMVar mv'
 
