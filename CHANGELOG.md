@@ -1,5 +1,18 @@
 # `chainweb-node` Changelog
 
+## 1.9 (2020-06-07)
+
+This version replaces all previous versions. Any prior version will stop working
+on **2020-06-11T00:00:00Z**. Node administrators must upgrade to this version
+before that date.
+
+This version will stop working on **2020-07-16T00:00:00Z**.
+
+This release doesn't introduce new features. It contains many small bug fixes,
+along with some performance and stability improvements. It also introduces some
+larger behind the scenes changes in preparation of upcoming major new
+functionality.
+
 ## 1.8 (2020-04-27)
 
 This version replaces all previous versions. Any prior version will stop working
