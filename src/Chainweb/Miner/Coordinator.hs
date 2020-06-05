@@ -36,14 +36,13 @@ module Chainweb.Miner.Coordinator
 
 import Control.Concurrent.STM.TVar
 import Control.DeepSeq (NFData)
-import Control.Lens (view, (^?), (^?!))
+import Control.Lens (view, (^?!))
 import Control.Monad
 import Control.Monad.Catch
 
 import Data.Aeson (ToJSON)
 import Data.Bool (bool)
 import qualified Data.ByteString as BS
-import Data.Foldable (foldl')
 import Data.Generics.Wrapped (_Unwrapped)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
