@@ -258,7 +258,6 @@ blockCountAt
     -> Natural
 blockCountAt v cid h
     | h < gh = 0
-        <> " is smaller than the genesis height " <> sshow gh <> "."
     | otherwise = 1 + int h - int gh
   where
     gh = genesisHeight (_chainwebVersion v) (_chainId cid)
