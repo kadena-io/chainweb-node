@@ -255,7 +255,7 @@ blockCountAt
     -> BlockHeight
     -> Natural
 blockCountAt v cid h
-    | h < gh = error $ "Chainweb.Version.Utils.blockCount: requested block height " <> sshow h
+    | h < gh = 0
         <> " is smaller than the genesis height " <> sshow gh <> "."
     | otherwise = 1 + int h - int gh
   where
@@ -457,4 +457,3 @@ expectedCutHeightAfterSeconds
 expectedCutHeightAfterSeconds v s = eh * int (chainCountAt v (round eh))
   where
     eh = expectedBlockHeightAfterSeconds v s
-
