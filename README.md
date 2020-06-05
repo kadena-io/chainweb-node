@@ -23,8 +23,6 @@ For additional information, press, and development inquires, please refer to the
 
 - [Kadena Docs Site](#docs)
 - [Installing Chainweb](#installing-chainweb)
-  - [Instructions for Linux Users](#linux-users)
-  - [Instructions for Mac Users](#mac-users)
 - [Bootstrap Nodes](#bootstrap-nodes)  
 - [Configuring, running, and monitoring the health of a Chainweb Node](#configuring-running-and-monitoring-the-health-of-a-chainweb-node)
 - [Mining for a Chainweb Network](#mine-for-a-chainweb-network)
@@ -38,14 +36,11 @@ The Kadena Docs site, which can be found [here](https://kadena-io.github.io/kade
 
 If you have additions or comments, please submit a pull request or raise an issue - the GitHub project can be found [here](https://github.com/kadena-io/kadena-docs)
 
-
 ## Installing Chainweb
 
-### Linux Users
+### Installing dependencies
 
-The binaries can be found [here](https://github.com/kadena-io/chainweb-node/releases).
-
-#### Apt-based distributions
+**Apt-based Linux distributions**
 
 If you are on Ubuntu, Debian, CentOS or any other Apt-based distribution, you
 will need to install rocksdb with the following command:
@@ -55,50 +50,75 @@ sudo apt-get update
 ```
 
 ```bash
-sudo apt-get install -y librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev z3
+sudo apt-get install -y librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev
 ```
 
 If this is not available, then please view the [Rocksdb](https://rocksdb.org/)
 site for alternative modes of installation.
 
-#### Other distributions
+**Other Linux distributions**
 
 For all other distributions not using Apt (RHEL, Gentoo, Arch, etc), please
-consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`, `z3`
+consult your distro's repositories for `librocksdb5.8`, `tinfo`, `zlib`
 and install with its preferred package manager, or follow the alternative modes
 of installation described in [Rocksdb](https://rocksdb.org/).
 
-At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
+**Mac OSX**
 
-### Mac Users
-
-#### Getting the Dependencies
-
-Using the `brew` package manager, issue the following commands to download Chainweb's dependencies
+Using the `brew` package manager, issue the following commands to install Chainweb's dependencies
 
 ```bash
 brew update
-brew install z3
 brew install sqlite
 brew install rocksdb
 ```
 
-#### Building from Source
+### Installing Chainweb-node
 
-Chainweb is a [Haskell](https://www.haskell.org/) project, and can be built in
-several ways.
+Chainweb-node binaries for ubuntu-16.04, ubuntu-18.04, and MacOSX can be found
+[here](https://github.com/kadena-io/chainweb-node/releases).
 
-##### Getting the Code
+Download the archive for your system and extract the binaries and place them
+into a directory from where they can be executed.
 
-###### Dependencies
-- Homebrew: `brew install git`
-- [Installer](https://git-scm.com/downloads)
+At this point, you are ready to [run a Chainweb node](#running-a-chainweb-node)
 
-To get the code, you can go [here](https://github.com/kadena-io/chainweb-node/releases/tag/1.0)
+### Docker
 
-You have the code, now let's pick a build tool.
+A docker image is available at from
+[here](https://hub.docker.com/r/kadena/chainweb-node) and can be used with
+the following commands:
 
-##### Building with Nix
+```shell
+# Initialize the database (optional, but avoids several hours of initial db synchronization)
+docker run -ti --rm -v chainweb-db:/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node /chainweb/initialize-db.sh
+```
+
+```shell
+# Run a chainweb-node in Kadena's mainnet
+docker run -d -p 443:443 -v chainweb-db:target=/root/.local/share/chainweb-node/mainnet01/0/ kadena/chainweb-node
+```
+
+Further details can be found in the [README of the docker
+repository](https://hub.docker.com/r/kadena/chainweb-node).
+
+### Building from Source
+
+*IMPORTANT NODE: We recommend the use of officially released chainweb-node
+binaries, which can be found in the
+[release section of this
+repository](https://github.com/kadena-io/chainweb-node/releases).
+If you decide to build your own binaries, please make sure to only use
+officially released and tagged versions of the code. Those versions are
+extensively tested to ensure that they are compatible with all other nodes in
+the chainweb network. It is generally not safe to run arbitrary builds of the
+master branch in the Kadena mainnet.*
+
+Chainweb is a [Haskell](https://www.haskell.org/) project. After cloning the
+code with git from this GitHub repository the chainweb-node application can be
+built in several ways.
+
+#### Building with Nix
 
 The fastest way to build and run chainweb is to use the Nix package manager
 which has binary caching capabilities that allow you to download pre-built
@@ -112,13 +132,11 @@ When the build is finished, you can run chainweb with the following command:
 ./result/ghc/chainweb/bin/chainweb-node
 ```
 
-##### Building with Stack
+#### Building with Stack
 
-###### Dependencies
-
-- `stack >= 1.9`
-  - Mac (Homebrew): `brew install haskell-stack`
-  - General [Linux / Mac](https://docs.haskellstack.org/en/stable/README/)
+In order to build with stack you need `stack >= 1.9`, which can be obtain via
+-   Mac (Homebrew): `brew install haskell-stack`
+-   General [Linux / Mac](https://docs.haskellstack.org/en/stable/README/)
 
 (You may also need to install `zlib`, `openssl`, and `sqlite`.)
 
@@ -140,12 +158,11 @@ stack exec -- chainweb-node
 Alternatively, `stack install` will install the binary to `~/.local/bin/`, which
 you may need to add to your path. Then, you can call `chainweb-node` as-is.
 
-##### Building with Cabal
+#### Building with Cabal
 
-###### Dependencies
-
-- `ghc >= 8.4` (Haskell compiler) and `cabal >= 2.2` (Haskell build-tool)
-  - [Linux / Mac](https://www.haskell.org/ghcup/)
+In order to build with `cabal` you have to install `ghc >= 8.4` (Haskell compiler)
+and `cabal >= 2.4` (Haskell build-tool)
+*   [Linux / Mac](https://www.haskell.org/ghcup/)
 
 (You may also need to install `zlib`, `openssl`, and `sqlite`.)
 
@@ -156,16 +173,16 @@ To build a `chainweb-node` binary:
 
 ```bash
 # Only necessary if you haven't done this recently.
-cabal new-update
+cabal v2-update
 
 # Build the project.
-cabal new-build
+cabal v2-build
 ```
 
 To install a runnable binary to `~/.cabal/bin/`:
 
 ```bash
-cabal new-install
+cabal v2-install
 ```
 
 ## Bootstrap Nodes
@@ -199,7 +216,9 @@ All bootstrap nodes are running on port 443.
 ## Configuring, running, and monitoring the health of a Chainweb Node
 
 **This section assumes you've installed the `chainweb-node` binary** somewhere
-sensible, or otherwise have a simple way to refer to it.
+sensible, or otherwise have a simple way to refer to it. For running
+`chainweb-node` via docker, please see the instruction above in this document or
+visit our [docker repository](https://hub.docker.com/r/kadena/chainweb-node).
 
 To configure your node, please use our [minimal node
 configuration](./minimal-config.yaml). You need to update only one section,
@@ -222,10 +241,9 @@ chainweb-node --config-file=minimal-config.yaml
 
 ### Monitoring the health of a Chainweb Node
 
-
 The following outlines how you can check that your `chainweb-node` is healthy
 
-`chainweb-node` should be running from the public IP address and a port that is open to the other chainweb nodes. 
+`chainweb-node` should be running from the public IP address and a port that is open to the other chainweb nodes.
 
 If you're behind a NAT, it is **VERY IMPORTANT** that your network allows external nodes to connect to the node you are running. If you provide us with your ip address and port number in our [Discord mining channel](https://discord.io/kadena), we can verify whether your node is reachable to the rest of the network.
 
@@ -245,9 +263,9 @@ $ curl -sk "https://<public-ip>:<port>/chainweb/0.0/mainnet01/cut"
 * look for errors in the logs
 * look for warnings in the logs
 
-Usually, when a node is receiving and publishing cuts (i.e. block heights at every chain), it's working correctly. 
+Usually, when a node is receiving and publishing cuts (i.e. block heights at every chain), it's working correctly.
 
-The `/cut` endpoint will return the latest cut that your node has. It's possible that your node is falling behind, so make sure to compare its cut height with the cut heights of the bootstrap nodes. It's also possible that you are mining to a node that is catching up to the rest of the network. Before you start mining to a node, you SHOULD verify that this node has the most up-to-date cut. 
+The `/cut` endpoint will return the latest cut that your node has. It's possible that your node is falling behind, so make sure to compare its cut height with the cut heights of the bootstrap nodes. It's also possible that you are mining to a node that is catching up to the rest of the network. Before you start mining to a node, you SHOULD verify that this node has the most up-to-date cut.
 
 You can get the cut height of any node by running the following:
 ```
