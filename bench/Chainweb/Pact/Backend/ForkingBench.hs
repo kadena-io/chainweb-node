@@ -151,9 +151,8 @@ bench = C.bgroup "PactService" $
 
 testMemPoolAccess :: IORef Int -> MVar (Map Account (NonEmpty SomeKeyPairCaps)) -> MemPoolAccess
 testMemPoolAccess txsPerBlock accounts = mempty
-    { mpaGetBlock = \validate bh hash header -> do
-        t <- getCurrentTimeIntegral
-        getTestBlock accounts t validate bh hash
+    { mpaGetBlock = \validate bh hash header ->
+        getTestBlock accounts (_bct $ _blockCreationTime header) validate bh hash
     }
   where
 
@@ -169,12 +168,9 @@ testMemPoolAccess txsPerBlock accounts = mempty
                   modifyMVar' mVarAccounts
                     (const $ M.fromList $ zip as kss)
 
-                  -- validating tx in the first block of a chainweb version genesis time
-                  -- of epoch and actual mining seems tricky (impossible?). So we'll
-                  -- just skip it.
-                  -- vs <- validate bHeight hash (V.fromList $ toList r)
-                  -- -- TODO: something better should go here
-                  -- unless (and vs) $ throwM $ userError $ "at blockheight 1: tx validation failed " <> sshow vs
+                  vs <- validate bHeight hash (V.fromList $ toList r)
+                  -- TODO: something better should go here
+                  unless (and vs) $ throwM $ userError $ "at blockheight 1: tx validation failed " <> sshow vs
                   return $! V.fromList $ toList r
 
         | otherwise = do
