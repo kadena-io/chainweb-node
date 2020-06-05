@@ -89,7 +89,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
         { _cpeCheckpointer =
             Checkpointer
             {
-                _cpRestore = doRestore v db
+                _cpRestore = doRestore v cid db
               , _cpSave = doSave db
               , _cpDiscard = doDiscard db
               , _cpGetLatestBlock = doGetLatest db
@@ -108,17 +108,17 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
 type Db = MVar (BlockEnv SQLiteEnv)
 
 
-doRestore :: ChainwebVersion -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
-doRestore v dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
+doRestore :: ChainwebVersion -> ChainId -> Db -> Maybe (BlockHeight, ParentHash) -> IO PactDbEnv'
+doRestore v cid dbenv (Just (bh, hash)) = runBlockEnv dbenv $ do
     setModuleNameFix
     clearPendingTxState
-    void $ withSavepoint PreBlock $ handlePossibleRewind bh hash
+    void $ withSavepoint PreBlock $ handlePossibleRewind v cid bh hash
     beginSavepoint Block
     return $! PactDbEnv' $! PactDbEnv chainwebPactDb dbenv
   where
     -- Module name fix follows the restore call to checkpointer.
     setModuleNameFix = bsModuleNameFix .= enableModuleNameFix v bh
-doRestore _ dbenv Nothing = runBlockEnv dbenv $ do
+doRestore _ _ dbenv Nothing = runBlockEnv dbenv $ do
     clearPendingTxState
     withSavepoint DbTransaction $
       callDb "doRestoreInitial: resetting tables" $ \db -> do
