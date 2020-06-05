@@ -286,7 +286,7 @@ Detailed mining instructions can be found in our [Mining Guide](https://github.c
 
 ### Component Structure
 
-The production components are:
+The chainweb package contains the following buildable components:
 
 *   `chainweb` library: It provides the implementation for the different
     components of a chainweb-node.
@@ -296,13 +296,13 @@ The production components are:
     (command-line and RPC) for directly interacting with the Chainweb or for
     implementing applications such as miners and transaction management tools.
 
-*   `chainweb-miner`: A stand-alone Mining Client.
-
 *   `chainweb-tests`: A test suite for the Chainweb library and chainweb-node.
 
-### Architecture Overview
+*   `cwtool`: A collection of random tools that are helpfule for maintaining, testing,
+    and debugging chainweb.
 
-For a detailed description of the Kadena architecture,
-[see here](docs/Architecture.md).
+*   `bench`: a collection of benchmarks
+
+### Architecture Overview
 
 ![Architecture Overview](docs/Overview.png)
