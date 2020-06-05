@@ -70,6 +70,8 @@ import Data.LogMessage (LogFunction)
 
 -- | Artificially delay the mining process to simulate Proof-of-Work.
 --
+-- This is not production POW, but only for testing.
+--
 localTest
     :: LogFunction
     -> ChainwebVersion
