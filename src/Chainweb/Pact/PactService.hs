@@ -246,7 +246,7 @@ initPactService'
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv logger ver
+    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv logger ver cid
     let !rs = readRewards
         !gasModel = officialGasModel
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid

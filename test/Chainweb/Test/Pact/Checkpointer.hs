@@ -585,7 +585,7 @@ runSQLite'
     -> TestTree
 runSQLite' runTest sqlEnvIO = runTest $ do
     (_,sqlenv) <- sqlEnvIO
-    cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer
+    cp <- initRelationalCheckpointer initialBlockState sqlenv logger testVer testChainId
     return (cp, sqlenv)
   where
     initialBlockState = initBlockState $ genesisHeight testVer testChainId

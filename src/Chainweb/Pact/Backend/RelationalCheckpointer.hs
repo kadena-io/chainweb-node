@@ -66,9 +66,10 @@ initRelationalCheckpointer
     -> SQLiteEnv
     -> Logger
     -> ChainwebVersion
+    -> ChainId
     -> IO CheckpointEnv
-initRelationalCheckpointer bstate sqlenv loggr v =
-    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v
+initRelationalCheckpointer bstate sqlenv loggr v cid =
+    snd <$!> initRelationalCheckpointer' bstate sqlenv loggr v cid
 
 -- for testing
 initRelationalCheckpointer'
@@ -76,8 +77,9 @@ initRelationalCheckpointer'
     -> SQLiteEnv
     -> Logger
     -> ChainwebVersion
+    -> ChainId
     -> IO (PactDbEnv', CheckpointEnv)
-initRelationalCheckpointer' bstate sqlenv loggr v = do
+initRelationalCheckpointer' bstate sqlenv loggr v cid = do
     let dbenv = BlockDbEnv sqlenv loggr
     db <- newMVar (BlockEnv dbenv bstate)
     runBlockEnv db $ initSchema
@@ -95,7 +97,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v = do
               , _cpCommitCheckpointerBatch = doCommitBatch db
               , _cpDiscardCheckpointerBatch = doDiscardBatch db
               , _cpLookupBlockInCheckpointer = doLookupBlock db
-              , _cpGetBlockParent = doGetBlockParent db
+              , _cpGetBlockParent = doGetBlockParent v cid db
               , _cpRegisterProcessedTx = doRegisterSuccessful db
               , _cpLookupProcessedTx = doLookupSuccessful db
               , _cpGetBlockHistory = doGetBlockHistory db
@@ -232,16 +234,18 @@ doLookupBlock dbenv (bheight, bhash) = runBlockEnv dbenv $ do
     qtext = "SELECT COUNT(*) FROM BlockHistory WHERE blockheight = ? \
             \ AND hash = ?;"
 
-doGetBlockParent :: Db -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
-doGetBlockParent dbenv (bh, hash) = do
-    blockFound <- doLookupBlock dbenv (bh, hash)
-    if not blockFound
-      then return Nothing
-      else runBlockEnv dbenv $ do
-        r <- callDb "getBlockParent" $ \db -> qry db qtext [SInt (fromIntegral (pred bh))] [RBlob]
-        case r of
-           [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Serialize.decode blob
-           _ -> internalError "doGetBlockParent: output mismatch"
+doGetBlockParent :: ChainwebVersion -> ChainId -> Db -> (BlockHeight, BlockHash) -> IO (Maybe BlockHash)
+doGetBlockParent v cid dbenv (bh, hash)
+    | bh == genesisHeight v cid = return Nothing
+    | otherwise = do
+        blockFound <- doLookupBlock dbenv (bh, hash)
+        if not blockFound
+          then return Nothing
+          else runBlockEnv dbenv $ do
+            r <- callDb "getBlockParent" $ \db -> qry db qtext [SInt (fromIntegral (pred bh))] [RBlob]
+            case r of
+               [[SBlob blob]] -> either (internalError . T.pack) (return . return) $! Data.Serialize.decode blob
+               _ -> internalError "doGetBlockParent: output mismatch"
   where
     qtext = "SELECT hash FROM BlockHistory WHERE blockheight = ?"
 

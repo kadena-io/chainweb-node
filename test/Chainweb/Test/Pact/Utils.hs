@@ -399,7 +399,7 @@ testPactCtxSQLite
   -> PactServiceConfig
   -> IO (TestPactCtx cas,PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv config = do
-    (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv logger v
+    (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv logger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
