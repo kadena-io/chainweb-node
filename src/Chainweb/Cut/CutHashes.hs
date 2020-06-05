@@ -222,7 +222,7 @@ data CutHashes = CutHashes
     , _cutOrigin :: !(Maybe PeerInfo)
         -- ^ 'Nothing' is used for locally mined Cuts
     , _cutHashesWeight :: !BlockWeight
-    , _cutHashesHeight :: !BlockHeight
+    , _cutHashesHeight :: !CutHeight
     , _cutHashesChainwebVersion :: !ChainwebVersion
     , _cutHashesId :: !CutId
     , _cutHashesHeaders :: !(HM.HashMap BlockHash BlockHeader)
@@ -317,7 +317,7 @@ instance HasCutId CutHashes where
 -- Note that this instance ignores the value of '_cutOrigin'
 --
 instance IsCasValue CutHashes where
-    type CasKeyType CutHashes = (BlockHeight, BlockWeight, CutId)
+    type CasKeyType CutHashes = (CutHeight, BlockWeight, CutId)
     casKey c = (_cutHashesHeight c, _cutHashesWeight c, _cutHashesId c)
     {-# INLINE casKey #-}
 

@@ -55,7 +55,7 @@ import Chainweb.Pact.Service.Types
 
 runBlockEnv :: MVar (BlockEnv SQLiteEnv) -> BlockHandler SQLiteEnv a -> IO a
 runBlockEnv e m = modifyMVar e $
-  \(BlockEnv  dbenv bs)  -> do
+  \(BlockEnv dbenv bs) -> do
     (a,s) <- runStateT (runReaderT (runBlockHandler m) dbenv) bs
     return (BlockEnv dbenv s, a)
 

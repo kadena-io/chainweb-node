@@ -246,7 +246,7 @@ initPactService'
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger ver
+    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv logger ver cid
     let !rs = readRewards
         !gasModel = officialGasModel
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
@@ -266,6 +266,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse act
   where
+    initialBlockState = initBlockState $ genesisHeight ver cid
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
 
@@ -299,7 +300,8 @@ initializeCoinContract
     -> PactServiceM cas ()
 initializeCoinContract _logger v cid pwo = do
     cp <- getCheckpointer
-    genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
+    genesisExists <- liftIO
+        $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
     if genesisExists
       then readContracts cp
       else validateGenesis
@@ -700,7 +702,13 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         let cmd = payloadObj <$> tx
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
-            txst = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
+            txst = TransactionState
+                { _txCache = mcache
+                , _txLogs = mempty
+                , _txGasUsed = 0
+                , _txGasId = Nothing
+                , _txGasModel = P._geGasModel P.freeGasEnv
+                }
 
         buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
 
@@ -719,7 +727,9 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 -- exist yet.
 --
 validateChainwebTxs
-    :: Checkpointer
+    :: ChainwebVersion
+    -> ChainId
+    -> Checkpointer
     -> BlockCreationTime
         -- ^ reference time for tx validation.
         --
@@ -735,12 +745,11 @@ validateChainwebTxs
     -> Vector ChainwebTransaction
     -> RunGas
     -> IO ValidateTxs
-validateChainwebTxs cp txValidationTime lenientCreationTime bh txs doBuyGas
-  | bh == 0 = pure $! V.map Right txs
+validateChainwebTxs v cid cp txValidationTime lenientCreationTime bh txs doBuyGas
+  | bh == genesisHeight v cid = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
   where
-
     go = V.mapM validations initTxList >>= doBuyGas
 
     validations t = runValid checkUnique t
@@ -922,7 +931,7 @@ minerReward v (MinerRewards rs) bh =
       Nothing -> err
       Just (_, m) -> pure $! P.ParsedDecimal (roundTo 8 (m / n))
   where
-    !n = view (chainGraph . to (int . order)) v
+    !n = int . order $ chainGraphAt v bh
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
@@ -968,7 +977,10 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
             let parentTime = _blockCreationTime $ _parentHeader parentHeader
                 lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
             results <- V.zipWith (>>)
-                <$> validateChainwebTxs cp parentTime lenientCreationTime bhi txs runDebitGas
+                <$> do
+                    let v = _chainwebVersion psEnv
+                        cid = _chainId psEnv
+                    validateChainwebTxs v cid cp parentTime lenientCreationTime bhi txs runDebitGas
 
                 -- This code can be removed once the transition is complete and the guard
                 -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
@@ -1121,8 +1133,10 @@ playOneBlock currHeader plData pdbenv = do
         return (_blockCreationTime $ _parentHeader parentHeader, True)
 
     -- prop_tx_ttl_validate
-    valids <- V.zip trans <$> liftIO
-      (validateChainwebTxs cp txValidationTime lenientCreationTime (_blockHeight currHeader) trans skipDebitGas)
+    valids <- liftIO $ V.zip trans <$>
+        validateChainwebTxs v cid cp
+            txValidationTime lenientCreationTime
+            (_blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -1145,6 +1159,7 @@ playOneBlock currHeader plData pdbenv = do
 
     v = _chainwebVersion currHeader
     h = _blockHeight currHeader
+    cid = _chainId currHeader
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
@@ -1415,9 +1430,11 @@ execPreInsertCheckReq txs = do
     let parentTime = _blockCreationTime $ _parentHeader parentHeader
         lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
     cp <- getCheckpointer
-    withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb ->
+    withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
+      let v = _chainwebVersion psEnv
+          cid = _chainId psEnv
       liftIO $ fmap Discard $ V.zipWith (>>)
-        <$> validateChainwebTxs cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
+        <$> validateChainwebTxs v cid cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
 
         -- This code can be removed once the transition is complete and the guard
         -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks

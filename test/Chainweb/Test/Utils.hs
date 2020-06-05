@@ -155,8 +155,6 @@ import Text.Printf (printf)
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
-import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
 import Chainweb.BlockHeaderDB
@@ -164,21 +162,24 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
+import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI
 import Chainweb.RestAPI.NetworkID
-import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.P2P.Peer.BootstrapConfig
     (bootstrapCertificate, bootstrapKey)
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import Data.CAS.RocksDB
 
@@ -289,7 +290,7 @@ genesisBlockHeaderForChain
     -> i
     -> m BlockHeader
 genesisBlockHeaderForChain v i
-    = genesisBlockHeader (_chainwebVersion v) <$> mkChainId v i
+    = genesisBlockHeader (_chainwebVersion v) <$> mkChainId v maxBound i
 
 -- | Populate a `TreeDb` with /n/ generated `BlockHeader`s.
 --
@@ -385,7 +386,7 @@ header p = do
             :+: BlockWeight (targetToDifficulty target) + _blockWeight p
             :+: succ (_blockHeight p)
             :+: v
-            :+: epochStart (ParentHeader p) t'
+            :+: epochStart (ParentHeader p) mempty t'
             :+: nonce
             :+: MerkleLogBody mempty
    where

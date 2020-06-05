@@ -64,14 +64,14 @@ putCut (CutClientEnv v env) = void . flip runClientThrowM env . cutPutClient v
 
 getCut
     :: CutClientEnv
-    -> BlockHeight
+    -> CutHeight
     -> IO CutHashes
 getCut (CutClientEnv v env) h = runClientThrowM (cutGetClientLimit v (int h)) env
 
 -- -------------------------------------------------------------------------- --
 -- Sync Session
 
-catchupStepSize :: BlockHeight
+catchupStepSize :: CutHeight
 catchupStepSize = 1000
 
 syncSession

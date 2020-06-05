@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -24,6 +25,8 @@ module Chainweb.Test.Utils.TestHeader
 , genesisTestHeaders
 , queryTestHeader
 , queryTestHeaderByHeight
+, arbitraryTestHeader
+, arbitraryTestHeaderHeight
 ) where
 
 import Chainweb.BlockHash
@@ -34,16 +37,25 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.CAS
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
+
+import Debug.Trace
 
 import GHC.Generics
 import GHC.Stack
 
+import Test.QuickCheck.Arbitrary (arbitrary)
+import Test.QuickCheck.Gen (Gen)
+
 -- internal modules
 
+import Chainweb.BlockCreationTime
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeight
 import Chainweb.ChainValue
+import Chainweb.Test.Orphans.Internal
+import Chainweb.Test.Utils (genEnum)
 import Chainweb.Test.Utils.ApiQueries
 import Chainweb.Version
 
@@ -113,6 +125,47 @@ testHeader v = case fromJSON (object v) of
 {-# INLINE testHeader #-}
 
 -- -------------------------------------------------------------------------- --
+-- arbitrary TestHeader
+
+-- | Create an arbitrary test header.
+--
+-- Parents are not valid headers but only serve validation of the test header.
+--
+-- This construction will satisfy all block header valdiation properties except
+-- for POW.
+--
+arbitraryTestHeader :: ChainwebVersion -> ChainId -> Gen TestHeader
+arbitraryTestHeader v cid = do
+    h <- genEnum (genesisHeight v cid, maxBound `div` 2)
+    arbitraryTestHeaderHeight v cid h
+{-# INLINE arbitraryTestHeader #-}
+
+arbitraryTestHeaderHeight
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Gen TestHeader
+arbitraryTestHeaderHeight v cid h = do
+    parent <- ParentHeader <$> arbitraryBlockHeaderVersionHeightChain v h cid
+    trace "a" $ return ()
+
+    -- TODO: support graph changes in arbitary?
+    as <- fmap HM.fromList
+        $ traverse (\c -> (c,) <$> arbitraryBlockHeaderVersionHeightChain v h c)
+        $ toList
+        $ adjacentChainIds (chainGraphAt v h) cid
+    nonce <- arbitrary
+    payloadHash <- arbitrary
+    let pt = maximum $ _bct . _blockCreationTime
+            <$> HM.insert cid (_parentHeader parent) as
+    t <- BlockCreationTime <$> genEnum (pt, maxBound)
+    return $ TestHeader
+        { _testHeaderHdr = newBlockHeader (Right . ParentHeader <$> as) payloadHash nonce t parent
+        , _testHeaderParent = parent
+        , _testHeaderAdjs = toList $ ParentHeader <$> as
+        }
+
+-- -------------------------------------------------------------------------- --
 -- HasCasLookup for ChainValue
 
 -- | Convenience function that can be used with BlockHeader validation functions.
@@ -130,13 +183,11 @@ testHeaderChainLookup h x = pure $! testHeaderLookup h $ _chainValueValue x
 
 genesisTestHeaders
     :: HasChainwebVersion v
-    => HasChainGraph v
     => v -> [TestHeader]
 genesisTestHeaders v = genesisTestHeader v <$> toList (chainIds v)
 
 genesisTestHeader
     :: HasChainwebVersion v
-    => HasChainGraph v
     => HasChainId c
     => v
     -> c
@@ -145,7 +196,7 @@ genesisTestHeader v cid = TestHeader
     { _testHeaderHdr = gen
     , _testHeaderParent = ParentHeader gen
     , _testHeaderAdjs = ParentHeader . genesisBlockHeader (_chainwebVersion v)
-        <$> toList (adjacentChainIds (_chainGraph v) cid)
+        <$> toList (adjacentChainIds (_chainGraph gen) cid)
     }
   where
     gen = genesisBlockHeader (_chainwebVersion v) (_chainId cid)

@@ -41,6 +41,7 @@ module Chainweb.TreeDB
 
 -- * Utils
 , root
+, minRank
 , toTree
 
 -- ** Limiting and Seeking a Stream
@@ -388,6 +389,15 @@ class (Typeable db, TreeDbEntry (DbEntry db)) => TreeDb db where
 root :: TreeDb db => db -> IO (DbEntry db)
 root db = fromJuste <$> entries db Nothing (Just 1) Nothing Nothing S.head_
 {-# INLINE root #-}
+
+-- | The rank of the root. Often, but not always, this is 0.
+--
+-- For chainweb chains that got added during graph changes/extensions, this is
+-- strictly larger than 0.
+--
+minRank :: TreeDb db => db -> IO Natural
+minRank = fmap rank . root
+{-# INLINE minRank #-}
 
 -- | Filter the stream of entries for entries in a range of ranks.
 --
@@ -813,7 +823,7 @@ collectForkBlocks db lastHeader newHeader = do
 -- as calling `getBranch` directly, which is used as fallback.
 --
 -- The function returns 'Nothing' only if the requested rank is larger than the
--- rank of the given header.
+-- rank of the given header or smaller than the rank of the root entry.
 --
 -- It is implemented in terms of 'defaultBranchEntries' and 'entries'.
 --
@@ -829,7 +839,9 @@ seekAncestor
 seekAncestor db h r
     | r > hh = return Nothing
     | r == hh = return $ Just h
-    | otherwise = fastRoute1
+    | otherwise = do
+        mr <- minRank db
+        if r < mr then return Nothing else fastRoute1
   where
     -- If there is only a single block at the requested block height, it must be
     -- a predecessor of any block of larger height. We first do an efficient
