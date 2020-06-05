@@ -552,7 +552,7 @@ test-suite chainweb-tests
         , yaml >= 0.11
 
     if flag(ed25519)
-        cpp-options: -dWITH_ED25519=1
+        cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
@@ -619,6 +619,7 @@ executable cwtool
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
+        Chainweb.Test.Utils.BlockHeader
         CheckpointerDBChecksum
         Ea
         Ea.Genesis

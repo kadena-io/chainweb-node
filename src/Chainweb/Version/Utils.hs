@@ -84,6 +84,8 @@ limitHeight h = M.takeWhileAntitone (h >=)
 --
 -- Precondition: the is non-empty maps and has an entry 0.
 --
+-- NOTE: only use when its safe. DO NOT EXPORT this function.
+--
 atHeight :: HasCallStack => BlockHeight -> M.Map BlockHeight a -> a
 atHeight h = snd . fromJuste . M.lookupLE h
 {-# INLINE atHeight #-}

@@ -246,11 +246,10 @@ cutAdjChainIds c cid = c ^?! ixg (_chainId cid) . blockAdjacentChainIds
 -- of different block height and can thus use different chain graphs.
 --
 _cutAdjPairs :: Cut -> [(BlockHeader, BlockHeader)]
-_cutAdjPairs c =
-    [ (h, x)
-    | (cid, h) <- HM.toList (_cutMap c)
-    , x <- toList (cutAdjs c cid)
-    ]
+_cutAdjPairs c = do
+    (cid, h) <- HM.toList (_cutMap c)
+    x <- toList (cutAdjs c cid)
+    return (h, x)
 {-# INLINE _cutAdjPairs #-}
 
 cutAdjPairs :: Getter Cut [(BlockHeader, BlockHeader)]
@@ -550,9 +549,15 @@ type DiffItem a = These a a
 
 type JoinQueue a = H.Heap (H.Entry (BlockHeight, a) BlockHeader)
 
+-- | This represents the Join of two cuts in an algrithmically convenient way.
+--
 data Join a = Join
     { _joinBase :: !Cut
+        -- ^ the base of the join, the largest cut that is contained in both
+        -- cuts, or when viewed as sets, the intersection.
     , _joinQueue :: !(JoinQueue a)
+        -- ^ a queue of block headers from both cuts that allows construct
+        -- the join cut from the join base.
     }
 
 -- | This computes the join for cuts accross all chains.

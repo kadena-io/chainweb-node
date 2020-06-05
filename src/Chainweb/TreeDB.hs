@@ -390,6 +390,11 @@ root :: TreeDb db => db -> IO (DbEntry db)
 root db = fromJuste <$> entries db Nothing (Just 1) Nothing Nothing S.head_
 {-# INLINE root #-}
 
+-- | The rank of the root. Often, but not always, this is 0.
+--
+-- For chainweb chains that got added during graph changes/extensions, this is
+-- strictly larger than 0.
+--
 minRank :: TreeDb db => db -> IO Natural
 minRank = fmap rank . root
 {-# INLINE minRank #-}

@@ -145,8 +145,11 @@ getWebBlockHeaderDb
     -> p
     -> m BlockHeaderDb
 getWebBlockHeaderDb db p = do
-    checkWebChainId (db, maxBound @BlockHeight) p
+    checkWebChainId graph p
     return $! _webBlockHeaderDb db HM.! _chainId p
+  where
+    v = _chainwebVersion db
+    graph = chainGraphAt v maxBound
 
 lookupWebBlockHeaderDb
     :: WebBlockHeaderDb

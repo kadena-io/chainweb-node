@@ -329,6 +329,9 @@ postForkTrunk db mapRef h avail count = do
     return [theNewNode]
 
 ----------------------------------------------------------------------------------------------------
+-- TODO: does this test really has to go that low-level? Let try to refactor it use
+-- existing functionlity for creating a test block chain.
+--
 header' :: BlockHeader -> PropertyM IO BlockHeader
 header' h = do
     nonce <- Nonce <$> pick chooseAny

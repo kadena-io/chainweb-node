@@ -1134,7 +1134,9 @@ playOneBlock currHeader plData pdbenv = do
 
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
-        validateChainwebTxs v cid cp txValidationTime lenientCreationTime (_blockHeight currHeader) trans skipDebitGas
+        validateChainwebTxs v cid cp
+            txValidationTime lenientCreationTime
+            (_blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
       [] -> return ()

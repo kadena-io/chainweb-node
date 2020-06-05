@@ -208,7 +208,7 @@ getCutExtension c cid = do
 
     hashForChain acid
         -- existing chain
-        | Just b <- c ^? ixg acid = tryAdj b
+        | Just b <- lookupCutM acid c = tryAdj b
         -- new chain after graph transition
         | targetHeight == genesisHeight v acid = Just $ genesisParentBlockHash v acid
         | otherwise = error $ T.unpack

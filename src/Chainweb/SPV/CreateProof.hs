@@ -489,12 +489,13 @@ minimumTrgHeader headerDb tcid scid bh = do
   where
     trgChain = headerDb ^?! ixg tcid
     trgHeight
-        | srcGraph == trgGraph = int bh + int distance
-        | otherwise = int bh + 2 * (int distance)
+        | srcGraph == trgGraph = int bh + int srcDistance
+        | otherwise = int bh + int srcDistance + int trgDistance
             -- This assumes that graph changes are at least graph-diameter
             -- blocks appart.
 
-    distance = length $ shortestPath tcid scid srcGraph
     srcGraph = chainGraphAt_ headerDb bh
-    trgGraph = chainGraphAt_ headerDb (bh + int distance)
+    srcDistance = length $ shortestPath tcid scid srcGraph
+    trgGraph = chainGraphAt_ headerDb (bh + int srcDistance)
+    trgDistance = length $ shortestPath tcid scid trgGraph
 

@@ -94,7 +94,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Morph
 import Control.Monad.STM
 
-import Data.Bifunctor
 import Data.Aeson (ToJSON)
 import Data.CAS.HashMap
 import Data.Foldable
@@ -233,10 +232,6 @@ data CutDb cas = CutDb
     , _cutDbQueueSize :: !Natural
     , _cutDbStore :: !(RocksDbCas CutHashes)
     }
-
-instance HasChainGraph (CutDb cas, BlockHeight) where
-    _chainGraph = _chainGraph . first _cutDbHeaderStore
-    {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion (CutDb cas) where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
@@ -497,7 +492,7 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     threshold :: Cut -> Int
     threshold c = int $ 2 * diameter graph * order graph
       where
-        graph = chainGraphAt_ headerStore (meanChainHeight c)
+        graph = chainGraphAt_ headerStore (minChainHeight c)
 
     queueToStream = do
         Down a <- liftIO (pQueueRemove queue)

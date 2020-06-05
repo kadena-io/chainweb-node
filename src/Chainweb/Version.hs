@@ -520,6 +520,9 @@ chainwebGraphs Development = pure (0, petersonChainGraph)
 -- The functions provided in 'Chainweb.Version.Utils' are generally more
 -- convenient to use than this function.
 --
+-- This function is safe because of invariants provided by 'chainwebGraphs'.
+-- (There are also unit tests the confirm this.)
+--
 chainwebGraphsAt
     :: HasCallStack
     => ChainwebVersion

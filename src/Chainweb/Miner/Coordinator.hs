@@ -91,7 +91,7 @@ import Utils.Logging.Trace (trace)
 --
 lookupInCut :: HasCallStack => HasChainId cid => Cut -> cid -> BlockHeader
 lookupInCut c cid
-    | Just x <- c ^? ixg (_chainId cid) = x
+    | Just x <- lookupCutM cid c = x
     | otherwise = error $ T.unpack
         $ "Chainweb.Miner.Coordinator.lookupInCut: failed to lookup chain in cut."
         <> " Chain: " <> sshow (_chainId cid) <> "."
@@ -110,8 +110,7 @@ newtype PrimedWork =
 -- | Data shared between the mining threads represented by `newWork` and
 -- `publish`.
 --
--- The key is a unique pair of `BlockHash` of the parent block with the hash of
--- the current block's payload.
+-- The key is hash of the current block's payload.
 --
 newtype MiningState = MiningState
     (M.Map BlockPayloadHash (T3 Miner PayloadData (Time Micros)))
@@ -251,23 +250,19 @@ publish lf cdb miner pd s = do
         -- Log Orphaned Block
         Right (bh, Nothing) -> do
             let !p = lookupInCut c bh
-            lf Info $ JsonLog OrphanedBlock
-                { _orphanedHeader = ObjectEncoded bh
-                , _orphanedBestOnCut = ObjectEncoded p
-                , _orphanedDiscoveredAt = now
-                , _orphanedMiner = view _Unwrapped miner
-                , _orphanedReason = "orphaned solution"
-                }
+            lf Info $ orphandMsg now p bh "orphaned solution"
 
         -- Log failure and rethrow
         Left e@(InvalidSolvedHeader bh msg) -> do
             let !p = lookupInCut c bh
-            lf Info $ JsonLog OrphanedBlock
-                { _orphanedHeader = ObjectEncoded bh
-                , _orphanedBestOnCut = ObjectEncoded p
-                , _orphanedDiscoveredAt = now
-                , _orphanedMiner = view _Unwrapped miner
-                , _orphanedReason = msg
-                }
+            lf Info $ orphandMsg now p bh msg
             throwM e
+  where
+    orphandMsg now p bh msg = JsonLog OrphanedBlock
+        { _orphanedHeader = ObjectEncoded bh
+        , _orphanedBestOnCut = ObjectEncoded p
+        , _orphanedDiscoveredAt = now
+        , _orphanedMiner = view _Unwrapped miner
+        , _orphanedReason = msg
+        }
 
