@@ -298,7 +298,7 @@ The chainweb package contains the following buildable components:
 
 *   `chainweb-tests`: A test suite for the Chainweb library and chainweb-node.
 
-*   `cwtool`: A collection of random tools that are helpfule for maintaining, testing,
+*   `cwtool`: A collection of tools that are helpful for maintaining, testing,
     and debugging chainweb.
 
 *   `bench`: a collection of benchmarks

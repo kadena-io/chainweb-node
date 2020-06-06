@@ -11,8 +11,9 @@ This version will stop working on **2020-07-16T00:00:00Z**.
 This release doesn't introduce new features. It contains many small bug fixes,
 along with some performance and stability improvements. It also introduces some
 larger behind the scenes changes in preparation of upcoming major new
-functionality.
-
+functionality. User-facing bug fixes and improvements are listed below.
+* Improve reliability of `local` API calls by using cached header data instead of a potentially failing lookup causing spurious `TreeDbKeyNotFoundException` failures (#1062)
+* Provide clean shutdown via SIGTERM (#1052)
 ## 1.8 (2020-04-27)
 
 This version replaces all previous versions. Any prior version will stop working
