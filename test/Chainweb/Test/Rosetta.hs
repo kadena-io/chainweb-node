@@ -12,12 +12,14 @@ module Chainweb.Test.Rosetta
   ( tests
   ) where
 
+import Control.Monad (foldM)
 import Control.Monad.Trans.Except
 import Data.Aeson
 import Data.Decimal
 import Data.Map (Map)
 import Data.Word (Word64)
 
+import qualified Data.Set as S
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -35,7 +37,6 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.Rosetta.RestAPI
-import Chainweb.Rosetta.RestAPI.Server
 import Chainweb.Rosetta.Util
 import Chainweb.Version
 
@@ -49,6 +50,7 @@ tests = testGroup "Chainweb.Test.Rosetta.Server"
     , testCase "matchNonGenesisSingleTransactionsToLogs" matchNonGenesisSingleTransactionsToLogs
     , testCase "checkKDAToRosettaAmount" checkKDAToRosettaAmount
     , testCase "checkValidateNetwork" checkValidateNetwork
+    , testCase "checkUniqueRosettaErrorCodes" checkUniqueRosettaErrorCodes
     ]
   ]
 
@@ -62,7 +64,7 @@ matchNonGenesisBlockTransactionsToLogs = do
   assertEqualEncode "unsuccessful" r5 expected5
   where
     run :: Either String [(T.Text, [Operation])] 
-    run = nonGenesisTransactions logs getTxId toTx initial rest
+    run = nonGenesisTransactions' logs getTxId toTx initial rest
     
     toTx (_, rk) ops = (rk, ops)
     getTxId (tid, _) = tid
@@ -108,12 +110,12 @@ matchNonGenesisSingleTransactionsToLogs = do
   Right rk4' <- pure rk4
   assertEqualEncode "successful, coin" rk4' expectedRk4
 
-  Left missingRk' <- pure missingRk
+  Right missingRk' <- pure missingRk
   assertEqual "request key not present" missingRk' expectedMissing
   
   where
-    run :: T.Text -> Either RosettaFailure (T.Text, [Operation])
-    run t = nonGenesisTransaction logs toRk getTxId toTx initial rest (textToRk t)
+    run :: T.Text -> Either String (Maybe (T.Text, [Operation]))
+    run t = nonGenesisTransaction' logs toRk getTxId toTx initial rest (textToRk t)
     
     toTx (_, rk) ops = (rk, ops)
     toRk (_, rk) = textToRk rk
@@ -125,25 +127,25 @@ matchNonGenesisSingleTransactionsToLogs = do
       [ "ReqKey1", "ReqKey5", "ReqKey3", "ReqKey2", "ReqKey4", "RandomReqKey"]
 
     -- Coinbase Tx
-    expectedRk1 = ("ReqKey1", [ op CoinbaseReward 1 "miner1" 2.0 0])
+    expectedRk1 = Just ("ReqKey1", [ op CoinbaseReward 1 "miner1" 2.0 0])
     
     -- Successful, non-coin contract tx
-    expectedRk2 = ("ReqKey2", [ op FundTx 2 "sender1" 10.0 0
-                            , op GasPayment 4 "miner1" 12.0 1 ])
+    expectedRk2 = Just ("ReqKey2", [ op FundTx 2 "sender1" 10.0 0
+                                   , op GasPayment 4 "miner1" 12.0 1 ])
 
     -- Successful, non-coin contract tx
-    expectedRk3 = ("ReqKey3", [ op FundTx 5 "sender1" 10.0 0
-                            , op GasPayment 7 "miner1" 12.0 1 ])
+    expectedRk3 = Just ("ReqKey3", [ op FundTx 5 "sender1" 10.0 0
+                                   , op GasPayment 7 "miner1" 12.0 1 ])
 
     -- Successful, coin contract tx
-    expectedRk4 = ("ReqKey4", [ op FundTx 8 "sender1" 10.0 0
-                            , op TransferOrCreateAcct 9 "sender1" 5.0 1
-                            , op GasPayment 10 "miner1" 12.0 2 ])
+    expectedRk4 = Just ("ReqKey4", [ op FundTx 8 "sender1" 10.0 0
+                                   , op TransferOrCreateAcct 9 "sender1" 5.0 1
+                                   , op GasPayment 10 "miner1" 12.0 2 ])
 
     -- Unsuccessful tx
-    expectedRk5 = ("ReqKey5", [ op FundTx 11 "sender1" 10.0 0
-                            , op GasPayment 12 "miner1" 12.0 1])
-    expectedMissing = RosettaTxIdNotFound
+    expectedRk5 = Just ("ReqKey5", [ op FundTx 11 "sender1" 10.0 0
+                                   , op GasPayment 12 "miner1" 12.0 1])
+    expectedMissing = Nothing --RosettaTxIdNotFound
 
 checkKDAToRosettaAmount :: Assertion
 checkKDAToRosettaAmount = do
@@ -205,7 +207,18 @@ checkValidateNetwork = do
       (fst validNetId,
        (snd validNetId) { _networkId_subNetworkId = Just $ SubNetworkId "1000" Nothing }
       )
-    
+
+checkUniqueRosettaErrorCodes :: Assertion
+checkUniqueRosettaErrorCodes = case repeated of
+  Left x -> assertFailure $ "Found a repeated Rosetta Code: " ++ show x
+  Right _ -> pure ()
+  where
+    repeated = foldM g S.empty errCodes
+    g acc x =
+      if (S.member x acc)
+      then (Left x)
+      else (Right $ S.insert x acc)
+    errCodes = map (_error_code . rosettaError) [minBound .. maxBound]
 
 --------------------------------------------------------------------------------
 -- Utils
@@ -282,13 +295,10 @@ op t i key amt oid = operation Successful t (TxId i) (key, amt, gKey) oid
     gKey = toJSON (key <> "PublicKey")
 
 assertEqualEncode
-    :: String
-    -> (T.Text, [Operation])
-    -> (T.Text, [Operation])
+    :: (ToJSON a)
+    => String
+    -> a
+    -> a
     -> Assertion
 assertEqualEncode msg e1 e2 =
   assertEqual msg (encode e1) (encode e2)
-
--- TODO: test for `validateNetwork`
-
--- TODO: test for `kdaToRosettaAmount`
