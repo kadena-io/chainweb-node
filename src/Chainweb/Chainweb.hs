@@ -839,14 +839,17 @@ runChainweb cw = do
         <$ Concurrently (serve
                 $ httpLog
                 . throttle (_chainwebPutPeerThrottler cw)
-                . throttle (_chainwebMiningThrottler cw)
-                . throttle (_chainwebLocalThrottler cw)
                 . throttle (_chainwebThrottler cw)
             )
         -- 2. Start Clients (with a delay of 500ms)
         <* Concurrently (threadDelay 500000 >> clients)
         -- 3. Start serving local API
-        <* Concurrently (threadDelay 500000 >> serveLocal)
+        <* Concurrently (threadDelay 500000 >> serveLocal
+                ( localHttpLog
+                . throttle (_chainwebMiningThrottler cw)
+                . throttle (_chainwebLocalThrottler cw)
+                )
+            )
   where
     clients :: IO ()
     clients = do
@@ -930,7 +933,7 @@ runChainweb cw = do
 
     localApiHost = _localApiConfigInterface $ _configLocalApi $ _chainwebConfig cw
 
-    serveLocal :: IO ()
+    serveLocal :: Middleware -> IO ()
     serveLocal = serveLocalApiSocket
         (localServerSettings (fst $ _chainwebLocalSocket cw) localApiHost)
         (snd $ _chainwebLocalSocket cw)
@@ -946,7 +949,6 @@ runChainweb cw = do
         (_chainwebCoordinator cw)
         (HeaderStream . _configHeaderStream $ _chainwebConfig cw)
         (Rosetta . _configRosetta $ _chainwebConfig cw)
-        localHttpLog
 
     localHttpLog :: Middleware
     localHttpLog = requestResponseLogger $ setComponent "http[local]" (_chainwebLogger cw)
