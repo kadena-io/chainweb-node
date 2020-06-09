@@ -24,6 +24,13 @@ module Chainweb.BlockHeight
 , decodeBlockHeight
 , encodeBlockHeightBe
 , decodeBlockHeightBe
+
+-- * Cut Height
+, CutHeight(..)
+, encodeCutHeight
+, decodeCutHeight
+, encodeCutHeightBe
+, decodeCutHeightBe
 ) where
 
 import Control.DeepSeq
@@ -52,7 +59,7 @@ newtype BlockHeight = BlockHeight { _height :: Word64 }
     deriving newtype
         ( Hashable, ToJSON, FromJSON
         , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
-        , Num, Integral, Real, Enum
+        , Num, Integral, Real, Enum, Bounded
         )
 instance Show BlockHeight where show (BlockHeight b) = show b
 
@@ -88,4 +95,44 @@ encodeBlockHeightBe (BlockHeight r) = putWord64be r
 --
 decodeBlockHeightBe :: MonadGet m => m BlockHeight
 decodeBlockHeightBe = BlockHeight <$> getWord64be
+
+-- -------------------------------------------------------------------------- --
+-- Cut Height
+
+newtype CutHeight = CutHeight Word64
+    deriving (Eq, Ord, Generic)
+    deriving anyclass (NFData)
+    deriving newtype
+        ( Hashable, ToJSON, FromJSON
+        , AdditiveSemigroup, AdditiveAbelianSemigroup, AdditiveMonoid
+        , Num, Integral, Real, Enum, Bounded
+        )
+
+instance Show CutHeight where show (CutHeight b) = show b
+
+-- | Little endian encoding of block height. This the default encoding for
+-- exchanging chainweb data.
+--
+encodeCutHeight :: MonadPut m => CutHeight -> m ()
+encodeCutHeight (CutHeight h) = putWord64le h
+
+-- | Little endian encoding of block height. This the default encoding for
+-- exchanging chainweb data.
+--
+decodeCutHeight :: MonadGet m => m CutHeight
+decodeCutHeight = CutHeight <$> getWord64le
+
+-- | Encodings for data exchange use little endian by default. Big endian
+-- encodings are provided for use in internal storage when a bytewise
+-- lexicographcial ordering is required.
+--
+encodeCutHeightBe :: MonadPut m => CutHeight -> m ()
+encodeCutHeightBe (CutHeight r) = putWord64be r
+
+-- | Encodings for data exchange use little endian by default. Big endian
+-- encodings are provided for use in internal storage when a bytewise
+-- lexicographcial ordering is required.
+--
+decodeCutHeightBe :: MonadGet m => m CutHeight
+decodeCutHeightBe = CutHeight <$> getWord64be
 

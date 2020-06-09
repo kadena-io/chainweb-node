@@ -6,6 +6,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -60,6 +61,7 @@ import System.LogLevel
 
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
+import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeader.Validation
 import Chainweb.BlockHeaderDB
 import Chainweb.ChainId
@@ -140,10 +142,6 @@ data WebBlockHeaderStore = WebBlockHeaderStore
 instance HasChainwebVersion WebBlockHeaderStore where
     _chainwebVersion = _chainwebVersion . _webBlockHeaderStoreCas
     {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph WebBlockHeaderStore where
-    _chainGraph = _chainGraph . _webBlockHeaderStoreCas
-    {-# INLINE _chainGraph #-}
 
 -- -------------------------------------------------------------------------- --
 -- Overlay CAS with asynchronous weak HashMap
@@ -313,23 +311,43 @@ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayl
         -- prerequesite in the memo-table it is awaited, otherwise a new job is
         -- created.
         --
-        let queryAdjacentParent p = Concurrently $ void $ do
-                logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h <> ": " <> sshow p
-                getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
+        let isGenesisParentHash p = _chainValueValue p == genesisParentBlockHash v p
+            queryAdjacentParent p = Concurrently $ unless (isGenesisParentHash p) $ void $ do
+                logg Debug $ taskMsg k
+                    $ "getBlockHeaderInternal.getPrerequisteHeader (adjacent) for " <> sshow h
+                    <> ": " <> sshow p
+                getBlockHeaderInternal
+                    headerStore
+                    payloadStore
+                    candidateHeaderCas
+                    candidatePayloadCas
+                    priority
+                    maybeOrigin'
+                    p
 
             -- Perform inductive (involving the parent) validations on the block
             -- header. There's another complete pass of block header validations
             -- after payload validation when the header is finally added to the db.
             --
             queryParent p = Concurrently $ void $ do
-                logg Debug $ taskMsg k $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h <> ": " <> sshow p
-                void $ getBlockHeaderInternal headerStore payloadStore candidateHeaderCas candidatePayloadCas priority maybeOrigin' p
+                logg Debug $ taskMsg k
+                    $ "getBlockHeaderInternal.getPrerequisteHeader (parent) for " <> sshow h
+                    <> ": " <> sshow p
+                void $ getBlockHeaderInternal
+                    headerStore
+                    payloadStore
+                    candidateHeaderCas
+                    candidatePayloadCas
+                    priority
+                    maybeOrigin'
+                    p
                 chainDb <- getWebBlockHeaderDb (_webBlockHeaderStoreCas headerStore) header
                 validateInductiveChainM (casLookup chainDb) header
 
         p <- runConcurrently
             -- query payload
-            $ Concurrently (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
+            $ Concurrently
+                (getBlockPayload payloadStore candidatePayloadCas priority maybeOrigin' header)
 
             -- query parent (recursively)
             --

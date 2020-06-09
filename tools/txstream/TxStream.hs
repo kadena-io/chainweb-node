@@ -73,6 +73,7 @@ import Chainweb.TreeDB
 import Chainweb.TreeDB.RemoteDB
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import Data.LogMessage
 

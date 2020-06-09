@@ -50,6 +50,7 @@ import Chainweb.Mempool.Mempool (MempoolBackend, MockTx)
 import Chainweb.RestAPI
 import Chainweb.Test.RestAPI.Client_
 import Chainweb.Test.Utils
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.TreeDB
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -77,8 +78,11 @@ genesisBh :: MonadIO m => BlockHeaderDb -> m BlockHeader
 genesisBh db = head <$> headers db
 
 missingKey :: MonadIO m => BlockHeaderDb -> m (DbKey BlockHeaderDb)
-missingKey db =
-    key . head . testBlockHeadersWithNonce (Nonce 34523) . ParentHeader <$> genesisBh db
+missingKey db = key
+    . head
+    . testBlockHeadersWithNonce (Nonce 34523)
+    . ParentHeader
+    <$> genesisBh db
 
 -- -------------------------------------------------------------------------- --
 -- Response Predicates
