@@ -352,12 +352,12 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- Within epoch with old legacy DA
     | oldDaGuard ver (_blockHeight p + 1) = _blockEpochStart p
     -- Within an epoch with new DA
-    | otherwise = _blockEpochStart p .+^ timeBlocked
+    | otherwise = _blockEpochStart p .+^ _adjustmentAvg
   where
     ver = _chainwebVersion p
     cid = _chainId p
 
-    -- 1. timeBlock < _blockCreationTime h .-. _blockCreationTime p
+    -- 1. adjustmentMax < _blockCreationTime h .-. _blockCreationTime p
     --    and thus, epochStart < _blockCreationTime p
     --
     -- 2. this can only increase difficulty but not reduce difficulty compared
@@ -378,15 +378,39 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     --    b) adjusting timeBlocked in both directions, possibly based off the
     --       avg?
     --
-    timeBlocked = maximum adjCreationTimes .-. _blockCreationTime p
+    _adjustmentMax = maximum adjCreationTimes .-. _blockCreationTime p
         -- the maximum is at least @_blockCreationTime p@ and thus the result is
         -- greater or equal 0.
 
+    -- This computes @mean adjCreationTimes - _blockCreationTime p
+    --
+    -- It holds that
+    --
+    -- \(\left(mean_{0 \leq i < n} a_i\right)
+    -- = \frac{\sum_{0 \leq i < n} a_i}{n} - t
+    -- = \frac{\left(sum_{0 \leq i < n} a_i\right) - \left(\sum_{0 \leq i < n} t\right)}{n}
+    -- = \frac{sum_{0 \leq i < n} (a_i - t)}{n}
+    -- \)
+    --
+    --
+    -- this is numberically sound because we compute the differences on integral
+    -- types without rounding.
+    --
+    _adjustmentAvg = x `divTimeSpan` length adjCreationTimes
+      where
+        x :: TimeSpan Micros
+        x = foldr1 addTimeSpan $ (.-. _blockCreationTime p) <$> adjCreationTimes
+
+    -- This includes the parent header itself.
     adjCreationTimes = _blockCreationTime . _parentHeader <$> HM.insert cid ph adj
 
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
 {-# INLINE epochStart #-}
+
+divTimeSpan :: Integral a => (TimeSpan a) -> Int -> TimeSpan a
+divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int s)
+{-# INLINE divTimeSpan #-}
 
 -- -----------------------------------------------------------------------------
 -- Feature Flags
