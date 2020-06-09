@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- |
 -- Module: Chainweb.Rosetta.Util
@@ -26,12 +27,10 @@ import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
 
 
-import qualified Data.ByteString.Short as BSS
 import qualified Data.DList as DList
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as M
 import qualified Data.Memory.Endian as BA
-import qualified Data.Text.Encoding as T
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
@@ -55,7 +54,6 @@ import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.BlockHeight (BlockHeight(..))
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Mempool.Mempool (TransactionHash(..))
 import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
@@ -139,9 +137,6 @@ pactHashToTransactionId hsh = TransactionId $ hashToText $ toUntypedHash hsh
 
 rkToTransactionId :: RequestKey -> TransactionId
 rkToTransactionId rk = TransactionId $ requestKeyToB16Text rk
-
-fromTransactionId :: TransactionId -> TransactionHash
-fromTransactionId (TransactionId ti) = TransactionHash . BSS.toShort $ T.encodeUtf8 ti
 
 indexedOperations :: [UnindexedOperation] -> [Operation]
 indexedOperations logs = zipWith (\f i -> f i) logs [(0 :: Word64)..]

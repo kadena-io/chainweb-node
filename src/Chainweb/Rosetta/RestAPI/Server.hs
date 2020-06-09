@@ -273,7 +273,7 @@ mempoolH v ms (MempoolReq net) = work >>= \case
     Right !a -> pure a
   where
     f :: TransactionHash -> TransactionId
-    f !h = TransactionId (toText h)
+    f !h = TransactionId $ toText h
 
     work = runExceptT $! do
         cid <- validateNetwork v net

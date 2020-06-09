@@ -535,6 +535,9 @@ instance FromJSON TransactionHash where
       p :: Text -> Either SomeException TransactionHash
       !p = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
 
+instance HasTextRepresentation TransactionHash where
+  toText (TransactionHash th) = encodeB64UrlNoPaddingText $ SB.fromShort th
+  fromText = (TransactionHash . SB.toShort <$>) . decodeB64UrlNoPaddingText
 
 ------------------------------------------------------------------------------
 data TransactionMetadata = TransactionMetadata {
