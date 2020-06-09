@@ -224,8 +224,9 @@ validationFailures =
       , [IncorrectHash, IncorrectPow, ChainMismatch, AdjacentChainMismatch]
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
-      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags]
-            -- when 'fixedEpochStartGuard' is enabled add 'CreatedBeforeParent'
+      , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags, CreatedBeforeParent]
+            -- when 'fixedEpochStartGuard' is enabled 'CreatedBeforeParent' is included, otherwise
+            -- not.
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
