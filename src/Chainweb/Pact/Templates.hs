@@ -18,10 +18,6 @@ module Chainweb.Pact.Templates
 ( mkBuyGasTerm
 , mkCoinbaseTerm
 , mkCoinbaseCmd
-, pactApp
-, pactBareName
-, pactQualifiedName
-, pactStrLit
 ) where
 
 
@@ -49,21 +45,21 @@ inf :: Info
 inf = Info $ Just (Code "",Parsed (Columns 0 0) 0)
 {-# NOINLINE inf #-}
 
-pactApp :: Name -> [Term Name] -> Term Name
-pactApp f as = TApp (App (TVar f inf) as inf) inf
-{-# INLINE pactApp #-}
+app :: Name -> [Term Name] -> Term Name
+app f as = TApp (App (TVar f inf) as inf) inf
+{-# INLINE app #-}
 
-pactQualifiedName :: ModuleName -> Text -> Name
-pactQualifiedName mn d = QName $ QualifiedName mn d inf
-{-# INLINE pactQualifiedName #-}
+qn :: ModuleName -> Text -> Name
+qn mn d = QName $ QualifiedName mn d inf
+{-# INLINE qn #-}
 
-pactBareName :: Text -> Name
-pactBareName n = Name $ BareName n inf
-{-# INLINE pactBareName #-}
+bn :: Text -> Name
+bn n = Name $ BareName n inf
+{-# INLINE bn #-}
 
-pactStrLit :: Text -> Term Name
-pactStrLit s = TLiteral (LString s) inf
-{-# INLINE pactStrLit #-}
+strLit :: Text -> Term Name
+strLit s = TLiteral (LString s) inf
+{-# INLINE strLit #-}
 
 strArgSetter :: Int -> ASetter' (Term Name) Text
 strArgSetter idx = tApp . appArgs . ix idx . tLiteral . _LString
@@ -71,11 +67,11 @@ strArgSetter idx = tApp . appArgs . ix idx . tLiteral . _LString
 
 buyGasTemplate :: (Term Name, ASetter' (Term Name) Text, ASetter' (Term Name) Text)
 buyGasTemplate =
-  ( pactApp (pactQualifiedName "coin" "fund-tx")
-      [ pactStrLit "sender"
-      , pactStrLit "mid"
-      , pactApp (pactBareName "read-keyset") [pactStrLit "miner-keyset"]
-      , pactApp (pactBareName "read-decimal") [pactStrLit "total"]
+  ( app (qn "coin" "fund-tx")
+      [ strLit "sender"
+      , strLit "mid"
+      , app (bn "read-keyset") [strLit "miner-keyset"]
+      , app (bn "read-decimal") [strLit "total"]
       ]
   , strArgSetter 0
   , strArgSetter 1
@@ -107,10 +103,10 @@ mkBuyGasTerm (MinerId mid) (MinerKeys ks) sender total = (populatedTerm, execMsg
 
 coinbaseTemplate :: (Term Name,ASetter' (Term Name) Text)
 coinbaseTemplate =
-  ( pactApp (pactQualifiedName "coin" "coinbase")
-      [ pactStrLit "mid"
-      , pactApp (pactBareName "read-keyset") [pactStrLit "miner-keyset"]
-      , pactApp (pactBareName "read-decimal") [pactStrLit "reward"]
+  ( app (qn "coin" "coinbase")
+      [ strLit "mid"
+      , app (bn "read-keyset") [strLit "miner-keyset"]
+      , app (bn "read-decimal") [strLit "reward"]
       ]
   , strArgSetter 0
   )
