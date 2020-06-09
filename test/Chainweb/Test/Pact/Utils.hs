@@ -154,8 +154,6 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Test.Cut
-import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Logger
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Backend.RelationalCheckpointer
@@ -170,12 +168,16 @@ import Chainweb.Pact.Types
 import Chainweb.Payload
 import Chainweb.Payload.PayloadStore
 import Chainweb.Payload.PayloadStore.InMemory
+import Chainweb.Test.Cut
+import Chainweb.Test.Cut.TestBlockDb
 import Chainweb.Test.Utils
+import Chainweb.Test.Utils.BlockHeader
 import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), chainIds, someChainId)
+import Chainweb.Version (ChainwebVersion(..), chainIds)
 import qualified Chainweb.Version as Version
+import Chainweb.Version.Utils (someChainId)
 import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
@@ -397,7 +399,7 @@ testPactCtxSQLite
   -> PactServiceConfig
   -> IO (TestPactCtx cas,PactDbEnv')
 testPactCtxSQLite v cid bhdb pdb sqlenv config = do
-    (dbSt,cpe) <- initRelationalCheckpointer' initBlockState sqlenv logger v
+    (dbSt,cpe) <- initRelationalCheckpointer' initialBlockState sqlenv logger v cid
     let rs = readRewards
         ph = ParentHeader $ genesisBlockHeader v cid
     !ctx <- TestPactCtx
@@ -406,6 +408,7 @@ testPactCtxSQLite v cid bhdb pdb sqlenv config = do
     evalPactServiceM_ ctx (initialPayloadState dummyLogger v cid)
     return (ctx,dbSt)
   where
+    initialBlockState = initBlockState $ Version.genesisHeight v cid
     loggers = pactTestLogger False -- toggle verbose pact test logging
     logger = newLogger loggers $ LogName ("PactService" ++ show cid)
     pactServiceEnv cpe rs = PactServiceEnv

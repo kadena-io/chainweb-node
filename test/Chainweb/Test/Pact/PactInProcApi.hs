@@ -17,6 +17,7 @@ module Chainweb.Test.Pact.PactInProcApi
 ( tests
 ) where
 
+import Control.DeepSeq
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Lens hiding ((.=))
@@ -62,6 +63,7 @@ import Chainweb.Time
 import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 testVersion :: ChainwebVersion
 testVersion = FastTimedCPM peterson
@@ -102,14 +104,14 @@ tests = ScheduledTest testName $ go
           (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
 
 
-forSuccess :: String -> IO (MVar (Either PactException a)) -> IO a
-forSuccess msg mvio = (`catch` handler) $ do
+forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
+forSuccess msg mvio = (`catchAllSynchronous` handler) $ do
   mv <- mvio
   takeMVar mv >>= \r -> case r of
     Left e -> assertFailure $ msg ++ ": got failure result: " ++ show e
     Right v -> return v
   where
-    handler (e :: SomeException) = assertFailure $ msg ++ ": exception thrown: " ++ show e
+    handler e = assertFailure $ msg ++ ": exception thrown: " ++ show e
 
 runBlock :: PactQueue -> TestBlockDb -> TimeSpan Micros -> String -> IO ()
 runBlock q bdb timeOffset msg = do

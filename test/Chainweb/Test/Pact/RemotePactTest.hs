@@ -34,6 +34,7 @@ module Chainweb.Test.Pact.RemotePactTest
 import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
+import Control.DeepSeq
 import Control.Lens
 import Control.Monad
 import Control.Monad.Catch
@@ -43,6 +44,7 @@ import Control.Retry
 import qualified Data.Aeson as A
 import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString.Short as SB
+import Data.Decimal
 import Data.Default (def)
 import Data.Either
 import Data.Foldable (toList)
@@ -108,7 +110,7 @@ import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.Utils
+import Chainweb.Utils (sshow,int,toText,enableConfigEnabled,tryAllSynchronous)
 import Chainweb.Version
 
 import Data.CAS.RocksDB
@@ -185,7 +187,7 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
-awaitNetworkHeight :: IO ChainwebNetwork -> BlockHeight -> IO ()
+awaitNetworkHeight :: IO ChainwebNetwork -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
     cenv <- _getClientEnv <$> nio
     void $ awaitCutHeight cenv h
@@ -205,8 +207,7 @@ localTest iot nio = do
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
-    sid <- mkChainId v (0 :: Int)
-    res <- local sid cenv cmd
+    res <- local (unsafeChainId 0) cenv cmd
     let (PactResult e) = _crResult res
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
@@ -217,7 +218,7 @@ localChainDataTest iot nio = do
     mv <- newMVar (0 :: Int)
     SubmitBatch batch <- localTestBatch iot mv
     let cmd = head $ toList batch
-    sid <- mkChainId v (0 :: Int)
+    sid <- mkChainId v maxBound (0 :: Int)
     res <- flip runClientM cenv $ pactLocalApiClient v sid cmd
     checkCommandResult res
   where
@@ -250,7 +251,7 @@ pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
     cenv <- fmap _getClientEnv nio
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
-    sid <- liftIO $ mkChainId v (0 :: Int)
+    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
     void $ polling sid cenv rks ExpectPactError
 
 
@@ -268,7 +269,7 @@ sendValidationTest iot nio =
             pactSendApiClient v cid batch
 
         step "check sending mismatched chain id"
-        cid0 <- mkChainId v (0 :: Int)
+        cid0 <- mkChainId v maxBound (0 :: Int)
         batch3 <- testBatch'' "40" iot 20_000 mv gp
         expectSendFailure "Transaction metadata (chain id, chainweb version) conflicts with this endpoint" $
           flip runClientM cenv $
@@ -298,13 +299,17 @@ sendValidationTest iot nio =
       cmds <- mapM cmd (0 NEL.:| [1..5])
       return $ SubmitBatch cmds
 
-expectSendFailure :: (Show a,Show b) => String -> IO (Either b a) -> Assertion
-expectSendFailure expectErr act = do
-  r :: Either SomeException (Either b a) <- try act
-  case r of
+expectSendFailure
+    :: NFData a
+    => NFData b
+    => Show a
+    => Show b
+    => String
+    -> IO (Either b a)
+    -> Assertion
+expectSendFailure expectErr act = tryAllSynchronous act >>= \case
     (Right (Left e)) -> test $ show e
-    (Right (Right out)) -> assertFailure $ "expected exception on bad tx, got: "
-                           <> show out
+    (Right (Right out)) -> assertFailure $ "expected exception on bad tx, got: " <> show out
     (Left e) -> test $ show e
   where
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
@@ -314,7 +319,7 @@ spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
     batch <- mkTxBatch
-    sid <- mkChainId v (1 :: Int)
+    sid <- mkChainId v maxBound (1 :: Int)
     r <- flip runClientM cenv $ do
 
       void $ liftIO $ step "sendApiClient: submit batch"
@@ -364,7 +369,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
     cenv <- fmap _getClientEnv nio
-    sid <- mkChainId v (0 :: Int)
+    sid <- mkChainId v maxBound (0 :: Int)
 
     let runSend batch expectation = flip runClientM cenv $ do
           void $ liftIO $ step "sendApiClient: submit transaction"
@@ -432,7 +437,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
     let testCaseStep = void . liftIO . step
 
     cenv <- fmap _getClientEnv nio
-    sid <- liftIO $ mkChainId v (0 :: Int)
+    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     r <- flip runClientM cenv $ do
       batch <- liftIO
@@ -503,7 +508,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     let testCaseStep = void . liftIO . step
 
     cenv <- fmap _getClientEnv nio
-    sid <- liftIO $ mkChainId v (0 :: Int)
+    sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     step "positive allocation test: allocation00 release"
     p <- flip runClientM cenv $ do
@@ -512,19 +517,18 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
       SubmitBatch batch1 <- liftIO
         $ mkSingletonBatch iot allocation00KeyPair tx1 n1 (pm "allocation00") Nothing
-
       testCaseStep "sendApiClient: submit allocation release request"
       rks0 <- liftIO $ sending sid cenv batch0
 
       testCaseStep "pollApiClient: polling for allocation key"
-      void $ liftIO $ polling sid cenv rks0 ExpectPactResult
+      pr <- liftIO $ polling sid cenv rks0 ExpectPactResult
 
       testCaseStep "localApiClient: submit local account balance request"
-      liftIO $ local sid cenv $ head (toList batch1)
+      liftIO $ localTestToRetry sid cenv (head (toList batch1)) (localAfterPollResponse pr)
 
     case p of
       Left e -> assertFailure $ "test failure: " <> show e
-      Right cr -> assertEqual "expect /local allocation balance" accountInfo (resultOf cr)
+      Right cr -> assertEqual "00 expect /local allocation balance" accountInfo (resultOf cr)
 
 
     step "negative allocation test: allocation01 release"
@@ -566,17 +570,17 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
       rks' <- liftIO $ sending sid cenv batch1
       testCaseStep "pollingApiClient: polling for successful release"
-      void $ liftIO $ polling sid cenv rks' ExpectPactResult
+      pr <- liftIO $ polling sid cenv rks' ExpectPactResult
 
       testCaseStep "localApiClient: retrieving account info for allocation02"
       SubmitBatch batch2 <- liftIO
         $ mkSingletonBatch iot allocation02KeyPair' tx5 n5 (pm "allocation02") Nothing
 
-      liftIO $ local sid cenv $ head (toList batch2)
+      liftIO $ localTestToRetry sid cenv (head (toList batch2)) (localAfterPollResponse pr)
 
     case r of
       Left e -> assertFailure $ "test failure: " <> show e
-      Right cr -> assertEqual "expect /local allocation balance" accountInfo' (resultOf cr)
+      Right cr -> assertEqual "02 expect /local allocation balance" accountInfo' (resultOf cr)
 
   where
     n0 = Just "allocation-0"
@@ -585,6 +589,13 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
     n3 = Just "allocation-3"
     n4 = Just "allocation-4"
     n5 = Just "allocation-5"
+
+    localAfterPollResponse (PollResponses prs) cr =
+        getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
+
+    -- avoiding `scientific` dep here
+    getBlockHeight :: CommandResult a -> Maybe Decimal
+    getBlockHeight = preview (crMetaData . _Just . key "blockHeight" . _Number . to (fromRational . toRational))
 
     resultOf (CommandResult _ _ (PactResult pr) _ _ _ _) = pr
     accountInfo = Right
@@ -682,10 +693,10 @@ getClientEnv url = do
 
 awaitCutHeight
     :: ClientEnv
-    -> BlockHeight
+    -> CutHeight
     -> IO CutHashes
 awaitCutHeight cenv i = do
-    result <- retrying (exponentialBackoff 20_000 <> limitRetries 9) checkRetry
+    result <- retrying testRetryPolicy checkRetry
         $ const $ runClientM (cutGetClient v) cenv
     case result of
         Left e -> throwM e
@@ -709,7 +720,7 @@ local
     -> Command Text
     -> IO (CommandResult Hash)
 local sid cenv cmd =
-    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
+    recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "requesting local cmd for " <> (take 18 $ show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -724,6 +735,17 @@ local sid cenv cmd =
       LocalFailure _ -> return True
       _ -> return False
 
+localTestToRetry
+    :: ChainId
+    -> ClientEnv
+    -> Command Text
+    -> (CommandResult Hash -> Bool)
+    -> IO (CommandResult Hash)
+localTestToRetry sid cenv cmd test = retrying testRetryPolicy check (\_ -> go)
+  where
+    go = local sid cenv cmd
+    check _ cr = return $ not $ test cr
+
 -- | Request an SPV proof using exponential retry logic
 --
 spv
@@ -732,7 +754,7 @@ spv
     -> SpvRequest
     -> IO TransactionOutputProofB64
 spv sid cenv r =
-    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
+    recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "requesting spv proof for " <> show r
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -747,16 +769,25 @@ spv sid cenv r =
       SpvFailure _ -> return True
       _ -> return False
 
--- | Send a batch with retry logic using an exponential backoff.
--- This test just does a simple check to make sure sends succeed.
---
+-- | Backoff up to a constant 250ms, limiting to ~40s
+-- (actually saw a test have to wait > 22s)
+testRetryPolicy :: RetryPolicy
+testRetryPolicy = stepped <> limitRetries 150
+  where
+    stepped = retryPolicy $ \rs -> case rsIterNumber rs of
+      0 -> Just 20_000
+      1 -> Just 50_000
+      2 -> Just 100_000
+      _ -> Just 250_000
+
+-- | Send a batch with retry logic waiting for success.
 sending
     :: ChainId
     -> ClientEnv
     -> SubmitBatch
     -> IO RequestKeys
 sending sid cenv batch =
-    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
+    recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "sending requestkeys " <> show (_cmdHash <$> toList ss)
         <> " [" <> show (view rsIterNumberL s) <> "]"
@@ -785,7 +816,7 @@ polling
     -> PollingExpectation
     -> IO PollResponses
 polling sid cenv rks pollingExpectation =
-    recovering (exponentialBackoff 20_000 <> limitRetries 11) [h] $ \s -> do
+    recovering testRetryPolicy [h] $ \s -> do
       debug
         $ "polling for requestkeys " <> show (toList rs)
         <> " [" <> show (view rsIterNumberL s) <> "]"

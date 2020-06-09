@@ -223,8 +223,15 @@ data BlockState = BlockState
 emptySQLitePendingData :: SQLitePendingData
 emptySQLitePendingData = SQLitePendingData mempty mempty mempty mempty
 
-initBlockState :: BlockState
-initBlockState = BlockState 0 Nothing 0 emptySQLitePendingData Nothing False
+initBlockState :: BlockHeight -> BlockState
+initBlockState initialBlockHeight = BlockState
+    { _bsTxId = 0
+    , _bsMode = Nothing
+    , _bsBlockHeight = initialBlockHeight
+    , _bsPendingBlock = emptySQLitePendingData
+    , _bsPendingTx = Nothing
+    , _bsModuleNameFix = False
+    }
 
 makeLenses ''BlockState
 
@@ -244,16 +251,17 @@ makeLenses ''BlockEnv
 
 newtype BlockHandler p a = BlockHandler
     { runBlockHandler :: ReaderT (BlockDbEnv p) (StateT BlockState IO) a
-    } deriving newtype ( Functor
-                       , Applicative
-                       , Monad
-                       , MonadState BlockState
-                       , MonadThrow
-                       , MonadCatch
-                       , MonadMask
-                       , MonadIO
-                       , MonadReader (BlockDbEnv p)
-                       )
+    } deriving newtype
+        ( Functor
+        , Applicative
+        , Monad
+        , MonadState BlockState
+        , MonadThrow
+        , MonadCatch
+        , MonadMask
+        , MonadIO
+        , MonadReader (BlockDbEnv p)
+        )
 
 data PactDbEnv' = forall e. PactDbEnv' (PactDbEnv e)
 
@@ -274,6 +282,9 @@ data Checkpointer = Checkpointer
     , _cpGetLatestBlock :: IO (Maybe (BlockHeight, BlockHash))
       -- ^ get the checkpointer's idea of the latest block. The block height is
       -- is the height of the block of the block hash.
+      --
+      -- TODO: Under which circumstances does this return 'Nothing'?
+
     , _cpBeginCheckpointerBatch :: IO ()
     , _cpCommitCheckpointerBatch :: IO ()
     , _cpDiscardCheckpointerBatch :: IO ()

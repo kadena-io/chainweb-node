@@ -27,9 +27,12 @@ import qualified Network.X509.SelfSigned.Test
 main :: IO ()
 main = defaultMain suite
 
+loglevel :: LogLevel
+loglevel = Warn
+
 suite :: TestTree
 suite = testGroup "ChainwebSlowTests"
-    [ Chainweb.Test.MultiNode.test Warn (TimedConsensus petersonChainGraph) 10 120
+    [ Chainweb.Test.MultiNode.test loglevel (TimedConsensus petersonChainGraph twentyChainGraph) 10 120
     , testGroup "Network.X05.SelfSigned.Test"
         [ Network.X509.SelfSigned.Test.tests
         ]

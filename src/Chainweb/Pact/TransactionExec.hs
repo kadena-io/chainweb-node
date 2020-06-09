@@ -98,9 +98,11 @@ import Chainweb.Pact.Templates
 import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
 import Chainweb.Pact.Types
 import Chainweb.Transaction
-import Chainweb.Utils (encodeToByteString, sshow)
+import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
 import Chainweb.Version as V
 
+
+-- -------------------------------------------------------------------------- --
 
 -- | "Magic" capability 'COINBASE' used in the coin contract to
 -- constrain coinbase calls.
@@ -215,9 +217,25 @@ applyGenesisCmd logger dbEnv spv cmd =
   where
     nid = networkIdOf cmd
     rk = cmdToRequestKey cmd
-    tenv = TransactionEnv Transactional dbEnv logger def spv nid 0.0 rk 0
-           def
-    txst = TransactionState mempty mempty 0 Nothing (_geGasModel freeGasEnv)
+    tenv = TransactionEnv
+        { _txMode = Transactional
+        , _txDbEnv = dbEnv
+        , _txLogger = logger
+        , _txPublicData = def
+        , _txSpvSupport = spv
+        , _txNetworkId = nid
+        , _txGasPrice = 0.0
+        , _txRequestKey = rk
+        , _txGasLimit = 0
+        , _txExecutionConfig = def
+        }
+    txst = TransactionState
+        { _txCache = mempty
+        , _txLogs = mempty
+        , _txGasUsed = 0
+        , _txGasId = Nothing
+        , _txGasModel = _geGasModel freeGasEnv
+        }
 
     interp = initStateInterpreter $ initCapabilities [magic_GENESIS, magic_COINBASE]
 
@@ -429,13 +447,11 @@ applyUpgrades v cid height
 
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
-      r <- try $ runGenesis tx permissiveNamespacePolicy interp
-
-      case r of
+      tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
         Right _ -> return ()
-        Left (e :: SomeException) -> do
+        Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
-          return ()
+          void $ throwM e
 
 jsonErrorResult
     :: PactError

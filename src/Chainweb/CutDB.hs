@@ -25,8 +25,6 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
---
 module Chainweb.CutDB
 (
 -- * CutConfig
@@ -162,7 +160,7 @@ data CutDbParams = CutDbParams
     , _cutDbParamsTelemetryLevel :: !LogLevel
     , _cutDbParamsUseOrigin :: !Bool
     , _cutDbParamsFetchTimeout :: !Int
-    , _cutDbParamsInitialHeightLimit :: !(Maybe BlockHeight)
+    , _cutDbParamsInitialHeightLimit :: !(Maybe CutHeight)
     }
     deriving (Show, Eq, Ord, Generic)
 
@@ -180,7 +178,7 @@ defaultCutDbParams v ft = CutDbParams
     , _cutDbParamsInitialHeightLimit = Nothing
     }
   where
-    g = _chainGraph v
+    g = _chainGraph (v, maxBound @BlockHeight)
 
 -- | We ignore cuts that are two far ahead of the current best cut that we have.
 -- There are two reasons for this:
@@ -215,8 +213,8 @@ cutHashesTable :: RocksDb -> RocksDbCas CutHashes
 cutHashesTable rdb = newCas rdb valueCodec keyCodec ["CutHashes"]
   where
     keyCodec = Codec
-        (\(a,b,c) -> runPut $ encodeBlockHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
-        (runGet $ (,,) <$> decodeBlockHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
+        (\(a,b,c) -> runPut $ encodeCutHeightBe a >> encodeBlockWeightBe b >> encodeCutId c)
+        (runGet $ (,,) <$> decodeCutHeightBe <*> decodeBlockWeightBe <*> decodeCutId)
     valueCodec = Codec encodeToByteString decodeStrictOrThrow'
 
 -- -------------------------------------------------------------------------- --
@@ -234,10 +232,6 @@ data CutDb cas = CutDb
     , _cutDbQueueSize :: !Natural
     , _cutDbStore :: !(RocksDbCas CutHashes)
     }
-
-instance HasChainGraph (CutDb cas) where
-    _chainGraph = _chainGraph . _cutDbHeaderStore
-    {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion (CutDb cas) where
     _chainwebVersion = _chainwebVersion . _cutDbHeaderStore
@@ -495,10 +489,10 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
 
     hdrStore = _webBlockHeaderStoreCas headerStore
 
-    graph = _chainGraph headerStore
-
-    threshold :: Int
-    threshold = int $ 2 * diameter graph * order graph
+    threshold :: Cut -> Int
+    threshold c = int $ 2 * diameter graph * order graph
+      where
+        graph = chainGraphAt_ headerStore (minChainHeight c)
 
     queueToStream = do
         Down a <- liftIO (pQueueRemove queue)
@@ -519,8 +513,8 @@ processCuts conf logFun headerStore payloadStore cutHashesStore queue cutVar = q
     -- ahead
     --
     isVeryOld x = do
-        !h <- _cutHeight <$> readTVarIO cutVar
-        let r = int (_cutHashesHeight x) <= (int h - threshold)
+        cur <- readTVarIO cutVar
+        let r = int (_cutHashesHeight x) <= (int (_cutHeight cur) - threshold cur)
         when r $ loggc Debug x "skip very old cut"
         return r
 

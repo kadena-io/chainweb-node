@@ -51,22 +51,24 @@ import System.Random
 
 -- internal modules
 
-import Chainweb.BlockHeader (BlockHeader(..), decodeBlockHeaderWithoutHash)
+import Chainweb.BlockHeader (BlockHeader(..))
 import Chainweb.Chainweb.MinerResources (MiningCoordination(..))
 import Chainweb.Cut (Cut)
-import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPactService, _cut)
+import Chainweb.Cut.Create
+import Chainweb.CutDB (CutDb, awaitNewCutByChainIdStm, cutDbPactService, cutDbWebBlockHeaderDb, _cut)
 import Chainweb.Logger (Logger, logFunction)
 import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.Miners (transferableBytes)
-import Chainweb.Miner.Pact (Miner(..), MinerId(..))
+import Chainweb.Miner.Pact
 import Chainweb.Miner.RestAPI (MiningApi)
+import Chainweb.Payload
 import Chainweb.RestAPI.Utils (SomeServer(..))
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (getCurrentTimeIntegral)
-import Chainweb.Utils (EncodingException(..), runGet, suncurry3)
+import Chainweb.Utils (EncodingException(..), runGet, runPut)
 import Chainweb.Version
+import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
@@ -102,16 +104,21 @@ workHandler'
     -> IO WorkBytes
 workHandler' mr mcid m = do
     c <- _cut cdb
-    T2 bh pl <- newWork logf choice m pact (_coordPrimedWork mr) c
+    T2 wh pd <- newWork logf choice m hdb pact (_coordPrimedWork mr) c
     now <- getCurrentTimeIntegral
-    let !phash = _blockPayloadHash bh
-        !bpar = _blockParent bh
-    atomically . modifyTVar' (_coordState mr) . over _Unwrapped . M.insert (T2 bpar phash)
-        $ T3 (minerStatus m) pl now
-    pure . suncurry3 workBytes $ transferableBytes bh
+    let key = _payloadDataPayloadHash pd
+    atomically
+        . modifyTVar' (_coordState mr)
+        . over _Unwrapped
+        . M.insert key
+        $ T3 (minerStatus m) pd now
+    return $ WorkBytes $ runPut $ encodeWorkHeader wh
   where
     logf :: LogFunction
     logf = logFunction $ _coordLogger mr
+
+    hdb :: WebBlockHeaderDb
+    hdb = view cutDbWebBlockHeaderDb cdb
 
     choice :: ChainChoice
     choice = maybe Anything Suggestion mcid
@@ -123,23 +130,38 @@ workHandler' mr mcid m = do
     pact = _webPactExecutionService $ view cutDbPactService cdb
 
 solvedHandler
-    :: forall l cas. Logger l => MiningCoordination l cas -> HeaderBytes -> Handler NoContent
-solvedHandler mr (HeaderBytes hbytes) = do
-    ms <- liftIO $ readTVarIO tms
-    liftIO (try $ runGet decodeBlockHeaderWithoutHash hbytes) >>= \case
+    :: forall l cas
+    . Logger l
+    => MiningCoordination l cas
+    -> HeaderBytes
+    -> Handler NoContent
+solvedHandler mr (HeaderBytes bytes) =
+    liftIO (try $ runGet decodeSolvedWork bytes) >>= \case
         Left (DecodeException e) -> do
             let err = TL.encodeUtf8 $ TL.fromStrict e
             throwError err400 { errBody = "Decoding error: " <> err }
         Left _ ->
             throwError err400 { errBody = "Unexpected encoding exception" }
-        Right bh -> liftIO $ do
-            publish lf ms (_coordCutDb mr) bh
-            let !phash = _blockPayloadHash bh
-                !bpar = _blockParent bh
-            atomically . modifyTVar' tms . over _Unwrapped $ M.delete (T2 bpar phash)
-            pure NoContent
+
+        Right solved@(SolvedWork hdr) -> do
+            -- Fail Early: If a `BlockHeader` comes in that isn't associated with any
+            -- Payload we know about, reject it.
+            --
+            let key = _blockPayloadHash hdr
+            MiningState ms <- liftIO $ readTVarIO tms
+            T3 m pd _ <- case M.lookup key ms of
+                Nothing -> throwError err404 { errBody = "No associated Payload" }
+                Just x -> return x
+
+            liftIO $ NoContent <$ do
+                publish lf (_coordCutDb mr) (view minerId m) pd solved
+
+                -- There is a race here, but we don't care if the same cut is
+                -- published twice. There is also the risk that an item doesn't get
+                -- deleted of a leak in case an item doesn't get deleted. Items get
+                -- GCed on a regular basis by the coordinator.
+                atomically . modifyTVar' tms . over _Unwrapped $ M.delete key
   where
-    tms :: TVar MiningState
     tms = _coordState mr
 
     lf :: LogFunction

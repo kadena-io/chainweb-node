@@ -28,7 +28,6 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
@@ -47,6 +46,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Settings
@@ -310,7 +310,7 @@ doNewBlock ctxIO mempool parentHeader nonce t = do
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime

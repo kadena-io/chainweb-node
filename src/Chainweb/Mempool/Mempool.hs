@@ -201,7 +201,7 @@ data InsertError = InsertErrorDuplicate
                  | InsertErrorBuyGas Text
                  | InsertErrorCompilationFailed Text
                  | InsertErrorOther Text
-  deriving (Generic, Eq)
+  deriving (Generic, Eq, NFData)
 
 instance Show InsertError
   where

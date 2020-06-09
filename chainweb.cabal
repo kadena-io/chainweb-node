@@ -1,7 +1,7 @@
 cabal-version: 2.4
 
 name:         chainweb
-version:      1.8
+version:      1.9
 synopsis:     A Proof-of-Work Parallel-Chain Architecture for Massive Throughput
 description:  A Proof-of-Work Parallel-Chain Architecture for Massive Throughput.
 homepage:     https://github.com/kadena-io/chainweb
@@ -159,6 +159,7 @@ library
         , Chainweb.Counter
         , Chainweb.Crypto.MerkleLog
         , Chainweb.Cut
+        , Chainweb.Cut.Create
         , Chainweb.Cut.CutHashes
         , Chainweb.CutDB
         , Chainweb.CutDB.RestAPI
@@ -227,6 +228,7 @@ library
         , Chainweb.Utils.Paging
         , Chainweb.Utils.RequestLog
         , Chainweb.Version
+        , Chainweb.Version.Utils
         , Chainweb.WebBlockHeaderDB
         , Chainweb.WebPactExecutionService
 
@@ -310,7 +312,8 @@ library
         , attoparsec >= 0.13
         , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
-        , base64-bytestring >= 1.0
+        , base64-bytestring >= 1.0 && < 1.1
+            -- due to change in error message that is inlined in pact
         , binary >= 0.8
         , bloomfilter >= 2.0
         , bytes >= 0.15
@@ -415,6 +418,7 @@ library
     if flag(ed25519)
         cpp-options: -DWITH_ED25519=1
     if flag(ghc-flags)
+        build-tool-depends: hsinspect:hsinspect
         ghc-options: -fplugin GhcFlags.Plugin
         build-depends: ghcflags
 
@@ -443,7 +447,6 @@ test-suite chainweb-tests
         Chainweb.Test.Mempool.InMem
         Chainweb.Test.Mempool.RestAPI
         Chainweb.Test.Mempool.Sync
-        Chainweb.Test.Miner.Core
         Chainweb.Test.Misc
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.Pact.PactInProcApi
@@ -469,6 +472,8 @@ test-suite chainweb-tests
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
+        Chainweb.Test.Version
+        Chainweb.Test.Utils.BlockHeader
         Chainweb.Test.Utils.TestHeader
         Chainweb.Test.Utils.ApiQueries
 
@@ -484,7 +489,8 @@ test-suite chainweb-tests
         , async >= 2.2
         , base >= 4.12 && < 5
         , base16-bytestring >= 0.1
-        , base64-bytestring >= 1.0
+        , base64-bytestring >= 1.0 && < 1.1
+            -- due to change in error message that is inlined in pact
         , bytes >= 0.15
         , bytestring >= 0.10
         , cereal >= 0.5
@@ -549,7 +555,7 @@ test-suite chainweb-tests
         , yaml >= 0.11
 
     if flag(ed25519)
-        cpp-options: -dWITH_ED25519=1
+        cpp-options: -DWITH_ED25519=1
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Node Application
@@ -616,6 +622,7 @@ executable cwtool
         Chainweb.Test.Orphans.Internal
         Chainweb.Test.P2P.Peer.BootstrapConfig
         Chainweb.Test.Utils
+        Chainweb.Test.Utils.BlockHeader
         CheckpointerDBChecksum
         Ea
         Ea.Genesis

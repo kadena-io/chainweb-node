@@ -29,6 +29,7 @@ import qualified Chainweb.Test.Mempool
 import Chainweb.Test.Utils (withTestAppServer)
 import Chainweb.Utils (Codec(..))
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import Data.CAS.RocksDB
 

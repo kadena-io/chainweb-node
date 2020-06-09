@@ -41,7 +41,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar
-import Control.Lens (at, over, view, (&), (?~), (^?!))
+import Control.Lens (at, over, view, (&), (?~))
 
 import System.LogLevel (LogLevel(..))
 import qualified System.Random.MWC as MWC
@@ -58,11 +58,11 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Miners
 import Chainweb.Miner.Pact (Miner(..), minerId)
-import Chainweb.Payload (PayloadWithOutputs(..))
+import Chainweb.Payload (PayloadData(..), payloadWithOutputsToPayloadData)
 import Chainweb.Payload.PayloadStore
 import Chainweb.Sync.WebBlockHeaderStore
 import Chainweb.Time (Micros, Time(..), getCurrentTimeIntegral)
-import Chainweb.Utils (fromJuste, ixg, runForever, thd)
+import Chainweb.Utils (fromJuste, runForever, thd)
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (_webPactExecutionService)
 
@@ -115,7 +115,8 @@ withMiningCoordination logger conf cdb inner
                 , _coord403s = c403
                 , _coordConf = conf
                 , _coordUpdateStreamCount = l
-                , _coordPrimedWork = m })
+                , _coordPrimedWork = m
+                })
   where
     cids :: [ChainId]
     cids = HS.toList . chainIds $ _chainwebVersion cdb
@@ -150,31 +151,35 @@ withMiningCoordination logger conf cdb inner
     updateCache
         :: ChainId
         -> PrimedWork
-        -> T2 Miner PayloadWithOutputs
+        -> T2 Miner PayloadData
         -> PrimedWork
     updateCache cid (PrimedWork pw) (T2 (Miner mid _) payload) =
         PrimedWork (pw & at mid . traverse . at cid ?~ Just payload)
 
+    -- TODO: Should we initialize new chains, too, ahead of time?
+    -- It seems that it's not needed and 'awaitNewCutByChainId' in 'primedWork'
+    -- will take are of it.
+    --
     initialPayloads :: Cut -> [Miner] -> IO PrimedWork
     initialPayloads cut ms =
         PrimedWork . HM.fromList <$> traverse (\m -> (view minerId m,) <$> fromCut m pairs) ms
       where
         pairs :: [T2 ChainId ParentHeader]
-        pairs = map (\cid -> T2 cid (ParentHeader (cut ^?! ixg cid))) cids
+        pairs = fmap (uncurry T2) $ HM.toList $ ParentHeader <$> _cutMap cut
 
     -- | Based on a `Cut`, form payloads for each chain for a given `Miner`.
     --
     fromCut
       :: Miner
       -> [T2 ChainId ParentHeader]
-      -> IO (HM.HashMap ChainId (Maybe PayloadWithOutputs))
+      -> IO (HM.HashMap ChainId (Maybe PayloadData))
     fromCut m cut =
         HM.fromList <$> traverse (\(T2 cid bh) -> (cid,) . Just <$> getPayload bh m) cut
 
-    getPayload :: ParentHeader -> Miner -> IO PayloadWithOutputs
+    getPayload :: ParentHeader -> Miner -> IO PayloadData
     getPayload parent m = trace (logFunction logger)
         "Chainweb.Chainweb.MinerResources.withMiningCoordination.newBlock"
-        () 1 (_pactNewBlock pact m parent)
+        () 1 (payloadWithOutputsToPayloadData <$> _pactNewBlock pact m parent)
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
@@ -219,8 +224,8 @@ withMiningCoordination logger conf cdb inner
         summed :: Int
         summed = M.foldl' (\acc (T3 _ ps _) -> acc + g ps) 0 ms
 
-        g :: PayloadWithOutputs -> Int
-        g = V.length . _payloadWithOutputsTransactions
+        g :: PayloadData -> Int
+        g = V.length . _payloadDataTransactions
 
 -- | For in-process CPU mining by a Chainweb Node.
 --

@@ -23,7 +23,7 @@
 -- Maintainer: Lars Kuhtz <lars@kadena.io>
 -- Stability: experimental
 --
--- TODO
+-- Properties of Chainweb Versions
 --
 module Chainweb.Version
 ( ChainwebVersion(..)
@@ -34,21 +34,28 @@ module Chainweb.Version
 , chainwebVersionId
 
 -- * Properties of Chainweb Version
+-- ** Chain Graph
+, chainwebGraphs
+, genesisGraph
+, genesisHeight
 -- ** POW
 , BlockRate(..)
 , blockRate
 , WindowWidth(..)
 , window
--- ** Date- and Version-based Transaction Disabling and Enabling
+, headerSizeBytes
+, workSizeBytes
+-- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
+, enableModuleNameFix
 -- ** BlockHeader Validation Guards
 , slowEpochGuard
 , oldTargetGuard
 , skipFeatureFlagValidationGuard
-, enableModuleNameFix
+, fixedEpochStartGuard
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -67,8 +74,6 @@ module Chainweb.Version
 , HasChainwebVersion(..)
 , mkChainId
 , chainIds
-, someChainId
-, randomChainId
 
 -- * ChainId
 , module Chainweb.ChainId
@@ -79,6 +84,9 @@ module Chainweb.Version
 , ChainGraph
 , HasChainGraph(..)
 , adjacentChainIds
+, chainGraphAt
+, chainGraphAt_
+, chainwebGraphsAt
 
 -- ** Graph Properties
 , order
@@ -93,6 +101,10 @@ module Chainweb.Version
 , adjs
 , adjsOfVertex
 , checkAdjacentChainIds
+
+-- * Internal. Don't use. Exported only for testing
+, headerSizes
+, headerBaseSizeBytes
 ) where
 
 import Control.DeepSeq
@@ -103,13 +115,11 @@ import Data.Aeson hiding (pairs)
 import Data.Bits
 import Data.Bytes.Get
 import Data.Bytes.Put
-import Data.Foldable
 import Data.Hashable
-import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import qualified Data.List.NonEmpty as NE
 import Data.Proxy
 import qualified Data.Text as T
-import Data.Tuple (swap)
 import Data.Word
 
 import GHC.Generics (Generic)
@@ -117,8 +127,6 @@ import GHC.Stack
 import GHC.TypeLits
 
 import Numeric.Natural
-
-import System.Random
 
 -- internal modules
 
@@ -161,7 +169,7 @@ data ChainwebVersion
         -- This is primarily used in unit tests.
         --
 
-    | TimedConsensus ChainGraph
+    | TimedConsensus ChainGraph ChainGraph
         -- ^ Test instance for confirming the behaviour of our Consensus
         -- mechanisms (Cut processing, Header validation, etc.), where:
         --
@@ -253,11 +261,11 @@ instance Show ChainwebVersion where
 --     codes start at @0x00010000@ and count upwards.
 --
 chainwebVersionId :: ChainwebVersion -> Word32
-chainwebVersionId v@Test{} = toTestChainwebVersion v
-chainwebVersionId v@TimedConsensus{} = toTestChainwebVersion v
-chainwebVersionId v@PowConsensus{} = toTestChainwebVersion v
-chainwebVersionId v@TimedCPM{} = toTestChainwebVersion v
-chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersion v
+chainwebVersionId v@Test{} = toTestChainwebVersionId v
+chainwebVersionId v@TimedConsensus{} = toTestChainwebVersionId v
+chainwebVersionId v@PowConsensus{} = toTestChainwebVersionId v
+chainwebVersionId v@TimedCPM{} = toTestChainwebVersionId v
+chainwebVersionId v@FastTimedCPM{} = toTestChainwebVersionId v
 chainwebVersionId Development = 0x00000001
 chainwebVersionId Testnet04 = 0x00000007
 chainwebVersionId Mainnet01 = 0x00000005
@@ -298,26 +306,29 @@ chainwebVersionToText :: HasCallStack => ChainwebVersion -> T.Text
 chainwebVersionToText Development = "development"
 chainwebVersionToText Testnet04 = "testnet04"
 chainwebVersionToText Mainnet01 = "mainnet01"
-chainwebVersionToText v = fromJuste $ HM.lookup v prettyVersions
+chainwebVersionToText (Test g) = "test-" <> toText g
+chainwebVersionToText (TimedConsensus g1 g2) = "timedConsensus-" <> toText g1 <> "-" <> toText g2
+chainwebVersionToText (PowConsensus g) =  "powConsensus-" <> toText g
+chainwebVersionToText (TimedCPM g) =  "timedCPM-" <> toText g
+chainwebVersionToText (FastTimedCPM g) =  "fastTimedCPM-" <> toText g
 {-# INLINABLE chainwebVersionToText #-}
 
--- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
--- new `ChainwebVersion` value!
 -- | Read textual representation of a `ChainwebVersion`.
+--
+-- NOTE: This doesn't warn of incomplete pattern matches upon the addition of a
+-- new `ChainwebVersion` value!
 --
 chainwebVersionFromText :: MonadThrow m => T.Text -> m ChainwebVersion
 chainwebVersionFromText "development" = pure Development
 chainwebVersionFromText "testnet04" = pure Testnet04
 chainwebVersionFromText "mainnet01" = pure Mainnet01
-chainwebVersionFromText t =
-    case HM.lookup t chainwebVersions of
-        Just v -> pure v
-        Nothing -> case t of
-            "test" -> pure $ Test petersonChainGraph
-            "timedConsensus" -> pure $ TimedConsensus petersonChainGraph
-            "powConsensus" -> pure $ PowConsensus petersonChainGraph
-            "timedCPM" -> pure $ TimedCPM petersonChainGraph
-            _ -> throwM . TextFormatException $ "Unknown Chainweb version: " <> t
+chainwebVersionFromText t = case T.splitOn "-" t of
+    [ "test", g ] -> Test <$> fromText g
+    [ "timedConsensus", g1, g2 ] ->  TimedConsensus <$> fromText g1 <*> fromText g2
+    [ "powConsensus", g ] -> PowConsensus <$> fromText g
+    [ "timedCPM", g ] -> TimedCPM <$> fromText g
+    [ "fastTimedCPM", g ] -> FastTimedCPM <$> fromText g
+    _ -> throwM . TextFormatException $ "Unknown Chainweb version: " <> t
 
 instance HasTextRepresentation ChainwebVersion where
     toText = chainwebVersionToText
@@ -326,96 +337,67 @@ instance HasTextRepresentation ChainwebVersion where
     {-# INLINE fromText #-}
 
 -- -------------------------------------------------------------------------- --
--- Value Maps
-
--- FIXME This doesn't warn of incomplete pattern matches upon the addition of a
--- new `ChainwebVersion` value!
-chainwebVersions :: HM.HashMap T.Text ChainwebVersion
-chainwebVersions = HM.fromList $
-    f Test "test"
-    <> f TimedConsensus "timedConsensus"
-    <> f PowConsensus "powConsensus"
-    <> f TimedCPM "timedCPM"
-    <> f FastTimedCPM "fastTimedCPM"
-    <> [ ("development", Development)
-       , ("testnet04", Testnet04)
-       , ("mainnet01", Mainnet01)
-       ]
-  where
-    f v p = map (\(k, g) -> (p <> k, v g)) pairs
-    pairs = [ ("-singleton", singletonChainGraph)
-            , ("-pair", pairChainGraph)
-            , ("-triangle", triangleChainGraph)
-            , ("-peterson", petersonChainGraph)
-            , ("-twenty", twentyChainGraph)
-            , ("-hoffman-singleton", hoffmanSingletonChainGraph)
-            ]
-
-prettyVersions :: HM.HashMap ChainwebVersion T.Text
-prettyVersions = HM.fromList . map swap $ HM.toList chainwebVersions
-
--- -------------------------------------------------------------------------- --
 -- Test instances
 --
 -- The code in this section must not be called in production.
 --
 
--- | See `chainwebVersionId` for a complete explanation of the values in this
--- section below.
---
-toTestChainwebVersion :: HasCallStack => ChainwebVersion -> Word32
-toTestChainwebVersion v =
-    testVersionToCode v .|. graphToCode (view (chainGraph . chainGraphKnown) v)
+data GraphPos = P1 | P2 deriving (Bounded, Enum)
 
--- | For the binary encoding of a `ChainGraph` within a `ChainwebVersion`.
---
-graphToCode :: KnownGraph -> Word32
-graphToCode Singleton = 0x00010000
-graphToCode Pair = 0x00020000
-graphToCode Triangle = 0x00030000
-graphToCode Peterson = 0x00040000
-graphToCode Twenty = 0x00050000
-graphToCode HoffmanSingleton = 0x00060000
+graphToCodeN :: GraphPos -> KnownGraph -> Word32
+graphToCodeN p g = shiftL (graphToCode g) (4 * (4 + fromEnum p))
+  where
+    graphToCode :: KnownGraph -> Word32
+    graphToCode Singleton = 0x00000001
+    graphToCode Pair = 0x00000002
+    graphToCode Triangle = 0x00000003
+    graphToCode Peterson = 0x00000004
+    graphToCode Twenty = 0x00000005
+    graphToCode HoffmanSingleton = 0x00000006
 
-codeToGraph :: HasCallStack => Word32 -> KnownGraph
-codeToGraph 0x00010000 = Singleton
-codeToGraph 0x00020000 = Pair
-codeToGraph 0x00030000 = Triangle
-codeToGraph 0x00040000 = Peterson
-codeToGraph 0x00050000 = Twenty
-codeToGraph 0x00060000 = HoffmanSingleton
-codeToGraph _ = error "Unknown Graph Code"
+codeToGraphN :: HasCallStack => GraphPos -> Word32 -> KnownGraph
+codeToGraphN p c = codeToGraph (shiftR c (4 * (4 + fromEnum p)) .&. 0x0000000f)
+  where
+    codeToGraph :: HasCallStack => Word32 -> KnownGraph
+    codeToGraph 0x00000001 = Singleton
+    codeToGraph 0x00000002 = Pair
+    codeToGraph 0x00000003 = Triangle
+    codeToGraph 0x00000004 = Peterson
+    codeToGraph 0x00000005 = Twenty
+    codeToGraph 0x00000006 = HoffmanSingleton
+    codeToGraph _ = error "Unknown Graph Code"
 
--- | Split a `Word32` representation of a `ChainwebVersion` / `ChainGraph` pair
--- into its constituent pieces.
---
-splitTestCode :: Word32 -> (Word32, Word32)
-splitTestCode w = (0xf000ffff .&. w, 0x0fff0000 .&. w)
-
-codeToTestVersion :: HasCallStack => Word32 -> (ChainGraph -> ChainwebVersion)
-codeToTestVersion 0x80000000 = Test
-codeToTestVersion 0x80000001 = TimedConsensus
-codeToTestVersion 0x80000002 = PowConsensus
-codeToTestVersion 0x80000003 = TimedCPM
-codeToTestVersion 0x80000004 = FastTimedCPM
-codeToTestVersion _ = error "Unknown ChainwebVersion Code"
-
-testVersionToCode :: ChainwebVersion -> Word32
-testVersionToCode Test{} = 0x80000000
-testVersionToCode TimedConsensus{} = 0x80000001
-testVersionToCode PowConsensus{} = 0x80000002
-testVersionToCode TimedCPM{} = 0x80000003
-testVersionToCode FastTimedCPM{} = 0x80000004
-testVersionToCode Development =
+toTestChainwebVersionId :: HasCallStack => ChainwebVersion -> Word32
+toTestChainwebVersionId (Test g) = 0x80000000
+    .|. graphToCodeN P1 (view chainGraphKnown g)
+toTestChainwebVersionId (TimedConsensus g1 g2) = 0x80000001
+    .|. graphToCodeN P1 (view chainGraphKnown g1)
+    .|. graphToCodeN P2 (view chainGraphKnown g2)
+toTestChainwebVersionId (PowConsensus g) = 0x80000002
+    .|. graphToCodeN P1 (view chainGraphKnown g)
+toTestChainwebVersionId (TimedCPM g) = 0x80000003
+    .|. graphToCodeN P1 (view chainGraphKnown g)
+toTestChainwebVersionId (FastTimedCPM g) = 0x80000004
+    .|. graphToCodeN P1 (view chainGraphKnown g)
+toTestChainwebVersionId Development =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
-testVersionToCode Testnet04 =
+toTestChainwebVersionId Testnet04 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
-testVersionToCode Mainnet01 =
+toTestChainwebVersionId Mainnet01 =
     error "Illegal ChainwebVersion passed to toTestChainwebVersion"
 
 fromTestChainwebVersionId :: HasCallStack => Word32 -> ChainwebVersion
-fromTestChainwebVersionId i =
-    uncurry ($) . bimap codeToTestVersion (knownChainGraph . codeToGraph) $ splitTestCode i
+fromTestChainwebVersionId c = case v of
+    0x80000000 -> Test (knownChainGraph $ codeToGraphN P1 g)
+    0x80000001 -> TimedConsensus
+        (knownChainGraph $ codeToGraphN P1 g)
+        (knownChainGraph $ codeToGraphN P2 g)
+    0x80000002 -> PowConsensus (knownChainGraph $ codeToGraphN P1 g)
+    0x80000003 -> TimedCPM (knownChainGraph $ codeToGraphN P1 g)
+    0x80000004 -> FastTimedCPM (knownChainGraph $ codeToGraphN P1 g)
+    _ -> error "Unknown ChainwebVersion Code"
+  where
+    (v, g) = (0xf000ffff .&. c, 0x0fff0000 .&. c)
 
 -- -------------------------------------------------------------------------- --
 -- Type level ChainwebVersion
@@ -483,8 +465,10 @@ instance HasChainwebVersion ChainwebVersion where
     _chainwebVersion = id
     {-# INLINE _chainwebVersion #-}
 
+-- | All known chainIds. This includes chains that are not yet "active".
+--
 chainIds :: HasChainwebVersion v => v -> HS.HashSet ChainId
-chainIds = graphChainIds . _chainGraph . _chainwebVersion
+chainIds = graphChainIds . snd . NE.head . chainwebGraphs . _chainwebVersion
 {-# INLINE chainIds #-}
 
 mkChainId
@@ -492,30 +476,14 @@ mkChainId
     => HasChainwebVersion v
     => Integral i
     => v
+    -> BlockHeight
     -> i
     -> m ChainId
-mkChainId v i = cid
-    <$ checkWebChainId (chainwebVersionGraph $ _chainwebVersion v) cid
+mkChainId v h i = cid
+    <$ checkWebChainId (chainGraphAt (_chainwebVersion v) h) cid
   where
     cid = unsafeChainId (fromIntegral i)
 {-# INLINE mkChainId #-}
-
--- | Sometimes, in particular for testing and examples, some fixed chain id is
--- needed, but it doesn't matter which one. This function provides some valid
--- chain ids.
---
-someChainId :: HasCallStack => HasChainwebVersion v => v -> ChainId
-someChainId = head . toList . chainIds
-    -- 'head' is guaranteed to succeed because the empty graph isn't a valid chain
-    -- graph.
-{-# INLINE someChainId #-}
-
--- | Uniformily get a random ChainId
---
-randomChainId :: HasChainwebVersion v => v -> IO ChainId
-randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
-  where
-    cs = chainIds v
 
 -- -------------------------------------------------------------------------- --
 -- Properties of Chainweb Versions
@@ -524,19 +492,111 @@ randomChainId v = (!!) (toList cs) <$> randomRIO (0, length cs - 1)
 -- -------------------------------------------------------------------------- --
 -- Graph
 
-chainwebVersionGraph :: ChainwebVersion -> ChainGraph
-chainwebVersionGraph (Test g) = g
-chainwebVersionGraph (TimedConsensus g) = g
-chainwebVersionGraph (PowConsensus g) = g
-chainwebVersionGraph (TimedCPM g) = g
-chainwebVersionGraph (FastTimedCPM g) = g
-chainwebVersionGraph Development = petersonChainGraph
-chainwebVersionGraph Testnet04 = petersonChainGraph
-chainwebVersionGraph Mainnet01 = petersonChainGraph
+-- | Graphs of chainweb version
+--
+-- Invariants:
+--
+-- * Entries are sorted by 'BlockHeight' in decreasing order.
+-- * The last entry is for 'BlockHeight' 0.
+-- * The graphs decrease in order.
+--
+-- The functions provided in 'Chainweb.Version.Utils' are generally more
+-- convenient to use than this function.
+--
+chainwebGraphs :: ChainwebVersion -> NE.NonEmpty (BlockHeight, ChainGraph)
+chainwebGraphs (Test g) = pure (0, g)
+chainwebGraphs (TimedConsensus g1 g2) = (8, g2) NE.:| [ (0, g1) ]
+chainwebGraphs (PowConsensus g) = pure (0, g)
+chainwebGraphs (TimedCPM g) = pure (0, g)
+chainwebGraphs (FastTimedCPM g) = pure (0, g)
+chainwebGraphs Testnet04 = pure (0, petersonChainGraph)
+chainwebGraphs Mainnet01 = pure (0, petersonChainGraph)
+chainwebGraphs Development = pure (0, petersonChainGraph)
+-- chainwebGraphs Development = (50, twentyChainGraph) NE.:| [ (0, petersonChainGraph) ]
+{-# INLINE chainwebGraphs #-}
 
-instance HasChainGraph ChainwebVersion where
-    _chainGraph = chainwebVersionGraph
+-- | Return the Graph History at a given block height in descending order.
+--
+-- The functions provided in 'Chainweb.Version.Utils' are generally more
+-- convenient to use than this function.
+--
+-- This function is safe because of invariants provided by 'chainwebGraphs'.
+-- (There are also unit tests the confirm this.)
+--
+chainwebGraphsAt
+    :: HasCallStack
+    => ChainwebVersion
+    -> BlockHeight
+    -> NE.NonEmpty (BlockHeight, ChainGraph)
+chainwebGraphsAt v h = NE.fromList
+    $ NE.dropWhile ((> h) . fst)
+    $ chainwebGraphs v
+{-# INLINE chainwebGraphsAt #-}
+
+-- | The 'ChainGraph' for the given 'BlockHeight'
+--
+chainGraphAt :: HasCallStack => ChainwebVersion -> BlockHeight -> ChainGraph
+chainGraphAt v = snd . NE.head . chainwebGraphsAt v
+{-# INLINE chainGraphAt #-}
+
+-- | The 'ChainGraph' for the given 'BlockHeight'
+--
+chainGraphAt_
+    :: HasCallStack
+    => HasChainwebVersion v
+    => v
+    -> BlockHeight
+    -> ChainGraph
+chainGraphAt_ = chainGraphAt . _chainwebVersion
+{-# INLINE chainGraphAt_ #-}
+
+-- | The genesis graph for a given Chain
+--
+-- Invariant:
+--
+-- * The given ChainId exists in the first graph of the graph history.
+--   (We generally assume that this invariant holds throughout the code base.
+--   It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisGraph
+    :: HasCallStack
+    => HasChainwebVersion v
+    => HasChainId c
+    => v
+    -> c
+    -> ChainGraph
+genesisGraph v = chainGraphAt v_ . genesisHeight v_ . _chainId
+  where
+    v_ = _chainwebVersion v
+{-# INLINE genesisGraph #-}
+
+instance HasChainGraph (ChainwebVersion, BlockHeight) where
+    _chainGraph = uncurry chainGraphAt
     {-# INLINE _chainGraph #-}
+
+-- -------------------------------------------------------------------------- --
+-- Genesis Height
+
+-- | Returns the height of the genesis block for a chain.
+--
+-- The implementation is somewhat expensive. With the current number of chains
+-- this isn't an issue. Otherwise the result should be hardcoded or memoized.
+--
+-- TODO: memoize the genesis header for the production versions. Give this
+-- function a less attractive name and instead use this name to return the
+-- block height from the genesis header.
+--
+-- Invariant:
+--
+-- * The given ChainId exists in the first graph of the graph history.
+--   (We generally assume that this invariant holds throughout the code base.
+--   It is enforced via the 'mkChainId' smart constructor for ChainId.)
+--
+genesisHeight :: HasCallStack => ChainwebVersion -> ChainId -> BlockHeight
+genesisHeight v c = fst
+    $ head
+    $ NE.dropWhile (not . flip isWebChain c . snd)
+    $ NE.reverse (chainwebGraphs v)
 
 -- -------------------------------------------------------------------------- --
 -- POW Parameters
@@ -544,7 +604,7 @@ instance HasChainGraph ChainwebVersion where
 -- | The gap in SECONDS that we desire between the Creation Time of subsequent
 -- blocks in some chain.
 --
-newtype BlockRate = BlockRate Seconds
+newtype BlockRate = BlockRate { _getBlockRate :: Seconds }
 
 -- | The Proof-of-Work `BlockRate` for each `ChainwebVersion`. This is the
 -- number of seconds we expect to pass while a miner mines on various chains,
@@ -557,9 +617,9 @@ blockRate PowConsensus{} = BlockRate 10
 blockRate TimedCPM{} = BlockRate 4
 blockRate FastTimedCPM{} = BlockRate 1
 -- 120 blocks per hour, 2,880 per day, 20,160 per week, 1,048,320 per year.
-blockRate Development = BlockRate 30
 blockRate Testnet04 = BlockRate 30
 blockRate Mainnet01 = BlockRate 30
+blockRate Development = BlockRate 30
 
 -- | The number of blocks to be mined after a difficulty adjustment, before
 -- considering a further adjustment. Critical for the "epoch-based" adjustment
@@ -582,6 +642,58 @@ window Development = Just $ WindowWidth 120
 -- 120 blocks, should take 1 hour given a 30 second BlockRate.
 window Testnet04 = Just $ WindowWidth 120
 window Mainnet01 = Just $ WindowWidth 120
+
+-- -------------------------------------------------------------------------- --
+-- Header Serialization
+
+-- | The size in bytes of the constant portion of the serialized header. This is
+-- the header /without/ the adjacent hashes.
+--
+-- NOTE: This is an internal function. For the actual size of the serialized header
+-- use 'headerSizeBytes'.
+--
+headerBaseSizeBytes :: ChainwebVersion -> Natural
+headerBaseSizeBytes _ = 318 - 110
+
+-- | This is an internal function. Use 'headerSizeBytes' instead.
+--
+-- Postconditions: for all @v@
+--
+-- * @not . null $ headerSizes v@, and
+-- * @0 == (fst . last) (headerSizes v)@.
+--
+headerSizes :: ChainwebVersion -> NE.NonEmpty (BlockHeight, Natural)
+headerSizes v = fmap (\g -> headerBaseSizeBytes v + 36 * degree g + 2) <$> chainwebGraphs v
+
+-- | The size of the serialized block header.
+--
+-- This function is safe because of the invariant of 'headerSize' that there
+-- exists and entry for block height 0.
+--
+headerSizeBytes
+    :: HasCallStack
+    => ChainwebVersion
+    -> BlockHeight
+    -> Natural
+headerSizeBytes v h = snd
+    $ head
+    $ NE.dropWhile ((> h) . fst)
+    $ headerSizes v
+{-# INLINE headerSizeBytes #-}
+
+-- | The size of the work bytes /without/ the preamble of the chain id and target
+--
+-- NOTE: For projection versions we require that the value is constant for a
+-- given chainweb version. This would only ever change as part of the
+-- introduction of new block header format.
+--
+workSizeBytes
+    :: HasCallStack
+    => ChainwebVersion
+    -> BlockHeight
+    -> Natural
+workSizeBytes v h = headerSizeBytes v h - 32
+{-# INLINE workSizeBytes #-}
 
 -- -------------------------------------------------------------------------- --
 -- Pact Validation Guards
@@ -741,3 +853,9 @@ oldTargetGuard _ _ = False
 skipFeatureFlagValidationGuard :: ChainwebVersion -> BlockHeight -> Bool
 skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:xxZ
 skipFeatureFlagValidationGuard _ _ = False
+
+fixedEpochStartGuard :: ChainwebVersion -> BlockHeight -> Bool
+fixedEpochStartGuard Mainnet01 _ = True
+fixedEpochStartGuard Testnet04 _ = True
+fixedEpochStartGuard Development _ = True
+fixedEpochStartGuard _ _ = False

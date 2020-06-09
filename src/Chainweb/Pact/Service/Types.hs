@@ -20,6 +20,7 @@
 
 module Chainweb.Pact.Service.Types where
 
+import Control.DeepSeq
 import Control.Concurrent.MVar.Strict
 import Control.Monad.Catch
 
@@ -93,7 +94,7 @@ instance Exception PactException
 -- | Gather tx logs for a block. Not intended
 -- for public API use; ToJSONs are for logging output.
 newtype BlockTxHistory = BlockTxHistory { _blockTxHistory :: Map TxId [TxLog Value] }
-  deriving (Eq,Generic)
+  deriving (Eq,Generic, NFData)
 instance Show BlockTxHistory where
   show = show . fmap encodeToText . _blockTxHistory
 

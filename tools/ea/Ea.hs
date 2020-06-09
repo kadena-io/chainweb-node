@@ -61,7 +61,8 @@ import Chainweb.Time
 import Chainweb.Transaction
     (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithText)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version.Utils (someChainId)
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.ChainMeta

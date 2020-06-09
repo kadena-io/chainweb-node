@@ -34,7 +34,7 @@ jobs:
       run: |
         aws s3 sync "s3://chainweb-chain-db/${{ matrix.chainwebVersion }}/rocksdb/" db/rocksdb/ --delete --exclude=LOCK
     - name: Store chain database as artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v2
       with:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
@@ -56,7 +56,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: bin
@@ -79,7 +79,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.8.8.3.ubuntu-18.04
         path: bin
@@ -112,12 +112,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download chain database artifact
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chain-db-${{ matrix.chainwebVersion }}
         path: db
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
@@ -146,12 +146,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y librocksdb-dev
     - name: Download ${{ matrix.chainwebVersion }} chain database artifact
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chain-db-${{ matrix.chainwebVersion}}
         path: db
     - name: Download build artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.ubuntu-18.04
         path: bin
@@ -217,6 +217,13 @@ jobs:
         cabal: ['3.2.0.0']
         os: ['ubuntu-16.04', 'ubuntu-18.04', 'macOS-latest']
         cabalcache: ['true']
+        # exclusions can be removed once https://github.com/actions/setup-haskell/issues/21 is resolved
+        exclude:
+          - os: 'macOS-latest'
+            ghc: '8.6.5'
+          - os: 'macOS-latest'
+            ghc: '8.8.3'
+
     env:
       ARTIFACT_BUCKET: kadena-cabal-cache
       ARTIFACT_FOLDER: chainweb-node
@@ -225,38 +232,43 @@ jobs:
 
     # Setup
     - name: Checkout repository
-      uses: actions/checkout@v1
+      uses: actions/checkout@v2.2.0
     - name: Create env variables for git objects
       run: |
         echo "::set-env name=IS_RELEASE::${{ contains(github.event_name, 'release') }}"
         echo "::set-env name=GIT_REF_SHORT::${GITHUB_REF#refs/heads/}"
         echo "::set-env name=GIT_HEAD_REF_SHORT::${GITHUB_HEAD_REF#refs/heads/}"
         echo "::set-env name=GIT_SHA_SHORT::$(git rev-parse --short HEAD || true)"
-        
+
     - name: Set optimization level
       run: |
         if [[ "$GIT_REF_SHORT" = "master" || "$IS_RELEASE" = "true" ]] ; then
           echo "::set-env name=OPT_LEVEL::2"
         else
           echo "::set-env name=OPT_LEVEL::1"
-        fi        
+        fi
 
     - name: Install GHC and Cabal
-      uses: actions/setup-haskell@v1.1
+      uses: actions/setup-haskell@v1.1.0
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}
+    - name: Confirm GHC and Cabal installation
+      run: |
+        ghc --version
+        cabal --version
     - name: Install non-Haskell dependencies (ubuntu)
       if: contains(matrix.os, 'ubuntu')
       run: |
           sudo apt-get update
-          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev
+          sudo apt-get install -y git librocksdb-dev zlib1g-dev libtinfo-dev libsqlite3-dev z3
     - name: Install non-Haskell dependencies (macOS)
       if: contains(matrix.os, 'mac')
       run: |
         brew update
         brew install sqlite
         brew install rocksdb
+        brew install z3
     - name: Create cabal.project.local
       run: |
         cat > cabal.project.local <<EOF
@@ -365,7 +377,7 @@ jobs:
         cp cabal.project.local artifacts/applications
         cp cabal.project.freeze artifacts/applications
     - name: Safe artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v2
       with:
         name: chainweb-applications.${{ matrix.ghc }}.${{ matrix.os }}
         path: artifacts/applications
