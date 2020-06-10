@@ -207,7 +207,7 @@ arbitraryBlockHeaderVersionHeightChain
     -> Gen BlockHeader
 arbitraryBlockHeaderVersionHeightChain v h cid
     | isWebChain (chainGraphAt v h) cid = do
-        t <- genEnum (toEnum 0, maxBound)
+        t <- genEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
         fromLog . newMerkleLog <$> entries t
     | otherwise = discard
   where
