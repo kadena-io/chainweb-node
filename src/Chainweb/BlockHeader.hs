@@ -323,6 +323,7 @@ epochStart
     -> EpochStartTime
         -- ^ epoch start time of new block
 epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
+    | Nothing <- effectiveWindow p = _blockEpochStart p
 
     -- A special case for starting a new devnet. Using maxtarget results in an
     -- two high block production and consecutively orphans and network
