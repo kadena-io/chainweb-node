@@ -725,7 +725,6 @@ prop_block_chainId (ChainStep (ParentHeader p) b)
 prop_block_epoch :: WebStep -> Bool
 prop_block_epoch (WebStep as (ChainStep p b))
     = _blockEpochStart b <= EpochStartTime (_bct $ _blockCreationTime b)
-    && _blockEpochStart (_parentHeader p) <= _blockEpochStart b
     && _blockEpochStart b == epochStart p as (_blockCreationTime b)
 
 prop_block_creationTime :: WebStep -> Bool
