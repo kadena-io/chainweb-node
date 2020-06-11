@@ -34,6 +34,7 @@ module Chainweb.BlockHeader
 (
 -- * Newtype wrappers for function parameters
   ParentHeader(..)
+, parentHeader
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -322,6 +323,7 @@ epochStart
     -> EpochStartTime
         -- ^ epoch start time of new block
 epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
+    | Nothing <- effectiveWindow p = _blockEpochStart p
 
     -- A special case for starting a new devnet. Using maxtarget results in an
     -- two high block production and consecutively orphans and network
@@ -419,6 +421,9 @@ newtype ParentHeader = ParentHeader
     { _parentHeader :: BlockHeader }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
+
+parentHeader :: Lens' ParentHeader BlockHeader
+parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
 
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader

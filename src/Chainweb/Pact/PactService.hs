@@ -326,8 +326,8 @@ initializeCoinContract _logger v cid pwo = do
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
       let target = Just (succ bhe, bhash)
-      parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "initializeCoinContract"
-      setParentHeader "readContracts" parentHeader
+      parent <- ParentHeader <$!> lookupBlockHeader bhash "initializeCoinContract"
+      setParentHeader "readContracts" parent
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
@@ -583,9 +583,9 @@ restoreCheckpointer
     :: PayloadCasLookup cas
     => Maybe (BlockHeight,BlockHash)
         -- ^ The block height @height@ to which to restore and the parent header
-        -- @parentHeader@.
+        -- @parent@.
         --
-        -- It holds that @(_blockHeight parentHeader == pred height)@
+        -- It holds that @(_blockHeight parent == pred height)@
 
     -> String
         -- ^ Putative caller
@@ -807,13 +807,13 @@ validateLegacyTTL
     :: ParentHeader
     -> Vector ChainwebTransaction
     -> ValidateTxs
-validateLegacyTTL parentHeader txs
-    | isGenesisParent parentHeader = V.map Right txs
+validateLegacyTTL parent txs
+    | isGenesisParent parent = V.map Right txs
     | V.null txs = V.empty
     | otherwise = V.map check txs
   where
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
-    parentTime = _bct $ _blockCreationTime $ _parentHeader parentHeader
+    parentTime = _bct $ _blockCreationTime $ _parentHeader parent
     check tx
         | expirationTime >= parentTime = Right tx
         | otherwise = Left InsertErrorInvalidTime
@@ -823,7 +823,7 @@ validateLegacyTTL parentHeader txs
         P.TxCreationTime txOriginationTime = creationTimeOf (payloadObj <$> tx)
 
     -- ensure that every block that validates with
-    -- @txValidationTime == _blockCreatinTime parentHeader@ (new behavior) also validates with
+    -- @txValidationTime == _blockCreatinTime parent@ (new behavior) also validates with
     -- @txValidationTime == _blockCreationTime currentHeader@ (old behavior).
     --
     -- The compat period puts an effective lower limit on the TTL value. During
@@ -844,17 +844,17 @@ validateLegacyTTL parentHeader txs
     -- little less than 3 minutes.
     --
     compatPeriod
-        | useLegacyCreationTimeNewBlockOrInsert parentHeader = 60 * 3
+        | useLegacyCreationTimeNewBlockOrInsert parent = 60 * 3
         | otherwise = 0
 
 -- | Guard for new block or insert checks vs. parent block height + 1,
 -- whereas validate checks "current block height".
 useLegacyCreationTimeNewBlockOrInsert :: ParentHeader -> Bool
-useLegacyCreationTimeNewBlockOrInsert parentHeader =
+useLegacyCreationTimeNewBlockOrInsert parent =
   useLegacyCreationTimeForTxValidation v bh
   where
-    v = _chainwebVersion parentHeader
-    bh = succ $ _blockHeight $ _parentHeader parentHeader
+    v = _chainwebVersion parent
+    bh = succ $ _blockHeight $ _parentHeader parent
 
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
@@ -949,10 +949,10 @@ execNewBlock
     -> ParentHeader
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
+execNewBlock mpAccess parent miner = handle onTxFailure $ do
     updateMempool
     withDiscardedBatch $ do
-      setParentHeader "execNewBlock" parentHeader
+      setParentHeader "execNewBlock" parent
       rewindTo newblockRewindLimit target
       newTrans <- withCheckpointer target "preBlock" doPreBlock
       withCheckpointer target "execNewBlock" (doNewBlock newTrans)
@@ -979,8 +979,8 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
               runGas = attemptBuyGas miner pdbenv txs
           validate bhi _bha txs = do
 
-            let parentTime = _blockCreationTime $ _parentHeader parentHeader
-                lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
+            let parentTime = _blockCreationTime $ _parentHeader parent
+                lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parent
             results <- V.zipWith (>>)
                 <$> do
                     let v = _chainwebVersion psEnv
@@ -991,21 +991,21 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
                 -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
                 -- of all chainweb versions.
                 --
-                <*> pure (validateLegacyTTL parentHeader txs)
+                <*> pure (validateLegacyTTL parent txs)
 
             V.forM results $ \case
                 Right _ -> return True
                 Left _e -> return False
 
       liftIO $! fmap Discard $!
-        mpaGetBlock mpAccess validate bHeight pHash (_parentHeader parentHeader)
+        mpaGetBlock mpAccess validate bHeight pHash (_parentHeader parent)
 
     doNewBlock newTrans pdbenv = do
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        setParentHeader "doNewBlock" parentHeader -- could have been overwritten in rewind, so set again
+        setParentHeader "doNewBlock" parent -- could have been overwritten in rewind, so set again
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- execTransactions False miner newTrans
@@ -1016,14 +1016,14 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
 
-    pHeight = _blockHeight $ _parentHeader parentHeader
-    pHash = _blockHash $ _parentHeader parentHeader
+    pHeight = _blockHeight $ _parentHeader parent
+    pHash = _blockHash $ _parentHeader parent
     target = Just (bHeight, pHash)
     bHeight = succ pHeight
 
     updateMempool = liftIO $ do
-      mpaProcessFork mpAccess $ _parentHeader parentHeader
-      mpaSetLastHeader mpAccess $ _parentHeader parentHeader
+      mpaProcessFork mpAccess $ _parentHeader parent
+      mpaSetLastHeader mpAccess $ _parentHeader parent
 
 
 withBatch :: PactServiceM cas a -> PactServiceM cas a
@@ -1134,8 +1134,8 @@ playOneBlock currHeader plData pdbenv = do
       else do
         -- FIXME don't do this twice. Instead store the parent header in the context
         -- (and don't use the current header at all)
-        parentHeader <- ParentHeader <$!> lookupBlockHeader  (_blockParent currHeader) "playOneBlock"
-        return (_blockCreationTime $ _parentHeader parentHeader, True)
+        parent <- ParentHeader <$!> lookupBlockHeader  (_blockParent currHeader) "playOneBlock"
+        return (_blockCreationTime $ _parentHeader parent, True)
 
     -- prop_tx_ttl_validate
     valids <- liftIO $ V.zip trans <$>
@@ -1175,8 +1175,8 @@ playOneBlock currHeader plData pdbenv = do
         execTransactions True m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
-        parentHeader <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
-        setParentHeader "playOneBlock:normal" parentHeader
+        parent <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
+        setParentHeader "playOneBlock:normal" parent
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         execTransactions False m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
@@ -1191,9 +1191,9 @@ rewindTo
         -- ^ if set, limit rewinds to this delta
     -> Maybe (BlockHeight, ParentHash)
         -- ^ The block height @height@ to which to restore and the parent header
-        -- @parentHeader@.
+        -- @parent@.
         --
-        -- It holds that @(_blockHeight parentHeader == pred height)@
+        -- It holds that @(_blockHeight parent == pred height)@
     -> PactServiceM cas ()
 rewindTo rewindLimit = maybe rewindGenesis doRewind
   where
@@ -1217,10 +1217,10 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
     playFork bhdb payloadDb parentHash lastHeader = do
-        parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"
+        parent <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"
 
         (!_, _, newBlocks) <-
-            liftIO $ collectForkBlocks bhdb lastHeader $ _parentHeader parentHeader
+            liftIO $ collectForkBlocks bhdb lastHeader $ _parentHeader parent
         -- play fork blocks
         V.mapM_ (fastForward payloadDb) newBlocks
 
@@ -1433,12 +1433,12 @@ execPreInsertCheckReq
     => Vector ChainwebTransaction
     -> PactServiceM cas (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = do
-    parentHeader <- use psParentHeader
-    let currHeight = succ $ _blockHeight $ _parentHeader parentHeader
+    parent <- use psParentHeader
+    let currHeight = succ $ _blockHeight $ _parentHeader parent
     psEnv <- ask
     psState <- get
-    let parentTime = _blockCreationTime $ _parentHeader parentHeader
-        lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
+    let parentTime = _blockCreationTime $ _parentHeader parent
+        lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parent
     cp <- getCheckpointer
     withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
       let v = _chainwebVersion psEnv
@@ -1450,7 +1450,7 @@ execPreInsertCheckReq txs = do
         -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
         -- of all chainweb versions.
         --
-        <*> pure (validateLegacyTTL parentHeader txs)
+        <*> pure (validateLegacyTTL parent txs)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)

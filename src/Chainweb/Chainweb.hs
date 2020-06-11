@@ -370,7 +370,7 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
-        -- , "rosetta" .= _configRosetta o
+        , "rosetta" .= _configRosetta o
         ]
 
 instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
@@ -390,7 +390,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-        -- <*< configRosetta ..: "rosetta" % o
+        <*< configRosetta ..: "rosetta" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
 pChainwebConfiguration = id
@@ -430,9 +430,9 @@ pChainwebConfiguration = id
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
-    -- <*< configRosetta .:: boolOption_
-    --     % long "rosetta"
-    --     <> help "Enable the Rosetta endpoints."
+    <*< configRosetta .:: boolOption_
+        % long "rosetta"
+        <> help "Enable the Rosetta endpoints."
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources

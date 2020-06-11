@@ -373,6 +373,7 @@ withBlockHeaders logger config inner = do
         let pdb = newPayloadDb rdb
         initializePayloadDb v pdb
         liftIO $ logg Info "start traversing block headers"
+        liftIO $ logg Info $ "header validation: " <> sshow (_configValidate config)
         withChainDbsConcurrent rdb v cids (_configValidate config) start end $ inner pdb . void
   where
     logg :: LogFunctionText
