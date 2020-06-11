@@ -30,6 +30,7 @@ import Data.DoubleWord
 import Data.Foldable
 import Data.List (sort)
 import qualified Data.List as L
+import Data.Ratio
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import qualified Data.Text as T
@@ -55,6 +56,8 @@ import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
 import Data.Word.Encoding
+
+import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
 -- Properties
@@ -230,6 +233,79 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockWeight %~ (+ 1)
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
       )
+
+    -- The following 6 tests suffer from redundant rounding in the target computations of
+    -- the current code, that introduced imprecsion. Once that is fixed, the failures
+    -- that are labeled with `tmp` will disappear and can be removed.
+    --
+
+    -- test correct epoch transition
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (hour ^+. epoch)
+            & h . blockTarget . hashTarget .~ view (p . blockTarget . hashTarget) hdr
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectTarget {- tmp -}]
+      )
+    -- epoch transition with wrong epoch start time
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (second ^+. (hour ^+. epoch))
+            & h . blockTarget .~ (view (p . blockTarget) hdr)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectEpoch, IncorrectTarget {- tmp -} ]
+      )
+    -- test epoch transition with correct target adjustment (*2)
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget {- tmp -}]
+      )
+    -- test epoch transition with correct target adjustment (/ 2)
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ ceiling (view (p . blockTarget . hashTarget) hdr % 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget {- tmp -}]
+      )
+    -- test epoch transition with incorrect target adjustment
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectTarget]
+      )
+    -- test epoch transition with incorrect target adjustment
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget]
+      )
+
     , ( hdr & testHeaderHdr . blockHeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectHeight]
       )
@@ -257,6 +333,10 @@ validationFailures =
       )
     ]
   where
+    h, p :: Lens' TestHeader BlockHeader
+    h = testHeaderHdr
+    p = testHeaderParent . parentHeader
+
     -- From mainnet
     hdr = testHeader
         [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"

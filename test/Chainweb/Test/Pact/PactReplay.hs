@@ -99,8 +99,8 @@ onRestart mpio iop step = do
 
 testMemPoolAccess :: MemPoolAccess
 testMemPoolAccess = mempty
-    { mpaGetBlock = \validate bh hash parentHeader  -> do
-        let (BlockCreationTime t) = _blockCreationTime parentHeader
+    { mpaGetBlock = \validate bh hash ph -> do
+        let (BlockCreationTime t) = _blockCreationTime ph
         getTestBlock t validate bh hash
     }
   where
@@ -248,11 +248,11 @@ mineBlock
     -> Nonce
     -> IO (PactQueue,TestBlockDb)
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock parentHeader nonce iop = do
+mineBlock ph nonce iop = do
 
      -- assemble block without nonce and timestamp
      let r = fst <$> iop
-     mv <- r >>= newBlock noMiner parentHeader
+     mv <- r >>= newBlock noMiner ph
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
@@ -260,7 +260,7 @@ mineBlock parentHeader nonce iop = do
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              ph
 
      mv' <- r >>= validateBlock bh (payloadWithOutputsToPayloadData payload)
      void $ assertNotLeft =<< takeMVar mv'
@@ -272,13 +272,13 @@ mineBlock parentHeader nonce iop = do
      bhdb <- getBlockHeaderDb cid bdb
      unsafeInsertBlockHeaderDb bhdb bh
 
-     return $ T3 parentHeader bh payload
+     return $ T3 ph bh payload
 
    where
      creationTime = BlockCreationTime
           . add (TimeSpan 1_000_000)
           . _bct . _blockCreationTime
-          $ _parentHeader parentHeader
+          $ _parentHeader ph
 
 assertNotLeft :: (MonadThrow m, Exception e) => Either e a -> m a
 assertNotLeft (Left l) = throwM l
