@@ -239,7 +239,7 @@ validationFailures =
     -- that are labeled with `tmp` will disappear and can be removed.
     --
 
-    -- test corret epoch transition
+    -- test correct epoch transition
     , ( hdr & h . blockFlags .~ mkFeatureFlags
             & p . blockHeight .~ 599999
             & p . blockEpochStart .~ EpochStartTime epoch
