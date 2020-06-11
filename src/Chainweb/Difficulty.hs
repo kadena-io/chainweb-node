@@ -56,6 +56,7 @@ module Chainweb.Difficulty
 
 -- * Difficulty Adjustment
 , adjust
+, legacyAdjust
 
 -- * Test Properties
 , properties
@@ -317,7 +318,39 @@ adjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
     newTarget = min maxTarget
         $ HashTarget . PowHashNat
         $ ceiling
-        $ int oldTarget * (actualEpochTime / targetedEpochTime)
+        $ (actualEpochTime / targetedEpochTime)
+        * int oldTarget
+
+-- | legacy target computation
+--
+-- This is used when 'oldDaGuard' is active.
+--
+legacyAdjust
+    :: ChainwebVersion
+        -- ^ Chainweb Version
+    -> WindowWidth
+        -- ^ The number of blocks in an epoch
+    -> TimeSpan Micros
+        -- ^ the actual time of the last epoch: creation time minus the epoch
+        -- start time of the last block in the (previous) epoch
+    -> HashTarget
+        -- ^ the hash target of the (previous) epoch, i.e. the hash target of
+        -- the last header in the (previous) epoch
+    -> HashTarget
+        -- ^ the hash target of the new epoch
+legacyAdjust v (WindowWidth ww) (TimeSpan delta) (HashTarget oldTarget) = newTarget
+  where
+    br :: Seconds
+    br = _getBlockRate $ blockRate v
+
+    newDiff :: Rational
+    newDiff = oldDiff * int br * int ww * 1000000 / int delta
+
+    oldDiff :: Rational
+    oldDiff = int maxTargetWord / int oldTarget
+
+    newTarget :: HashTarget
+    newTarget = HashTarget . PowHashNat $ maxTargetWord `div` ceiling newDiff
 
 -- -------------------------------------------------------------------------- --
 -- Properties

@@ -292,11 +292,11 @@ powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
 
         -- Emergency DA, legacy
         | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
-            adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            activeAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
 
         -- End of epoch
         | isLastInEpoch ph ->
-            adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            activeAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
 
         | otherwise -> _blockTarget ph
   where
@@ -305,6 +305,10 @@ powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
         else _bct (_blockCreationTime ph)
     ver = _chainwebVersion p
     cid = _chainId p
+
+    activeAdjust
+        | oldDaGuard ver (_blockHeight ph + 1) = legacyAdjust
+        | otherwise = adjust
 {-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader
@@ -345,9 +349,9 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     -- End of epoch, DA adjustment
     | isLastInEpoch p = EpochStartTime (_bct $ _blockCreationTime p)
 
-    -- Within epoch but before fixed epoch start guard
-    | fixedEpochStartGuard ver (_blockHeight p + 1) = _blockEpochStart p
-    -- Within an epoch when legacy 'fixedEpochStartGuard' does not apply
+    -- Within epoch with old legacy DA
+    | oldDaGuard ver (_blockHeight p + 1) = _blockEpochStart p
+    -- Within an epoch with new DA
     | otherwise = _blockEpochStart p .+^ timeBlocked
   where
     ver = _chainwebVersion p

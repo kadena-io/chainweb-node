@@ -55,7 +55,7 @@ module Chainweb.Version
 , slowEpochGuard
 , oldTargetGuard
 , skipFeatureFlagValidationGuard
-, fixedEpochStartGuard
+, oldDaGuard
 
 -- * Typelevel ChainwebVersion
 , ChainwebVersionT(..)
@@ -854,8 +854,9 @@ skipFeatureFlagValidationGuard :: ChainwebVersion -> BlockHeight -> Bool
 skipFeatureFlagValidationGuard Mainnet01 h = h < 530500  -- ~ 2020-05-01T00:00:xxZ
 skipFeatureFlagValidationGuard _ _ = False
 
-fixedEpochStartGuard :: ChainwebVersion -> BlockHeight -> Bool
-fixedEpochStartGuard Mainnet01 _ = True
-fixedEpochStartGuard Testnet04 _ = True
-fixedEpochStartGuard Development _ = True
-fixedEpochStartGuard _ _ = False
+oldDaGuard :: ChainwebVersion -> BlockHeight -> Bool
+oldDaGuard Mainnet01 _ = True
+oldDaGuard Testnet04 _ = True
+oldDaGuard Development _ = False
+oldDaGuard _ _ = False
+
