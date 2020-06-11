@@ -184,7 +184,9 @@ newtype HashTarget = HashTarget { _hashTarget :: PowHashNat }
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
 
-makeLenses ''HashTarget
+hashTarget :: Lens' HashTarget PowHashNat
+hashTarget = lens _hashTarget $ const HashTarget
+{-# INLINE hashTarget #-}
 
 -- | A visualization of a `HashTarget` as binary.
 --
