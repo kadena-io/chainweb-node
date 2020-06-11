@@ -281,9 +281,6 @@ getTxLogs
 getTxLogs cr bh = do
   someHist <- liftIO $ (_pactBlockTxHistory cr) bh d
   (BlockTxHistory hist) <- (hush someHist) ?? RosettaPactExceptionThrown
-  case (M.size hist) of
-    0 -> throwError RosettaUnparsableTxLog
-    _ -> pure ()
   let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
   if (M.size histParsed == M.size hist)
     then pure histParsed  -- all logs successfully parsed
@@ -392,14 +389,13 @@ genesisTransaction logs rest target = GenesisMatchFunction $ do
 ------------------------
 
 -- | Matches the first coin contract logs to the coinbase tx
-nonGenesisCoinbase
+nonGenesisCoinbaseLog
     :: (TxId, [AccountLog])
-    -> (a -> Maybe TxId)
+    -> TxId
     -> (a -> [Operation] -> b)
     -> a
     -> Either String b
-nonGenesisCoinbase (tid,l) getTxId f cr = do
-  expectedTid <- note "No Coinbase TxId found" (getTxId cr)
+nonGenesisCoinbaseLog (tid,l) expectedTid f cr = do
   if (expectedTid == tid)
     then let ops = indexedOperations $
                    map (operation Successful CoinbaseReward tid) l
@@ -494,15 +490,22 @@ nonGenesisTransactions'
     -> V.Vector a
     -> Either String [b]
 nonGenesisTransactions' logs getTxId f initial rest = do
-  let initIdx = 0
-  initLog <- peekLog initIdx logsVector
-  initTx <- nonGenesisCoinbase initLog getTxId f initial
-  T2 _ ts <- foldM match (defAcc initIdx initTx) rest
+  (nextIdx, initTx) <- getCoinbaseTx
+  T2 _ ts <- foldM match (defAcc nextIdx initTx) rest
   pure $ DList.toList ts
   where
+    getCoinbaseTx = do
+      let initIdx = 0
+      case (getTxId initial) of
+        Nothing -> pure (initIdx, f initial [])
+        Just tid -> do
+          l <- peekLog initIdx logsVector
+          tx <- nonGenesisCoinbaseLog l tid f initial
+          pure $ (succ initIdx, tx)
+
     logsVector = V.fromList $ M.toAscList logs   -- O(1) lookup by index
     match = gasTransactionAcc logsVector getTxId f DList.snoc
-    defAcc i tx = T2 (succ i) (DList.singleton tx)
+    defAcc i tx = T2 i (DList.singleton tx)
 
 
 -- |
@@ -532,22 +535,28 @@ nonGenesisTransaction'
     -- ^ Lookup target
     -> Either String (Maybe b)
 nonGenesisTransaction' logs getRk getTxId f initial rest target = do
-  let initIdx = 0
-  initLog <- peekLog initIdx logsVector
-  initTx <- getCoinbaseLogs initLog
+  (nextIdx, initTx) <- getCoinbaseTx
   if (getRk initial == target)
     then pure $ Just initTx
-    else (work initIdx initTx)
+    else (work nextIdx initTx)
 
   where
+    getCoinbaseTx = do
+      let initIdx = 0
+      case (getTxId initial) of
+        Nothing -> pure (initIdx, f initial [])
+        Just tid -> do
+          l <- peekLog initIdx logsVector
+          tx <- nonGenesisCoinbaseLog l tid f initial
+          pure $ (succ initIdx, tx)
+
     -- | Traverse list matching transactions to their logs.
     -- If target's logs found or if error throw by matching function,
     -- short circuit.
-    work initIdx initTx = do
-      let acc = T2 (succ initIdx) initTx
+    work nextIdx initTx = do
+      let acc = T2 nextIdx initTx
       fromShortCircuit $ foldM findTxAndLogs acc rest
 
-    getCoinbaseLogs l = nonGenesisCoinbase l getTxId f initial
     logsVector = V.fromList $ M.toAscList logs
 
     match = gasTransactionAcc logsVector getTxId f overwriteLastTx
@@ -610,9 +619,17 @@ remediations logs initial =
     overwriteError RosettaMismatchTxLogs work
   where
     work = do
-      T2 initLog restLogs <- splitAtFirst logs
-      initTx <- nonGenesisCoinbase initLog _crTxId rosettaTransaction initial
+      (restLogs, initTx) <- getCoinbaseTx
       pure $ [initTx, getRemediationsTx restLogs]
+
+    getCoinbaseTx = do
+      case (_crTxId initial) of
+        Nothing ->
+          pure (M.toAscList logs, rosettaTransaction initial [])
+        Just tid -> do
+          T2 x xs <- splitAtFirst logs
+          tx <- nonGenesisCoinbaseLog x tid rosettaTransaction initial
+          pure $ (xs, tx)
 
 singleRemediation
     :: Map TxId [AccountLog]
@@ -627,13 +644,20 @@ singleRemediation logs initial target =
     work
   where
     work
-      | _crReqKey initial == target = do
-          T2 initLog _ <- splitAtFirst logs
-          Just <$> nonGenesisCoinbase initLog _crTxId rosettaTransaction initial
+      | _crReqKey initial == target = Just <$> snd <$> getCoinbaseTx
       | target == remediationRequestKey = do
-          T2 _ restLogs <- splitAtFirst logs
+          (restLogs, _) <- getCoinbaseTx
           pure $ Just $ getRemediationsTx restLogs
       | otherwise = pure Nothing -- Target not found
+
+    getCoinbaseTx = do
+      case (_crTxId initial) of
+        Nothing -> pure (M.toAscList logs,
+                         rosettaTransaction initial [])
+        Just tid -> do
+          T2 x xs <- splitAtFirst logs
+          tx <- nonGenesisCoinbaseLog x tid rosettaTransaction initial
+          pure $ (xs, tx)
 
 
 --------------------------------------------------------------------------------
