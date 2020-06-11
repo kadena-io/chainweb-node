@@ -284,11 +284,11 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
     txst = TransactionState mc mempty 0 Nothing (_geGasModel freeGasEnv)
     initState = setModuleCache mc $ initCapabilities [magic_COINBASE]
     rk = RequestKey chash
-    parentHeader = _tcParentHeader txCtx
+    parent = _tcParentHeader txCtx
 
     bh = ctxCurrentBlockHeight txCtx
-    cid = V._chainId parentHeader
-    chash = Pact.Hash $ encodeToByteString $ _blockHash $ _parentHeader parentHeader
+    cid = V._chainId parent
+    chash = Pact.Hash $ encodeToByteString $ _blockHash $ _parentHeader parent
         -- NOTE: it holds that @ _pdPrevBlockHash pd == encode _blockHash@
         -- NOTE: chash includes the /quoted/ text of the parent header.
 

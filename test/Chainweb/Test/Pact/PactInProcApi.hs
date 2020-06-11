@@ -311,7 +311,7 @@ goldenMemPool = mempty
     { mpaGetBlock = getTestBlock
     }
   where
-    getTestBlock validate bHeight bHash parentHeader = do
+    getTestBlock validate bHeight bHash parent = do
         moduleStr <- readFile' $ testPactFilesDir ++ "test1.pact"
         let txs =
               [ (T.pack moduleStr)
@@ -332,7 +332,7 @@ goldenMemPool = mempty
         -- great stability
         let f = modifyPayloadWithText . set (pMeta . pmCreationTime)
             g = modifyPayloadWithText . set (pMeta . pmTTL)
-            t = toTxCreationTime $ _bct $ _blockCreationTime parentHeader
+            t = toTxCreationTime $ _bct $ _blockCreationTime parent
         let outtxs = flip V.map outtxs' $ \tx ->
                 let ttl = TTLSeconds $ ParsedInteger $ 24 * 60 * 60
                 in fmap (g ttl . f t) tx

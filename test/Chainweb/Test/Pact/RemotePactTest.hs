@@ -110,7 +110,7 @@ import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
-import Chainweb.Utils (sshow,int,toText,enableConfigEnabled,tryAllSynchronous)
+import Chainweb.Utils hiding (check)
 import Chainweb.Version
 
 import Data.CAS.RocksDB
@@ -190,7 +190,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 awaitNetworkHeight :: IO ChainwebNetwork -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
     cenv <- _getClientEnv <$> nio
-    void $ awaitCutHeight cenv h
+    ch <- awaitCutHeight cenv h
+    debug $ "cut height: " <> sshow (_cutHashesHeight ch)
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
@@ -648,6 +649,7 @@ data PactTestFailure
     | SendFailure String
     | LocalFailure String
     | SpvFailure String
+    | SlowChain String
     deriving Show
 
 instance Exception PactTestFailure
@@ -700,7 +702,11 @@ awaitCutHeight cenv i = do
         $ const $ runClientM (cutGetClient v) cenv
     case result of
         Left e -> throwM e
-        Right x -> return x
+        Right x
+            | _cutHashesHeight x >= i -> return x
+            | otherwise -> throwM $ SlowChain
+                $ "retries exhausted: waiting for cut height " <> sshow i
+                <> " but only got " <> sshow (_cutHashesHeight x)
   where
     checkRetry _ Left{} = return True
     checkRetry s (Right c)
@@ -830,7 +836,7 @@ polling sid cenv rks pollingExpectation =
         Right r@(PollResponses mp) ->
           if all (go mp) (toList rs)
           then return r
-          else throwM $ PollingFailure "polling check failed"
+          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
   where
     h _ = Handler $ \case
       PollingFailure _ -> return True

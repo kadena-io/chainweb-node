@@ -236,20 +236,20 @@ mineBlock
     -> BlockHeaderDb
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock parentHeader nonce pdb bhdb r = do
+mineBlock parent nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     mv <- newBlock noMiner parentHeader r
+     mv <- newBlock noMiner parent r
 
      payload <- assertNotLeft =<< takeMVar mv
 
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
          bh = newBlockHeader
               mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              parent
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
          work = WorkHeader
@@ -269,7 +269,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
      -- NOTE: this doesn't validate the block header, which is fine in this test case
      unsafeInsertBlockHeaderDb bhdb newHeader
 
-     return $ T3 parentHeader newHeader payload
+     return $ T3 parent newHeader payload
 
 
 
@@ -279,28 +279,28 @@ noMineBlock
     -> Nonce
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-noMineBlock validate parentHeader nonce r = do
+noMineBlock validate parent nonce r = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner parentHeader r
+     mv <- newBlock noMiner parent r
 
      payload <- assertNotLeft =<< takeMVar mv
 
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
               mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              parent
 
      when validate $ do
        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
 
        void $ assertNotLeft =<< takeMVar mv'
 
-     return $ T3 parentHeader bh payload
+     return $ T3 parent bh payload
 
 
 data Resources
