@@ -34,6 +34,7 @@ module Chainweb.BlockHeader
 (
 -- * Newtype wrappers for function parameters
   ParentHeader(..)
+, parentHeader
 , ParentCreationTime(..)
 
 -- * Block Payload Hash
@@ -419,6 +420,9 @@ newtype ParentHeader = ParentHeader
     { _parentHeader :: BlockHeader }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
+
+parentHeader :: Lens' ParentHeader BlockHeader
+parentHeader = lens _parentHeader $ \_ hdr -> ParentHeader hdr
 
 instance HasChainId ParentHeader where
     _chainId = _chainId . _parentHeader
