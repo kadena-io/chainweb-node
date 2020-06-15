@@ -32,7 +32,6 @@ module Chainweb.Test.Pact.RemotePactTest
 ) where
 
 import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
-import Control.Concurrent.Async
 import Control.Concurrent.MVar.Strict
 import Control.DeepSeq
 import Control.Lens
@@ -53,23 +52,16 @@ import qualified Data.List as L
 import qualified Data.List.NonEmpty as NEL
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Streaming.Network (HostPreference)
 import Data.String.Conv (toS)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8)
 
 import NeatInterpolation
-
-import Network.Connection as HTTP
-import Network.HTTP.Client.TLS as HTTP
 
 import Numeric.Natural
 
 import Servant.Client
 
-import System.IO.Extra
-import System.LogLevel
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -92,21 +84,12 @@ import Pact.Types.Term
 
 import Chainweb.BlockHeight
 import Chainweb.ChainId
-import Chainweb.Chainweb
-import Chainweb.Chainweb.ChainResources
-import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut.CutHashes
 import Chainweb.CutDB.RestAPI.Client
 import Chainweb.Graph
-import Chainweb.HostAddress
-import Chainweb.Logger
 import Chainweb.Mempool.Mempool
-import Chainweb.Miner.Config
-import Chainweb.Miner.Pact (noMiner)
-import Chainweb.NodeId
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
-import Chainweb.Test.P2P.Peer.BootstrapConfig
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
@@ -115,8 +98,6 @@ import Chainweb.Version
 
 import Data.CAS.RocksDB
 
-import P2P.Node.Configuration
-import P2P.Peer
 
 -- -------------------------------------------------------------------------- --
 -- Global Settings
@@ -151,7 +132,7 @@ gp = 0.1
 --
 tests :: RocksDb -> ScheduledTest
 tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
-    [ withNodes rdb nNodes $ \net ->
+    [ withNodes v "remotePactTest-" rdb nNodes $ \net ->
         withMVarResource 0 $ \iomvar ->
           withTime $ \iot ->
             testGroup "remote pact tests"
@@ -189,14 +170,14 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 --
 awaitNetworkHeight :: IO ChainwebNetwork -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
-    cenv <- _getClientEnv <$> nio
+    cenv <- _runClientEnv <$> nio
     ch <- awaitCutHeight cenv h
     debug $ "cut height: " <> sshow (_cutHashesHeight ch)
 
 responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
-    cenv <- _getClientEnv <$> networkIO
+    cenv <- _runClientEnv <$> networkIO
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
@@ -204,7 +185,7 @@ responseGolden networkIO rksIO = golden "remote-golden" $ do
 
 localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localTest iot nio = do
-    cenv <- fmap _getClientEnv nio
+    cenv <- fmap _runClientEnv nio
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
@@ -215,7 +196,7 @@ localTest iot nio = do
 
 localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
-    cenv <- fmap _getClientEnv nio
+    cenv <- fmap _runClientEnv nio
     mv <- newMVar (0 :: Int)
     SubmitBatch batch <- localTestBatch iot mv
     let cmd = head $ toList batch
@@ -250,7 +231,7 @@ localChainDataTest iot nio = do
 
 pollingBadlistTest :: IO ChainwebNetwork -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
-    cenv <- fmap _getClientEnv nio
+    cenv <- fmap _runClientEnv nio
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
     void $ polling sid cenv rks ExpectPactError
@@ -260,7 +241,7 @@ sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 sendValidationTest iot nio =
     testCaseSteps "/send reports validation failure" $ \step -> do
         step "check sending poisoned TTL batch"
-        cenv <- fmap _getClientEnv nio
+        cenv <- fmap _runClientEnv nio
         mv <- newMVar 0
         SubmitBatch batch1 <- testBatch' iot 10_000 mv gp
         SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp
@@ -318,7 +299,7 @@ expectSendFailure expectErr act = tryAllSynchronous act >>= \case
 
 spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
-    cenv <- fmap _getClientEnv nio
+    cenv <- fmap _runClientEnv nio
     batch <- mkTxBatch
     sid <- mkChainId v maxBound (1 :: Int)
     r <- flip runClientM cenv $ do
@@ -369,7 +350,7 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
 
 txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
-    cenv <- fmap _getClientEnv nio
+    cenv <- fmap _runClientEnv nio
     sid <- mkChainId v maxBound (0 :: Int)
 
     let runSend batch expectation = flip runClientM cenv $ do
@@ -437,7 +418,7 @@ caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step ->
 
     let testCaseStep = void . liftIO . step
 
-    cenv <- fmap _getClientEnv nio
+    cenv <- fmap _runClientEnv nio
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     r <- flip runClientM cenv $ do
@@ -508,7 +489,7 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     let testCaseStep = void . liftIO . step
 
-    cenv <- fmap _getClientEnv nio
+    cenv <- fmap _runClientEnv nio
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     step "positive allocation test: allocation00 release"
@@ -680,18 +661,12 @@ withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) 
   where
     mkKeys :: IO RequestKeys
     mkKeys = do
-        cenv <- _getClientEnv <$> networkIO
+        cenv <- _runClientEnv <$> networkIO
         mNonce <- ioNonce
         testSend iot mNonce cenv
 
 testSend :: IO (Time Micros) -> MVar Int -> ClientEnv -> IO RequestKeys
 testSend iot mNonce env = testBatch iot mNonce gp >>= sending cid env
-
-getClientEnv :: BaseUrl -> IO ClientEnv
-getClientEnv url = do
-    let mgrSettings = HTTP.mkManagerSettings (HTTP.TLSSettingsSimple True False False) Nothing
-    mgr <- HTTP.newTlsManagerWith mgrSettings
-    return $ mkClientEnv mgr url
 
 awaitCutHeight
     :: ClientEnv
@@ -875,122 +850,6 @@ testBatch iot mnonce = testBatch' iot ttl mnonce
 -- test node(s), config, etc. for this test
 --------------------------------------------------------------------------------
 
-newtype ChainwebNetwork = ChainwebNetwork { _getClientEnv :: ClientEnv }
-
-withNodes
-    :: RocksDb
-    -> Natural
-    -> (IO ChainwebNetwork -> TestTree)
-    -> TestTree
-withNodes rdb n f = withResource start
-    (cancel . fst)
-    (f . fmap (ChainwebNetwork . snd))
-  where
-    start :: IO (Async (), ClientEnv)
-    start = do
-        peerInfoVar <- newEmptyMVar
-        a <- async $ runTestNodes rdb Quiet v n peerInfoVar
-        i <- readMVar peerInfoVar
-        cwEnv <- getClientEnv $ getCwBaseUrl $ _hostAddressPort $ _peerAddr i
-        return (a, cwEnv)
-
-    getCwBaseUrl :: Port -> BaseUrl
-    getCwBaseUrl p = BaseUrl
-        { baseUrlScheme = Https
-        , baseUrlHost = "127.0.0.1"
-        , baseUrlPort = fromIntegral p
-        , baseUrlPath = ""
-        }
-
-runTestNodes
-    :: RocksDb
-    -> LogLevel
-    -> ChainwebVersion
-    -> Natural
-    -> MVar PeerInfo
-    -> IO ()
-runTestNodes rdb loglevel ver n portMVar =
-    forConcurrently_ [0 .. int n - 1] $ \i -> do
-        threadDelay (1000 * int i)
-        let baseConf = config ver n (NodeId i)
-        conf <- if
-            | i == 0 ->
-                return $ bootstrapConfig baseConf
-            | otherwise ->
-                setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
-        node rdb loglevel portMVar conf
-
-node :: RocksDb -> LogLevel -> MVar PeerInfo -> ChainwebConfiguration -> IO ()
-node rdb loglevel peerInfoVar conf = do
-    rocksDb <- testRocksDb ("remotePactTest-" <> encodeUtf8 (toText nid)) rdb
-    System.IO.Extra.withTempDir $ \dir -> withChainweb conf logger rocksDb (Just dir) False $ \cw -> do
-
-        -- If this is the bootstrap node we extract the port number and publish via an MVar.
-        when (nid == NodeId 0) $ do
-            let bootStrapInfo = view (chainwebPeer . peerResPeer . peerInfo) cw
-            putMVar peerInfoVar bootStrapInfo
-
-        poisonDeadBeef cw
-        runChainweb cw `finally` do
-            logFunctionText logger Info "write sample data"
-            logFunctionText logger Info "shutdown node"
-        return ()
-  where
-    nid = _configNodeId conf
-    logger :: GenericLogger
-    logger = addLabel ("node", toText nid) $ genericLogger loglevel print
-
-    poisonDeadBeef cw = mapM_ poison crs
-      where
-        crs = map snd $ HashMap.toList $ view chainwebChains cw
-        poison cr = mempoolAddToBadList (view chainResMempool cr) deadbeef
-
-deadbeef :: TransactionHash
-deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
-
 pactDeadBeef :: RequestKey
 pactDeadBeef = let (TransactionHash b) = deadbeef
                in RequestKey $ Hash $ SB.fromShort b
-
-host :: Hostname
-host = unsafeHostnameFromText "::1"
-
-interface :: HostPreference
-interface = "::1"
-
-config
-    :: ChainwebVersion
-    -> Natural
-    -> NodeId
-    -> ChainwebConfiguration
-config ver n nid = defaultChainwebConfiguration ver
-    & set configNodeId nid
-    & set (configP2p . p2pConfigPeer . peerConfigHost) host
-    & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
-    & set (configP2p . p2pConfigKnownPeers) mempty
-    & set (configP2p . p2pConfigIgnoreBootstrapNodes) True
-    & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
-    & set (configP2p . p2pConfigMaxSessionCount) 4
-    & set (configP2p . p2pConfigSessionTimeout) 60
-    & set (configMining . miningInNode) miner
-    & set configReintroTxs True
-    & set (configTransactionIndex . enableConfigEnabled) True
-    & set (configBlockGasLimit) 1_000_000
-  where
-    miner = NodeMiningConfig
-        { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner
-        , _nodeTestMiners = MinerCount n }
-
-bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
-bootstrapConfig conf = conf
-    & set (configP2p . p2pConfigPeer) peerConfig
-    & set (configP2p . p2pConfigKnownPeers) []
-  where
-    peerConfig = head (bootstrapPeerConfig $ _configChainwebVersion conf)
-        & set peerConfigPort 0
-        & set peerConfigHost host
-
-setBootstrapPeerInfo :: PeerInfo -> ChainwebConfiguration -> ChainwebConfiguration
-setBootstrapPeerInfo =
-    over (configP2p . p2pConfigKnownPeers) . (:)

@@ -463,6 +463,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
+        Chainweb.Test.Rosetta
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
@@ -522,6 +523,7 @@ test-suite chainweb-tests
         , resource-pool >= 0.2
         , resourcet >= 1.2
         , retry >= 0.7
+        , rosetta
         , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16

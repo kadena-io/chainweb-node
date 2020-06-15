@@ -523,12 +523,6 @@ withPactCtxSQLite v bhdbIO pdbIO config f =
         (_,s) <- ios
         testPactCtxSQLite v cid bhdb pdb s config
 
-withMVarResource :: a -> (IO (MVar a) -> TestTree) -> TestTree
-withMVarResource value = withResource (newMVar value) mempty
-
-withTime :: (IO (Time Micros) -> TestTree) -> TestTree
-withTime = withResource getCurrentTimeIntegral mempty
-
 toTxCreationTime :: Integral a => Time a -> TxCreationTime
 toTxCreationTime (Time timespan) = TxCreationTime $ fromIntegral $ timeSpanToSeconds timespan
 
