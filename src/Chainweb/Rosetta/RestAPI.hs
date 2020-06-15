@@ -94,9 +94,7 @@ data RosettaFailure
     | RosettaInvalidTx
     | RosettaInvalidBlockchainName
     | RosettaMismatchNetworkName
-    | RosettaHistBalCheckUnsupported
     | RosettaPactExceptionThrown
-    | RosettaCouldNotRetrieveBalance
     | RosettaExpectedBalDecimal
     | RosettaInvalidResultMetaData
     | RosettaSubAcctUnsupported
@@ -124,27 +122,24 @@ rosettaError RosettaUnparsableTx = RosettaError 3 "Transaction not parsable" Fal
 rosettaError RosettaInvalidTx = RosettaError 4 "Invalid transaction" False
 rosettaError RosettaInvalidBlockchainName = RosettaError 5 "Invalid blockchain name" False
 rosettaError RosettaMismatchNetworkName = RosettaError 6 "Invalid Chainweb network name" False
-rosettaError RosettaHistBalCheckUnsupported =
-  RosettaError 7 "Historical account balance lookup is not supported." False
 rosettaError RosettaPactExceptionThrown =
-  RosettaError 8 "A pact exception was thrown" False
-rosettaError RosettaCouldNotRetrieveBalance = RosettaError 9 "Could not retrieve account balance" False
-rosettaError RosettaExpectedBalDecimal = RosettaError 10 "Expected balance as a decimal" False
-rosettaError RosettaInvalidResultMetaData = RosettaError 11 "Invalid meta data field in command result" False
-rosettaError RosettaSubAcctUnsupported = RosettaError 12 "Sub account identifier is not supported" False
+  RosettaError 7 "A pact exception was thrown" False
+rosettaError RosettaExpectedBalDecimal = RosettaError 8 "Expected balance as a decimal" False
+rosettaError RosettaInvalidResultMetaData = RosettaError 9 "Invalid meta data field in command result" False
+rosettaError RosettaSubAcctUnsupported = RosettaError 10 "Sub account identifier is not supported" False
 rosettaError RosettaMismatchTxLogs =
-  RosettaError 13 "Unable to match transactions to transaction logs as expected" False
-rosettaError RosettaUnparsableTxLog = RosettaError 14 "TxLogs not parsable" False
-rosettaError RosettaInvalidBlockHeight = RosettaError 15 "Invalid block height" False -- TODO if retry could succeed
-rosettaError RosettaBlockHashNotFound = RosettaError 16 "Block hash was not found" False
-rosettaError RosettaUnparsableBlockHash = RosettaError 17 "Block hash not parsable" False
-rosettaError RosettaOrphanBlockHash = RosettaError 18 "Block hash not in the latest fork" False
-rosettaError RosettaMismatchBlockHashHeight = RosettaError 19 "Block hash and block height did not match" False
-rosettaError RosettaPayloadNotFound = RosettaError 20 "Block payload not found" False
-rosettaError RosettaUnparsableTxOut = RosettaError 21 "Transaction output not parsable" False
-rosettaError RosettaTxIdNotFound = RosettaError 22 "Transaction Id not found in block" False
-rosettaError RosettaUnparsableTransactionId = RosettaError 23 "Transaction Id not parsable" False
-rosettaError RosettaInvalidAccountKey = RosettaError 24 "Invalid AccountId address" False
+  RosettaError 11 "Unable to match transactions to transaction logs as expected" False
+rosettaError RosettaUnparsableTxLog = RosettaError 12 "TxLogs not parsable" False
+rosettaError RosettaInvalidBlockHeight = RosettaError 13 "Invalid block height" False -- TODO if retry could succeed
+rosettaError RosettaBlockHashNotFound = RosettaError 14 "Block hash was not found" False
+rosettaError RosettaUnparsableBlockHash = RosettaError 15 "Block hash not parsable" False
+rosettaError RosettaOrphanBlockHash = RosettaError 16 "Block hash not in the latest fork" False
+rosettaError RosettaMismatchBlockHashHeight = RosettaError 17 "Block hash and block height did not match" False
+rosettaError RosettaPayloadNotFound = RosettaError 18 "Block payload not found" False
+rosettaError RosettaUnparsableTxOut = RosettaError 19 "Transaction output not parsable" False
+rosettaError RosettaTxIdNotFound = RosettaError 20 "Transaction Id not found in block" False
+rosettaError RosettaUnparsableTransactionId = RosettaError 21 "Transaction Id not parsable" False
+rosettaError RosettaInvalidAccountKey = RosettaError 22 "Invalid AccountId address" False
 
 
 throwRosetta :: RosettaFailure -> Handler a
