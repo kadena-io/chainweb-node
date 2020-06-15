@@ -55,6 +55,7 @@ import Chainweb.Pact.RestAPI.Server
 import Chainweb.Payload.PayloadStore
 import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
+import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Util
 import Chainweb.Transaction (ChainwebTransaction)

@@ -207,6 +207,7 @@ library
         , Chainweb.RestAPI.NodeInfo
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.Rosetta.Internal
         , Chainweb.Rosetta.RestAPI
         , Chainweb.Rosetta.RestAPI.Server
         , Chainweb.Rosetta.Util
