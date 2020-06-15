@@ -325,11 +325,6 @@ cutHeadersMinHeight :: HM.HashMap ChainId BlockHeader -> BlockHeight
 cutHeadersMinHeight = minimum . fmap _blockHeight
 {-# INLINE cutHeadersMinHeight #-}
 
-cutHeadersChainIds :: HM.HashMap ChainId BlockHeader -> HS.HashSet ChainId
-cutHeadersChainIds m
-    = chainIdsAt (cutHeadersChainwebVersion m) $ cutHeadersMinHeight m
-{-# INLINE cutHeadersChainIds #-}
-
 cutHeadersChainwebVersion :: HM.HashMap ChainId BlockHeader -> ChainwebVersion
 cutHeadersChainwebVersion m = _chainwebVersion $ head $ toList m
 {-# INLINE cutHeadersChainwebVersion #-}
@@ -367,17 +362,6 @@ extendChains m = HM.union m
         (cutHeadersChainwebVersion m)
         (cutHeadersMinHeight m)
 {-# INLINE extendChains #-}
-
--- | Extend or projects the chains in the input headers as needed.
---
--- This an internal function. The result is meaningful only if the input headers
--- form a valid cut. In particular, the input must not be empty.
---
-adjustChains
-    :: HM.HashMap ChainId BlockHeader
-    -> HM.HashMap ChainId BlockHeader
-adjustChains = extendChains . projectChains
-{-# INLINE adjustChains #-}
 
 -- | This function adds all chains that are available in either of the input
 -- headers. It is assumed that both input header maps are contain headers for
