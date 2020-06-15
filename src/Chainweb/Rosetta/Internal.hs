@@ -20,7 +20,7 @@ import Control.Monad (foldM)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
-import Data.Default (def)
+--import Data.Default (def)
 import Data.Map (Map)
 import Data.Decimal
 import Data.CAS
@@ -35,7 +35,7 @@ import qualified Data.Vector as V
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Names
+--import Pact.Types.Names
 import Pact.Types.Runtime (TxId(..), Domain(..))
 import Pact.Types.Persistence (RowKey(..))
 
@@ -512,8 +512,8 @@ getHistoricalLookupBalance cr bh k = do
     d = (Domain' (UserTables "coin_coin-table"))
 
     -- Makes sure that account key provided is valid row key
-    getKey = do
+    getKey = pure $ RowKey k {--do
       n <- overwriteError RosettaInvalidAccountKey $ parseName def k
       case n of
         QName _ -> Left RosettaInvalidAccountKey
-        Name (BareName bnk _) -> pure $ RowKey bnk
+        Name (BareName bnk _) -> pure $ RowKey bnk--}
