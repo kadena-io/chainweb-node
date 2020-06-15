@@ -42,7 +42,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.DeepSeq
 import Control.Exception
-import Control.Lens (over, set, view)
+import Control.Lens (set, view)
 import Control.Monad
 
 import Data.Aeson
@@ -86,7 +86,7 @@ import Chainweb.Miner.Config
 import Chainweb.Miner.Pact
 import Chainweb.NodeId
 import Chainweb.Test.P2P.Peer.BootstrapConfig
-import Chainweb.Test.Utils
+import Chainweb.Test.Utils hiding (bootstrapConfig, node)
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
 import Chainweb.Version
@@ -176,19 +176,6 @@ config v n nid = defaultChainwebConfiguration v
         , _throttlingPeerRate = 10_000 -- per second, one for each p2p network
         , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
-
--- | Set the bootstrap node port of a 'ChainwebConfiguration'
---
-setBootstrapPeerInfo
-    :: PeerInfo
-        -- ^ Peer info of bootstrap node
-    -> ChainwebConfiguration
-    -> ChainwebConfiguration
-setBootstrapPeerInfo
-    = over (configP2p . p2pConfigKnownPeers) . (:)
-        -- The the port of the bootstrap node. Normally this is hard-coded.
-        -- But in test-suites that may run concurrently we want to use a port
-        -- that is assigned by the OS.
 
 -- | Configure a bootstrap node
 --
