@@ -276,13 +276,14 @@ doGetBlockHistory :: FromJSON v => Db -> BlockHeader -> Domain k v -> IO BlockTx
 doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
   callDb "doGetBlockHistory" $ \db -> do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
-    startTxId <- if (_blockHeight blockHeader == 0)
+    startTxId <- if (bHeight == genesisHeight v cid)
       then pure 0  -- genesis block
       else getEndTxId db (pred bHeight) (_blockParent blockHeader)
     history <- queryHistory db (domainTableName d) startTxId endTxId
     return $! BlockTxHistory $ foldl' groupByTxid mempty history
   where
-
+    v = _blockChainwebVersion blockHeader
+    cid = _blockChainId blockHeader
     bHeight = _blockHeight blockHeader
 
     groupByTxid :: Ord a => M.Map a [b] -> (a,b) -> M.Map a [b]

@@ -171,15 +171,7 @@ blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
       bh <- findBlockHeaderInCurrFork cutDb cid bheight bhash
       (coinbase, txs) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs (_chainResPact cr) bh
-
-      let matchGenesis = genesisTransactions logs txs
-          matchRemediation = remediations logs coinbase
-          matchNonGenesis = nonGenesisTransactions logs coinbase txs
-      trans <- hoistEither $ matchLogs bh
-               matchGenesis
-               matchRemediation
-               matchNonGenesis
-
+      trans <- hoistEither $ matchLogs FullLogs bh logs coinbase txs
       pure $ BlockResp
         { _blockResp_block = block bh trans
         , _blockResp_otherTransactions = Nothing
@@ -210,13 +202,8 @@ blockTransactionH v cutDb ps crs (BlockTransactionReq net bid t) =
       (coinbase, txs) <- getBlockOutputs payloadDb bh
       logs <- getTxLogs (_chainResPact cr) bh
 
-      let matchGenesis = genesisTransaction logs txs rkTarget
-          matchRemediation = singleRemediation logs coinbase rkTarget
-          matchNonGenesis =  nonGenesisTransaction logs coinbase txs rkTarget
-      tran <- hoistEither $ matchLogs bh
-              matchGenesis
-              matchRemediation
-              matchNonGenesis
+      tran <- hoistEither $ matchLogs
+              (SingleLog rkTarget) bh logs coinbase txs
 
       pure $ BlockTransactionResp tran
 

@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE GADTs #-}
 
 -- |
 -- Module: Chainweb.Rosetta.Util
@@ -20,10 +21,10 @@ import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.Aeson
+import Data.Default (def)
 import Data.Map (Map)
 import Data.Decimal
 import Data.CAS
-import Data.Tuple.Strict (T2(..))
 import Data.Word (Word64)
 
 
@@ -38,6 +39,7 @@ import Numeric.Natural
 
 import Pact.Types.Command
 import Pact.Types.Hash
+import Pact.Types.Names
 import Pact.Types.Runtime (TxId(..), TxLog(..), Domain(..))
 import Pact.Types.PactValue (PactValue(..))
 import Pact.Types.Persistence (RowKey(..))
@@ -70,7 +72,7 @@ import Chainweb.WebPactExecutionService (PactExecutionService(..))
 -- Rosetta Helper Types --
 --------------------------------------------------------------------------------
 
-type CoinbaseCommandResult = CommandResult Hash
+type CoinbaseTx chainwebTx = chainwebTx
 type AccountLog = (T.Text, Decimal, Value)
 type UnindexedOperation = (Word64 -> Operation)
 
@@ -93,12 +95,16 @@ data OperationType =
 --   Otherwise, fetch the parent header from the block.
 parentBlockId :: BlockHeader -> BlockId
 parentBlockId bh
-  | (_blockHeight bh == 0) = blockId bh  -- genesis
+  | (bHeight == genesisHeight v cid) = blockId bh  -- genesis
   | otherwise = parent
-  where parent = BlockId
-          { _blockId_index = _height (pred $ _blockHeight bh)
-          , _blockId_hash = blockHashToText (_blockParent bh)
-          }
+  where
+    bHeight = _blockHeight bh
+    cid = _blockChainId bh
+    v = _blockChainwebVersion bh
+    parent = BlockId
+      { _blockId_index = _height (pred $ _blockHeight bh)
+      , _blockId_hash = blockHashToText (_blockParent bh)
+      }
 
 blockId :: BlockHeader -> BlockId
 blockId bh = BlockId
@@ -114,7 +120,7 @@ rosettaTransactionFromCmd cmd ops =
     , _transaction_metadata = Nothing
     }
 
-rosettaTransaction :: CommandResult Hash -> [Operation] -> Transaction
+rosettaTransaction :: CommandResult a -> [Operation] -> Transaction
 rosettaTransaction cr ops =
   Transaction
     { _transaction_transactionId = rkToTransactionId (_crReqKey cr)
@@ -258,7 +264,7 @@ getBlockOutputs
     . PayloadCasLookup cas
     => PayloadDb cas
     -> BlockHeader
-    -> ExceptT RosettaFailure Handler (CoinbaseCommandResult, V.Vector (CommandResult Hash))
+    -> ExceptT RosettaFailure Handler (CoinbaseTx (CommandResult Hash), V.Vector (CommandResult Hash))
 getBlockOutputs payloadDb bh = do
   someOut <- liftIO $ casLookup payloadDb (_blockPayloadHash bh)
   outputs <- someOut ?? RosettaPayloadNotFound
@@ -295,6 +301,7 @@ getHistoricalLookupBalance
     -> T.Text
     -> ExceptT RosettaFailure Handler Decimal
 getHistoricalLookupBalance cr bh k = do
+  key <- hoistEither getKey
   someHist <- liftIO $ (_pactHistoricalLookup cr) bh d key
   hist <- (hush someHist) ?? RosettaPactExceptionThrown
   case hist of
@@ -304,44 +311,62 @@ getHistoricalLookupBalance cr bh k = do
       pure bal
   where
     d = (Domain' (UserTables "coin_coin-table"))
-    key = RowKey k
+
+    -- Makes sure that account key provided is valid row key
+    getKey = do
+      n <- overwriteError RosettaInvalidAccountKey $ parseName def k
+      case n of
+        QName _ -> Left RosettaInvalidAccountKey
+        Name (BareName bnk _) -> pure $ RowKey bnk
 
 
 --------------------------------------------------------------------------------
 -- Transaction Log Matching Functions --
 --------------------------------------------------------------------------------
 
-newtype GenesisMatchFunction a = GenesisMatchFunction
-  { _genesisMatchFunction :: Either RosettaFailure a }
-newtype RemediationMatchFunction a = RemediationMatchFunction
-  { _remediationMatchFunction :: Either RosettaFailure a }
-newtype NonGenesisMatchFunction a = NonGenesisMatchFunction
-  { _nonGenesisMatchFunction :: Either RosettaFailure a }
+data LogType tx where
+  FullLogs :: LogType [Transaction]
+  SingleLog :: RequestKey -> LogType Transaction
 
 -- | Retrieve the coin contract logs for transaction(s) in a block.
 matchLogs
-    :: BlockHeader
-    -> GenesisMatchFunction a
-    -> RemediationMatchFunction a
-    -> NonGenesisMatchFunction a
-    -> Either RosettaFailure a
-matchLogs bh g r f
-  | bheight == 0 = _genesisMatchFunction g
-  | coinV2Upgrade v cid bheight = _remediationMatchFunction r
-  | otherwise = _nonGenesisMatchFunction f
+    :: LogType tx
+    -> BlockHeader
+    -> M.Map TxId [AccountLog]
+    -> CoinbaseTx (CommandResult Hash)
+    -> V.Vector (CommandResult Hash)
+    -> Either RosettaFailure tx
+matchLogs typ bh logs coinbase txs
+  | bheight == genesisHeight v cid = matchGenesis
+  | coinV2Upgrade v cid bheight = matchRemediation
+  | otherwise = matchRest
   where
     bheight = _blockHeight bh
     cid = _blockChainId bh
     v = _blockChainwebVersion bh
 
+    matchGenesis = case typ of
+      FullLogs -> genesisTransactions logs txs
+      SingleLog rk -> genesisTransaction logs txs rk
+
+    matchRemediation = case typ of
+      FullLogs -> remediations logs coinbase
+      SingleLog rk -> singleRemediation logs coinbase rk
+
+    matchRest = case typ of
+      FullLogs ->
+        overwriteError RosettaMismatchTxLogs $
+          nonGenesisTransactions logs coinbase txs
+      SingleLog rk ->
+        (noteOptional RosettaTxIdNotFound .
+          overwriteError RosettaMismatchTxLogs) $
+            nonGenesisTransaction logs coinbase txs rk
 
 ---------------------
 -- Genesis Helpers --
 ---------------------
 
--- |
 -- | Genesis transactions do not have coinbase or gas payments.
--- |
 getGenesisLog
     :: Map TxId [AccountLog]
     -> CommandResult Hash
@@ -357,28 +382,23 @@ getGenesisLog logs cr =
       map (operation Successful TransferOrCreateAcct tid) l
 
 
--- |
 -- | Matches all genesis transactions to their coin contract logs.
--- |
 genesisTransactions
     :: Map TxId [AccountLog]
     -> V.Vector (CommandResult Hash)
-    -> GenesisMatchFunction [Transaction]
+    -> Either RosettaFailure [Transaction]
 genesisTransactions logs txs =
-  GenesisMatchFunction $
   pure $ V.toList $ V.map (getGenesisLog logs) txs
 
 
--- |
 -- | Matches a single genesis transaction to its coin contract logs.
--- |
 genesisTransaction
     :: Map TxId [AccountLog]
     -> V.Vector (CommandResult Hash)
     -> RequestKey
     -- ^ target tx
-    -> GenesisMatchFunction Transaction
-genesisTransaction logs rest target = GenesisMatchFunction $ do
+    -> Either RosettaFailure Transaction
+genesisTransaction logs rest target = do
   cr <- note RosettaTxIdNotFound $
         V.find (\c -> (_crReqKey c) == target) rest
   pure $ getGenesisLog logs cr
@@ -390,196 +410,198 @@ genesisTransaction logs rest target = GenesisMatchFunction $ do
 
 -- | Matches the first coin contract logs to the coinbase tx
 nonGenesisCoinbaseLog
-    :: (TxId, [AccountLog])
-    -> TxId
-    -> (a -> [Operation] -> b)
-    -> a
-    -> Either String b
-nonGenesisCoinbaseLog (tid,l) expectedTid f cr = do
-  if (expectedTid == tid)
-    then let ops = indexedOperations $
-                   map (operation Successful CoinbaseReward tid) l
-         in pure $ (f cr ops)
-    else Left "First log's txId does not match coinbase tx's TxId"
+    :: PendingTx chainwebTx
+    => [(TxId, [AccountLog])]
+    -> CoinbaseTx chainwebTx
+    -> Either String (TxAccumulator Transaction)
+nonGenesisCoinbaseLog logs cr = case (getSomeTxId cr) of
+  Nothing -> makeAcc logs []
+  Just tid -> case logs of
+    (coinbaseTid,coinbaseLog):restLogs
+      | tid == coinbaseTid ->
+        makeAcc restLogs
+        (map (operation Successful CoinbaseReward tid) coinbaseLog)
+      | otherwise -> Left $ "First log's TxId does not match coinbase tx's TxId"
+    _ -> Left "Expected coinbase log: Received empty logs list"
 
+  where
+    makeAcc restLogs ops =
+      let tx = makeRosettaTx cr $ indexedOperations $ ops
+      in pure $ TxAccumulator restLogs tx
 
 ------------------------
 -- NonGenesis Helpers --
 ------------------------
 
--- | Algorithm:
---   Assumes logs at current index (i.e. idx) funded the tx.
---   Attempts to get the coin contract logs the tx
---   might have. If the tx succeeded (i.e. the tx has a TxId),
---   it peeks at the next logs in the list (i.e. idx + 1).
---   If the log's txId matches the tx's txId, then these
---   logs are associated with the tx and the logs that
---   paid for gas are retrieved from following index (i.e. idx + 1 + 1).
---   If the txIds don't match OR if the tx failed, the gas logs
---   are retrieved from idx + 1 instead.
--- |
-gasTransactionAcc
-    :: V.Vector (TxId, [AccountLog])
-    -> (a -> Maybe TxId)
-    -> (a -> [Operation] -> b)
-    -> (c -> b -> c)
-    -- ^ Accumulator function
-    -> T2 Int c
-    -- ^ Index to start and accumulator
-    -> a
-    -> Either String (T2 Int c)
-gasTransactionAcc logs getTxId f acc (T2 idx txs) cr = do
-  T2 transferIdx fund <- getLogs idx FundTx
-  T2 gasIdx transfer <- getTransferLogs transferIdx (getTxId cr)
-  T2 nextIdx gas <- getLogs gasIdx GasPayment
-  let ops = indexedOperations $ fund <> transfer <> gas
-      tx = f cr ops
-  pure $ T2 nextIdx (acc txs tx)
-  where
-    -- Returns logs at given index and the next index to try
-    getLogs
-        :: Int
-        -> OperationType
-        -> Either String (T2 Int [UnindexedOperation])
-    getLogs i otype = do
-      (tid,l) <- peekLog i logs
-      let opsF = map (operation Successful otype tid) l
-      pure $ T2 (succ i) opsF
+class PendingTx chainwebTx where
+  getSomeTxId :: chainwebTx -> Maybe TxId
+  getRequestKey :: chainwebTx -> RequestKey
+  makeRosettaTx :: chainwebTx -> [Operation] -> Transaction
 
-    getTransferLogs
-        :: Int
-        -> Maybe TxId
-        -> Either String (T2 Int [UnindexedOperation])
-    getTransferLogs expected actual =
-      case actual of
-        Nothing -> noTransferLogs
-        Just actualTid -> peekNextTxId >>= (isCoinTx actualTid)
+instance PendingTx (CommandResult a) where
+  getSomeTxId = _crTxId
+  getRequestKey = _crReqKey
+  makeRosettaTx = rosettaTransaction
+
+data TxAccumulator rosettaTx = TxAccumulator
+  { _txAccumulator_logsLeft :: ![(TxId, [AccountLog])]
+    -- ^ Logs left to be matched
+  , _txAccumulator_lastSeen :: !rosettaTx
+    -- ^ Last Rosetta Transaction(s) seen so far
+  }
+
+data AccumulatorType rosettaTx where
+  AppendTx :: AccumulatorType (TxAccumulator (DList.DList Transaction))
+  -- ^ Signals wanting to keep track of all the Rosetta Transactions seen so far.
+  Overwrite :: AccumulatorType (TxAccumulator Transaction)
+  -- ^ Signals wanting to only keep track of the latest Rosetta Transaction seen so far.
+
+accumulatorFunction
+    :: AccumulatorType (TxAccumulator rosettaTx)
+    -> TxAccumulator rosettaTx
+    -> [(TxId, [AccountLog])]
+    -> Transaction
+    -> TxAccumulator rosettaTx
+accumulatorFunction typ prevAcc logsLeft lastSeen = newAcc
+  where
+    TxAccumulator _ prevLastSeen = prevAcc
+    f = case typ of
+      AppendTx -> DList.snoc
+      Overwrite -> (\_last next -> next)
+    newAcc = TxAccumulator logsLeft (f prevLastSeen lastSeen)
+
+
+-- | For a given tx, accumulates a triple of logs representing said tx's bracketing gas logs
+--   and any coin contract logs caused by the tx itself (i.e. transfers, create-accounts).
+--   Algorithm:
+--   (1) Peek at the first two logs in the logs list.
+--   (2) Assume the first log out of the two peeked funded the tx.
+--   (3) Label as "unknown" the second log peeked for now.
+--       It could be a gas or transfer logs, but more information is needed.
+--   (4) Check if the tx has a TxId (i.e. was the tx successful or not).
+--   (5) If the tx is unsuccessful and thus does not have a TxId, then it
+--       wouldn't have any transfer logs. Thus, label the peeked "unknown" log (1)
+--       as a gas payment log.
+--   (6) But if the tx is successful and thus has a TxId, check whether this TxId
+--       matches the TxId associated with the "unknown" peeked log (1).
+--   (7) If the TxIds match, then label the "unknown" peeked log (1) as a transfer log.
+--       And peek at the next log in the logs list and label it as a gas payment log.
+--   (8) If the TxIds don't match, then the tx did not interact with the coin contract
+--       and thus the "unknown" peeked logs (1) are gas payment logs.
+gasTransactionAcc
+    :: PendingTx chainwebTx
+    => AccumulatorType (TxAccumulator rosettaTxAcc)
+    -> TxAccumulator rosettaTxAcc
+    -> chainwebTx
+    -> Either String (TxAccumulator rosettaTxAcc)
+gasTransactionAcc accTyp txa@(TxAccumulator logs' _) ctx = combine logs'
+  where
+    combine (fundLog:someLog:restLogs) =
+      case (getSomeTxId ctx) of
+        Nothing -> -- tx was unsuccessful
+          makeAcc restLogs
+          (makeOps FundTx fundLog)
+          [] -- no transfer logs
+          (makeOps GasPayment someLog)
+        Just tid   -- tx was successful
+          | tid /= (fst someLog) ->  -- tx didn't touch coin table
+            makeAcc restLogs
+            (makeOps FundTx fundLog)
+            [] -- no transfer logs
+            (makeOps GasPayment someLog)
+          | otherwise -> case restLogs of
+              gasLog:restLogs' -> makeAcc restLogs'
+                (makeOps FundTx fundLog)
+                (makeOps TransferOrCreateAcct someLog)
+                (makeOps GasPayment gasLog)
+              l -> listErr "No gas logs found after transfer logs" l
+    combine l = listErr "No fund and gas logs found" l
+
+    makeAcc restLogs fund transfer gas = pure $
+      accumulatorFunction accTyp txa restLogs tx
       where
-        noTransferLogs = pure $ T2 expected []
-        transferLogs = getLogs expected TransferOrCreateAcct
-        peekNextTxId = fmap fst (peekLog expected logs)
-        isCoinTx aTid eTid
-          | (eTid == aTid) = transferLogs
-          | otherwise = noTransferLogs
+        tx = makeRosettaTx ctx $ indexedOperations $
+             fund <> transfer <> gas
+
+    makeOps ot (tid, als) =
+      map (operation Successful ot tid) als
+
+    listErr expectedMsg logs = Left $
+      expectedMsg ++ ": Received logs list " ++ show logs
 
 
 -- TODO: Max limit of tx to return at once.
 --       When to do pagination using /block/transaction?
--- |
 -- | Matches all transactions in a non-genesis block to their coin contract logs.
 --   The first transaction in non-genesis blocks is the coinbase transaction.
 --   Each transactions that follows has (1) logs that fund the transaction,
 --   (2) optional tx specific coin contract logs, and (3) logs that pay gas.
--- |
 nonGenesisTransactions
-    :: Map TxId [AccountLog]
-    -> CoinbaseCommandResult
-    -> V.Vector (CommandResult Hash)
-    -> NonGenesisMatchFunction [Transaction]
-nonGenesisTransactions logs initial rest =
-  NonGenesisMatchFunction $
-    overwriteError RosettaMismatchTxLogs $
-      nonGenesisTransactions'
-      logs _crTxId rosettaTransaction initial rest
-
-nonGenesisTransactions'
-    :: Map TxId [AccountLog]
-    -> (a -> Maybe TxId)
-    -> (a -> [Operation] -> b)
-    -> a
-    -> V.Vector a
-    -> Either String [b]
-nonGenesisTransactions' logs getTxId f initial rest = do
-  (nextIdx, initTx) <- getCoinbaseTx
-  T2 _ ts <- foldM match (defAcc nextIdx initTx) rest
+    :: PendingTx chainwebTx
+    => Map TxId [AccountLog]
+    -> CoinbaseTx chainwebTx
+    -> V.Vector chainwebTx
+    -> Either String [Transaction]
+nonGenesisTransactions logs initial rest = do
+  TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList initial
+  TxAccumulator _ ts <- foldM match (defAcc restLogs initTx) rest
   pure $ DList.toList ts
   where
-    getCoinbaseTx = do
-      let initIdx = 0
-      case (getTxId initial) of
-        Nothing -> pure (initIdx, f initial [])
-        Just tid -> do
-          l <- peekLog initIdx logsVector
-          tx <- nonGenesisCoinbaseLog l tid f initial
-          pure $ (succ initIdx, tx)
-
-    logsVector = V.fromList $ M.toAscList logs   -- O(1) lookup by index
-    match = gasTransactionAcc logsVector getTxId f DList.snoc
-    defAcc i tx = T2 i (DList.singleton tx)
+    logsList = M.toAscList logs
+    match = gasTransactionAcc AppendTx
+    defAcc li tx = TxAccumulator li (DList.singleton tx)
 
 
--- |
 -- | Matches a single non-genesis transaction to its coin contract logs
--- |
+-- if it exists in the given block.
 nonGenesisTransaction
-    :: Map TxId [AccountLog]
-    -> CoinbaseCommandResult
-    -> V.Vector (CommandResult Hash)
-    -> RequestKey
-    -> NonGenesisMatchFunction Transaction
-nonGenesisTransaction logs initial rest target =
-  NonGenesisMatchFunction $
-    (noteOptional RosettaTxIdNotFound .
-     overwriteError RosettaMismatchTxLogs) $
-       nonGenesisTransaction'
-       logs _crReqKey _crTxId rosettaTransaction initial rest target
-
-nonGenesisTransaction'
-    :: Map TxId [AccountLog]
-    -> (a -> RequestKey)
-    -> (a -> Maybe TxId)
-    -> (a -> [Operation] -> b)
-    -> a
-    -> V.Vector a
+    :: PendingTx chainwebTx
+    => Map TxId [AccountLog]
+    -> CoinbaseTx chainwebTx
+    -> V.Vector chainwebTx
     -> RequestKey
     -- ^ Lookup target
-    -> Either String (Maybe b)
-nonGenesisTransaction' logs getRk getTxId f initial rest target = do
-  (nextIdx, initTx) <- getCoinbaseTx
-  if (getRk initial == target)
-    then pure $ Just initTx
-    else (work nextIdx initTx)
-
-  where
-    getCoinbaseTx = do
-      let initIdx = 0
-      case (getTxId initial) of
-        Nothing -> pure (initIdx, f initial [])
-        Just tid -> do
-          l <- peekLog initIdx logsVector
-          tx <- nonGenesisCoinbaseLog l tid f initial
-          pure $ (succ initIdx, tx)
-
-    -- | Traverse list matching transactions to their logs.
-    -- If target's logs found or if error throw by matching function,
-    -- short circuit.
-    work nextIdx initTx = do
-      let acc = T2 nextIdx initTx
+    -> Either String (Maybe Transaction)
+nonGenesisTransaction logs initial rest target
+  | (getRequestKey initial == target) = do
+      -- | Looking for coinbase tx
+      TxAccumulator _ initTx <- nonGenesisCoinbaseLog logsList initial
+      pure $ Just initTx
+  | otherwise = do
+      -- | Traverse list matching transactions to their logs.
+      -- If target's logs found or if error throw by matching function,
+      -- short circuit.
+      TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList initial
+      let acc = TxAccumulator restLogs initTx
       fromShortCircuit $ foldM findTxAndLogs acc rest
 
-    logsVector = V.fromList $ M.toAscList logs
-
-    match = gasTransactionAcc logsVector getTxId f overwriteLastTx
-    overwriteLastTx _ curr = curr
-
-    fromShortCircuit
-        :: Either (Either String c) (T2 Int c)
-        -> Either String (Maybe c)
-    fromShortCircuit (Right _) = pure Nothing -- RosettaTxIdNotFound
-    fromShortCircuit (Left (Left s)) = Left s
-    fromShortCircuit (Left (Right tx)) = pure (Just tx)
-
-    hoistToShortCircuit
-        :: Either String (T2 Int c)
-        -> Either (Either String c) (T2 Int c)
-    hoistToShortCircuit (Left e) = Left $ Left e  -- short-circuit if matching function threw error
-    hoistToShortCircuit (Right r) = Right r
+  where
+    logsList = M.toAscList logs
+    match = gasTransactionAcc Overwrite
 
     findTxAndLogs acc cr = do
-      T2 nextIdx nextTx <- hoistToShortCircuit (match acc cr)
-      if (getRk cr == target)
-        then Left $ Right nextTx   -- short-circuit if find target's logs
-        else pure $ (T2 nextIdx nextTx)  -- continue matching other txs' logs until find target
+      TxAccumulator logsLeft lastSeenTx <- shortCircuit (match acc cr)
+      if (getRequestKey cr == target)
+        then Left $ Right lastSeenTx
+        -- ^ short-circuit if find target tx's logs
+        else pure $ (TxAccumulator logsLeft lastSeenTx)
+        -- ^ continue matching other txs' logs until find target
+
+    shortCircuit
+        :: Either String (TxAccumulator Transaction)
+        -> Either (Either String Transaction) (TxAccumulator Transaction)
+    shortCircuit (Left e) = Left $ Left e
+    -- ^ short-circuit if matching function threw error
+    shortCircuit (Right r) = Right r
+
+    fromShortCircuit
+        :: Either (Either String Transaction) (TxAccumulator Transaction)
+        -> Either String (Maybe Transaction)
+    fromShortCircuit (Right _) = pure Nothing
+    -- ^ Tx not found
+    fromShortCircuit (Left (Left s)) = Left s
+    fromShortCircuit (Left (Right tx)) = pure (Just tx)
+    -- ^ Tx found
 
 
 -------------------------
@@ -590,10 +612,10 @@ remediationRequestKey :: RequestKey
 remediationRequestKey = RequestKey $ pactHash "remediation"
 
 
--- Group the rest of the logs into a single transaction id because
+-- | Group the rest of the logs into a single transaction id because
 -- remediations all have different txIds and we don't have access to
 -- their command results.
--- Thus, if a normal transaction occurs in this block, it will be grouped with
+-- NOTE: If a normal transaction occurs in this block, it will be grouped with
 -- the remediation changes.
 getRemediationsTx
     :: [(TxId, [AccountLog])]
@@ -612,52 +634,35 @@ getRemediationsTx logsList =
 -- run? Is it always 3 commands that are run for each remediation?
 remediations
     :: Map TxId [AccountLog]
-    -> CoinbaseCommandResult
-    -> RemediationMatchFunction [Transaction]
+    -> CoinbaseTx (CommandResult Hash)
+    -> Either RosettaFailure [Transaction]
 remediations logs initial =
-  RemediationMatchFunction $
     overwriteError RosettaMismatchTxLogs work
   where
+    logsList = M.toAscList logs
     work = do
-      (restLogs, initTx) <- getCoinbaseTx
-      pure $ [initTx, getRemediationsTx restLogs]
-
-    getCoinbaseTx = do
-      case (_crTxId initial) of
-        Nothing ->
-          pure (M.toAscList logs, rosettaTransaction initial [])
-        Just tid -> do
-          T2 x xs <- splitAtFirst logs
-          tx <- nonGenesisCoinbaseLog x tid rosettaTransaction initial
-          pure $ (xs, tx)
+      TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList initial
+      pure $! [initTx, getRemediationsTx restLogs]
 
 singleRemediation
     :: Map TxId [AccountLog]
-    -> CoinbaseCommandResult
+    -> CoinbaseTx (CommandResult Hash)
     -> RequestKey
     -- ^ target
-    -> RemediationMatchFunction Transaction
+    -> Either RosettaFailure Transaction
 singleRemediation logs initial target =
-  RemediationMatchFunction $
     (noteOptional RosettaTxIdNotFound .
      overwriteError RosettaMismatchTxLogs)
     work
   where
-    work
-      | _crReqKey initial == target = Just <$> snd <$> getCoinbaseTx
-      | target == remediationRequestKey = do
-          (restLogs, _) <- getCoinbaseTx
-          pure $ Just $ getRemediationsTx restLogs
-      | otherwise = pure Nothing -- Target not found
-
-    getCoinbaseTx = do
-      case (_crTxId initial) of
-        Nothing -> pure (M.toAscList logs,
-                         rosettaTransaction initial [])
-        Just tid -> do
-          T2 x xs <- splitAtFirst logs
-          tx <- nonGenesisCoinbaseLog x tid rosettaTransaction initial
-          pure $ (xs, tx)
+    logsList = M.toAscList logs 
+    work = do
+      TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList initial
+      if (_crReqKey initial == target)
+        then pure $ Just initTx
+        else if (target == remediationRequestKey)
+          then pure $ Just $ getRemediationsTx restLogs
+          else pure Nothing -- Tx not found
 
 
 --------------------------------------------------------------------------------
@@ -673,12 +678,12 @@ enableMetaData = False
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
 
--- | Parse TxLog Value into fungible asset account
+-- | Parse TxLog Value into fungible asset account columns
 txLogToAccountInfo :: TxLog Value -> Maybe AccountLog
 txLogToAccountInfo (TxLog _ key (Object row)) = do
   guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
   (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
-  pure $ (key, bal, guard)
+  pure $! (key, bal, guard)
 txLogToAccountInfo _ = Nothing
 
 hushResult :: Result a -> Maybe a
@@ -693,18 +698,3 @@ noteOptional :: a -> Either a (Maybe c) -> Either a c
 noteOptional e (Right Nothing) = Left e
 noteOptional _ (Right (Just c)) = pure c
 noteOptional _ (Left oe) = Left oe
-
-peekLog
-    :: Int
-    -> V.Vector (TxId, [AccountLog])
-    -> Either String (TxId, [AccountLog])
-peekLog i logs = note
-  ("no logs found at txIdx=" ++ show i)
-  $ logs V.!? i
-
-splitAtFirst
-    :: Map a b
-    -> Either String (T2 (a,b) [(a,b)])
-splitAtFirst m = case (M.toAscList m) of
-  [] -> Left "Received empty map"
-  x:xs -> Right $ T2 x xs

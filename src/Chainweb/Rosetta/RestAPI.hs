@@ -111,6 +111,7 @@ data RosettaFailure
     | RosettaUnparsableTxOut
     | RosettaTxIdNotFound
     | RosettaUnparsableTransactionId
+    | RosettaInvalidAccountKey
     deriving (Show, Enum, Bounded, Eq)
 
 
@@ -143,6 +144,7 @@ rosettaError RosettaPayloadNotFound = RosettaError 20 "Block payload not found" 
 rosettaError RosettaUnparsableTxOut = RosettaError 21 "Transaction output not parsable" False
 rosettaError RosettaTxIdNotFound = RosettaError 22 "Transaction Id not found in block" False
 rosettaError RosettaUnparsableTransactionId = RosettaError 23 "Transaction Id not parsable" False
+rosettaError RosettaInvalidAccountKey = RosettaError 24 "Invalid AccountId address" False
 
 
 throwRosetta :: RosettaFailure -> Handler a

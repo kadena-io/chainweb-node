@@ -40,8 +40,6 @@ import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Util
 import Chainweb.Version
 
---import Chainweb.Test.Utils
-
 ---
 
 
@@ -66,32 +64,34 @@ matchNonGenesisBlockTransactionsToLogs = do
   assertEqualEncode "successful, coin" r4 expected4
   assertEqualEncode "unsuccessful" r5 expected5
   where
-    run :: Either String [(T.Text, [Operation])] 
-    run = nonGenesisTransactions' logs getTxId toTx initial rest
-    
-    toTx (_, rk) ops = (rk, ops)
-    getTxId (tid, _) = tid
+    run :: Either String [Transaction]
+    run = nonGenesisTransactions logs initial rest
+
     (logs, initial, rest) = mockTxLogs
 
     -- Coinbase Tx
-    expected1 = ("ReqKey1", [ op CoinbaseReward 1 "miner1" 2.0 0])
+    expected1 = mockRosettaTx "ReqKey1" [ op CoinbaseReward 1 "miner1" 2.0 0]
     
     -- Successful, non-coin contract tx
-    expected2 = ("ReqKey2", [ op FundTx 2 "sender1" 10.0 0
-                            , op GasPayment 4 "miner1" 12.0 1 ])
+    expected2 = mockRosettaTx "ReqKey2"
+                [ op FundTx 2 "sender1" 10.0 0
+                , op GasPayment 4 "miner1" 12.0 1 ]
 
     -- Successful, non-coin contract tx
-    expected3 = ("ReqKey3", [ op FundTx 5 "sender1" 10.0 0
-                            , op GasPayment 7 "miner1" 12.0 1 ])
+    expected3 = mockRosettaTx "ReqKey3"
+                [ op FundTx 5 "sender1" 10.0 0
+                , op GasPayment 7 "miner1" 12.0 1 ]
 
     -- Successful, coin contract tx
-    expected4 = ("ReqKey4", [ op FundTx 8 "sender1" 10.0 0
-                            , op TransferOrCreateAcct 9 "sender1" 5.0 1
-                            , op GasPayment 10 "miner1" 12.0 2 ])
+    expected4 = mockRosettaTx "ReqKey4"
+                [ op FundTx 8 "sender1" 10.0 0
+                , op TransferOrCreateAcct 9 "sender1" 5.0 1
+                , op GasPayment 10 "miner1" 12.0 2 ]
 
     -- Unsuccessful tx
-    expected5 = ("ReqKey5", [ op FundTx 11 "sender1" 10.0 0
-                            , op GasPayment 12 "miner1" 12.0 1])
+    expected5 = mockRosettaTx "ReqKey5"
+                [ op FundTx 11 "sender1" 10.0 0
+                , op GasPayment 12 "miner1" 12.0 1]
 
 matchFailedCoinbaseBlockTransactionsToLogs :: Assertion
 matchFailedCoinbaseBlockTransactionsToLogs = do
@@ -99,19 +99,18 @@ matchFailedCoinbaseBlockTransactionsToLogs = do
   assertEqualEncode "coinbase tx" r1 expected1
   assertEqualEncode "successful, non-coin 1" r2 expected2
   where
-    run :: Either String [(T.Text, [Operation])] 
-    run = nonGenesisTransactions' logs getTxId toTx initial rest
-    
-    toTx (_, rk) ops = (rk, ops)
-    getTxId (tid, _) = tid
+    run :: Either String [Transaction]
+    run = nonGenesisTransactions logs initial rest
+
     (logs, initial, rest) = mockTxLogsFailedCoinbaseAndTx
 
     -- Coinbase Tx
-    expected1 = ("ReqKey1", [])
+    expected1 = mockRosettaTx "ReqKey1" []
     
     -- Successful, non-coin contract tx
-    expected2 = ("ReqKey2", [ op FundTx 2 "sender1" 10.0 0
-                            , op GasPayment 4 "miner1" 12.0 1 ])
+    expected2 = mockRosettaTx "ReqKey2"
+                [ op FundTx 2 "sender1" 10.0 0
+                , op GasPayment 4 "miner1" 12.0 1 ]
 
 
 matchNonGenesisSingleTransactionsToLogs :: Assertion
@@ -137,37 +136,38 @@ matchNonGenesisSingleTransactionsToLogs = do
   assertEqual "request key not present" missingRk' expectedMissing
   
   where
-    run :: T.Text -> Either String (Maybe (T.Text, [Operation]))
-    run t = nonGenesisTransaction' logs toRk getTxId toTx initial rest (textToRk t)
-    
-    toTx (_, rk) ops = (rk, ops)
-    toRk (_, rk) = textToRk rk
-    textToRk = RequestKey . Hash . T.encodeUtf8
-    getTxId (tid, _) = tid
+    run :: T.Text -> Either String (Maybe Transaction)
+    run t = nonGenesisTransaction logs initial rest (textToRk t)
+
     (logs, initial, rest) = mockTxLogs
 
     targets =
       [ "ReqKey1", "ReqKey5", "ReqKey3", "ReqKey2", "ReqKey4", "RandomReqKey"]
 
     -- Coinbase Tx
-    expectedRk1 = Just ("ReqKey1", [ op CoinbaseReward 1 "miner1" 2.0 0])
+    expectedRk1 = Just $ mockRosettaTx "ReqKey1" [ op CoinbaseReward 1 "miner1" 2.0 0]
     
     -- Successful, non-coin contract tx
-    expectedRk2 = Just ("ReqKey2", [ op FundTx 2 "sender1" 10.0 0
-                                   , op GasPayment 4 "miner1" 12.0 1 ])
+    expectedRk2 = Just $ mockRosettaTx "ReqKey2"
+                  [ op FundTx 2 "sender1" 10.0 0
+                  , op GasPayment 4 "miner1" 12.0 1 ]
 
     -- Successful, non-coin contract tx
-    expectedRk3 = Just ("ReqKey3", [ op FundTx 5 "sender1" 10.0 0
-                                   , op GasPayment 7 "miner1" 12.0 1 ])
+    expectedRk3 = Just $ mockRosettaTx "ReqKey3"
+                  [ op FundTx 5 "sender1" 10.0 0
+                  , op GasPayment 7 "miner1" 12.0 1 ]
 
     -- Successful, coin contract tx
-    expectedRk4 = Just ("ReqKey4", [ op FundTx 8 "sender1" 10.0 0
-                                   , op TransferOrCreateAcct 9 "sender1" 5.0 1
-                                   , op GasPayment 10 "miner1" 12.0 2 ])
+    expectedRk4 = Just $ mockRosettaTx "ReqKey4"
+                  [ op FundTx 8 "sender1" 10.0 0
+                  , op TransferOrCreateAcct 9 "sender1" 5.0 1
+                  , op GasPayment 10 "miner1" 12.0 2 ]
 
     -- Unsuccessful tx
-    expectedRk5 = Just ("ReqKey5", [ op FundTx 11 "sender1" 10.0 0
-                                   , op GasPayment 12 "miner1" 12.0 1])
+    expectedRk5 = Just $ mockRosettaTx "ReqKey5"
+                  [ op FundTx 11 "sender1" 10.0 0
+                  , op GasPayment 12 "miner1" 12.0 1]
+
     expectedMissing = Nothing --RosettaTxIdNotFound
 
 
@@ -248,10 +248,14 @@ checkUniqueRosettaErrorCodes = case repeated of
 --------------------------------------------------------------------------------
 -- Utils
 
-type MockCoinbaseTxResult = MockTxResult
-type MockTxResult = (Maybe TxId, T.Text)
+newtype MockTxResult = MockTxResult (Maybe TxId, T.Text)
 
-mockTxLogs :: (Map TxId [AccountLog], MockCoinbaseTxResult, V.Vector MockTxResult)
+instance PendingTx MockTxResult where
+  getSomeTxId (MockTxResult (tid,_)) = tid
+  getRequestKey (MockTxResult (_,rk)) = textToRk rk
+  makeRosettaTx (MockTxResult (_,rk)) = mockRosettaTx rk
+
+mockTxLogs :: (Map TxId [AccountLog], MockTxResult, V.Vector MockTxResult)
 mockTxLogs = (logs, initial, rest)
   where
     (log1,initial) =
@@ -261,7 +265,7 @@ mockTxLogs = (logs, initial, rest)
           tid = TxId 1
           l = [(key, amt, g)]
           a = (Just tid, "ReqKey1")
-      in ((tid,l), a)
+      in ((tid,l), MockTxResult a)
 
     -- successful, non-coin contract tx
     (logs2,tx1) =
@@ -273,7 +277,7 @@ mockTxLogs = (logs, initial, rest)
           fundLogs = (fundTid, [(key, 10.0, gKey)])
           gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
           a = (Just tid, "ReqKey2")
-      in ([fundLogs,gasLogs], a)
+      in ([fundLogs,gasLogs], MockTxResult a)
 
     (logs3,tx2) =
       let minerKey = "miner1"
@@ -284,7 +288,7 @@ mockTxLogs = (logs, initial, rest)
           fundLogs = (fundTid, [(key, 10.0, gKey)])
           gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
           a = (Just tid, "ReqKey3")
-      in ([fundLogs,gasLogs], a)
+      in ([fundLogs,gasLogs], MockTxResult a)
 
     -- successful, coin contract tx
     (logs4,tx3) =
@@ -297,7 +301,7 @@ mockTxLogs = (logs, initial, rest)
           transferLogs = (tid, [(key, 5.0, gKey)])
           gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
           a = (Just tid, "ReqKey4")
-      in ([fundLogs,transferLogs,gasLogs], a)
+      in ([fundLogs,transferLogs,gasLogs], MockTxResult a)
 
     -- unsuccessful tx
     (logs5,tx4) =
@@ -309,16 +313,16 @@ mockTxLogs = (logs, initial, rest)
           fundLogs = (fundTid, [(key, 10.0, gKey)])
           gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
           a = (Nothing, "ReqKey5")
-      in ([fundLogs,gasLogs], a)
+      in ([fundLogs,gasLogs], MockTxResult a)
 
     rest = V.fromList [tx1, tx2, tx3, tx4]
     logs = M.fromList $ [log1] <> logs2 <> logs3 <> logs4 <> logs5
 
 
-mockTxLogsFailedCoinbaseAndTx :: (Map TxId [AccountLog], MockCoinbaseTxResult, V.Vector MockTxResult)
+mockTxLogsFailedCoinbaseAndTx :: (Map TxId [AccountLog], MockTxResult, V.Vector MockTxResult)
 mockTxLogsFailedCoinbaseAndTx = (logs, initial, rest)
   where
-    initial = (Nothing, "ReqKey1")
+    initial = MockTxResult (Nothing, "ReqKey1")
 
     -- successful, non-coin contract tx
     (logs2,tx1) =
@@ -330,7 +334,7 @@ mockTxLogsFailedCoinbaseAndTx = (logs, initial, rest)
           fundLogs = (fundTid, [(key, 10.0, gKey)])
           gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
           a = (Just tid, "ReqKey2")
-      in ([fundLogs,gasLogs], a)
+      in ([fundLogs,gasLogs], MockTxResult a)
 
     rest = V.fromList [tx1]
     logs = M.fromList logs2
@@ -348,3 +352,14 @@ assertEqualEncode
     -> Assertion
 assertEqualEncode msg e1 e2 =
   assertEqual msg (encode e1) (encode e2)
+
+mockRosettaTx :: T.Text -> [Operation] -> Transaction
+mockRosettaTx mrk ops =
+  Transaction
+  { _transaction_transactionId = TransactionId mrk
+  , _transaction_operations = ops
+  , _transaction_metadata = Nothing
+  }
+
+textToRk :: T.Text -> RequestKey
+textToRk = RequestKey . Hash . T.encodeUtf8
