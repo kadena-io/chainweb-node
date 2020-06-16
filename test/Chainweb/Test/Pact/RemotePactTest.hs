@@ -80,6 +80,7 @@ import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
+import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash (Hash(..))
@@ -180,6 +181,9 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "genesis allocations" $
                 testGroup "caplistTests"
                 [ caplistTest iot net ]
+              , after AllSucceed "caplistTests" $
+                testCase "local continuations" $
+                localContTest iot net
               ]
     ]
 
@@ -212,6 +216,42 @@ localTest iot nio = do
     let (PactResult e) = _crResult res
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
+
+localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
+localContTest iot nio = do
+    cenv <- _getClientEnv <$> nio
+    mv <- newMVar 0
+    SubmitBatch (cmd NEL.:| []) <- firstStep mv
+
+    pid <- (_crContinuation <$> local (unsafeChainId 0) cenv cmd) >>= \case
+      Nothing -> assertFailure "failed to initialize continuation"
+      Just pe -> return $ _pePactId pe
+
+    SubmitBatch batch2 <- secondStep mv pid
+    let cmd3 = head $ toList batch2
+    PactResult e <- _crResult <$> local (unsafeChainId 0) cenv cmd3
+    case e of
+      Left err -> assertFailure (show err)
+      Right _ -> return ()
+  where
+    tc =
+      "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+
+    ttl = 2 * 24 * 60 * 60
+    pm = Pact.PublicMeta (Pact.ChainId "0") "sender00" 100_000 0.01 ttl
+
+    firstStep mv = modifyMVar mv $ \ !n -> do
+      t <- toTxCreationTime <$> iot
+      kps <- testKeyPairs sender00 Nothing
+      c <- Pact.mkExec tc A.Null (pm t) kps (Just "fastTimedCPM-peterson") Nothing
+      return (succ n, SubmitBatch $ pure c)
+
+    secondStep mv pid = do
+      nonce <- (<>) "nonce" . sshow @Natural <$> readMVar mv
+      t <- toTxCreationTime <$> iot
+      kps <- testKeyPairs sender00 Nothing
+      c <- Pact.mkCont pid 1 False A.Null (pm t) kps (Just nonce) Nothing (Just "fastTimedCPM-peterson")
+      return $ SubmitBatch (pure c)
 
 localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
