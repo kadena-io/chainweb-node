@@ -655,7 +655,7 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             , _blockChainwebVersion = cwv
             , _blockEpochStart = es
             , _blockNonce = nonce
-            , _blockAdjacentHashes = blockHashRecordFromVector (cwv, height) cid adjParents
+            , _blockAdjacentHashes = blockHashRecordFromVector adjGraph cid adjParents
             }
       where
         ( flags
@@ -671,6 +671,10 @@ instance HasMerkleLog ChainwebHashTag BlockHeader where
             :+: nonce
             :+: MerkleLogBody adjParents
             ) = _merkleLogEntries l
+
+        adjGraph
+            | height == genesisHeight cwv cid = chainGraphAt cwv height
+            | otherwise = chainGraphAt cwv (height - 1)
 
 encodeBlockHeaderWithoutHash
     :: MonadPut m
@@ -940,11 +944,8 @@ hashPayload v cid b = BlockPayloadHash $ MerkleLogHash
 -- but might be worth it!
 --
 newBlockHeader
-    :: HM.HashMap ChainId (Either BlockHash ParentHeader)
-        -- ^ Adjacent parent hashes. In case of a graph change it can happen
-        -- that some adjacent parents are the parent hashes of genesis blocks,
-        -- in which case the header doesn't exist and only the block hash is
-        -- provided.
+    :: HM.HashMap ChainId ParentHeader
+        -- ^ Adjacent parent hashes.
     -> BlockPayloadHash
         -- ^ payload hash
     -> Nonce
@@ -965,15 +966,14 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
     :+: _blockWeight b + BlockWeight (targetToDifficulty target)
     :+: _blockHeight b + 1
     :+: v
-    :+: epochStart p adjParents t
+    :+: epochStart p adj t
     :+: nonce
     :+: MerkleLogBody (blockHashRecordToVector adjHashes)
   where
     cid = _chainId p
     v = _chainwebVersion p
     target = powTarget p t
-    adjHashes = BlockHashRecord $ either id (_blockHash . _parentHeader) <$> adj
-    adjParents = HM.mapMaybe (either (const Nothing) Just) adj
+    adjHashes = BlockHashRecord $ (_blockHash . _parentHeader) <$> adj
 
 -- -------------------------------------------------------------------------- --
 -- TreeDBEntry instance

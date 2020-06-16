@@ -241,6 +241,9 @@ blockHashRecordChainIdx :: BlockHashRecord -> ChainId -> Maybe Int
 blockHashRecordChainIdx r cid
     = L.elemIndex cid . L.sort . HM.keys $ _getBlockHashRecord r
 
+-- | Note, that as long as this is not a genesis block, the graph must be the
+-- graph of the parent header!
+--
 blockHashRecordFromVector
     :: HasChainGraph g
     => HasChainId c

@@ -745,6 +745,7 @@ prop_block_creationTime (WebStep as (ChainStep (ParentHeader p) b))
 prop_block_adjacent_chainId :: WebStep -> Bool
 prop_block_adjacent_chainId (WebStep _as (ChainStep (ParentHeader p) b))
     = _blockChainId p == _blockChainId b
+    -- FIXME FIXME FIXME
 
 -- | TODO: we don't current check this here. It is enforced in the cut merge
 -- algorithm , namely in 'monotonicCutExtension'. The property that is checked

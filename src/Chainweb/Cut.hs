@@ -537,9 +537,11 @@ checkBraidingOfCutPair s t = do
 -- graph to another graph: instead of undirected adjacent pairs the condition
 -- consideres directed adjacent pairs.
 --
--- A corresponding function is currently implemente in 'Chainweb.Cut.Create'
--- TODO: unify the implementation of both. In particular make sure that the function here that is used
--- during validation is not more lenient than the function used for extending cuts for mining.
+-- A corresponding function is currently implemented in 'Chainweb.Cut.Create'
+--
+-- TODO: unify the implementation of both. In particular make sure that the
+-- function here that is used during validation is not more lenient than the
+-- function used for extending cuts for mining.
 --
 isBraidingOfCutPair
     :: MonadThrow m
