@@ -348,9 +348,11 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
 
     -- End of epoch, DA adjustment
     | isLastInEpoch p = EpochStartTime (_bct $ _blockCreationTime p)
+        -- TODO should this be the average?
 
     -- Within epoch with old legacy DA
     | oldDaGuard ver (_blockHeight p + 1) = _blockEpochStart p
+
     -- Within an epoch with new DA
     | otherwise = _blockEpochStart p .+^ _adjustmentAvg
   where
@@ -400,8 +402,15 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
         x :: TimeSpan Micros
         x = foldr1 addTimeSpan $ (.-. _blockCreationTime p) <$> adjCreationTimes
 
-    -- This includes the parent header itself.
-    adjCreationTimes = _blockCreationTime . _parentHeader <$> HM.insert cid ph adj
+    -- This includes the parent header itself, but excludes any adjacent genesis
+    -- headers which usually don't have accurate creation time.
+    --
+    -- The result is guaranteed to be non-empty
+    --
+    adjCreationTimes = fmap (_blockCreationTime)
+        $ HM.insert cid (_parentHeader ph)
+        $ HM.filter (not . isGenesisBlockHeader)
+        $ fmap _parentHeader adj
 
     parentIsFirstOnNewChain
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
@@ -569,6 +578,11 @@ data BlockHeader :: Type where
         -> BlockHeader
         deriving (Show, Generic)
         deriving anyclass (NFData)
+
+isGenesisBlockHeader :: BlockHeader -> Bool
+isGenesisBlockHeader b =
+    _blockHeight b == genesisHeight (_blockChainwebVersion b) (_blockChainId b)
+{-# INLINE isGenesisBlockHeader #-}
 
 instance Eq BlockHeader where
      (==) = (==) `on` _blockHash
@@ -817,11 +831,6 @@ getAdjacentHash p b = firstOf (blockAdjacentHashes . ixg (_chainId p)) b
 computeBlockHash :: BlockHeader -> BlockHash
 computeBlockHash h = BlockHash $ MerkleLogHash $ computeMerkleLogRoot h
 {-# INLINE computeBlockHash #-}
-
-isGenesisBlockHeader :: BlockHeader -> Bool
-isGenesisBlockHeader b =
-    _blockHeight b == genesisHeight (_blockChainwebVersion b) (_blockChainId b)
-{-# INLINE isGenesisBlockHeader #-}
 
 -- | The Proof-Of-Work hash includes all data in the block except for the
 -- '_blockHash'. The value (interpreted as 'BlockHashNat' must be smaller than
