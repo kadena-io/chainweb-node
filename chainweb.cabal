@@ -208,6 +208,7 @@ library
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
         , Chainweb.Rosetta.RestAPI
+        , Chainweb.Rosetta.RestAPI.Client
         , Chainweb.Rosetta.RestAPI.Server
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
