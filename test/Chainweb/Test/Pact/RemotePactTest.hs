@@ -182,7 +182,6 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
                 testGroup "caplistTests"
                 [ caplistTest iot net ]
               , after AllSucceed "caplistTests" $
-                testCase "local continuations" $
                 localContTest iot net
               ]
     ]
@@ -217,20 +216,30 @@ localTest iot nio = do
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
-localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
-localContTest iot nio = do
+localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
     cenv <- _getClientEnv <$> nio
+    sid <- mkChainId v maxBound (0 :: Int)
     mv <- newMVar 0
-    SubmitBatch (cmd NEL.:| []) <- firstStep mv
 
-    pid <- (_crContinuation <$> local (unsafeChainId 0) cenv cmd) >>= \case
-      Nothing -> assertFailure "failed to initialize continuation"
-      Just pe -> return $ _pePactId pe
+    step "execute /send with initial pact continuation tx"
+    batch <- firstStep mv
+    rks <- liftIO $ sending sid cenv batch
 
+    step "check /poll responses to extract pact id for continuation"
+    PollResponses m <- polling sid cenv rks ExpectPactResult
+    pid <- case NEL.toList (_rkRequestKeys rks) of
+      [rk] -> case HashMap.lookup rk m of
+        Nothing -> assertFailure "impossible"
+        Just cr -> case _crContinuation cr of
+          Nothing -> assertFailure "not a continuation - impossible"
+          Just pe -> return $ _pePactId pe
+      _ -> assertFailure "continuation did not succeed"
+
+    step "execute /local continuation dry run"
     SubmitBatch batch2 <- secondStep mv pid
-    let cmd3 = head $ toList batch2
-    PactResult e <- _crResult <$> local (unsafeChainId 0) cenv cmd3
-    case e of
+    r <- _pactResult . _crResult <$> local sid cenv (head $ toList batch2)
+    case r of
       Left err -> assertFailure (show err)
       Right _ -> return ()
   where
@@ -768,7 +777,7 @@ local
 local sid cenv cmd =
     recovering testRetryPolicy [h] $ \s -> do
       debug
-        $ "requesting local cmd for " <> (take 18 $ show cmd)
+        $ "requesting local cmd for " <> (take 19 $ show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
       -- send a single spv request and return the result
