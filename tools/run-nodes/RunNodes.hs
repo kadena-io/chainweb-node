@@ -1,23 +1,29 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
 module RunNodes ( main, runNodesOpts ) where
 
-import BasePrelude hiding (option, (%))
 import Chainweb.Graph (petersonChainGraph)
 import Chainweb.Version
+
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Error.Util (note)
+import Control.Exception
+
 import qualified Data.Text as T
+import Data.Word
+
 import Formatting
+
 import Options.Applicative
-import System.Process (callProcess)
+
 import System.Directory (executable, getPermissions)
+import System.Process (callProcess)
 
 ---
 
