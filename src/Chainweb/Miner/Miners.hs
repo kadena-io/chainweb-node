@@ -5,6 +5,8 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 -- |
@@ -21,20 +23,19 @@ module Chainweb.Miner.Miners
     localPOW
   , localTest
   , mempoolNoopMiner
-    -- * Remote Mining
-  , transferableBytes
   ) where
-
-import Data.Bytes.Put (runPutS)
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Map.Strict as M
-import Data.Tuple.Strict (T2(..), T3(..))
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (race)
 import Control.Concurrent.STM.TVar (TVar)
-import Control.Lens (view)
+import Control.Lens
+import Control.Monad
+
+import qualified Data.ByteString.Short as BS
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
+import Data.Proxy
+import Data.Tuple.Strict (T2(..))
 
 import Numeric.Natural (Natural)
 
@@ -44,31 +45,32 @@ import qualified System.Random.MWC.Distributions as MWC
 -- internal modules
 
 import Chainweb.BlockHeader
+import Chainweb.BlockHeight
 import Chainweb.ChainId
+import Chainweb.Cut.Create
 import Chainweb.CutDB
-import Chainweb.Difficulty (encodeHashTarget)
 import Chainweb.Mempool.Mempool
 import qualified Chainweb.Mempool.Mempool as Mempool
 import Chainweb.Miner.Config (MinerCount(..))
 import Chainweb.Miner.Coordinator
 import Chainweb.Miner.Core
-import Chainweb.Miner.Pact (Miner)
+import Chainweb.Miner.Pact
 import Chainweb.RestAPI.Orphans ()
 import Chainweb.Sync.WebBlockHeaderStore
-import Chainweb.Time (Seconds(..), getCurrentTimeIntegral)
 import Chainweb.Transaction
-import Chainweb.Utils (approximateThreadDelay, int, runForever, runGet)
+import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.WebBlockHeaderDB
 import Chainweb.WebPactExecutionService
 
 import Data.LogMessage (LogFunction)
-
----
 
 --------------------------------------------------------------------------------
 -- Local Mining
 
 -- | Artificially delay the mining process to simulate Proof-of-Work.
+--
+-- This is not production POW, but only for testing.
 --
 localTest
     :: LogFunction
@@ -84,28 +86,33 @@ localTest lf v tpw m cdb gen miners = runForever lf "Chainweb.Miner.Miners.local
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T2 bh pl <- newWork lf Anything (Plebian m) pact tpw c
-        now <- getCurrentTimeIntegral
-        let !phash = _blockPayloadHash bh
-            !bpar = _blockParent bh
-            !ms = MiningState $ M.singleton (T2 bpar phash) (T3 m pl now)
-        work bh >>= publish lf ms cdb >> awaitNewCut cdb c >> loop
+        T2 wh pd <- newWork lf Anything (Plebian m) hdb pact tpw c
+        let height = c ^?! ixg (_workHeaderChainId wh) . blockHeight
+        work height wh >>= publish lf cdb (view minerId m) pd
+        void $ awaitNewCut cdb c
+        loop
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
 
-    t :: Double
-    t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
-
-    graphOrder :: Natural
-    graphOrder = order $ _chainGraph v
+    hdb :: WebBlockHeaderDb
+    hdb = view cutDbWebBlockHeaderDb cdb
 
     meanBlockTime :: Double
-    meanBlockTime = case blockRate v of
-        BlockRate (Seconds n) -> int n
+    meanBlockTime = int $ _getBlockRate $ blockRate v
 
-    work :: BlockHeader -> IO BlockHeader
-    work bh = MWC.geometric1 t gen >>= threadDelay >> pure bh
+    work :: BlockHeight -> WorkHeader -> IO SolvedWork
+    work height w = do
+        MWC.geometric1 t gen >>= threadDelay
+        runGet decodeSolvedWork $ BS.fromShort $ _workHeaderBytes w
+      where
+        t :: Double
+        t = int graphOrder / (int (_minerCount miners) * meanBlockTime * 1000000)
+
+        graphOrder :: Natural
+        graphOrder = order $ chainGraphAt v height
+
+
 
 -- | A miner that grabs new blocks from mempool and discards them. Mempool
 -- pruning happens during new-block time, so we need to ask for a new block
@@ -125,36 +132,32 @@ mempoolNoopMiner lf chainRes =
 
 -- | A single-threaded in-process Proof-of-Work mining loop.
 --
-localPOW :: LogFunction -> ChainwebVersion -> TVar PrimedWork -> Miner -> CutDb cas -> IO ()
+localPOW
+    :: LogFunction
+    -> ChainwebVersion
+    -> TVar PrimedWork
+    -> Miner
+    -> CutDb cas
+    -> IO ()
 localPOW lf v tpw m cdb = runForever lf "Chainweb.Miner.Miners.localPOW" loop
   where
     loop :: IO a
     loop = do
         c <- _cut cdb
-        T2 bh pl <- newWork lf Anything (Plebian m) pact tpw c
-        now <- getCurrentTimeIntegral
-        let !phash = _blockPayloadHash bh
-            !bpar = _blockParent bh
-            !ms = MiningState $ M.singleton (T2 bpar phash) (T3 m pl now)
-        race (awaitNewCutByChainId cdb (_chainId bh) c) (work bh) >>= \case
+        T2 wh pd <- newWork lf Anything (Plebian m) hdb pact tpw c
+        race (awaitNewCutByChainId cdb (_workHeaderChainId wh) c) (work wh) >>= \case
             Left _ -> loop
-            Right new -> publish lf ms cdb new >> awaitNewCut cdb c >> loop
+            Right new -> do
+                publish lf cdb (view minerId m) pd new
+                void $ awaitNewCut cdb c
+                loop
 
     pact :: PactExecutionService
     pact = _webPactExecutionService $ view cutDbPactService cdb
 
-    work :: BlockHeader -> IO BlockHeader
-    work bh = do
-        let T3 _ tbytes hbytes = transferableBytes bh
-        T2 (HeaderBytes new) _ <- usePowHash v (\p -> mine p (_blockNonce bh) tbytes) hbytes
-        runGet decodeBlockHeaderWithoutHash new
+    hdb :: WebBlockHeaderDb
+    hdb = view cutDbWebBlockHeaderDb cdb
 
--- | Can be piped to `workBytes` for a form suitable to use with
--- `Chainweb.Miner.RestAPI.MiningApi_`.
---
-transferableBytes :: BlockHeader -> T3 ChainBytes TargetBytes HeaderBytes
-transferableBytes bh = T3 c t h
-  where
-    t = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
-    h = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
-    c = ChainBytes  . runPutS . encodeChainId $ _chainId bh
+    work :: WorkHeader -> IO SolvedWork
+    work wh = usePowHash v $ \(_ :: Proxy a) -> sfst <$> mine @a (Nonce 0) wh
+

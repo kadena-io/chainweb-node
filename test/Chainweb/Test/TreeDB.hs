@@ -14,7 +14,6 @@
 --
 module Chainweb.Test.TreeDB ( treeDbInvariants, RunStyle(..) ) where
 
-import Control.Exception (SomeException(..), try)
 import Control.Lens (each, from, over, to, (^.), (^..))
 
 import Data.Bool (bool)
@@ -40,7 +39,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Validation
 import Chainweb.Test.Utils
 import Chainweb.TreeDB
-import Chainweb.Utils (len)
+import Chainweb.Utils (len, tryAllSynchronous)
 
 type Insert db = db -> [DbEntry db] -> IO ()
 type WithTestDb db = DbEntry db -> (db -> Insert db -> IO Bool) -> IO Bool
@@ -139,8 +138,8 @@ handOfGod_prop
     -> Property
 handOfGod_prop f (SparseTree t0) = ioProperty . withTreeDb f t $ \db insert -> do
     h <- maxEntry db
-    try (insert db [over (isoBH . blockNonce) succ h]) >>= \case
-        Left (_ :: SomeException) -> pure True
+    tryAllSynchronous (insert db [over (isoBH . blockNonce) succ h]) >>= \case
+        Left _ -> pure True
         Right _ -> do
             h' <- maxEntry db
             pure $ h == h'

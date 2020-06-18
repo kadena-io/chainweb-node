@@ -246,7 +246,7 @@ initPactService'
     -> PactServiceM cas a
     -> IO (T2 a PactServiceState)
 initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
-    checkpointEnv <- initRelationalCheckpointer initBlockState sqlenv logger ver
+    checkpointEnv <- initRelationalCheckpointer initialBlockState sqlenv logger ver cid
     let !rs = readRewards
         !gasModel = officialGasModel
         !initialParentHeader = ParentHeader $ genesisBlockHeader ver cid
@@ -266,6 +266,7 @@ initPactService' ver cid chainwebLogger bhDb pdb sqlenv config act = do
         !pst = PactServiceState Nothing mempty initialParentHeader P.noSPVSupport
     runPactServiceM pst pse act
   where
+    initialBlockState = initBlockState $ genesisHeight ver cid
     loggers = pactLoggers chainwebLogger
     logger = P.newLogger loggers $ P.LogName ("PactService" <> show cid)
 
@@ -299,7 +300,8 @@ initializeCoinContract
     -> PactServiceM cas ()
 initializeCoinContract _logger v cid pwo = do
     cp <- getCheckpointer
-    genesisExists <- liftIO $ _cpLookupBlockInCheckpointer cp (0, ghash)
+    genesisExists <- liftIO
+        $ _cpLookupBlockInCheckpointer cp (genesisHeight v cid, ghash)
     if genesisExists
       then readContracts cp
       else validateGenesis
@@ -323,8 +325,8 @@ initializeCoinContract _logger v cid pwo = do
         Nothing -> throwM NoBlockValidatedYet
         (Just !p) -> return p
       let target = Just (succ bhe, bhash)
-      parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "initializeCoinContract"
-      setParentHeader parentHeader
+      parent <- ParentHeader <$!> lookupBlockHeader bhash "initializeCoinContract"
+      setParentHeader "readContracts" parent
       withCheckpointer target "readContracts" $ \(PactDbEnv' pdbenv) -> do
         PactServiceEnv{..} <- ask
         pd <- getTxContext def
@@ -576,9 +578,9 @@ restoreCheckpointer
     :: PayloadCasLookup cas
     => Maybe (BlockHeight,BlockHash)
         -- ^ The block height @height@ to which to restore and the parent header
-        -- @parentHeader@.
+        -- @parent@.
         --
-        -- It holds that @(_blockHeight parentHeader == pred height)@
+        -- It holds that @(_blockHeight parent == pred height)@
 
     -> String
         -- ^ Putative caller
@@ -621,6 +623,17 @@ withCheckpointer target caller act = mask $ \restore -> do
     saveTx header = do
         finalizeCheckpointer (flip _cpSave $ _blockHash header)
         psStateValidated .= Just header
+
+-- | 'withCheckpointer' but using the cached parent header for target.
+withCurrentCheckpointer
+    :: PayloadCasLookup cas
+    => String
+    -> (PactDbEnv' -> PactServiceM cas (WithCheckpointerResult a))
+    -> PactServiceM cas a
+withCurrentCheckpointer caller act = do
+    ph <- _parentHeader <$> use psParentHeader
+    let target = Just (succ $ _blockHeight ph, _blockHash ph)
+    withCheckpointer target caller act
 
 -- | Same as 'withCheckpointer' but rewinds the checkpointer state to the
 -- provided target.
@@ -689,7 +702,13 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
         let cmd = payloadObj <$> tx
             gasPrice = gasPriceOf cmd
             gasLimit = fromIntegral $ gasLimitOf cmd
-            txst = TransactionState mcache mempty 0 Nothing (P._geGasModel P.freeGasEnv)
+            txst = TransactionState
+                { _txCache = mcache
+                , _txLogs = mempty
+                , _txGasUsed = 0
+                , _txGasId = Nothing
+                , _txGasModel = P._geGasModel P.freeGasEnv
+                }
 
         buyGasEnv <- createGasEnv db cmd gasPrice gasLimit
 
@@ -708,7 +727,9 @@ attemptBuyGas miner (PactDbEnv' dbEnv) txs = do
 -- exist yet.
 --
 validateChainwebTxs
-    :: Checkpointer
+    :: ChainwebVersion
+    -> ChainId
+    -> Checkpointer
     -> BlockCreationTime
         -- ^ reference time for tx validation.
         --
@@ -724,12 +745,11 @@ validateChainwebTxs
     -> Vector ChainwebTransaction
     -> RunGas
     -> IO ValidateTxs
-validateChainwebTxs cp txValidationTime lenientCreationTime bh txs doBuyGas
-  | bh == 0 = pure $! V.map Right txs
+validateChainwebTxs v cid cp txValidationTime lenientCreationTime bh txs doBuyGas
+  | bh == genesisHeight v cid = pure $! V.map Right txs
   | V.null txs = pure V.empty
   | otherwise = go
   where
-
     go = V.mapM validations initTxList >>= doBuyGas
 
     validations t = runValid checkUnique t
@@ -782,13 +802,13 @@ validateLegacyTTL
     :: ParentHeader
     -> Vector ChainwebTransaction
     -> ValidateTxs
-validateLegacyTTL parentHeader txs
-    | isGenesisParent parentHeader = V.map Right txs
+validateLegacyTTL parent txs
+    | isGenesisParent parent = V.map Right txs
     | V.null txs = V.empty
     | otherwise = V.map check txs
   where
     timeFromSeconds = Time . secondsToTimeSpan . Seconds . fromIntegral
-    parentTime = _bct $ _blockCreationTime $ _parentHeader parentHeader
+    parentTime = _bct $ _blockCreationTime $ _parentHeader parent
     check tx
         | expirationTime >= parentTime = Right tx
         | otherwise = Left InsertErrorInvalidTime
@@ -798,7 +818,7 @@ validateLegacyTTL parentHeader txs
         P.TxCreationTime txOriginationTime = creationTimeOf (payloadObj <$> tx)
 
     -- ensure that every block that validates with
-    -- @txValidationTime == _blockCreatinTime parentHeader@ (new behavior) also validates with
+    -- @txValidationTime == _blockCreatinTime parent@ (new behavior) also validates with
     -- @txValidationTime == _blockCreationTime currentHeader@ (old behavior).
     --
     -- The compat period puts an effective lower limit on the TTL value. During
@@ -819,17 +839,17 @@ validateLegacyTTL parentHeader txs
     -- little less than 3 minutes.
     --
     compatPeriod
-        | useLegacyCreationTimeNewBlockOrInsert parentHeader = 60 * 3
+        | useLegacyCreationTimeNewBlockOrInsert parent = 60 * 3
         | otherwise = 0
 
 -- | Guard for new block or insert checks vs. parent block height + 1,
 -- whereas validate checks "current block height".
 useLegacyCreationTimeNewBlockOrInsert :: ParentHeader -> Bool
-useLegacyCreationTimeNewBlockOrInsert parentHeader =
+useLegacyCreationTimeNewBlockOrInsert parent =
   useLegacyCreationTimeForTxValidation v bh
   where
-    v = _chainwebVersion parentHeader
-    bh = succ $ _blockHeight $ _parentHeader parentHeader
+    v = _chainwebVersion parent
+    bh = succ $ _blockHeight $ _parentHeader parent
 
 type ValidateTxs = Vector (Either InsertError ChainwebTransaction)
 type RunGas = ValidateTxs -> IO ValidateTxs
@@ -911,7 +931,7 @@ minerReward v (MinerRewards rs) bh =
       Nothing -> err
       Just (_, m) -> pure $! P.ParsedDecimal (roundTo 8 (m / n))
   where
-    !n = view (chainGraph . to (int . order)) v
+    !n = int . order $ chainGraphAt v bh
     err = internalError "block heights have been exhausted"
 {-# INLINE minerReward #-}
 
@@ -924,10 +944,10 @@ execNewBlock
     -> ParentHeader
     -> Miner
     -> PactServiceM cas PayloadWithOutputs
-execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
+execNewBlock mpAccess parent miner = handle onTxFailure $ do
     updateMempool
     withDiscardedBatch $ do
-      setParentHeader parentHeader
+      setParentHeader "execNewBlock" parent
       rewindTo newblockRewindLimit target
       newTrans <- withCheckpointer target "preBlock" doPreBlock
       withCheckpointer target "execNewBlock" (doNewBlock newTrans)
@@ -954,30 +974,33 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
               runGas = attemptBuyGas miner pdbenv txs
           validate bhi _bha txs = do
 
-            let parentTime = _blockCreationTime $ _parentHeader parentHeader
-                lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
+            let parentTime = _blockCreationTime $ _parentHeader parent
+                lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parent
             results <- V.zipWith (>>)
-                <$> validateChainwebTxs cp parentTime lenientCreationTime bhi txs runDebitGas
+                <$> do
+                    let v = _chainwebVersion psEnv
+                        cid = _chainId psEnv
+                    validateChainwebTxs v cid cp parentTime lenientCreationTime bhi txs runDebitGas
 
                 -- This code can be removed once the transition is complete and the guard
                 -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
                 -- of all chainweb versions.
                 --
-                <*> pure (validateLegacyTTL parentHeader txs)
+                <*> pure (validateLegacyTTL parent txs)
 
             V.forM results $ \case
                 Right _ -> return True
                 Left _e -> return False
 
       liftIO $! fmap Discard $!
-        mpaGetBlock mpAccess validate bHeight pHash (_parentHeader parentHeader)
+        mpaGetBlock mpAccess validate bHeight pHash (_parentHeader parent)
 
     doNewBlock newTrans pdbenv = do
         logInfo $ "execNewBlock, about to get call processFork: "
                 <> " (parent height = " <> sshow pHeight <> ")"
                 <> " (parent hash = " <> sshow pHash <> ")"
 
-        setParentHeader parentHeader -- could have been overwritten in rewind, so set again
+        setParentHeader "doNewBlock" parent -- could have been overwritten in rewind, so set again
 
         -- NEW BLOCK COINBASE: Reject bad coinbase, always use precompilation
         results <- execTransactions False miner newTrans
@@ -988,14 +1011,14 @@ execNewBlock mpAccess parentHeader miner = handle onTxFailure $ do
         let !pwo = toPayloadWithOutputs miner results
         return $! Discard pwo
 
-    pHeight = _blockHeight $ _parentHeader parentHeader
-    pHash = _blockHash $ _parentHeader parentHeader
+    pHeight = _blockHeight $ _parentHeader parent
+    pHash = _blockHash $ _parentHeader parent
     target = Just (bHeight, pHash)
     bHeight = succ pHeight
 
     updateMempool = liftIO $ do
-      mpaProcessFork mpAccess $ _parentHeader parentHeader
-      mpaSetLastHeader mpAccess $ _parentHeader parentHeader
+      mpaProcessFork mpAccess $ _parentHeader parent
+      mpaSetLastHeader mpAccess $ _parentHeader parent
 
 
 withBatch :: PactServiceM cas a -> PactServiceM cas a
@@ -1042,26 +1065,19 @@ execLocal
     :: PayloadCasLookup cas
     => ChainwebTransaction
     -> PactServiceM cas (P.CommandResult P.Hash)
-execLocal cmd = withDiscardedBatch $ do
-    cp <- getCheckpointer
-    mbLatestBlock <- liftIO $ _cpGetLatestBlock cp
-    (bhe, bhash) <- case mbLatestBlock of
-                       Nothing -> throwM NoBlockValidatedYet
-                       (Just !p) -> return p
-    let target = Just (succ bhe, bhash)
-    parentHeader <- ParentHeader <$!> lookupBlockHeader bhash "execLocal"
-    setParentHeader parentHeader
-
-    withCheckpointer target "execLocal" $ \(PactDbEnv' pdbenv) -> do
-        PactServiceEnv{..} <- ask
-        mc <- use psInitCache
-        pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
-        spv <- use psSpvSupport
-        execConfig <- view psAllowReadsInLocal >>= \b ->
-          return $ if b then mkExecutionConfig [P.FlagAllowReadInLocal] else def
+execLocal cmd = do
+    PactServiceEnv{..} <- ask
+    mc <- use psInitCache
+    pd <- getTxContext (publicMetaOf $! payloadObj <$> cmd)
+    spv <- use psSpvSupport
+    let execConfig | _psAllowReadsInLocal = mkExecutionConfig [P.FlagAllowReadInLocal]
+                   | otherwise = def
+        logger = _cpeLogger _psCheckpointEnv
+    withCurrentCheckpointer "execLocal" $ \(PactDbEnv' pdbenv) -> do
         r <- liftIO $
-          applyLocal (_cpeLogger _psCheckpointEnv) pdbenv officialGasModel pd spv cmd mc execConfig
+          applyLocal logger pdbenv officialGasModel pd spv cmd mc execConfig
         return $! Discard (toHashCommandResult r)
+
 
 logg :: String -> String -> PactServiceM cas ()
 logg level msg = view (psCheckpointEnv . cpeLogger)
@@ -1077,8 +1093,9 @@ logDebug :: String -> PactServiceM cas ()
 logDebug = logg "DEBUG"
 
 -- | Set parent header in state and spv support (using parent hash)
-setParentHeader :: ParentHeader -> PactServiceM cas ()
-setParentHeader ph@(ParentHeader bh) = do
+setParentHeader :: String -> ParentHeader -> PactServiceM cas ()
+setParentHeader msg ph@(ParentHeader bh) = do
+  logDebug $ "setParentHeader: " ++ msg ++ ": " ++ show (_blockHash bh,_blockHeight bh)
   psParentHeader .= ph
   bdb <- view psBlockHeaderDb
   psSpvSupport .= pactSPV bdb (_blockHash bh)
@@ -1112,12 +1129,14 @@ playOneBlock currHeader plData pdbenv = do
       else do
         -- FIXME don't do this twice. Instead store the parent header in the context
         -- (and don't use the current header at all)
-        parentHeader <- ParentHeader <$!> lookupBlockHeader  (_blockParent currHeader) "playOneBlock"
-        return (_blockCreationTime $ _parentHeader parentHeader, True)
+        parent <- ParentHeader <$!> lookupBlockHeader  (_blockParent currHeader) "playOneBlock"
+        return (_blockCreationTime $ _parentHeader parent, True)
 
     -- prop_tx_ttl_validate
-    valids <- V.zip trans <$> liftIO
-      (validateChainwebTxs cp txValidationTime lenientCreationTime (_blockHeight currHeader) trans skipDebitGas)
+    valids <- liftIO $ V.zip trans <$>
+        validateChainwebTxs v cid cp
+            txValidationTime lenientCreationTime
+            (_blockHeight currHeader) trans skipDebitGas
 
     case foldr handleValids [] valids of
       [] -> return ()
@@ -1140,18 +1159,19 @@ playOneBlock currHeader plData pdbenv = do
 
     v = _chainwebVersion currHeader
     h = _blockHeight currHeader
+    cid = _chainId currHeader
 
     isGenesisBlock = isGenesisBlockHeader currHeader
 
     go m txs = if isGenesisBlock
       then do
-        setParentHeader (ParentHeader currHeader)
+        setParentHeader "playOneBlock:genesis" (ParentHeader currHeader)
         -- GENESIS VALIDATE COINBASE: Reject bad coinbase, use date rule for precompilation
         execTransactions True m txs
           (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) pdbenv
       else do
-        parentHeader <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
-        setParentHeader parentHeader
+        parent <- ParentHeader <$!> lookupBlockHeader (_blockParent currHeader) "playOneBlock.go"
+        setParentHeader "playOneBlock:normal" parent
         -- VALIDATE COINBASE: back-compat allow failures, use date rule for precompilation
         execTransactions False m txs
           (EnforceCoinbaseFailure False) (CoinbaseUsePrecompiled False) pdbenv
@@ -1166,9 +1186,9 @@ rewindTo
         -- ^ if set, limit rewinds to this delta
     -> Maybe (BlockHeight, ParentHash)
         -- ^ The block height @height@ to which to restore and the parent header
-        -- @parentHeader@.
+        -- @parent@.
         --
-        -- It holds that @(_blockHeight parentHeader == pred height)@
+        -- It holds that @(_blockHeight parent == pred height)@
     -> PactServiceM cas ()
 rewindTo rewindLimit = maybe rewindGenesis doRewind
   where
@@ -1192,10 +1212,10 @@ rewindTo rewindLimit = maybe rewindGenesis doRewind
     failNonGenesisOnEmptyDb = error "impossible: playing non-genesis block to empty DB"
 
     playFork bhdb payloadDb parentHash lastHeader = do
-        parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"
+        parent <- ParentHeader <$!> lookupBlockHeader parentHash "rewindTo"
 
         (!_, _, newBlocks) <-
-            liftIO $ collectForkBlocks bhdb lastHeader $ _parentHeader parentHeader
+            liftIO $ collectForkBlocks bhdb lastHeader $ _parentHeader parent
         -- play fork blocks
         V.mapM_ (fastForward payloadDb) newBlocks
 
@@ -1228,13 +1248,17 @@ execValidateBlock currHeader plData = do
         withCheckpointer mb "execValidateBlock" $ \pdbenv -> do
             !result <- playOneBlock currHeader plData pdbenv
             return $! Save currHeader result
-    either throwM return $!
+    either throwM setCurrAsParent $!
       validateHashes currHeader plData miner transactions
   where
     mb = if isGenesisBlock then Nothing else Just (bHeight, bParent)
     bHeight = _blockHeight currHeader
     bParent = _blockParent currHeader
     isGenesisBlock = isGenesisBlockHeader currHeader
+
+    -- On final success, use header as the new/next parent header
+    setCurrAsParent pwos =
+      setParentHeader "setCurrAsParent" (ParentHeader currHeader) >> return pwos
 
     -- TODO: knob to configure whether this rewind is fatal
     fatalRewindError a h1 h2 = do
@@ -1399,27 +1423,24 @@ execPreInsertCheckReq
     => Vector ChainwebTransaction
     -> PactServiceM cas (Vector (Either Mempool.InsertError ChainwebTransaction))
 execPreInsertCheckReq txs = do
+    parent <- use psParentHeader
+    let currHeight = succ $ _blockHeight $ _parentHeader parent
+    psEnv <- ask
+    psState <- get
+    let parentTime = _blockCreationTime $ _parentHeader parent
+        lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parent
     cp <- getCheckpointer
-    b <- liftIO $ _cpGetLatestBlock cp
-    case b of
-        Nothing -> return $! V.map Right txs
-        Just (parentHeight, parentHash) -> do
-            let currHeight = parentHeight + 1
-            withCheckpointer (Just (currHeight, parentHash)) "execPreInsertCheckReq" $ \pdb -> do
-                psEnv <- ask
-                psState <- get
-                parentHeader <- ParentHeader <$!> lookupBlockHeader parentHash "execPreInsertCheckReq"
+    withCurrentCheckpointer "execPreInsertCheckReq" $ \pdb -> do
+      let v = _chainwebVersion psEnv
+          cid = _chainId psEnv
+      liftIO $ fmap Discard $ V.zipWith (>>)
+        <$> validateChainwebTxs v cid cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
 
-                let parentTime = _blockCreationTime $ _parentHeader parentHeader
-                    lenientCreationTime = not $ useLegacyCreationTimeNewBlockOrInsert parentHeader
-                liftIO $ fmap Discard $ V.zipWith (>>)
-                    <$> validateChainwebTxs cp parentTime lenientCreationTime currHeight txs (runGas pdb psState psEnv)
-
-                    -- This code can be removed once the transition is complete and the guard
-                    -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
-                    -- of all chainweb versions.
-                    --
-                    <*> pure (validateLegacyTTL parentHeader txs)
+        -- This code can be removed once the transition is complete and the guard
+        -- @useLegacyCreationTimeForTxValidation@ is false for all new blocks
+        -- of all chainweb versions.
+        --
+        <*> pure (validateLegacyTTL parent txs)
   where
     runGas pdb pst penv ts =
         evalPactServiceM pst penv (attemptBuyGas noMiner pdb ts)

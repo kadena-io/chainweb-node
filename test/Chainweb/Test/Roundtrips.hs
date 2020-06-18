@@ -32,6 +32,7 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
+import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.HostAddress
 import Chainweb.MerkleLogHash
@@ -79,6 +80,8 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeBlockHash encodeBlockHash
     , testProperty "BlockHeight"
         $ prop_encodeDecodeRoundtrip decodeBlockHeight encodeBlockHeight
+    , testProperty "CutHeight"
+        $ prop_encodeDecodeRoundtrip decodeCutHeight encodeCutHeight
     , testProperty "PowHash"
         $ prop_encodeDecodeRoundtrip decodePowHash encodePowHash
     , testProperty "PowHashNat"
@@ -107,6 +110,14 @@ encodeDecodeTests = testGroup "Encode-Decode roundtrips"
         $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
     , testProperty "BlockTransactionsHash"
         $ prop_encodeDecodeRoundtrip decodeBlockTransactionsHash encodeBlockTransactionsHash
+
+    , testProperty "SolvedWork"
+        $ prop_encodeDecodeRoundtrip decodeSolvedWork encodeSolvedWork
+
+    -- FIXME: decoding depends on version and block height (which is something
+    -- that we should fix)
+    -- , testProperty "WorkHeader"
+    --    $ prop_encodeDecodeRoundtrip decodeWorkHeader encodeWorkHeader
 
     -- TODO Fix this!
     -- The following doesn't hold:

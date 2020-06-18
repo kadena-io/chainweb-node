@@ -1,5 +1,7 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -16,16 +18,25 @@
 -- Orphan instances for types that are defined in the chainweb package
 --
 module Chainweb.Test.Orphans.Internal
-(
+( arbitraryBytes
+, arbitraryBytesSized
+, arbitraryBlockHeaderVersion
+, arbitraryBlockHeaderVersionHeight
+, arbitraryBlockHeaderVersionHeightChain
+, arbitraryBlockHashRecordVersionHeightChain
 ) where
 
 import Control.Applicative
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as BS
+import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 
 import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Modifiers
+import Test.QuickCheck.Exception (discard)
 import Test.QuickCheck.Gen
+import Test.QuickCheck.Modifiers
 
 -- internal modules
 
@@ -36,13 +47,17 @@ import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
 import Chainweb.Crypto.MerkleLog
+import Chainweb.Cut.Create
 import Chainweb.Difficulty
 import Chainweb.Graph
 import Chainweb.MerkleLogHash
 import Chainweb.Payload
 import Chainweb.PowHash
+import Chainweb.Test.Utils (genEnum)
+import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import P2P.Node.Configuration
 import P2P.Node.PeerDB
@@ -65,8 +80,10 @@ instance Arbitrary ChainwebVersion where
     arbitrary = elements
         [ Test singletonChainGraph
         , Test petersonChainGraph
-        , TimedConsensus singletonChainGraph
-        , TimedConsensus petersonChainGraph
+        , TimedConsensus singletonChainGraph singletonChainGraph
+        , TimedConsensus petersonChainGraph petersonChainGraph
+        , TimedConsensus singletonChainGraph pairChainGraph
+        , TimedConsensus petersonChainGraph twentyChainGraph
         , PowConsensus singletonChainGraph
         , PowConsensus petersonChainGraph
         , TimedCPM singletonChainGraph
@@ -129,19 +146,20 @@ instance Arbitrary BlockHash where
 instance Arbitrary BlockHeight where
     arbitrary = BlockHeight <$> arbitrary
 
+instance Arbitrary CutHeight where
+    arbitrary = CutHeight <$> arbitrary
+
 instance Arbitrary BlockWeight where
     arbitrary = BlockWeight <$> arbitrary
 
 instance Arbitrary BlockHashRecord where
     arbitrary = pure $ BlockHashRecord mempty
-    -- arbitrary = BlockHashRecord . HM.fromList . fmap (\x -> (_chainId x, x))
-    --     <$> arbitrary
 
 instance Arbitrary Nonce where
     arbitrary = Nonce <$> arbitrary
 
 instance Arbitrary BlockCreationTime where
-    arbitrary = BlockCreationTime <$> arbitrary
+    arbitrary = BlockCreationTime . Time . TimeSpan . getPositive <$> arbitrary
 
 instance Arbitrary EpochStartTime where
     arbitrary = EpochStartTime <$> arbitrary
@@ -150,21 +168,78 @@ instance Arbitrary FeatureFlags where
     arbitrary = return mkFeatureFlags
 
 instance Arbitrary BlockHeader where
-    arbitrary = fromLog . newMerkleLog <$> entries
-      where
-        entries
-            = liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (pure (unsafeChainId 0))
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (BlockHeight . int @Int . getPositive <$> arbitrary)
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) arbitrary
-            $ liftA2 (:+:) (Nonce <$> chooseAny)
-            $ fmap MerkleLogBody arbitrary
+    arbitrary = arbitrary >>= arbitraryBlockHeaderVersion
+    {-# INLINE arbitrary #-}
+
+arbitraryBlockHashRecordVersionHeightChain
+    :: ChainwebVersion
+    -> BlockHeight
+    -> ChainId
+    -> Gen BlockHashRecord
+arbitraryBlockHashRecordVersionHeightChain v h cid
+    | isWebChain graph cid = BlockHashRecord
+        . HM.fromList
+        . zip (toList $ adjacentChainIds graph cid)
+        <$> infiniteListOf arbitrary
+    | otherwise = discard
+  where
+    graph = chainGraphAt v h
+
+arbitraryBlockHeaderVersion :: ChainwebVersion -> Gen BlockHeader
+arbitraryBlockHeaderVersion v = do
+    h <- arbitrary
+    arbitraryBlockHeaderVersionHeight v h
+{-# INLINE arbitraryBlockHeaderVersion #-}
+
+arbitraryBlockHeaderVersionHeight
+    :: ChainwebVersion
+    -> BlockHeight
+    -> Gen BlockHeader
+arbitraryBlockHeaderVersionHeight v h = do
+    cid <- elements $ toList $ chainIdsAt v h
+    arbitraryBlockHeaderVersionHeightChain v h cid
+{-# INLINE arbitraryBlockHeaderVersionHeight #-}
+
+arbitraryBlockHeaderVersionHeightChain
+    :: ChainwebVersion
+    -> BlockHeight
+    -> ChainId
+    -> Gen BlockHeader
+arbitraryBlockHeaderVersionHeightChain v h cid
+    | isWebChain (chainGraphAt v h) cid = do
+        t <- genEnum (epoch, add (scaleTimeSpan @Int (365 * 200) day) epoch)
+        fromLog . newMerkleLog <$> entries t
+    | otherwise = discard
+  where
+    entries t
+        = liftA2 (:+:) arbitrary -- feature flags
+        $ liftA2 (:+:) (pure $ BlockCreationTime t) -- time
+        $ liftA2 (:+:) arbitrary -- parent hash
+        $ liftA2 (:+:) arbitrary -- target
+        $ liftA2 (:+:) arbitrary -- payload hash
+        $ liftA2 (:+:) (pure cid) -- chain id
+        $ liftA2 (:+:) arbitrary -- weight
+        $ liftA2 (:+:) (pure h) -- height
+        $ liftA2 (:+:) (pure v) -- version
+        $ liftA2 (:+:) (EpochStartTime <$> genEnum (toEnum 0, t)) -- epoch start
+        $ liftA2 (:+:) (Nonce <$> chooseAny) -- nonce
+        $ fmap (MerkleLogBody . blockHashRecordToVector)
+            (arbitraryBlockHashRecordVersionHeightChain v h cid) -- adjacents
+
+-- -------------------------------------------------------------------------- --
+-- Mining Work
+
+instance Arbitrary WorkHeader where
+    arbitrary = do
+        hdr <- arbitrary
+        return $ WorkHeader
+            { _workHeaderChainId = _chainId hdr
+            , _workHeaderTarget = _blockTarget hdr
+            , _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash hdr
+            }
+
+instance Arbitrary SolvedWork where
+    arbitrary = SolvedWork <$> arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- Payload

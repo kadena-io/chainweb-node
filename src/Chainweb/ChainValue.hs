@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -24,6 +25,8 @@ module Chainweb.ChainValue
 , chainValueValue
 , chainValue
 , chainLookup
+, chainLookupM
+, type ChainValueCasLookup
 ) where
 
 import Control.DeepSeq
@@ -84,3 +87,15 @@ chainLookup
     -> IO (Maybe a)
 chainLookup db = fmap (fmap _chainValueValue) . casLookup db
 {-# INLINE chainLookup #-}
+
+chainLookupM
+    :: HasCasLookup db
+    => CasValueType db ~ ChainValue a
+    => db
+    -> CasKeyType (ChainValue a)
+    -> IO a
+chainLookupM db = fmap _chainValueValue . casLookupM db
+{-# INLINE chainLookupM #-}
+
+type ChainValueCasLookup a b = (HasCasLookup a, CasValueType a ~ ChainValue b)
+

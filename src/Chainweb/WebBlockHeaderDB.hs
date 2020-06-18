@@ -1,5 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -49,6 +51,7 @@ import qualified Streaming.Prelude as S
 
 -- internal modules
 
+import Chainweb.BlockHeight
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis (genesisBlockHeader)
@@ -82,8 +85,8 @@ data WebBlockHeaderDb = WebBlockHeaderDb
     , _webChainwebVersion :: !ChainwebVersion
     }
 
-instance HasChainGraph WebBlockHeaderDb where
-    _chainGraph = _chainGraph . _webChainwebVersion
+instance HasChainGraph (WebBlockHeaderDb, BlockHeight) where
+    _chainGraph (v, h) = _chainGraph (_webChainwebVersion v, h)
     {-# INLINE _chainGraph #-}
 
 instance HasChainwebVersion WebBlockHeaderDb where
@@ -142,8 +145,11 @@ getWebBlockHeaderDb
     -> p
     -> m BlockHeaderDb
 getWebBlockHeaderDb db p = do
-    checkWebChainId db p
+    checkWebChainId graph p
     return $! _webBlockHeaderDb db HM.! _chainId p
+  where
+    v = _chainwebVersion db
+    graph = chainGraphAt v maxBound
 
 lookupWebBlockHeaderDb
     :: WebBlockHeaderDb
@@ -151,7 +157,7 @@ lookupWebBlockHeaderDb
     -> BlockHash
     -> IO BlockHeader
 lookupWebBlockHeaderDb wdb c h = do
-    checkWebChainId wdb c
+    checkWebChainId (wdb, maxBound @BlockHeight) c
     db <- getWebBlockHeaderDb wdb c
     lookupM db h
 
@@ -170,7 +176,7 @@ lookupAdjacentParentHeader
     -> ChainId
     -> IO BlockHeader
 lookupAdjacentParentHeader db h cid = do
-    checkWebChainId db h
+    checkWebChainId (db, _blockHeight h) h
     let ph = h ^?! (blockAdjacentHashes . ix cid)
     lookupWebBlockHeaderDb db cid ph
 
@@ -179,7 +185,7 @@ lookupParentHeader
     -> BlockHeader
     -> IO BlockHeader
 lookupParentHeader db h = do
-    checkWebChainId db h
+    checkWebChainId (db, _blockHeight h) h
     lookupWebBlockHeaderDb db (_chainId h) (_blockParent h)
 
 -- -------------------------------------------------------------------------- --

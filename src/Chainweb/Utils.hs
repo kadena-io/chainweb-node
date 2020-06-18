@@ -853,7 +853,7 @@ catchAllSynchronous
 catchAllSynchronous = catchSynchronous
 {-# INLINE catchAllSynchronous #-}
 
--- | A version of 'tryhSynchronous' that doesn't discriminate on the type of the
+-- | A version of 'trySynchronous' that doesn't discriminate on the type of the
 -- exception but handles all exceptions in 'SomeExeption' that are not contained
 -- in 'SomeAsyncException'.
 --

@@ -181,8 +181,8 @@ roundtrip sid0 tid0 burn create step = withTestBlockDb v $ \bdb -> do
   tg <- newMVar mempty
   withWebPactExecutionService v bdb (chainToMPA' tg) $ \pact -> do
 
-    sid <- mkChainId v sid0
-    tid <- mkChainId v tid0
+    sid <- mkChainId v maxBound sid0
+    tid <- mkChainId v maxBound tid0
 
     -- track the continuation pact id
     pidv <- newEmptyMVar @PactId

@@ -508,14 +508,13 @@ newMerkleLog
     . MerkleUniverse u
     => MerkleLogEntries u h b
     -> MerkleLog u h b
-newMerkleLog entries = mlog
+newMerkleLog entries = MerkleLog
+    { _merkleLogRoot = merkleRoot tree
+    , _merkleLogEntries = entries
+    , _merkleLogTree = tree
+    }
   where
     tree = merkleTree $ toList $ mapLogEntries (toMerkleNodeTagged @u) entries
-    mlog = MerkleLog
-        { _merkleLogRoot = merkleRoot tree
-        , _merkleLogEntries = entries
-        , _merkleLogTree = tree
-        }
 
 -- | /Internal:/ Get (first) header entry of given type from a Merkle log.
 --

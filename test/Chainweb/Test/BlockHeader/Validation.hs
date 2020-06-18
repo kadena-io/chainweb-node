@@ -1,8 +1,10 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module: Chainweb.Test.BlockHeader.Validation
@@ -17,7 +19,8 @@ module Chainweb.Test.BlockHeader.Validation
 ( tests
 ) where
 
-import Control.Lens hiding ((.=))
+import Control.Exception (throw)
+import Control.Lens hiding ((.=), elements)
 import Control.Monad.Catch
 
 import Data.Aeson
@@ -26,6 +29,8 @@ import qualified Data.ByteString as B
 import Data.DoubleWord
 import Data.Foldable
 import Data.List (sort)
+import qualified Data.List as L
+import Data.Ratio
 import Data.Serialize.Get (Get)
 import Data.Serialize.Put (Put)
 import qualified Data.Text as T
@@ -33,6 +38,7 @@ import qualified Data.Text as T
 import Test.QuickCheck
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck
 
 -- internal modules
 
@@ -46,10 +52,12 @@ import Chainweb.Graph hiding (AdjacentChainMismatch)
 import Chainweb.Test.Orphans.Internal ()
 import Chainweb.Test.Utils.TestHeader
 import Chainweb.Time
-import Chainweb.Utils
+import Chainweb.Utils hiding ((==>))
 import Chainweb.Version
 
 import Data.Word.Encoding
+
+import Numeric.AffineSpace
 
 -- -------------------------------------------------------------------------- --
 -- Properties
@@ -60,6 +68,10 @@ tests = testGroup "Chainweb.Test.Blockheader.Validation"
     , prop_validateTestnet04
     , prop_fail_validate
     , prop_featureFlag (Test petersonChainGraph) 10
+    , testProperty "validate arbitrary test header" prop_validateArbitrary
+    , testProperty "validate arbitrary test header for mainnet" $ prop_validateArbitrary Mainnet01
+    , testProperty "validate arbitrary test header for testnet" $ prop_validateArbitrary Testnet04
+    , testProperty "validate arbitrary test header for devnet" $ prop_validateArbitrary Development
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -106,13 +118,15 @@ prop_validateTestnet04 :: TestTree
 prop_validateTestnet04 = prop_validateHeaders "validate Testnet04 BlockHeaders" testnet04Headers
 
 prop_validateHeaders :: String -> [TestHeader] -> TestTree
-prop_validateHeaders msg hdrs = testCase msg $ do
+prop_validateHeaders msg hdrs = testGroup msg $ do
+    [ prop_validateHeader ("header " <> show @Int i) h | h <- hdrs | i <- [0..] ]
+
+prop_validateHeader :: String -> TestHeader -> TestTree
+prop_validateHeader msg h = testCase msg $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) hdrs
-  where
-    f now h = case validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h) of
+    case validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h) of
         Right _ -> return ()
-        Left errs -> assertFailure $ "Validation failed for mainnet BlockHeader: " <> sshow errs
+        Left errs -> assertFailure $ "Validation failed for BlockHeader: " <> sshow errs
 
 -- -------------------------------------------------------------------------- --
 -- Rules are applied
@@ -128,19 +142,19 @@ prop_validateHeaders msg hdrs = testCase msg $ do
 prop_fail_validate :: TestTree
 prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
     now <- getCurrentTimeIntegral
-    traverse_ (f now) validationFailures
+    traverse_ (f now) $ zip [0 :: Int ..] validationFailures
   where
-    f now (h, expectedErrs)
+    f now (i, (h, expectedErrs))
         = try (validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)) >>= \case
-            Right _ -> assertFailure $ "Validation succeeded unexpectedly for validationFailures BlockHeader"
+            Right _ -> assertFailure $ "Validation of test case " <> sshow i <> " succeeded unexpectedly for validationFailures BlockHeader"
             Left ValidationFailure{ _validationFailureFailures = errs }
                 | sort errs /= sort expectedErrs -> assertFailure
-                    $ "Validation failed with unexpected errors for BlockHeader"
+                    $ "Validation of test case " <> sshow i <> " failed with unexpected errors for BlockHeader"
                     <> ", expected: " <> sshow expectedErrs
                     <> ", actual: " <> sshow errs
                     <> ", header: " <> sshow (_blockHash $ _testHeaderHdr h)
                     <> ", height: " <> sshow (_blockHeight $ _testHeaderHdr h)
-            _ -> return () -- FIXME be more specific
+                | otherwise -> return ()
 
 -- -------------------------------------------------------------------------- --
 -- Tests for Rule Guards:
@@ -151,6 +165,25 @@ prop_fail_validate = testCase "validate invalid BlockHeaders" $ do
 -- Triggers: rule is applied, consistent, and soud after guard triggered
 -- (Equivalent to checking applied, consistent, sound + showing that trigger is
 -- effective)
+
+-- -------------------------------------------------------------------------- --
+-- Validation of Arbitrary Test Headers
+
+prop_validateArbitrary :: ChainwebVersion -> Property
+prop_validateArbitrary v =
+    forAll (elements $ toList $ chainIds v) $ \cid ->
+        forAll (arbitraryTestHeader v cid) validateTestHeader
+
+validateTestHeader :: TestHeader -> Property
+validateTestHeader h = case try val of
+    Right (Left ValidationFailure{ _validationFailureFailures = errs }) -> verify errs
+    Right _ -> property True
+    Left err -> throw err
+  where
+    now = add second $ _bct $ _blockCreationTime $ _testHeaderHdr h
+    val = validateBlockHeaderM now (testHeaderChainLookup h) (_testHeaderHdr h)
+    verify :: [ValidationFailureType] -> Property
+    verify es = L.delete IncorrectPow es === []
 
 -- -------------------------------------------------------------------------- --
 -- Invalid Headers
@@ -165,6 +198,9 @@ validationFailures =
       )
     , ( hdr & testHeaderHdr . blockHash .~ nullBlockHash
       , [IncorrectHash]
+      )
+    , ( hdr & testHeaderHdr . blockCreationTime .~ (_blockCreationTime . _parentHeader $ _testHeaderParent hdr)
+      , [IncorrectHash, IncorrectPow, CreatedBeforeParent]
       )
     , ( hdr & testHeaderHdr . blockHash %~ messWords encodeBlockHash decodeBlockHash (flip complementBit 0)
       , [IncorrectHash]
@@ -189,6 +225,7 @@ validationFailures =
       )
     , ( hdr & testHeaderHdr . blockChainwebVersion .~ Development
       , [IncorrectHash, IncorrectPow, VersionMismatch, InvalidFeatureFlags]
+            -- when 'fixedEpochStartGuard' is enabled add 'CreatedBeforeParent'
       )
     , ( hdr & testHeaderHdr . blockWeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
@@ -196,6 +233,79 @@ validationFailures =
     , ( hdr & testHeaderHdr . blockWeight %~ (+ 1)
       , [IncorrectHash, IncorrectPow, IncorrectWeight]
       )
+
+    -- The following 6 tests suffer from redundant rounding in the target computations of
+    -- the current code, that introduced imprecsion. Once that is fixed, the failures
+    -- that are labeled with `tmp` will disappear and can be removed.
+    --
+
+    -- test correct epoch transition
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (hour ^+. epoch)
+            & h . blockTarget . hashTarget .~ view (p . blockTarget . hashTarget) hdr
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectTarget {- tmp -}]
+      )
+    -- epoch transition with wrong epoch start time
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (second ^+. (hour ^+. epoch))
+            & h . blockTarget .~ (view (p . blockTarget) hdr)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectEpoch, IncorrectTarget {- tmp -} ]
+      )
+    -- test epoch transition with correct target adjustment (*2)
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget {- tmp -}]
+      )
+    -- test epoch transition with correct target adjustment (/ 2)
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ ceiling (view (p . blockTarget . hashTarget) hdr % 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget {- tmp -}]
+      )
+    -- test epoch transition with incorrect target adjustment
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectTarget]
+      )
+    -- test epoch transition with incorrect target adjustment
+    , ( hdr & h . blockFlags .~ mkFeatureFlags
+            & p . blockHeight .~ 599999
+            & p . blockEpochStart .~ EpochStartTime epoch
+            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & h . blockHeight .~ 600000
+            & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
+            & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
+            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget]
+      )
+
     , ( hdr & testHeaderHdr . blockHeight .~ 10
       , [IncorrectHash, IncorrectPow, IncorrectHeight]
       )
@@ -223,6 +333,10 @@ validationFailures =
       )
     ]
   where
+    h, p :: Lens' TestHeader BlockHeader
+    h = testHeaderHdr
+    p = testHeaderParent . parentHeader
+
     -- From mainnet
     hdr = testHeader
         [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"

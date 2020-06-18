@@ -179,7 +179,6 @@ import Chainweb.Chainweb.MinerResources
 import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
-import Chainweb.Graph
 import Chainweb.HostAddress
 import Chainweb.Logger
 import qualified Chainweb.Mempool.InMemTypes as Mempool
@@ -282,7 +281,7 @@ data CutConfig = CutConfig
     { _cutIncludeOrigin :: !Bool
     , _cutPruneChainDatabase :: !Bool
     , _cutFetchTimeout :: !Int
-    , _cutInitialCutHeightLimit :: !(Maybe BlockHeight)
+    , _cutInitialCutHeightLimit :: !(Maybe CutHeight)
     } deriving (Eq, Show)
 
 makeLenses ''CutConfig
@@ -372,10 +371,6 @@ instance HasChainwebVersion ChainwebConfiguration where
     _chainwebVersion = _configChainwebVersion
     {-# INLINE _chainwebVersion #-}
 
-instance HasChainGraph ChainwebConfiguration where
-    _chainGraph = _chainGraph . _chainwebVersion
-    {-# INLINE _chainGraph #-}
-
 validateChainwebConfiguration :: ConfigValidation ChainwebConfiguration l
 validateChainwebConfiguration c = do
     validateMinerConfig (_configMining c)
@@ -418,7 +413,7 @@ instance ToJSON ChainwebConfiguration where
         , "reorgLimit" .= _configReorgLimit o
         , "validateHashesOnReplay" .= _configValidateHashesOnReplay o
         , "allowReadsInLocal" .= _configAllowReadsInLocal o
-        -- , "rosetta" .= _configRosetta o
+        , "rosetta" .= _configRosetta o
         , "localApi" .= _configLocalApi o
         ]
 
@@ -439,7 +434,7 @@ instance FromJSON (ChainwebConfiguration -> ChainwebConfiguration) where
         <*< configReorgLimit ..: "reorgLimit" % o
         <*< configValidateHashesOnReplay ..: "validateHashesOnReplay" % o
         <*< configAllowReadsInLocal ..: "allowReadsInLocal" % o
-        -- <*< configRosetta ..: "rosetta" % o
+        <*< configRosetta ..: "rosetta" % o
         <*< configLocalApi %.: "localApi" % o
 
 pChainwebConfiguration :: MParser ChainwebConfiguration
@@ -480,9 +475,9 @@ pChainwebConfiguration = id
     <*< configAllowReadsInLocal .:: boolOption_
         % long "allowReadsInLocal"
         <> help "Enable direct database reads of smart contract tables in local queries."
-    -- <*< configRosetta .:: boolOption_
-    --     % long "rosetta"
-    --     <> help "Enable the Rosetta endpoints."
+    <*< configRosetta .:: boolOption_
+        % long "rosetta"
+        <> help "Enable the Rosetta endpoints."
 
 -- -------------------------------------------------------------------------- --
 -- Chainweb Resources
@@ -514,10 +509,6 @@ chainwebSocket = chainwebPeer . peerResSocket
 instance HasChainwebVersion (Chainweb logger cas) where
     _chainwebVersion = _chainwebVersion . _chainwebCutResources
     {-# INLINE _chainwebVersion #-}
-
-instance HasChainGraph (Chainweb logger cas) where
-    _chainGraph = _chainGraph . _chainwebVersion
-    {-# INLINE _chainGraph #-}
 
 -- Intializes all local chainweb components but doesn't start any networking.
 --

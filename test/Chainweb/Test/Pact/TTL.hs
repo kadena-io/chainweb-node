@@ -28,7 +28,6 @@ import Test.Tasty.HUnit
 -- internal modules
 
 import Chainweb.BlockCreationTime
-import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB hiding (withBlockHeaderDb)
@@ -47,6 +46,7 @@ import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 -- -------------------------------------------------------------------------- --
 -- Settings
@@ -262,8 +262,8 @@ modAt f = modAtTtl f defTtl
 
 modAtTtl :: (Time Micros -> Time Micros) -> Seconds -> MemPoolAccess
 modAtTtl f (Seconds t) = mempty
-    { mpaGetBlock = \validate bh hash parentHeader -> do
-        let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime parentHeader
+    { mpaGetBlock = \validate bh hash ph -> do
+        let txTime = toTxCreationTime $ f $ _bct $ _blockCreationTime ph
             tt = TTLSeconds (int t)
         outtxs <- fmap V.singleton $ buildCwCmd
           $ set cbCreationTime txTime
@@ -287,8 +287,8 @@ mineBlock
     -> Seconds
         -- ^ Block time
     -> IO (T2 BlockHeader PayloadWithOutputs)
-mineBlock ctxIO mempool parentHeader nonce s = do
-    T2 hdr payload <- doNewBlock ctxIO mempool parentHeader nonce s
+mineBlock ctxIO mempool parent nonce s = do
+    T2 hdr payload <- doNewBlock ctxIO mempool parent nonce s
     doValidateBlock ctxIO hdr payload
     return $ T2 hdr payload
 
@@ -302,26 +302,26 @@ doNewBlock
     -> Seconds
         -- ^ Block time
     -> IO (T2 BlockHeader PayloadWithOutputs)
-doNewBlock ctxIO mempool parentHeader nonce t = do
+doNewBlock ctxIO mempool parent nonce t = do
      ctx <- ctxIO
      unlessM (tryPutMVar (_ctxMempool ctx) mempool) $
         error "Test failure: mempool access is not empty. Some previous test step failed unexpectedly"
-     mv <- newBlock noMiner parentHeader $ _ctxQueue ctx
+     mv <- newBlock noMiner parent $ _ctxQueue ctx
      payload <- assertNotLeft =<< takeMVar mv
 
      let bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              parent
      -- no need for mining, since testVer uses a trivial target
      return $ T2 bh payload
    where
      creationTime = BlockCreationTime
           . add (secondsToTimeSpan t) -- 10 seconds
           . _bct . _blockCreationTime
-          $ _parentHeader parentHeader
+          $ _parentHeader parent
 
 -- | Validate Block
 --

@@ -36,6 +36,7 @@ module Chainweb.Difficulty
 
 -- * HashTarget
 , HashTarget(..)
+, hashTarget
 , showTargetHex
 , showTargetBits
 , checkTarget
@@ -62,6 +63,7 @@ module Chainweb.Difficulty
 ) where
 
 import Control.DeepSeq
+import Control.Lens
 import Control.Monad
 
 import Data.Aeson
@@ -80,8 +82,6 @@ import qualified Data.Text as T
 import GHC.Generics
 import GHC.TypeNats
 
-import Numeric.Natural (Natural)
-
 import Test.QuickCheck (Property, property)
 
 import Text.Printf (printf)
@@ -91,7 +91,7 @@ import Text.Printf (printf)
 import Chainweb.Crypto.MerkleLog
 import Chainweb.MerkleUniverse
 import Chainweb.PowHash
-import Chainweb.Time (Micros(..), Seconds(..), TimeSpan(..))
+import Chainweb.Time (Micros(..), Seconds, TimeSpan(..))
 import Chainweb.Utils
 import Chainweb.Version
 
@@ -217,10 +217,14 @@ decodeHashDifficultyBe = HashDifficulty <$!> decodePowHashNatBe
 --
 -- network hash rate is interpolated from observered past block times.
 --
-newtype HashTarget = HashTarget PowHashNat
+newtype HashTarget = HashTarget { _hashTarget :: PowHashNat }
     deriving (Show, Eq, Ord, Generic)
     deriving anyclass (NFData)
     deriving newtype (ToJSON, FromJSON, Hashable, Bounded)
+
+hashTarget :: Lens' HashTarget PowHashNat
+hashTarget = lens _hashTarget $ const HashTarget
+{-# INLINE hashTarget #-}
 
 -- | A visualization of a `HashTarget` as binary.
 --
@@ -412,9 +416,8 @@ decodeHashTarget = HashTarget <$!> decodePowHashNat
 adjust :: ChainwebVersion -> WindowWidth -> TimeSpan Micros -> HashTarget -> HashTarget
 adjust ver (WindowWidth ww) (TimeSpan delta) oldTarget = newTarget
   where
-    br :: Natural
-    br = case blockRate ver of
-        BlockRate (Seconds n) -> int n
+    br :: Seconds
+    br = _getBlockRate $ blockRate ver
 
     -- The average time in seconds that it took to mine each block in
     -- the given window.

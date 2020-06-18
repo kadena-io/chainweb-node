@@ -30,6 +30,7 @@ import Data.Bool
 import Data.Bytes.Put
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Short as BS
 import Data.Char
 import Data.Decimal
 import Data.FileEmbed
@@ -40,6 +41,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NEL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
@@ -84,6 +86,7 @@ import Chainweb.BlockHeader.Genesis
 import Chainweb.BlockHeaderDB
 import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
+import Chainweb.Cut.Create
 import Chainweb.ChainId
 import Chainweb.Difficulty
 import Chainweb.Graph
@@ -104,9 +107,13 @@ import Chainweb.Transaction
 import Chainweb.Utils
 import Chainweb.Utils.Bench
 import Chainweb.Version
+import Chainweb.Version.Utils
 
 import Data.CAS.HashMap hiding (toList)
 import Data.CAS.RocksDB
+
+import Numeric.Additive
+import Numeric.AffineSpace
 
 _run :: [String] -> IO ()
 _run args = withArgs args $ C.defaultMain [bench]
@@ -151,8 +158,8 @@ testMemPoolAccess txsPerBlock accounts = mempty
 
     setTime time pb = pb { _pmCreationTime = toTxCreationTime time }
 
-    getTestBlock mVarAccounts txOrigTime validate bHeight@(BlockHeight bh) hash
-        | bh == 1 = do
+    getTestBlock mVarAccounts txOrigTime validate bHeight hash
+        | bHeight == 1 = do
             meta <- setTime txOrigTime <$> makeMeta cid
             (as, kss, cmds) <- unzip3 . toList <$> createCoinAccounts testVer meta
             case traverse validateCommand cmds of
@@ -160,12 +167,13 @@ testMemPoolAccess txsPerBlock accounts = mempty
               Right !r -> do
                   modifyMVar' mVarAccounts
                     (const $ M.fromList $ zip as kss)
+
                   vs <- validate bHeight hash (V.fromList $ toList r)
                   -- TODO: something better should go here
-                  unless (and vs) $ throwM $ userError "at blockheight 1"
+                  unless (and vs) $ throwM $ userError $ "at blockheight 1: tx validation failed " <> sshow vs
                   return $! V.fromList $ toList r
 
-        | otherwise =
+        | otherwise = do
           withMVar mVarAccounts $ \accs -> do
             blockSize <- readIORef txsPerBlock
             coinReqs <- V.replicateM blockSize (mkRandomCoinContractRequest True accs)
@@ -228,27 +236,31 @@ mineBlock
     -> BlockHeaderDb
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-mineBlock parentHeader nonce pdb bhdb r = do
+mineBlock parent nonce pdb bhdb r = do
 
      -- assemble block without nonce and timestamp
-     mv <- newBlock noMiner parentHeader r
+     mv <- newBlock noMiner parent r
 
      payload <- assertNotLeft =<< takeMVar mv
 
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
          bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              parent
          hbytes = HeaderBytes . runPutS $ encodeBlockHeaderWithoutHash bh
          tbytes = TargetBytes . runPutS . encodeHashTarget $ _blockTarget bh
+         work = WorkHeader
+            { _workHeaderBytes = BS.toShort $ runPut $ encodeBlockHeaderWithoutHash bh
+            , _workHeaderChainId = _chainId bh
+            , _workHeaderTarget = _blockTarget bh
+            }
 
-     T2 (HeaderBytes new) _ <- usePowHash testVer (\p -> mine p (_blockNonce bh) tbytes) hbytes
-     newHeader <- runGet decodeBlockHeaderWithoutHash new
+     T2 (SolvedWork newHeader) _ <- usePowHash testVer $ \(_ :: Proxy a) -> mine @a (_blockNonce bh) work
 
-     mv' <- validateBlock newHeader (payloadWithOutputsToPayloadData payload) r
+     mv' <- validateBlock (newHeader { _blockCreationTime = creationTime}) (payloadWithOutputsToPayloadData payload) r
 
      void $ assertNotLeft =<< takeMVar mv'
 
@@ -257,7 +269,7 @@ mineBlock parentHeader nonce pdb bhdb r = do
      -- NOTE: this doesn't validate the block header, which is fine in this test case
      unsafeInsertBlockHeaderDb bhdb newHeader
 
-     return $ T3 parentHeader newHeader payload
+     return $ T3 parent newHeader payload
 
 
 
@@ -267,28 +279,28 @@ noMineBlock
     -> Nonce
     -> PactQueue
     -> IO (T3 ParentHeader BlockHeader PayloadWithOutputs)
-noMineBlock validate parentHeader nonce r = do
+noMineBlock validate parent nonce r = do
 
      -- assemble block without nonce and timestamp
 
-     mv <- newBlock noMiner parentHeader r
+     mv <- newBlock noMiner parent r
 
      payload <- assertNotLeft =<< takeMVar mv
 
-     let creationTime = add second $ _blockCreationTime $ _parentHeader parentHeader
+     let creationTime = add second $ _blockCreationTime $ _parentHeader parent
      let bh = newBlockHeader
-              (BlockHashRecord mempty)
+              mempty
               (_payloadWithOutputsPayloadHash payload)
               nonce
               creationTime
-              parentHeader
+              parent
 
      when validate $ do
        mv' <- validateBlock bh (payloadWithOutputsToPayloadData payload) r
 
        void $ assertNotLeft =<< takeMVar mv'
 
-     return $ T3 parentHeader bh payload
+     return $ T3 parent bh payload
 
 
 data Resources

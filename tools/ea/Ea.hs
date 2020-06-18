@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -27,8 +26,6 @@
 --
 module Ea ( main, genTxModules ) where
 
-import BasePrelude
-
 import Control.Lens (set)
 
 import Data.Aeson (ToJSON)
@@ -36,10 +33,12 @@ import Data.Aeson.Encode.Pretty
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS.RocksDB
+import Data.Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import Data.Traversable
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
@@ -47,6 +46,8 @@ import qualified Data.Yaml as Yaml
 import Ea.Genesis
 
 import System.LogLevel (LogLevel(..))
+
+import Text.Printf
 
 -- internal modules
 
@@ -61,7 +62,8 @@ import Chainweb.Time
 import Chainweb.Transaction
     (ChainwebTransaction, chainwebPayloadCodec, mkPayloadWithText)
 import Chainweb.Utils
-import Chainweb.Version (ChainwebVersion(..), someChainId)
+import Chainweb.Version (ChainwebVersion(..))
+import Chainweb.Version.Utils (someChainId)
 
 import Pact.ApiReq (mkApiReq)
 import Pact.Types.ChainMeta
@@ -108,9 +110,11 @@ mkPayload (Genesis v tag cid c k a ns) = do
       N -> "all chains"
       n -> "Chain " <> show n
     -- coin contract genesis txs
+    cc :: [FilePath]
     cc = [fungibleAsset, coinContract, gasPayer]
     -- final tx list.
     -- NB: this is position-sensitive data.
+    txs :: [FilePath]
     txs = cc <> toList ns <> toList k <> toList a <> toList c
 
 ---------------------

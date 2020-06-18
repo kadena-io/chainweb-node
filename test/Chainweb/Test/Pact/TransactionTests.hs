@@ -19,7 +19,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Control.Concurrent (readMVar)
-import Control.Exception (SomeException, try)
 import Control.Lens hiding ((.=))
 import Control.Monad
 import Data.Aeson
@@ -243,10 +242,10 @@ testCoinbase797DateFix = testCaseSteps "testCoinbase791Fix" $ \step -> do
 testCoinbaseEnforceFailure :: Assertion
 testCoinbaseEnforceFailure = do
     (pdb,mc) <- loadCC
-    r <- try $ applyCoinbase toyVersion logger pdb miner 0.1 (TxContext someParentHeader def)
+    r <- tryAllSynchronous $ applyCoinbase toyVersion logger pdb miner 0.1 (TxContext someParentHeader def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
-      Left (e :: SomeException) ->
+      Left e ->
         if isInfixOf "CoinbaseFailure" (sshow e) then
           return ()
         else assertFailure $ "Coinbase failed for unknown reason: " <> show e
@@ -264,10 +263,10 @@ testCoinbaseEnforceFailure = do
 testCoinbaseUpgradeDevnet :: V.ChainId -> BlockHeight -> Assertion
 testCoinbaseUpgradeDevnet cid upgradeHeight = do
     (pdb,mc) <- loadScript "test/pact/coin-and-devaccts.repl"
-    r <- try $ applyCoinbase v logger pdb miner 0.1 (TxContext parentHeader def)
+    r <- tryAllSynchronous $ applyCoinbase v logger pdb miner 0.1 (TxContext parent def)
       (EnforceCoinbaseFailure True) (CoinbaseUsePrecompiled False) mc
     case r of
-      Left (e :: SomeException) -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
+      Left e -> assertFailure $ "upgrade coinbase failed: " ++ (sshow e)
       Right (T2 cr mcm) -> case (_crLogs cr,mcm) of
         (_,Nothing) -> assertFailure "Expected module cache from successful upgrade"
         (Nothing,_) -> assertFailure "Expected logs from successful upgrade"
@@ -307,7 +306,7 @@ testCoinbaseUpgradeDevnet cid upgradeHeight = do
     miner = Miner (MinerId "abcd") (MinerKeys $ mkKeySet [] "<")
     logger = newLogger neverLog "" -- set to alwaysLog to debug
 
-    parentHeader = ParentHeader $ (someBlockHeader v upgradeHeight)
+    parent = ParentHeader $ (someBlockHeader v upgradeHeight)
       { _blockChainwebVersion = v
       , _blockChainId = cid
       , _blockHeight = pred upgradeHeight

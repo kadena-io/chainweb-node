@@ -240,7 +240,7 @@ instance HasTextRepresentation Transaction where
 newtype TransactionOutput = TransactionOutput
     { _transactionOutputBytes :: B.ByteString }
     deriving (Show, Eq, Ord, Generic)
-    deriving newtype (BA.ByteArrayAccess)
+    deriving newtype (BA.ByteArrayAccess, NFData)
 
 instance ToJSON TransactionOutput where
     toJSON = toJSON . encodeB64UrlNoPaddingText . _transactionOutputBytes
@@ -785,7 +785,9 @@ data PayloadWithOutputs = PayloadWithOutputs
     , _payloadWithOutputsPayloadHash :: !BlockPayloadHash
     , _payloadWithOutputsTransactionsHash :: !BlockTransactionsHash
     , _payloadWithOutputsOutputsHash :: !BlockOutputsHash
-    } deriving (Show)
+    }
+    deriving (Show, Generic)
+    deriving anyclass (NFData)
 
 instance IsCasValue PayloadWithOutputs where
     type CasKeyType PayloadWithOutputs = BlockPayloadHash
