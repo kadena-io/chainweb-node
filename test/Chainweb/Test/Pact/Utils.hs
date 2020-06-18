@@ -460,6 +460,8 @@ withWebPactExecutionService v bdb mempoolAccess act =
               evalPactServiceM_ ctx $ (Right . V.map (() <$)) <$> execPreInsertCheckReq txs
           , _pactBlockTxHistory = \h d ->
               evalPactServiceM_ ctx $ Right <$> execBlockTxHistory h d
+          , _pactHistoricalLookup = \h d k ->
+              evalPactServiceM_ ctx $ Right <$> execHistoricalLookup h d k
           }
 
 
