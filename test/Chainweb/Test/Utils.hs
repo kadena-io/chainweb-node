@@ -162,12 +162,10 @@ import Chainweb.BlockHeaderDB.Internal
 import Chainweb.BlockHeight
 import Chainweb.BlockWeight
 import Chainweb.ChainId
-import Chainweb.Chainweb.MinerResources (MiningCoordination)
 import Chainweb.Crypto.MerkleLog hiding (header)
 import Chainweb.CutDB
 import Chainweb.Difficulty (targetToDifficulty)
 import Chainweb.Graph
-import Chainweb.Logger (Logger, GenericLogger)
 import Chainweb.Mempool.Mempool (MempoolBackend(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.RestAPI

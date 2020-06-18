@@ -434,9 +434,7 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
 
 caplistTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step -> do
-
     let testCaseStep = void . liftIO . step
-
     cenv <- fmap _getLocalClientEnv nio
 
     r <- flip runClientM cenv $ do
@@ -505,9 +503,7 @@ allocation02KeyPair' =
 
 allocationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
-
     let testCaseStep = void . liftIO . step
-
     cenv <- fmap _getLocalClientEnv nio
 
     step "positive allocation test: allocation00 release"
@@ -583,14 +579,14 @@ allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
       Right cr -> assertEqual "02 expect /local allocation balance" accountInfo' (resultOf cr)
 
   where
-    sid = unsafeChainId 0
-
     n0 = Just "allocation-0"
     n1 = Just "allocation-1"
     n2 = Just "allocation-2"
     n3 = Just "allocation-3"
     n4 = Just "allocation-4"
     n5 = Just "allocation-5"
+
+    sid = unsafeChainId 0
 
     localAfterPollResponse (PollResponses prs) cr =
         getBlockHeight cr > getBlockHeight (snd $ head $ HashMap.toList prs)
