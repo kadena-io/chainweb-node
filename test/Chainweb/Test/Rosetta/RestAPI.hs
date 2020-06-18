@@ -6,15 +6,30 @@ module Chainweb.Test.Rosetta.RestAPI
 ) where
 
 
+
+import Control.Lens
+
+import Data.Functor (void)
+import qualified Data.List.NonEmpty as NEL
+import Data.Text (Text)
+
 import GHC.Natural
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
+-- internal pact modules
+
+import Pact.Types.API
+
+-- internal chainweb modules
+
 import Chainweb.Graph
+import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time (Time(..), Micros(..))
+import Chainweb.Utils
 import Chainweb.Version
 
 import Data.CAS.RocksDB
@@ -30,6 +45,9 @@ v = FastTimedCPM petersonChainGraph
 
 nodes:: Natural
 nodes = 1
+
+cid :: ChainId
+cid = unsafeChainId 0
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -60,13 +78,30 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
 
 
 accountBalanceTests :: RosettaTest
-accountBalanceTests _tio _nio = testCaseSteps "Account Balance Lookup" $ \step -> do
+accountBalanceTests tio _nio = testCaseSteps "Account Balance Lookup" $ \step -> do
     step "check initial balance"
     cenv <- _runClientEnv <$> _nio
-    r <- accountBalance cenv req
-    print r
+    b0 <- accountBalance cenv req
+    checkBalance b0 "100000000000000000000"
+
+    step "send 1 token to sender0 from sender01"
+    batch <- transferOne tio
+    rks <- sending cid cenv batch
+    void $ polling cid cenv rks ExpectPactResult
+
+    step "check post-transfer balance"
+    b1 <- accountBalance cenv req
+    checkBalance b1 "99999998945300000000"
   where
     req = AccountBalanceReq nid aid Nothing
+
+    checkBalance bal b1 = do
+      let a = head $ _accountBalanceResp_balances bal
+          b0 = _amount_value a
+          curr = _amount_currency a
+
+      b1 @=? b0
+      curr @=? kda
 
 blockTransactionTests :: RosettaTest
 blockTransactionTests _tio _nio =
@@ -109,6 +144,9 @@ networkStatusTests _tio _nio = testCaseSteps "Network Status Tests" $ \step ->
 
 type RosettaTest = IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 
+kda :: Currency
+kda = Currency "KDA" 12 Nothing
+
 snid :: SubNetworkId
 snid = SubNetworkId
     { _subNetworkId_metadata = Nothing
@@ -128,3 +166,23 @@ aid = AccountId
     , _accountId_subAccount = Nothing
     , _accountId_metadata = Nothing
     }
+
+-- ------------------------------------------------------------------ --
+-- Test Pact Cmds
+
+transferOne :: IO (Time Micros) -> IO SubmitBatch
+transferOne tio = do
+    t <- toTxCreationTime <$> tio
+    c <- buildTextCmd
+      $ set cbSigners
+        [ mkSigner' sender00
+          [ mkTransferCap "sender00" "sender01" 1.0
+          , mkGasCap
+          ]
+        ]
+      $ set cbCreationTime t
+      $ set cbNetworkId (Just v)
+      $ mkCmd ("nonce-transfer-" <> sshow t)
+      $ mkExec' "(coin.transfer \"sender00\" \"sender01\" 1.0)"
+
+    return $ SubmitBatch (pure c)
