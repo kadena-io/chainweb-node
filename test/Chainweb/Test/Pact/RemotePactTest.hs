@@ -72,6 +72,7 @@ import Pact.Types.Capability
 import qualified Pact.Types.ChainId as Pact
 import qualified Pact.Types.ChainMeta as Pact
 import Pact.Types.Command
+import Pact.Types.Continuation
 import Pact.Types.Exp
 import Pact.Types.Gas
 import Pact.Types.Hash (Hash(..))
@@ -161,6 +162,8 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
               , after AllSucceed "genesis allocations" $
                 testGroup "caplistTests"
                 [ caplistTest iot net ]
+              , after AllSucceed "caplistTests" $
+                localContTest iot net
               ]
     ]
 
@@ -193,6 +196,54 @@ localTest iot nio = do
     let (PactResult e) = _crResult res
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
+
+localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
+    cenv <- _getClientEnv <$> nio
+    let sid = unsafeChainId 0
+
+    step "execute /send with initial pact continuation tx"
+    cmd1 <- firstStep
+    rks <- liftIO $ sending sid cenv (SubmitBatch $ pure cmd1)
+
+    step "check /poll responses to extract pact id for continuation"
+    PollResponses m <- polling sid cenv rks ExpectPactResult
+    pid <- case NEL.toList (_rkRequestKeys rks) of
+      [rk] -> case HashMap.lookup rk m of
+        Nothing -> assertFailure "impossible"
+        Just cr -> case _crContinuation cr of
+          Nothing -> assertFailure "not a continuation - impossible"
+          Just pe -> return $ _pePactId pe
+      _ -> assertFailure "continuation did not succeed"
+
+    step "execute /local continuation dry run"
+    cmd2 <- secondStep pid
+    r <- _pactResult . _crResult <$> local sid cenv cmd2
+    case r of
+      Left err -> assertFailure (show err)
+      Right (PLiteral (LDecimal a)) | a == 2 -> return ()
+      Right p -> assertFailure $ "unexpected cont return value: " ++ show p
+  where
+    tx =
+      "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
+    firstStep = do
+      t <- toTxCreationTime <$> iot
+      buildTextCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just v)
+        $ mkCmd "nonce-cont-1"
+        $ mkExec' tx
+
+    secondStep pid = do
+      t <- toTxCreationTime <$> iot
+      buildTextCmd
+        $ set cbSigners [mkSigner' sender00 []]
+        $ set cbCreationTime t
+        $ set cbNetworkId (Just v)
+        $ mkCmd "nonce-cont-2"
+        $ mkCont
+        $ mkContMsg pid 1
 
 localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
 localChainDataTest iot nio = do
@@ -703,7 +754,7 @@ local
 local sid cenv cmd =
     recovering testRetryPolicy [h] $ \s -> do
       debug
-        $ "requesting local cmd for " <> (take 18 $ show cmd)
+        $ "requesting local cmd for " <> (take 19 $ show cmd)
         <> " [" <> show (view rsIterNumberL s) <> "]"
 
       -- send a single spv request and return the result

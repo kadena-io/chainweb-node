@@ -347,21 +347,20 @@ applyLocal logger dbEnv gasModel txCtx spv cmdIn mc execConfig =
     txst = TransactionState mc mempty 0 Nothing gasModel
     gas0 = initialGasOf (_cmdPayload cmdIn)
 
-    applyPayload em = do
+    applyPayload m = do
       interp <- gasInterpreter gas0
-      cr <- catchesPactError $!
-        applyExec interp em signers chash managedNamespacePolicy
+      cr <- catchesPactError $! case m of
+        Exec em ->
+          applyExec interp em signers chash managedNamespacePolicy
+        Continuation cm ->
+          applyContinuation interp cm signers chash managedNamespacePolicy
 
       case cr of
         Left e -> jsonErrorResult e "applyLocal"
         Right r -> return $! r { _crMetaData = Just (toJSON $ ctxToPublicData' txCtx) }
 
-    go = do
-      em <- case _pPayload $ _cmdPayload cmd of
-        Exec !pm -> return pm
-        _ -> throwCmdEx "local continuations not supported"
+    go = checkTooBigTx gas0 gasLimit (applyPayload $ _pPayload $ _cmdPayload cmd) return
 
-      checkTooBigTx gas0 gasLimit (applyPayload em) return
 
 readInitModules
     :: Logger
