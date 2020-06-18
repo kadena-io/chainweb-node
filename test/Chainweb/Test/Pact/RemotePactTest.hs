@@ -241,7 +241,8 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
     r <- _pactResult . _crResult <$> local sid cenv (head $ toList batch2)
     case r of
       Left err -> assertFailure (show err)
-      Right _ -> return ()
+      Right (PLiteral (LDecimal a)) | a == 2 -> return ()
+      Right p -> assertFailure $ "unexpected cont return value: " ++ show p
   where
     tc =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
