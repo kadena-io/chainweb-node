@@ -45,6 +45,7 @@ import qualified Chainweb.Test.Pact.SPV
 import qualified Chainweb.Test.Pact.TransactionTests
 import qualified Chainweb.Test.Pact.TTL
 import qualified Chainweb.Test.RestAPI
+import qualified Chainweb.Test.Rosetta
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
@@ -105,6 +106,7 @@ suite rdb =
         , Chainweb.Test.Pact.TransactionTests.tests
         , Chainweb.Test.Store.CAS.FS.tests
         , Chainweb.Test.Roundtrips.tests
+        , Chainweb.Test.Rosetta.tests
         , Chainweb.Test.RestAPI.tests rdb
         , Chainweb.Test.SPV.tests rdb
         , Chainweb.Test.Pact.SPV.tests

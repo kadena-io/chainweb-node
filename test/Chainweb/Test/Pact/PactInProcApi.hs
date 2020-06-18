@@ -84,6 +84,9 @@ tests = ScheduledTest testName $ go
          , test Warn $ newBlockAndValidate
          , test Warn $ newBlockRewindValidate
          , test Quiet $ getHistory
+         , test Quiet $ testHistLookup1
+         , test Quiet $ testHistLookup2
+         , test Quiet $ testHistLookup3
          , test Quiet $ badlistNewBlockTest
          , test Warn $ mempoolCreationTimeTest
          , test Warn $ moduleNameFork
@@ -93,7 +96,12 @@ tests = ScheduledTest testName $ go
           withDelegateMempool $ \dm ->
           withPactTestBlockDb testVersion cid logLevel (snd <$> dm) defaultPactServiceConfig $
           f (fst <$> dm)
-
+        testHistLookup1 = getHistoricalLookupNoTxs "sender00"
+          (assertSender00Bal 100000000 "check latest entry for sender00 after a no txs block")
+        testHistLookup2 = getHistoricalLookupNoTxs "randomAccount"
+          (assertEqual "Return Nothing if key absent after a no txs block" Nothing)
+        testHistLookup3 = getHistoricalLookupWithTxs "sender00"
+          (assertSender00Bal 9.999998051e7 "check latest entry for sender00 after block with txs")
 
 
 forSuccess :: NFData a => String -> IO (MVar (Either PactException a)) -> IO a
@@ -144,14 +152,61 @@ getHistory refIO reqIO = testCase "getHistory" $ do
          , "keys" .=
            ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" :: T.Text]
          ]
-       , "balance" .= (Number 9.99999e7)
+       , "balance" .= (Number 99999900.0)
        ])])
     (M.lookup 10 hist)
   -- and transaction txids
   assertEqual "check txids"
-    [10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42]
+    [7,10,12,13,15,16,18,19,21,22,24,25,27,28,30,31,33,34,36,37,39,40,42]
     (M.keys hist)
 
+getHistoricalLookupNoTxs
+    :: T.Text
+    -> (Maybe (TxLog Value) -> IO ())
+    -> IO (IORef MemPoolAccess)
+    -> IO (PactQueue,TestBlockDb)
+    -> TestTree
+getHistoricalLookupNoTxs key assertF refIO reqIO = testCase msg $ do
+  (q,bdb) <- reqIO
+  setMempool refIO mempty
+  void $ runBlock q bdb second msg
+  h <- getParentTestBlockDb bdb cid
+  histLookup q h key >>= assertF
+  where msg = T.unpack $ "getHistoricalLookupNoTxs: " <> key
+
+getHistoricalLookupWithTxs
+    :: T.Text
+    -> (Maybe (TxLog Value) -> IO ())
+    -> IO (IORef MemPoolAccess)
+    -> IO (PactQueue,TestBlockDb)
+    -> TestTree
+getHistoricalLookupWithTxs key assertF refIO reqIO = testCase msg $ do
+  (q,bdb) <- reqIO
+  setMempool refIO goldenMemPool
+  void $ runBlock q bdb second msg
+  h <- getParentTestBlockDb bdb cid
+  histLookup q h key >>= assertF
+  where msg = T.unpack $ "getHistoricalLookupWithTxs: " <> key
+
+
+histLookup :: PactQueue -> BlockHeader -> T.Text -> IO (Maybe (TxLog Value))
+histLookup q bh k = do
+  mv <- pactHistoricalLookup bh (Domain' (UserTables "coin_coin-table")) (RowKey k) q
+  forSuccess "histLookup" (return mv)
+
+assertSender00Bal :: Rational -> String -> Maybe (TxLog Value) -> Assertion
+assertSender00Bal bal msg hist =
+  assertEqual msg
+    (Just (TxLog "coin_coin-table" "sender00"
+      (object
+        [ "guard" .= object
+          [ "pred" .= ("keys-all" :: T.Text)
+          , "keys" .=
+            ["368820f80c324bbc7c2b0610688a7da43e39f91d118732671cd9c7500ff43cca" :: T.Text]
+          ]
+        , "balance" .= Number (fromRational bal)
+        ])))
+    hist
 
 newBlockRewindValidate :: IO (IORef MemPoolAccess) -> IO (PactQueue,TestBlockDb) -> TestTree
 newBlockRewindValidate mpRefIO reqIO = testCase "newBlockRewindValidate" $ do
