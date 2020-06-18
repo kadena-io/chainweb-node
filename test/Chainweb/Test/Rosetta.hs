@@ -1,8 +1,19 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Chainweb.Test.Rosetta where
+module Chainweb.Test.Rosetta
+( tests
+) where
 
+
+import Control.Lens
+import Control.Monad.Catch
+import Control.Retry
 
 import GHC.Natural
+
+import Servant.Client
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -20,13 +31,30 @@ import Rosetta
 -- -------------------------------------------------------------------------- --
 -- Global Settings
 
+
+debug :: String -> IO ()
+#if DEBUG_TEST
+debug = putStrLn
+#else
+debug = const $ return ()
+#endif
+
+testRetryPolicy :: RetryPolicy
+testRetryPolicy = stepped <> limitRetries 150
+  where
+    stepped = retryPolicy $ \rs -> case rsIterNumber rs of
+      0 -> Just 20_000
+      1 -> Just 50_000
+      2 -> Just 100_000
+      _ -> Just 250_000
+
 v :: ChainwebVersion
 v = FastTimedCPM petersonChainGraph
 
 nodes:: Natural
 nodes = 1
 
-type RosettaTest = IO Time Micros -> IO ChainwebNetwork -> TestTree
+type RosettaTest = IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 
 data RosettaTestException
     = AccountBalanceFailure String
@@ -129,7 +157,7 @@ accountBalance cenv req =
       $ "requesting account balance for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaAccountBalanceApiClient v cmd) cenv >>= \case
+    runClientM (rosettaAccountBalanceApiClient v req) cenv >>= \case
       Left e -> throwM $ AccountBalanceFailure (show e)
       Right t -> return t
   where
@@ -147,7 +175,7 @@ blockTransaction cenv req =
       $ "requesting block transaction for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaBlockTransactionApiClient v cmd) cenv >>= \case
+    runClientM (rosettaBlockTransactionApiClient v req) cenv >>= \case
       Left e -> throwM $ BlockTransactionFailure (show e)
       Right t -> return t
   where
@@ -165,7 +193,7 @@ block cenv req =
       $ "requesting block for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaBlockApiClient v cmd) cenv >>= \case
+    runClientM (rosettaBlockApiClient v req) cenv >>= \case
       Left e -> throwM $ BlockFailure (show e)
       Right t -> return t
   where
@@ -183,7 +211,7 @@ constructionMetadata cenv req =
       $ "requesting construction metadata for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionMetadataApiClient v cmd) cenv >>= \case
+    runClientM (rosettaConstructionMetadataApiClient v req) cenv >>= \case
       Left e -> throwM $ ConstructionMetadataFailure (show e)
       Right t -> return t
   where
@@ -201,7 +229,7 @@ constructionSubmit cenv req =
       $ "requesting construction submit for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaConstructionSubmitApiClient v cmd) cenv >>= \case
+    runClientM (rosettaConstructionSubmitApiClient v req) cenv >>= \case
       Left e -> throwM $ ConstructionSubmitFailure (show e)
       Right t -> return t
   where
@@ -219,7 +247,7 @@ mempoolTransaction cenv req =
       $ "requesting mempool transaction for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaMempoolTransactionApiClient v cmd) cenv >>= \case
+    runClientM (rosettaMempoolTransactionApiClient v req) cenv >>= \case
       Left e -> throwM $ MempoolTransactionFailure (show e)
       Right t -> return t
   where
@@ -237,7 +265,7 @@ mempool cenv req =
       $ "requesting mempool for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaMempoolTransctionApiClient v cmd) cenv >>= \case
+    runClientM (rosettaMempoolApiClient v req) cenv >>= \case
       Left e -> throwM $ MempoolFailure (show e)
       Right t -> return t
   where
@@ -247,7 +275,7 @@ mempool cenv req =
 
 networkList
     :: ClientEnv
-    -> NetworkListReq
+    -> MetadataReq
     -> IO NetworkListResp
 networkList cenv req =
     recovering testRetryPolicy [h] $ \s -> do
@@ -255,7 +283,7 @@ networkList cenv req =
       $ "requesting network list for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaNetworkListApiClient v cmd) cenv >>= \case
+    runClientM (rosettaNetworkListApiClient v req) cenv >>= \case
       Left e -> throwM $ NetworkListFailure (show e)
       Right t -> return t
   where
@@ -265,7 +293,7 @@ networkList cenv req =
 
 networkOptions
     :: ClientEnv
-    -> NetworkOptionsReq
+    -> NetworkReq
     -> IO NetworkOptionsResp
 networkOptions cenv req =
     recovering testRetryPolicy [h] $ \s -> do
@@ -273,7 +301,7 @@ networkOptions cenv req =
       $ "requesting network options for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaNetworkOptionsApiClient v cmd) cenv >>= \case
+    runClientM (rosettaNetworkOptionsApiClient v req) cenv >>= \case
       Left e -> throwM $ NetworkOptionsFailure (show e)
       Right t -> return t
   where
@@ -283,7 +311,7 @@ networkOptions cenv req =
 
 networkStatus
     :: ClientEnv
-    -> NetworkStatusReq
+    -> NetworkReq
     -> IO NetworkStatusResp
 networkStatus cenv req =
     recovering testRetryPolicy [h] $ \s -> do
@@ -291,7 +319,7 @@ networkStatus cenv req =
       $ "requesting network status for " <> (take 18 $ show req)
       <> " [" <> show (view rsIterNumberL s) <> "]"
 
-    runClientM (rosettaNetworkStatusApiClient v cmd) cenv >>= \case
+    runClientM (rosettaNetworkStatusApiClient v req) cenv >>= \case
       Left e -> throwM $ NetworkStatusFailure (show e)
       Right t -> return t
   where
