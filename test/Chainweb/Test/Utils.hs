@@ -111,11 +111,11 @@ module Chainweb.Test.Utils
 , runTestNodes
 , node
 , deadbeef
-, mkConfig
+, config
 , bootstrapConfig
 , setBootstrapPeerInfo
-, defaultHost
-, defaultInterface
+, host
+, interface
 , withTime
 , withMVarResource
 ) where
@@ -923,10 +923,10 @@ runTestNodes
 runTestNodes label rdb loglevel ver n portMVar =
     forConcurrently_ [0 .. int n - 1] $ \i -> do
         threadDelay (1000 * int i)
-        let baseConf = mkConfig defaultHost defaultInterface ver n (NodeId i)
+        let baseConf = config ver n (NodeId i)
         conf <- if
             | i == 0 ->
-                return $ bootstrapConfig defaultHost baseConf
+                return $ bootstrapConfig baseConf
             | otherwise ->
                 setBootstrapPeerInfo <$> readMVar portMVar <*> pure baseConf
         node label rdb loglevel portMVar conf
@@ -965,14 +965,12 @@ node label rdb loglevel peerInfoVar conf = do
 deadbeef :: TransactionHash
 deadbeef = TransactionHash "deadbeefdeadbeefdeadbeefdeadbeef"
 
-mkConfig
-    :: Hostname
-    -> W.HostPreference
-    -> ChainwebVersion
+config
+    :: ChainwebVersion
     -> Natural
     -> NodeId
     -> ChainwebConfiguration
-mkConfig host interface ver n nid = defaultChainwebConfiguration ver
+config ver n nid = defaultChainwebConfiguration ver
     & set configNodeId nid
     & set (configP2p . p2pConfigPeer . peerConfigHost) host
     & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
@@ -991,8 +989,8 @@ mkConfig host interface ver n nid = defaultChainwebConfiguration ver
         , _nodeMiner = noMiner
         , _nodeTestMiners = MinerCount n }
 
-bootstrapConfig :: Hostname -> ChainwebConfiguration -> ChainwebConfiguration
-bootstrapConfig host conf = conf
+bootstrapConfig :: ChainwebConfiguration -> ChainwebConfiguration
+bootstrapConfig conf = conf
     & set (configP2p . p2pConfigPeer) peerConfig
     & set (configP2p . p2pConfigKnownPeers) []
   where
@@ -1005,11 +1003,11 @@ setBootstrapPeerInfo =
     over (configP2p . p2pConfigKnownPeers) . (:)
 
 
-defaultHost :: Hostname
-defaultHost = unsafeHostnameFromText "::1"
+host :: Hostname
+host = unsafeHostnameFromText "::1"
 
-defaultInterface :: W.HostPreference
-defaultInterface = "::1"
+interface :: W.HostPreference
+interface = "::1"
 
 newtype ChainwebNetwork = ChainwebNetwork { _runClientEnv :: ClientEnv }
 

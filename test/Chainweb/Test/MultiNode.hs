@@ -50,7 +50,6 @@ import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.List as L
-import Data.Streaming.Network (HostPreference)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 #if DEBUG_MULTINODE_TEST
@@ -80,13 +79,9 @@ import Chainweb.Chainweb.PeerResources
 import Chainweb.Cut
 import Chainweb.CutDB
 import Chainweb.Graph
-import Chainweb.HostAddress
 import Chainweb.Logger
-import Chainweb.Miner.Config
-import Chainweb.Miner.Pact
 import Chainweb.NodeId
-import Chainweb.Test.P2P.Peer.BootstrapConfig
-import Chainweb.Test.Utils hiding (bootstrapConfig, node)
+import Chainweb.Test.Utils
 import Chainweb.Time (Seconds(..))
 import Chainweb.Utils
 import Chainweb.Version
@@ -112,64 +107,22 @@ import P2P.Peer
 -- similulate a full-scale chain in a miniaturized settings.
 --
 
-host :: Hostname
-host = unsafeHostnameFromText "::1"
-
-interface :: HostPreference
-interface = "::1"
-
 -- | Test Configuration for a scaled down Test chainweb.
 --
-config
+multiConfig
     :: ChainwebVersion
     -> Natural
         -- ^ number of nodes
     -> NodeId
         -- ^ NodeId
     -> ChainwebConfiguration
-config v n nid = defaultChainwebConfiguration v
-    & set configNodeId nid
-        -- Set the node id.
-
-    & set (configP2p . p2pConfigPeer . peerConfigHost) host
-    & set (configP2p . p2pConfigPeer . peerConfigInterface) interface
-        -- Only listen on the loopback device. On Mac OS X this prevents the
-        -- firewall dialog form poping up.
-
-    & set (configP2p . p2pConfigKnownPeers) mempty
-    & set (configP2p . p2pConfigIgnoreBootstrapNodes) True
-        -- The bootstrap peer info is set later after the bootstrap nodes
-        -- has started and got its port assigned.
-
-    & set (configP2p . p2pConfigMaxPeerCount) (n * 2)
-        -- We make room for all test peers in peer db.
-
-    & set (configP2p . p2pConfigMaxSessionCount) 4
-        -- We set this to a low number in order to keep the network sparse (or
-        -- at last no being a clique) and to also limit the number of
-        -- port allocations
-
+multiConfig v n nid = config v n nid
     & set (configP2p . p2pConfigSessionTimeout) 20
         -- Use short sessions to cover session timeouts and setup logic in the
         -- test.
-
-    & set (configMining . miningInNode) miner
-
-    & set configReintroTxs True
-        -- enable transaction re-introduction
-
-    & set (configTransactionIndex . enableConfigEnabled) True
-        -- enable transaction index
-
     & set configThrottling throttling
         -- throttling is effectively disabled to not slow down the test nodes
   where
-    miner = NodeMiningConfig
-        { _nodeMiningEnabled = True
-        , _nodeMiner = noMiner
-        , _nodeTestMiners = MinerCount n
-        }
-
     throttling = defaultThrottlingConfig
         { _throttlingRate = 10_000 -- per second
         , _throttlingMiningRate = 10_000 --  per second
@@ -177,28 +130,10 @@ config v n nid = defaultChainwebConfiguration v
         , _throttlingLocalRate = 10_000  -- per 10 seconds
         }
 
--- | Configure a bootstrap node
---
-bootstrapConfig
-    :: ChainwebConfiguration
-    -> ChainwebConfiguration
-bootstrapConfig conf = conf
-    & set (configP2p . p2pConfigPeer) peerConfig
-    & set (configP2p . p2pConfigKnownPeers) []
-  where
-    peerConfig = (head $ bootstrapPeerConfig $ _configChainwebVersion conf)
-        & set peerConfigPort 0
-        -- Normally, the port of bootstrap nodes is hard-coded. But in
-        -- test-suites that may run concurrently we want to use a port that is
-        -- assigned by the OS.
-
-        & set peerConfigHost host
-        & set peerConfigInterface interface
-
 -- -------------------------------------------------------------------------- --
 -- Minimal Node Setup that logs conensus state to the given mvar
 
-node
+multiNode
     :: LogLevel
     -> (T.Text -> IO ())
     -> MVar ConsensusState
@@ -206,7 +141,7 @@ node
     -> ChainwebConfiguration
     -> RocksDb
     -> IO ()
-node loglevel write stateVar bootstrapPeerInfoVar conf rdb = do
+multiNode loglevel write stateVar bootstrapPeerInfoVar conf rdb = do
     withChainweb conf logger nodeRocksDb Nothing False $ \cw -> do
 
         -- If this is the bootstrap node we extract the port number and
@@ -262,14 +197,14 @@ runNodes loglevel write stateVar v n =
         forConcurrently_ [0 .. int n - 1] $ \i -> do
             threadDelay (500_000 * int i)
 
-            let baseConf = config v n (NodeId i)
+            let baseConf = multiConfig v n (NodeId i)
             conf <- if
                 | i == 0 ->
                     return $ bootstrapConfig baseConf
                 | otherwise ->
                     setBootstrapPeerInfo <$> readMVar bootstrapPortVar <*> pure baseConf
 
-            node loglevel write stateVar bootstrapPortVar conf rdb
+            multiNode loglevel write stateVar bootstrapPortVar conf rdb
 
 runNodesForSeconds
     :: LogLevel
