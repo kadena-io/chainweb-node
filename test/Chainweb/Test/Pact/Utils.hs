@@ -40,6 +40,7 @@ module Chainweb.Test.Pact.Utils
 , mkCmd
 , buildCmd
 , buildCwCmd
+, buildTextCmd
 , mkExec'
 , mkExec
 , mkCont
@@ -113,6 +114,7 @@ import Data.IORef
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe
 import Data.Text (Text)
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import Data.Tuple.Strict
 import Data.String
@@ -342,6 +344,19 @@ buildCmd CmdBuilder{..} = do
     nid = fmap (P.NetworkId . sshow) _cbNetworkId
     cid = fromString $ show (chainIdInt _cbChainId :: Int)
     pm = PublicMeta cid _cbSender _cbGasLimit _cbGasPrice _cbTTL _cbCreationTime
+
+-- | Main builder command.
+buildTextCmd :: CmdBuilder -> IO (Command Text)
+buildTextCmd CmdBuilder{..} = do
+  akps <- mapM toApiKp _cbSigners
+  kps <- mkKeyPairs akps
+  cmd <- mkCommand kps pm _cbNonce nid _cbRPC
+  return $ T.decodeUtf8 <$> cmd
+  where
+    nid = fmap (P.NetworkId . sshow) _cbNetworkId
+    cid = fromString $ show (chainIdInt _cbChainId :: Int)
+    pm = PublicMeta cid _cbSender _cbGasLimit _cbGasPrice _cbTTL _cbCreationTime
+
 
 dieL :: MonadThrow m => [Char] -> Either [Char] a -> m a
 dieL msg = either (\s -> throwM $ userError $ msg ++ ": " ++ s) return
