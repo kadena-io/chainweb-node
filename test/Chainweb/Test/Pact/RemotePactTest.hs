@@ -45,7 +45,6 @@ import Data.Aeson.Lens hiding (values)
 import qualified Data.ByteString.Short as SB
 import Data.Decimal
 import Data.Default (def)
-import Data.Either
 import Data.Foldable (toList)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as L
@@ -92,6 +91,7 @@ import Chainweb.Mempool.Mempool
 import Chainweb.Pact.RestAPI.Client
 import Chainweb.Pact.Service.Types
 import Chainweb.Test.Pact.Utils
+import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
 import Chainweb.Time
 import Chainweb.Utils hiding (check)
@@ -102,13 +102,6 @@ import Data.CAS.RocksDB
 
 -- -------------------------------------------------------------------------- --
 -- Global Settings
-
-debug :: String -> IO ()
-#if DEBUG_TEST
-debug = putStrLn
-#else
-debug = const $ return ()
-#endif
 
 nNodes :: Natural
 nNodes = 1
@@ -675,18 +668,6 @@ data PactTransaction = PactTransaction
   , _pactData :: Maybe A.Value
   } deriving (Eq, Show)
 
-
-data PactTestFailure
-    = PollingFailure String
-    | SendFailure String
-    | LocalFailure String
-    | SpvFailure String
-    | SlowChain String
-    deriving Show
-
-instance Exception PactTestFailure
-
-
 mkSingletonBatch
     :: IO (Time Micros)
     -> SimpleKeyPair
@@ -744,139 +725,6 @@ awaitCutHeight cenv i = do
                 <> " [" <> show (view rsIterNumberL s) <> "]"
             return True
 
--- | Calls to /local via the pact local api client with retry
---
-local
-    :: ChainId
-    -> ClientEnv
-    -> Command Text
-    -> IO (CommandResult Hash)
-local sid cenv cmd =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "requesting local cmd for " <> (take 19 $ show cmd)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- send a single spv request and return the result
-      --
-      runClientM (pactLocalApiClient v sid cmd) cenv >>= \case
-        Left e -> throwM $ LocalFailure (show e)
-        Right t -> return t
-  where
-    h _ = Handler $ \case
-      LocalFailure _ -> return True
-      _ -> return False
-
-localTestToRetry
-    :: ChainId
-    -> ClientEnv
-    -> Command Text
-    -> (CommandResult Hash -> Bool)
-    -> IO (CommandResult Hash)
-localTestToRetry sid cenv cmd test = retrying testRetryPolicy check (\_ -> go)
-  where
-    go = local sid cenv cmd
-    check _ cr = return $ not $ test cr
-
--- | Request an SPV proof using exponential retry logic
---
-spv
-    :: ChainId
-    -> ClientEnv
-    -> SpvRequest
-    -> IO TransactionOutputProofB64
-spv sid cenv r =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "requesting spv proof for " <> show r
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- send a single spv request and return the result
-      --
-      runClientM (pactSpvApiClient v sid r) cenv >>= \case
-        Left e -> throwM $ SpvFailure (show e)
-        Right t -> return t
-  where
-    h _ = Handler $ \case
-      SpvFailure _ -> return True
-      _ -> return False
-
--- | Backoff up to a constant 250ms, limiting to ~40s
--- (actually saw a test have to wait > 22s)
-testRetryPolicy :: RetryPolicy
-testRetryPolicy = stepped <> limitRetries 150
-  where
-    stepped = retryPolicy $ \rs -> case rsIterNumber rs of
-      0 -> Just 20_000
-      1 -> Just 50_000
-      2 -> Just 100_000
-      _ -> Just 250_000
-
--- | Send a batch with retry logic waiting for success.
-sending
-    :: ChainId
-    -> ClientEnv
-    -> SubmitBatch
-    -> IO RequestKeys
-sending sid cenv batch =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "sending requestkeys " <> show (_cmdHash <$> toList ss)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- Send and return naively
-      --
-      runClientM (pactSendApiClient v sid batch) cenv >>= \case
-        Left e -> throwM $ SendFailure (show e)
-        Right rs -> return rs
-
-  where
-    ss = _sbCmds batch
-
-    h _ = Handler $ \case
-      SendFailure _ -> return True
-      _ -> return False
-
--- | Poll with retry using an exponential backoff
---
-data PollingExpectation = ExpectPactError | ExpectPactResult
-
-polling
-    :: ChainId
-    -> ClientEnv
-    -> RequestKeys
-    -> PollingExpectation
-    -> IO PollResponses
-polling sid cenv rks pollingExpectation =
-    recovering testRetryPolicy [h] $ \s -> do
-      debug
-        $ "polling for requestkeys " <> show (toList rs)
-        <> " [" <> show (view rsIterNumberL s) <> "]"
-
-      -- Run the poll cmd loop and check responses
-      -- by making sure results are successful and request keys
-      -- are sane
-
-      runClientM (pactPollApiClient v sid $ Poll rs) cenv >>= \case
-        Left e -> throwM $ PollingFailure (show e)
-        Right r@(PollResponses mp) ->
-          if all (go mp) (toList rs)
-          then return r
-          else throwM $ PollingFailure $ T.unpack $ "polling check failed: " <> encodeToText r
-  where
-    h _ = Handler $ \case
-      PollingFailure _ -> return True
-      _ -> return False
-
-    rs = _rkRequestKeys rks
-
-    validate (PactResult a) = case pollingExpectation of
-      ExpectPactResult -> isRight a
-      ExpectPactError -> isLeft a
-
-    go m rk = case m ^. at rk of
-      Just cr ->  _crReqKey cr == rk && validate (_crResult cr)
-      Nothing -> False
 
 testBatch'' :: Pact.ChainId -> IO (Time Micros) -> Integer -> MVar Int -> GasPrice -> IO SubmitBatch
 testBatch'' chain iot ttl mnonce gp' = modifyMVar mnonce $ \(!nn) -> do

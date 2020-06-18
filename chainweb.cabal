@@ -466,6 +466,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
+        Chainweb.Test.RestAPI.Utils
         Chainweb.Test.Rosetta
         Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips

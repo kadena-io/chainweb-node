@@ -982,7 +982,8 @@ config ver n nid = defaultChainwebConfiguration ver
     & set (configMining . miningInNode) miner
     & set configReintroTxs True
     & set (configTransactionIndex . enableConfigEnabled) True
-    & set (configBlockGasLimit) 1_000_000
+    & set configBlockGasLimit 1_000_000
+    & set configRosetta True
   where
     miner = NodeMiningConfig
         { _nodeMiningEnabled = True
