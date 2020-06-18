@@ -11,6 +11,8 @@ import Control.Lens
 import Control.Monad.Catch
 import Control.Retry
 
+import Data.Aeson hiding ((.=))
+
 import GHC.Natural
 
 import Servant.Client
@@ -54,43 +56,11 @@ v = FastTimedCPM petersonChainGraph
 nodes:: Natural
 nodes = 1
 
-type RosettaTest = IO (Time Micros) -> IO ChainwebNetwork -> TestTree
-
-data RosettaTestException
-    = AccountBalanceFailure String
-    | BlockTransactionFailure String
-    | BlockFailure String
-    | ConstructionMetadataFailure String
-    | ConstructionSubmitFailure String
-    | MempoolTransactionFailure String
-    | MempoolFailure String
-    | NetworkListFailure String
-    | NetworkOptionsFailure String
-    | NetworkStatusFailure String
-    deriving Show
-
-instance Exception RosettaTestException
-
-
-nid :: NetworkId
-nid = NetworkId
-    { _networkId_blockchain = undefined
-    , _networkId_network = "fastTimedCPM"
-    , _networkId_subNetworkId = undefined
-    }
-
-aid :: AccountId
-aid = AccountId
-    { _accountId_address = "sender00"
-    , _accountId_subAccount = Nothing
-    , _accountId_metadata = undefined
-    }
-
 -- -------------------------------------------------------------------------- --
 -- Test Tree
 
-tests :: RocksDb -> ScheduledTest
-tests rdb = testGroupSch "Chainweb.Test.Rosetta" go
+tests :: RocksDb -> TestTree
+tests rdb = testGroup "Chainweb.Test.Rosetta" go
   where
     go = return $
       withNodes v "rosettaRemoteTests-" rdb nodes $ \nio ->
@@ -107,6 +77,7 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta" go
       , constructionMetadataTests
       , constructionSubmitTests
       , mempoolTransactionTests
+      , mempoolTests
       , networkListTests
       , networkOptionsTests
       , networkStatusTests
@@ -114,35 +85,48 @@ tests rdb = testGroupSch "Chainweb.Test.Rosetta" go
 
 
 accountBalanceTests :: RosettaTest
-accountBalanceTests _tio _nio = testCaseSteps "Account Balance Lookup" $ \step -> do
-    ccenv <- _runClientEnv <$> _nio
-    return ()
-  where
-    req = AccountBalanceReq nid aid Nothing
+accountBalanceTests _tio _nio = testCaseSteps "Account Balance Lookup" $ \step -> return () -- do
+  --   cenv <- _runClientEnv <$> _nio
+  --   r <- accountBalance cenv req
+  --   print r
+  -- where
+  --   req = AccountBalanceReq nid aid Nothing
 
 blockTransactionTests :: RosettaTest
-blockTransactionTests _tio _nio = undefined
+blockTransactionTests _tio _nio =
+    testCaseSteps "Block Transaction Tests" $ \step -> return ()
 
 blockTests :: RosettaTest
-blockTests _tio _nio = undefined
+blockTests _tio _nio =
+    testCaseSteps "Block Tests" $ \step -> return ()
 
 constructionMetadataTests :: RosettaTest
-constructionMetadataTests _tio _nio = undefined
+constructionMetadataTests _tio _nio =
+    testCaseSteps "Construction Metadata Tests" $ \step -> return ()
 
 constructionSubmitTests :: RosettaTest
-constructionSubmitTests _tio _nio = undefined
+constructionSubmitTests _tio _nio =
+    testCaseSteps "Construction Submit Tests" $ \step -> return ()
 
 mempoolTransactionTests :: RosettaTest
-mempoolTransactionTests _tio _nio = undefined
+mempoolTransactionTests _tio _nio =
+    testCaseSteps "Mempool Transaction Tests" $ \step -> return ()
+
+mempoolTests :: RosettaTest
+mempoolTests _tio _nio =
+    testCaseSteps "Mempool Tests" $ \step -> return ()
 
 networkListTests :: RosettaTest
-networkListTests _tio _nio = undefined
+networkListTests _tio _nio =
+    testCaseSteps "Network List Tests" $ \step -> return ()
 
 networkOptionsTests :: RosettaTest
-networkOptionsTests _tio _nio = undefined
+networkOptionsTests _tio _nio =
+    testCaseSteps "Network Options Tests" $ \step -> return ()
 
 networkStatusTests :: RosettaTest
-networkStatusTests _tio _nio = undefined
+networkStatusTests _tio _nio = testCaseSteps "Network Status Tests" $ \step ->
+    return ()
 
 -- ------------------------------------------------------------------ --
 -- Rosetta api w/ retry
@@ -326,3 +310,38 @@ networkStatus cenv req =
     h _ = Handler $ \case
       NetworkStatusFailure _ -> return True
       _ -> return False
+
+-- ------------------------------------------------------------------ --
+-- Test Data
+
+type RosettaTest = IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+
+data RosettaTestException
+    = AccountBalanceFailure String
+    | BlockTransactionFailure String
+    | BlockFailure String
+    | ConstructionMetadataFailure String
+    | ConstructionSubmitFailure String
+    | MempoolTransactionFailure String
+    | MempoolFailure String
+    | NetworkListFailure String
+    | NetworkOptionsFailure String
+    | NetworkStatusFailure String
+    deriving Show
+
+instance Exception RosettaTestException
+
+
+nid :: NetworkId
+nid = NetworkId
+    { _networkId_blockchain = "kadena"
+    , _networkId_network = "fastTimedCPM-peterson"
+    , _networkId_subNetworkId = Nothing
+    }
+
+aid :: AccountId
+aid = AccountId
+    { _accountId_address = "sender00"
+    , _accountId_subAccount = Nothing
+    , _accountId_metadata = Nothing
+    }
