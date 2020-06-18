@@ -199,7 +199,7 @@ localTest iot nio = do
 
 localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
-    cenv <- _getClientEnv <$> nio
+    cenv <- _runClientEnv <$> nio
     let sid = unsafeChainId 0
 
     step "execute /send with initial pact continuation tx"

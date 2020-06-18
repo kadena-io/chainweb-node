@@ -85,7 +85,7 @@ common debugging-flags
 common warning-flags
     ghc-options:
         -Wall
-        -Werror
+        -- -Werror
         -Wcompat
         -Wpartial-fields
         -Wincomplete-record-updates
@@ -467,6 +467,7 @@ test-suite chainweb-tests
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
         Chainweb.Test.Rosetta
+        Chainweb.Test.Rosetta.RestAPI
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
