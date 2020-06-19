@@ -110,8 +110,13 @@ blockTransactionTests tio envIo =
     testCaseSteps "Block Transaction Tests" $ \step -> return ()
 
 blockTests :: RosettaTest
-blockTests tio envIo =
-    testCaseSteps "Block Tests" $ \step -> return ()
+blockTests tio envIo = testCaseSteps "Block Tests" $ \step -> do
+    step "fetch genesis block"
+    cenv <- envIo
+    resp <- block cenv req
+    return ()
+  where
+    req = BlockReq nid $ PartialBlockId (Just 0) Nothing
 
 constructionMetadataTests :: RosettaTest
 constructionMetadataTests tio envIo =
@@ -169,6 +174,9 @@ aid = AccountId
     , _accountId_subAccount = Nothing
     , _accountId_metadata = Nothing
     }
+
+genesisId :: BlockId
+genesisId = BlockId 0 "qU76xuohSdCyFQd2QWm7TMJHyHIRCENmdax9KMnQiSQ"
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds

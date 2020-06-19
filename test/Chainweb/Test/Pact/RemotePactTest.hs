@@ -28,7 +28,6 @@ module Chainweb.Test.Pact.RemotePactTest
 , polling
 , sending
 , PollingExpectation(..)
-, ClientEnv(..)
 ) where
 
 import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
@@ -60,7 +59,6 @@ import NeatInterpolation
 import Numeric.Natural
 
 import Servant.Client
-
 
 import Test.Tasty
 import Test.Tasty.HUnit
