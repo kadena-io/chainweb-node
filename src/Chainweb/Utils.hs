@@ -1,5 +1,5 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -246,7 +246,6 @@ import Data.Time
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
-import Data.These (These(..))
 import Data.Tuple.Strict
 import Data.Word
 
@@ -391,13 +390,13 @@ roundBy :: Integral a => a -> a -> a
 roundBy n m = ((n `div` m) + 1) * m
 {-# INLINE roundBy #-}
 
-partitionEithersNEL :: NonEmpty (Either a b) -> These (NonEmpty a) (NonEmpty b)
-partitionEithersNEL (h :| es) = case bimap NEL.nonEmpty NEL.nonEmpty $ partitionEithers es of
-    (Nothing, Nothing) -> either (This . pure) (That . pure) h
+partitionEithersNEL :: NonEmpty (Either a b) -> (Maybe (NonEmpty a), Maybe (NonEmpty b))
+partitionEithersNEL es = bimap NEL.nonEmpty NEL.nonEmpty $ partitionEithers (toList es)
+{-    (Nothing, Nothing) -> either (This . pure) (That . pure) h
     (Just as, Nothing) -> This as
     (Nothing, Just bs) -> That bs
     (Just as, Just bs) -> These as bs
-
+-}
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
 

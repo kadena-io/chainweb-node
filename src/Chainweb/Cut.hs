@@ -91,7 +91,6 @@ import Control.Lens hiding ((:>))
 import Control.Monad hiding (join)
 import Control.Monad.Catch
 
-import Data.Bifoldable
 import Data.Foldable
 import Data.Function
 import Data.Functor.Of
@@ -102,7 +101,6 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
-import Data.These
 
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -545,7 +543,7 @@ tryMonotonicCutExtension c h = extendIf <$> isMonotonicCutExtension c h
 -- -------------------------------------------------------------------------- --
 -- Join
 
-type DiffItem a = These a a
+type DiffItem a = (Maybe a,Maybe a)
 
 type JoinQueue a = H.Heap (H.Entry (BlockHeight, a) BlockHeader)
 
@@ -609,7 +607,12 @@ join_ wdb prioFun a b = do
         return (h', q')
 
     g :: JoinQueue a -> DiffItem BlockHeader -> JoinQueue a
-    g q x = foldl' maybeInsert q $ zip (biList x) (biList (prioFun x))
+    g q x = foldl' maybeInsert q $ zip (biList' x) (biList' (prioFun x))
+
+    biList' (Just x,Nothing) = [x]
+    biList' (Nothing,Just y) = [y]
+    biList' (Just x,Just y) = [x,y]
+    biList' (Nothing,Nothing) = []
 
     maybeInsert
         :: H.Heap (H.Entry (BlockHeight, a) BlockHeader)
@@ -719,11 +722,12 @@ prioritizeHeavier_ a b = f
     heaviest = maxBy (compare `on` weight) a b
     w c = if c == heaviest then 0 else 1
 
-    f (This _) = This (Just $ w a)
-    f (That _) = That (Just $ w b)
-    f (These _ _)
-        | heaviest == a = These (Just 0) Nothing
-        | otherwise = These Nothing (Just 0)
+    f (Just _,Nothing) = (Just (Just $ w a),Nothing)
+    f (Nothing,Just _) = (Nothing,Just (Just $ w b))
+    f (Just _, Just _)
+        | heaviest == a = (Just (Just 0), Just Nothing)
+        | otherwise = (Just Nothing, Just (Just 0))
+    f (Nothing,Nothing) = (Nothing,Nothing)
 
     weight c =
         ( sumOf (folded . blockWeight) c

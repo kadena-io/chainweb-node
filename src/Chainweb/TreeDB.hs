@@ -94,7 +94,6 @@ import qualified Data.List as L
 import Data.Maybe (fromMaybe)
 import Data.Semigroup
 import qualified Data.Text as T
-import Data.These
 import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -745,8 +744,8 @@ branchDiff
     => db
     -> DbEntry db
     -> DbEntry db
-    -> S.Stream (Of (These (DbEntry db) (DbEntry db))) IO ()
-branchDiff db l r = branchDiff_ db l r >>= \i -> S.yield (These i i)
+    -> S.Stream (Of (Maybe (DbEntry db), Maybe (DbEntry db))) IO ()
+branchDiff db l r = branchDiff_ db l r >>= \i -> S.yield (Just i, Just i)
 
 -- | Compares two branches of a 'TreeDb'. The fork entry is returned as the
 -- result of the stream computation.
@@ -758,21 +757,21 @@ branchDiff_
     => db
     -> DbEntry db
     -> DbEntry db
-    -> S.Stream (Of (These (DbEntry db) (DbEntry db))) IO (DbEntry db)
+    -> S.Stream (Of (Maybe (DbEntry db), Maybe (DbEntry db))) IO (DbEntry db)
 branchDiff_ db = go
   where
     go l r
         | key l == key r = return l
         | rank l > rank r = do
-            S.yield (This l)
+            S.yield (Just l,Nothing)
             lp <- step l
             go lp r
         | rank r > rank l = do
-            S.yield (That r)
+            S.yield (Nothing,Just r)
             rp <- step r
             go l rp
         | otherwise = do
-            S.yield (These l r)
+            S.yield (Just l, Just r)
             lp <- step l
             rp <- step r
             go lp rp
@@ -803,12 +802,14 @@ collectForkBlocks db lastHeader newHeader = do
             -- removing the common branch block with tail -- the lists should never be empty
             Left _ -> return (oldBlocks, newBlocks)
 
-            Right (This blk, strm) ->
+            Right ((Just blk,Nothing), strm) ->
                 go strm (blk:oldBlocks, newBlocks)
-            Right (That blk, strm) ->
+            Right ((Nothing,Just blk), strm) ->
                 go strm (oldBlocks, blk:newBlocks)
-            Right (These lBlk rBlk, strm) ->
+            Right ((Just lBlk,Just rBlk), strm) ->
                 go strm (lBlk:oldBlocks, rBlk:newBlocks)
+            Right ((Nothing,Nothing), strm) ->
+                go strm (oldBlocks,newBlocks)
 {-# INLINE collectForkBlocks #-}
 
 -- -------------------------------------------------------------------------- --

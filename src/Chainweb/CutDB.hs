@@ -106,7 +106,6 @@ import Data.Maybe
 import Data.Monoid
 import Data.Ord
 import qualified Data.Text as T
-import Data.These
 import Data.Tuple.Strict
 import qualified Data.Vector as V
 
@@ -603,9 +602,10 @@ cutStreamToHeaderDiffStream db s = S.for (cutUpdates Nothing s) $ \(T2 p n) ->
         & void
 
     these2Either = flip S.for $ \case
-        This a -> S.each [Left a]
-        That a -> S.each [Right a]
-        These a b -> S.each [Left a, Right b]
+        (Just a,Nothing) -> S.each [Left a]
+        (Nothing,Just a) -> S.each [Right a]
+        (Just a,Just b) -> S.each [Left a, Right b]
+        (Nothing,Nothing) -> S.each []
 
     toOrd :: Either BlockHeader BlockHeader -> Int
     toOrd (Right a) = int $ uniqueBlockNumber a
@@ -750,4 +750,3 @@ getQueueStats db = QueueStats
     <*> (int <$> TM.size (_webBlockHeaderStoreMemo $ view cutDbWebBlockHeaderStore db))
     <*> pQueueSize (_webBlockPayloadStoreQueue $ view cutDbPayloadStore db)
     <*> (int <$> TM.size (_webBlockPayloadStoreMemo $ view cutDbPayloadStore db))
-

@@ -128,7 +128,7 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
 
-import Data.Align (alignWith)
+import Data.Align (padZip)
 import Data.Bifunctor (second)
 import Data.CAS (casLookupM)
 import Data.Foldable
@@ -138,7 +138,6 @@ import Data.List (isPrefixOf, sortBy)
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Text as T
-import Data.These (These(..))
 import Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 
@@ -535,13 +534,14 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     preInsertBatch txs = do
         pex <- readMVar mv
         rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
-        pure $ alignWith f rs txs
+        pure $ f <$> padZip rs txs
       where
-        f (These r (T2 h t)) = case r of
+        f (Just r , Just (T2 h t)) = case r of
                                  Left e -> Left (T2 h e)
                                  Right _ -> Right (T2 h t)
-        f (That (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
-        f (This _) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
+        f (Nothing, Just (T2 h _)) = Left (T2 h $ Mempool.InsertErrorOther "preInsertBatch: align mismatch 0")
+        f (Just _, Nothing) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: align mismatch 1"))
+        f (Nothing,Nothing) = Left (T2 (Mempool.TransactionHash "") (Mempool.InsertErrorOther "preInsertBatch: empty lists"))
 
     -- | Validation: Is this TX associated with the correct `ChainId`?
     --
