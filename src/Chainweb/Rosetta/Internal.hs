@@ -50,12 +50,11 @@ import Chainweb.Pact.Service.Types (Domain'(..), BlockTxHistory(..))
 import Chainweb.Payload hiding (Transaction(..))
 import Chainweb.Payload.PayloadStore
 import Chainweb.Rosetta.RestAPI
+import Chainweb.Rosetta.Utils
 import Chainweb.TreeDB (seekAncestor)
 import Chainweb.Utils
 import Chainweb.Version
 import Chainweb.WebPactExecutionService (PactExecutionService(..))
-
-import Chainweb.Rosetta.Util
 
 ---
 
@@ -399,7 +398,7 @@ singleRemediation logs initial target =
      overwriteError RosettaMismatchTxLogs)
     work
   where
-    logsList = M.toAscList logs 
+    logsList = M.toAscList logs
     work = do
       TxAccumulator restLogs initTx <- nonGenesisCoinbaseLog logsList initial
       if (_crReqKey initial == target)

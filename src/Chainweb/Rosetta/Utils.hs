@@ -12,7 +12,7 @@
 -- Stability: experimental
 --
 --
-module Chainweb.Rosetta.Util where
+module Chainweb.Rosetta.Utils where
 
 import Data.Aeson
 import Data.Decimal

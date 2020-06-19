@@ -38,7 +38,7 @@ import Test.Tasty.HUnit
 
 import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
-import Chainweb.Rosetta.Util
+import Chainweb.Rosetta.Utils
 import Chainweb.Version
 
 ---

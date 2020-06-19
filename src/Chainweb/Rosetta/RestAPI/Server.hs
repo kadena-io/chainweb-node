@@ -57,7 +57,7 @@ import qualified Chainweb.RestAPI.NetworkID as ChainwebNetId
 import Chainweb.RestAPI.Utils
 import Chainweb.Rosetta.Internal
 import Chainweb.Rosetta.RestAPI
-import Chainweb.Rosetta.Util
+import Chainweb.Rosetta.Utils
 import Chainweb.Transaction (ChainwebTransaction)
 import Chainweb.Utils
 import Chainweb.Utils.Paging
@@ -154,7 +154,7 @@ blockH
 blockH v cutDb ps crs (BlockReq net (PartialBlockId bheight bhash)) =
   runExceptT work >>= either throwRosetta pure
   where
- 
+
     block :: BlockHeader -> [Transaction] -> Block
     block bh txs = Block
       { _block_blockId = blockId bh

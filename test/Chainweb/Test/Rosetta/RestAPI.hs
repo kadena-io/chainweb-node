@@ -9,6 +9,7 @@ module Chainweb.Test.Rosetta.RestAPI
 
 import Control.Lens
 
+import qualified Data.Aeson as A
 import Data.Functor (void)
 import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
@@ -25,6 +26,7 @@ import Pact.Types.API
 -- internal chainweb modules
 
 import Chainweb.Graph
+import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
 import Chainweb.Test.Utils
@@ -46,8 +48,11 @@ v = FastTimedCPM petersonChainGraph
 nodes:: Natural
 nodes = 1
 
-cid :: ChainId
-cid = unsafeChainId 0
+sid :: ChainId
+sid = unsafeChainId 0
+
+tid :: ChainId
+tid = unsafeChainId 1
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -81,24 +86,24 @@ accountBalanceTests :: RosettaTest
 accountBalanceTests tio _nio = testCaseSteps "Account Balance Lookup" $ \step -> do
     step "check initial balance"
     cenv <- _runClientEnv <$> _nio
-    b0 <- accountBalance cenv req
-    checkBalance b0 "100000000000000000000"
+    resp0 <- accountBalance cenv req
+    checkBalance resp0 100000000.000
 
-    step "send 1 token to sender0 from sender01"
-    batch <- transferOne tio
-    rks <- sending cid cenv batch
-    void $ polling cid cenv rks ExpectPactResult
+    step "send 1.0 tokens to sender00 from sender01"
+    batch0 <- transferOne tio
+    rks <- sending sid cenv batch0
+    void $ polling sid cenv rks ExpectPactResult
 
     step "check post-transfer balance"
-    b1 <- accountBalance cenv req
-    checkBalance b1 "99999998945300000000"
+    resp1 <- accountBalance cenv req
+    checkBalance resp1 99999998.9453
   where
     req = AccountBalanceReq nid aid Nothing
 
-    checkBalance bal b1 = do
-      let a = head $ _accountBalanceResp_balances bal
-          b0 = _amount_value a
-          curr = _amount_currency a
+    checkBalance resp bal1 = do
+      let b0 = head $ _accountBalanceResp_balances resp
+          b1 = kdaToRosettaAmount bal1
+          curr = _amount_currency b0
 
       b1 @=? b0
       curr @=? kda

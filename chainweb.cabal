@@ -211,7 +211,7 @@ library
         , Chainweb.Rosetta.RestAPI
         , Chainweb.Rosetta.RestAPI.Client
         , Chainweb.Rosetta.RestAPI.Server
-        , Chainweb.Rosetta.Util
+        , Chainweb.Rosetta.Utils
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.VerifyProof
