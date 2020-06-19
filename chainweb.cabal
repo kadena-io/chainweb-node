@@ -207,8 +207,10 @@ library
         , Chainweb.RestAPI.NodeInfo
         , Chainweb.RestAPI.Orphans
         , Chainweb.RestAPI.Utils
+        , Chainweb.Rosetta.Internal
         , Chainweb.Rosetta.RestAPI
         , Chainweb.Rosetta.RestAPI.Server
+        , Chainweb.Rosetta.Util
         , Chainweb.SPV
         , Chainweb.SPV.CreateProof
         , Chainweb.SPV.VerifyProof
@@ -463,6 +465,7 @@ test-suite chainweb-tests
         Chainweb.Test.Pact.Utils
         Chainweb.Test.RestAPI
         Chainweb.Test.RestAPI.Client_
+        Chainweb.Test.Rosetta
         Chainweb.Test.Roundtrips
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
@@ -522,6 +525,7 @@ test-suite chainweb-tests
         , resource-pool >= 0.2
         , resourcet >= 1.2
         , retry >= 0.7
+        , rosetta >= 1.0
         , scheduler >= 1.4
         , semialign >= 1
         , servant >= 0.16
