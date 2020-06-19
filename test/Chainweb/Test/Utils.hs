@@ -106,7 +106,6 @@ module Chainweb.Test.Utils
 , genEnum
 
 -- * Multi-node testing utils
-, ChainwebNetwork(..)
 , withNodes
 , runTestNodes
 , node
@@ -890,11 +889,11 @@ withNodes
     -> B.ByteString
     -> RocksDb
     -> Natural
-    -> (IO ChainwebNetwork -> TestTree)
+    -> (IO ClientEnv -> TestTree)
     -> TestTree
 withNodes v label rdb n f = withResource start
     (cancel . fst)
-    (f . fmap (ChainwebNetwork . snd))
+    (f . fmap snd)
   where
     start :: IO (Async (), ClientEnv)
     start = do
@@ -1009,8 +1008,6 @@ host = unsafeHostnameFromText "::1"
 
 interface :: W.HostPreference
 interface = "::1"
-
-newtype ChainwebNetwork = ChainwebNetwork { _runClientEnv :: ClientEnv }
 
 getClientEnv :: BaseUrl -> IO ClientEnv
 getClientEnv url = flip mkClientEnv url <$> HTTP.newTlsManagerWith mgrSettings

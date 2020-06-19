@@ -1,6 +1,8 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 module Chainweb.Test.Rosetta.RestAPI
 ( tests
 ) where
@@ -15,6 +17,8 @@ import qualified Data.List.NonEmpty as NEL
 import Data.Text (Text)
 
 import GHC.Natural
+
+import Servant.Client
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -48,8 +52,8 @@ v = FastTimedCPM petersonChainGraph
 nodes:: Natural
 nodes = 1
 
-sid :: ChainId
-sid = unsafeChainId 0
+cid :: ChainId
+cid = unsafeChainId 0
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -58,14 +62,10 @@ tests :: RocksDb -> TestTree
 tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
   where
     go = return $
-      withNodes v "rosettaRemoteTests-" rdb nodes $ \nio ->
-      withTime $ \tio -> tgroup nio tio
+      withNodes v "rosettaRemoteTests-" rdb nodes $ \envIo ->
+      withTime $ \tio -> testGroup "Rosetta API tests" (tgroup tio envIo)
 
-    tgroup nio tio
-      = testGroup "Rosetta API tests"
-      $ fmap (\test -> test tio nio) tests_
-
-    tests_ =
+    tgroup tio envIo = fmap (\test -> test tio envIo)
       [ accountBalanceTests
       , blockTransactionTests
       , blockTests
@@ -80,9 +80,9 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
 
 
 accountBalanceTests :: RosettaTest
-accountBalanceTests tio _nio = testCaseSteps "Account Balance Lookup" $ \step -> do
+accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -> do
     step "check initial balance"
-    cenv <- _runClientEnv <$> _nio
+    cenv <- envIo
     resp0 <- accountBalance cenv req
     checkBalance resp0 100000000.000
 
@@ -106,45 +106,46 @@ accountBalanceTests tio _nio = testCaseSteps "Account Balance Lookup" $ \step ->
       curr @=? kda
 
 blockTransactionTests :: RosettaTest
-blockTransactionTests _tio _nio =
+blockTransactionTests tio envIo =
     testCaseSteps "Block Transaction Tests" $ \step -> return ()
 
 blockTests :: RosettaTest
-blockTests _tio _nio =
+blockTests tio envIo =
     testCaseSteps "Block Tests" $ \step -> return ()
 
 constructionMetadataTests :: RosettaTest
-constructionMetadataTests _tio _nio =
+constructionMetadataTests tio envIo =
     testCaseSteps "Construction Metadata Tests" $ \step -> return ()
 
 constructionSubmitTests :: RosettaTest
-constructionSubmitTests _tio _nio =
+constructionSubmitTests tio envIo =
     testCaseSteps "Construction Submit Tests" $ \step -> return ()
 
 mempoolTransactionTests :: RosettaTest
-mempoolTransactionTests _tio _nio =
+mempoolTransactionTests tio envIo =
     testCaseSteps "Mempool Transaction Tests" $ \step -> return ()
 
 mempoolTests :: RosettaTest
-mempoolTests _tio _nio =
+mempoolTests tio envIo =
     testCaseSteps "Mempool Tests" $ \step -> return ()
 
 networkListTests :: RosettaTest
-networkListTests _tio _nio =
+networkListTests tio envIo =
     testCaseSteps "Network List Tests" $ \step -> return ()
 
 networkOptionsTests :: RosettaTest
-networkOptionsTests _tio _nio =
+networkOptionsTests tio envIo =
     testCaseSteps "Network Options Tests" $ \step -> return ()
 
 networkStatusTests :: RosettaTest
-networkStatusTests _tio _nio = testCaseSteps "Network Status Tests" $ \step ->
+networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step ->
     return ()
 
 -- ------------------------------------------------------------------ --
 -- Test Data
 
-type RosettaTest = IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+type RosettaTest
+    = IO (Time Micros) -> IO ClientEnv -> TestTree
 
 kda :: Currency
 kda = Currency "KDA" 12 Nothing

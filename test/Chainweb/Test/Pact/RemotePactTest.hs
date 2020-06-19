@@ -28,7 +28,7 @@ module Chainweb.Test.Pact.RemotePactTest
 , polling
 , sending
 , PollingExpectation(..)
-, ChainwebNetwork(..)
+, ClientEnv(..)
 ) where
 
 import Control.Concurrent hiding (modifyMVar, newMVar, putMVar, readMVar)
@@ -164,24 +164,24 @@ tests rdb = testGroupSch "Chainweb.Test.Pact.RemotePactTest"
 -- about 10 seconds. Once initialization is complete even large numbers of empty
 -- blocks were mined almost instantaneously.
 --
-awaitNetworkHeight :: IO ChainwebNetwork -> CutHeight -> IO ()
+awaitNetworkHeight :: IO ClientEnv -> CutHeight -> IO ()
 awaitNetworkHeight nio h = do
-    cenv <- _runClientEnv <$> nio
+    cenv <- nio
     ch <- awaitCutHeight cenv h
     debug $ "cut height: " <> sshow (_cutHashesHeight ch)
 
-responseGolden :: IO ChainwebNetwork -> IO RequestKeys -> TestTree
+responseGolden :: IO ClientEnv -> IO RequestKeys -> TestTree
 responseGolden networkIO rksIO = golden "remote-golden" $ do
     rks <- rksIO
-    cenv <- _runClientEnv <$> networkIO
+    cenv <- networkIO
     PollResponses theMap <- polling cid cenv rks ExpectPactResult
     let values = mapMaybe (\rk -> _crResult <$> HashMap.lookup rk theMap)
                           (NEL.toList $ _rkRequestKeys rks)
     return $! toS $! foldMap A.encode values
 
-localTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
+localTest :: IO (Time Micros) -> IO ClientEnv -> IO ()
 localTest iot nio = do
-    cenv <- fmap _runClientEnv nio
+    cenv <- nio
     mv <- newMVar 0
     SubmitBatch batch <- testBatch iot mv gp
     let cmd = head $ toList batch
@@ -190,9 +190,9 @@ localTest iot nio = do
     assertEqual "expect /local to return gas for tx" (_crGas res) 5
     assertEqual "expect /local to succeed and return 3" e (Right (PLiteral $ LDecimal 3))
 
-localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+localContTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
-    cenv <- _runClientEnv <$> nio
+    cenv <- nio
     let sid = unsafeChainId 0
 
     step "execute /send with initial pact continuation tx"
@@ -238,9 +238,9 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
         $ mkCont
         $ mkContMsg pid 1
 
-localChainDataTest :: IO (Time Micros) -> IO ChainwebNetwork -> IO ()
+localChainDataTest :: IO (Time Micros) -> IO ClientEnv -> IO ()
 localChainDataTest iot nio = do
-    cenv <- fmap _runClientEnv nio
+    cenv <- nio
     mv <- newMVar (0 :: Int)
     SubmitBatch batch <- localTestBatch iot mv
     let cmd = head $ toList batch
@@ -273,19 +273,19 @@ localChainDataTest iot nio = do
           assert' name value = assertEqual name (M.lookup  (FieldKey (toS name)) m) (Just value)
     expectedResult _ = assertFailure "Didn't get back an object map!"
 
-pollingBadlistTest :: IO ChainwebNetwork -> TestTree
+pollingBadlistTest :: IO ClientEnv -> TestTree
 pollingBadlistTest nio = testCase "/poll reports badlisted txs" $ do
-    cenv <- fmap _runClientEnv nio
+    cenv <- nio
     let rks = RequestKeys $ NEL.fromList [pactDeadBeef]
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
     void $ polling sid cenv rks ExpectPactError
 
 
-sendValidationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+sendValidationTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 sendValidationTest iot nio =
     testCaseSteps "/send reports validation failure" $ \step -> do
         step "check sending poisoned TTL batch"
-        cenv <- fmap _runClientEnv nio
+        cenv <- nio
         mv <- newMVar 0
         SubmitBatch batch1 <- testBatch' iot 10_000 mv gp
         SubmitBatch batch2 <- testBatch' (return $ Time $ TimeSpan 0) 2 mv gp
@@ -341,9 +341,9 @@ expectSendFailure expectErr act = tryAllSynchronous act >>= \case
     test er = assertSatisfies ("Expected message containing '" ++ expectErr ++ "'") er (L.isInfixOf expectErr)
 
 
-spvTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+spvTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
-    cenv <- fmap _runClientEnv nio
+    cenv <- nio
     batch <- mkTxBatch
     sid <- mkChainId v maxBound (1 :: Int)
     r <- flip runClientM cenv $ do
@@ -392,9 +392,9 @@ spvTest iot nio = testCaseSteps "spv client tests" $ \step -> do
         , "target-chain-id" A..= tid
         ]
 
-txTooBigGasTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+txTooBigGasTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> do
-    cenv <- fmap _runClientEnv nio
+    cenv <- nio
     sid <- mkChainId v maxBound (0 :: Int)
 
     let runSend batch expectation = flip runClientM cenv $ do
@@ -457,12 +457,12 @@ txTooBigGasTest iot nio = testCaseSteps "transaction size gas tests" $ \step -> 
     txcode1 = txcode0 <> "(identity 1)"
 
 
-caplistTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+caplistTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 caplistTest iot nio = testCaseSteps "caplist TRANSFER + FUND_TX test" $ \step -> do
 
     let testCaseStep = void . liftIO . step
 
-    cenv <- fmap _runClientEnv nio
+    cenv <- nio
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     r <- flip runClientM cenv $ do
@@ -528,12 +528,12 @@ allocation02KeyPair' =
     , "2f75b5d875dd7bf07cc1a6973232a9e53dc1d4ffde2bab0bbace65cd87e87f53"
     )
 
-allocationTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
+allocationTest :: IO (Time Micros) -> IO ClientEnv -> TestTree
 allocationTest iot nio = testCaseSteps "genesis allocation tests" $ \step -> do
 
     let testCaseStep = void . liftIO . step
 
-    cenv <- fmap _runClientEnv nio
+    cenv <- nio
     sid <- liftIO $ mkChainId v maxBound (0 :: Int)
 
     step "positive allocation test: allocation00 release"
@@ -686,14 +686,14 @@ mkSingletonBatch iot kps (PactTransaction c d) nonce pmk clist = do
 withRequestKeys
     :: IO (Time Micros)
     -> IO (MVar Int)
-    -> IO ChainwebNetwork
+    -> IO ClientEnv
     -> (IO RequestKeys -> TestTree)
     -> TestTree
 withRequestKeys iot ioNonce networkIO f = withResource mkKeys (\_ -> return ()) f
   where
     mkKeys :: IO RequestKeys
     mkKeys = do
-        cenv <- _runClientEnv <$> networkIO
+        cenv <- networkIO
         mNonce <- ioNonce
         testSend iot mNonce cenv
 
