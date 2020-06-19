@@ -88,8 +88,8 @@ accountBalanceTests tio _nio = testCaseSteps "Account Balance Lookup" $ \step ->
 
     step "send 1.0 tokens to sender00 from sender01"
     batch0 <- transferOne tio
-    rks <- sending sid cenv batch0
-    void $ polling sid cenv rks ExpectPactResult
+    rks <- sending cid cenv batch0
+    void $ polling cid cenv rks ExpectPactResult
 
     step "check post-transfer balance"
     resp1 <- accountBalance cenv req
