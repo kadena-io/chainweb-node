@@ -51,9 +51,6 @@ nodes = 1
 sid :: ChainId
 sid = unsafeChainId 0
 
-tid :: ChainId
-tid = unsafeChainId 1
-
 -- -------------------------------------------------------------------------- --
 -- Test Tree
 
