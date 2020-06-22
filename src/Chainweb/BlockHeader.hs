@@ -311,9 +311,9 @@ powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
         | oldDaGuard ver (_blockHeight ph + 1)
             = legacyAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
         | otherwise
-            = adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
-        | otherwise
             = avgTarget $ adjustForParent w <$> (p : HM.elems as)
+        --  | otherwise
+        --    = adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
 
     adjustForParent w (ParentHeader a)
         = adjust ver w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
