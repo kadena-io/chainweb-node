@@ -14,6 +14,7 @@ import Control.Lens
 import qualified Data.Aeson as A
 import Data.Functor (void)
 import qualified Data.List.NonEmpty as NEL
+import qualified Data.HashMap.Strict as HM
 import Data.Text (Text)
 
 import GHC.Natural
@@ -26,10 +27,12 @@ import Test.Tasty.HUnit
 -- internal pact modules
 
 import Pact.Types.API
+import Pact.Types.Command
 
 -- internal chainweb modules
 
 import Chainweb.Graph
+import Chainweb.Pact.Utils (aeson)
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -113,10 +116,30 @@ blockTests :: RosettaTest
 blockTests tio envIo = testCaseSteps "Block Tests" $ \step -> do
     step "fetch genesis block"
     cenv <- envIo
-    resp <- block cenv req
+    resp0 <- _block_blockId . _blockResp_block <$> block cenv req0
+    resp0 @=? genesisId
+
+    step "send transaction in at block height 1"
+    batch0 <- transferOne tio
+    rks <- sending cid cenv batch0
+    prs <- polling cid cenv rks ExpectPactResult
+    cmdMeta <- extractMetadata prs
+    bh <- cmdMeta ^?! at "blockHeight" . to fromAeson
+
+    step "check tx at block height 1 matches sent tx"
+    resp1 <- block cenv $ BlockReq nid $ PartialBlockId (Just bh) Nothing
+
+
     return ()
   where
-    req = BlockReq nid $ PartialBlockId (Just 0) Nothing
+    req0 = BlockReq nid $ PartialBlockId (Just 0) Nothing
+
+    fromAeson = aeson assertFailure return . A.fromJSON
+
+    extractMetadata (PollResponses pr) =
+      case _crMetaData . snd . head . HM.toList $ pr of
+        Nothing -> assertFailure "test transfer did not succeed"
+        Just (A.Object o) -> return o
 
 constructionMetadataTests :: RosettaTest
 constructionMetadataTests tio envIo =
@@ -176,7 +199,7 @@ aid = AccountId
     }
 
 genesisId :: BlockId
-genesisId = BlockId 0 "qU76xuohSdCyFQd2QWm7TMJHyHIRCENmdax9KMnQiSQ"
+genesisId = BlockId 0 "d69wD5SUpshDI6rbmQGugDXTd1-riqr7gfg5ZjvUrqk"
 
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
