@@ -1,7 +1,7 @@
-# Provides genesis coinbase mocks for chain 19
+# Provides genesis coinbase mocks for chain 18
 
 code: |-
-  (coin.coinbase "KAD_OPS_20" (read-keyset "kad-ops-20") 10.0)
+  (coin.coinbase "KAD_OPS_20" (read-keyset "kda-ops-20") 10.0)
 data:
   kda-ops-20:
     keys:
@@ -9,5 +9,5 @@ data:
       - "be229f4a975e441dc694ded0e9260d993270128702ff5a5af7bed2e42c95ce09"
       - "9a4849687cbcfeb1f7c6510539638da576289508aedcc75f4d6ad3ed2623635c"
     pred: "keys-any"
-nonce: devnet-grants19
+nonce: devnet-grants18
 keyPairs: []

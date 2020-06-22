@@ -41,6 +41,16 @@ import Chainweb.BlockCreationTime
 import Chainweb.BlockHash
 import Chainweb.BlockHeader
 import qualified Chainweb.BlockHeader.Genesis.Development0Payload as DN0
+import qualified Chainweb.BlockHeader.Genesis.Development10Payload as DN10
+import qualified Chainweb.BlockHeader.Genesis.Development11Payload as DN11
+import qualified Chainweb.BlockHeader.Genesis.Development12Payload as DN12
+import qualified Chainweb.BlockHeader.Genesis.Development13Payload as DN13
+import qualified Chainweb.BlockHeader.Genesis.Development14Payload as DN14
+import qualified Chainweb.BlockHeader.Genesis.Development15Payload as DN15
+import qualified Chainweb.BlockHeader.Genesis.Development16Payload as DN16
+import qualified Chainweb.BlockHeader.Genesis.Development17Payload as DN17
+import qualified Chainweb.BlockHeader.Genesis.Development18Payload as DN18
+import qualified Chainweb.BlockHeader.Genesis.Development19Payload as DN19
 import qualified Chainweb.BlockHeader.Genesis.DevelopmentNPayload as DNN
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload as TN0
 import qualified Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload as TNN
@@ -138,6 +148,16 @@ genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
 -- Development Instances
 genesisBlockPayload Development cid = case chainIdInt @Int cid of
     0 -> DN0.payloadBlock
+    10 -> DN10.payloadBlock
+    11 -> DN11.payloadBlock
+    12 -> DN12.payloadBlock
+    13 -> DN13.payloadBlock
+    14 -> DN14.payloadBlock
+    15 -> DN15.payloadBlock
+    16 -> DN16.payloadBlock
+    17 -> DN17.payloadBlock
+    18 -> DN18.payloadBlock
+    19 -> DN19.payloadBlock
     _ -> DNN.payloadBlock
 
 -- Production Instances

@@ -1,7 +1,7 @@
 # Provides genesis coinbase mocks for chain 16
 
 code: |-
-  (coin.coinbase "KAD_OPS_20" (read-keyset "kad-ops-20") 10.0)
+  (coin.coinbase "KAD_OPS_20" (read-keyset "kda-ops-20") 10.0)
 data:
   kda-ops-20:
     keys:

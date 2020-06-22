@@ -172,7 +172,6 @@ development0 = Genesis
     , _namespaces = Just devNs
     }
 
-
 developmentN :: Genesis
 developmentN = development0
     & txChainId .~ N
