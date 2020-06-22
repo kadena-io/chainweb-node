@@ -101,6 +101,7 @@ initRelationalCheckpointer' bstate sqlenv loggr v cid = do
               , _cpRegisterProcessedTx = doRegisterSuccessful db
               , _cpLookupProcessedTx = doLookupSuccessful db
               , _cpGetBlockHistory = doGetBlockHistory db
+              , _cpGetHistoricalLookup = doGetHistoricalLookup db
               }
         , _cpeLogger = loggr
         })
@@ -275,31 +276,25 @@ doGetBlockHistory :: FromJSON v => Db -> BlockHeader -> Domain k v -> IO BlockTx
 doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
   callDb "doGetBlockHistory" $ \db -> do
     endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
-    startTxId <- getEndTxId db (pred bHeight) (_blockParent blockHeader)
+    startTxId <- if (bHeight == genesisHeight v cid)
+      then pure 0  -- genesis block
+      else getEndTxId db (pred bHeight) (_blockParent blockHeader)
     history <- queryHistory db (domainTableName d) startTxId endTxId
     return $! BlockTxHistory $ foldl' groupByTxid mempty history
   where
-
+    v = _blockChainwebVersion blockHeader
+    cid = _blockChainId blockHeader
     bHeight = _blockHeight blockHeader
 
     groupByTxid :: Ord a => M.Map a [b] -> (a,b) -> M.Map a [b]
     groupByTxid r (t,l) = M.insertWith (++) t [l] r
 
-    getEndTxId db bhi bha = do
-      r <- qry db
-        "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
-        [SInt $ fromIntegral $ bhi, SBlob $ encode $ bha]
-        [RInt]
-      case r of
-        [[SInt tid]] -> return tid
-        [] -> throwM $ BlockHeaderLookupFailure $ "doGetBlockHistory: not in db: " <>
-              sshow (bhi,bha)
-        _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
-
+    -- Start index is inclusive, while ending index is not.
+    -- `endingtxid` in a block is the beginning txid of the following block.
     queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(TxId,TxLog Value)]
     queryHistory db tableName s e = do
       let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
-                "] WHERE txid > ? AND txid <= ?"
+                "] WHERE txid >= ? AND txid < ?"
       r <- qry db sql
            [SInt s,SInt e]
            [RInt,RText,RBlob]
@@ -308,3 +303,42 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
         err -> internalError $
                "readHistoryResult': Expected single row with three columns as the \
                \result, got: " <> T.pack (show err)
+
+getEndTxId :: Database -> BlockHeight -> BlockHash -> IO Int64
+getEndTxId db bhi bha = do
+  r <- qry db
+    "SELECT endingtxid FROM BlockHistory WHERE blockheight = ? and hash = ?;"
+    [SInt $ fromIntegral $ bhi, SBlob $ encode $ bha]
+    [RInt]
+  case r of
+    [[SInt tid]] -> return tid
+    [] -> throwM $ BlockHeaderLookupFailure $ "doGetBlockHistory: not in db: " <>
+          sshow (bhi,bha)
+    _ -> internalError $ "doGetBlockHistory: expected single-row int result, got " <> sshow r
+
+doGetHistoricalLookup
+    :: FromJSON v
+    => Db
+    -> BlockHeader
+    -> Domain k v
+    -> RowKey
+    -> IO (Maybe (TxLog Value))
+doGetHistoricalLookup dbenv blockHeader d k = runBlockEnv dbenv $ do
+  callDb "doGetHistoricalLookup" $ \db -> do
+    endTxId <- getEndTxId db bHeight (_blockHash blockHeader)
+    latestEntry <- queryHistoryLookup db (domainTableName d) endTxId (convRowKey k)
+    return $! latestEntry
+  where
+    bHeight = _blockHeight blockHeader
+
+    queryHistoryLookup :: Database -> Utf8 -> Int64 -> Utf8 -> IO (Maybe (TxLog Value))
+    queryHistoryLookup db tableName e rowKeyName = do
+      let sql = "SELECT rowKey, rowdata FROM [" <> tableName <>
+                "] WHERE txid < ? AND rowkey = ? ORDER BY txid DESC LIMIT 1;"
+      r <- qry db sql
+           [SInt e, SText rowKeyName]
+           [RText, RBlob]
+      case r of
+        [[SText key, SBlob value]] -> Just <$> toTxLog d key value
+        [] -> pure Nothing
+        _ -> internalError $ "doGetHistoricalLookup: expected single-row result, got " <> sshow r
