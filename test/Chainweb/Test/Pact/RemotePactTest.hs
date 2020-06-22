@@ -218,8 +218,7 @@ localTest iot nio = do
 
 localContTest :: IO (Time Micros) -> IO ChainwebNetwork -> TestTree
 localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
-    cenv <- _getClientEnv <$> nio
-    let sid = unsafeChainId 0
+    cenv <- _getLocalClientEnv <$> nio
 
     step "execute /send with initial pact continuation tx"
     cmd1 <- firstStep
@@ -243,6 +242,7 @@ localContTest iot nio = testCaseSteps "local continuation test" $ \step -> do
       Right (PLiteral (LDecimal a)) | a == 2 -> return ()
       Right p -> assertFailure $ "unexpected cont return value: " ++ show p
   where
+    sid = unsafeChainId 0
     tx =
       "(namespace 'free)(module m G (defcap G () true) (defpact p () (step (yield { \"a\" : (+ 1 1) })) (step (resume { \"a\" := a } a))))(free.m.p)"
     firstStep = do
