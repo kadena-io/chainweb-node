@@ -20,7 +20,7 @@ import Data.Map (Map)
 import Data.Word (Word64)
 
 import qualified Data.Set as S
-import qualified Data.Map as M
+--import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
@@ -71,28 +71,28 @@ matchNonGenesisBlockTransactionsToLogs = do
     (logs, initial, rest) = mockTxLogs
 
     -- Coinbase Tx
-    expected1 = mockRosettaTx "ReqKey1" [ op CoinbaseReward 1 "miner1" 2.0 0]
+    expected1 = mockRosettaTx "ReqKey1" [ op CoinbaseReward 1 "miner1" 2.0 undefined 0]
     
     -- Successful, non-coin contract tx
     expected2 = mockRosettaTx "ReqKey2"
-                [ op FundTx 2 "sender1" 10.0 0
-                , op GasPayment 4 "miner1" 12.0 1 ]
+                [ op FundTx 2 "sender1" 10.0 undefined 0
+                , op GasPayment 4 "miner1" 12.0 undefined 1 ]
 
     -- Successful, non-coin contract tx
     expected3 = mockRosettaTx "ReqKey3"
-                [ op FundTx 5 "sender1" 10.0 0
-                , op GasPayment 7 "miner1" 12.0 1 ]
+                [ op FundTx 5 "sender1" 10.0 undefined 0
+                , op GasPayment 7 "miner1" 12.0 undefined 1 ]
 
     -- Successful, coin contract tx
     expected4 = mockRosettaTx "ReqKey4"
-                [ op FundTx 8 "sender1" 10.0 0
-                , op TransferOrCreateAcct 9 "sender1" 5.0 1
-                , op GasPayment 10 "miner1" 12.0 2 ]
+                [ op FundTx 8 "sender1" 10.0 undefined 0
+                , op TransferOrCreateAcct 9 "sender1" 5.0 undefined 1
+                , op GasPayment 10 "miner1" 12.0 undefined 2 ]
 
     -- Unsuccessful tx
     expected5 = mockRosettaTx "ReqKey5"
-                [ op FundTx 11 "sender1" 10.0 0
-                , op GasPayment 12 "miner1" 12.0 1]
+                [ op FundTx 11 "sender1" 10.0 undefined 0
+                , op GasPayment 12 "miner1" 12.0 undefined 1]
 
 matchFailedCoinbaseBlockTransactionsToLogs :: Assertion
 matchFailedCoinbaseBlockTransactionsToLogs = do
@@ -110,8 +110,8 @@ matchFailedCoinbaseBlockTransactionsToLogs = do
     
     -- Successful, non-coin contract tx
     expected2 = mockRosettaTx "ReqKey2"
-                [ op FundTx 2 "sender1" 10.0 0
-                , op GasPayment 4 "miner1" 12.0 1 ]
+                [ op FundTx 2 "sender1" 10.0 undefined 0
+                , op GasPayment 4 "miner1" 12.0 undefined 1 ]
 
 
 matchNonGenesisSingleTransactionsToLogs :: Assertion
@@ -146,28 +146,28 @@ matchNonGenesisSingleTransactionsToLogs = do
       [ "ReqKey1", "ReqKey5", "ReqKey3", "ReqKey2", "ReqKey4", "RandomReqKey"]
 
     -- Coinbase Tx
-    expectedRk1 = Just $ mockRosettaTx "ReqKey1" [ op CoinbaseReward 1 "miner1" 2.0 0]
+    expectedRk1 = Just $ mockRosettaTx "ReqKey1" [ op CoinbaseReward 1 "miner1" 2.0 undefined 0]
     
     -- Successful, non-coin contract tx
     expectedRk2 = Just $ mockRosettaTx "ReqKey2"
-                  [ op FundTx 2 "sender1" 10.0 0
-                  , op GasPayment 4 "miner1" 12.0 1 ]
+                  [ op FundTx 2 "sender1" 10.0 undefined 0
+                  , op GasPayment 4 "miner1" 12.0 undefined 1 ]
 
     -- Successful, non-coin contract tx
     expectedRk3 = Just $ mockRosettaTx "ReqKey3"
-                  [ op FundTx 5 "sender1" 10.0 0
-                  , op GasPayment 7 "miner1" 12.0 1 ]
+                  [ op FundTx 5 "sender1" 10.0 undefined 0
+                  , op GasPayment 7 "miner1" 12.0 undefined 1 ]
 
     -- Successful, coin contract tx
     expectedRk4 = Just $ mockRosettaTx "ReqKey4"
-                  [ op FundTx 8 "sender1" 10.0 0
-                  , op TransferOrCreateAcct 9 "sender1" 5.0 1
-                  , op GasPayment 10 "miner1" 12.0 2 ]
+                  [ op FundTx 8 "sender1" 10.0 undefined 0
+                  , op TransferOrCreateAcct 9 "sender1" 5.0 undefined 1
+                  , op GasPayment 10 "miner1" 12.0 undefined 2 ]
 
     -- Unsuccessful tx
     expectedRk5 = Just $ mockRosettaTx "ReqKey5"
-                  [ op FundTx 11 "sender1" 10.0 0
-                  , op GasPayment 12 "miner1" 12.0 1]
+                  [ op FundTx 11 "sender1" 10.0 undefined 0
+                  , op GasPayment 12 "miner1" 12.0 undefined 1]
 
     expectedMissing = Nothing --RosettaTxIdNotFound
 
@@ -257,14 +257,15 @@ instance PendingTx MockTxResult where
   makeRosettaTx (MockTxResult (_,rk)) = mockRosettaTx rk
 
 mockTxLogs :: (Map TxId [AccountLog], MockTxResult, V.Vector MockTxResult)
-mockTxLogs = (logs, initial, rest)
-  where
+mockTxLogs = undefined -- (logs, initial, rest) -- TODO
+  {--where
     (log1,initial) =
       let key = "miner1"
           amt = 2.0
+          delta = BalanceDelta amt
           g = toJSON (key <> "PublicKey" :: T.Text)
           tid = TxId 1
-          l = [(key, amt, g)]
+          l = [ AccountLog key amt delta g ]
           a = (Just tid, "ReqKey1")
       in ((tid,l), MockTxResult a)
 
@@ -275,7 +276,8 @@ mockTxLogs = (logs, initial, rest)
           gMiner = toJSON (minerKey <> "PublicKey" :: T.Text)
           gKey = toJSON (key <> "PublicKey" :: T.Text)
           (fundTid, tid, gasTid) = (TxId 2, TxId 3, TxId 4)
-          fundLogs = (fundTid, [(key, 10.0, gKey)])
+          fundLogs = (fundTid,
+                      [ AccountLog key 10.0 -5.0 gKey ])
           gasLogs = (gasTid, [(minerKey, 12.0, gMiner)])
           a = (Just tid, "ReqKey2")
       in ([fundLogs,gasLogs], MockTxResult a)
@@ -318,11 +320,11 @@ mockTxLogs = (logs, initial, rest)
 
     rest = V.fromList [tx1, tx2, tx3, tx4]
     logs = M.fromList $ [log1] <> logs2 <> logs3 <> logs4 <> logs5
-
+--}
 
 mockTxLogsFailedCoinbaseAndTx :: (Map TxId [AccountLog], MockTxResult, V.Vector MockTxResult)
-mockTxLogsFailedCoinbaseAndTx = (logs, initial, rest)
-  where
+mockTxLogsFailedCoinbaseAndTx = undefined --(logs, initial, rest) -- TODO
+{--  where
     initial = MockTxResult (Nothing, "ReqKey1")
 
     -- successful, non-coin contract tx
@@ -339,11 +341,13 @@ mockTxLogsFailedCoinbaseAndTx = (logs, initial, rest)
 
     rest = V.fromList [tx1]
     logs = M.fromList logs2
+--}
 
-op :: OperationType -> Word64 -> T.Text -> Decimal -> Word64 -> Operation
-op t i key amt oid = operation Successful t (TxId i) (key, amt, gKey) oid
+op :: OperationType -> Word64 -> T.Text -> Decimal -> BalanceDelta -> Word64 -> Operation
+op t i key amt delta oid = operation Successful t (TxId i) acctLog oid
   where
     gKey = toJSON (key <> "PublicKey")
+    acctLog = AccountLog key amt delta gKey
 
 assertEqualEncode
     :: (ToJSON a)

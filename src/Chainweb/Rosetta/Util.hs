@@ -1,8 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE GADTs #-}
 
 -- |
 -- Module: Chainweb.Rosetta.Util
@@ -19,6 +16,7 @@ import Data.Decimal
 import Data.Word (Word64)
 
 
+import qualified Data.Map as M
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
@@ -50,7 +48,16 @@ import Chainweb.Version
 --------------------------------------------------------------------------------
 
 type CoinbaseTx chainwebTx = chainwebTx
-type AccountLog = (T.Text, Decimal, Value)
+newtype BalanceDelta = BalanceDelta { _balanceDelta :: Decimal }
+  deriving Show
+data AccountLog = AccountLog
+  { _accountLogKey :: T.Text
+  , _accountLogBalanceTotal :: Decimal
+  , _accountLogBalanceDelta :: BalanceDelta
+  , _accountLogGuard :: Value
+  }
+  deriving Show
+type AccountRow = (T.Text, Decimal, Value)
 type UnindexedOperation = (Word64 -> Operation)
 
 data ChainwebOperationStatus = Successful | Remediation
@@ -143,27 +150,31 @@ operation
     -> AccountLog
     -> Word64
     -> Operation
-operation ostatus otype txid (key, bal, guard) idx =
+operation ostatus otype txid acctLog idx =
   Operation
     { _operation_operationId = OperationId idx Nothing
     , _operation_relatedOperations = Nothing -- TODO: implement
     , _operation_type = sshow otype
     , _operation_status = sshow ostatus
     , _operation_account = Just accountId
-    , _operation_amount = Just $ kdaToRosettaAmount bal
+    , _operation_amount = Just $ kdaToRosettaAmount $
+                          _balanceDelta $ _accountLogBalanceDelta acctLog
     , _operation_metadata = opMeta
     }
   where
     opMeta
-      | enableMetaData = Just $ HM.fromList [("txId", toJSON txid)] -- TODO: document
+      | enableMetaData = Just $ HM.fromList
+                         [ ("txId", toJSON txid)
+                         , ("totalBalance", toJSON $ kdaToRosettaAmount $
+                             _accountLogBalanceTotal acctLog) ] -- TODO: document
       | otherwise = Nothing
     accountId = AccountId
-      { _accountId_address = key
+      { _accountId_address = _accountLogKey acctLog
       , _accountId_subAccount = Nothing  -- assumes coin acct contract only
       , _accountId_metadata = accountIdMeta
       }
     accountIdMeta
-      | enableMetaData = Just $ HM.fromList [("ownership", guard)]  -- TODO: document
+      | enableMetaData = Just $ HM.fromList [("ownership", _accountLogGuard acctLog)]  -- TODO: document
       | otherwise = Nothing
 
 
@@ -202,13 +213,31 @@ enableMetaData = False
 maxRosettaNodePeerLimit :: Natural
 maxRosettaNodePeerLimit = 64
 
+calcBalanceDelta :: Decimal -> Maybe Decimal -> BalanceDelta
+calcBalanceDelta curr Nothing = BalanceDelta curr
+calcBalanceDelta curr (Just prev) = BalanceDelta $ curr - prev
+
+rowDataToAccountInfo :: TxLog Value -> Maybe (TxLog Value) -> Maybe AccountLog
+rowDataToAccountInfo currRow prevRow = do
+  (currKey, currBal, currGuard) <- txLogToAccountRow currRow
+  let prevBal = snd3 <$> maybe Nothing txLogToAccountRow prevRow
+      balDelta = calcBalanceDelta currBal prevBal
+  pure $! AccountLog
+    { _accountLogKey = currKey
+    , _accountLogBalanceTotal = currBal
+    , _accountLogBalanceDelta = balDelta
+    , _accountLogGuard = currGuard
+    }
+  where
+    snd3 (_,d,_) = d
+
 -- | Parse TxLog Value into fungible asset account columns
-txLogToAccountInfo :: TxLog Value -> Maybe AccountLog
-txLogToAccountInfo (TxLog _ key (Object row)) = do
+txLogToAccountRow :: TxLog Value -> Maybe AccountRow
+txLogToAccountRow (TxLog _ key (Object row)) = do
   guard :: Value <- (HM.lookup "guard" row) >>= (hushResult . fromJSON)
   (PLiteral (LDecimal bal)) <- (HM.lookup "balance" row) >>= (hushResult . fromJSON)
   pure $! (key, bal, guard)
-txLogToAccountInfo _ = Nothing
+txLogToAccountRow _ = Nothing
 
 hushResult :: Result a -> Maybe a
 hushResult (Success w) = Just w
