@@ -29,9 +29,12 @@ import qualified Data.DList as DL
 import Data.Foldable (toList,foldl')
 import Data.Int
 import qualified Data.Map.Strict as M
+import Data.Maybe
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.List as List
+import qualified Data.Set as S
 import Data.Serialize hiding (get)
+import Data.String.Conv
 import qualified Data.Text as T
 import Data.Tuple.Strict
 import qualified Data.Vector as V
@@ -279,19 +282,25 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
     startTxId <- if (bHeight == genesisHeight v cid)
       then pure 0  -- genesis block
       else getEndTxId db (pred bHeight) (_blockParent blockHeader)
-    history <- queryHistory db (domainTableName d) startTxId endTxId
-    return $! BlockTxHistory $ foldl' groupByTxid mempty history
+    let tname = domainTableName d
+    history <- queryHistory db tname startTxId endTxId
+    let (!hkeys,tmap) = foldl' procTxHist (S.empty,mempty) history
+    !prev <- M.fromList . catMaybes <$> mapM (queryPrev db tname startTxId) (S.toList hkeys)
+    return $ BlockTxHistory tmap prev
   where
     v = _blockChainwebVersion blockHeader
     cid = _blockChainId blockHeader
     bHeight = _blockHeight blockHeader
 
-    groupByTxid :: Ord a => M.Map a [b] -> (a,b) -> M.Map a [b]
-    groupByTxid r (t,l) = M.insertWith (++) t [l] r
+    procTxHist
+      :: (S.Set Utf8, M.Map TxId [TxLog Value])
+      -> (Utf8,TxId,TxLog Value)
+      -> (S.Set Utf8,M.Map TxId [TxLog Value])
+    procTxHist (ks,r) (uk,t,l) = (S.insert uk ks, M.insertWith (++) t [l] r)
 
     -- Start index is inclusive, while ending index is not.
     -- `endingtxid` in a block is the beginning txid of the following block.
-    queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(TxId,TxLog Value)]
+    queryHistory :: Database -> Utf8 -> Int64 -> Int64 -> IO [(Utf8,TxId,TxLog Value)]
     queryHistory db tableName s e = do
       let sql = "SELECT txid, rowkey, rowdata FROM [" <> tableName <>
                 "] WHERE txid >= ? AND txid < ?"
@@ -299,10 +308,25 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
            [SInt s,SInt e]
            [RInt,RText,RBlob]
       forM r $ \case
-        [SInt txid, SText key, SBlob value] -> (fromIntegral txid,) <$> toTxLog d key value
+        [SInt txid, SText key, SBlob value] -> (key,fromIntegral txid,) <$> toTxLog d key value
         err -> internalError $
-               "readHistoryResult': Expected single row with three columns as the \
+               "queryHistory: Expected single row with three columns as the \
                \result, got: " <> T.pack (show err)
+
+    -- Get last tx data, if any, for key before start index.
+    queryPrev :: Database -> Utf8 -> Int64 -> Utf8 -> IO (Maybe (RowKey,TxLog Value))
+    queryPrev db tableName s k@(Utf8 sk) = do
+      let sql = "SELECT rowdata FROM [" <> tableName <>
+                "] WHERE rowkey = ? AND txid < ? " <>
+                "ORDER BY txid DESC LIMIT 1"
+      r <- qry db sql
+           [SText k,SInt s]
+           [RBlob]
+      case r of
+        [] -> return Nothing
+        [[SBlob value]] -> Just . (RowKey $ toS sk,) <$> toTxLog d k value
+        _ -> internalError $ "queryPrev: expected 0 or 1 rows, got: " <> T.pack (show r)
+
 
 getEndTxId :: Database -> BlockHeight -> BlockHash -> IO Int64
 getEndTxId db bhi bha = do
