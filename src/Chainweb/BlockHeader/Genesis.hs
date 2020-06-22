@@ -140,7 +140,7 @@ genesisBlockPayload FastTimedCPM{} cid = case chainIdInt @Int cid of
 -- Development Instances
 genesisBlockPayload Development cid = case chainIdInt @Int cid of
     0 -> DN0.payloadBlock
-    c | c >= 10 && c <= 20 -> DNKAD.payloadBlock
+    c | c >= 10 && c <= 19 -> DNKAD.payloadBlock
     _ -> DNN.payloadBlock
 
 -- Production Instances
@@ -159,7 +159,7 @@ genesisBlockPayload Mainnet01 cid = case chainIdInt @Int cid of
     7 -> MN7.payloadBlock
     8 -> MN8.payloadBlock
     9 -> MN9.payloadBlock
-    c | c >= 10 && c <= 20 -> MNKAD.payloadBlock
+    c | c >= 10 && c <= 19 -> MNKAD.payloadBlock
     _ -> error "peterson graph only supports a maximum of 10 chains - please review"
 
 -- | A block chain is globally uniquely identified by its genesis hash.

@@ -34,7 +34,7 @@ upgradeTransactions Mainnet01 cid = case cidInt of
   7 -> MN7.transactions
   8 -> MN8.transactions
   9 -> MN9.transactions
-  c | c >= 10 && c <= 20 -> MNKAD.transactions
+  c | c >= 10 && c <= 19 -> MNKAD.transactions
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
   where cidInt :: Int
         cidInt = chainIdInt cid
