@@ -372,7 +372,6 @@ library
         , rosetta >= 1.0
         , safe-exceptions >= 0.1
         , scheduler >= 1.4
-        , semialign >= 1
         , servant >= 0.16.2
         , servant-client >= 0.16.0.1
         , servant-client-core >= 0.16
@@ -392,7 +391,7 @@ library
         , temporary >= 1.3
         , text >= 1.2
         , trifecta >= 2.1
-        , these >= 1 && < 1.2
+        , these-skinny >= 0.7.4
         , time >= 1.8
         , tls >=1.5.2
         , token-bucket >= 0.1
@@ -530,7 +529,6 @@ test-suite chainweb-tests
         , retry >= 0.7
         , rosetta >= 1.0
         , scheduler >= 1.4
-        , semialign >= 1
         , servant >= 0.16
         , servant-client >= 0.16
         , servant-client-core >= 0.16

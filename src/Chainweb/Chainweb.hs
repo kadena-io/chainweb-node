@@ -128,7 +128,6 @@ import Control.Lens hiding ((.=), (<.>))
 import Control.Monad
 import Control.Monad.Catch (throwM)
 
-import Data.Align (alignWith)
 import Data.Bifunctor (second)
 import Data.CAS (casLookupM)
 import Data.Foldable
@@ -535,7 +534,7 @@ validatingMempoolConfig cid v gl mv = Mempool.InMemConfig
     preInsertBatch txs = do
         pex <- readMVar mv
         rs <- _pactPreInsertCheck pex cid (V.map ssnd txs) >>= either throwM pure
-        pure $ alignWith f rs txs
+        pure $ alignWithV f rs txs
       where
         f (These r (T2 h t)) = case r of
                                  Left e -> Left (T2 h e)
