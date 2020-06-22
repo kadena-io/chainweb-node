@@ -284,8 +284,8 @@ doGetBlockHistory dbenv blockHeader d = runBlockEnv dbenv $ do
       else getEndTxId db (pred bHeight) (_blockParent blockHeader)
     let tname = domainTableName d
     history <- queryHistory db tname startTxId endTxId
-    let (hkeys,tmap) = foldl' procTxHist (S.empty,mempty) history
-    prev <- M.fromList . catMaybes <$> mapM (queryPrev db tname startTxId) (S.toList hkeys)
+    let (!hkeys,tmap) = foldl' procTxHist (S.empty,mempty) history
+    !prev <- M.fromList . catMaybes <$> mapM (queryPrev db tname startTxId) (S.toList hkeys)
     return $ BlockTxHistory tmap prev
   where
     v = _blockChainwebVersion blockHeader
