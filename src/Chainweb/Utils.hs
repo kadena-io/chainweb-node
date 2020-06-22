@@ -62,7 +62,7 @@ module Chainweb.Utils
 , unlessM
 , whenM
 , ebool_
-, partitionEithersNEL
+, alignWithV
 , (&)
 , IxedGet(..)
 
@@ -229,14 +229,11 @@ import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.ByteString.Unsafe as B
-import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor.Of
 import Data.Hashable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NEL
 import Data.Monoid (Endo)
 import Data.Proxy
 import Data.Serialize.Get (Get)
@@ -248,6 +245,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import Data.These (These(..))
 import Data.Tuple.Strict
+import qualified Data.Vector as V
 import Data.Word
 
 import GHC.Generics
@@ -391,12 +389,13 @@ roundBy :: Integral a => a -> a -> a
 roundBy n m = ((n `div` m) + 1) * m
 {-# INLINE roundBy #-}
 
-partitionEithersNEL :: NonEmpty (Either a b) -> These (NonEmpty a) (NonEmpty b)
-partitionEithersNEL (h :| es) = case bimap NEL.nonEmpty NEL.nonEmpty $ partitionEithers es of
-    (Nothing, Nothing) -> either (This . pure) (That . pure) h
-    (Just as, Nothing) -> This as
-    (Nothing, Just bs) -> That bs
-    (Just as, Just bs) -> These as bs
+-- | Elide 'semialign' import with this simple Vector-specialized version.
+-- O(n)-ish -- O(min (m,n) + 2*max(m-n,n-m))
+alignWithV :: (These a b -> c) -> V.Vector a -> V.Vector b -> V.Vector c
+alignWithV f a b = V.zipWith (\a' -> f . These a') a b <> case (V.length a,V.length b) of
+  (la,lb) | la == lb -> mempty
+          | la > lb -> V.map (f . This) $ V.drop lb a
+          | otherwise -> V.map (f . That) $ V.drop la b
 
 -- -------------------------------------------------------------------------- --
 -- * Read only Ixed
