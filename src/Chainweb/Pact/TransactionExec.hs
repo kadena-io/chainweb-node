@@ -95,7 +95,7 @@ import Chainweb.BlockHeight
 import Chainweb.Miner.Pact
 import Chainweb.Pact.Service.Types
 import Chainweb.Pact.Templates
-import Chainweb.Pact.Transactions.UpgradeTransactions (upgradeTransactions)
+import Chainweb.Pact.Transactions.UpgradeTransactions
 import Chainweb.Pact.Types
 import Chainweb.Transaction
 import Chainweb.Utils (encodeToByteString, sshow, tryAllSynchronous)
@@ -461,18 +461,19 @@ applyTwentyChainUpgrade
     -> TransactionM p ()
 applyTwentyChainUpgrade v cid bh
     | twentyChainUpgrade v cid bh = do
-      txlist <- liftIO $ upgradeTransactions v cid
+      txlist <- liftIO $ twentyChainUpgradeTransactions v cid
+
       infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
 
       let txs = fmap payloadObj <$> txlist
-      traverse_ go txs
+      traverse_ applyTx txs
     | otherwise = return ()
   where
     infoLog t = do
       l <- view txLogger
       liftIO $! logLog l "INFO" t
 
-    go tx = do
+    applyTx tx = do
       infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
 
       let i = initStateInterpreter

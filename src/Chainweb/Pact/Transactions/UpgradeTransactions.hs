@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Chainweb.Pact.Transactions.UpgradeTransactions
-  ( upgradeTransactions
-  ) where
+( upgradeTransactions
+, twentyChainUpgradeTransactions
+) where
 
 import Chainweb.Version
 import Chainweb.Transaction
@@ -40,3 +41,13 @@ upgradeTransactions Mainnet01 cid = case cidInt of
         cidInt = chainIdInt cid
 upgradeTransactions Development _ = Devnet.transactions
 upgradeTransactions _ _ = Other.transactions
+
+twentyChainUpgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
+twentyChainUpgradeTransactions Mainnet01 cid = case cidInt of
+  c | c >= 0 && c <= 9 -> return []
+  c | c >= 10 && c <= 19 -> MNKAD.transactions
+  c -> internalError $ "Invalid mainnet chain id: " <> sshow c
+  where cidInt :: Int
+        cidInt = chainIdInt cid
+twentyChainUpgradeTransactions Development _ = return []
+twentyChainUpgradeTransactions _ _ = return []
