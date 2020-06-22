@@ -8,6 +8,16 @@ module Ea.Genesis
 
   -- * Devnet Genesis Txs
 , development0
+, development10
+, development11
+, development12
+, development13
+, development14
+, development15
+, development16
+, development17
+, development18
+, development19
 , developmentN
 
   -- * Devnet (testing) Genesis Txs
@@ -62,6 +72,16 @@ data GChainId
     | Seven
     | Eight
     | Nine
+    | Ten
+    | Eleven
+    | Twelve
+    | Thirteen
+    | Fourteen
+    | Fifteen
+    | Sixteen
+    | Seventeen
+    | Eighteen
+    | Nineteen
     | N
     deriving (Eq, Ord, Enum)
 
@@ -77,6 +97,16 @@ instance Show GChainId where
     Seven -> "7"
     Eight -> "8"
     Nine -> "9"
+    Ten -> "10"
+    Eleven -> "11"
+    Twelve -> "12"
+    Thirteen -> "13"
+    Fourteen -> "14"
+    Fifteen -> "15"
+    Sixteen -> "16"
+    Seventeen -> "17"
+    Eighteen -> "18"
+    Nineteen -> "19"
     N -> "N"
 
 -- | Genesis transaction record
@@ -142,10 +172,61 @@ development0 = Genesis
     , _namespaces = Just devNs
     }
 
+
 developmentN :: Genesis
 developmentN = development0
     & txChainId .~ N
     & coinbase .~ (Just devNGrants)
+
+development10 :: Genesis
+development10 = development0
+    & txChainId .~ Ten
+    & coinbase .~ (Just dev10Grants)
+
+development11 :: Genesis
+development11 = development0
+    & txChainId .~ Eleven
+    & coinbase .~ (Just dev11Grants)
+
+development12 :: Genesis
+development12 = development0
+    & txChainId .~ Twelve
+    & coinbase .~ (Just dev12Grants)
+
+development13 :: Genesis
+development13 = development0
+    & txChainId .~ Thirteen
+    & coinbase .~ (Just dev13Grants)
+
+development14 :: Genesis
+development14 = development0
+    & txChainId .~ Fourteen
+    & coinbase .~ (Just dev14Grants)
+
+development15 :: Genesis
+development15 = development0
+    & txChainId .~ Fifteen
+    & coinbase .~ (Just dev15Grants)
+
+development16 :: Genesis
+development16 = development0
+    & txChainId .~ Sixteen
+    & coinbase .~ (Just dev16Grants)
+
+development17 :: Genesis
+development17 = development0
+    & txChainId .~ Seventeen
+    & coinbase .~ (Just dev17Grants)
+
+development18 :: Genesis
+development18 = development0
+    & txChainId .~ Eighteen
+    & coinbase .~ (Just dev18Grants)
+
+development19 :: Genesis
+development19 = development0
+    & txChainId .~ Nineteen
+    & coinbase .~ (Just dev19Grants)
 
 devNs :: FilePath
 devNs = "pact/genesis/ns.yaml"
@@ -155,6 +236,36 @@ devKeysets = "pact/genesis/devnet/keysets.yaml"
 
 dev0Grants :: FilePath
 dev0Grants = "pact/genesis/devnet/grants0.yaml"
+
+dev10Grants :: FilePath
+dev10Grants = "pact/genesis/devnet/grants10.yaml"
+
+dev11Grants :: FilePath
+dev11Grants = "pact/genesis/devnet/grants11.yaml"
+
+dev12Grants :: FilePath
+dev12Grants = "pact/genesis/devnet/grants12.yaml"
+
+dev13Grants :: FilePath
+dev13Grants = "pact/genesis/devnet/grants13.yaml"
+
+dev14Grants :: FilePath
+dev14Grants = "pact/genesis/devnet/grants14.yaml"
+
+dev15Grants :: FilePath
+dev15Grants = "pact/genesis/devnet/grants15.yaml"
+
+dev16Grants :: FilePath
+dev16Grants = "pact/genesis/devnet/grants16.yaml"
+
+dev17Grants :: FilePath
+dev17Grants = "pact/genesis/devnet/grants17.yaml"
+
+dev18Grants :: FilePath
+dev18Grants = "pact/genesis/devnet/grants18.yaml"
+
+dev19Grants :: FilePath
+dev19Grants = "pact/genesis/devnet/grants19.yaml"
 
 devNGrants :: FilePath
 devNGrants = "pact/genesis/devnet/grantsN.yaml"

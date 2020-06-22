@@ -78,7 +78,20 @@ main = devnet
     >> mainnet
     >> putStrLn "Done."
   where
-    devnet  = mkPayloads [development0, developmentN]
+    devnet  = mkPayloads
+      [ development0
+      , development10
+      , development11
+      , development12
+      , development13
+      , development14
+      , development15
+      , development16
+      , development17
+      , development18
+      , development19
+      , developmentN
+      ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
     testnet = mkPayloads [testnet0, testnetN]
     mainnet = mkPayloads
