@@ -125,16 +125,7 @@ library
         , Chainweb.BlockHeader
         , Chainweb.BlockHeader.Genesis
         , Chainweb.BlockHeader.Genesis.Development0Payload
-        , Chainweb.BlockHeader.Genesis.Development10Payload
-        , Chainweb.BlockHeader.Genesis.Development11Payload
-        , Chainweb.BlockHeader.Genesis.Development12Payload
-        , Chainweb.BlockHeader.Genesis.Development13Payload
-        , Chainweb.BlockHeader.Genesis.Development14Payload
-        , Chainweb.BlockHeader.Genesis.Development15Payload
-        , Chainweb.BlockHeader.Genesis.Development16Payload
-        , Chainweb.BlockHeader.Genesis.Development17Payload
-        , Chainweb.BlockHeader.Genesis.Development18Payload
-        , Chainweb.BlockHeader.Genesis.Development19Payload
+        , Chainweb.BlockHeader.Genesis.DevelopmentKADPayload
         , Chainweb.BlockHeader.Genesis.DevelopmentNPayload
         , Chainweb.BlockHeader.Genesis.FastTimedCPM0Payload
         , Chainweb.BlockHeader.Genesis.FastTimedCPMNPayload
@@ -150,6 +141,7 @@ library
         , Chainweb.BlockHeader.Genesis.Mainnet7Payload
         , Chainweb.BlockHeader.Genesis.Mainnet8Payload
         , Chainweb.BlockHeader.Genesis.Mainnet9Payload
+        , Chainweb.BlockHeader.Genesis.MainnetKADPayload
         , Chainweb.BlockHeader.Validation
         , Chainweb.BlockHeaderDB
         , Chainweb.BlockHeaderDB.Internal
@@ -301,6 +293,7 @@ library
         , Chainweb.Pact.Transactions.Mainnet7Transactions
         , Chainweb.Pact.Transactions.Mainnet8Transactions
         , Chainweb.Pact.Transactions.Mainnet9Transactions
+        , Chainweb.Pact.Transactions.MainnetKADTransactions
         , Chainweb.Pact.Transactions.OtherTransactions
         , Chainweb.Pact.Transactions.UpgradeTransactions
         , Chainweb.Pact.Types

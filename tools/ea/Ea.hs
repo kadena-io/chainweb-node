@@ -34,6 +34,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.CAS.RocksDB
 import Data.Foldable
+import Data.Functor
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -72,24 +73,16 @@ import Pact.Types.Command hiding (Payload)
 ---
 
 main :: IO ()
-main = devnet
-    >> fastnet
-    >> testnet
-    >> mainnet
-    >> putStrLn "Done."
+main = void $ do
+    devnet
+    fastnet
+    testnet
+    mainnet
+    putStrLn "Done."
   where
-    devnet  = mkPayloads
+    devnet = mkPayloads
       [ development0
-      , development10
-      , development11
-      , development12
-      , development13
-      , development14
-      , development15
-      , development16
-      , development17
-      , development18
-      , development19
+      , developmentKAD
       , developmentN
       ]
     fastnet = mkPayloads [fastTimedCPM0, fastTimedCPMN]
@@ -105,6 +98,7 @@ main = devnet
       , mainnet7
       , mainnet8
       , mainnet9
+      , mainnetKAD
       ]
 
 -- | Generate paylaods for a traversable of txs
@@ -121,6 +115,7 @@ mkPayload (Genesis v tag cid c k a ns) = do
   where
     show_ = \case
       N -> "all chains"
+      KAD -> "chains 10-19"
       n -> "Chain " <> show n
     -- coin contract genesis txs
     cc :: [FilePath]
@@ -209,16 +204,26 @@ encodeJSON = BL.toStrict . encodePretty' (defConfig { confCompare = compare })
 ------------------------------------------------------
 
 genTxModules :: IO ()
-genTxModules = genDevTxs >> genMainnetTxs >> genOtherTxs >> putStrLn "Done."
+genTxModules = void $ do
+    genDevTxs
+    genMainnetTxs
+    genOtherTxs
+    gen20ChainRemeds
+    putStrLn "Done."
   where
     gen tag remeds = genTxModule tag $ upgrades <> remeds
     genOtherTxs = gen "Other" []
     genDevTxs = gen "Development"
       ["pact/coin-contract/remediations/devother/remediations.yaml"]
+
     genMain :: Int -> IO ()
     genMain chain = gen ("Mainnet" <> sshow chain)
       ["pact/coin-contract/remediations/mainnet/remediations" <> show chain <> ".yaml"]
+
     genMainnetTxs = mapM_ genMain [0..9]
+
+    gen20ChainRemeds = gen ("MainnetKAD")
+      ["pact/coin-contract/remediations/mainnet/remediations20chain.yaml"]
 
     upgrades = [ "pact/coin-contract/v2/load-fungible-asset-v2.yaml"
                , "pact/coin-contract/v2/load-coin-contract-v2.yaml"

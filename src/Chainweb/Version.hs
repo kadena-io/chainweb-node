@@ -48,6 +48,7 @@ module Chainweb.Version
 -- ** Payload Validation Guards
 , vuln797Fix
 , coinV2Upgrade
+, twentyChainUpgrade
 , pactBackCompat_v16
 , useLegacyCreationTimeForTxValidation
 , enableModuleNameFix
@@ -750,6 +751,18 @@ coinV2Upgrade Development cid h
     | otherwise = h == 4
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
+
+-- | Mainnet upgraded to coin v2 at time at @[timeMicrosQQ| 2019-12-17T15:00:00.0 |]@.
+--
+-- This function provides the block heights when coin v2 became effective on the
+-- respective chains.
+--
+twentyChainUpgrade
+    :: ChainwebVersion
+    -> ChainId
+    -> BlockHeight
+    -> Bool
+twentyChainUpgrade _ _ _ = error "TODO: blockheight for 20-chain fork"
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56

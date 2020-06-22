@@ -61,7 +61,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as SB
 import Data.Decimal (Decimal, roundTo)
 import Data.Default (def)
-import Data.Foldable (for_)
+import Data.Foldable (for_, traverse_)
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust)
 import qualified Data.Set as S
@@ -308,6 +308,7 @@ applyCoinbase v logger dbEnv (Miner mid mks) reward@(ParsedDecimal d) txCtx
             <> sshow mid
 
           upgradedModuleCache <- applyUpgrades v cid bh
+          void $! applyTwentyChainUpgrade v cid bh
           logs <- use txLogs
 
           return $! T2
@@ -451,6 +452,40 @@ applyUpgrades v cid height
         Left e -> do
           logError $ "Upgrade transaction failed! " <> sshow e
           void $ throwM e
+
+
+applyTwentyChainUpgrade
+    :: ChainwebVersion
+    -> V.ChainId
+    -> BlockHeight
+    -> TransactionM p ()
+applyTwentyChainUpgrade v cid bh
+    | twentyChainUpgrade v cid bh = do
+      txlist <- liftIO $ upgradeTransactions v cid
+      infoLog $ "Applying 20-chain upgrades on chain " <> sshow cid
+
+      let txs = fmap payloadObj <$> txlist
+      traverse_ go txs
+    | otherwise = return ()
+  where
+    infoLog t = do
+      l <- view txLogger
+      liftIO $! logLog l "INFO" t
+
+    go tx = do
+      infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
+
+      let i = initStateInterpreter
+            $ initCapabilities [mkMagicCapSlot "REMEDIATE"]
+
+      r <- tryAllSynchronous (runGenesis tx permissiveNamespacePolicy i)
+      case r of
+        Left e -> do
+          logError $ "Upgrade transaction failed: " <> sshow e
+          void $! throwM e
+        Right _ -> return ()
+
+
 
 jsonErrorResult
     :: PactError

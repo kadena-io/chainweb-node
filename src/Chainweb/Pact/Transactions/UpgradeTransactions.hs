@@ -18,6 +18,7 @@ import qualified Chainweb.Pact.Transactions.Mainnet6Transactions as MN6
 import qualified Chainweb.Pact.Transactions.Mainnet7Transactions as MN7
 import qualified Chainweb.Pact.Transactions.Mainnet8Transactions as MN8
 import qualified Chainweb.Pact.Transactions.Mainnet9Transactions as MN9
+import qualified Chainweb.Pact.Transactions.MainnetKADTransactions as MNKAD
 import qualified Chainweb.Pact.Transactions.DevelopmentTransactions as Devnet
 import qualified Chainweb.Pact.Transactions.OtherTransactions as Other
 
@@ -33,6 +34,7 @@ upgradeTransactions Mainnet01 cid = case cidInt of
   7 -> MN7.transactions
   8 -> MN8.transactions
   9 -> MN9.transactions
+  c | c >= 10 && c <= 20 -> MNKAD.transactions
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
   where cidInt :: Int
         cidInt = chainIdInt cid
