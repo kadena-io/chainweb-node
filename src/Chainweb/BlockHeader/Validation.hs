@@ -637,7 +637,6 @@ validateInductiveChainStep
         -- ^ A list of ways in which the block header isn't valid
 validateInductiveChainStep s = concat
     [ [ IncorrectHeight | not (prop_block_height s) ]
-    , [ IncorrectTarget | not (prop_block_target s) ]
     , [ VersionMismatch | not (prop_block_chainwebVersion s) ]
     , [ IncorrectWeight | not (prop_block_weight s) ]
     , [ ChainMismatch | not (prop_block_chainId s) ]
@@ -650,6 +649,7 @@ validateInductiveWebStep
         -- ^ A list of ways in which the block header isn't valid
 validateInductiveWebStep s = concat
     [ [ IncorrectEpoch | not (prop_block_epoch s) ]
+    , [ IncorrectTarget | not (prop_block_target s) ]
     , [ CreatedBeforeParent | not (prop_block_creationTime s) ]
     , [ AdjacentChainMismatch | not (prop_block_adjacent_chainId s) ]
     , [ InvalidBraiding | not (prop_block_braiding s) ]
@@ -695,10 +695,6 @@ prop_block_featureFlags b
 -- -------------------------------------------------------------------------- --
 -- Single chain inductive properties
 
-prop_block_target :: ChainStep -> Bool
-prop_block_target (ChainStep p b)
-    = _blockTarget b == powTarget p (_blockCreationTime b)
-
 prop_block_height :: ChainStep -> Bool
 prop_block_height (ChainStep (ParentHeader p) b)
     | isGenesisBlockHeader b = _blockHeight b == _blockHeight p
@@ -721,6 +717,10 @@ prop_block_chainId (ChainStep (ParentHeader p) b)
 
 -- -------------------------------------------------------------------------- --
 -- Multi chain inductive properties
+
+prop_block_target :: WebStep -> Bool
+prop_block_target (WebStep as (ChainStep p b))
+    = _blockTarget b == powTarget p as (_blockCreationTime b)
 
 prop_block_epoch :: WebStep -> Bool
 prop_block_epoch (WebStep as (ChainStep p b))

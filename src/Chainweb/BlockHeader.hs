@@ -273,6 +273,8 @@ slowEpoch (ParentHeader p) (BlockCreationTime ct) = actual > (expected * 5)
 powTarget
     :: ParentHeader
         -- ^ parent header
+    -> HM.HashMap ChainId ParentHeader
+        -- ^ adjacent Parents
     -> BlockCreationTime
         -- ^ block creation time of new block
         --
@@ -280,7 +282,7 @@ powTarget
         --
     -> HashTarget
         -- ^ POW target of new block
-powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
+powTarget p@(ParentHeader ph) as bct = case effectiveWindow ph of
     Nothing -> maxTarget
     Just w
         -- A special case for starting a new devnet. Using maxtarget results in
@@ -292,11 +294,10 @@ powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
 
         -- Emergency DA, legacy
         | slowEpochGuard ver (_blockHeight ph) && slowEpoch p bct ->
-            activeAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+            activeAdjust w
 
         -- End of epoch
-        | isLastInEpoch ph ->
-            activeAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+        | isLastInEpoch ph -> activeAdjust w
 
         | otherwise -> _blockTarget ph
   where
@@ -306,9 +307,23 @@ powTarget p@(ParentHeader ph) bct = case effectiveWindow ph of
     ver = _chainwebVersion p
     cid = _chainId p
 
-    activeAdjust
-        | oldDaGuard ver (_blockHeight ph + 1) = legacyAdjust
-        | otherwise = adjust
+    activeAdjust w
+        | oldDaGuard ver (_blockHeight ph + 1)
+            = legacyAdjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+        | otherwise
+            = adjust ver w (t .-. _blockEpochStart ph) (_blockTarget ph)
+        | otherwise
+            = avgTarget $ adjustForParent w <$> (p : HM.elems as)
+
+    adjustForParent w (ParentHeader a)
+        = adjust ver w (toEpochStart a .-. _blockEpochStart a) (_blockTarget a)
+
+    toEpochStart = EpochStartTime . _bct . _blockCreationTime
+
+    avgTarget targets = HashTarget $ floor $ s / int (length targets)
+      where
+        s = sum $ fmap (int @_ @Rational . _hashTarget) targets
+
 {-# INLINE powTarget #-}
 
 -- | Compute the epoch start value for a new BlockHeader
@@ -354,31 +369,29 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     | oldDaGuard ver (_blockHeight p + 1) = _blockEpochStart p
 
     -- Within an epoch with new DA
-    | otherwise = _blockEpochStart p .+^ _adjustmentAvg
+    | otherwise = _blockEpochStart p
+
+    -- Experimental, allow DA to support multiple hash functions
+    --  | otherwise = _blockEpochStart p .+^ _adjustmentAvg
   where
     ver = _chainwebVersion p
     cid = _chainId p
 
-    -- 1. adjustmentMax < _blockCreationTime h .-. _blockCreationTime p
-    --    and thus, epochStart < _blockCreationTime p
+    -- Add a penalty for fast chains by adding the different between the
+    -- creation time of the current chain and the maximum of the adjacent chains
+    -- to the epoch start time. By shortening the epoch DA is going to adjust to
+    -- a higher difficulty.
     --
-    -- 2. this can only increase difficulty but not reduce difficulty compared
-    --    to the slowest chain.
+    -- This DA has the disadvantage, that it adjusts to a block rate that is
+    -- smaller than the targeted blockrate, because with high probablity all
+    -- chains are receiving some positive penalty.
     --
-    -- 3. Difficulty adjustment for the slowest chain is just like difficulty
-    --    adjustment without timeBlocked, assuming that the slowest chain is
-    --    always the slowest chain.
+    -- Properties of DA:
     --
-    -- 4. Assuming that not a single chain is always the slowest difficulty
-    --    adjustement is will adjust for somewhat higher difficulty than
-    --    targeted and thus for a blockrate that is slower than the target.
-    --
-    --    How can we adjust for that?
-    --
-    --    a) using a constant factor that is based on properties of the
-    --       geometric distribution.
-    --    b) adjusting timeBlocked in both directions, possibly based off the
-    --       avg?
+    -- * Requires that miners set creation time >0.5 of solve time.
+    -- * Requires correction factor for targeted block rate.
+    -- * Can handle non continuous non uniform distribution of hash power
+    --   accross chains.
     --
     _adjustmentMax = maximum adjCreationTimes .-. _blockCreationTime p
         -- the maximum is at least @_blockCreationTime p@ and thus the result is
@@ -396,6 +409,12 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
     --
     -- this is numberically sound because we compute the differences on integral
     -- types without rounding.
+    --
+    -- Properties of DA:
+    --
+    -- * Requires that miners set creation time >0.5 of solve time
+    -- * Can handle non continuous non uniform distribution of hash power
+    --   accross chains.
     --
     _adjustmentAvg = x `divTimeSpan` length adjCreationTimes
       where
@@ -981,7 +1000,7 @@ newBlockHeader adj pay nonce t p@(ParentHeader b) = fromLog $ newMerkleLog
   where
     cid = _chainId p
     v = _chainwebVersion p
-    target = powTarget p t
+    target = powTarget p adj t
     adjHashes = BlockHashRecord $ (_blockHash . _parentHeader) <$> adj
 
 -- -------------------------------------------------------------------------- --
