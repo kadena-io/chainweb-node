@@ -91,7 +91,8 @@ instance FromJSON PactException
 
 instance Exception PactException
 
--- | Gather tx logs with previous tx if any for a block.
+-- | Gather tx logs for a block, along with last tx for each
+-- key in history, if any
 -- Not intended for public API use; ToJSONs are for logging output.
 data BlockTxHistory = BlockTxHistory
   { _blockTxHistory :: Map TxId [TxLog Value]
