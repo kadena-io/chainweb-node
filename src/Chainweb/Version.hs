@@ -752,10 +752,10 @@ coinV2Upgrade Development cid h
 coinV2Upgrade _ _ 1 = True
 coinV2Upgrade _ _ _ = False
 
--- | Mainnet upgraded to coin v2 at time at @[timeMicrosQQ| 2019-12-17T15:00:00.0 |]@.
+-- | Mainnet 20-chain remediations
 --
--- This function provides the block heights when coin v2 became effective on the
--- respective chains.
+-- This function provides the block heights when remediations will be applied
+-- to the respective 20-chain fork chains.
 --
 twentyChainUpgrade
     :: ChainwebVersion
