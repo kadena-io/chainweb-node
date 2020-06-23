@@ -58,6 +58,17 @@ nodes = 1
 cid :: ChainId
 cid = unsafeChainId 0
 
+rosettaVersion :: RosettaNodeVersion
+rosettaVersion = RosettaNodeVersion
+    { _version_rosettaVersion = "1.3.1"
+    , _version_nodeVersion = "1.9"
+    , _version_middlewareVersion = Nothing
+    , _version_metadata = Just $ HM.fromList
+      [ "node-api-version" A..= ("0.0" :: Text)
+      , "chainweb-version" A..= ("fastTimedCPM-peterson" :: Text)
+      ]
+    }
+
 -- -------------------------------------------------------------------------- --
 -- Test Tree
 
@@ -124,11 +135,11 @@ blockTests tio envIo = testCaseSteps "Block Tests" $ \step -> do
     rks <- sending cid cenv batch0
     prs <- polling cid cenv rks ExpectPactResult
     cmdMeta <- extractMetadata prs
-    bh <- cmdMeta ^?! at "blockHeight" . to fromAeson
+    bh <- cmdMeta ^?! ix "blockHeight" . to fromAeson
 
     step "check tx at block height 1 matches sent tx"
     resp1 <- block cenv $ BlockReq nid $ PartialBlockId (Just bh) Nothing
-
+    print resp1
 
     return ()
   where
@@ -158,16 +169,39 @@ mempoolTests tio envIo =
     testCaseSteps "Mempool Tests" $ \step -> return ()
 
 networkListTests :: RosettaTest
-networkListTests tio envIo =
-    testCaseSteps "Network List Tests" $ \step -> return ()
+networkListTests tio envIo = testCaseSteps "Network List Tests" $ \step -> do
+    cenv <- envIo
+
+    step "send network list request"
+    resp <- networkList cenv req
+    print resp
+    return ()
+  where
+    req = MetadataReq Nothing
 
 networkOptionsTests :: RosettaTest
-networkOptionsTests tio envIo =
-    testCaseSteps "Network Options Tests" $ \step -> return ()
+networkOptionsTests tio envIo = testCaseSteps "Network Options Tests" $ \step -> do
+    cenv <- envIo
+
+    step "send network options request"
+    resp <- networkOptions cenv req
+
+    step "check options response against node version"
+    _networkOptionsResp_version resp @=? rosettaVersion
+  where
+    req = NetworkReq nid Nothing
 
 networkStatusTests :: RosettaTest
-networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step ->
-    return ()
+networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step -> do
+    cenv <- envIo
+
+    step "send network status request"
+    resp <- networkStatus cenv req
+
+    step "check status response against genesis"
+    genesisId @=? _networkStatusResp_genesisBlockId resp
+  where
+    req = NetworkReq nid Nothing
 
 -- ------------------------------------------------------------------ --
 -- Test Data
