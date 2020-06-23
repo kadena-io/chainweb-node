@@ -156,8 +156,8 @@ blockTests tio envIo = testCaseSteps "Block Tests" $ \step -> do
 
     extractMetadata (PollResponses pr) =
       case _crMetaData . snd . head . HM.toList $ pr of
-        Nothing -> assertFailure "test transfer did not succeed"
         Just (A.Object o) -> return o
+        _ -> assertFailure "test transfer did not succeed"
 
 constructionSubmitTests :: RosettaTest
 constructionSubmitTests tio envIo =
@@ -208,14 +208,22 @@ networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step -> d
     cenv <- envIo
 
     step "send network status request"
-    transferOne_ tio cenv
-    resp <- networkStatus cenv req
+    resp0 <- networkStatus cenv req
 
     step "check status response against genesis"
-    genesisId @=? _networkStatusResp_genesisBlockId resp
-    -- check current block (should be updated by tx)
+    genesisId @=? _networkStatusResp_genesisBlockId resp0
+
+    step "send in a transaction and update current block"
+    transferOne_ tio cenv
+    resp1 <- networkStatus cenv req
+
+    step "check status response genesis and block height"
+    genesisId @=? _networkStatusResp_genesisBlockId resp1
+    (blockIdOf resp1 > blockIdOf resp0) @? "current block id heights must increment"
   where
     req = NetworkReq nid Nothing
+
+    blockIdOf = _blockId_index . _networkStatusResp_currentBlockId
 
 -- ------------------------------------------------------------------ --
 -- Test Data
