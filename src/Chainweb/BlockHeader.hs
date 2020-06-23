@@ -435,10 +435,6 @@ epochStart ph@(ParentHeader p) adj (BlockCreationTime bt)
         = _blockHeight p > 1 && _blockHeight p == genesisHeight ver cid + 1
 {-# INLINE epochStart #-}
 
-divTimeSpan :: Integral a => (TimeSpan a) -> Int -> TimeSpan a
-divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int s)
-{-# INLINE divTimeSpan #-}
-
 -- -----------------------------------------------------------------------------
 -- Feature Flags
 
