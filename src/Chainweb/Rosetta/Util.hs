@@ -16,7 +16,6 @@ import Data.Decimal
 import Data.Word (Word64)
 
 
-import qualified Data.Map as M
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Memory.Endian as BA
 import qualified Data.Text as T
@@ -54,7 +53,8 @@ data AccountLog = AccountLog
   { _accountLogKey :: T.Text
   , _accountLogBalanceTotal :: Decimal
   , _accountLogBalanceDelta :: BalanceDelta
-  , _accountLogGuard :: Value
+  , _accountLogCurrGuard :: Value
+  , _accountLogPrevGuard :: Value
   }
   deriving Show
 type AccountRow = (T.Text, Decimal, Value)
@@ -164,9 +164,7 @@ operation ostatus otype txid acctLog idx =
   where
     opMeta
       | enableMetaData = Just $ HM.fromList
-                         [ ("txId", toJSON txid)
-                         , ("totalBalance", toJSON $ kdaToRosettaAmount $
-                             _accountLogBalanceTotal acctLog) ] -- TODO: document
+        [ ("txId", toJSON txid) ] -- TODO: document
       | otherwise = Nothing
     accountId = AccountId
       { _accountId_address = _accountLogKey acctLog
@@ -174,7 +172,11 @@ operation ostatus otype txid acctLog idx =
       , _accountId_metadata = accountIdMeta
       }
     accountIdMeta
-      | enableMetaData = Just $ HM.fromList [("ownership", _accountLogGuard acctLog)]  -- TODO: document
+      | enableMetaData = Just $ HM.fromList
+        [ ("totalBalance", toJSON $ kdaToRosettaAmount $
+            _accountLogBalanceTotal acctLog)
+        , ("currentOwnership", _accountLogCurrGuard acctLog)
+        , ("prevOwnership", _accountLogPrevGuard acctLog) ]  -- TODO: document
       | otherwise = Nothing
 
 
@@ -217,19 +219,27 @@ calcBalanceDelta :: Decimal -> Maybe Decimal -> BalanceDelta
 calcBalanceDelta curr Nothing = BalanceDelta curr
 calcBalanceDelta curr (Just prev) = BalanceDelta $ curr - prev
 
-rowDataToAccountInfo :: TxLog Value -> Maybe (TxLog Value) -> Maybe AccountLog
-rowDataToAccountInfo currRow prevRow = do
-  (currKey, currBal, currGuard) <- txLogToAccountRow currRow
-  let prevBal = snd3 <$> maybe Nothing txLogToAccountRow prevRow
-      balDelta = calcBalanceDelta currBal prevBal
-  pure $! AccountLog
-    { _accountLogKey = currKey
-    , _accountLogBalanceTotal = currBal
-    , _accountLogBalanceDelta = balDelta
-    , _accountLogGuard = currGuard
-    }
-  where
-    snd3 (_,d,_) = d
+rowDataToAccountLog :: AccountRow -> Maybe AccountRow -> AccountLog
+rowDataToAccountLog (currKey, currBal, currGuard) prev = do
+  case prev of
+    Nothing ->
+      -- ^ First time seeing account
+      AccountLog
+        { _accountLogKey = currKey
+        , _accountLogBalanceTotal = currBal
+        , _accountLogBalanceDelta = BalanceDelta currBal
+        , _accountLogCurrGuard = currGuard
+        , _accountLogPrevGuard = currGuard
+        }
+    Just (_, prevBal, prevGuard) ->
+      -- ^ Already seen this account
+      AccountLog
+        { _accountLogKey = currKey
+        , _accountLogBalanceTotal = currBal
+        , _accountLogBalanceDelta = BalanceDelta (currBal - prevBal)
+        , _accountLogCurrGuard = currGuard
+        , _accountLogPrevGuard = prevGuard
+        }
 
 -- | Parse TxLog Value into fungible asset account columns
 txLogToAccountRow :: TxLog Value -> Maybe AccountRow
@@ -251,3 +261,9 @@ noteOptional :: a -> Either a (Maybe c) -> Either a c
 noteOptional e (Right Nothing) = Left e
 noteOptional _ (Right (Just c)) = pure c
 noteOptional _ (Left oe) = Left oe
+
+thrd3 :: (a, b, c) -> c
+thrd3 (_,_,c) = c
+
+snd3 :: (a, b, c) -> b
+snd3 (_,b,_) = b

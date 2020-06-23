@@ -347,7 +347,7 @@ op :: OperationType -> Word64 -> T.Text -> Decimal -> BalanceDelta -> Word64 -> 
 op t i key amt delta oid = operation Successful t (TxId i) acctLog oid
   where
     gKey = toJSON (key <> "PublicKey")
-    acctLog = AccountLog key amt delta gKey
+    acctLog = AccountLog key amt delta gKey gKey
 
 assertEqualEncode
     :: (ToJSON a)

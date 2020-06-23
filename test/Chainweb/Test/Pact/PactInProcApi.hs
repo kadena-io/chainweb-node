@@ -142,7 +142,8 @@ getHistory refIO reqIO = testCase "getHistory" $ do
   void $ runBlock q bdb second "getHistory"
   h <- getParentTestBlockDb bdb cid
   mv <- pactBlockTxHistory h (Domain' (UserTables "coin_coin-table")) q
-  (BlockTxHistory hist) <- forSuccess "getHistory" (return mv)
+  -- TODO check map of last txs seen for each account affected in block
+  (BlockTxHistory hist _) <- forSuccess "getHistory" (return mv)
   -- just check first one here
   assertEqual "check first entry of history"
     (Just [TxLog "coin_coin-table" "sender00"

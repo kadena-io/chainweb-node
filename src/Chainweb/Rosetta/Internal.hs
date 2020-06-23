@@ -20,7 +20,9 @@ import Control.Monad (foldM)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
+import Data.Aeson (Value)
 import Data.Map (Map)
+import Data.List (foldl')
 import Data.Decimal
 import Data.CAS
 import Data.Word (Word64)
@@ -34,7 +36,7 @@ import qualified Data.Vector as V
 
 import Pact.Types.Command
 import Pact.Types.Hash
-import Pact.Types.Runtime (TxId(..), Domain(..))
+import Pact.Types.Runtime (TxId(..), Domain(..), TxLog(..))
 import Pact.Types.Persistence (RowKey(..))
 
 import Rosetta
@@ -483,13 +485,71 @@ getTxLogs
     -> ExceptT RosettaFailure Handler (Map TxId [AccountLog])
 getTxLogs cr bh = do
   someHist <- liftIO $ (_pactBlockTxHistory cr) bh d
-  (BlockTxHistory hist) <- (hush someHist) ?? RosettaPactExceptionThrown
-  let histParsed = M.mapMaybe (mapM txLogToAccountInfo) hist
-  if (M.size histParsed == M.size hist)
-    then pure histParsed  -- all logs successfully parsed
-    else throwError RosettaUnparsableTxLog
+  (BlockTxHistory hist prevTxs) <- (hush someHist) ?? RosettaPactExceptionThrown
+  lastBalSeen <- hoistEither $ parsePrevTxs prevTxs
+  histAcctRow <- hoistEither $ parseHist hist
+  pure $ getBalanceDeltas histAcctRow lastBalSeen
   where
     d = (Domain' (UserTables "coin_coin-table"))
+
+    parseHist
+        :: Map TxId [TxLog Value]
+        -> Either RosettaFailure (Map TxId [AccountRow])
+    parseHist m
+      | (M.size parsed == M.size m) = pure $! parsed
+      | otherwise = throwError RosettaUnparsableTxLog
+      where
+        parsed = M.mapMaybe (mapM txLogToAccountRow) m
+
+    parsePrevTxs
+        :: Map RowKey (TxLog Value)
+        -> Either RosettaFailure (Map RowKey AccountRow)
+    parsePrevTxs m
+      | (M.size parsed == M.size m) = pure $! parsed
+      | otherwise = throwError RosettaUnparsableTxLog
+      where 
+        parsed = M.mapMaybe txLogToAccountRow m
+      
+
+getBalanceDeltas
+    :: Map TxId [AccountRow]
+    -> Map RowKey AccountRow
+    -> Map TxId [AccountLog]
+getBalanceDeltas hist lastBalSeenDef =
+  snd $! M.mapAccumRWithKey g lastBalSeenDef hist
+  where
+    g
+      :: Map RowKey AccountRow
+      -> TxId
+      -> [AccountRow]
+      -> (Map RowKey AccountRow, [AccountLog])
+    g lastBals _txId currRows = (lastBals', reverse logs)
+      where
+        (lastBals', logs) = foldl' helper (lastBals, []) currRows
+        helper (bals, li) row = (bals', li')
+          where
+            (bals', acctLog) = f bals row
+            li' = acctLog:li -- needs to be reversed at the end
+    
+    -- TODO: test when row present before, row not present,
+    -- row present and occurs twice in block, row not present but
+    -- occurs twice in the block.
+    f
+      :: Map RowKey AccountRow
+      -> AccountRow
+      -> (Map RowKey AccountRow, AccountLog)
+    f lastBals currRow = (lastBals', acctLog)
+      where
+        (key, _, _) = currRow
+        (prevRow, lastBals') =
+          M.insertLookupWithKey
+          lookupAndReplace
+          (RowKey key)
+          currRow
+          lastBals
+        acctLog = rowDataToAccountLog currRow prevRow
+        lookupAndReplace _key new _old = new
+      
 
 
 getHistoricalLookupBalance
@@ -503,7 +563,7 @@ getHistoricalLookupBalance cr bh k = do
   case hist of
     Nothing -> pure 0.0
     Just h -> do
-      (_,bal,_) <- (txLogToAccountInfo h) ?? RosettaUnparsableTxLog
+      (_,bal,_) <- (txLogToAccountRow h) ?? RosettaUnparsableTxLog
       pure bal
   where
     d = (Domain' (UserTables "coin_coin-table"))
