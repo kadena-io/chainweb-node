@@ -299,70 +299,41 @@ validationFailures =
 daValidation :: [(TestHeader, [ValidationFailureType])]
 daValidation =
     -- test corret epoch transition
-    [ ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (hour ^+. epoch)
-            & h . blockTarget .~ (view (p . blockTarget) hdr)
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
-      , [IncorrectHash, CreatedBeforeParent, IncorrectPow]
-      )
+    [ ( hdr, [IncorrectHash, IncorrectPow])
+
     -- epoch transition with wrong epoch start time
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (hour ^+. epoch)
-            & h . blockHeight .~ 600000
-            & h . blockEpochStart .~ EpochStartTime (second ^+. (hour ^+. epoch))
-            & h . blockTarget .~ (view (p . blockTarget) hdr)
-            & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, CreatedBeforeParent, IncorrectEpoch]
+    , ( hdr & h . blockEpochStart .~ EpochStartTime (second ^+. (hour ^+. epoch))
+      , [IncorrectHash, IncorrectPow, IncorrectEpoch]
       )
     -- test epoch transition with correct target adjustment (*2)
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour  ^+. epoch)
-            & h . blockHeight .~ 600000
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
+            & a . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch)
             & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 2 hour ^+. epoch)
             & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
             & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, CreatedBeforeParent, IncorrectWeight]
+      , [IncorrectHash, IncorrectPow, IncorrectWeight]
       )
     -- test epoch transition with correct target adjustment (/ 2)
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
-            & h . blockHeight .~ 600000
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
+            & a . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute ^+. epoch)
             & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
             & h . blockTarget . hashTarget .~ ceiling (view (p . blockTarget . hashTarget) hdr % 2)
             & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, CreatedBeforeParent, IncorrectWeight]
+      , [IncorrectHash, IncorrectPow, IncorrectWeight]
       )
     -- test epoch transition with incorrect target adjustment
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
-            & h . blockHeight .~ 600000
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
             & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
             & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr)
             & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, CreatedBeforeParent, IncorrectTarget]
+      , [IncorrectHash, IncorrectPow, IncorrectTarget]
       )
     -- test epoch transition with incorrect target adjustment
-    , ( hdr & h . blockFlags .~ mkFeatureFlags
-            & p . blockHeight .~ 599999
-            & p . blockEpochStart .~ EpochStartTime epoch
-            & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
-            & h . blockHeight .~ 600000
+    , ( hdr & p . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 30 minute  ^+. epoch)
             & h . blockEpochStart .~ EpochStartTime (scaleTimeSpan @Int 30 minute ^+. epoch)
             & h . blockTarget . hashTarget .~ (view (p . blockTarget . hashTarget) hdr * 2)
             & h . blockCreationTime .~ BlockCreationTime (scaleTimeSpan @Int 3 hour ^+. epoch)
-      , [IncorrectHash, IncorrectPow, CreatedBeforeParent, IncorrectWeight, IncorrectTarget]
+      , [IncorrectHash, IncorrectPow, IncorrectWeight, IncorrectTarget]
       )
     ]
   where
@@ -370,19 +341,35 @@ daValidation =
     h = testHeaderHdr
     p = testHeaderParent . parentHeader
 
+    a = testHeaderAdjs . each . parentHeader
+
     -- From mainnet
     hdr = set (h . blockChainwebVersion) Development
+        $ set (h . blockFlags) mkFeatureFlags
+        $ set (h . blockHeight) 600000
+        $ set (h . blockEpochStart) (EpochStartTime (hour ^+. epoch))
+        $ set (h . blockTarget) ((view (p . blockTarget) hdr'))
+        $ set (h . blockCreationTime) (BlockCreationTime (scaleTimeSpan @Int 2 hour ^+. epoch))
+
         $ set (p . blockChainwebVersion) Development
-        $ set (p . blockChainwebVersion) Development
-        $ testHeader
-            [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
-            , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
-            , "adjacents" .=
-                [ t "ACcMAPA_ii9z0Ez7v54FAEHCgNqctC-bdWdbvN92fd1eTeIaCr_-_mXowv0Ckws0AwADAAAAxnGpa89fzxURJdpCA92MZmlDtgG9AZFVPCsCwNyDly8HAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTYJAAAAzmf29gDZjNcpxkw3EP9JgnU3-ARNJ14NisscofzzARCjTKbuwLbdyjay0MQ3l7xPGULH_yLMDPh4LQIAAAAAADbjm8GoWvx_3YNJ47vz54_LXV95MTKI4drB2fk5AdPlCAAAADS2qD13VlhnAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA0wwnzb-eBQAAAAnWry0AAO_VcNpKm1Qx5vVg85LBcMWXJseTiSTVvoHu41Wtx4h2"
-                , t "AAARACjupkPfZFz8v54FAIxbIHQdq4grSLNI-NL6Lxhn3BSGZij58RFxHpHFdvHlAwABAAAAfdHDK_Q8xoD-W0nBPPBPMOgs1VukuCImYwCNnaBUwOMFAAAA4eefM0SUltzJ0Qszo3N0R9B4w_ap2_M2e6nlKEqJmkoHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbiMNKcS7VzGITdCwrGSYWrFNQvGP7KAzjbLQIAAAAAABlK0LefdM1J4t_Qeg6xAVNNDKEOhiEmNKe6SK9N6TAZBgAAALFBPU7YDgRoAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA2eJ0y7-eBQAAAORH5OUAAGvj8zv81JpNcizsrdpA94iOnHoSqkPynSvA-qmfl-l-"
-                , t "AABPAIw5kEeHUtD7v54FAH2hiBHu2vsBk_DnRF8_Ub5cyVZCYJhD5s5ONm840DotAwAAAAAAPYZZ2yg5iXsMOyKqKKUhrGaboexUhUVK8e-fhn3FzNkEAAAAu_A9WCeRoLM17g_jc0A2UnhvCQFe5LCtTnaze9LqajQHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbP1aVtUvTRaiRyg9hCVSPXuIpf3IjuwHaBKgIAAAAAABQWMBli4UbscIslyPPH2ItcNaY2_Fm7yFucQM86oqojAgAAAFy5ttLGN19tAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAddFMzL-eBQAAALuSPmYAAMu0EgB6CHhY9CV4nXv3KPjmhM82Fm3mYQH6YVyPPiEd"
-                ]
+        $ set (p . blockCreationTime) (BlockCreationTime (hour ^+. epoch))
+        $ set (p . blockEpochStart) (EpochStartTime epoch)
+        $ set (p . blockHeight) 599999
+
+        $ set (a . blockCreationTime) (BlockCreationTime (hour ^+. epoch))
+        $ set (a . blockTarget) (view (p . blockTarget) hdr')
+        $ set (a . blockEpochStart) (EpochStartTime epoch)
+        $ hdr'
+
+    hdr' = testHeader
+        [ "parent" .= t "AFHBANxHkLyt2kf7v54FAByxfFrR-pBP8iMLDNKO0SSt-ntTEh1IVT2E4mSPkq02AwACAAAAfaGIEe7a-wGT8OdEXz9RvlzJVkJgmEPmzk42bzjQOi0GAAAAjFsgdB2riCtIs0j40vovGGfcFIZmKPnxEXEekcV28eUIAAAAQcKA2py0L5t1Z1u833Z93V5N4hoKv_7-ZejC_QKTCzTtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAALFMJ1gcC8oKW90MW2xY07gN10bM2-GvdC7fDvKDDwAPBwAAAJkPwMVeS7ZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAT3hhzb-eBQAAAGFSDbQAAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-"
+        , "header" .=  t "AEbpAIzqpiins1r8v54FAJru7keLmw3rHfSVm9wkTHWQBBTwEPwEg8RA99vzMuj-AwACAAAAy7QSAHoIeFj0JXide_co-OaEzzYWbeZhAfphXI8-IR0GAAAAa-PzO_zUmk1yLOyt2kD3iI6cehKqQ_KdK8D6qZ-X6X4IAAAA79Vw2kqbVDHm9WDzksFwxZcmx5OJJNW-ge7jVa3HiHbtgKwxXj4Eovf97ELmo_iBruVLoK_Yann5LQIAAAAAAL701u70FOrdivm6quNUsKgfi2L8zYHeyOI0j2gfP16jBwAAANz0ZdfSwLZkAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOtsEAAAAAAAFAAAAT3hhzb-eBQAAAPvI7fkAAFFuYkCHZRcNl1k3-A1EZvyPxhiFKdHZwZRTqos57aiO"
+        , "adjacents" .=
+            [ t "ACcMAPA_ii9z0Ez7v54FAEHCgNqctC-bdWdbvN92fd1eTeIaCr_-_mXowv0Ckws0AwADAAAAxnGpa89fzxURJdpCA92MZmlDtgG9AZFVPCsCwNyDly8HAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTYJAAAAzmf29gDZjNcpxkw3EP9JgnU3-ARNJ14NisscofzzARCjTKbuwLbdyjay0MQ3l7xPGULH_yLMDPh4LQIAAAAAADbjm8GoWvx_3YNJ47vz54_LXV95MTKI4drB2fk5AdPlCAAAADS2qD13VlhnAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA0wwnzb-eBQAAAAnWry0AAO_VcNpKm1Qx5vVg85LBcMWXJseTiSTVvoHu41Wtx4h2"
+            , t "AAARACjupkPfZFz8v54FAIxbIHQdq4grSLNI-NL6Lxhn3BSGZij58RFxHpHFdvHlAwABAAAAfdHDK_Q8xoD-W0nBPPBPMOgs1VukuCImYwCNnaBUwOMFAAAA4eefM0SUltzJ0Qszo3N0R9B4w_ap2_M2e6nlKEqJmkoHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbiMNKcS7VzGITdCwrGSYWrFNQvGP7KAzjbLQIAAAAAABlK0LefdM1J4t_Qeg6xAVNNDKEOhiEmNKe6SK9N6TAZBgAAALFBPU7YDgRoAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAA2eJ0y7-eBQAAAORH5OUAAGvj8zv81JpNcizsrdpA94iOnHoSqkPynSvA-qmfl-l-"
+            , t "AABPAIw5kEeHUtD7v54FAH2hiBHu2vsBk_DnRF8_Ub5cyVZCYJhD5s5ONm840DotAwAAAAAAPYZZ2yg5iXsMOyKqKKUhrGaboexUhUVK8e-fhn3FzNkEAAAAu_A9WCeRoLM17g_jc0A2UnhvCQFe5LCtTnaze9LqajQHAAAAHLF8WtH6kE_yIwsM0o7RJK36e1MSHUhVPYTiZI-SrTbP1aVtUvTRaiRyg9hCVSPXuIpf3IjuwHaBKgIAAAAAABQWMBli4UbscIslyPPH2ItcNaY2_Fm7yFucQM86oqojAgAAAFy5ttLGN19tAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOdsEAAAAAAAFAAAAddFMzL-eBQAAALuSPmYAAMu0EgB6CHhY9CV4nXv3KPjmhM82Fm3mYQH6YVyPPiEd"
             ]
+        ]
 
 legacyDaValidation :: [(TestHeader, [ValidationFailureType])]
 legacyDaValidation =
