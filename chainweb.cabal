@@ -258,7 +258,6 @@ library
         , P2P.Peer
         , P2P.Session
         , P2P.TaskQueue
-        , P2P.TaskQueue.Test
 
         -- pact
         , Chainweb.Pact.Backend.ChainwebPactDb
@@ -476,6 +475,9 @@ test-suite chainweb-tests
         Chainweb.Test.Utils.BlockHeader
         Chainweb.Test.Utils.TestHeader
         Chainweb.Test.Utils.ApiQueries
+
+        -- P2P
+        P2P.Test.TaskQueue
 
     build-depends:
         -- internal
