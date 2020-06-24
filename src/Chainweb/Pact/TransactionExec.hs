@@ -428,12 +428,8 @@ applyUpgrades v cid height
     installCoinModuleAdmin = set (evalCapabilities . capModuleAdmin) $ S.singleton (ModuleName "coin" Nothing)
     go = applyTxs (upgradeTransactions v cid)
 
-    infoLog s = do
-      l <- view txLogger
-      liftIO $! logLog l "INFO" $! T.unpack s
-
     applyTxs txsIO = do
-      infoLog $ "Applying upgrade!"
+      infoLog "Applying upgrade!"
       txs <- map (fmap payloadObj) <$> liftIO txsIO
       local (set txExecutionConfig def) $
         mapM_ applyTx txs
@@ -444,7 +440,6 @@ applyUpgrades v cid height
       initCapabilities [mkMagicCapSlot "REMEDIATE"]
 
     applyTx tx = do
-
       infoLog $ "Running upgrade tx " <> sshow (_cmdHash tx)
 
       tryAllSynchronous (runGenesis tx permissiveNamespacePolicy interp) >>= \case
@@ -469,10 +464,6 @@ applyTwentyChainUpgrade v cid bh
       traverse_ applyTx txs
     | otherwise = return ()
   where
-    infoLog t = do
-      l <- view txLogger
-      liftIO $! logLog l "INFO" t
-
     applyTx tx = do
       infoLog $ "Running 20-chain upgrade tx " <> sshow (_cmdHash tx)
 
@@ -936,4 +927,7 @@ fatal e = do
     throwM $ PactTransactionExecError (fromUntypedHash $ unRequestKey rk) e
 
 logError :: Text -> TransactionM db ()
-logError msg = view txLogger >>= \l -> liftIO $ logLog l "ERROR" (T.unpack msg)
+logError msg = view txLogger >>= \l -> liftIO $! logLog l "ERROR" (T.unpack msg)
+
+infoLog :: Text -> TransactionM db ()
+infoLog msg = view txLogger >>= \l -> liftIO $! logLog l "INFO" (T.unpack msg)
