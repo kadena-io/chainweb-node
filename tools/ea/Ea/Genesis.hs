@@ -305,7 +305,7 @@ mainnetKAD = mainnet0
     & coinbase .~ (Just mainnetKadOps)
 
 mainnetKadOps :: FilePath
-mainnetKadOps = "pact/genesis/mainnet/mainnetKadOps.yaml"
+mainnetKadOps = "pact/genesis/mainnet/kad-ops-grants.yaml"
 
 mainNs :: FilePath
 mainNs = "pact/genesis/mainnet/ns.yaml"
