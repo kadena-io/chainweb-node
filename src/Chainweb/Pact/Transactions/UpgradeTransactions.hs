@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module Chainweb.Pact.Transactions.UpgradeTransactions
 ( upgradeTransactions
 , twentyChainUpgradeTransactions
@@ -42,7 +43,7 @@ upgradeTransactions Development _ = Devnet.transactions
 upgradeTransactions _ _ = Other.transactions
 
 twentyChainUpgradeTransactions :: ChainwebVersion -> ChainId -> IO [ChainwebTransaction]
-twentyChainUpgradeTransactions Mainnet01 cid = case chainIdInt cid of
+twentyChainUpgradeTransactions Mainnet01 cid = case chainIdInt @Int cid of
   0 -> MNKAD.transactions
   c | c >= 1, c <= 19 -> return []
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
