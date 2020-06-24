@@ -28,7 +28,7 @@ main :: IO ()
 main = defaultMain suite
 
 loglevel :: LogLevel
-loglevel = Info
+loglevel = Warn
 
 suite :: TestTree
 suite = testGroup "ChainwebSlowTests"
