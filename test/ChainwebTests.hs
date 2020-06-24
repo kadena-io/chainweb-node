@@ -58,7 +58,7 @@ import qualified Chainweb.TreeDB (properties)
 import qualified Chainweb.Utils.Paging (properties)
 
 import Data.CAS.RocksDB
-import qualified Data.PQueue.Test (properties)
+import qualified Data.Test.PQueue (properties)
 import qualified Data.Word.Encoding (properties)
 
 import qualified P2P.Test.TaskQueue (properties)
@@ -121,7 +121,7 @@ suite rdb =
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
         , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties
         , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
-        , testProperties "Data.PQueue.Test" Data.PQueue.Test.properties
+        , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties
         , testProperties "Data.Word.Encoding" Data.Word.Encoding.properties
         , testProperties "Chainweb.Test.Cut" (Chainweb.Test.Cut.properties rdb)

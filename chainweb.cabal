@@ -238,7 +238,6 @@ library
         , Data.IVar
         , Data.LogMessage
         , Data.PQueue
-        , Data.PQueue.Test
         , Data.Singletons
         , Data.TaskMap
         , Data.Word.Encoding
@@ -475,6 +474,9 @@ test-suite chainweb-tests
         Chainweb.Test.Utils.BlockHeader
         Chainweb.Test.Utils.TestHeader
         Chainweb.Test.Utils.ApiQueries
+
+        -- Data
+        Data.Test.PQueue
 
         -- P2P
         P2P.Test.TaskQueue
