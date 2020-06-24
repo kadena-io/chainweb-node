@@ -41,6 +41,7 @@ module Chainweb.Time
 , floorTimeSpan
 , scaleTimeSpan
 , addTimeSpan
+, divTimeSpan
 
 -- * Time
 , Time(..)
@@ -176,6 +177,10 @@ scaleTimeSpan scalar (TimeSpan t) = TimeSpan (fromIntegral scalar * t)
 addTimeSpan :: Num a => TimeSpan a -> TimeSpan a -> TimeSpan a
 addTimeSpan (TimeSpan a) (TimeSpan b) = TimeSpan (a + b)
 {-# INLINE addTimeSpan #-}
+
+divTimeSpan :: Integral a => Integral b => TimeSpan b -> a -> TimeSpan b
+divTimeSpan (TimeSpan a) s = TimeSpan $ a `div` (int s)
+{-# INLINE divTimeSpan #-}
 
 -- -------------------------------------------------------------------------- --
 -- Time

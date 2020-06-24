@@ -352,7 +352,7 @@ header' h = do
             :+: MerkleLogBody mempty
    where
     BlockCreationTime t = _blockCreationTime h
-    target = powTarget (ParentHeader h) t'
+    target = powTarget (ParentHeader h) mempty t'
     v = _blockChainwebVersion h
     t' = BlockCreationTime (scaleTimeSpan (10 :: Int) second `add` t)
 
