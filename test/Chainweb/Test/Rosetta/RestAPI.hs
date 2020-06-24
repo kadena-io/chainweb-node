@@ -69,9 +69,7 @@ cids = chainIds v ^.. folded . to (sshow @Int. chainIdInt)
 nonceRef :: IORef Natural
 nonceRef = unsafePerformIO $ newIORef 0
 
-
-type RosettaTest
-    = IO (Time Micros) -> IO ClientEnv -> TestTree
+type RosettaTest = IO (Time Micros) -> IO ClientEnv -> TestTree
 
 -- -------------------------------------------------------------------------- --
 -- Test Tree
@@ -95,7 +93,6 @@ tests rdb = testGroup "Chainweb.Test.Rosetta.RestAPI" go
       , networkStatusTests
       ]
 
-
 accountBalanceTests :: RosettaTest
 accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -> do
     step "check initial balance"
@@ -108,7 +105,7 @@ accountBalanceTests tio envIo = testCaseSteps "Account Balance Lookup" $ \step -
 
     step "check post-transfer balance"
     resp1 <- accountBalance cenv req
-    checkBalance resp1 99999998.9453
+    checkBalance resp1 99999997.8906
   where
     req = AccountBalanceReq nid aid Nothing
 
@@ -178,17 +175,17 @@ networkListTests _ envIo = testCaseSteps "Network List Tests" $ \step -> do
     cenv <- envIo
     step "send network list request"
     resp <- networkList cenv req
+
+    let checkChainIds n = do
+          _networkId_blockchain n @=? "kadena"
+          _networkId_network n @=? "fastTimedCPM-peterson"
+          assertBool "chain id of subnetwork is valid"
+            $ maybe False (\a -> elem (_subNetworkId_network a) cids)
+            $ _networkId_subNetworkId n
+
     traverse_ checkChainIds (_networkListResp_networkIds resp)
   where
     req = MetadataReq Nothing
-
-    checkChainIds n = do
-      _networkId_blockchain n @=? "kadena"
-      _networkId_network n @=? "fastTimedCPM-peterson"
-      assertBool "chain id of subnetwork is valid" $
-        case _networkId_subNetworkId n of
-          Nothing -> False
-          Just a -> elem (_subNetworkId_network a) cids
 
 networkOptionsTests :: RosettaTest
 networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> do
