@@ -762,7 +762,8 @@ twentyChainUpgrade
     -> ChainId
     -> BlockHeight
     -> Bool
-twentyChainUpgrade _ _ _ = error "TODO: blockheight for 20-chain fork"
+twentyChainUpgrade Development _ h = h == 1
+twentyChainUpgrade _ _ _ = error $ "TODO: set 20-chain upgrade block height"
 
 -- | Preserve Pact bugs pre 1.6 chainweb version
 -- Mainnet 328000 ~ UTC Feb 20 15:36, EST Feb 20 10:56

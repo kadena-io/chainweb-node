@@ -47,4 +47,8 @@ twentyChainUpgradeTransactions Mainnet01 cid = case chainIdInt @Int cid of
   0 -> MNKAD.transactions
   c | c >= 1, c <= 19 -> return []
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
-twentyChainUpgradeTransactions _ _ = return []
+twentyChainUpgradeTransactions Development cid = case chainIdInt @Int cid of
+  c | c >= 0, c <= 9 -> return []
+  c | c >= 10, c <= 19 -> MNKAD.transactions
+  c -> internalError $ "Invalid devnet chain id: " <> sshow c
+twentyChainUpgradeTransactions _ _ = internalError "invalid chainweb version"
