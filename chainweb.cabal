@@ -687,6 +687,7 @@ executable cwtool
         , pact >= 2.6
         , paths >= 0.2
         , process >= 1.5
+        , quickcheck-instances >= 0.3
         , random >= 1.1
         , resourcet >= 1.2
         , rocksdb-haskell >= 1.0
