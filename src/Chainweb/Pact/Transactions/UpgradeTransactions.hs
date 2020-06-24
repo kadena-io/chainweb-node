@@ -48,5 +48,4 @@ twentyChainUpgradeTransactions Mainnet01 cid = case cidInt of
   c -> internalError $ "Invalid mainnet chain id: " <> sshow c
   where cidInt :: Int
         cidInt = chainIdInt cid
-twentyChainUpgradeTransactions Development _ = return []
 twentyChainUpgradeTransactions _ _ = return []
