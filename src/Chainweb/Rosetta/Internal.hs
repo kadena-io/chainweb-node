@@ -65,9 +65,9 @@ import Chainweb.Rosetta.Util
 
 data LogType tx where
   FullLogs :: LogType [Transaction]
-    -- Signals wanting all Rosetta Transactions
+    -- ^ Signals wanting all Rosetta Transactions
   SingleLog :: RequestKey -> LogType Transaction
-    -- Signals wanting only a single Rosetta Transaction
+    -- ^ Signals wanting only a single Rosetta Transaction
 
 class PendingTx chainwebTx where
   getSomeTxId :: chainwebTx -> Maybe TxId
@@ -88,9 +88,9 @@ data TxAccumulator rosettaTx = TxAccumulator
 
 data AccumulatorType rosettaTx where
   AppendTx :: AccumulatorType (TxAccumulator (DList.DList Transaction))
-    -- Signals wanting to keep track of all the Rosetta Transactions seen so far.
+    -- ^ Signals wanting to keep track of all the Rosetta Transactions seen so far.
   Overwrite :: AccumulatorType (TxAccumulator Transaction)
-    -- Signals wanting to only keep track of the latest Rosetta Transaction seen so far.
+    -- ^ Signals wanting to only keep track of the latest Rosetta Transaction seen so far.
 
 accumulatorFunction
     :: AccumulatorType (TxAccumulator rosettaTx)
@@ -327,15 +327,15 @@ nonGenesisTransaction logs initial rest target
       TxAccumulator logsLeft lastSeenTx <- shortCircuit (match acc cr)
       if (getRequestKey cr == target)
         then Left $ Right lastSeenTx
-            -- short-circuit if find target tx's logs
+          -- short-circuit if find target tx's logs
         else pure $ (TxAccumulator logsLeft lastSeenTx)
-            -- continue matching other txs' logs until find target
+          -- continue matching other txs' logs until find target
 
     shortCircuit
         :: Either String (TxAccumulator Transaction)
         -> Either (Either String Transaction) (TxAccumulator Transaction)
     shortCircuit (Left e) = Left $ Left e
-        -- short-circuit if matching function threw error
+      -- short-circuit if matching function threw error
     shortCircuit (Right r) = Right r
 
     fromShortCircuit
