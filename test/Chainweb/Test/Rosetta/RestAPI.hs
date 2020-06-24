@@ -16,6 +16,7 @@ import qualified Data.Aeson as A
 import Data.Functor (void)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.List (union)
 import Data.Text (Text)
 import Data.Foldable (traverse_)
 
@@ -35,6 +36,7 @@ import Pact.Types.Command
 
 import Chainweb.Graph
 import Chainweb.Pact.Utils (aeson)
+import Chainweb.Rosetta.RestAPI
 import Chainweb.Rosetta.Utils
 import Chainweb.Test.Pact.Utils
 import Chainweb.Test.RestAPI.Utils
@@ -195,13 +197,27 @@ networkOptionsTests _ envIo = testCaseSteps "Network Options Tests" $ \step -> d
     step "send network options request"
     resp <- networkOptions cenv req0
 
-    step "check options response against node version"
-    _networkOptionsResp_version resp @=? rosettaVersion
+    let allow = _networkOptionsResp_allow resp
+        version = _networkOptionsResp_version resp
 
-    -- enumerate over exceptions
+    step "check options responses against allowable data and versions"
+    version  @=? rosettaVersion
+
+    step "Check that response errors are a subset of valid errors"
+    (respErrors resp `subset` rosettaFailures) @?
+      "allowable errors must coincide with failure list"
+
+    step "Check that response statuses are a subset of valid statuses"
+    (_allow_operationStatuses allow `union` operationStatuses) `subset` operationStatuses @?
+      "allowed operation statuses coincide"
+
+    step "Check that response op types are a subset of op types"
+    (_allow_operationTypes allow `subset` allowedOperations) @? "allowed operations coincide"
 
   where
     req0 = NetworkReq nid Nothing
+    respErrors = _allow_errors . _networkOptionsResp_allow
+    allowedOperations = _operationStatus_status <$> operationStatuses
 
 networkStatusTests :: RosettaTest
 networkStatusTests tio envIo = testCaseSteps "Network Status Tests" $ \step -> do
@@ -270,6 +286,19 @@ genesisTxId = TransactionId "Inlsd2hVbVVBOUtnZjM5d191c2dGRHoycV9RX09YX1lMQmNDMXZ
 
 -- write out allowables and check failures against alloweds
 
+rosettaFailures :: [RosettaError]
+rosettaFailures = rosettaError <$> enumFrom RosettaChainUnspecified
+
+operationStatuses :: [OperationStatus]
+operationStatuses =
+    [ OperationStatus "Successful" True
+    , OperationStatus "Remediation" True
+    , OperationStatus "CoinbaseReward" True
+    , OperationStatus "FundTx" True
+    , OperationStatus "GasPayment" True
+    , OperationStatus "TransferOrCreateAcct" True
+    ]
+
 -- ------------------------------------------------------------------ --
 -- Test Pact Cmds
 
@@ -304,3 +333,9 @@ transferOne tio cenv = do
 --
 transferOne_ :: IO (Time Micros) -> ClientEnv -> IO ()
 transferOne_ tio cenv = void $! transferOne tio cenv
+
+-- ------------------------------------------------------------------ --
+-- Utils
+
+subset :: Eq a => [a] -> [a] -> Bool
+subset as bs = all (`elem` bs) as
