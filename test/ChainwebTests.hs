@@ -23,7 +23,6 @@ import Chainweb.BlockHeader
 import Chainweb.BlockHeaderDB
 import qualified Chainweb.Difficulty (properties)
 import qualified Chainweb.HostAddress (properties)
-import qualified Chainweb.Sync.WebBlockHeaderStore.Test (properties)
 import qualified Chainweb.Test.BlockHeader.Genesis
 import qualified Chainweb.Test.BlockHeader.Validation
 import qualified Chainweb.Test.BlockHeaderDB
@@ -49,6 +48,7 @@ import qualified Chainweb.Test.Rosetta
 import qualified Chainweb.Test.Roundtrips
 import qualified Chainweb.Test.SPV
 import qualified Chainweb.Test.Store.CAS.FS
+import qualified Chainweb.Test.Sync.WebBlockHeaderStore (properties)
 import qualified Chainweb.Test.TreeDB.RemoteDB
 import Chainweb.Test.Utils
     (RunStyle(..), ScheduledTest, schedule, testGroupSch, toyChainId,
@@ -119,7 +119,7 @@ suite rdb =
         , Chainweb.Test.Version.tests
         , testProperties "Chainweb.BlockHeaderDb.RestAPI.Server" Chainweb.Utils.Paging.properties
         , testProperties "Chainweb.HostAddress" Chainweb.HostAddress.properties
-        , testProperties "Chainweb.Sync.WebBlockHeaderStore.Test" Chainweb.Sync.WebBlockHeaderStore.Test.properties
+        , testProperties "Chainweb.Test.Sync.WebBlockHeaderStore" Chainweb.Test.Sync.WebBlockHeaderStore.properties
         , testProperties "P2P.Test.TaskQueue" P2P.Test.TaskQueue.properties
         , testProperties "Data.Test.PQueue" Data.Test.PQueue.properties
         , testProperties "Chainweb.Difficulty" Chainweb.Difficulty.properties

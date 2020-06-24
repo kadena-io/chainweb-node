@@ -220,7 +220,6 @@ library
         , Chainweb.Store.CAS
         , Chainweb.Store.CAS.FS
         , Chainweb.Sync.WebBlockHeaderStore
-        , Chainweb.Sync.WebBlockHeaderStore.Test
         , Chainweb.Time
         , Chainweb.Transaction
         , Chainweb.TreeDB
@@ -467,6 +466,7 @@ test-suite chainweb-tests
         Chainweb.Test.SPV
         Chainweb.Test.Store.CAS
         Chainweb.Test.Store.CAS.FS
+        Chainweb.Test.Sync.WebBlockHeaderStore
         Chainweb.Test.TreeDB
         Chainweb.Test.TreeDB.RemoteDB
         Chainweb.Test.Utils
