@@ -86,6 +86,8 @@ module Chainweb.BlockHeader.Validation
 , prop_block_chainwebVersion
 , prop_block_chainId
 , prop_block_creationTime
+, prop_block_adjacent_chainIds
+, prop_block_adjacent_parents_version
 ) where
 
 import Control.Lens
@@ -96,6 +98,8 @@ import Control.Monad.Except
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
+import Data.Maybe (isJust)
+import qualified Data.Text as T
 
 import GHC.Generics
 
@@ -282,19 +286,20 @@ webStepFailure hp = ValidationFailure
 
 instance Show ValidationFailure where
     show (ValidationFailure p as e ts)
-        = "Validation failure"
-            <> ".\n Parent: " <> show p
-            <> ".\n Adjacents: " <> sshow as
-            <> ".\n Header: " <> show e
-            <> "\n" <> unlines (map description ts)
+        = T.unpack $ "Validation failure"
+            <> ". Parent: " <> encodeToText (ObjectEncoded . _parentHeader <$> p)
+            <> ". Adjacents: " <> encodeToText ((fmap (ObjectEncoded . _parentHeader)) <$> as)
+            <> ". Header: " <> encodeToText (ObjectEncoded e)
+            <> ". Description: " <> T.unlines (map description ts)
       where
         description t = case t of
             MissingParent -> "Parent isn't in the database"
             MissingAdjacentParent -> "AdjacentParent isn't in the database"
             CreatedBeforeParent -> "Block claims to have been created before its parent"
             VersionMismatch -> "Block uses a version of chainweb different from its parent"
+            AdjacentChainMismatch -> "Block uses the wrong set of adjacent chain ids"
             ChainMismatch -> "Block uses a chaind-id different from its parent"
-            AdjacentChainMismatch -> "An adjacent parent uses the wrong chain id"
+            AdjacentParentChainMismatch -> "An adjacent parent hash references a block on the wrong chain"
             IncorrectHash -> "The hash of the block header does not match the one given"
             IncorrectPow -> "The POW hash does not match the POW target of the block"
             IncorrectEpoch -> "The epoch start time of the block is incorrect"
@@ -308,6 +313,7 @@ instance Show ValidationFailure where
             MissingPayload -> "The payload of the block is missing"
             InvalidFeatureFlags -> "The block has an invalid feature flag value"
             InvalidBraiding -> "The block is not braided correctly into the chainweb"
+            InvalidAdjacentVersion -> "An adjancent parent has a chainweb version that does not match the version of the validated header"
 
 -- | An enumeration of possible validation failures for a block header.
 --
@@ -324,7 +330,9 @@ data ValidationFailureType
     | ChainMismatch
         -- ^ Claims to use a chain-id different from that of its parent.
     | AdjacentChainMismatch
-        -- ^ An adajacent parent adjacent uses the wrong chain id.
+        -- ^ The block uses the wrong set of adjacent chain ids.
+    | AdjacentParentChainMismatch
+        -- ^ An adajacent parent hash references a block on the wrong chain.
     | IncorrectHash
         -- ^ The hash of the header properties as computed by computeBlockHash
         -- does not match the hash given in the header.
@@ -362,6 +370,9 @@ data ValidationFailureType
         -- ^ The block has an invalid feature flag setting.
     | InvalidBraiding
         -- ^ The block is not braided correctly into the chainweb.
+    | InvalidAdjacentVersion
+        -- ^ An adjacent parent has chainweb version that does not match the
+        -- version of the validated header.
   deriving (Show, Eq, Ord)
 
 instance Exception ValidationFailure
@@ -618,6 +629,7 @@ validateIntrinsic t b = concat
     , [ IncorrectGenesisTarget | not (prop_block_genesis_target b)]
     , [ BlockInTheFuture | not (prop_block_current t b)]
     , [ InvalidFeatureFlags | not (prop_block_featureFlags b)]
+    , [ AdjacentChainMismatch | not (prop_block_adjacent_chainIds b) ]
     ]
 
 -- | Validate properties of a block with respect to a given parent.
@@ -651,8 +663,9 @@ validateInductiveWebStep s = concat
     [ [ IncorrectEpoch | not (prop_block_epoch s) ]
     , [ IncorrectTarget | not (prop_block_target s) ]
     , [ CreatedBeforeParent | not (prop_block_creationTime s) ]
-    , [ AdjacentChainMismatch | not (prop_block_adjacent_chainId s) ]
+    , [ AdjacentParentChainMismatch | not (prop_block_adjacent_parents s) ]
     , [ InvalidBraiding | not (prop_block_braiding s) ]
+    , [ InvalidAdjacentVersion | not (prop_block_adjacent_parents_version s) ]
     ]
 
 -- -------------------------------------------------------------------------- --
@@ -687,6 +700,17 @@ prop_block_featureFlags b
   where
     v = _chainwebVersion b
     h = _blockHeight b
+
+-- | Verify that the adjacent hashes of the block are for the correct set of
+-- chain ids.
+--
+prop_block_adjacent_chainIds :: BlockHeader -> Bool
+prop_block_adjacent_chainIds b
+    = isJust $ checkAdjacentChainIds adjGraph b (Expected $ _blockAdjacentChainIds b)
+  where
+    adjGraph
+        | isGenesisBlockHeader b = _chainGraph b
+        | otherwise = chainGraphAt (_chainwebVersion b) (_blockHeight b - 1)
 
 -- -------------------------------------------------------------------------- --
 -- Inductive BlockHeader Properties
@@ -742,10 +766,36 @@ prop_block_creationTime (WebStep as (ChainStep (ParentHeader p) b))
         = _blockCreationTime b > _blockCreationTime p
         && all (\x -> _blockCreationTime b > _blockCreationTime (_parentHeader x)) as
 
-prop_block_adjacent_chainId :: WebStep -> Bool
-prop_block_adjacent_chainId (WebStep _as (ChainStep (ParentHeader p) b))
-    = _blockChainId p == _blockChainId b
-    -- FIXME FIXME FIXME
+-- | The chainId index of the adjacent parents of the header and the blocks
+-- in the webstep reference the same hashes and the chain Ids in of the
+-- referenced blocks match the chainIds in the index.
+--
+-- Note that this property is already witnessed by the constructor of WebStep,
+-- we include it here again as assertion (to double check during testing) and
+-- for documentation purposes.
+--
+prop_block_adjacent_parents :: WebStep -> Bool
+prop_block_adjacent_parents (WebStep as (ChainStep _ b))
+    | isGenesisBlockHeader b
+        = adjsHashes == imap (\cid _ -> genesisParentBlockHash v cid) as
+            -- chainId indexes in web adjadent parent record references the
+            -- genesis block parent hashes
+    | otherwise
+        = adjsHashes == (_blockHash . _parentHeader <$> as)
+            -- chainId indexes in web adjadent parent record and web step are
+            -- referencing the same hashes
+        && iall (\cid h -> cid == _chainId h) as
+            -- chainIds of adjancent parent header match the chainId under which
+            -- it is indexed
+  where
+    adjsHashes = _getBlockHashRecord (_blockAdjacentHashes b)
+    v = _chainwebVersion b
+
+prop_block_adjacent_parents_version :: WebStep -> Bool
+prop_block_adjacent_parents_version (WebStep as (ChainStep _ b))
+    = all ((== v) . _blockChainwebVersion . _parentHeader) as
+  where
+    v = _chainwebVersion b
 
 -- | TODO: we don't current check this here. It is enforced in the cut merge
 -- algorithm , namely in 'monotonicCutExtension'. The property that is checked
